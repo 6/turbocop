@@ -3,7 +3,488 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Layout/HashAlignment checks that keys, separators, and values of multi-line
+/// hash literals are aligned according to configuration.
+///
+/// ## Root cause analysis (corpus investigation, 2026-03-09)
+///
+/// The original implementation only checked key column alignment, missing:
+/// - **Separator alignment** for hash rockets: `=>` must be exactly 1 space after key end
+///   (in "key" style), or right-aligned (in "separator" style), or table-aligned.
+/// - **Value alignment**: value must be exactly 1 space after separator end (in "key" style),
+///   or aligned across all pairs (in "table"/"separator" style).
+/// - **First pair checking**: even the first pair can have bad separator/value spacing.
+/// - **Keyword splat alignment**: `**opts` must be aligned with the rest of the hash keys.
+/// - **AllowMultipleStyles / array-valued config**: when EnforcedColonStyle or
+///   EnforcedHashRocketStyle is an array (e.g., `[key, table]`), the cop picks the
+///   style producing fewer offenses per hash.
+///
+/// These missing checks accounted for the vast majority of the 94K FN gap.
+/// The 26 FPs were likely from edge cases in the key-only check.
 pub struct HashAlignment;
+
+/// Which alignment style to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AlignStyle {
+    Key,
+    Separator,
+    Table,
+}
+
+/// An offense found during alignment checking.
+#[derive(Debug)]
+struct AlignOffense {
+    line: usize,
+    col: usize,
+    #[allow(dead_code)]
+    end_col: usize,
+    message: &'static str,
+}
+
+const MSG_KEY: &str = "Align the keys of a hash literal if they span more than one line.";
+const MSG_SEP: &str = "Align the separators of a hash literal if they span more than one line.";
+const MSG_TABLE: &str =
+    "Align the keys and values of a hash literal if they span more than one line.";
+const MSG_KWSPLAT: &str =
+    "Align keyword splats with the rest of the hash if it spans more than one line.";
+
+fn parse_styles(config: &CopConfig, key: &str, default: &str) -> Vec<AlignStyle> {
+    // Check if the value is a YAML sequence (array)
+    if let Some(val) = config.options.get(key) {
+        if let Some(seq) = val.as_sequence() {
+            let mut styles = Vec::new();
+            for item in seq {
+                if let Some(s) = item.as_str() {
+                    match s {
+                        "key" => styles.push(AlignStyle::Key),
+                        "separator" => styles.push(AlignStyle::Separator),
+                        "table" => styles.push(AlignStyle::Table),
+                        _ => {}
+                    }
+                }
+            }
+            if !styles.is_empty() {
+                styles.dedup();
+                return styles;
+            }
+        }
+    }
+    // Fallback to string
+    let s = config.get_str(key, default);
+    match s {
+        "key" => vec![AlignStyle::Key],
+        "separator" => vec![AlignStyle::Separator],
+        "table" => vec![AlignStyle::Table],
+        _ => vec![AlignStyle::Key],
+    }
+}
+
+/// Info about a single hash pair extracted from the AST.
+struct PairInfo {
+    /// Start offset of the entire pair element (key start).
+    elem_start: usize,
+    /// End offset of the entire pair element (value end or key end for kwsplat).
+    elem_end: usize,
+    /// Line and column of the key (or kwsplat) start.
+    line: usize,
+    col: usize,
+    /// Whether this element begins its line.
+    begins_line: bool,
+    /// Whether this is a keyword splat (**foo).
+    is_kwsplat: bool,
+    /// Whether this uses hash rocket (=>). False for colon style and kwsplats.
+    is_rocket: bool,
+    /// Key end column (column after last char of key).
+    key_end_col: usize,
+    /// Separator (=> or :) column, if any. For colon style, this is part of the key.
+    sep_col: Option<usize>,
+    /// Separator end column (column after last char of separator).
+    sep_end_col: Option<usize>,
+    /// Value start column, if value exists and is on the same line.
+    value_col: Option<usize>,
+    /// Whether the value is on a new line relative to the key.
+    #[allow(dead_code)]
+    value_on_new_line: bool,
+    /// Whether this is a value omission pair (e.g., `a:` with no value).
+    is_value_omission: bool,
+    /// Key source length (for table alignment calculation).
+    key_source_len: usize,
+    /// Separator source length (for table alignment calculation).
+    sep_source_len: usize,
+}
+
+fn extract_pair_info(source: &SourceFile, elem: &ruby_prism::Node<'_>) -> Option<PairInfo> {
+    let elem_start = elem.location().start_offset();
+    let elem_end = elem.location().end_offset();
+    let (line, col) = source.offset_to_line_col(elem_start);
+    let begins_line = crate::cop::util::begins_its_line(source, elem_start);
+
+    if let Some(assoc) = elem.as_assoc_node() {
+        let key = assoc.key();
+        let value = assoc.value();
+        let key_start = key.location().start_offset();
+        let key_end = key.location().end_offset();
+        let (_, key_end_col) = source.offset_to_line_col(key_end);
+        let key_source_len = key_end - key_start;
+
+        let (is_rocket, sep_col, sep_end_col, sep_source_len) =
+            if let Some(op_loc) = assoc.operator_loc() {
+                let op_start = op_loc.start_offset();
+                let op_end = op_loc.end_offset();
+                let (_, sc) = source.offset_to_line_col(op_start);
+                let (_, sec) = source.offset_to_line_col(op_end);
+                (true, Some(sc), Some(sec), op_end - op_start)
+            } else {
+                // Colon style: the colon is part of the key (e.g., `a:`)
+                // The "separator end" for value spacing purposes is the key end
+                (false, None, None, 0)
+            };
+
+        let value_start = value.location().start_offset();
+        let (value_line, value_col_v) = source.offset_to_line_col(value_start);
+        let value_on_new_line = value_line != line;
+
+        // Detect value omission: `a:` with value being same location as key end
+        // In Prism, value omission means the value node is an ImplicitNode
+        let is_value_omission = value.as_implicit_node().is_some();
+
+        Some(PairInfo {
+            elem_start,
+            elem_end,
+            line,
+            col,
+            begins_line,
+            is_kwsplat: false,
+            is_rocket,
+            key_end_col,
+            sep_col,
+            sep_end_col,
+            value_col: if !value_on_new_line && !is_value_omission {
+                Some(value_col_v)
+            } else {
+                None
+            },
+            value_on_new_line,
+            is_value_omission,
+            key_source_len,
+            sep_source_len,
+        })
+    } else if elem.as_assoc_splat_node().is_some() {
+        // **foo keyword splat
+        Some(PairInfo {
+            elem_start,
+            elem_end,
+            line,
+            col,
+            begins_line,
+            is_kwsplat: true,
+            is_rocket: false,
+            key_end_col: col, // not used for kwsplat
+            sep_col: None,
+            sep_end_col: None,
+            value_col: None,
+            value_on_new_line: false,
+            is_value_omission: false,
+            key_source_len: 0,
+            sep_source_len: 0,
+        })
+    } else {
+        None
+    }
+}
+
+/// Check a hash under the "key" alignment style.
+/// Returns offenses for this style.
+fn check_key_style(source: &SourceFile, pairs: &[PairInfo]) -> Vec<AlignOffense> {
+    let mut offenses = Vec::new();
+    if pairs.is_empty() {
+        return offenses;
+    }
+
+    let first = &pairs[0];
+
+    // Check first pair's separator/value spacing
+    if !first.is_kwsplat {
+        check_key_style_spacing(source, first, &mut offenses);
+    }
+
+    for pair in &pairs[1..] {
+        if !pair.begins_line {
+            continue;
+        }
+
+        if pair.is_kwsplat {
+            // Keyword splat: just check key alignment
+            if pair.col != first.col {
+                offenses.push(AlignOffense {
+                    line: pair.line,
+                    col: pair.col,
+                    end_col: source.offset_to_line_col(pair.elem_end).1,
+                    message: MSG_KWSPLAT,
+                });
+            }
+            continue;
+        }
+
+        // Check key column alignment
+        let key_misaligned = pair.col != first.col;
+
+        // Check separator/value spacing
+        let spacing_bad = has_bad_key_spacing(pair);
+
+        if key_misaligned || spacing_bad {
+            offenses.push(AlignOffense {
+                line: pair.line,
+                col: pair.col,
+                end_col: source.offset_to_line_col(pair.elem_end).1,
+                message: MSG_KEY,
+            });
+        }
+    }
+
+    offenses
+}
+
+/// Check separator and value spacing for a single pair under "key" style.
+fn check_key_style_spacing(
+    _source: &SourceFile,
+    pair: &PairInfo,
+    offenses: &mut Vec<AlignOffense>,
+) {
+    if has_bad_key_spacing(pair) {
+        offenses.push(AlignOffense {
+            line: pair.line,
+            col: pair.col,
+            // We need the end column of the pair
+            end_col: pair.col + (pair.elem_end - pair.elem_start),
+            message: MSG_KEY,
+        });
+    }
+}
+
+/// Check if a pair has bad separator/value spacing under "key" style.
+fn has_bad_key_spacing(pair: &PairInfo) -> bool {
+    if pair.is_kwsplat || pair.is_value_omission {
+        return false;
+    }
+
+    if pair.is_rocket {
+        // Hash rocket: separator should be 1 space after key end
+        if let Some(sc) = pair.sep_col {
+            let expected_sep_col = pair.key_end_col + 1;
+            if sc != expected_sep_col {
+                return true;
+            }
+        }
+        // Value should be 1 space after separator end
+        if let (Some(sec), Some(vc)) = (pair.sep_end_col, pair.value_col) {
+            let expected_value_col = sec + 1;
+            if vc != expected_value_col {
+                return true;
+            }
+        }
+    } else {
+        // Colon style: value should be 1 space after key end (which includes the colon)
+        if let Some(vc) = pair.value_col {
+            let expected_value_col = pair.key_end_col + 1;
+            if vc != expected_value_col {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Check a hash under the "separator" alignment style.
+fn check_separator_style(source: &SourceFile, pairs: &[PairInfo]) -> Vec<AlignOffense> {
+    let mut offenses = Vec::new();
+    if pairs.len() < 2 {
+        return offenses;
+    }
+
+    let first = &pairs[0];
+
+    for pair in &pairs[1..] {
+        if !pair.begins_line {
+            continue;
+        }
+
+        if pair.is_kwsplat {
+            if pair.col != first.col {
+                offenses.push(AlignOffense {
+                    line: pair.line,
+                    col: pair.col,
+                    end_col: source.offset_to_line_col(pair.elem_end).1,
+                    message: MSG_KWSPLAT,
+                });
+            }
+            continue;
+        }
+
+        let mut bad = false;
+
+        if pair.is_rocket && first.is_rocket {
+            // Separator (=>) should be aligned with first pair's separator
+            if let (Some(first_sc), Some(pair_sc)) = (first.sep_col, pair.sep_col) {
+                if first_sc != pair_sc {
+                    bad = true;
+                }
+            }
+            // Key should be right-aligned: key_end_col should match first's key_end_col
+            if first.key_end_col != pair.key_end_col {
+                bad = true;
+            }
+            // Value should be aligned with first pair's value
+            if let (Some(fv), Some(pv)) = (first.value_col, pair.value_col) {
+                if fv != pv {
+                    bad = true;
+                }
+            }
+        } else if !pair.is_rocket && !first.is_rocket {
+            // Colon style: key end (including colon) should be right-aligned
+            if first.key_end_col != pair.key_end_col {
+                bad = true;
+            }
+            // Value should be aligned
+            if let (Some(fv), Some(pv)) = (first.value_col, pair.value_col) {
+                if fv != pv {
+                    bad = true;
+                }
+            }
+        } else {
+            // Mixed delimiters — separator style can't check, skip
+            continue;
+        }
+
+        if bad {
+            offenses.push(AlignOffense {
+                line: pair.line,
+                col: pair.col,
+                end_col: source.offset_to_line_col(pair.elem_end).1,
+                message: MSG_SEP,
+            });
+        }
+    }
+
+    offenses
+}
+
+/// Check a hash under the "table" alignment style.
+fn check_table_style(source: &SourceFile, pairs: &[PairInfo]) -> Vec<AlignOffense> {
+    let mut offenses = Vec::new();
+    if pairs.len() < 2 {
+        return offenses;
+    }
+
+    // Table style requires all pairs to use the same delimiter.
+    // Check for mixed delimiters.
+    let non_kwsplat: Vec<&PairInfo> = pairs.iter().filter(|p| !p.is_kwsplat).collect();
+    if non_kwsplat.is_empty() {
+        return offenses;
+    }
+
+    let has_rocket = non_kwsplat.iter().any(|p| p.is_rocket);
+    let has_colon = non_kwsplat.iter().any(|p| !p.is_rocket);
+    if has_rocket && has_colon {
+        // Mixed delimiters — table style is not checkable
+        return offenses;
+    }
+
+    // Check if any pairs are on the same line (table requires each pair on its own line)
+    let mut lines_seen = std::collections::HashSet::new();
+    for p in &non_kwsplat {
+        if !lines_seen.insert(p.line) {
+            // Two pairs on the same line — not checkable for table
+            return offenses;
+        }
+    }
+
+    // Calculate max key width and expected positions
+    let max_key_len = non_kwsplat
+        .iter()
+        .map(|p| p.key_source_len)
+        .max()
+        .unwrap_or(0);
+
+    let first = &pairs[0];
+
+    // For table style, check all pairs including first
+    for pair in pairs {
+        if !pair.begins_line {
+            continue;
+        }
+
+        if pair.is_kwsplat {
+            // Keyword splats just need key alignment
+            if pair.col != first.col {
+                offenses.push(AlignOffense {
+                    line: pair.line,
+                    col: pair.col,
+                    end_col: source.offset_to_line_col(pair.elem_end).1,
+                    message: MSG_KWSPLAT,
+                });
+            }
+            continue;
+        }
+
+        let mut bad = false;
+
+        // Key must be left-aligned with first key
+        if pair.col != first.col {
+            bad = true;
+        }
+
+        if pair.is_value_omission {
+            // Value omission pairs only need key alignment
+            if bad {
+                offenses.push(AlignOffense {
+                    line: pair.line,
+                    col: pair.col,
+                    end_col: source.offset_to_line_col(pair.elem_end).1,
+                    message: MSG_TABLE,
+                });
+            }
+            continue;
+        }
+
+        if pair.is_rocket {
+            // Hash rocket: separator should be at first.col + max_key_len + 1
+            let expected_sep = first.col + max_key_len + 1;
+            if let Some(sc) = pair.sep_col {
+                if sc != expected_sep {
+                    bad = true;
+                }
+            }
+            // Value should be at first.col + max_key_len + separator_len + 1
+            let expected_value = first.col + max_key_len + pair.sep_source_len + 1;
+            if let Some(vc) = pair.value_col {
+                if vc != expected_value {
+                    bad = true;
+                }
+            }
+        } else {
+            // Colon style: value should be at first.col + max_key_len + 1
+            let expected_value = first.col + max_key_len + 1;
+            if let Some(vc) = pair.value_col {
+                if vc != expected_value {
+                    bad = true;
+                }
+            }
+        }
+
+        if bad {
+            offenses.push(AlignOffense {
+                line: pair.line,
+                col: pair.col,
+                end_col: source.offset_to_line_col(pair.elem_end).1,
+                message: MSG_TABLE,
+            });
+        }
+    }
+
+    offenses
+}
 
 impl Cop for HashAlignment {
     fn name(&self) -> &'static str {
@@ -23,19 +504,10 @@ impl Cop for HashAlignment {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // AllowMultipleStyles: when true (default), accept any consistent style per-hash.
-        // Our implementation already checks per-hash consistency so this is a no-op at true.
         let _allow_multiple = config.get_bool("AllowMultipleStyles", true);
-        let _rocket_style = config.get_str("EnforcedHashRocketStyle", "key");
-        let _colon_style = config.get_str("EnforcedColonStyle", "key");
-        // EnforcedLastArgumentHashStyle: "always_inspect" checks all hashes (our default),
-        // "always_ignore" skips hashes that are the last argument to a method call,
-        // "ignore_implicit" skips implicit last-arg hashes, "ignore_explicit" skips explicit ones.
+        let rocket_styles = parse_styles(config, "EnforcedHashRocketStyle", "key");
+        let colon_styles = parse_styles(config, "EnforcedColonStyle", "key");
         let last_arg_style = config.get_str("EnforcedLastArgumentHashStyle", "always_inspect");
-        // ArgumentAlignmentStyle is injected from Layout/ArgumentAlignment config.
-        // When "with_fixed_indentation", RuboCop skips hash alignment on hashes that
-        // are call arguments where the first pair is on the same line as the method
-        // call (autocorrect_incompatible_with_other_cops? in RuboCop).
         let arg_alignment_style = config.get_str("ArgumentAlignmentStyle", "with_first_argument");
         let fixed_indentation = arg_alignment_style == "with_fixed_indentation";
 
@@ -51,27 +523,36 @@ impl Cop for HashAlignment {
         } else {
             return;
         };
-        if elements.len() < 2 {
+
+        // Need at least 2 elements OR at least 1 element where we check spacing.
+        // RuboCop's on_hash requires node.pairs.empty? to be false and node.single_line? to be false.
+        // For single-element hashes, only separator/value spacing is checked (via first pair).
+        let elem_count = elements.len();
+        if elem_count == 0 {
             return;
         }
 
-        let first = match elements.iter().next() {
-            Some(e) => e,
-            None => return,
+        // Check if hash is single-line — skip if so
+        let hash_start_line = source.offset_to_line_col(hash_node_start).0;
+        let hash_end_offset = if let Some(hash_node) = node.as_hash_node() {
+            hash_node.location().end_offset()
+        } else if let Some(kw_hash_node) = node.as_keyword_hash_node() {
+            kw_hash_node.location().end_offset()
+        } else {
+            return;
         };
+        let hash_end_line = source.offset_to_line_col(hash_end_offset).0;
+        if hash_start_line == hash_end_line {
+            return;
+        }
 
-        // EnforcedLastArgumentHashStyle handling:
-        // KeywordHashNode is always an implicit hash in a method call.
-        // HashNode may be an explicit hash in a method call.
+        // EnforcedLastArgumentHashStyle handling
         if is_keyword_hash {
             match last_arg_style {
                 "always_ignore" | "ignore_implicit" => return,
                 _ => {}
             }
         } else {
-            // For HashNode: "always_ignore" and "ignore_explicit" skip explicit
-            // hashes that are call arguments. We approximate by checking if the
-            // opening `{` is not the first token on its line (preceded by a call).
             let is_call_arg = !crate::cop::util::begins_its_line(source, hash_node_start);
             if is_call_arg {
                 match last_arg_style {
@@ -81,58 +562,201 @@ impl Cop for HashAlignment {
             }
         }
 
-        // Mirror RuboCop's autocorrect_incompatible_with_other_cops? check:
-        // When Layout/ArgumentAlignment uses with_fixed_indentation, skip hash
-        // alignment on hashes that are arguments to a method call where the first
-        // pair is on the same line as the method call selector.
+        // Extract pair info for all elements
+        let pairs: Vec<PairInfo> = elements
+            .iter()
+            .filter_map(|elem| extract_pair_info(source, &elem))
+            .collect();
+
+        if pairs.is_empty() {
+            return;
+        }
+
+        let first = &pairs[0];
+
+        // autocorrect_incompatible_with_other_cops? check
         if fixed_indentation {
-            let first_begins_line =
-                crate::cop::util::begins_its_line(source, first.location().start_offset());
             if is_keyword_hash {
-                // KeywordHashNode is always inside a method call.
-                // If the first element does NOT begin its line, the method call
-                // name precedes it on the same line → skip.
-                if !first_begins_line {
+                if !first.begins_line {
                     return;
                 }
             } else {
-                // For HashNode: if the opening `{` is not the first token on its
-                // line (i.e. follows a method call) AND the first pair is on the
-                // same line as the `{`, it's a call-argument hash on the same
-                // line as the selector → skip.
                 let hash_begins_line = crate::cop::util::begins_its_line(source, hash_node_start);
-                if !hash_begins_line && !first_begins_line {
+                if !hash_begins_line && !first.begins_line {
                     return;
                 }
             }
         }
 
-        let (first_line, first_col) = source.offset_to_line_col(first.location().start_offset());
+        // Determine which styles apply based on pair types present
+        let has_rocket = pairs.iter().any(|p| !p.is_kwsplat && p.is_rocket);
+        let has_colon = pairs.iter().any(|p| !p.is_kwsplat && !p.is_rocket);
 
-        let mut last_checked_line = first_line;
+        // Check if any style combination is valid for the hash
+        // RuboCop checks alignment_for_hash_rockets.any?(checkable_layout?) &&
+        //   alignment_for_colons.any?(checkable_layout?)
+        // For "key" style, checkable_layout? is always true.
+        // For separator/table, it requires !pairs_on_same_line? && !mixed_delimiters?
+        let rocket_checkable = rocket_styles.iter().any(|s| is_checkable(*s, &pairs));
+        let colon_checkable = colon_styles.iter().any(|s| is_checkable(*s, &pairs));
 
-        for elem in elements.iter().skip(1) {
-            let (elem_line, elem_col) = source.offset_to_line_col(elem.location().start_offset());
-            // Only check the first element on each new line
-            if elem_line == last_checked_line {
-                continue;
-            }
-            last_checked_line = elem_line;
-            // Skip elements that don't begin their line (e.g. `}, status: 200`
-            // where `}` is first on the line, not `status:`)
-            if !crate::cop::util::begins_its_line(source, elem.location().start_offset()) {
-                continue;
-            }
-            if elem_col != first_col {
-                diagnostics.push(self.diagnostic(
-                    source,
-                    elem_line,
-                    elem_col,
-                    "Align the keys of a hash literal if they span more than one line.".to_string(),
-                ));
+        if has_rocket && !rocket_checkable {
+            return;
+        }
+        if has_colon && !colon_checkable {
+            return;
+        }
+        // If both are present, both must be checkable
+        if has_rocket && has_colon && (!rocket_checkable || !colon_checkable) {
+            return;
+        }
+
+        // For each pair, determine which style applies (based on whether it's rocket or colon)
+        // and check alignment. When multiple styles are allowed, pick the one with fewest offenses.
+
+        // We need to check the entire hash under each applicable style combination
+        // and report the one with fewest offenses.
+
+        // Collect offenses per style for rocket pairs and colon pairs separately,
+        // then combine.
+        let rocket_pair_offenses = if has_rocket {
+            best_offenses_for_styles(&rocket_styles, source, &pairs, true)
+        } else {
+            Vec::new()
+        };
+
+        let colon_pair_offenses = if has_colon {
+            best_offenses_for_styles(&colon_styles, source, &pairs, false)
+        } else {
+            Vec::new()
+        };
+
+        // Also check keyword splat offenses (always use key alignment for splats)
+        let kwsplat_offenses = check_kwsplat_alignment(source, &pairs);
+
+        // Emit diagnostics
+        for offense in rocket_pair_offenses
+            .iter()
+            .chain(colon_pair_offenses.iter())
+            .chain(kwsplat_offenses.iter())
+        {
+            diagnostics.push(self.diagnostic(
+                source,
+                offense.line,
+                offense.col,
+                offense.message.to_string(),
+            ));
+        }
+    }
+}
+
+/// Check if a style is checkable for the given pairs.
+/// "key" is always checkable. "separator" and "table" require no pairs on the same line
+/// and no mixed delimiters.
+fn is_checkable(style: AlignStyle, pairs: &[PairInfo]) -> bool {
+    if style == AlignStyle::Key {
+        return true;
+    }
+
+    let non_kwsplat: Vec<&PairInfo> = pairs.iter().filter(|p| !p.is_kwsplat).collect();
+    if non_kwsplat.is_empty() {
+        return true;
+    }
+
+    // Check mixed delimiters
+    let has_rocket = non_kwsplat.iter().any(|p| p.is_rocket);
+    let has_colon = non_kwsplat.iter().any(|p| !p.is_rocket);
+    if has_rocket && has_colon {
+        return false;
+    }
+
+    // Check pairs on same line
+    let mut lines_seen = std::collections::HashSet::new();
+    for p in &non_kwsplat {
+        if !lines_seen.insert(p.line) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Check offenses for the given styles and return the best (fewest offenses).
+fn best_offenses_for_styles(
+    styles: &[AlignStyle],
+    source: &SourceFile,
+    pairs: &[PairInfo],
+    is_rocket: bool,
+) -> Vec<AlignOffense> {
+    // Filter to relevant pairs (matching delimiter type) plus first pair for reference
+    let relevant: Vec<&PairInfo> = pairs
+        .iter()
+        .filter(|p| !p.is_kwsplat && p.is_rocket == is_rocket)
+        .collect();
+
+    if relevant.is_empty() {
+        return Vec::new();
+    }
+
+    // For each style, compute offenses and pick the style with fewest
+    let mut best: Option<Vec<AlignOffense>> = None;
+
+    for &style in styles {
+        let offenses = match style {
+            AlignStyle::Key => check_key_style(source, pairs),
+            AlignStyle::Separator => check_separator_style(source, pairs),
+            AlignStyle::Table => check_table_style(source, pairs),
+        };
+
+        // Filter to only offenses on relevant pair types (not kwsplats, matching delimiter)
+        let filtered: Vec<AlignOffense> = offenses
+            .into_iter()
+            .filter(|o| {
+                // Keep offenses that are on pairs matching our delimiter type
+                pairs.iter().any(|p| {
+                    p.line == o.line && p.col == o.col && !p.is_kwsplat && p.is_rocket == is_rocket
+                })
+            })
+            .collect();
+
+        match &best {
+            None => best = Some(filtered),
+            Some(current_best) => {
+                if filtered.len() < current_best.len() {
+                    best = Some(filtered);
+                }
             }
         }
     }
+
+    best.unwrap_or_default()
+}
+
+/// Check keyword splat alignment (always aligned with first non-kwsplat key).
+fn check_kwsplat_alignment(source: &SourceFile, pairs: &[PairInfo]) -> Vec<AlignOffense> {
+    let mut offenses = Vec::new();
+
+    // Find first non-kwsplat pair for reference column
+    let first_ref = match pairs.iter().find(|p| !p.is_kwsplat) {
+        Some(p) => p,
+        None => return offenses,
+    };
+
+    for pair in pairs {
+        if !pair.is_kwsplat || !pair.begins_line {
+            continue;
+        }
+        if pair.col != first_ref.col {
+            offenses.push(AlignOffense {
+                line: pair.line,
+                col: pair.col,
+                end_col: source.offset_to_line_col(pair.elem_end).1,
+                message: MSG_KWSPLAT,
+            });
+        }
+    }
+
+    offenses
 }
 
 #[cfg(test)]
@@ -185,8 +809,6 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        // Keyword hash args where first key is on same line as method call
-        // should be skipped when ArgumentAlignment uses with_fixed_indentation
         let src = b"render html: \"hello\",\n  layout: \"application\"\n";
         let diags = run_cop_full_with_config(&HashAlignment, src, config);
         assert!(
@@ -207,7 +829,6 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        // Keyword hash args where first key begins its own line should still be checked
         let src = b"render(\n  html: \"hello\",\n    layout: \"application\"\n)\n";
         let diags = run_cop_full_with_config(&HashAlignment, src, config);
         assert_eq!(
@@ -219,7 +840,6 @@ mod tests {
 
     #[test]
     fn default_config_flags_keyword_hash_on_same_line() {
-        // Without with_fixed_indentation, keyword hash args are checked normally
         let src = b"render html: \"hello\",\n  layout: \"application\"\n";
         let diags = run_cop_full(&HashAlignment, src);
         assert_eq!(
@@ -266,6 +886,161 @@ mod tests {
         assert!(
             diags.is_empty(),
             "ignore_implicit should skip implicit keyword hash args"
+        );
+    }
+
+    #[test]
+    fn key_style_flags_extra_spaces_after_colon() {
+        let src = b"hash = {\n  a:   0,\n  bb: 1,\n}\n";
+        let diags = run_cop_full(&HashAlignment, src);
+        assert_eq!(diags.len(), 1, "extra spaces after colon should be flagged");
+        assert_eq!(diags[0].location.line, 2);
+    }
+
+    #[test]
+    fn key_style_flags_zero_spaces_after_colon() {
+        let src = b"hash = {\n  a:0,\n  bb: 1,\n}\n";
+        let diags = run_cop_full(&HashAlignment, src);
+        assert_eq!(diags.len(), 1, "zero spaces after colon should be flagged");
+        assert_eq!(diags[0].location.line, 2);
+    }
+
+    #[test]
+    fn key_style_flags_bad_rocket_spacing() {
+        let src = b"hash = {\n  'ccc'=> 2,\n  'dddd' => 3\n}\n";
+        let diags = run_cop_full(&HashAlignment, src);
+        assert_eq!(diags.len(), 1, "missing space before => should be flagged");
+        assert_eq!(diags[0].location.line, 2);
+    }
+
+    #[test]
+    fn key_style_flags_extra_space_after_rocket() {
+        let src = b"hash = {\n  'a' =>  0,\n  'bbb' => 1\n}\n";
+        let diags = run_cop_full(&HashAlignment, src);
+        assert_eq!(diags.len(), 1, "extra space after => should be flagged");
+        assert_eq!(diags[0].location.line, 2);
+    }
+
+    #[test]
+    fn key_style_accepts_correct_spacing() {
+        let src = b"hash = {\n  :a => 0,\n  :bb => 1\n}\n";
+        let diags = run_cop_full(&HashAlignment, src);
+        assert!(diags.is_empty(), "correctly spaced rockets should pass");
+    }
+
+    #[test]
+    fn key_style_first_pair_bad_spacing() {
+        let src = b"hash = {\n  :a   => 0,\n  :bb => 1,\n}\n";
+        let diags = run_cop_full(&HashAlignment, src);
+        assert_eq!(
+            diags.len(),
+            1,
+            "first pair with extra spaces before => should be flagged"
+        );
+        assert_eq!(diags[0].location.line, 2);
+    }
+
+    #[test]
+    fn kwsplat_alignment() {
+        let src = b"{foo: 'bar',\n       **extra\n}\n";
+        let diags = run_cop_full(&HashAlignment, src);
+        assert_eq!(diags.len(), 1, "misaligned kwsplat should be flagged");
+        assert!(diags[0].message.contains("keyword splats"));
+    }
+
+    #[test]
+    fn kwsplat_aligned_no_offense() {
+        let src = b"{foo: 'bar',\n **extra}\n";
+        let diags = run_cop_full(&HashAlignment, src);
+        assert!(diags.is_empty(), "aligned kwsplat should pass");
+    }
+
+    #[test]
+    fn value_on_new_line_no_offense() {
+        let src = b"hash = {\n  'a' =>\n    0,\n  'bbb' => 1\n}\n";
+        let diags = run_cop_full(&HashAlignment, src);
+        assert!(diags.is_empty(), "value on new line should not be flagged");
+    }
+
+    #[test]
+    fn several_pairs_per_line_no_offense() {
+        let src = b"func(a: 1, bb: 2,\n     ccc: 3, dddd: 4)\n";
+        let diags = run_cop_full(&HashAlignment, src);
+        assert!(
+            diags.is_empty(),
+            "several pairs per line should not be flagged"
+        );
+    }
+
+    #[test]
+    fn table_style_accepts_aligned() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                (
+                    "EnforcedColonStyle".into(),
+                    serde_yml::Value::String("table".into()),
+                ),
+                (
+                    "EnforcedHashRocketStyle".into(),
+                    serde_yml::Value::String("table".into()),
+                ),
+            ]),
+            ..CopConfig::default()
+        };
+        let src = b"hash = {\n  a:   0,\n  bbb: 1\n}\n";
+        let diags = run_cop_full_with_config(&HashAlignment, src, config);
+        assert!(diags.is_empty(), "table-aligned hash should pass");
+    }
+
+    #[test]
+    fn table_style_flags_misaligned() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                (
+                    "EnforcedColonStyle".into(),
+                    serde_yml::Value::String("table".into()),
+                ),
+                (
+                    "EnforcedHashRocketStyle".into(),
+                    serde_yml::Value::String("table".into()),
+                ),
+            ]),
+            ..CopConfig::default()
+        };
+        let src = b"hash = {\n  a: 0,\n  bbb: 1\n}\n";
+        let diags = run_cop_full_with_config(&HashAlignment, src, config);
+        assert!(
+            !diags.is_empty(),
+            "non-table-aligned hash should be flagged"
+        );
+    }
+
+    #[test]
+    fn fixed_indentation_table_aligned_kwargs() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        // With with_fixed_indentation, table-aligned kwargs where first key is on same line as
+        // the method call should be skipped
+        let config = CopConfig {
+            options: HashMap::from([(
+                "ArgumentAlignmentStyle".into(),
+                serde_yml::Value::String("with_fixed_indentation".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let src =
+            b"config.fog_credentials_as_kwargs(\n  provider: 'AWS',\n  aws_access_key_id: ENV['S3_ACCESS_KEY'],\n)\n";
+        let diags = run_cop_full_with_config(&HashAlignment, src, config);
+        assert!(
+            diags.is_empty(),
+            "kwargs on own line with fixed indentation should pass"
         );
     }
 }
