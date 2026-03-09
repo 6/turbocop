@@ -41,3 +41,21 @@ foo(x,
     z)
   .bar
   .baz
+
+x = [
+^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+  1,
+  2,
+  3
+]
+
+y = {
+^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+  a: 1,
+  b: 2
+}
+
+foo(
+^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+  bar(1, 2)
+)

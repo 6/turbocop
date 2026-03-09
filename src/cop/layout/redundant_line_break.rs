@@ -7,6 +7,39 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
+/// Layout/RedundantLineBreak: Checks whether certain expressions that could fit
+/// on a single line are broken up into multiple lines unnecessarily.
+///
+/// ## Implementation approach
+/// Two-phase detection:
+/// - **Phase 1 (AST)**: Visits CallNode and assignment write nodes. Uses walk-down
+///   with `checked_chain_ranges` to approximate RuboCop's walk-up-to-outermost behavior.
+/// - **Phase 2 (text)**: Detects backslash line continuations that could be collapsed.
+///
+/// ## Key differences from RuboCop
+/// - RuboCop walks UP from `on_send` through parent sends, convertible blocks, and
+///   binary operators to find the outermost expression. Nitrocop walks DOWN and uses
+///   `checked_chain_ranges` + `part_of_reported_node` to approximate this.
+/// - RuboCop's `configured_to_not_be_inspected?` only skips multiline blocks
+///   (`any_descendant?(node, :any_block, &:multiline?)`). Nitrocop now matches this
+///   by tracking multiline vs single-line blocks separately.
+/// - RuboCop's `other_cop_takes_precedence?` is conditional on
+///   `Layout/SingleLineBlockChain` being enabled. Nitrocop always checks for
+///   single-line blocks in chains (slightly over-conservative, causing FNs).
+///
+/// ## Remaining gaps (FNs)
+/// - No walk-up through `AndNode`/`OrNode` (binary operators) — standalone multiline
+///   `&&`/`||` expressions without assignment are not checked.
+/// - Missing some write node visitors (e.g., `InstanceVariableOperatorWriteNode`).
+/// - `contains_single_line_block` always fires (not conditional on SingleLineBlockChain
+///   being enabled), causing FNs for single-line block patterns.
+///
+/// ## Fixes applied (2026-03-09)
+/// - Phase 2 now checks block and unsafe ranges before reporting backslash continuations.
+/// - Added `ParenthesesNode` to unsafe ranges (maps to `:begin` in Parser AST).
+/// - Fixed `too_long` method chain dot check to match RuboCop's `(?=(&)?\.\w)` regex.
+/// - Split block range tracking into multiline-only (`contains_multiline_block`)
+///   for more accurate InspectBlocks handling.
 pub struct RedundantLineBreak;
 
 impl Cop for RedundantLineBreak {
@@ -46,7 +79,10 @@ impl Cop for RedundantLineBreak {
         let unsafe_ranges = unsafe_collector.ranges;
 
         // Pre-collect block ranges (for InspectBlocks: false check)
-        let mut block_collector = BlockRangeCollector { ranges: Vec::new() };
+        let mut block_collector = BlockRangeCollector {
+            ranges: Vec::new(),
+            source,
+        };
         block_collector.visit(&parse_result.node());
         let block_ranges = block_collector.ranges;
 
@@ -84,8 +120,11 @@ impl Cop for RedundantLineBreak {
             source,
             code_map,
             max_line_length,
+            inspect_blocks,
             diagnostics,
             &reported_starts,
+            &unsafe_ranges,
+            &block_ranges,
         );
     }
 }
@@ -173,23 +212,50 @@ impl<'pr> Visit<'pr> for UnsafeRangeCollector {
             self.ranges.push((loc.start_offset(), loc.end_offset()));
         }
     }
+
+    /// Multiline parenthesized groups `(...)` — maps to `:begin` in Parser AST.
+    /// RuboCop's `safe_to_split?` checks
+    /// `node.each_descendant(:begin, :sym).none? { |b| !b.single_line? }`.
+    fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'pr>) {
+        let content = node.location().as_slice();
+        if content.contains(&b'\n') {
+            let loc = node.location();
+            self.ranges.push((loc.start_offset(), loc.end_offset()));
+        }
+        // Still recurse into children to find nested unsafe constructs
+        ruby_prism::visit_parentheses_node(self, node);
+    }
 }
 
-/// Collects byte ranges of block/lambda nodes.
-struct BlockRangeCollector {
-    ranges: Vec<(usize, usize)>,
+/// Collects byte ranges of block/lambda nodes, tracking whether each is multiline.
+struct BlockRangeCollector<'a> {
+    /// (start_offset, end_offset, is_multiline)
+    ranges: Vec<(usize, usize, bool)>,
+    source: &'a SourceFile,
 }
 
-impl<'pr> Visit<'pr> for BlockRangeCollector {
+impl<'pr> Visit<'pr> for BlockRangeCollector<'_> {
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let loc = node.location();
-        self.ranges.push((loc.start_offset(), loc.end_offset()));
+        let (start_line, _) = self.source.offset_to_line_col(loc.start_offset());
+        let (end_line, _) = self
+            .source
+            .offset_to_line_col(loc.end_offset().saturating_sub(1));
+        let is_multiline = start_line != end_line;
+        self.ranges
+            .push((loc.start_offset(), loc.end_offset(), is_multiline));
         ruby_prism::visit_block_node(self, node);
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
         let loc = node.location();
-        self.ranges.push((loc.start_offset(), loc.end_offset()));
+        let (start_line, _) = self.source.offset_to_line_col(loc.start_offset());
+        let (end_line, _) = self
+            .source
+            .offset_to_line_col(loc.end_offset().saturating_sub(1));
+        let is_multiline = start_line != end_line;
+        self.ranges
+            .push((loc.start_offset(), loc.end_offset(), is_multiline));
         ruby_prism::visit_lambda_node(self, node);
     }
 }
@@ -222,7 +288,7 @@ struct RedundantLineBreakVisitor<'a> {
     inspect_blocks: bool,
     comment_lines: &'a HashSet<usize>,
     unsafe_ranges: &'a [(usize, usize)],
-    block_ranges: &'a [(usize, usize)],
+    block_ranges: &'a [(usize, usize, bool)],
     single_line_block_ranges: &'a [(usize, usize)],
     ast_diagnostics: Vec<Diagnostic>,
     reported_starts: HashSet<usize>,
@@ -260,7 +326,7 @@ impl RedundantLineBreakVisitor<'_> {
                 combined.extend_from_slice(line);
             } else {
                 let trimmed = trim_leading_whitespace(line);
-                if trimmed.starts_with(b".") || trimmed.starts_with(b"&.") {
+                if starts_with_method_chain_dot(trimmed) {
                     combined.extend_from_slice(trimmed);
                 } else {
                     combined.push(b' ');
@@ -291,11 +357,12 @@ impl RedundantLineBreakVisitor<'_> {
             .any(|&(us, ue)| us >= start_offset && ue <= end_offset)
     }
 
-    /// Check if any block range is contained within the given span.
-    fn contains_block(&self, start_offset: usize, end_offset: usize) -> bool {
+    /// Check if any multiline block range is contained within the given span.
+    /// This matches RuboCop's `any_descendant?(node, :any_block, &:multiline?)`.
+    fn contains_multiline_block(&self, start_offset: usize, end_offset: usize) -> bool {
         self.block_ranges
             .iter()
-            .any(|&(bs, be)| bs >= start_offset && be <= end_offset)
+            .any(|&(bs, be, multiline)| multiline && bs >= start_offset && be <= end_offset)
     }
 
     /// Check if any single-line block is contained within the given span.
@@ -312,11 +379,19 @@ impl RedundantLineBreakVisitor<'_> {
     }
 
     fn configured_to_not_be_inspected(&self, start_offset: usize, end_offset: usize) -> bool {
-        if !self.inspect_blocks && self.contains_block(start_offset, end_offset) {
+        // Layout/SingleLineBlockChain takes precedence for single-line blocks in chains
+        // TODO: This should be conditional on Layout/SingleLineBlockChain being enabled,
+        // matching RuboCop's single_line_block_chain_enabled? check.
+        if self.contains_single_line_block(start_offset, end_offset) {
             return true;
         }
-        // Layout/SingleLineBlockChain takes precedence for single-line blocks in chains
-        self.contains_single_line_block(start_offset, end_offset)
+        // When InspectBlocks is false (default), skip expressions containing
+        // multiline blocks. This matches RuboCop's:
+        //   node.any_block_type? || any_descendant?(node, :any_block, &:multiline?)
+        if !self.inspect_blocks && self.contains_multiline_block(start_offset, end_offset) {
+            return true;
+        }
+        false
     }
 
     /// Check if a byte offset falls within any already-reported node's range.
@@ -494,13 +569,17 @@ impl RedundantLineBreakVisitor<'_> {
 }
 
 /// Phase 2: backslash continuation detection (text-based).
+#[allow(clippy::too_many_arguments)]
 fn check_backslash_continuations(
     cop: &RedundantLineBreak,
     source: &SourceFile,
     code_map: &CodeMap,
     max_line_length: usize,
+    inspect_blocks: bool,
     diagnostics: &mut Vec<Diagnostic>,
     already_reported: &HashSet<usize>,
+    unsafe_ranges: &[(usize, usize)],
+    block_ranges: &[(usize, usize, bool)],
 ) {
     let content = source.as_bytes();
     let lines: Vec<&[u8]> = source.lines().collect();
@@ -566,6 +645,39 @@ fn check_backslash_continuations(
         if already_reported.contains(&report_line) {
             i = final_line_idx + 1;
             continue;
+        }
+
+        // Check if the backslash group's byte range overlaps with any unsafe
+        // construct (if/case/begin/def/heredoc/multiline-string) or block.
+        // This matches RuboCop's AST-level checks that prevent collapsing
+        // expressions containing these constructs.
+        let group_byte_start = line_starts[group_start];
+        let group_byte_end = if final_line_idx < line_starts.len() {
+            line_starts[final_line_idx] + lines[final_line_idx].len()
+        } else {
+            content.len()
+        };
+
+        let has_unsafe = unsafe_ranges
+            .iter()
+            .any(|&(us, ue)| us >= group_byte_start && ue <= group_byte_end);
+        if has_unsafe {
+            i = final_line_idx + 1;
+            continue;
+        }
+
+        // When InspectBlocks is false (default), skip backslash groups that
+        // overlap with any block (single-line or multiline). This is slightly
+        // more conservative than RuboCop's AST-level check, but prevents Phase 2
+        // from flagging expressions that the AST phase would handle differently.
+        if !inspect_blocks {
+            let has_block = block_ranges
+                .iter()
+                .any(|&(bs, be, _)| bs < group_byte_end && be > group_byte_start);
+            if has_block {
+                i = final_line_idx + 1;
+                continue;
+            }
         }
 
         // Build the combined single-line version.
@@ -675,6 +787,24 @@ fn is_string_concat_continuation(lines: &[&[u8]], group_start: usize, group_end:
         }
     }
     true
+}
+
+/// Check if a trimmed line starts with a method chain dot followed by a word
+/// character, matching RuboCop's `/\n\s*(?=(&)?\.\w)/` pattern.
+/// Lines starting with `.operator` (like `.[]`, `.==`, `.+`) get a space
+/// when joining, while `.method_name` chains get no space.
+fn starts_with_method_chain_dot(trimmed: &[u8]) -> bool {
+    if trimmed.starts_with(b"&.") {
+        trimmed.len() > 2 && is_word_char(trimmed[2])
+    } else if trimmed.starts_with(b".") {
+        trimmed.len() > 1 && is_word_char(trimmed[1])
+    } else {
+        false
+    }
+}
+
+fn is_word_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 fn leading_whitespace_len(line: &[u8]) -> usize {

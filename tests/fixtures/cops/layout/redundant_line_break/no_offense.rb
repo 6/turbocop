@@ -192,3 +192,34 @@ end
 handler = proc { |x|
   process(x)
 }
+
+# Multiline `or` keyword without backslash — RuboCop checks operator_keyword?
+# and only flags if line ends with backslash; without backslash, not an offense
+x = foo or
+  bar
+
+# Multiline `and` keyword without backslash — same as above
+x = foo and
+  bar
+
+# Method chain with multiline brace block (InspectBlocks: false)
+# RuboCop walks up from `join` send, but `map { ... }` has a multiline block
+# descendant, so configured_to_not_be_inspected? returns true
+items.map { |i|
+  i.name
+}.join(', ')
+
+# Backslash continuation with a multiline do block (InspectBlocks: false)
+# The do block is multiline, so the expression is not inspected
+items.each do |item|
+  process(item)
+end \
+  .tap { |r| log(r) }
+
+# Multiline parenthesized group — outer call has a multiline ParenthesesNode
+# descendant so safe_to_split? is false. The inner expression is too long to
+# fit on one line, so it's also not flagged.
+foo_method_with_long_name(
+  (variable_one_long_name + variable_two_long_name + variable_three_long_name +
+   variable_four_long_name + variable_five_long_name + variable_six_long_name + variable_seven_long_name)
+)
