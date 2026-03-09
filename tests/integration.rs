@@ -1610,6 +1610,12 @@ fn all_cops_have_minimum_test_coverage() {
     let stub_cops: &[&str] = &[
         "Lint/RedundantCopDisableDirective", // requires post-processing after all cops run
         "Lint/Syntax",                       // syntax errors reported by parser, not this cop
+        // Unsupported cops — obsolete under modern Ruby, kept as no-ops for config compatibility
+        "Lint/ItWithoutArgumentsInBlock", // `it` is a block parameter in Ruby 3.4+
+        "Lint/NonDeterministicRequireOrder", // Dir sorts since Ruby 3.0
+        "Lint/NumberedParameterAssignment", // `_1 = x` is a syntax error in Ruby 3.4+
+        "Lint/UselessElseWithoutRescue",  // `else` without `rescue` is a syntax error in Ruby 3.4+
+        "Security/YAMLLoad",              // YAML.load is safe since Ruby 3.1
     ];
 
     let mut failures = Vec::new();
@@ -2529,6 +2535,9 @@ fn ruby_version_gates() {
         "Lint/DuplicateMatchPattern",
         "Lint/EmptyInPattern",
         "Lint/ErbNewArguments",
+        // No-op cops — obsolete under modern Ruby, kept for config compatibility
+        "Lint/ItWithoutArgumentsInBlock",
+        "Lint/NonDeterministicRequireOrder",
         "Lint/RefinementImportMethods",
         "Lint/SafeNavigationChain",
         "Lint/SuppressedExceptionInNumberConversion",
@@ -2571,6 +2580,8 @@ fn ruby_version_gates() {
         "Style/SlicingWithRange",
         "Style/SymbolArray",
         "Style/UnpackFirst",
+        // No-op cop — YAML.load is safe since Ruby 3.1
+        "Security/YamlLoad",
     ]
     .into_iter()
     .collect();

@@ -1,8 +1,9 @@
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// No-op: `YAML.load` is safe since Ruby 3.1 (Psych 4 default), making this cop obsolete.
+/// Retained for configuration compatibility only.
 pub struct YamlLoad;
 
 impl Cop for YamlLoad {
@@ -15,77 +16,32 @@ impl Cop for YamlLoad {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE]
+        &[]
     }
 
     fn check_node(
         &self,
-        source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
+        _source: &SourceFile,
+        _node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        config: &CopConfig,
-        diagnostics: &mut Vec<Diagnostic>,
+        _config: &CopConfig,
+        _diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // RuboCop: maximum_target_ruby_version 3.0
-        // In Ruby 3.1+ (Psych 4), YAML.load uses safe_load by default.
-        let ruby_version = config
-            .options
-            .get("TargetRubyVersion")
-            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
-            .unwrap_or(2.7);
-        if ruby_version > 3.0 {
-            return;
-        }
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
-
-        if call.name().as_slice() != b"load" {
-            return;
-        }
-
-        let recv = match call.receiver() {
-            Some(r) => r,
-            None => return,
-        };
-
-        let is_yaml = is_yaml_or_psych(source, &recv);
-        if !is_yaml {
-            return;
-        }
-
-        let msg_loc = call.message_loc().unwrap();
-        let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
-            "Prefer `YAML.safe_load` over `YAML.load`.".to_string(),
-        ));
     }
-}
-
-fn is_yaml_or_psych(_source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
-    if let Some(cr) = node.as_constant_read_node() {
-        let name = cr.name().as_slice();
-        return name == b"YAML" || name == b"Psych";
-    }
-    if let Some(cp) = node.as_constant_path_node() {
-        if let Some(child) = cp.name() {
-            let name = child.as_slice();
-            if (name == b"YAML" || name == b"Psych") && cp.parent().is_none() {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(YamlLoad, "cops/security/yaml_load");
+    #[test]
+    fn never_fires() {
+        let source = b"YAML.load(data)\nPsych.load(data)\n::YAML.load(x)\n";
+        let diags = crate::testutil::run_cop(&YamlLoad, source);
+        assert!(
+            diags.is_empty(),
+            "No-op cop should never produce diagnostics"
+        );
+    }
 }
