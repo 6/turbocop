@@ -10,8 +10,8 @@ class Post < ApplicationRecord
   end
 
   def self.tag_map
-    # IndexWith
-    Tag.all.map { |t| [t.id, t.name] }.to_h
+    # IndexWith: each_with_object form
+    Tag.all.each_with_object({}) { |t, h| h[t] = t.name }
   end
 
   def self.first_title

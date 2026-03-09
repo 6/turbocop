@@ -36,6 +36,20 @@ class UsersControllerTest < ActionController::TestCase
     patch :update, { id: 1 }, { "Authorization" => "Bearer token" }
   end
 
+  # I18nLocaleAssignment (only triggers in test/spec files)
+  def test_locale
+    I18n.locale = :fr
+    get :show, params: { id: 1 }
+    assert_response :success
+  end
+
+  # TimeZoneAssignment (only triggers in test/spec files)
+  def test_timezone
+    Time.zone = "Pacific Time (US & Canada)"
+    get :show, params: { id: 1 }
+    assert_response :success
+  end
+
   # RedundantTravelBack
   def teardown
     travel_back

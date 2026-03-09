@@ -5,10 +5,17 @@ class Utils
               :status,
               :role,
 
-  # ArrayLiteralInRegexp
+  # ArrayLiteralInRegexp (must use literal array inside interpolation, not a variable)
   def match_keywords(text)
-    keywords = ["error", "warning", "fatal"]
-    text.match?(/#{keywords}/)
+    text.match?(/#{%w[error warning fatal]}/)
+  end
+
+  def match_codes(text)
+    text.match?(/#{["E001", "E002", "E003"]}/)
+  end
+
+  def match_ids(text)
+    text.match?(/#{[1, 2, 3]}/)
   end
 
   # DuplicateRescueException
@@ -26,15 +33,6 @@ class Utils
     nil
   rescue ArgumentError
     0
-  end
-
-  # NonDeterministicRequireOrder
-  def load_plugins
-    Dir["./plugins/*.rb"].each { |f| require f }
-  end
-
-  def load_extensions
-    Dir.glob("./ext/**/*.rb").each { |f| require f }
   end
 
   # PercentSymbolArray (colons inside %i are what the cop detects)
@@ -56,46 +54,12 @@ class Utils
       puts "critical"
     end
   end
-
-  # YAMLLoad
-  def load_config(path)
-    YAML.load(File.read(path))
-  end
-
-  def load_data(content)
-    Psych.load(content)
-  end
-
-  def parse_yaml(text)
-    YAML.load(text)
-  end
-
-  # RedundantConstantBase (at top level, :: prefix is redundant)
-  def build_time
-    ::Time.now
-  end
-
-  def build_date
-    ::Date.today
-  end
-
-  def lookup
-    ::ENV["HOME"]
-  end
-
-  # ReverseFind
-  def find_last_match(items)
-    items.reverse.find { |i| i.valid? }
-  end
-
-  def find_last_even(numbers)
-    numbers.reverse.find { |n| n.even? }
-  end
-
-  def find_last_active(records)
-    records.reverse.find { |r| r.active? }
-  end
 end
+
+# RedundantConstantBase (at top level, :: prefix is redundant)
+TOP_TIME = ::Time.now
+TOP_DATE = ::Date.today
+TOP_HOME = ::ENV["HOME"]
 
 # DoubleCopDisableDirective
 x = 1 # rubocop:disable Style/Foo # rubocop:disable Style/Bar

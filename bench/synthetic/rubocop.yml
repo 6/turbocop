@@ -1,10 +1,29 @@
 # Synthetic corpus config — inherits the corpus baseline (all cops enabled).
 # The run_synthetic.py script filters results to only the 62 target cops.
+#
+# Overrides vs baseline:
+#   - TargetRailsVersion: 8.0 (baseline has 7.0) — unlocks Rails/StrongParametersExpect,
+#     Rails/EnvLocal, and other cops that require newer Rails versions.
+#   - Lint/ConstantResolution: disabled — conflicts with Style/RedundantConstantBase
+#     (the two cops are mutually exclusive by design).
+#   - Style/Copyright: Notice pattern configured so the cop can actually detect violations.
+#   - Rails/BulkChangeTable: Database set to postgresql so the cop fires.
 
 inherit_from: ../corpus/baseline_rubocop.yml
 
 AllCops:
+  TargetRailsVersion: 8.0
   Exclude:
     - "vendor/**/*"
     - "node_modules/**/*"
     - "tmp/**/*"
+
+Lint/ConstantResolution:
+  Enabled: false
+
+Style/Copyright:
+  Notice: 'Copyright (\(c\) )?20\d{2}'
+  AutocorrectNotice: '# Copyright 2025 Acme Inc.'
+
+Rails/BulkChangeTable:
+  Database: postgresql

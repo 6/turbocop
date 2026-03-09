@@ -18,18 +18,21 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-# The 62 cops with no corpus data — hardcoded so we don't depend on
-# parsing the YAML config (which now inherits from baseline_rubocop.yml).
+# Cops with no corpus data. Originally 62; reduced to 55 because 7 cannot
+# be triggered under Ruby 3.4 / our config:
+#   - Lint/ItWithoutArgumentsInBlock: Ruby 3.4 treats `it` as block param
+#   - Lint/NonDeterministicRequireOrder: Ruby 3.0+ sorts Dir results
+#   - Lint/NumberedParameterAssignment: Ruby 3.4 syntax error on `_1 = x`
+#   - Lint/UselessElseWithoutRescue: Ruby 3.4 syntax error
+#   - Security/YAMLLoad: max Ruby 3.0 (YAML.load is safe in 3.1+)
+#   - Style/ReverseFind: requires Ruby 4.0
+#   - Rails/StrongParametersExpect: requires railties >= 8.0 in Gemfile.lock
 TARGET_COPS = sorted([
     "Lint/ArrayLiteralInRegexp",
     "Lint/DuplicateRescueException",
-    "Lint/ItWithoutArgumentsInBlock",
-    "Lint/NonDeterministicRequireOrder",
-    "Lint/NumberedParameterAssignment",
     "Lint/PercentSymbolArray",
     "Lint/RegexpAsCondition",
     "Lint/TrailingCommaInAttributeDeclaration",
-    "Lint/UselessElseWithoutRescue",
     "RSpec/DuplicatedMetadata",
     "RSpec/InstanceSpy",
     "RSpec/SkipBlockInsideExample",
@@ -67,7 +70,6 @@ TARGET_COPS = sorted([
     "Rails/ResponseParsedBody",
     "Rails/ReversibleMigration",
     "Rails/ReversibleMigrationMethodDefinition",
-    "Rails/StrongParametersExpect",
     "Rails/ThreeStateBooleanColumn",
     "Rails/TimeZoneAssignment",
     "Rails/ToFormattedS",
@@ -77,12 +79,10 @@ TARGET_COPS = sorted([
     "Rails/UnusedIgnoredColumns",
     "Rails/WhereMissing",
     "Rails/WhereRange",
-    "Security/YAMLLoad",
     "Style/Copyright",
     "Style/DoubleCopDisableDirective",
     "Style/MultilineInPatternThen",
     "Style/RedundantConstantBase",
-    "Style/ReverseFind",
 ])
 
 
@@ -91,16 +91,24 @@ def trunc4(rate: float) -> float:
     return math.floor(rate * 10000) / 10000
 
 
+def normalize_path(filepath: str, project_dir: str) -> str:
+    """Normalize a file path to be relative to the project directory."""
+    project_prefix = os.path.abspath(project_dir) + "/"
+    if filepath.startswith(project_prefix):
+        filepath = filepath[len(project_prefix):]
+    elif filepath.startswith("project/"):
+        filepath = filepath[len("project/"):]
+    # Strip leading ./ from relative paths
+    if filepath.startswith("./"):
+        filepath = filepath[2:]
+    return filepath
+
+
 def parse_nitrocop_json(data: dict, project_dir: str) -> set[tuple[str, int, str]]:
     """Parse nitrocop JSON output into offense tuples."""
     offenses = set()
-    project_prefix = os.path.abspath(project_dir) + "/"
     for o in data.get("offenses", []):
-        filepath = o.get("path", "")
-        if filepath.startswith(project_prefix):
-            filepath = filepath[len(project_prefix):]
-        elif filepath.startswith("project/"):
-            filepath = filepath[len("project/"):]
+        filepath = normalize_path(o.get("path", ""), project_dir)
         line = o.get("line", 0)
         cop = o.get("cop_name", "")
         if filepath and cop:
@@ -111,13 +119,8 @@ def parse_nitrocop_json(data: dict, project_dir: str) -> set[tuple[str, int, str
 def parse_rubocop_json(data: dict, project_dir: str) -> set[tuple[str, int, str]]:
     """Parse RuboCop JSON output into offense tuples."""
     offenses = set()
-    project_prefix = os.path.abspath(project_dir) + "/"
     for f in data.get("files", []):
-        filepath = f.get("path", "")
-        if filepath.startswith(project_prefix):
-            filepath = filepath[len(project_prefix):]
-        elif filepath.startswith("project/"):
-            filepath = filepath[len("project/"):]
+        filepath = normalize_path(f.get("path", ""), project_dir)
         for o in f.get("offenses", []):
             line = o.get("location", {}).get("line", 0)
             cop = o.get("cop_name", "")
@@ -137,7 +140,7 @@ def main():
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_dir = os.path.join(script_dir, "project")
-    rubocop_yml = os.path.join(script_dir, "rubocop.yml")
+    rubocop_yml = os.path.join(project_dir, ".rubocop.yml")
     gemfile = os.path.join(script_dir, "Gemfile")
     nitrocop_binary = os.path.join(script_dir, "..", "..", "target", "release", "nitrocop")
     output_path = args.output or os.path.join(script_dir, "synthetic-results.json")
@@ -155,8 +158,8 @@ def main():
     print("Running nitrocop...", end="", file=sys.stderr, flush=True)
     nc_result = subprocess.run(
         [nitrocop_binary, "--preview", "--no-cache", "--format", "json",
-         "--config", rubocop_yml, project_dir],
-        capture_output=True, text=True, cwd=script_dir,
+         "--config", rubocop_yml, "."],
+        capture_output=True, text=True, cwd=project_dir,
     )
     if not nc_result.stdout.strip():
         print(f"\nError: nitrocop produced no output.\nstderr: {nc_result.stderr}", file=sys.stderr)
@@ -175,8 +178,8 @@ def main():
     rc_env = os.environ.copy()
     rc_env["BUNDLE_GEMFILE"] = gemfile
     rc_result = subprocess.run(
-        ["bundle", "exec", "rubocop", "--config", rubocop_yml, "--format", "json", project_dir],
-        capture_output=True, text=True, env=rc_env, cwd=script_dir,
+        ["bundle", "exec", "rubocop", "--config", rubocop_yml, "--format", "json", "."],
+        capture_output=True, text=True, env=rc_env, cwd=project_dir,
     )
     if not rc_result.stdout.strip():
         print(f"\nError: RuboCop produced no output.\nstderr: {rc_result.stderr}", file=sys.stderr)

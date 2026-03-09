@@ -1,0 +1,5 @@
+# Synthetic project config — inherits from parent which inherits corpus baseline.
+# Must live inside project/ so that Include patterns (db/**/*.rb, spec/**/*.rb, etc.)
+# match relative file paths correctly.
+
+inherit_from: ../rubocop.yml
