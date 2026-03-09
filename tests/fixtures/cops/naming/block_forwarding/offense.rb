@@ -60,3 +60,8 @@ def other_procs(bar, &block)
   delegator.foo(&bar).each(&block)
                            ^^^^^^ Naming/BlockForwarding: Use anonymous block forwarding.
 end
+# space between & and param name — only param is flagged, not body forwarding
+def transmit uri, req, payload, & block
+                                ^^^^^^^ Naming/BlockForwarding: Use anonymous block forwarding.
+  process_result(res, start_time, tempfile, &block)
+end

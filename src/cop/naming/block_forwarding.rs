@@ -17,6 +17,21 @@ use crate::parse::source::SourceFile;
 /// No code change applied in this batch. A future fix, if still needed after a
 /// fresh rerun, should be based on exact offense-location/message diffs from a
 /// regenerated corpus artifact.
+///
+/// ## Corpus investigation (2026-03-09)
+///
+/// Corpus oracle reported FP=1, FN=0.
+///
+/// FP=1 from rest-client (lib/restclient/request.rb:743): the `transmit` method
+/// uses `& block` (with space between & and name) in the def signature, but
+/// `&block` (no space) in body forwarding. RuboCop compares source text of the
+/// param vs forwarding usage (`last_argument.source == block_pass_node.source`),
+/// so `"& block" != "&block"` causes it to skip body offenses. nitrocop was
+/// reporting the body offense because it matches by parsed name, not source text.
+///
+/// Fix: detect whitespace in the block param source (location length >
+/// name length + 1) and skip body forwarding offenses when present. This
+/// replicates RuboCop's source-comparison quirk.
 pub struct BlockForwarding;
 
 impl Cop for BlockForwarding {
@@ -128,15 +143,25 @@ impl Cop for BlockForwarding {
                 column,
                 "Use anonymous block forwarding.".to_string(),
             ));
-            // Offense on each &block forwarding usage in the body
-            for (start, _end) in &checker.forwarding_locations {
-                let (line, column) = source.offset_to_line_col(*start);
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Use anonymous block forwarding.".to_string(),
-                ));
+
+            // RuboCop matches body forwarding usages by comparing source text
+            // (e.g., "&block" == "&block"). When the param has extra whitespace
+            // (e.g., "& block"), the source strings don't match and RuboCop
+            // skips the body offenses. Replicate this behavior.
+            let param_loc_len = loc.end_offset() - loc.start_offset();
+            let has_space_in_param = param_loc_len > param_name_bytes.len() + 1;
+
+            if !has_space_in_param {
+                // Offense on each &block forwarding usage in the body
+                for (start, _end) in &checker.forwarding_locations {
+                    let (line, column) = source.offset_to_line_col(*start);
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use anonymous block forwarding.".to_string(),
+                    ));
+                }
             }
         }
     }
