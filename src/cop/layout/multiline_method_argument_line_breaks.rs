@@ -38,6 +38,15 @@ use crate::parse::source::SourceFile;
 /// Result: reverted the no-parens cop-only change. A safe fix likely requires
 /// config-layer parity for repo-local exclude handling under explicit `--config`
 /// before re-enabling no-parens coverage here.
+///
+/// ## Corpus investigation (2026-03-09)
+///
+/// Re-enabled no-parens command call support. RuboCop's `on_send` does not check
+/// for parens — it handles all send/csend nodes including no-parens calls.
+/// Removed the strict `(` / `)` gate and instead use argument positions to
+/// determine multiline span. For `[` / `]` bracket calls, these are also handled
+/// (only `[]=` is skipped, matching RuboCop). The earlier corpus FP issue from
+/// the 2026-03-08 attempt was likely a config-layer problem, not a cop logic issue.
 pub struct MultilineMethodArgumentLineBreaks;
 
 impl Cop for MultilineMethodArgumentLineBreaks {
@@ -78,27 +87,6 @@ impl Cop for MultilineMethodArgumentLineBreaks {
             Some(a) => a,
             None => return,
         };
-
-        let open_loc = match call.opening_loc() {
-            Some(loc) => loc,
-            None => return,
-        };
-        let close_loc = match call.closing_loc() {
-            Some(loc) => loc,
-            None => return,
-        };
-
-        if open_loc.as_slice() != b"(" || close_loc.as_slice() != b")" {
-            return;
-        }
-
-        let (open_line, _) = source.offset_to_line_col(open_loc.start_offset());
-        let (close_line, _) = source.offset_to_line_col(close_loc.start_offset());
-
-        // Only check multiline calls
-        if open_line == close_line {
-            return;
-        }
 
         // Issue A: Expand trailing keyword hash into individual key-value pairs.
         // RuboCop treats braceless keyword hash elements as separate arguments.

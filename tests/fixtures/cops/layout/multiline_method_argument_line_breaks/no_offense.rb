@@ -37,3 +37,14 @@ foo&.bar(baz)
 
 # Safe navigation with all args on one line
 foo&.bar(baz, quux)
+
+# No-parens command call on one line
+render json: data, status: :ok
+
+# No-parens command call each arg on separate line
+render json: data,
+       status: :ok,
+       layout: false
+
+# No-parens command call with single keyword arg (no expansion needed)
+render status: :ok

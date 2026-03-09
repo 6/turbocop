@@ -46,3 +46,13 @@ do_something(foo, bar, baz,
                        ^^^ Layout/MultilineMethodArgumentLineBreaks: Each argument in a multi-line method call must start on a separate line.
                   ^^^ Layout/MultilineMethodArgumentLineBreaks: Each argument in a multi-line method call must start on a separate line.
   quux)
+
+# No-parens command call with keyword args on multiple lines
+render json: data, status: :ok,
+                   ^^^^^^^^^^^ Layout/MultilineMethodArgumentLineBreaks: Each argument in a multi-line method call must start on a separate line.
+  layout: false
+
+# No-parens command call with positional and keyword args
+process records, format: :csv,
+                 ^^^^^^^^^^^^ Layout/MultilineMethodArgumentLineBreaks: Each argument in a multi-line method call must start on a separate line.
+  output: path
