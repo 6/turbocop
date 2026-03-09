@@ -581,10 +581,7 @@ fn is_in_def_or_alias_context(line: &[u8], pos: usize) -> bool {
     while j > 0 && line[j - 1] == b' ' {
         j -= 1;
     }
-    if j >= 5
-        && &line[j - 5..j] == b"alias"
-        && (j == 5 || !line[j - 6].is_ascii_alphanumeric())
-    {
+    if j >= 5 && &line[j - 5..j] == b"alias" && (j == 5 || !line[j - 6].is_ascii_alphanumeric()) {
         return true;
     }
 
