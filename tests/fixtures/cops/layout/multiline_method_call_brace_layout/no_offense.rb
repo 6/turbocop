@@ -50,3 +50,10 @@ process(
   template: <<~SQL)
     SELECT * FROM users
 SQL
+
+# Heredoc as argument to nested method call — double closing paren
+result = doc(
+  para("text"),
+  raw(<<~HEREDOC.chomp))
+content here
+HEREDOC

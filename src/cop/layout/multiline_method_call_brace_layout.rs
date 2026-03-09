@@ -8,6 +8,11 @@ use crate::parse::source::SourceFile;
 /// (e.g., `success: <<-EOF.strip_heredoc)`) were missed and the closing
 /// paren position was incorrectly flagged. Added recursion into keyword
 /// hash elements and assoc node values.
+///
+/// FP=1 fixed: `is_heredoc_node` did not check arguments of nested method
+/// calls (only checked the receiver). For `doc(raw(<<~HEREDOC.chomp))`,
+/// `raw(...)` is a CallNode with no receiver, and the heredoc is its
+/// argument. Added recursion into call arguments.
 pub struct MultilineMethodCallBraceLayout;
 
 impl Cop for MultilineMethodCallBraceLayout {
@@ -166,9 +171,19 @@ fn is_heredoc_node(node: &ruby_prism::Node<'_>) -> bool {
         }
     }
     // Check if this is a method call on a heredoc (e.g., <<~SQL.tr("\n", ""))
+    // or a method call with a heredoc argument (e.g., raw(<<~HEREDOC.chomp))
     if let Some(call) = node.as_call_node() {
         if let Some(recv) = call.receiver() {
-            return is_heredoc_node(&recv);
+            if is_heredoc_node(&recv) {
+                return true;
+            }
+        }
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                if is_heredoc_node(&arg) {
+                    return true;
+                }
+            }
         }
     }
     // Check inside keyword hash nodes (keyword arguments like `key: <<~HEREDOC`)
