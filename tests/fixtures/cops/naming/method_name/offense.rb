@@ -72,3 +72,19 @@ end
 # Non-letter Unicode alias names are also invalid
 alias_method :☠, :exit
              ^ Naming/MethodName: Use snake_case for method names.
+
+# Multiline attr_accessor: offense reported at call site (after selector), not at the symbol
+# nitrocop-expect: 61:14 Naming/MethodName: Use snake_case for method names.
+attr_accessor :valid_name,
+              :badName,
+              :other_valid
+
+# Module-only emitter does NOT exempt the method (RuboCop only checks class children)
+module Registry
+  def self.Registry(arg)
+           ^^^^^^^^ Naming/MethodName: Use snake_case for method names.
+  end
+
+  module Registry
+  end
+end

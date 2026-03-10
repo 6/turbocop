@@ -43,6 +43,27 @@ use ruby_prism::Visit;
 /// FN=21: non-letter Unicode names like `def ❤` and `alias_method :☠, :exit`
 /// were incorrectly treated as operator methods because the old helper only
 /// checked for ASCII letters. RuboCop uses an explicit operator-name allowlist.
+///
+/// ## Investigation (2026-03-10)
+/// Corpus oracle reported FP=2, FN=2.
+///
+/// FP #1: `alias_method :@type, :type` in jekyll-seo-tag. RuboCop's snake_case
+/// regex (`/^@{0,2}[\d[[:lower:]]_]+[!?=]?$/`) allows up to 2 leading `@` chars,
+/// so `@type` is valid snake_case. Fixed `is_method_snake_case` and
+/// `is_lower_camel_case` to strip leading `@` chars before checking.
+///
+/// FP #2 + FN #1: `attr_accessor :prev30Days` in discourse. RuboCop reports the
+/// offense at the call site (range from selector end to expression end), not at
+/// the individual symbol. For multiline attr_accessor, our symbol-level location
+/// was on a different line than RuboCop's call-site location, creating both an
+/// FP (wrong line) and FN (missing at correct line). Fixed `check_attr_accessor`
+/// to use `message_loc.end + 1` as the offense location, matching RuboCop's
+/// `range_position`.
+///
+/// FN #2: `def self.Types(...)` in dry-types. The `has_class_emitter_in_scope`
+/// check was matching `module Types` as an emitter, but RuboCop only checks
+/// `:class` children (not `:module`). Fixed `collect_emitter_name` to only
+/// collect class nodes, matching `node.parent.each_child_node(:class)`.
 pub struct MethodName;
 
 /// Bundles config values needed for method name checking.
@@ -414,8 +435,17 @@ fn check_attr_accessor(
         None => return,
     };
 
+    // RuboCop reports the offense at range_position(node), which is
+    // selector_end_pos + 1 to expr_end_pos. We use the start of that range
+    // (right after the method selector) as the offense location.
+    let call_site_offset = call_node
+        .message_loc()
+        .map(|ml| ml.start_offset() + ml.as_slice().len() + 1)
+        .unwrap_or(call_node.location().start_offset());
+    let (call_line, call_col) = source.offset_to_line_col(call_site_offset);
+
     for arg in args.arguments().iter() {
-        let (name_bytes, loc) = match extract_name_from_sym_or_str(&arg) {
+        let (name_bytes, _loc) = match extract_name_from_sym_or_str(&arg) {
             Some(v) => v,
             None => continue,
         };
@@ -429,13 +459,11 @@ fn check_attr_accessor(
             continue;
         }
 
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-
         if is_forbidden_name(name_str, cfg) {
             diagnostics.push(cop.diagnostic(
                 source,
-                line,
-                column,
+                call_line,
+                call_col,
                 format!("`{name_str}` is forbidden, use another method name instead."),
             ));
             continue;
@@ -444,8 +472,8 @@ fn check_attr_accessor(
         if !style_ok(&name_bytes, &cfg.enforced_style) {
             diagnostics.push(cop.diagnostic(
                 source,
-                line,
-                column,
+                call_line,
+                call_col,
                 format!("Use {} for method names.", style_msg(&cfg.enforced_style)),
             ));
         }
@@ -589,6 +617,8 @@ fn is_const_named(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
 /// Returns true if the name is lowerCamelCase.
 fn is_lower_camel_case(name: &str) -> bool {
     let core = strip_method_suffix(name);
+    // RuboCop allows up to 2 leading @ chars (e.g., alias_method :@type, :type)
+    let core = core.trim_start_matches('@');
     if core.is_empty() {
         return false;
     }
@@ -613,6 +643,8 @@ fn is_lower_camel_case(name: &str) -> bool {
 
 fn is_method_snake_case(name: &str) -> bool {
     let core = strip_method_suffix(name);
+    // RuboCop allows up to 2 leading @ chars (e.g., alias_method :@type, :type)
+    let core = core.trim_start_matches('@');
     if core.is_empty() {
         return false;
     }
@@ -651,13 +683,11 @@ fn collect_direct_child_emitters(body: Option<ruby_prism::Node<'_>>) -> Vec<Vec<
 }
 
 fn collect_emitter_name(node: ruby_prism::Node<'_>, emitters: &mut Vec<Vec<u8>>) {
+    // RuboCop only checks :class children, NOT :module children.
+    // See configurable_formatting.rb: node.parent.each_child_node(:class)
     if let Some(class_node) = node.as_class_node() {
         emitters
             .push(last_constant_segment(class_node.constant_path().location().as_slice()).to_vec());
-    } else if let Some(module_node) = node.as_module_node() {
-        emitters.push(
-            last_constant_segment(module_node.constant_path().location().as_slice()).to_vec(),
-        );
     }
 }
 

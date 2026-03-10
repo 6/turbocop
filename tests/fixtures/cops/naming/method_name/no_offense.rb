@@ -75,6 +75,9 @@ alias_method foo, :bar
 # alias_method with wrong arity is fine
 alias_method :fooBar, :bar, :baz
 
+# alias_method with @-prefixed symbol (ivar-like metaprogramming name)
+alias_method :@type, :type
+
 # Class emitter methods are allowed when a matching class exists in scope
 module Container
   def self.Widget
