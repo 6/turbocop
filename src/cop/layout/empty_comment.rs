@@ -1,21 +1,27 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
-use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 /// ## Corpus investigation (2026-03-10)
 ///
-/// Corpus oracle reported FP=6, FN=56.
+/// Earlier fixes removed the original FP=6/FN=56 gap by skipping block-comment
+/// regions and grouping aligned inline comments instead of only standalone `#`
+/// rows.
 ///
-/// FN=56: The original implementation only looked at lines whose first
-/// non-whitespace character was `#`, so it missed empty inline comments such as
-/// `def foo #` and aligned margin-comment layouts built from inline comments.
+/// The remaining FN=3 on the current corpus baseline were inline empty comments
+/// after interpolated strings, e.g. `"#{value}" #`. Raw byte scanning stopped at
+/// the interpolation opener `#{` because Prism leaves embedded-statement syntax
+/// outside `string_ranges`, so the real trailing comment was never reached.
 ///
-/// FP=6: The false positives came from two patterns. Four were `#` lines inside
-/// `=begin`/`=end` block comments, and two were blank margin-comment rows
-/// aligned with neighboring inline comments. Both are handled here by skipping
-/// block-comment regions and grouping all aligned comments, not just standalone
-/// `#` lines.
+/// The current implementation classifies comments from `parse_result.comments()`
+/// and only uses raw line inspection to determine whether the parsed comment is
+/// empty, a border comment, or a standalone/margin comment. This preserves the
+/// earlier block-comment and aligned-margin fixes while matching inline comments
+/// after interpolation.
+///
+/// Acceptance gate after the fix: expected 571, actual 609, CI baseline 568,
+/// raw delta +41, file-drop noise 79, missing 0. The rerun passed because the
+/// delta stayed within existing RuboCop parser-crash noise.
 pub struct EmptyComment;
 
 #[derive(Clone, Copy)]
@@ -43,8 +49,8 @@ impl Cop for EmptyComment {
     fn check_source(
         &self,
         source: &SourceFile,
-        _parse_result: &ruby_prism::ParseResult<'_>,
-        code_map: &CodeMap,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
@@ -59,7 +65,7 @@ impl Cop for EmptyComment {
                 &lines,
                 allow_border,
                 source,
-                code_map,
+                parse_result,
                 self,
                 diagnostics,
                 corrections.as_deref_mut(),
@@ -69,7 +75,7 @@ impl Cop for EmptyComment {
                 &lines,
                 allow_border,
                 source,
-                code_map,
+                parse_result,
                 self,
                 diagnostics,
                 corrections,
@@ -78,14 +84,10 @@ impl Cop for EmptyComment {
     }
 }
 
-fn classify_comment(
-    line: &[u8],
-    line_offset: usize,
-    code_map: &CodeMap,
-) -> Option<(usize, bool, bool, bool)> {
-    let col = line.iter().enumerate().find_map(|(idx, &b)| {
-        (b == b'#' && code_map.is_not_string(line_offset + idx)).then_some(idx)
-    })?;
+fn classify_comment(line: &[u8], col: usize) -> Option<(bool, bool, bool)> {
+    if col >= line.len() || line[col] != b'#' {
+        return None;
+    }
     let is_standalone = line[..col].iter().all(|&b| b == b' ' || b == b'\t');
     let content = &line[col..];
     let after_hash = content.get(1..).unwrap_or_default();
@@ -93,7 +95,7 @@ fn classify_comment(
         .iter()
         .any(|&b| b != b' ' && b != b'\t' && b != b'\r');
     let is_border = is_standalone && content.len() >= 2 && content.iter().all(|&b| b == b'#');
-    Some((col, is_empty, is_border, is_standalone))
+    Some((is_empty, is_border, is_standalone))
 }
 
 fn is_block_comment_marker(line: &[u8], marker: &[u8]) -> bool {
@@ -107,13 +109,22 @@ fn is_block_comment_marker(line: &[u8], marker: &[u8]) -> bool {
 fn collect_comment_lines(
     source: &SourceFile,
     lines: &[&[u8]],
-    code_map: &CodeMap,
+    parse_result: &ruby_prism::ParseResult<'_>,
 ) -> Vec<CommentLine> {
     let bytes = source.as_bytes();
     let total_len = bytes.len();
     let mut comments = Vec::new();
     let mut byte_offset = 0usize;
     let mut in_block_comment = false;
+    let mut comment_offsets = vec![None; lines.len()];
+
+    for comment in parse_result.comments() {
+        let comment_offset = comment.location().start_offset();
+        let (line_num, _) = source.offset_to_line_col(comment_offset);
+        if (1..=lines.len()).contains(&line_num) {
+            comment_offsets[line_num - 1] = Some(comment_offset);
+        }
+    }
 
     for (i, line) in lines.iter().enumerate() {
         let line_len = line.len();
@@ -135,9 +146,12 @@ fn collect_comment_lines(
             continue;
         }
 
-        if let Some((col, is_empty, is_border, is_standalone)) =
-            classify_comment(line, byte_offset, code_map)
-        {
+        if let Some(comment_offset) = comment_offsets[i] {
+            let col = comment_offset.saturating_sub(byte_offset);
+            let Some((is_empty, is_border, is_standalone)) = classify_comment(line, col) else {
+                byte_offset += line_span_len;
+                continue;
+            };
             comments.push(CommentLine {
                 line_idx: i,
                 col,
@@ -147,7 +161,7 @@ fn collect_comment_lines(
                 line_offset: byte_offset,
                 line_len,
                 line_span_len,
-                comment_offset: byte_offset + col,
+                comment_offset,
             });
         }
 
@@ -210,13 +224,13 @@ fn check_with_grouping(
     lines: &[&[u8]],
     allow_border: bool,
     source: &SourceFile,
-    code_map: &CodeMap,
+    parse_result: &ruby_prism::ParseResult<'_>,
     cop: &EmptyComment,
     diagnostics: &mut Vec<Diagnostic>,
     mut corrections: Option<&mut Vec<crate::correction::Correction>>,
 ) {
     let total_len = source.as_bytes().len();
-    let comment_lines = collect_comment_lines(source, lines, code_map);
+    let comment_lines = collect_comment_lines(source, lines, parse_result);
 
     let mut group_start = 0;
     while group_start < comment_lines.len() {
@@ -260,14 +274,14 @@ fn check_without_grouping(
     lines: &[&[u8]],
     allow_border: bool,
     source: &SourceFile,
-    code_map: &CodeMap,
+    parse_result: &ruby_prism::ParseResult<'_>,
     cop: &EmptyComment,
     diagnostics: &mut Vec<Diagnostic>,
     mut corrections: Option<&mut Vec<crate::correction::Correction>>,
 ) {
     let total_len = source.as_bytes().len();
 
-    for comment in collect_comment_lines(source, lines, code_map) {
+    for comment in collect_comment_lines(source, lines, parse_result) {
         if comment.is_empty || (!allow_border && comment.is_border) {
             push_comment_diagnostic(
                 source,

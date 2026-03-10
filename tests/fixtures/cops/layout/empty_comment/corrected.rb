@@ -9,3 +9,7 @@ b = 5
 def foo
   something
 end
+
+put "/users/#{name}"
+
+record.add_child("#{other.id}")

@@ -17,3 +17,9 @@ def foo #
   something #
             ^ Layout/EmptyComment: Source code comment is empty.
 end
+
+put "/users/#{name}" #
+                     ^ Layout/EmptyComment: Source code comment is empty.
+
+record.add_child("#{other.id}") #
+                                ^ Layout/EmptyComment: Source code comment is empty.
