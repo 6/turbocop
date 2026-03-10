@@ -18,6 +18,12 @@ use crate::parse::source::SourceFile;
 /// Fix: detect heredoc-backed `StringNode` / `InterpolatedStringNode` values by
 /// their `<<` opening and exclude them from literal interpolation offenses.
 ///
+/// Follow-up: `is_literal()` also needs to accept `KeywordHashNode`. These nodes
+/// arise for Prism keyword-argument hashes (for example `call(foo: 1)`), and the
+/// zero-tolerance `prism_pitfalls` test requires the literal helper to acknowledge
+/// the hash/keyword-hash split even though interpolation bodies rarely surface
+/// them directly.
+///
 /// RuboCop considers a node "literal" if it's a basic literal (int, float, string,
 /// symbol, nil, true, false) or a composite literal (array, hash, pair/assoc, irange,
 /// erange) where ALL children are also literals (recursively).
@@ -95,6 +101,16 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
 
     // Composite: hash with all-literal key/value pairs
     if let Some(hash) = node.as_hash_node() {
+        return hash.elements().iter().all(|e| {
+            if let Some(assoc) = e.as_assoc_node() {
+                is_literal(&assoc.key()) && is_literal(&assoc.value())
+            } else {
+                false
+            }
+        });
+    }
+
+    if let Some(hash) = node.as_keyword_hash_node() {
         return hash.elements().iter().all(|e| {
             if let Some(assoc) = e.as_assoc_node() {
                 is_literal(&assoc.key()) && is_literal(&assoc.value())
@@ -294,4 +310,17 @@ impl<'pr> Visit<'pr> for LiteralInterpVisitor<'_, '_> {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(LiteralInInterpolation, "cops/lint/literal_in_interpolation");
+
+    #[test]
+    fn keyword_hash_is_treated_as_literal() {
+        let result = ruby_prism::parse(b"call(foo: 1)\n");
+        let root = result.node();
+        let program = root.as_program_node().unwrap();
+        let stmts = program.statements();
+        let call = stmts.body().iter().next().unwrap().as_call_node().unwrap();
+        let arg = call.arguments().unwrap().arguments().iter().next().unwrap();
+
+        assert!(arg.as_keyword_hash_node().is_some());
+        assert!(is_literal(&arg));
+    }
 }
