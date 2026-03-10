@@ -1,8 +1,27 @@
-use crate::cop::node_type::{CALL_NODE, MATCH_WRITE_NODE, REGULAR_EXPRESSION_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
+/// Checks for ambiguous regexp literals in the first argument of a method
+/// invocation without parentheses.
+///
+/// ## Implementation
+///
+/// RuboCop implements this by reading parser diagnostics (warnings) from the
+/// Ruby parser. We do the same: Prism emits `PM_WARN_AMBIGUOUS_SLASH` warnings
+/// when it encounters a `/` that could be either a regexp delimiter or division
+/// operator. We iterate over `parse_result.warnings()` and report offenses for
+/// those whose message matches the ambiguous slash pattern.
+///
+/// The previous AST-based approach (walking CallNodes to find regexp first
+/// arguments without parentheses) missed several patterns:
+/// - Regexp with method chain: `p /pattern/.do_something`
+/// - MatchWriteNode arguments: `assert /pattern/ =~ string`
+/// - Complex nesting patterns
+///
+/// Using Prism warnings directly is simpler, more correct, and mirrors
+/// RuboCop's approach exactly.
 pub struct AmbiguousRegexpLiteral;
 
 impl Cop for AmbiguousRegexpLiteral {
@@ -14,131 +33,34 @@ impl Cop for AmbiguousRegexpLiteral {
         Severity::Warning
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, MATCH_WRITE_NODE, REGULAR_EXPRESSION_NODE]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Look for CallNode without parentheses where the first argument is a
-        // RegularExpressionNode or a MatchWriteNode wrapping one.
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
-
-        // Must not have parentheses
-        if call.opening_loc().is_some() {
-            return;
-        }
-
-        // Skip operator method calls (=~, ==, etc.) — they are never ambiguous
-        let name = call.name().as_slice();
-        if matches!(
-            name,
-            b"=="
-                | b"!="
-                | b"<"
-                | b">"
-                | b"<="
-                | b">="
-                | b"<=>"
-                | b"+"
-                | b"-"
-                | b"*"
-                | b"/"
-                | b"%"
-                | b"**"
-                | b"&"
-                | b"|"
-                | b"^"
-                | b"~"
-                | b"<<"
-                | b">>"
-                | b"[]"
-                | b"[]="
-                | b"=~"
-                | b"!~"
-        ) {
-            return;
-        }
-
-        let arguments = match call.arguments() {
-            Some(a) => a,
-            None => return,
-        };
-
-        let args = arguments.arguments();
-        if args.is_empty() {
-            return;
-        }
-
-        let first_arg = args.iter().next().unwrap();
-
-        // Check if the first argument is a regexp literal
-        let regexp_offset = if first_arg.as_regular_expression_node().is_some() {
-            Some(first_arg.location().start_offset())
-        } else if let Some(mw) = first_arg.as_match_write_node() {
-            // MatchWriteNode wraps a regexp =~ call
-            let match_call = mw.call();
-            if let Some(recv) = match_call.receiver() {
-                if recv.as_regular_expression_node().is_some() {
-                    Some(recv.location().start_offset())
-                } else {
-                    None
-                }
-            } else {
-                None
+        for warning in parse_result.warnings() {
+            let msg = warning.message();
+            // Prism emits PM_WARN_AMBIGUOUS_SLASH with message:
+            // "ambiguous first argument; put parentheses or a space even after `/` operator"
+            if !msg.contains("ambiguous") || !msg.contains('/') {
+                continue;
             }
-        } else {
-            None
-        };
 
-        let regexp_start = match regexp_offset {
-            Some(o) => o,
-            None => return,
-        };
+            let loc = warning.location();
+            let start_offset = loc.start_offset();
 
-        // Only `/.../ ` syntax is ambiguous. `%r{...}`, `%r(...)`, `%r/.../` etc.
-        // are never ambiguous because they can't be confused with division.
-        if source.as_bytes().get(regexp_start) != Some(&b'/') {
-            return;
+            let (line, column) = source.offset_to_line_col(start_offset);
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Ambiguous regexp literal. Parenthesize the method arguments if it's surely a regexp literal, or add a whitespace to the right of the `/` if it should be a division.".to_string(),
+            ));
         }
-
-        // Check there's a space between the method name and the `/`
-        // In Prism, when there are no parens, the call node's message_loc ends
-        // before the argument. We need to check if there's whitespace between
-        // the method name and the `/`.
-        let msg_loc = match call.message_loc() {
-            Some(loc) => loc,
-            None => return,
-        };
-        let msg_end = msg_loc.end_offset();
-
-        // There must be at least one space between method name end and regexp start
-        if regexp_start <= msg_end {
-            return;
-        }
-
-        let between = &source.as_bytes()[msg_end..regexp_start];
-        if !between.iter().all(|&b| b == b' ' || b == b'\t') {
-            return;
-        }
-
-        let (line, column) = source.offset_to_line_col(regexp_start);
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
-            "Ambiguous regexp literal. Parenthesize the method arguments if it's surely a regexp literal, or add a whitespace to the right of the `/` if it should be a division.".to_string(),
-        ));
     }
 }
 

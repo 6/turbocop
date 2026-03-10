@@ -14,3 +14,8 @@ key =~ /\(\d+[if]?\)\z/
 raw_host_with_port =~ /:(\d+)$/
 get_header("CONTENT_TYPE") =~ /^([^,;]*)/
 pim =~ /^visit_(.*)$/
+# Method call with parens around regexp with method chain
+p(/pattern/.do_something)
+p(/pattern/.do_something(42))
+# With different parens placement for MatchWriteNode
+assert(/some pattern/) =~ some_string
