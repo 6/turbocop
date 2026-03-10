@@ -3,6 +3,10 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus FP=9→0: All 9 FPs were `public_send(:[], N)` — operator method names like `[]`, `+`,
+/// `*`, etc. were incorrectly treated as valid direct-call targets. RuboCop only considers
+/// identifier methods matching `/[a-z_][a-z0-9_]*[!?]?/i` as replaceable. Removed the
+/// OPERATOR_METHODS allowlist so operators fall through to the identifier regex (which rejects them).
 pub struct SendWithLiteralMethodName;
 
 /// Valid Ruby method name: starts with letter/underscore, contains alphanumerics/underscores,
@@ -10,15 +14,6 @@ pub struct SendWithLiteralMethodName;
 fn is_valid_ruby_method_name(name: &[u8]) -> bool {
     if name.is_empty() {
         return false;
-    }
-
-    // Check for Ruby operator methods that can be called directly
-    const OPERATOR_METHODS: &[&[u8]] = &[
-        b"+", b"-", b"*", b"/", b"%", b"**", b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>",
-        b"===", b"[]", b"[]=", b"<<", b">>", b"&", b"|", b"^", b"~", b"!", b"-@", b"+@",
-    ];
-    if OPERATOR_METHODS.contains(&name) {
-        return true;
     }
 
     // Check for reserved words that cannot be used as direct method calls
