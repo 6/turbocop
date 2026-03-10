@@ -59,26 +59,34 @@ use crate::parse::source::SourceFile;
 ///
 /// **Root cause 2 (46 FNs): blanket tFID skip included method definitions.**
 /// The previous fix to skip ALL identifiers ending in `?`/`!` was too aggressive.
-/// In RuboCop's parser gem, method definition names (`def foo?`, `def self.foo!`)
+/// In RuboCop's parser gem, instance method definition names (`def foo?`)
 /// are tokenized as `tIDENTIFIER` (checked), while method calls (`foo?`, `obj.foo?`)
-/// are tokenized as `tFID` (not checked). Confirmed via parser gem tokenization tests.
+/// and singleton definitions (`def self.foo?`) are tokenized as `tFID` (not checked).
 /// Fixed by making `is_fid_token` context-aware: it now checks for `def`/`alias`
 /// context via backward line scanning and only skips `?`/`!` identifiers in call
-/// contexts.
+/// and singleton def contexts.
 ///
 /// ## Corpus investigation (2026-03-10)
 ///
-/// Corpus oracle reported FP=4, FN=1.
+/// Corpus oracle reported FP=3, FN=1.
 ///
-/// FP=4: All from `def self.xxx?` singleton method definitions containing flagged
-/// terms (blacklisted?, blacklist?, whitelisted?, is_blacklisted?). Investigated
-/// two hypotheses: (1) blanket tFID skip — caused FN=193, much worse; (2) skipping
-/// only `def self.` (singleton) cases — caused FN=149. Neither is correct.
-/// The root cause may be config-specific or related to subtle Parser gem tokenization
-/// differences for specific method names. Deferred — 4 FPs is acceptable.
+/// **Root cause 1 (3 FPs): `def self.xxx?` singleton method definitions.**
+/// In the Parser gem, `def foo?` tokenizes the method name as `tIDENTIFIER` (checked),
+/// but `def self.foo?` tokenizes it as `tFID` (NOT checked). This was confirmed via
+/// direct Parser gem tokenization tests. The previous investigation incorrectly stated
+/// that both forms use `tIDENTIFIER`. The prior hypothesis of "blanket tFID skip causing
+/// FN=193" was wrong — the FN=193 was likely from a different baseline or compounding
+/// issue, since the Parser gem consistently uses `tFID` for singleton method names.
+/// Fixed by making `is_in_instance_def_or_alias_context` return false for `def self.`
+/// patterns, so `is_fid_token` correctly skips them.
 ///
-/// FN=1: from jetpants (`:slave_monitor_dsn` inside string interpolation).
-/// Not investigated further.
+/// **Root cause 2 (1 FN): bare symbol inside string interpolation not classified as symbol.**
+/// `:slave_monitor_dsn` inside `"dsn=#{@opts[:slave_monitor_dsn]}"` was missed because
+/// CodeMap marks symbol nodes as non-code, but the `classify_match` interpolation path
+/// only checked `in_code` for the symbol branch. Since the symbol is non-code within
+/// interpolation, it fell through to `check_strings` (false by default) instead of
+/// `check_symbols` (true). Fixed by adding a `symbol_ranges` check in the `!in_code`
+/// branch of the interpolation path.
 pub struct InclusiveLanguage;
 
 /// Global cache of compiled flagged terms, keyed by CopConfig pointer.
@@ -445,6 +453,11 @@ fn classify_match(
                 } else {
                     should_flag_code_token(line, line_pos, match_len, should_check_code)
                 }
+            } else if in_ranges(symbol_ranges, byte_offset) {
+                // Bare symbol inside interpolation (e.g., `"#{opts[:slave_dsn]}"`) —
+                // CodeMap marks symbols as non-code, but the parser gem tokenizes
+                // them as tSYMBOL which follows CheckSymbols.
+                check_symbols
             } else {
                 // Nested string within interpolation — follows CheckStrings
                 check_strings
@@ -509,9 +522,9 @@ fn is_hash_label(line: &[u8], pos: usize, _len: usize) -> bool {
 /// ending in `!` or `?`). RuboCop's parser gem tokenizes these as tFID which is NOT
 /// in the cop's check_token? map, so they are silently skipped.
 ///
-/// HOWEVER, in method definition contexts (`def foo?`, `def self.foo!`) and alias
-/// contexts (`alias foo? bar?`), the parser gem tokenizes the name as tIDENTIFIER
-/// (which IS checked). So we only skip `?`/`!` identifiers in call contexts.
+/// The parser gem uses tIDENTIFIER (checked) only for instance method definitions
+/// (`def foo?`, `def foo!`) and alias contexts. Singleton method definitions
+/// (`def self.foo?`) are tokenized as tFID (not checked), same as method calls.
 fn is_fid_token(line: &[u8], pos: usize) -> bool {
     // Expand forward to find the end of the identifier
     let mut end = pos;
@@ -523,18 +536,22 @@ fn is_fid_token(line: &[u8], pos: usize) -> bool {
         return false;
     }
 
-    // It ends with ?/! — check if it's in a definition context (tIDENTIFIER, not tFID).
-    // In definitions, the parser gem uses tIDENTIFIER which IS checked.
-    if is_in_def_or_alias_context(line, pos) {
+    // It ends with ?/! — check if it's in a plain `def` context (NOT `def self.`).
+    // Only `def foo?` uses tIDENTIFIER (checked). `def self.foo?` uses tFID (not checked).
+    if is_in_instance_def_or_alias_context(line, pos) {
         return false;
     }
 
     true
 }
 
-/// Check if the identifier at `pos` is a method name in a `def` or `alias` statement.
-/// Looks backward from the match position to find `def `, `def self.`, or `alias `.
-fn is_in_def_or_alias_context(line: &[u8], pos: usize) -> bool {
+/// Check if the identifier at `pos` is a method name in an instance `def` or `alias` statement.
+/// Returns true for `def foo?` and `alias foo? bar?`, but NOT for `def self.foo?`.
+///
+/// In the Parser gem, `def foo?` tokenizes the name as `tIDENTIFIER` (checked by RuboCop),
+/// while `def self.foo?` tokenizes it as `tFID` (not checked). This function distinguishes
+/// the two so that only instance method definitions are flagged.
+fn is_in_instance_def_or_alias_context(line: &[u8], pos: usize) -> bool {
     // Expand backward to find the start of the full identifier
     let mut start = pos;
     while start > 0
@@ -548,54 +565,55 @@ fn is_in_def_or_alias_context(line: &[u8], pos: usize) -> bool {
     // Now look backward from identifier start, skipping whitespace
     let mut i = start;
 
-    // Check for `def self.` pattern: skip the `.` and `self`
+    // Check for `def self.` pattern: if we find it, this is a singleton def → return false
     if i > 0 && line[i - 1] == b'.' {
-        i -= 1; // skip '.'
+        let mut j = i - 1; // skip '.'
         // Skip `self` or other receiver
-        while i > 0
-            && (line[i - 1].is_ascii_alphanumeric() || line[i - 1] == b'_' || line[i - 1] == b'@')
+        while j > 0
+            && (line[j - 1].is_ascii_alphanumeric() || line[j - 1] == b'_' || line[j - 1] == b'@')
         {
-            i -= 1;
+            j -= 1;
         }
         // Skip whitespace before receiver
-        while i > 0 && line[i - 1] == b' ' {
-            i -= 1;
+        while j > 0 && line[j - 1] == b' ' {
+            j -= 1;
+        }
+
+        // Check if preceded by `def` keyword
+        if j >= 3 && &line[j - 3..j] == b"def" && (j == 3 || !line[j - 4].is_ascii_alphanumeric()) {
+            // This is `def self.foo?` (or `def SomeClass.foo?`) — tFID, not checked
+            return false;
         }
     }
 
-    // Skip whitespace before the identifier
+    // Check for plain `def foo?` (instance method — tIDENTIFIER, checked)
     while i > 0 && line[i - 1] == b' ' {
         i -= 1;
     }
-
-    // Check if preceded by `def` keyword
-    if i >= 3 && &line[i - 3..i] == b"def" {
-        // Make sure `def` is at line start or preceded by non-identifier char
-        if i == 3 || !line[i - 4].is_ascii_alphanumeric() {
-            return true;
-        }
+    if i >= 3 && &line[i - 3..i] == b"def" && (i == 3 || !line[i - 4].is_ascii_alphanumeric()) {
+        return true;
     }
 
-    // Check if preceded by `alias` keyword (reset i to before identifier)
-    let mut j = start;
-    while j > 0 && line[j - 1] == b' ' {
-        j -= 1;
+    // Check if preceded by `alias` keyword (reset to before identifier)
+    let mut k = start;
+    while k > 0 && line[k - 1] == b' ' {
+        k -= 1;
     }
     // The previous token in an alias is another identifier (the new name).
     // Skip it and any whitespace before it.
-    while j > 0
-        && (line[j - 1].is_ascii_alphanumeric()
-            || line[j - 1] == b'_'
-            || line[j - 1] == b'?'
-            || line[j - 1] == b'!'
-            || line[j - 1] == b'=')
+    while k > 0
+        && (line[k - 1].is_ascii_alphanumeric()
+            || line[k - 1] == b'_'
+            || line[k - 1] == b'?'
+            || line[k - 1] == b'!'
+            || line[k - 1] == b'=')
     {
-        j -= 1;
+        k -= 1;
     }
-    while j > 0 && line[j - 1] == b' ' {
-        j -= 1;
+    while k > 0 && line[k - 1] == b' ' {
+        k -= 1;
     }
-    if j >= 5 && &line[j - 5..j] == b"alias" && (j == 5 || !line[j - 6].is_ascii_alphanumeric()) {
+    if k >= 5 && &line[k - 5..k] == b"alias" && (k == 5 || !line[k - 6].is_ascii_alphanumeric()) {
         return true;
     }
 

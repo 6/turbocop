@@ -35,8 +35,8 @@ NAMES = %w[
 blacklisted?
 whitelist!
 _makara_blacklist!
-# Method definitions with ?/! are tIDENTIFIER in parser gem (checked),
-# so they are moved to offense.rb. Only calls are tFID (not checked).
+# Instance method defs with ?/! (def foo?) are tIDENTIFIER in parser gem (checked),
+# so they are in offense.rb. Calls and singleton defs (def self.foo?) are tFID (not checked).
 # Quoted symbols are treated as string content by RuboCop's parser (tSTRING_CONTENT)
 # so they follow CheckStrings (false by default), not CheckSymbols
 x = :"errors.messages.content_type_whitelist_error"
@@ -55,3 +55,13 @@ whitelisted?
 blacklisted?
 _makara_blacklist!
 obj.whitelisted?
+# Singleton method definitions (def self.xxx?) are also tFID — not checked
+def self.is_whitelisted?(url)
+  true
+end
+def self.blacklisted?(key)
+  false
+end
+def self.is_blacklisted?(email)
+  true
+end

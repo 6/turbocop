@@ -39,12 +39,11 @@ def blacklisted?(value)
   false
 end
 
-def self.is_whitelisted?(url)
-            ^^^^^^^^^ Naming/InclusiveLanguage: Use inclusive language instead of `whitelist`. Suggested alternatives: `allowlist`, `permit`.
-  true
-end
-
 def _makara_blacklist!
             ^^^^^^^^^ Naming/InclusiveLanguage: Use inclusive language instead of `blacklist`. Suggested alternatives: `denylist`, `block`.
   disconnect!
 end
+
+# Bare symbols inside string interpolation are tSYMBOL in parser gem (CheckSymbols: true)
+opts << "dsn=#{@opts[:slave_monitor_dsn]}"
+                      ^^^^^ Naming/InclusiveLanguage: Use inclusive language instead of `slave`. Suggested alternatives: `replica`, `secondary`, `follower`.
