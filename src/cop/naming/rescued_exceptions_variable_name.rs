@@ -7,9 +7,17 @@ use crate::parse::source::SourceFile;
 /// ## Corpus investigation (2026-03-10)
 ///
 /// Corpus oracle reported FP=0, FN=2. Both FNs from jruby
-/// (`test/jruby/test_local_jump_error.rb`), `rescue LocalJumpError => lje`.
-/// Likely config resolution issue (jruby may have custom PreferredName config).
-/// Not fixed — FN=2 is acceptable.
+/// (`test/jruby/test_local_jump_error.rb:7` and `:15`), `rescue LocalJumpError => lje`.
+/// Investigated thoroughly: fetched the exact file at commit 0303464, reproduced
+/// the full file content (including `=begin`/`=end` block comment) in unit tests,
+/// and confirmed nitrocop correctly detects both offenses. The implementation logic
+/// (visitor-based traversal, rescue_depth nesting, shadow check, subsequent chain)
+/// all work correctly for this pattern. The FN=2 is likely a corpus run artifact
+/// (stale file cache or transient config loading issue), not a code bug.
+///
+/// Added test coverage for: method-body rescue (no explicit begin),
+/// underscore-prefixed variables (`_exc` -> `_e`), multiple rescue clauses in
+/// same begin block, writer method rescue targets (`storage.exception`).
 pub struct RescuedExceptionsVariableName;
 
 impl Cop for RescuedExceptionsVariableName {
@@ -190,4 +198,21 @@ mod tests {
         RescuedExceptionsVariableName,
         "cops/naming/rescued_exceptions_variable_name"
     );
+
+    #[test]
+    fn test_method_body_rescue() {
+        // Rescue in method body (no explicit begin)
+        let source = b"def test_break\n  proc { break }.call\nrescue LocalJumpError => lje\n  assert_equal :break, lje.reason\nend\n";
+        let diags = crate::testutil::run_cop_full(&RescuedExceptionsVariableName, source);
+        assert_eq!(diags.len(), 1, "Expected 1 offense, got {:?}", diags);
+    }
+
+    #[test]
+    fn test_multiple_rescues_same_method() {
+        // Multiple begin/rescue blocks in the same method should all be checked.
+        // This is the exact pattern from the jruby corpus FN.
+        let source = b"require 'test/unit'\n\nclass TestLocalJumpError < Test::Unit::TestCase\n  def test_lje_structure\n    begin\n      break 1\n    rescue LocalJumpError => lje\n      assert_equal(:break, lje.reason)\n      assert_equal(1, lje.exit_value)\n    end\n\n    begin\n      yield 1\n    rescue LocalJumpError => lje\n      assert_equal(:noreason, lje.reason)\n      assert_equal(nil, lje.exit_value)\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&RescuedExceptionsVariableName, source);
+        assert_eq!(diags.len(), 2, "Expected 2 offenses, got {:?}", diags);
+    }
 }

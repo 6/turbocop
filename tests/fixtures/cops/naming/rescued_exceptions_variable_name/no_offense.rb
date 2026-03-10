@@ -61,3 +61,17 @@ begin
 rescue => _ex
   e.process(data: "test", fallback: true)
 end
+
+# Writer method as rescue variable (e.g., storage.exception)
+begin
+  something
+rescue => storage.exception
+  # do something
+end
+
+# _e is accepted (underscore-prefixed preferred name)
+begin
+  something
+rescue MyException => _e
+  # do something
+end

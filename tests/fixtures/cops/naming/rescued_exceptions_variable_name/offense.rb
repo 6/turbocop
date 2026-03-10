@@ -55,3 +55,30 @@ begin
 rescue => ::E2
           ^^^^ Naming/RescuedExceptionsVariableName: Use `e` instead of `::E2` for rescued exceptions.
 end
+
+# Method-body rescue (no explicit begin)
+def process
+  do_work
+rescue RuntimeError => exc
+                       ^^^ Naming/RescuedExceptionsVariableName: Use `e` instead of `exc` for rescued exceptions.
+  handle(exc)
+end
+
+# Underscore-prefixed variable should suggest _e
+begin
+  something
+rescue MyException => _exc
+                      ^^^^ Naming/RescuedExceptionsVariableName: Use `_e` instead of `_exc` for rescued exceptions.
+  # ignored
+end
+
+# Multiple rescues in same begin block
+begin
+  something
+rescue FooException => foo
+                       ^^^ Naming/RescuedExceptionsVariableName: Use `e` instead of `foo` for rescued exceptions.
+  # handle foo
+rescue BarException => bar
+                       ^^^ Naming/RescuedExceptionsVariableName: Use `e` instead of `bar` for rescued exceptions.
+  # handle bar
+end
