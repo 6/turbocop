@@ -110,3 +110,30 @@ end
 def with_block(&callback)
   callback.name = 'updated'
 end
+
+# Setter inside method with implicit rescue — not last expression of method
+# (the rescue block itself is the last expression, RuboCop doesn't walk into it)
+def with_implicit_rescue
+  x = Something.new
+  x.attr = 5
+rescue StandardError
+  nil
+end
+
+# Setter inside method with implicit ensure — not last expression of method
+def with_implicit_ensure
+  x = Something.new
+  x.attr = 5
+ensure
+  cleanup
+end
+
+# Setter inside method with rescue and else
+def with_rescue_else
+  x = Something.new
+  x.attr = 5
+rescue StandardError
+  nil
+else
+  do_something
+end

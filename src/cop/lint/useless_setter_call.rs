@@ -26,6 +26,15 @@ use crate::parse::source::SourceFile;
 /// assignments in the method body to determine whether each local variable
 /// contains a locally-created object. Only flags setter calls on variables
 /// that hold local objects (created via `.new` or literals).
+///
+/// ## Investigation findings (2026-03-10)
+///
+/// **Root cause of remaining 3 FPs:** When a method body has implicit
+/// `rescue`/`ensure`/`else` clauses (e.g., `def foo; x.attr = 5; rescue; end`),
+/// Prism wraps the body in a `BeginNode`. The code was unwrapping ALL BeginNodes
+/// to find the last statement inside, but RuboCop's `last_expression` only unwraps
+/// bare `begin` nodes (statement sequences), NOT rescue/ensure bodies. The fix:
+/// only unwrap `BeginNode` when it has no rescue/ensure/else clauses.
 pub struct UselessSetterCall;
 
 impl Cop for UselessSetterCall {
@@ -61,12 +70,25 @@ impl Cop for UselessSetterCall {
         };
 
         // Find the last expression in the method body.
-        // RuboCop's last_expression walks into begin blocks.
-        // Body can be: StatementsNode (multiple stmts), BeginNode, or a single expr.
+        // RuboCop's last_expression only unwraps `begin` type (bare statement sequence),
+        // NOT rescue/ensure nodes. In Prism, BeginNode covers all of these, so we must
+        // check: only unwrap BeginNode if it has NO rescue/ensure/else clauses (i.e., it's
+        // just a bare `begin..end` or implicit statement sequence). If it has rescue/ensure,
+        // the BeginNode itself is the last expression (not a setter call), so we skip.
         let last_expr_opt = if let Some(stmts) = body.as_statements_node() {
             stmts.body().iter().last()
         } else if let Some(begin) = body.as_begin_node() {
-            begin.statements().and_then(|s| s.body().iter().last())
+            // Only unwrap if this is a plain begin block (no rescue/ensure/else)
+            if begin.rescue_clause().is_none()
+                && begin.ensure_clause().is_none()
+                && begin.else_clause().is_none()
+            {
+                begin.statements().and_then(|s| s.body().iter().last())
+            } else {
+                // Method body is begin+rescue/ensure — the last expression is the
+                // BeginNode itself, which is not a setter call, so no offense.
+                None
+            }
         } else {
             None
         };
