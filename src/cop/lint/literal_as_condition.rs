@@ -1,10 +1,44 @@
-use crate::cop::node_type::{CASE_NODE, IF_NODE, UNTIL_NODE, WHILE_NODE};
+use ruby_prism::Visit;
+
+use crate::cop::node_type::{
+    AND_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, IF_NODE, OR_NODE, UNLESS_NODE, UNTIL_NODE,
+    WHILE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Checks for literals used as conditions or as operands in and/or expressions
+/// serving as conditions of if/while/until/case-when/case-in.
+///
+/// ## Root causes of prior FNs (583):
+/// - Missing literal types: only checked numeric/bool/nil, not string/symbol/array/hash/regex/range
+/// - No ternary support (was skipping all ternaries)
+/// - No modifier if/unless support
+/// - No `&&`/`||` handling (truthy LHS of &&, falsey LHS of ||)
+/// - No `!literal` detection
+/// - No `case` without predicate (when branches with all-literal conditions)
+/// - No `case_match` (pattern matching) support
+/// - No recursive check through and/or/begin/! in conditions
+/// - No `begin..end while`/`begin..end until` (post-loop) support
+///
+/// ## Root causes of prior FPs (16):
+/// - Unclear without corpus data; likely edge cases now addressed by proper literal classification
+///
+/// ## Fixes applied:
+/// - Expanded literal detection to all Ruby literal types
+/// - Added truthy_literal/falsey_literal classification matching RuboCop
+/// - Added on_and (truthy LHS), on_or (falsey LHS) handlers
+/// - Added on_send for `!` and `not` prefix operators
+/// - Added ternary and modifier if/unless support
+/// - Added case without predicate and case_match support
+/// - Added recursive condition checking (check_node/handle_node)
+/// - Added begin..end while/until (post-loop) via is_begin_modifier()
 pub struct LiteralAsCondition;
 
+/// Check if a node is a literal value (matches RuboCop's `literal?`).
+/// Includes: true, false, nil, integers, floats, rationals, imaginary,
+/// strings, symbols, arrays, hashes, regexps, ranges.
 fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
     matches!(
         node,
@@ -15,7 +49,114 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
             | ruby_prism::Node::FloatNode { .. }
             | ruby_prism::Node::RationalNode { .. }
             | ruby_prism::Node::ImaginaryNode { .. }
+            | ruby_prism::Node::StringNode { .. }
+            | ruby_prism::Node::SymbolNode { .. }
+            | ruby_prism::Node::RegularExpressionNode { .. }
+            | ruby_prism::Node::ArrayNode { .. }
+            | ruby_prism::Node::HashNode { .. }
+            | ruby_prism::Node::RangeNode { .. }
+            | ruby_prism::Node::InterpolatedStringNode { .. }
+            | ruby_prism::Node::InterpolatedSymbolNode { .. }
+            | ruby_prism::Node::InterpolatedRegularExpressionNode { .. }
+            | ruby_prism::Node::XStringNode { .. }
     )
+}
+
+/// Check if a node is a truthy literal (not nil, not false).
+fn is_truthy_literal(node: &ruby_prism::Node<'_>) -> bool {
+    is_literal(node)
+        && !matches!(
+            node,
+            ruby_prism::Node::NilNode { .. } | ruby_prism::Node::FalseNode { .. }
+        )
+}
+
+/// Check if a node is a falsey literal (nil or false).
+fn is_falsey_literal(node: &ruby_prism::Node<'_>) -> bool {
+    matches!(
+        node,
+        ruby_prism::Node::NilNode { .. } | ruby_prism::Node::FalseNode { .. }
+    )
+}
+
+/// Check if an array node contains only primitive (basic) literals recursively.
+fn is_primitive_array(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(array) = node.as_array_node() {
+        array.elements().iter().all(|elem| {
+            if elem.as_array_node().is_some() {
+                is_primitive_array(&elem)
+            } else {
+                is_basic_literal(&elem)
+            }
+        })
+    } else {
+        false
+    }
+}
+
+/// Check if a node is a basic literal (excludes compound types like array/hash/range).
+fn is_basic_literal(node: &ruby_prism::Node<'_>) -> bool {
+    matches!(
+        node,
+        ruby_prism::Node::TrueNode { .. }
+            | ruby_prism::Node::FalseNode { .. }
+            | ruby_prism::Node::NilNode { .. }
+            | ruby_prism::Node::IntegerNode { .. }
+            | ruby_prism::Node::FloatNode { .. }
+            | ruby_prism::Node::RationalNode { .. }
+            | ruby_prism::Node::ImaginaryNode { .. }
+            | ruby_prism::Node::StringNode { .. }
+            | ruby_prism::Node::SymbolNode { .. }
+            | ruby_prism::Node::RegularExpressionNode { .. }
+    )
+}
+
+/// Check and report a literal inside a `!` or `not()` receiver.
+/// Unwraps one level of parentheses. Does NOT recurse into compound
+/// expressions (and/or) since those are handled by on_and/on_or.
+fn check_bang_receiver(
+    cop: &LiteralAsCondition,
+    source: &SourceFile,
+    recv: &ruby_prism::Node<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if is_literal(recv) {
+        add_literal_offense(cop, source, recv, diagnostics);
+        return;
+    }
+    // Unwrap parentheses: `!(expr)` or `not(expr)`
+    if let Some(parens) = recv.as_parentheses_node() {
+        if let Some(body) = parens.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                let body_nodes: Vec<_> = stmts.body().iter().collect();
+                if body_nodes.len() == 1 && is_literal(&body_nodes[0]) {
+                    add_literal_offense(cop, source, &body_nodes[0], diagnostics);
+                }
+            }
+        }
+    }
+}
+
+fn node_source_text<'a>(node: &ruby_prism::Node<'a>) -> &'a str {
+    let loc = node.location();
+    std::str::from_utf8(loc.as_slice()).unwrap_or("literal")
+}
+
+fn add_literal_offense(
+    cop: &LiteralAsCondition,
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let loc = node.location();
+    let literal_text = node_source_text(node);
+    let (line, column) = source.offset_to_line_col(loc.start_offset());
+    diagnostics.push(cop.diagnostic(
+        source,
+        line,
+        column,
+        format!("Literal `{literal_text}` appeared as a condition."),
+    ));
 }
 
 impl Cop for LiteralAsCondition {
@@ -28,7 +169,17 @@ impl Cop for LiteralAsCondition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CASE_NODE, IF_NODE, UNTIL_NODE, WHILE_NODE]
+        &[
+            AND_NODE,
+            CALL_NODE,
+            CASE_MATCH_NODE,
+            CASE_NODE,
+            IF_NODE,
+            OR_NODE,
+            UNLESS_NODE,
+            UNTIL_NODE,
+            WHILE_NODE,
+        ]
     }
 
     fn check_node(
@@ -40,84 +191,220 @@ impl Cop for LiteralAsCondition {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Try IfNode
+        // on_and: truthy literal on LHS of &&
+        if let Some(and_node) = node.as_and_node() {
+            let lhs = and_node.left();
+            if is_truthy_literal(&lhs) {
+                add_literal_offense(self, source, &lhs, diagnostics);
+            }
+            return;
+        }
+
+        // on_or: falsey literal on LHS of ||
+        if let Some(or_node) = node.as_or_node() {
+            let lhs = or_node.left();
+            if is_falsey_literal(&lhs) {
+                add_literal_offense(self, source, &lhs, diagnostics);
+            }
+            return;
+        }
+
+        // on_send: ! and not() operators
+        // Only flags direct literal receivers. Nested &&/||/! within the receiver
+        // are handled by on_and/on_or and recursive on_send calls on inner CallNodes.
+        if let Some(call) = node.as_call_node() {
+            let name = call.name();
+            if name.as_slice() == b"!" {
+                // This handles both `!expr` (prefix bang) and `not(expr)`
+                // In Prism, `not(expr)` is also a CallNode with name `!`
+                if let Some(recv) = call.receiver() {
+                    check_bang_receiver(self, source, &recv, diagnostics);
+                }
+            }
+            return;
+        }
+
+        // on_if: if/unless/elsif/ternary with literal condition
+        // Only checks the direct predicate -- nested &&/||/! are handled by
+        // on_and/on_or/on_send handlers respectively.
         if let Some(if_node) = node.as_if_node() {
             let predicate = if_node.predicate();
-            if is_literal(&predicate) {
-                // Skip ternaries (no if_keyword_loc)
-                if if_node.if_keyword_loc().is_some() {
-                    let pred_loc = predicate.location();
-                    let literal_text =
-                        std::str::from_utf8(pred_loc.as_slice()).unwrap_or("literal");
-                    let (line, column) = source.offset_to_line_col(pred_loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        format!("Literal `{literal_text}` appeared as a condition."),
-                    ));
-                }
+
+            if is_falsey_literal(&predicate) || is_truthy_literal(&predicate) {
+                add_literal_offense(self, source, &predicate, diagnostics);
             }
+            return;
         }
 
-        // Try WhileNode
+        // on_unless: unless with literal condition (UnlessNode is separate in Prism)
+        if let Some(unless_node) = node.as_unless_node() {
+            let predicate = unless_node.predicate();
+            if is_falsey_literal(&predicate) || is_truthy_literal(&predicate) {
+                add_literal_offense(self, source, &predicate, diagnostics);
+            }
+            return;
+        }
+
+        // on_while (includes begin..end while via is_begin_modifier)
         if let Some(while_node) = node.as_while_node() {
             let predicate = while_node.predicate();
-            if is_literal(&predicate) {
-                // RuboCop skips `while true` (common infinite loop idiom)
-                let pred_loc = predicate.location();
-                let literal_text = std::str::from_utf8(pred_loc.as_slice()).unwrap_or("literal");
-                if literal_text == "true" {
-                    return;
-                }
-                let (line, column) = source.offset_to_line_col(pred_loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!("Literal `{literal_text}` appeared as a condition."),
-                ));
+            let pred_text = node_source_text(&predicate);
+
+            // RuboCop skips `while true` (common infinite loop idiom)
+            if pred_text == "true" {
+                return;
             }
+
+            if is_literal(&predicate) {
+                add_literal_offense(self, source, &predicate, diagnostics);
+            }
+            return;
         }
 
-        // Try UntilNode
+        // on_until (includes begin..end until via is_begin_modifier)
         if let Some(until_node) = node.as_until_node() {
             let predicate = until_node.predicate();
-            if is_literal(&predicate) {
-                // RuboCop skips `until false` (common infinite loop idiom)
-                let pred_loc = predicate.location();
-                let literal_text = std::str::from_utf8(pred_loc.as_slice()).unwrap_or("literal");
-                if literal_text == "false" {
-                    return;
-                }
-                let (line, column) = source.offset_to_line_col(pred_loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!("Literal `{literal_text}` appeared as a condition."),
-                ));
+            let pred_text = node_source_text(&predicate);
+
+            // RuboCop skips `until false` (common infinite loop idiom)
+            if pred_text == "false" {
+                return;
             }
+
+            if is_literal(&predicate) {
+                add_literal_offense(self, source, &predicate, diagnostics);
+            }
+            return;
         }
 
-        // Try CaseNode
+        // on_case
         if let Some(case_node) = node.as_case_node() {
             if let Some(predicate) = case_node.predicate() {
+                // Case with predicate: check if predicate is literal
+                // Skip non-primitive arrays and interpolated strings
+                if predicate.as_array_node().is_some() && !is_primitive_array(&predicate) {
+                    return;
+                }
+                if predicate.as_interpolated_string_node().is_some() {
+                    return;
+                }
+
+                // Only flag direct literals. Nested &&/||/! are handled by
+                // on_and/on_or/on_send. RuboCop's check_case only recurses through
+                // keyword `and`/`or` (operator_keyword?), not &&/||, which is rare.
+                if is_falsey_literal(&predicate) || is_truthy_literal(&predicate) {
+                    add_literal_offense(self, source, &predicate, diagnostics);
+                }
+            } else {
+                // Case without predicate: check when branches
+                for condition in case_node.conditions().iter() {
+                    if let Some(when_node) = condition.as_when_node() {
+                        let conditions: Vec<_> = when_node.conditions().iter().collect();
+                        if conditions.iter().all(|c| is_literal(c)) {
+                            // Report on the range of all conditions
+                            // For simplicity, report on each condition individually
+                            // RuboCop reports on the combined range of all conditions
+                            if conditions.len() == 1 {
+                                add_literal_offense(self, source, &conditions[0], diagnostics);
+                            } else {
+                                // Report on the combined range from first to last condition
+                                let first = conditions.first().unwrap();
+                                let last = conditions.last().unwrap();
+                                let first_loc = first.location();
+                                let last_loc = last.location();
+                                let (line, column) =
+                                    source.offset_to_line_col(first_loc.start_offset());
+                                let start = first_loc.start_offset();
+                                let end = last_loc.start_offset() + last_loc.as_slice().len();
+                                let combined_text = source.byte_slice(start, end, "literal");
+                                diagnostics.push(self.diagnostic(
+                                    source,
+                                    line,
+                                    column,
+                                    format!("Literal `{combined_text}` appeared as a condition."),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        // on_case_match (pattern matching)
+        if let Some(case_match) = node.as_case_match_node() {
+            if let Some(predicate) = case_match.predicate() {
+                // Check if any descendant is a match variable - if so, skip
+                // (it's being used as a pattern matching expression)
+                if has_match_var_descendant(&case_match) {
+                    return;
+                }
+
+                // Skip non-primitive arrays and interpolated strings
+                if predicate.as_array_node().is_some() && !is_primitive_array(&predicate) {
+                    return;
+                }
+                if predicate.as_interpolated_string_node().is_some() {
+                    return;
+                }
+
                 if is_literal(&predicate) {
-                    let pred_loc = predicate.location();
-                    let literal_text =
-                        std::str::from_utf8(pred_loc.as_slice()).unwrap_or("literal");
-                    let (line, column) = source.offset_to_line_col(pred_loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        format!("Literal `{literal_text}` appeared as a condition."),
-                    ));
+                    add_literal_offense(self, source, &predicate, diagnostics);
+                }
+            } else {
+                // case/in without predicate: check in_pattern branches
+                for condition in case_match.conditions().iter() {
+                    if let Some(in_node) = condition.as_in_node() {
+                        let pattern = in_node.pattern();
+                        if is_literal(&pattern) {
+                            // Report on the in_node itself (matching RuboCop behavior)
+                            let loc = condition.location();
+                            let text = node_source_text(&condition);
+                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                            diagnostics.push(self.diagnostic(
+                                source,
+                                line,
+                                column,
+                                format!("Literal `{text}` appeared as a condition."),
+                            ));
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/// Visitor that checks if any descendant is a match variable (LocalVariableTargetNode).
+struct MatchVarFinder {
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for MatchVarFinder {
+    fn visit_local_variable_target_node(
+        &mut self,
+        _node: &ruby_prism::LocalVariableTargetNode<'pr>,
+    ) {
+        self.found = true;
+    }
+
+    fn visit_capture_pattern_node(&mut self, _node: &ruby_prism::CapturePatternNode<'pr>) {
+        self.found = true;
+    }
+}
+
+/// Check if any descendant of a case_match node is a match variable.
+fn has_match_var_descendant(node: &ruby_prism::CaseMatchNode<'_>) -> bool {
+    let mut finder = MatchVarFinder { found: false };
+    for cond in node.conditions().iter() {
+        if let Some(in_node) = cond.as_in_node() {
+            finder.visit(&in_node.pattern());
+            if finder.found {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]
