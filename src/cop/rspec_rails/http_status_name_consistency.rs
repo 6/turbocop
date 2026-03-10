@@ -28,6 +28,21 @@ use crate::parse::source::SourceFile;
 /// Fixed by changing lockfile resolution in config loader to use `base_dir`
 /// (CWD for non-dotfile configs, config_dir for `.rubocop*` dotfiles),
 /// matching RuboCop's `bundler_lock_file_path` behavior.
+///
+/// ## Synthetic FN=2 fix (2026-03-10)
+///
+/// Persistent synthetic FN=2 was NOT a cop logic bug — it was a benchmark
+/// setup issue. The synthetic project lives at `bench/synthetic/project/`
+/// but the `Gemfile.lock` (with rack 3.2.5) was at `bench/synthetic/Gemfile.lock`
+/// (one directory up). Nitrocop looks for `Gemfile.lock` in `base_dir`
+/// (= config file's parent for `.rubocop*` dotfiles = `project/`), so it
+/// never found the lockfile → `rack_version` was `None` → cop skipped.
+/// RuboCop found it because `run_synthetic.py` sets `BUNDLE_GEMFILE` for
+/// RuboCop (Bundler follows the env var), but not for nitrocop.
+///
+/// Fixed by adding a `Gemfile.lock` symlink in `bench/synthetic/project/`
+/// pointing to `../Gemfile.lock`, plus `.gitignore` negations to track both
+/// the symlink and its target.
 pub struct HttpStatusNameConsistency;
 
 /// Mapping of deprecated status names to their preferred replacements.

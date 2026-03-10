@@ -35,6 +35,8 @@ corpus-results.md
 *.gem
 Gemfile.lock
 !bench/corpus/Gemfile.lock
+!bench/synthetic/Gemfile.lock
+!bench/synthetic/project/Gemfile.lock
 
 # Internal docs (not for OSS)
 docs/INTERNAL_*
