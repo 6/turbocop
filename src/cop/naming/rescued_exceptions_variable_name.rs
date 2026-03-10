@@ -8,12 +8,15 @@ use crate::parse::source::SourceFile;
 ///
 /// Corpus oracle reported FP=0, FN=2. Both FNs from jruby
 /// (`test/jruby/test_local_jump_error.rb:7` and `:15`), `rescue LocalJumpError => lje`.
-/// Investigated thoroughly: fetched the exact file at commit 0303464, reproduced
-/// the full file content (including `=begin`/`=end` block comment) in unit tests,
-/// and confirmed nitrocop correctly detects both offenses. The implementation logic
-/// (visitor-based traversal, rescue_depth nesting, shadow check, subsequent chain)
-/// all work correctly for this pattern. The FN=2 is likely a corpus run artifact
-/// (stale file cache or transient config loading issue), not a code bug.
+///
+/// **Root cause: CI file discovery issue, NOT a cop logic bug.**
+/// The file `test_local_jump_error.rb` is completely skipped by nitrocop in CI —
+/// ALL 17 offenses from ALL cops (including Style/FrozenStringLiteralComment,
+/// Layout/TrailingWhitespace, etc.) are missing, not just RescuedExceptionsVariableName.
+/// The file is valid ASCII Ruby (689 bytes, no BOM, no special encoding).
+/// The `ignore` crate walker finds it locally; 156 other test/jruby/ files are
+/// processed in CI. No .gitignore pattern matches it. The FN=2 is consistent
+/// across 3 corpus oracle runs. `check-cop.py --rerun` locally shows 0 FN.
 ///
 /// Added test coverage for: method-body rescue (no explicit begin),
 /// underscore-prefixed variables (`_exc` -> `_e`), multiple rescue clauses in
