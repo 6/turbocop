@@ -86,3 +86,38 @@ def has_role
   else false
   end
 end
+
+# Nested def inside singleton class inside another method
+def setup
+  class << (@object = Object.new)
+    def callback
+        ^^^^^^^^ Naming/PredicateMethod: Predicate method names should end with `?`.
+      true
+    end
+  end
+end
+
+# Method ending with ? returning nil from early return, and call+block as implicit return
+# In RuboCop, call+block is NOT call_type?, so conservative skip doesn't apply
+def fragment_exist?(key, options = nil)
+    ^^^^^^^^^^^^^^^^ Naming/PredicateMethod: Non-predicate method names should not end with `?`.
+  return unless cache_configured?
+  instrument_fragment_cache(:exist_fragment?, key) do
+    cache_store.exist?(key, options)
+  end
+end
+
+# Predicate method returning a variable (not call_type in RuboCop)
+# with non-boolean literal in another branch
+def instance_type?(type)
+    ^^^^^^^^^^^^^^^ Naming/PredicateMethod: Non-predicate method names should not end with `?`.
+  if type.is_a?(Types::Name::Instance)
+    type
+  end
+end
+
+# Non-predicate returning block_argument predicate call
+def self.auto_bump_topic!
+         ^^^^^^^^^^^^^^^^ Naming/PredicateMethod: Predicate method names should end with `?`.
+  Category.shuffle.any?(&:auto_bump_topic!)
+end

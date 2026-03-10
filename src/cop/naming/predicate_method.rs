@@ -13,6 +13,21 @@ use crate::parse::source::SourceFile;
 /// arguments, which properly recurses into compound expressions.
 /// Also added CaseMatchNode (pattern matching `case...in...end`) handling in
 /// `collect_implicit_return`, alongside the existing CaseNode support.
+///
+/// ## Corpus investigation (2026-03-10)
+///
+/// Corpus oracle reported FP=0, FN=221.
+///
+/// Two root causes:
+/// 1. Visitor didn't recurse into def bodies, so nested defs (inside class << obj,
+///    singleton classes, blocks inside methods) were never visited. Fix: added
+///    `ruby_prism::visit_def_node(self, node)` to recurse.
+/// 2. Conservative mode was too aggressive: variables, constants, self, lambda,
+///    and call+block all returned `Unknown`, triggering conservative skip. But
+///    RuboCop only skips for `super`/`zsuper` and unknown *method calls*
+///    (`call_type?`). Non-call AST nodes (variables, `:block`, `:self`, etc.)
+///    don't trigger skip. Fix: changed non-call returns from `Unknown` to `Opaque`,
+///    and distinguished BlockNode (Opaque) from BlockArgumentNode (still a call).
 pub struct PredicateMethod;
 
 const MSG_PREDICATE: &str = "Predicate method names should end with `?`.";
@@ -211,7 +226,9 @@ impl PredicateMethodVisitor<'_> {
 impl<'pr> Visit<'pr> for PredicateMethodVisitor<'_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         self.check_method(node);
-        // Do NOT recurse into nested defs — each def is checked independently
+        // Recurse into def body to find nested defs (inside class << self,
+        // singleton classes, blocks, etc.) — each nested def is checked independently
+        ruby_prism::visit_def_node(self, node);
     }
 
     // Stop at class/module boundaries
@@ -603,10 +620,10 @@ fn classify_node(node: &ruby_prism::Node<'_>, wayward: &[String]) -> ReturnType 
         return ReturnType::NonBooleanLiteral;
     }
 
-    // self and lambda — RuboCop treats these as unknown/call-like, not literals.
-    // In conservative mode, Unknown causes the cop to skip the method.
+    // self and lambda — not call_type? in RuboCop, so they should NOT trigger
+    // conservative mode skip. Use Opaque.
     if node.as_self_node().is_some() || node.as_lambda_node().is_some() {
-        return ReturnType::Unknown;
+        return ReturnType::Opaque;
     }
 
     // super / forwarding_super
@@ -616,9 +633,16 @@ fn classify_node(node: &ruby_prism::Node<'_>, wayward: &[String]) -> ReturnType 
 
     // CallNode
     if let Some(call) = node.as_call_node() {
-        // Call with a block -> Unknown (in RuboCop, block nodes are not call_type?)
-        if call.block().is_some() {
-            return ReturnType::Unknown;
+        // In RuboCop (Parser gem), call+block (`:block` node) is NOT call_type?,
+        // so it doesn't trigger conservative skip. But call+block_argument
+        // (e.g., `foo(&:bar)`) IS still a `:send` node (call_type?).
+        // In Prism, both set call.block().is_some(), so distinguish them:
+        if let Some(block) = call.block() {
+            if block.as_block_node().is_some() {
+                // Block body (do..end / {}) — not call_type? in RuboCop
+                return ReturnType::Opaque;
+            }
+            // BlockArgumentNode (e.g., &:foo, &block) — still a call, fall through
         }
 
         let method_name = call.name().as_slice();
@@ -679,8 +703,9 @@ fn classify_node(node: &ruby_prism::Node<'_>, wayward: &[String]) -> ReturnType 
         return ReturnType::Opaque;
     }
 
-    // Everything else (variables, constants, etc.)
-    ReturnType::Unknown
+    // Everything else (variables, constants, yield, etc.)
+    // Not call_type? in RuboCop, so should NOT trigger conservative skip.
+    ReturnType::Opaque
 }
 
 #[cfg(test)]
