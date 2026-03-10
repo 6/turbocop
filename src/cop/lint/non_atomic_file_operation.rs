@@ -182,9 +182,7 @@ fn check_force_false(node: &ruby_prism::Node<'_>) -> bool {
     for elem in elements.iter() {
         if let Some(assoc) = elem.as_assoc_node() {
             if let Some(key) = assoc.key().as_symbol_node() {
-                if key.unescaped() == b"force"
-                    && assoc.value().as_false_node().is_some()
-                {
+                if key.unescaped() == b"force" && assoc.value().as_false_node().is_some() {
                     return true;
                 }
             }
