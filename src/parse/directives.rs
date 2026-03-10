@@ -138,6 +138,19 @@ impl DisabledRanges {
                                 used: false,
                             });
                         } else {
+                            // Close any existing open disable for the same cop
+                            // before opening a new one. This handles duplicate
+                            // `# rubocop:disable Cop` without an intervening
+                            // `# rubocop:enable Cop`.
+                            if let Some((prev_start, _prev_col, prev_idx)) =
+                                open_disables.remove(cop)
+                            {
+                                let range = (prev_start, line);
+                                ranges.entry(cop.to_string()).or_default().push(range);
+                                if prev_idx < directives.len() {
+                                    directives[prev_idx].range = range;
+                                }
+                            }
                             let directive_idx = directives.len();
                             directives.push(DisableDirective {
                                 cop_name: cop.to_string(),
@@ -511,6 +524,23 @@ mod tests {
         assert!(dr.is_disabled("Layout/LineLength", 3));
         assert!(dr.is_disabled("Layout/LineLength", 4));
         assert!(!dr.is_disabled("Layout/LineLength", 5));
+    }
+
+    #[test]
+    fn duplicate_disable_without_enable() {
+        // Two disable comments for the same cop without an intervening enable.
+        // The first disable should cover lines 1-5, the second covers lines 5+.
+        let src = "# rubocop:disable Foo/Bar\nx = 1\nx = 2\nx = 3\n# rubocop:disable Foo/Bar\nx = 4\nx = 5\n";
+        let dr = disabled_ranges(src);
+        // Lines 1-4 are covered by the first disable (closed at line 5)
+        assert!(dr.is_disabled("Foo/Bar", 1));
+        assert!(dr.is_disabled("Foo/Bar", 2));
+        assert!(dr.is_disabled("Foo/Bar", 3));
+        assert!(dr.is_disabled("Foo/Bar", 4));
+        // Lines 5+ are covered by the second disable (open to EOF)
+        assert!(dr.is_disabled("Foo/Bar", 5));
+        assert!(dr.is_disabled("Foo/Bar", 6));
+        assert!(dr.is_disabled("Foo/Bar", 7));
     }
 
     // --- check_and_mark_used tests ---
