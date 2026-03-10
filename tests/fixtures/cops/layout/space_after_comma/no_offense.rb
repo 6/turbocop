@@ -18,3 +18,4 @@ end
 # Trailing comma before closing delimiters
 foo(a, b,)
 [1, 2,]
+pairs = [['ADJ',	'Adjective']]

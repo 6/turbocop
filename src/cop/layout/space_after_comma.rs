@@ -3,6 +3,24 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-10)
+///
+/// CI baseline reported FP=64, FN=8.
+///
+/// Fixed sampled FP: the byte-level whitespace check accepted only spaces and
+/// line breaks after `,`, but RuboCop also accepts tabs. Corpus examples such
+/// as `['ADJ',\t'Adjective']` were therefore false positives. The accepted fix
+/// adds `\t` to the allowed post-comma whitespace set and covers that case in
+/// the fixture.
+///
+/// Acceptance gate after this patch (`scripts/check-cop.py --verbose --rerun`):
+/// expected=19,897, actual=22,236, CI baseline=19,953, raw excess=2,339,
+/// missing=0, file-drop noise=5,945. The rerun still passes against the CI
+/// baseline once that existing parser-crash noise is applied.
+///
+/// Remaining gap: sampled FP dropped, but the raw excess is still dominated by
+/// `jruby__jruby__0303464` file-drop noise, so no broader comma-token rewrite
+/// was attempted in this batch.
 pub struct SpaceAfterComma;
 
 impl Cop for SpaceAfterComma {
@@ -36,7 +54,10 @@ impl Cop for SpaceAfterComma {
                 if matches!(next, Some(b')') | Some(b']') | Some(b'|')) {
                     continue;
                 }
-                if !matches!(next, Some(b' ') | Some(b'\n') | Some(b'\r') | None) {
+                if !matches!(
+                    next,
+                    Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | None
+                ) {
                     let (line, column) = source.offset_to_line_col(i);
                     let mut diag = self.diagnostic(
                         source,
