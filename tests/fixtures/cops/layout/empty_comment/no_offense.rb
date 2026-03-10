@@ -10,3 +10,13 @@ end
 #################
 def bar
 end
+
+=begin
+  #
+=end
+class Baz
+end
+
+value = compute # explain value
+                #
+other = process # explain other
