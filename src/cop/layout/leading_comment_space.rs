@@ -2,6 +2,21 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-10)
+///
+/// CI baseline reported FP=19, FN=199.
+///
+/// The dominant FN family was compact multi-hash comments like `##patterns`
+/// and `##$FUNCTOR_EXCEPTIONS`, especially in `facets`, `axlsx`, `chatwoot`,
+/// and `rufo`. RuboCop only accepts multiple leading `#` characters when the
+/// run is followed by whitespace or the comment ends; the old matcher skipped
+/// every comment starting with `##`, which suppressed those offenses.
+///
+/// This pass narrows that exemption so `## section header` and `######` remain
+/// accepted, while `##foo` is flagged like RuboCop. Remaining FP/FN, if any,
+/// are likely in the config-gated comment families (`#ruby`, RBS inline,
+/// Steep annotations, shebang continuation) rather than the compact `##...`
+/// shape fixed here.
 pub struct LeadingCommentSpace;
 
 impl Cop for LeadingCommentSpace {
@@ -34,57 +49,46 @@ impl Cop for LeadingCommentSpace {
             let end = loc.end_offset();
             let text = &bytes[start..end];
 
-            // Must start with #
-            if text.is_empty() || text[0] != b'#' {
+            if !missing_space_after_hash(text) {
                 continue;
             }
 
             // Skip shebangs (#!)
-            if text.len() > 1 && text[1] == b'!' {
+            if text.starts_with(b"#!") {
                 continue;
             }
 
-            // Skip empty comments (just #)
-            if text.len() == 1 {
-                continue;
+            let (line, column) = source.offset_to_line_col(start);
+            let mut diag =
+                self.diagnostic(source, line, column, "Missing space after `#`.".to_string());
+            if let Some(ref mut corr) = corrections {
+                corr.push(crate::correction::Correction {
+                    start: start + 1,
+                    end: start + 1,
+                    replacement: " ".to_string(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
             }
-
-            // After #, the next char should be a space, or end of comment
-            let after_hash = text[1];
-            if after_hash != b' ' && after_hash != b'\t' {
-                // Check for ## (allow ##word for doxygen if enabled)
-                if after_hash == b'#' {
-                    continue;
-                }
-
-                // Skip RDoc toggle comments: #++ and #--
-                if text.len() > 2
-                    && (after_hash == b'+' || after_hash == b'-')
-                    && text[2] == after_hash
-                {
-                    continue;
-                }
-
-                // Skip #= (RDoc =begin/=end style)
-                if after_hash == b'=' {
-                    continue;
-                }
-                let (line, column) = source.offset_to_line_col(start);
-                let mut diag =
-                    self.diagnostic(source, line, column, "Missing space after `#`.".to_string());
-                if let Some(ref mut corr) = corrections {
-                    corr.push(crate::correction::Correction {
-                        start: start + 1,
-                        end: start + 1,
-                        replacement: " ".to_string(),
-                        cop_name: self.name(),
-                        cop_index: 0,
-                    });
-                    diag.corrected = true;
-                }
-                diagnostics.push(diag);
-            }
+            diagnostics.push(diag);
         }
+    }
+}
+
+fn missing_space_after_hash(text: &[u8]) -> bool {
+    if text.is_empty() || text[0] != b'#' {
+        return false;
+    }
+    if text.starts_with(b"#++") || text.starts_with(b"#--") {
+        return false;
+    }
+
+    let hash_run = text.iter().take_while(|&&b| b == b'#').count();
+    match text.get(hash_run) {
+        None => false,
+        Some(b) if b.is_ascii_whitespace() || *b == b'=' => false,
+        Some(_) => true,
     }
 }
 
@@ -104,5 +108,25 @@ mod tests {
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);
         assert_eq!(corrected, b"# comment\n");
+    }
+
+    #[test]
+    fn flags_compact_multi_hash_comments() {
+        let diags = crate::testutil::run_cop_full(
+            &LeadingCommentSpace,
+            b"##patterns += patterns.collect(&:to_s)\n",
+        );
+
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 1);
+        assert_eq!(diags[0].location.column, 0);
+    }
+
+    #[test]
+    fn allows_multi_hash_comments_with_space() {
+        let diags =
+            crate::testutil::run_cop_full(&LeadingCommentSpace, b"## section header\n######\n");
+
+        assert!(diags.is_empty());
     }
 }
