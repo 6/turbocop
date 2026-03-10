@@ -102,6 +102,29 @@ use crate::parse::source::SourceFile;
 /// No code change was taken in this run. The artifact-reported FP/FN counts
 /// are dominated by jruby file-drop noise; with the correct rerun environment
 /// the cop has no remaining missing offenses and no excess regression.
+///
+/// ## Corpus investigation (2026-03-10)
+///
+/// FP=28, FN=2. Root causes of FPs:
+///
+/// 1. **Heredoc-in-structured-node off-by-one (18 FPs):** When a method body
+///    contains heredocs, nitrocop switches to `source_from_node_with_heredoc`
+///    semantics, computing effective_end_offset from `max_descendant_end_line`.
+///    For single-child bodies like `if`/`case`/`while` nodes,
+///    `descendants_max_end_line` fell back to `end_line_of(node)` which
+///    included the node's own `end` keyword. Parser's `each_descendant`
+///    excludes the root node, so its `end` keyword is not counted.
+///    Fix: use a Prism visitor to walk all descendants, skipping the root
+///    node, matching `each_descendant` semantics.
+///    Similarly, for BeginNode with ensure/rescue, the clause's
+///    `location().end_offset()` included closing keywords. Fix: use the
+///    clause's inner statements' end lines instead.
+///
+/// 2. **Directive handling (10 FPs):** thredded (6) and coreinfrastructure (4)
+///    have `# rubocop:disable Metrics/MethodLength` directives that suppress
+///    offenses in RuboCop. These are directive resolution issues, not cop logic.
+///
+/// The 2 FNs are in chef and jruby (known file-drop noise).
 pub struct MethodLength;
 
 /// Parsed config values for MethodLength.
@@ -557,13 +580,29 @@ fn inner_content_end_line(source: &SourceFile, body: &ruby_prism::Node<'_>) -> u
         children.iter().map(&end_line_of).max().unwrap_or(0)
     } else if let Some(begin) = body.as_begin_node() {
         let mut max = 0usize;
+        // For ensure/rescue clauses, use the statements' end lines rather than
+        // the clause's own location (which may include `end` keywords).
+        // This matches Parser's each_descendant behavior where the clause
+        // node's own closing keyword is excluded.
         if let Some(ensure_clause) = begin.ensure_clause() {
-            let off = ensure_clause.location().end_offset().saturating_sub(1);
-            max = max.max(source.offset_to_line_col(off).0);
+            if let Some(stmts) = ensure_clause.statements() {
+                for child in stmts.body().iter() {
+                    max = max.max(end_line_of(&child));
+                }
+            }
         }
         if let Some(rescue_clause) = begin.rescue_clause() {
-            let off = rescue_clause.location().end_offset().saturating_sub(1);
-            max = max.max(source.offset_to_line_col(off).0);
+            // Include rescue clause body statements
+            if let Some(stmts) = rescue_clause.statements() {
+                for child in stmts.body().iter() {
+                    max = max.max(end_line_of(&child));
+                }
+            }
+            // Follow rescue chain (else_clause, subsequent_clause)
+            if let Some(else_clause) = rescue_clause.subsequent() {
+                let off = else_clause.location().end_offset().saturating_sub(1);
+                max = max.max(source.offset_to_line_col(off).0);
+            }
         }
         if let Some(stmts) = begin.statements() {
             let children: Vec<_> = stmts.body().iter().collect();
@@ -586,6 +625,9 @@ fn inner_content_end_line(source: &SourceFile, body: &ruby_prism::Node<'_>) -> u
 /// Parser's `node.each_descendant` behavior where the node itself is
 /// excluded. For a CallNode with block, the block corresponds to Parser's
 /// body, so we visit the block's body children (not the block itself).
+/// For other node types (IfNode, CaseNode, etc.), we use a visitor to
+/// walk all descendants, skipping the root node and any direct block
+/// children to exclude their closing `end` keywords.
 fn descendants_max_end_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {
     let end_line_of = |n: &ruby_prism::Node<'_>| -> usize {
         let off = n
@@ -636,8 +678,60 @@ fn descendants_max_end_line(source: &SourceFile, node: &ruby_prism::Node<'_>) ->
         return max;
     }
 
-    // For other node types, use their end line directly.
-    end_line_of(node)
+    // For non-CallNode types (IfNode, CaseNode, WhileNode, etc.),
+    // visit all descendants using a Prism visitor, skipping the root
+    // node itself. This matches Parser's `each_descendant` behavior
+    // where the root is excluded, so the root's closing `end` keyword
+    // is not counted.
+    use ruby_prism::Visit;
+
+    struct MaxEndLineVisitor<'a> {
+        source: &'a SourceFile,
+        max_line: usize,
+        root_start: usize,
+        root_end: usize,
+        skipped_root: bool,
+    }
+
+    impl<'pr> Visit<'pr> for MaxEndLineVisitor<'_> {
+        fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+            // Skip the root node itself — we only want its descendants
+            if !self.skipped_root
+                && node.location().start_offset() == self.root_start
+                && node.location().end_offset() == self.root_end
+            {
+                self.skipped_root = true;
+                return;
+            }
+            let off = node
+                .location()
+                .end_offset()
+                .saturating_sub(1)
+                .max(node.location().start_offset());
+            let line = self.source.offset_to_line_col(off).0;
+            self.max_line = self.max_line.max(line);
+        }
+
+        fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+            let off = node
+                .location()
+                .end_offset()
+                .saturating_sub(1)
+                .max(node.location().start_offset());
+            let line = self.source.offset_to_line_col(off).0;
+            self.max_line = self.max_line.max(line);
+        }
+    }
+
+    let mut visitor = MaxEndLineVisitor {
+        source,
+        max_line: 0,
+        root_start: node.location().start_offset(),
+        root_end: node.location().end_offset(),
+        skipped_root: false,
+    };
+    visitor.visit(node);
+    visitor.max_line
 }
 
 fn is_single_heredoc_expression(source: &SourceFile, body: &ruby_prism::Node<'_>) -> bool {

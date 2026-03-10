@@ -161,6 +161,41 @@ def test_indented_heredoc_in_block
   end
 end
 
+# Heredoc inside an if/else body: RuboCop's source_from_node_with_heredoc
+# excludes the `if` node's own `end` keyword from the line count.
+# Physical non-blank body lines: 11 (if, heredoc opener, 5 content, closer,
+# raise, end = 11). But RuboCop counts 10 via max descendant end_line.
+def validate_range(value)
+  if value > 9999
+    message = <<~ERROR
+      Value is out of range.
+
+      The system will treat this as invalid.
+      Please provide a value within bounds.
+
+      To override, set skip_validation to true.
+    ERROR
+    raise ArgumentError, message
+  end
+end
+
+# Heredoc inside an ensure block: source_from_node_with_heredoc counts
+# body.first_line to max descendant last_line, excluding the ensure `end`.
+def write_and_cleanup
+  f = Tempfile.new("test")
+  f.write <<-RUBY
+    config[:name] = "value"
+  RUBY
+  f.close
+
+  options = "-e test"
+  run_command(options, env: { "CFG" => f.path })
+
+  check_output "result"
+ensure
+  File.unlink(f)
+end
+
 # Endless method with short multiline body (no offense)
 def compact_settings = {
   one: 1,
