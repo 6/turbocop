@@ -8,16 +8,20 @@ use crate::parse::source::SourceFile;
 ///
 /// Flags extra empty lines at the beginning/end of a method body.
 ///
-/// Root causes of historical FP/FN:
-/// - **FP (whitespace-only lines):** `is_blank_line()` treated lines with only
-///   spaces/tabs as blank, but RuboCop only flags completely empty lines.
-///   Fixed by tightening `is_blank_line()` in util.rs.
-/// - **FN (multiline-arg defs):** keyword_offset was always `def` line, but for
-///   `def foo(\n  arg\n)`, the body starts after `)`. Fixed by using
-///   `rparen_loc` when present and on a different line than `def`.
-/// - **FN (endless methods):** Endless methods (`def foo =`) were completely
-///   skipped. RuboCop flags blank lines after `=` in multiline endless methods.
-///   Fixed by using `equal_loc` as the keyword offset for endless methods.
+/// ## Corpus investigation (2026-03-10)
+///
+/// Corpus oracle reported FP=0, FN=1.
+///
+/// FP=0: no corpus false positives are currently known.
+///
+/// FN=1: multiline method signatures without parentheses still anchored the
+/// beginning check at the `def` line, so a blank line after a continued
+/// signature like `def fetch uri,\n        method = :get` was missed. This cop
+/// now anchors regular methods at the multiline `)` when present, otherwise at
+/// the last parameter line when the signature spans lines without explicit
+/// parentheses. Earlier fixes in this cop already covered whitespace-only lines
+/// (not offenses) and multiline endless methods by using the `=` line as the
+/// body-start anchor.
 pub struct EmptyLinesAroundMethodBody;
 
 impl Cop for EmptyLinesAroundMethodBody {
@@ -49,20 +53,7 @@ impl Cop for EmptyLinesAroundMethodBody {
 
         if let Some(end_loc) = def_node.end_keyword_loc() {
             // Regular method (has `end` keyword)
-            // For multiline-arg defs, use the closing `)` line as the keyword offset
-            // so we check for blank lines after `)`, not after `def`.
-            let keyword_offset = if let Some(rparen) = def_node.rparen_loc() {
-                let (def_line, _) =
-                    source.offset_to_line_col(def_node.def_keyword_loc().start_offset());
-                let (rparen_line, _) = source.offset_to_line_col(rparen.start_offset());
-                if rparen_line > def_line {
-                    rparen.start_offset()
-                } else {
-                    def_node.def_keyword_loc().start_offset()
-                }
-            } else {
-                def_node.def_keyword_loc().start_offset()
-            };
+            let keyword_offset = regular_method_body_start_offset(source, &def_node);
 
             diagnostics.extend(util::check_empty_lines_around_body_with_corrections(
                 self.name(),
@@ -124,6 +115,33 @@ impl Cop for EmptyLinesAroundMethodBody {
     }
 }
 
+fn regular_method_body_start_offset(
+    source: &SourceFile,
+    def_node: &ruby_prism::DefNode<'_>,
+) -> usize {
+    let def_offset = def_node.def_keyword_loc().start_offset();
+    let (def_line, _) = source.offset_to_line_col(def_offset);
+
+    if let Some(rparen) = def_node.rparen_loc() {
+        let (rparen_line, _) = source.offset_to_line_col(rparen.start_offset());
+        if rparen_line > def_line {
+            return rparen.start_offset();
+        }
+    }
+
+    let Some(params) = def_node.parameters() else {
+        return def_offset;
+    };
+
+    let params_end_offset = params.location().end_offset().saturating_sub(1);
+    let (params_end_line, _) = source.offset_to_line_col(params_end_offset);
+    if params_end_line > def_line {
+        params_end_offset
+    } else {
+        def_offset
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,6 +197,18 @@ mod tests {
         let src = b"def some_method(\n  arg\n)\n\n  do_something\nend\n";
         let diags = run_cop_full(&EmptyLinesAroundMethodBody, src);
         assert_eq!(diags.len(), 1, "Should flag blank line after ): {diags:?}");
+        assert!(diags[0].message.contains("beginning"));
+    }
+
+    #[test]
+    fn multiline_arg_def_without_parens_blank_after_last_arg() {
+        let src = b"def fetch uri,\n          method = :get\n\n  build_request(uri, method)\nend\n";
+        let diags = run_cop_full(&EmptyLinesAroundMethodBody, src);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag blank line after continued def signature: {diags:?}"
+        );
         assert!(diags[0].message.contains("beginning"));
     }
 

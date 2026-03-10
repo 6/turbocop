@@ -27,3 +27,9 @@ def compute(value,
 
 ^ Layout/EmptyLinesAroundMethodBody: Extra empty line detected at method body beginning.
   value * factor
+def fetch uri, method = :get, headers = {}, params = [],
+          referer = current_page, redirects = 0
+
+^ Layout/EmptyLinesAroundMethodBody: Extra empty line detected at method body beginning.
+  request = build_request(uri, method, headers, params)
+end
