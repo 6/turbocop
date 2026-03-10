@@ -45,3 +45,35 @@ end
 items.each do |_name:, _value:|
   puts "processing"
 end
+
+# Multi-assignment where underscore vars are not read
+def multi_unused
+  _a, _b = 1, 2
+end
+
+# Block-pass parameter that is not read
+def no_invoke(&_block)
+  42
+end
+
+# Keyword rest parameter that is not read
+def no_opts(**_opts)
+  42
+end
+
+# For-loop variable not read in body
+def skip_items(items)
+  for _item in items
+    process
+  end
+end
+
+# Bare underscore not read
+def ignore_arg(_)
+  42
+end
+
+# Named capture not read
+def match_only(str)
+  /(?<_capture>\w+)/ =~ str
+end

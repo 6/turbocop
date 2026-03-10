@@ -22,6 +22,15 @@ use ruby_prism::Visit;
 /// - Skips variables implicitly forwarded via bare `super` or `binding`.
 /// - Handles top-level scope (variables outside any def/block).
 ///
+/// Supported variable declaration types (matching RuboCop's VariableForce):
+/// - Required, optional, rest, keyword, keyword-rest, and block-pass parameters
+/// - Local variable writes (`_x = 1`)
+/// - Multi-assignment targets (`_a, _b = 1, 2`)
+/// - Named capture regex (`/(?<_name>\w+)/ =~ str`)
+/// - For-loop index variables (`for _x in items`)
+/// - Operator writes (`_x += 1`, `_x ||= 1`, `_x &&= 1`) count as both
+///   writes and reads (they read the variable before writing)
+///
 /// Historical FP root cause: The ReadCollector traversed into blocks without
 /// respecting scope boundaries, causing reads of block-local params to be
 /// misattributed to outer scope variables with the same name. Also, block and
@@ -276,6 +285,14 @@ struct UnderscoreVar {
     is_keyword_block_arg: bool,
 }
 
+/// Check if a name is an underscore-prefixed variable that should be unused.
+/// Matches RuboCop's `should_be_unused?` which returns true for any name
+/// starting with `_`. We exclude bare `_` to avoid FPs on the common Ruby
+/// convention of using `_` as a throwaway variable.
+fn is_underscore_prefixed(name: &str) -> bool {
+    name.starts_with('_') && name != "_"
+}
+
 fn collect_underscore_params(
     params: &ruby_prism::ParametersNode<'_>,
     out: &mut Vec<UnderscoreVar>,
@@ -284,7 +301,7 @@ fn collect_underscore_params(
     for param in params.requireds().iter() {
         if let Some(req) = param.as_required_parameter_node() {
             let name = std::str::from_utf8(req.name().as_slice()).unwrap_or("");
-            if name.starts_with('_') && name != "_" {
+            if is_underscore_prefixed(name) {
                 out.push(UnderscoreVar {
                     name: name.to_string(),
                     offset: req.location().start_offset(),
@@ -297,7 +314,7 @@ fn collect_underscore_params(
     for param in params.optionals().iter() {
         if let Some(opt) = param.as_optional_parameter_node() {
             let name = std::str::from_utf8(opt.name().as_slice()).unwrap_or("");
-            if name.starts_with('_') && name != "_" {
+            if is_underscore_prefixed(name) {
                 out.push(UnderscoreVar {
                     name: name.to_string(),
                     offset: opt.name_loc().start_offset(),
@@ -311,7 +328,7 @@ fn collect_underscore_params(
         if let Some(rest_param) = rest.as_rest_parameter_node() {
             if let Some(name_const) = rest_param.name() {
                 let name = std::str::from_utf8(name_const.as_slice()).unwrap_or("");
-                if name.starts_with('_') && name != "_" {
+                if is_underscore_prefixed(name) {
                     if let Some(name_loc) = rest_param.name_loc() {
                         out.push(UnderscoreVar {
                             name: name.to_string(),
@@ -330,7 +347,7 @@ fn collect_underscore_params(
             let name = std::str::from_utf8(req_kw.name().as_slice()).unwrap_or("");
             // Keyword param names include trailing colon in some representations
             let clean_name = name.trim_end_matches(':');
-            if clean_name.starts_with('_') && clean_name != "_" {
+            if is_underscore_prefixed(clean_name) {
                 out.push(UnderscoreVar {
                     name: clean_name.to_string(),
                     offset: req_kw.name_loc().start_offset(),
@@ -341,12 +358,46 @@ fn collect_underscore_params(
         if let Some(opt_kw) = param.as_optional_keyword_parameter_node() {
             let name = std::str::from_utf8(opt_kw.name().as_slice()).unwrap_or("");
             let clean_name = name.trim_end_matches(':');
-            if clean_name.starts_with('_') && clean_name != "_" {
+            if is_underscore_prefixed(clean_name) {
                 out.push(UnderscoreVar {
                     name: clean_name.to_string(),
                     offset: opt_kw.name_loc().start_offset(),
                     is_keyword_block_arg: is_block,
                 });
+            }
+        }
+    }
+
+    // Keyword rest parameter (**_opts)
+    if let Some(kw_rest) = params.keyword_rest() {
+        if let Some(kw_rest_param) = kw_rest.as_keyword_rest_parameter_node() {
+            if let Some(name_const) = kw_rest_param.name() {
+                let name = std::str::from_utf8(name_const.as_slice()).unwrap_or("");
+                if is_underscore_prefixed(name) {
+                    if let Some(name_loc) = kw_rest_param.name_loc() {
+                        out.push(UnderscoreVar {
+                            name: name.to_string(),
+                            offset: name_loc.start_offset(),
+                            is_keyword_block_arg: false,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Block parameter (&_block)
+    if let Some(block_param) = params.block() {
+        if let Some(name_const) = block_param.name() {
+            let name = std::str::from_utf8(name_const.as_slice()).unwrap_or("");
+            if is_underscore_prefixed(name) {
+                if let Some(name_loc) = block_param.name_loc() {
+                    out.push(UnderscoreVar {
+                        name: name.to_string(),
+                        offset: name_loc.start_offset(),
+                        is_keyword_block_arg: false,
+                    });
+                }
             }
         }
     }
@@ -360,7 +411,7 @@ struct WriteCollector {
 impl<'pr> Visit<'pr> for WriteCollector {
     fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
         let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
-        if name.starts_with('_') && name != "_" {
+        if is_underscore_prefixed(name) {
             self.writes.push(UnderscoreVar {
                 name: name.to_string(),
                 offset: node.name_loc().start_offset(),
@@ -368,6 +419,98 @@ impl<'pr> Visit<'pr> for WriteCollector {
             });
         }
         // Visit the value expression (but not for collecting writes in nested scopes)
+        self.visit(&node.value());
+    }
+
+    /// Handle LocalVariableTargetNode: used in multi-assignment, for-loops,
+    /// pattern matching, and named capture regex.
+    fn visit_local_variable_target_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableTargetNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
+        if is_underscore_prefixed(name) {
+            self.writes.push(UnderscoreVar {
+                name: name.to_string(),
+                offset: node.location().start_offset(),
+                is_keyword_block_arg: false,
+            });
+        }
+    }
+
+    /// Handle MatchWriteNode: named capture regex `/(?<_name>\w+)/ =~ str`.
+    /// The targets contain LocalVariableTargetNode instances which will be
+    /// visited by visit_local_variable_target_node above. But we need to
+    /// override the offset to point at the regex (matching RuboCop behavior
+    /// which uses `node.children.first.source_range` for match_with_lvasgn).
+    fn visit_match_write_node(&mut self, node: &ruby_prism::MatchWriteNode<'pr>) {
+        // Check each target for underscore-prefixed names
+        for target in node.targets().iter() {
+            if let Some(target_node) = target.as_local_variable_target_node() {
+                let name = std::str::from_utf8(target_node.name().as_slice()).unwrap_or("");
+                if is_underscore_prefixed(name) {
+                    // Point at the regex (first child of the call), matching RuboCop
+                    let call = node.call();
+                    let offset = if let Some(receiver) = call.receiver() {
+                        receiver.location().start_offset()
+                    } else {
+                        target_node.location().start_offset()
+                    };
+                    self.writes.push(UnderscoreVar {
+                        name: name.to_string(),
+                        offset,
+                        is_keyword_block_arg: false,
+                    });
+                }
+            }
+        }
+        // Don't visit children (we already handled targets)
+    }
+
+    /// Handle operator writes: _x += 1, _x ||= 1, _x &&= 1
+    /// These are writes but also implicitly read the variable.
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
+        if is_underscore_prefixed(name) {
+            self.writes.push(UnderscoreVar {
+                name: name.to_string(),
+                offset: node.name_loc().start_offset(),
+                is_keyword_block_arg: false,
+            });
+        }
+        self.visit(&node.value());
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
+        if is_underscore_prefixed(name) {
+            self.writes.push(UnderscoreVar {
+                name: name.to_string(),
+                offset: node.name_loc().start_offset(),
+                is_keyword_block_arg: false,
+            });
+        }
+        self.visit(&node.value());
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
+        if is_underscore_prefixed(name) {
+            self.writes.push(UnderscoreVar {
+                name: name.to_string(),
+                offset: node.name_loc().start_offset(),
+                is_keyword_block_arg: false,
+            });
+        }
         self.visit(&node.value());
     }
 
@@ -405,6 +548,40 @@ impl<'pr> Visit<'pr> for ScopeAwareReadCollector<'_> {
         if !self.shadowed.contains(name) {
             self.reads.insert(name.to_string());
         }
+    }
+
+    /// Operator writes (_x += 1, _x ||= 1, _x &&= 1) implicitly read the variable.
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
+        if !self.shadowed.contains(name) {
+            self.reads.insert(name.to_string());
+        }
+        self.visit(&node.value());
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
+        if !self.shadowed.contains(name) {
+            self.reads.insert(name.to_string());
+        }
+        self.visit(&node.value());
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
+        if !self.shadowed.contains(name) {
+            self.reads.insert(name.to_string());
+        }
+        self.visit(&node.value());
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
@@ -496,6 +673,20 @@ fn collect_all_param_names(params: &ruby_prism::ParametersNode<'_>, names: &mut 
         if let Some(opt_kw) = param.as_optional_keyword_parameter_node() {
             let name = std::str::from_utf8(opt_kw.name().as_slice()).unwrap_or("");
             names.insert(name.trim_end_matches(':').to_string());
+        }
+    }
+    if let Some(kw_rest) = params.keyword_rest() {
+        if let Some(kw_rest_param) = kw_rest.as_keyword_rest_parameter_node() {
+            if let Some(name_const) = kw_rest_param.name() {
+                let name = std::str::from_utf8(name_const.as_slice()).unwrap_or("");
+                names.insert(name.to_string());
+            }
+        }
+    }
+    if let Some(block_param) = params.block() {
+        if let Some(name_const) = block_param.name() {
+            let name = std::str::from_utf8(name_const.as_slice()).unwrap_or("");
+            names.insert(name.to_string());
         }
     }
 }
