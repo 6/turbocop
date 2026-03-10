@@ -125,6 +125,20 @@ use crate::parse::source::SourceFile;
 ///    offenses in RuboCop. These are directive resolution issues, not cop logic.
 ///
 /// The 2 FNs are in chef and jruby (known file-drop noise).
+///
+/// ## Corpus investigation (2026-03-10, second pass)
+///
+/// FP=13, FN=2. 6 FPs are config resolution issues (rails_admin Max:29,
+/// super_diff Max:114). 7 FPs are heredoc off-by-one where nitrocop counts
+/// [11/10] but RuboCop counts 10. All 7 are methods with `if/else` containing
+/// heredocs.
+///
+/// Root cause: Prism's `ElseNode` location extends to the parent's closing
+/// `end` keyword. In `MaxEndLineVisitor`, visiting the `ElseNode` descendant
+/// inflated `max_line` by one. Parser AST has no `ElseNode` wrapper — the
+/// else branch is just a child node whose `last_line` is the last statement,
+/// not the `end` keyword. Fix: skip `ElseNode` in the visitor (let its children
+/// be visited instead).
 pub struct MethodLength;
 
 /// Parsed config values for MethodLength.
@@ -701,6 +715,13 @@ fn descendants_max_end_line(source: &SourceFile, node: &ruby_prism::Node<'_>) ->
                 && node.location().end_offset() == self.root_end
             {
                 self.skipped_root = true;
+                return;
+            }
+            // ElseNode is a Prism wrapper that has no equivalent in Parser AST.
+            // Its location extends to the parent's closing `end` keyword, which
+            // would inflate the max end line. Skip it — its children (the actual
+            // else-branch statements) will be visited and counted correctly.
+            if node.as_else_node().is_some() {
                 return;
             }
             let off = node

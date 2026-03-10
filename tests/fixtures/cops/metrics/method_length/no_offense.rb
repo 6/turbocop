@@ -196,6 +196,39 @@ ensure
   File.unlink(f)
 end
 
+# Heredoc inside if/else: RuboCop's source_from_node_with_heredoc uses
+# body.each_descendant which excludes the if node itself. Parser has no
+# ElseNode wrapper, so the else branch's last_line is the last statement,
+# not the `end` keyword. RuboCop counts 10 body lines here (2-11).
+def initialize(version = nil, name = nil)
+  if version && name
+    super(<<~MSG)
+      Invalid timestamp for migration file.
+      Timestamp must be in form YYYYMMDDHHMMSS.
+    MSG
+  else
+    super(<<~MSG)
+      Invalid timestamp for migration.
+      Timestamp must be in form YYYYMMDDHHMMSS.
+    MSG
+  end
+end
+
+# Heredoc inside if/else with non-heredoc else branch.
+# RuboCop: max descendant = MSG end line, excludes `if` end. 10 body lines.
+def render_output(data)
+  if data.nil?
+    output = <<~HTML
+      <div class="empty">
+        <p>No data available</p>
+      </div>
+    HTML
+    log_warning(output)
+  else
+    format_data(data)
+  end
+end
+
 # Endless method with short multiline body (no offense)
 def compact_settings = {
   one: 1,
