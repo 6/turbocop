@@ -1,13 +1,12 @@
 use crate::cop::node_type::{
     BLOCK_NODE, CLASS_VARIABLE_AND_WRITE_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE,
-    CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_TARGET_NODE, CLASS_VARIABLE_WRITE_NODE, DEF_NODE,
+    CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE, DEF_NODE, FOR_NODE,
     GLOBAL_VARIABLE_AND_WRITE_NODE, GLOBAL_VARIABLE_OPERATOR_WRITE_NODE,
-    GLOBAL_VARIABLE_OR_WRITE_NODE, GLOBAL_VARIABLE_TARGET_NODE, GLOBAL_VARIABLE_WRITE_NODE,
-    INSTANCE_VARIABLE_AND_WRITE_NODE, INSTANCE_VARIABLE_OPERATOR_WRITE_NODE,
-    INSTANCE_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_TARGET_NODE, INSTANCE_VARIABLE_WRITE_NODE,
-    LAMBDA_NODE, LOCAL_VARIABLE_AND_WRITE_NODE, LOCAL_VARIABLE_OPERATOR_WRITE_NODE,
-    LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_TARGET_NODE,
-    LOCAL_VARIABLE_WRITE_NODE,
+    GLOBAL_VARIABLE_OR_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_AND_WRITE_NODE,
+    INSTANCE_VARIABLE_OPERATOR_WRITE_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE,
+    INSTANCE_VARIABLE_WRITE_NODE, LAMBDA_NODE, LOCAL_VARIABLE_AND_WRITE_NODE,
+    LOCAL_VARIABLE_OPERATOR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_READ_NODE,
+    LOCAL_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE,
 };
 use crate::cop::util::is_snake_case;
 use crate::cop::{Cop, CopConfig};
@@ -50,6 +49,22 @@ use crate::parse::source::SourceFile;
 /// splits them into separate node types. Fixed by adding
 /// LocalVariable{Or,And,Operator}WriteNode, LocalVariableTargetNode,
 /// and equivalent nodes for instance, class, and global variables.
+///
+/// ## Corpus investigation (2026-03-10, round 3)
+///
+/// FP=2: Pattern matching destructuring (`=> { newName: }`) and regex
+/// named captures (`/(?<channelClaim>\w+)/ =~ str`) produce
+/// `LocalVariableTargetNode` in Prism, but in the Parser gem these are
+/// `match_var` and `match_with_lvasgn` respectively — RuboCop has no
+/// handler for either. Fixed by removing `*_TARGET_NODE` from
+/// `interested_node_types` and instead handling targets via
+/// `MULTI_WRITE_NODE` and `FOR_NODE` parent nodes only.
+///
+/// FN=6: Non-ASCII variable names (CJK characters, emoji) passed
+/// `is_snake_case` because it allowed all non-ASCII bytes. RuboCop's
+/// snake_case regex uses `[[:lower:]]` which only matches Unicode
+/// lowercase letters. Fixed by updating `is_snake_case` to validate
+/// non-ASCII characters via `char::is_lowercase()`.
 pub struct VariableName;
 
 impl Cop for VariableName {
@@ -64,22 +79,20 @@ impl Cop for VariableName {
             LOCAL_VARIABLE_OR_WRITE_NODE,
             LOCAL_VARIABLE_AND_WRITE_NODE,
             LOCAL_VARIABLE_OPERATOR_WRITE_NODE,
-            LOCAL_VARIABLE_TARGET_NODE,
             INSTANCE_VARIABLE_WRITE_NODE,
             INSTANCE_VARIABLE_OR_WRITE_NODE,
             INSTANCE_VARIABLE_AND_WRITE_NODE,
             INSTANCE_VARIABLE_OPERATOR_WRITE_NODE,
-            INSTANCE_VARIABLE_TARGET_NODE,
             CLASS_VARIABLE_WRITE_NODE,
             CLASS_VARIABLE_OR_WRITE_NODE,
             CLASS_VARIABLE_AND_WRITE_NODE,
             CLASS_VARIABLE_OPERATOR_WRITE_NODE,
-            CLASS_VARIABLE_TARGET_NODE,
             GLOBAL_VARIABLE_WRITE_NODE,
             GLOBAL_VARIABLE_OR_WRITE_NODE,
             GLOBAL_VARIABLE_AND_WRITE_NODE,
             GLOBAL_VARIABLE_OPERATOR_WRITE_NODE,
-            GLOBAL_VARIABLE_TARGET_NODE,
+            MULTI_WRITE_NODE,
+            FOR_NODE,
             DEF_NODE,
             BLOCK_NODE,
             LAMBDA_NODE,
@@ -126,6 +139,22 @@ impl Cop for VariableName {
             return;
         }
 
+        // Handle MultiWriteNode — iterate over target children.
+        // We handle targets here (instead of via LOCAL_VARIABLE_TARGET_NODE etc.)
+        // because LocalVariableTargetNode also appears in pattern matching and
+        // regex captures, which RuboCop does NOT check (they use match_var and
+        // match_with_lvasgn in the Parser gem, not lvasgn).
+        if let Some(mw) = node.as_multi_write_node() {
+            self.check_multi_write_targets(source, mw, config, diagnostics);
+            return;
+        }
+
+        // Handle ForNode — check the index variable
+        if let Some(for_node) = node.as_for_node() {
+            self.check_for_index(source, for_node, config, diagnostics);
+            return;
+        }
+
         // Extract variable name and location based on node type
         let (raw_name, start_offset, is_global) =
             // Local variable writes and compound assignments
@@ -137,8 +166,6 @@ impl Cop for VariableName {
                 (n.name().as_slice(), n.name_loc().start_offset(), false)
             } else if let Some(n) = node.as_local_variable_operator_write_node() {
                 (n.name().as_slice(), n.name_loc().start_offset(), false)
-            } else if let Some(n) = node.as_local_variable_target_node() {
-                (n.name().as_slice(), n.location().start_offset(), false)
             }
             // Instance variable writes and compound assignments
             else if let Some(n) = node.as_instance_variable_write_node() {
@@ -149,8 +176,6 @@ impl Cop for VariableName {
                 (n.name().as_slice(), n.name_loc().start_offset(), false)
             } else if let Some(n) = node.as_instance_variable_operator_write_node() {
                 (n.name().as_slice(), n.name_loc().start_offset(), false)
-            } else if let Some(n) = node.as_instance_variable_target_node() {
-                (n.name().as_slice(), n.location().start_offset(), false)
             }
             // Class variable writes and compound assignments
             else if let Some(n) = node.as_class_variable_write_node() {
@@ -161,8 +186,6 @@ impl Cop for VariableName {
                 (n.name().as_slice(), n.name_loc().start_offset(), false)
             } else if let Some(n) = node.as_class_variable_operator_write_node() {
                 (n.name().as_slice(), n.name_loc().start_offset(), false)
-            } else if let Some(n) = node.as_class_variable_target_node() {
-                (n.name().as_slice(), n.location().start_offset(), false)
             }
             // Global variable writes and compound assignments
             else if let Some(n) = node.as_global_variable_write_node() {
@@ -173,8 +196,6 @@ impl Cop for VariableName {
                 (n.name().as_slice(), n.name_loc().start_offset(), true)
             } else if let Some(n) = node.as_global_variable_operator_write_node() {
                 (n.name().as_slice(), n.name_loc().start_offset(), true)
-            } else if let Some(n) = node.as_global_variable_target_node() {
-                (n.name().as_slice(), n.location().start_offset(), true)
             } else {
                 return;
             };
@@ -210,6 +231,89 @@ impl Cop for VariableName {
 }
 
 impl VariableName {
+    fn check_multi_write_targets(
+        &self,
+        source: &SourceFile,
+        mw: ruby_prism::MultiWriteNode<'_>,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        for target in mw.lefts().iter() {
+            self.check_target_node(source, &target, config, diagnostics);
+        }
+        if let Some(rest) = mw.rest() {
+            self.check_target_node(source, &rest, config, diagnostics);
+        }
+        for target in mw.rights().iter() {
+            self.check_target_node(source, &target, config, diagnostics);
+        }
+    }
+
+    fn check_for_index(
+        &self,
+        source: &SourceFile,
+        for_node: ruby_prism::ForNode<'_>,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let index = for_node.index();
+        self.check_target_node(source, &index, config, diagnostics);
+    }
+
+    fn check_target_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let (raw_name, start_offset, is_global) =
+            if let Some(n) = node.as_local_variable_target_node() {
+                (n.name().as_slice(), n.location().start_offset(), false)
+            } else if let Some(n) = node.as_instance_variable_target_node() {
+                (n.name().as_slice(), n.location().start_offset(), false)
+            } else if let Some(n) = node.as_class_variable_target_node() {
+                (n.name().as_slice(), n.location().start_offset(), false)
+            } else if let Some(n) = node.as_global_variable_target_node() {
+                (n.name().as_slice(), n.location().start_offset(), true)
+            } else if let Some(n) = node.as_splat_node() {
+                // *rest in multi-assignment: check inner expression
+                if let Some(expr) = n.expression() {
+                    self.check_target_node(source, &expr, config, diagnostics);
+                }
+                return;
+            } else if let Some(mw) = node.as_multi_target_node() {
+                // Nested destructuring: (a, b), c = ...
+                for target in mw.lefts().iter() {
+                    self.check_target_node(source, &target, config, diagnostics);
+                }
+                if let Some(rest) = mw.rest() {
+                    self.check_target_node(source, &rest, config, diagnostics);
+                }
+                for target in mw.rights().iter() {
+                    self.check_target_node(source, &target, config, diagnostics);
+                }
+                return;
+            } else {
+                return;
+            };
+
+        let raw_name_str = std::str::from_utf8(raw_name).unwrap_or("");
+        let var_name_str = raw_name_str
+            .strip_prefix("@@")
+            .or_else(|| raw_name_str.strip_prefix('@'))
+            .or_else(|| raw_name_str.strip_prefix('$'))
+            .unwrap_or(raw_name_str);
+
+        let (line, column) = source.offset_to_line_col(start_offset);
+
+        if is_global {
+            self.check_forbidden_only(source, var_name_str, line, column, config, diagnostics);
+        } else {
+            self.check_variable_name(source, var_name_str, line, column, config, diagnostics);
+        }
+    }
+
     fn check_forbidden_only(
         &self,
         source: &SourceFile,

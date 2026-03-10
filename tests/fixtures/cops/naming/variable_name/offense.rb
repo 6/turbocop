@@ -66,3 +66,9 @@ badOp += 1
 
 @@badCvarOr ||= 0
 ^^^^^^^^^^^ Naming/VariableName: Use snake_case for variable names.
+
+叫聲 = "meow"
+^^ Naming/VariableName: Use snake_case for variable names.
+
+for badItem in items; end
+    ^^^^^^^ Naming/VariableName: Use snake_case for variable names.

@@ -26,3 +26,22 @@ good_compound ||= 1
 @good_ivar ||= compute
 @@good_cvar += 1
 $GOOD_GLOBAL ||= 0
+
+# Pattern matching destructuring - RuboCop skips match_var nodes
+@params => {
+  textDocument: { uri: },
+  position: pos,
+  newName:,
+}
+
+case data
+in { camelKey: }
+  nil
+end
+
+# Regex named captures - RuboCop skips match_with_lvasgn nodes
+/(?<channelClaim>\w+)/ =~ params
+
+# Unicode lowercase letters are valid snake_case (matches Ruby [[:lower:]])
+héllo = 1
+µ_value = 2
