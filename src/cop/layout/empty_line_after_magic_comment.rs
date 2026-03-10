@@ -27,6 +27,12 @@ use std::sync::OnceLock;
 /// Acceptance gate after the fix: expected 6,890, actual 7,313, CI baseline
 /// 6,659, raw delta +654, file-drop noise 1,006, missing 0. The rerun passed
 /// because the delta stayed within the existing `jruby` parser-crash noise.
+///
+/// Follow-up investigation on 2026-03-10 found remaining corpus FN on files
+/// whose first line starts with a UTF-8 BOM before a valid magic comment. The
+/// top-of-file scan treated the BOM as code, so the cop missed
+/// `\xEF\xBB\xBF# frozen_string_literal: true` and
+/// `\xEF\xBB\xBF# coding: utf-8` headers.
 pub struct EmptyLineAfterMagicComment;
 
 impl Cop for EmptyLineAfterMagicComment {
@@ -88,13 +94,14 @@ impl Cop for EmptyLineAfterMagicComment {
 
 fn last_magic_comment_line(lines: &[&[u8]]) -> Option<usize> {
     let first_code_idx = lines.iter().position(|line| {
-        let trimmed = trim_leading_space(line);
+        let trimmed = trim_leading_space(strip_utf8_bom(line));
         !trimmed.is_empty() && !trimmed.starts_with(b"#")
     });
     let limit = first_code_idx.unwrap_or(lines.len());
 
     let mut last_magic = None;
     for (idx, line) in lines.iter().take(limit).enumerate() {
+        let line = if idx == 0 { strip_utf8_bom(line) } else { line };
         if is_magic_comment(line) {
             last_magic = Some(idx);
         }
@@ -156,6 +163,10 @@ fn trim_leading_space(line: &[u8]) -> &[u8] {
         .position(|&b| b != b' ' && b != b'\t' && b != b'\r')
         .unwrap_or(line.len());
     &line[start..]
+}
+
+fn strip_utf8_bom(line: &[u8]) -> &[u8] {
+    line.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(line)
 }
 
 fn frozen_string_re() -> &'static Regex {
@@ -294,5 +305,31 @@ mod tests {
             b"# -*- coding: us-ascii -*-\n# frozen-string-literal: false\n\n# regular comment\nrequire \"logger\"\n";
         let diags = crate::testutil::run_cop_full(&EmptyLineAfterMagicComment, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn offense_when_utf8_bom_precedes_frozen_string_comment() {
+        let source = b"\xEF\xBB\xBF# frozen_string_literal: true\nclass Foo; end\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterMagicComment, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "expected offense for BOM-prefixed magic comment"
+        );
+        assert_eq!(diags[0].location.line, 2);
+        assert_eq!(diags[0].message, "Add an empty line after magic comments.");
+    }
+
+    #[test]
+    fn offense_when_utf8_bom_precedes_coding_comment() {
+        let source = b"\xEF\xBB\xBF# coding: utf-8\nrequire_relative \"helper\"\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterMagicComment, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "expected offense for BOM-prefixed coding comment"
+        );
+        assert_eq!(diags[0].location.line, 2);
+        assert_eq!(diags[0].message, "Add an empty line after magic comments.");
     }
 }

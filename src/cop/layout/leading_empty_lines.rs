@@ -2,6 +2,17 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-10)
+///
+/// Cached corpus artifact run `22919311621` reported FP=1, FN=0 on
+/// `simplecov-ruby__simplecov__522dc7d/spec/fixtures/iso-8859.rb`.
+///
+/// That file is explicitly excluded by the repo root `.rubocop.yml`, so the
+/// cached demotion appears to be stale artifact data rather than a current cop
+/// behavior bug. A fresh local acceptance rerun (`scripts/check-cop.py
+/// Layout/LeadingEmptyLines --verbose --rerun`) produced FP=0 and only 2
+/// remaining FN overall (`expected=662`, `actual=660`), so no logic change was
+/// applied in this batch.
 pub struct LeadingEmptyLines;
 
 impl Cop for LeadingEmptyLines {
