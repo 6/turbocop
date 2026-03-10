@@ -6,9 +6,16 @@ use ruby_prism::Visit;
 
 /// ## Corpus investigation (2026-03-07)
 ///
-/// FP=1, FN=0 per corpus oracle. Could not reproduce locally — check-cop.py
-/// shows PASS (0 excess). The single FP was likely a config-dependent artifact
-/// (e.g., repo-specific Exclude/Include overrides not replicated locally).
+/// FP=1, FN=0 per corpus oracle.
+///
+/// ## Corpus investigation (2026-03-10)
+///
+/// FP=1: `write_attribute("conditions", exp)` inside `def conditions=(exp)`.
+/// The shadowing method check only handled symbol args (`:attr`), not string
+/// args (`"attr"`). RuboCop's `within_shadowing_method?` calls
+/// `first_arg.respond_to?(:value)` which works for both sym and str nodes.
+/// Fixed by also extracting attribute names from `StringNode` in the
+/// shadowing check.
 pub struct ReadWriteAttribute;
 
 impl Cop for ReadWriteAttribute {
@@ -62,9 +69,17 @@ impl<'pr> RWVisitor<'_, '_> {
             if let Some(args) = call.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if !arg_list.is_empty() {
-                    if let Some(sym) = arg_list[0].as_symbol_node() {
-                        let attr_name = sym.unescaped();
-                        let mut expected_method = attr_name.to_vec();
+                    // Extract attribute name from symbol (:attr) or string ("attr")
+                    let attr_name: Option<Vec<u8>> = arg_list[0]
+                        .as_symbol_node()
+                        .map(|sym| sym.unescaped().to_vec())
+                        .or_else(|| {
+                            arg_list[0]
+                                .as_string_node()
+                                .map(|s| s.unescaped().to_vec())
+                        });
+                    if let Some(attr_name) = attr_name {
+                        let mut expected_method = attr_name;
                         if is_write {
                             expected_method.push(b'=');
                         }

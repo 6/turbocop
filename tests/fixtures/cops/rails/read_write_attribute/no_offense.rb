@@ -17,3 +17,14 @@ class Topic < ApplicationRecord
     write_attribute(:title, t)
   end
 end
+
+# String argument in shadowing method should also be skipped
+class Report < ApplicationRecord
+  def conditions=(exp)
+    write_attribute("conditions", exp)
+  end
+
+  def slug
+    read_attribute("slug")
+  end
+end
