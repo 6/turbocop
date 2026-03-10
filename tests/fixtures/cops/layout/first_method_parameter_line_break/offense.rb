@@ -13,3 +13,8 @@ def method_name(arg1,
                 ^^^^ Layout/FirstMethodParameterLineBreak: Add a line break before the first parameter of a multi-line method parameter definition.
   arg2)
 end
+
+def initialize(work_package:,
+               ^^^^^^^^^^^^^ Layout/FirstMethodParameterLineBreak: Add a line break before the first parameter of a multi-line method parameter definition.
+  mode: :work_based)
+end
