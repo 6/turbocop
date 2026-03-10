@@ -13,3 +13,11 @@ x.size == 0
 # count with positional argument is excluded
 x.count(:foo).positive?
 x.count(1) > 0
+# safe navigation between count and predicate — not flagged
+x.count&.positive?
+x.count&.zero?
+items.count&.> 0
+items.count&.== 0
+# safe navigation on both receiver and predicate
+items&.count&.positive?
+items&.count&.> 0

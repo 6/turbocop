@@ -3,6 +3,11 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03-10): 7 FPs (6 ttscoff/doing, 1 splitwise/super_diff).
+/// All involved safe-navigation chains like `x&.count&.positive?` or `x.count&.> 0`.
+/// Root cause: RuboCop's `RESTRICT_ON_SEND` only matches `send` nodes (`.`), not `csend` (`&.`).
+/// Fix: skip when the outer call (positive?/zero?/>/==/!=) uses safe navigation (`&.`).
+/// Note: `x&.count.positive?` IS still flagged (safe-nav on receiver of count is fine).
 pub struct CollectionQuerying;
 
 impl Cop for CollectionQuerying {
@@ -35,6 +40,12 @@ impl Cop for CollectionQuerying {
         // Pattern: x.count.zero? => x.none?
         if method_name == "positive?" || method_name == "zero?" {
             if call.arguments().is_some() {
+                return;
+            }
+
+            // Skip safe navigation: x.count&.positive? is not equivalent
+            // (RuboCop's RESTRICT_ON_SEND only matches `send`, not `csend`)
+            if is_safe_nav(&call) {
                 return;
             }
 
@@ -73,6 +84,11 @@ impl Cop for CollectionQuerying {
         // Pattern: x.count == 1 => x.one?
         // Pattern: x.count > 1 => x.many? (only with ActiveSupportExtensionsEnabled)
         if matches!(method_name, ">" | "==" | "!=") {
+            // Skip safe navigation: x.count&.> 0 is not equivalent
+            if is_safe_nav(&call) {
+                return;
+            }
+
             if let Some(receiver) = call.receiver() {
                 if let Some(recv_call) = receiver.as_call_node() {
                     let recv_method =
@@ -117,6 +133,12 @@ impl Cop for CollectionQuerying {
             }
         }
     }
+}
+
+/// Check if a call uses safe navigation (`&.`).
+fn is_safe_nav(call: &ruby_prism::CallNode<'_>) -> bool {
+    call.call_operator_loc()
+        .is_some_and(|loc| loc.as_slice() == b"&.")
 }
 
 /// Check if a call node has positional arguments (not just a block-pass or no args).
