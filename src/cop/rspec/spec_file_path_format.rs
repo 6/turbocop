@@ -68,6 +68,27 @@ use crate::parse::source::SourceFile;
 ///
 /// Fixed by replacing the hand-rolled matcher with the `regex` crate, which correctly
 /// tries all positions in the string (matching Ruby's `String#match?` semantics).
+///
+/// ## Root cause of remaining FPs (round 4, ~1,480 FP + ~3 FN)
+///
+/// `collect_top_level_spec_groups` recursed into ALL module/class children at every
+/// level, but RuboCop's `top_level_nodes(root_node)` only unwraps module/class when
+/// the node IS the one being processed (not a sibling). Specifically:
+///
+/// - If the AST root is `:begin` (multiple top-level statements like `require` +
+///   `module Foo`), RuboCop returns ALL children flat — the module is NOT unwrapped.
+///   Since `spec_group?` requires `(any_block (send ...))`, a module node fails,
+///   giving 0 top-level groups → the file is skipped.
+/// - Only when the root IS a `:module`/`:class` (single top-level statement) does
+///   RuboCop recurse into the body.
+///
+/// Most real-world spec files have `require 'spec_helper'` at the top, making the
+/// root `:begin`. If the describe is wrapped in a module, RuboCop skips the file
+/// but nitrocop was processing it, generating ~1,480 false positives.
+///
+/// Fixed by rewriting `collect_top_level_spec_groups` to only unwrap module/class/begin
+/// when they are the SOLE statement at the current level, exactly mirroring RuboCop's
+/// `top_level_nodes` recursion pattern.
 pub struct SpecFilePathFormat;
 
 impl Cop for SpecFilePathFormat {
@@ -250,30 +271,32 @@ impl Cop for SpecFilePathFormat {
     }
 }
 
-/// Recursively unwrap module/class/begin wrappers to find top-level spec groups.
-/// This mirrors RuboCop's `TopLevelGroup#top_level_nodes` + `spec_group?` filter.
+/// Mirror RuboCop's `TopLevelGroup#top_level_nodes` exactly.
 ///
-/// Each found group is tagged with whether it's an example group (true) or shared group (false).
-/// Both count toward the total for the `.one?` check, but only example groups are processed.
+/// RuboCop's algorithm starts from the AST root and follows a chain of single
+/// module/class/begin wrappers. Once it reaches a `:begin` node (multiple siblings)
+/// or any non-wrapper node, it returns all nodes at that level WITHOUT further
+/// recursion. The caller then filters with `spec_group?`.
+///
+/// Critical behavior: if the root is `:begin` (e.g., `require` + `module`), the
+/// module is returned as-is — it is NOT unwrapped. Since `spec_group?` requires
+/// `(any_block (send ...))`, a module node fails the check. This means files with
+/// `require 'spec_helper'` + `module Foo; describe Bar; end` have 0 top-level
+/// spec groups and are SKIPPED entirely.
+///
+/// The old nitrocop implementation incorrectly recursed into ALL module/class
+/// children regardless of siblings, causing ~1,480 FPs.
 fn collect_top_level_spec_groups<'pr>(
     stmts: &[ruby_prism::Node<'pr>],
     source: &SourceFile,
     namespace: &[String],
     found: &mut Vec<(ruby_prism::CallNode<'pr>, Vec<String>, bool)>,
 ) {
-    for stmt in stmts {
-        // In Prism, `describe MyClass do; end` is a CallNode with .block().is_some().
-        // RuboCop requires (any_block (send #rspec? ...)), so we check that the call
-        // has a block attached.
-        if let Some(call) = stmt.as_call_node() {
-            if call.block().is_some() {
-                if let Some(entry) = check_spec_group_call(call, namespace) {
-                    found.push(entry);
-                    continue;
-                }
-            }
-            continue;
-        }
+    // If there is exactly one statement and it's a module/class/begin wrapper,
+    // unwrap it (recursing into its body). This mirrors RuboCop where the root
+    // node is `:module`/`:class` → `top_level_nodes(node.body)`.
+    if stmts.len() == 1 {
+        let stmt = &stmts[0];
 
         if let Some(module_node) = stmt.as_module_node() {
             let module_names = extract_defined_name(source, &module_node.constant_path());
@@ -289,7 +312,7 @@ fn collect_top_level_spec_groups<'pr>(
                     collect_top_level_spec_groups(&children, source, &new_ns, found);
                 }
             }
-            continue;
+            return;
         }
 
         if let Some(class_node) = stmt.as_class_node() {
@@ -306,13 +329,27 @@ fn collect_top_level_spec_groups<'pr>(
                     collect_top_level_spec_groups(&children, source, &new_ns, found);
                 }
             }
-            continue;
+            return;
         }
 
         if let Some(begin_node) = stmt.as_begin_node() {
             if let Some(stmts_node) = begin_node.statements() {
                 let children: Vec<_> = stmts_node.body().iter().collect();
                 collect_top_level_spec_groups(&children, source, namespace, found);
+            }
+            return;
+        }
+    }
+
+    // Multiple statements OR single non-wrapper statement: these are the "top level".
+    // Check each for being a spec group — do NOT recurse into modules/classes.
+    // This matches RuboCop's `:begin` case where children are returned flat.
+    for stmt in stmts {
+        if let Some(call) = stmt.as_call_node() {
+            if call.block().is_some() {
+                if let Some(entry) = check_spec_group_call(call, namespace) {
+                    found.push(entry);
+                }
             }
         }
     }
@@ -904,6 +941,99 @@ mod tests {
             diags[0].message.contains("very/long/namespace/my_class"),
             "Should show full namespace path, got: {}",
             diags[0].message
+        );
+    }
+
+    // FP fix: RuboCop's top_level_nodes only recurses through module/class wrappers
+    // from the ROOT. When the root is :begin (multiple top-level statements like
+    // require + module), module children are NOT recursed into. The spec_group? filter
+    // sees a module node, not a block, and finds 0 spec groups → skips.
+    // nitrocop was recursing into ALL modules/classes regardless, finding describes
+    // inside module wrappers that RuboCop skips.
+    #[test]
+    fn module_with_require_sibling_no_offense() {
+        // RuboCop skips this: the root is :begin (require + module), so module is
+        // not unwrapped. 0 top-level spec groups.
+        let source = b"require 'rails_helper'\n\nmodule Alchemy\n  describe Modules do; end\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathFormat,
+            source,
+            CopConfig::default(),
+            "spec/libraries/modules_spec.rb",
+        );
+        assert!(
+            diags.is_empty(),
+            "Should skip when module wrapper has sibling statements (require), got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    // Same FP pattern but with class wrapper
+    #[test]
+    fn class_with_require_sibling_no_offense() {
+        let source = b"require 'spec_helper'\n\nclass MyApp\n  describe Widget do; end\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathFormat,
+            source,
+            CopConfig::default(),
+            "spec/models/widget_spec.rb",
+        );
+        assert!(
+            diags.is_empty(),
+            "Should skip when class wrapper has sibling statements (require), got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    // When module IS the only top-level statement, it should be unwrapped
+    #[test]
+    fn module_as_sole_statement_still_checks() {
+        let source = b"module Alchemy\n  describe Modules do; end\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathFormat,
+            source,
+            CopConfig::default(),
+            "spec/libraries/modules_spec.rb",
+        );
+        // This SHOULD flag: module is sole statement, so it's unwrapped.
+        // Expected path is alchemy/modules, file is libraries/modules_spec.rb.
+        assert!(
+            !diags.is_empty(),
+            "Should flag when module is sole statement and path doesn't match"
+        );
+    }
+
+    // Module as sole statement with correct path — no offense
+    #[test]
+    fn module_as_sole_statement_correct_path_no_offense() {
+        let source = b"module Alchemy\n  describe Modules do; end\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathFormat,
+            source,
+            CopConfig::default(),
+            "alchemy/modules_spec.rb",
+        );
+        assert!(
+            diags.is_empty(),
+            "Should not flag when module is sole statement and path matches"
+        );
+    }
+
+    // Multiple statements with nested describe AND bare describe — 2 groups, skip
+    #[test]
+    fn require_plus_module_plus_bare_describe_skips() {
+        let source = b"require 'spec_helper'\ndescribe Other do; end\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathFormat,
+            source,
+            CopConfig::default(),
+            "wrong_path_spec.rb",
+        );
+        // The describe is a direct child of the root (alongside require).
+        // Only 1 spec group → should check.
+        assert!(
+            !diags.is_empty(),
+            "Should flag bare describe with require sibling"
         );
     }
 }
