@@ -56,6 +56,18 @@ use crate::parse::source::SourceFile;
 ///
 /// 5. **No receiver check:** RuboCop requires `#rspec?` receiver (nil or `RSpec` constant).
 ///    nitrocop accepted any receiver, causing FPs on `SomeLib.describe MyClass`.
+///
+/// ## Root cause of remaining FPs (round 3, ~1,726 FP + ~4 FN)
+///
+/// The hand-rolled `simple_regex_match` function only found the FIRST occurrence of the
+/// class path pattern in the file path (via `haystack.find()`). RuboCop uses a real regex
+/// engine that tries ALL positions. When the class path (e.g., `my_class`) appeared in a
+/// parent directory (e.g., `/home/my_class_app/spec/models/my_class_spec.rb`), the first
+/// match was in `my_class_app/`, which failed the `[^/]*` check because of the intervening
+/// `/`. The correct match at `my_class_spec.rb` was never tried, causing a false positive.
+///
+/// Fixed by replacing the hand-rolled matcher with the `regex` crate, which correctly
+/// tries all positions in the string (matching Ruby's `String#match?` semantics).
 pub struct SpecFilePathFormat;
 
 impl Cop for SpecFilePathFormat {
@@ -396,99 +408,13 @@ fn camel_to_snake(s: &str) -> String {
 /// RuboCop uses `expanded_file_path.match?("#{pattern}$")` which is a regex match
 /// on the absolute file path.
 fn path_matches_regex(path: &str, regex_pattern: &str) -> bool {
-    // Simple regex engine for the patterns we generate.
-    // Our patterns only use: literal chars, `.` (literal in class path), `.*`, `[^/]*`, `\.`, `$`
-    // Convert to a simple matching approach.
-    //
-    // The pattern is always anchored at the end with `$`.
-    // RuboCop doesn't anchor at the start, so the pattern can match anywhere.
-    // We need to check if the path ends with something matching the pattern.
-
-    // Use Rust's regex crate if available; otherwise implement a simple matcher.
-    // Since we control the pattern format, we can use a simple approach:
-    // Build the regex pattern and use simple_regex_match.
-    simple_regex_match(path, regex_pattern)
-}
-
-/// Simple regex matcher for patterns like `foo/bar[^/]*_spec\.rb$` and `foo/bar.*method[^/]*_spec\.rb$`
-fn simple_regex_match(haystack: &str, pattern: &str) -> bool {
-    // Parse the pattern into segments and match against the haystack.
-    // Patterns we handle:
-    //   literal_path [^/]* _spec\.rb $    (no method)
-    //   literal_path .* method [^/]* _spec\.rb $   (with method)
-    //
-    // Strategy: convert to a form we can match by finding the expected_path suffix.
-
-    // Strip trailing $
-    let pat = pattern.strip_suffix('$').unwrap_or(pattern);
-
-    // The pattern always ends with `[^/]*_spec\.rb`
-    // Split on `[^/]*_spec\.rb` to get the prefix part
-    let spec_suffix = r"[^/]*_spec\.rb";
-    let prefix = match pat.strip_suffix(spec_suffix) {
-        Some(p) => p,
-        None => return false,
-    };
-
-    // The haystack must end with `_spec.rb`
-    if !haystack.ends_with("_spec.rb") {
-        return false;
+    // Use the regex crate for correct matching. The pattern is a valid regex
+    // already (uses [^/]*, \., .*, and $). RuboCop's match? finds any match
+    // in the string (unanchored at start), which the regex crate handles correctly.
+    match regex::Regex::new(regex_pattern) {
+        Ok(re) => re.is_match(path),
+        Err(_) => false,
     }
-
-    // Check if prefix contains `.*` (method case)
-    if let Some(dot_star_pos) = prefix.find(".*") {
-        let class_part = &prefix[..dot_star_pos];
-        let method_part = &prefix[dot_star_pos + 2..];
-
-        // Find where class_part matches in the haystack
-        // RuboCop's regex is unanchored at start, so class_part can match anywhere
-        if let Some(class_pos) = find_in_path(haystack, class_part) {
-            let after_class = &haystack[class_pos + class_part.len()..];
-            // `.*` is greedy — matches as much as possible
-            // Then method_part must appear, followed by [^/]*_spec.rb
-            if method_part.is_empty() {
-                // Empty method part: `class_path.*[^/]*_spec.rb` — matches any suffix
-                return after_class.ends_with("_spec.rb");
-            }
-            // Try all positions of method_part in after_class (greedy: try latest match)
-            // Iterate from the end to find the rightmost match that satisfies [^/]*_spec.rb
-            let mut search_start = after_class.len();
-            while search_start > 0 {
-                if let Some(pos) = after_class[..search_start].rfind(method_part) {
-                    let after_method = &after_class[pos + method_part.len()..];
-                    if let Some(between) = after_method.strip_suffix("_spec.rb") {
-                        if !between.contains('/') {
-                            return true;
-                        }
-                    }
-                    search_start = pos;
-                } else {
-                    break;
-                }
-            }
-        }
-        false
-    } else {
-        // No method: pattern is `class_path[^/]*_spec\.rb`
-        // class_part must appear in the path such that what follows has no `/` before `_spec.rb`
-        let class_part = prefix;
-        if let Some(class_pos) = find_in_path(haystack, class_part) {
-            let after_class = &haystack[class_pos + class_part.len()..];
-            // Must match [^/]*_spec.rb: no slashes, ending with _spec.rb
-            if let Some(between) = after_class.strip_suffix("_spec.rb") {
-                return !between.contains('/');
-            }
-        }
-        false
-    }
-}
-
-/// Find a literal pattern in a path (case-sensitive, unanchored).
-/// Returns the start position of the match.
-fn find_in_path(haystack: &str, pattern: &str) -> Option<usize> {
-    // Unescape `\.` to `.` in the pattern for literal matching
-    let literal = pattern.replace(r"\.", ".");
-    haystack.find(&literal)
 }
 
 #[cfg(test)]
@@ -920,6 +846,43 @@ mod tests {
         assert!(
             diags.is_empty(),
             "Should not flag when symbol argument and class path matches"
+        );
+    }
+
+    // Class name appears in parent directory — the simple_regex_match must try all positions
+    // not just the first. E.g., path `/home/my_class_app/spec/my_class_spec.rb` has `my_class`
+    // in both parent dir and filename. The first match in parent dir fails the [^/]* check
+    // but the second match in the filename succeeds.
+    #[test]
+    fn class_name_in_parent_dir_no_offense() {
+        let source = b"describe MyClass do; end\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathFormat,
+            source,
+            CopConfig::default(),
+            "/home/my_class_app/spec/models/my_class_spec.rb",
+        );
+        assert!(
+            diags.is_empty(),
+            "Should not flag when class name appears in parent dir AND correct suffix, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    // Namespaced class path appears in parent directory
+    #[test]
+    fn namespaced_class_in_parent_dir_no_offense() {
+        let source = b"describe Some::Class do; end\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathFormat,
+            source,
+            CopConfig::default(),
+            "/home/some/project/spec/models/some/class_spec.rb",
+        );
+        assert!(
+            diags.is_empty(),
+            "Should not flag when namespaced class path appears in parent dir AND correct suffix, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
     }
 
