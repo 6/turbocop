@@ -32,3 +32,29 @@ before do
   allow(service).to receive(:foo).and_return(1).ordered
   allow(service).to receive(:bar).and_return(2)
 end
+
+# Same receive arg on same object (all same message) - no offense
+before do
+  allow(Foo).to receive(:foo).and_return(bar)
+  allow(Foo).to receive(:foo).and_return(baz)
+  allow(Foo).to receive(:bar).and_return(qux)
+end
+
+# Splat return values are excluded.
+before do
+  allow(Service).to receive(:foo).and_return(*array)
+  allow(Service).to receive(:bar).and_return(*array)
+end
+
+# .with method chains are excluded (not simple stubs).
+before do
+  allow(Service).to receive(:foo).with(1).and_return(baz)
+  allow(Service).to receive(:bar).with(2).and_return(bar)
+end
+
+# Using .and_call_original instead of .and_return
+before do
+  allow(Service).to receive(:foo).and_call_original
+  allow(Service).to receive(:bar).and_return(qux)
+  allow(Service).to receive(:baz).and_call_original
+end

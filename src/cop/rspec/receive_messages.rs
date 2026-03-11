@@ -1,8 +1,9 @@
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 /// ## Corpus investigation (2026-03-07)
 ///
@@ -19,21 +20,25 @@ use crate::parse::source::SourceFile;
 /// Fix: mirror RuboCop's node pattern shape exactly:
 /// `allow(...).to receive(:symbol).and_return(single_non_heredoc_non_splat_arg)`.
 ///
-/// Acceptance gate after fix (`check-cop --verbose --rerun`):
-/// - Expected: 4,670
-/// - Actual: 4,373
-/// - Excess: 0 (FP resolved)
-/// - Missing: 297
+/// ## Corpus investigation (2026-03-10)
 ///
-/// Remaining gap (FN): this cop currently scans block bodies only, while RuboCop also
-/// catches repeated stubs in other `begin` contexts (for example method bodies in
-/// helper/spec support code). FN work is deferred to a follow-up pass.
+/// FN root causes (297 remaining):
+/// 1) Only `BlockNode` bodies were checked. RuboCop uses `on_begin` which
+///    fires for method bodies, class bodies, begin blocks, etc. — all
+///    represented as `StatementsNode` in Prism. Switched to `check_source`
+///    with a visitor that processes all `StatementsNode` contexts.
+/// 2) Duplicate filtering logic (`has_dups`) was too aggressive: it skipped
+///    the *entire group* when any receive arg was duplicated. RuboCop's
+///    `uniq_items` only excludes items whose receive arg appears on a
+///    *different* line, keeping items with unique args in the group.
+///    Fixed to match RuboCop's per-item filtering.
 pub struct ReceiveMessages;
 
 struct StubInfo {
     receiver_text: String,
     receive_msg: String,
     offset: usize,
+    line: usize,
 }
 
 impl Cop for ReceiveMessages {
@@ -49,42 +54,42 @@ impl Cop for ReceiveMessages {
         RSPEC_DEFAULT_INCLUDE
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, STATEMENTS_NODE]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let block = match node.as_block_node() {
-            Some(b) => b,
-            None => return,
+        let mut visitor = ReceiveMessagesVisitor {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
         };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
 
-        let body = match block.body() {
-            Some(b) => b,
-            None => return,
-        };
+struct ReceiveMessagesVisitor<'a> {
+    cop: &'a ReceiveMessages,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+}
 
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
-        };
-
+impl<'a> ReceiveMessagesVisitor<'a> {
+    fn check_statements(&mut self, stmts: &ruby_prism::StatementsNode<'_>) {
         let mut stubs: Vec<StubInfo> = Vec::new();
 
         for stmt in stmts.body().iter() {
-            if let Some(info) = extract_allow_receive_info(source, &stmt) {
+            if let Some(info) = extract_allow_receive_info(self.source, &stmt) {
                 stubs.push(info);
             }
         }
 
+        // Group by receiver text
         let mut processed = vec![false; stubs.len()];
 
         for i in 0..stubs.len() {
@@ -106,32 +111,50 @@ impl Cop for ReceiveMessages {
                 continue;
             }
 
-            // Check for duplicate receive messages within this group
-            let mut receive_msgs: Vec<&str> = Vec::new();
-            let mut has_dups = false;
-            for &idx in &group {
-                if receive_msgs.contains(&&*stubs[idx].receive_msg) {
-                    has_dups = true;
-                    break;
-                }
-                receive_msgs.push(&stubs[idx].receive_msg);
-            }
+            // RuboCop's uniq_items: keep only items whose receive_msg does NOT
+            // appear on a different line within the group. If :foo appears on
+            // lines 2 and 4, both are excluded. Items with unique messages stay.
+            let uniq_indices: Vec<usize> = group
+                .iter()
+                .copied()
+                .filter(|&idx| {
+                    !group.iter().any(|&other| {
+                        stubs[idx].receive_msg == stubs[other].receive_msg
+                            && stubs[idx].line != stubs[other].line
+                    })
+                })
+                .collect();
 
-            if has_dups {
+            if uniq_indices.len() < 2 {
+                // Mark all as processed so we don't re-check
+                for &idx in &group {
+                    processed[idx] = true;
+                }
                 continue;
             }
 
             for &idx in &group {
                 processed[idx] = true;
-                let (line, column) = source.offset_to_line_col(stubs[idx].offset);
-                diagnostics.push(self.diagnostic(
-                    source,
+            }
+
+            // Only report offenses for the unique items
+            for &idx in &uniq_indices {
+                let (line, column) = self.source.offset_to_line_col(stubs[idx].offset);
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
                     line,
                     column,
                     "Use `receive_messages` instead of multiple stubs.".to_string(),
                 ));
             }
         }
+    }
+}
+
+impl<'pr> Visit<'pr> for ReceiveMessagesVisitor<'_> {
+    fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
+        self.check_statements(node);
+        ruby_prism::visit_statements_node(self, node);
     }
 }
 
@@ -206,11 +229,13 @@ fn extract_allow_receive_info(
     let receive_msg = source
         .byte_slice(msg_loc.start_offset(), msg_loc.end_offset(), "")
         .to_string();
+    let (line, _) = source.offset_to_line_col(stmt_loc.start_offset());
 
     Some(StubInfo {
         receiver_text,
         receive_msg,
         offset: stmt_loc.start_offset(),
+        line,
     })
 }
 
