@@ -4,6 +4,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// FP investigation (2026-03-11): 574 FPs caused by `check_keyword_end_alignment`
+/// counting only ASCII space bytes (0x20) for line indent, while `offset_to_line_col`
+/// counts UTF-8 characters for `end` column. Tab-indented files had `line_indent=0`
+/// but `end_col>0`, causing every multi-line def to fire. Fixed by using
+/// `offset_to_line_col` on the first non-whitespace byte position (skipping both
+/// spaces and tabs) instead of raw space counting. Also handles BOM correctly.
 pub struct DefEndAlignment;
 
 impl Cop for DefEndAlignment {
@@ -83,6 +89,42 @@ mod tests {
         let source = b"def foo = 42\n";
         let diags = run_cop_full(&DefEndAlignment, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn tab_indented_def_no_offense() {
+        // Tab-indented def: end aligned with def via tabs
+        let source = b"\tdef foo\n\t\t42\n\tend\n";
+        let diags = run_cop_full(&DefEndAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "tab-indented def should not fire: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn tab_indented_modifier_def_no_offense() {
+        // Tab-indented modifier def: end aligned with private via tabs
+        let source = b"\tprivate def foo\n\t\t42\n\tend\n";
+        let diags = run_cop_full(&DefEndAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "tab-indented modifier def should not fire: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn bom_prefix_no_offense() {
+        // UTF-8 BOM before def: end at column 0 should not fire
+        let source = b"\xef\xbb\xbfdef foo\n  42\nend\n";
+        let diags = run_cop_full(&DefEndAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "BOM-prefixed def should not fire: {:?}",
+            diags
+        );
     }
 
     #[test]

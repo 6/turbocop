@@ -16,3 +16,12 @@ def quux(x); x + 1; end
 private_class_method def self.helper(x)
   x + 1
 end
+
+# Tab-indented defs should not be flagged when end aligns with def
+	def tab_method
+		42
+	end
+
+	private def tab_modifier_method
+		43
+	end

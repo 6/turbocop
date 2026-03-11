@@ -817,23 +817,26 @@ pub fn check_keyword_end_alignment(
     keyword_offset: usize,
     end_offset: usize,
 ) -> Vec<Diagnostic> {
-    // Use the indentation of the line containing the keyword (not the keyword column),
-    // because modifiers like `private_class_method def ...` put `def` further right.
-    let line_indent = {
+    // Use the column of the first non-whitespace character on the line containing the
+    // keyword. This handles modifiers like `private_class_method def ...` (align with
+    // `private_class_method`) and also correctly handles tab indentation and BOM markers,
+    // since we use offset_to_line_col for proper character-based column computation.
+    let first_non_ws_col = {
         let bytes = source.as_bytes();
         let mut line_start = keyword_offset;
         while line_start > 0 && bytes[line_start - 1] != b'\n' {
             line_start -= 1;
         }
-        let mut indent = 0;
-        while line_start + indent < bytes.len() && bytes[line_start + indent] == b' ' {
-            indent += 1;
+        let mut pos = line_start;
+        while pos < bytes.len() && (bytes[pos] == b' ' || bytes[pos] == b'\t') {
+            pos += 1;
         }
-        indent
+        let (_, col) = source.offset_to_line_col(pos);
+        col
     };
     let (end_line, end_col) = source.offset_to_line_col(end_offset);
 
-    if end_col != line_indent {
+    if end_col != first_non_ws_col {
         return vec![Diagnostic {
             path: source.path_str().to_string(),
             location: Location {
