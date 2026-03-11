@@ -75,3 +75,74 @@ class VisibilityOrder
     3
   end
 end
+
+# `private :method_name` is a visibility declaration, NOT a section marker;
+# it should be ignored (not in ExpectedOrder), not classified as private_methods.
+class VisibilityDeclaration
+  CONST = 1
+  def initialize
+    @x = 1
+  end
+  def foo
+    2
+  end
+  private :foo
+  def bar
+    3
+  end
+end
+
+# `protected :method_name` should also be ignored
+class ProtectedDeclaration
+  CONST = 1
+  def initialize
+    @x = 1
+  end
+  def baz
+    2
+  end
+  protected :baz
+  def qux
+    3
+  end
+end
+
+# Multiple symbol args: `private :foo, :bar`
+class MultipleVisibilityArgs
+  include Comparable
+  CONST = 1
+  def initialize
+    @x = 1
+  end
+  def alpha
+    1
+  end
+  def beta
+    2
+  end
+  private :alpha, :beta
+  def gamma
+    3
+  end
+end
+
+# `private def foo` IS a def modifier and should be classified as private_methods
+# but should not affect subsequent methods' classification
+class DefModifierDoesNotAffectNext
+  include Comparable
+  CONST = 1
+  def initialize
+    @x = 1
+  end
+  def bar
+    2
+  end
+end
+
+# Singleton class (class << self) in correct order
+class << self
+  CONST = 1
+  def some_method
+    2
+  end
+end

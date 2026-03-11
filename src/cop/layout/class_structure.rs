@@ -2,12 +2,30 @@ use std::collections::HashMap;
 
 use crate::cop::node_type::{
     CALL_NODE, CLASS_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, DEF_NODE,
-    STATEMENTS_NODE, SYMBOL_NODE,
+    SINGLETON_CLASS_NODE, STATEMENTS_NODE, SYMBOL_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Layout/ClassStructure: checks class body element ordering.
+///
+/// ## Investigation findings (2026-03-11)
+///
+/// **Root cause of 352 FPs:** `private :method_name` (and `protected :sym`) was
+/// misclassified as `private_methods`/`protected_methods`. In RuboCop, only
+/// `private def foo` (where the argument is a def node — `def_modifier?`) gets
+/// classified as `{vis}_methods`. Bare `private :foo` is a visibility declaration
+/// that resolves to the plain method name `"private"`, which is not in
+/// `ExpectedOrder` and gets ignored. The fix checks `as_def_node()` on the first
+/// argument before classifying as a def modifier.
+///
+/// **FN source (128 FNs):** nitrocop did not handle `SingletonClassNode`
+/// (`class << self`). RuboCop uses `alias on_sclass on_class` to process both.
+/// Added `SINGLETON_CLASS_NODE` to interested types and handling in `check_node`.
+///
+/// **Remaining gaps:** None known for default config. Custom `Categories` /
+/// `ExpectedOrder` configs may reveal edge cases in the category lookup.
 pub struct ClassStructure;
 
 /// Default expected order (matches vendor/rubocop/config/default.yml).
@@ -47,6 +65,7 @@ impl Cop for ClassStructure {
             CONSTANT_PATH_WRITE_NODE,
             CONSTANT_WRITE_NODE,
             DEF_NODE,
+            SINGLETON_CLASS_NODE,
             STATEMENTS_NODE,
             SYMBOL_NODE,
         ]
@@ -61,12 +80,17 @@ impl Cop for ClassStructure {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let class_node = match node.as_class_node() {
-            Some(c) => c,
-            None => return,
+        // Handle both ClassNode and SingletonClassNode (class << self),
+        // matching RuboCop's `alias on_sclass on_class`.
+        let body = if let Some(class_node) = node.as_class_node() {
+            class_node.body()
+        } else if let Some(sclass_node) = node.as_singleton_class_node() {
+            sclass_node.body()
+        } else {
+            return;
         };
 
-        let body = match class_node.body() {
+        let body = match body {
             Some(b) => b,
             None => return,
         };
@@ -200,8 +224,18 @@ fn classify_statement(
             let name = std::str::from_utf8(name_bytes).unwrap_or("");
 
             // Handle def modifiers: `private def foo` / `public def bar`
-            if matches!(name, "private" | "protected" | "public") && call.arguments().is_some() {
-                return Some(format!("{name}_methods"));
+            // Only classify as {vis}_methods when the argument is an actual def node.
+            // `private :foo` (symbol arg) is a visibility declaration, NOT a def modifier —
+            // it should be ignored (not in ExpectedOrder), matching RuboCop's def_modifier? check.
+            if matches!(name, "private" | "protected" | "public") {
+                if let Some(args) = call.arguments() {
+                    let first_arg = args.arguments().iter().next();
+                    if first_arg.is_some_and(|a| a.as_def_node().is_some()) {
+                        return Some(format!("{name}_methods"));
+                    }
+                    // Fall through: `private :foo` is not a def modifier,
+                    // classify as plain method name (will be skipped if not in expected_order)
+                }
             }
 
             // Check if this method name is in any category

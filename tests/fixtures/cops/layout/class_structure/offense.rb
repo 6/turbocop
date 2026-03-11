@@ -44,6 +44,15 @@ class IncludeCascade
   include Kernel
 end
 
+# Singleton class (class << self) should also be checked
+class << self
+  def some_method
+    1
+  end
+  CONST = 1
+  ^^^^^ Layout/ClassStructure: `constants` is supposed to appear before `public_methods`.
+end
+
 # Protected after private: only the first triggers
 class VisibilityCascade
   private
