@@ -17,6 +17,8 @@ use crate::parse::source::SourceFile;
 ///   to `Actual=307` against `Expected=356` (49 FN)
 /// - rewriting the cop to inspect only direct class/module body children still
 ///   regressed to `Actual=326` (30 FN)
+/// - skipping only defs directly inside `class << self` while resetting for
+///   nested class/module bodies still regressed to `Actual=308` (48 FN)
 ///
 /// Reverted. A correct fix needs to identify the explicit singleton-class false
 /// positive without suppressing the ordinary `def ClassName.method` shapes that

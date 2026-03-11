@@ -16,6 +16,13 @@ use crate::parse::source::SourceFile;
 /// `if`, and `def` as transparent wrappers — everything else (while, until, for, case,
 /// lambda, etc.) creates an opaque scope. Fixed by replacing the opt-out approach with an
 /// opt-in approach: only transparent nodes (if, def, begin) pass through the top-level flag.
+///
+/// Corpus investigation (round 3): a live 2026-03-11 rerun disproved two tempting
+/// follow-up theories. Treating multi-argument calls like `include A, B` as
+/// no-offense introduced 27 FN, so RuboCop clearly still counts many of those
+/// calls despite the simplified node-pattern reading. Treating `begin ...
+/// rescue/ensure` as opaque regressed even harder (32 FN). The remaining FPs
+/// need a narrower explanation than argument count or exception-wrapper shape.
 pub struct MixinUsage;
 
 const MIXIN_METHODS: &[&[u8]] = &[b"include", b"extend", b"prepend"];
@@ -64,9 +71,8 @@ impl<'pr> Visit<'pr> for MixinUsageVisitor<'_> {
             && node.receiver().is_none()
             && !self.in_opaque_scope
         {
-            // RuboCop's node pattern requires a single `const` arg — only flag when all
-            // arguments are constants (ConstantReadNode or ConstantPathNode).
-            // Method call arguments like `include T('...')` are not flagged.
+            // RuboCop's node pattern requires `const` args. Method call arguments like
+            // `include T('...')` are not flagged.
             let is_const_mixin = node.arguments().is_some_and(|args| {
                 args.arguments().iter().all(|arg| {
                     arg.as_constant_read_node().is_some() || arg.as_constant_path_node().is_some()
@@ -103,9 +109,9 @@ impl<'pr> Visit<'pr> for MixinUsageVisitor<'_> {
     }
 
     // === Transparent wrappers (RuboCop considers these still "top level") ===
-    // `begin`/`kwbegin`, `if`, and `def` — use default Visit traversal (no scope change).
-    // No need to override visit_begin_node, visit_if_node, visit_def_node — the default
-    // traversal descends into children without changing in_opaque_scope.
+    // `begin`/`kwbegin`, `if`, and `def` are transparent.
+    // No need to override visit_begin_node, visit_if_node, or visit_def_node —
+    // the default traversal descends into children without changing in_opaque_scope.
 
     // === Opaque scopes (mixin calls inside these are NOT top-level) ===
 

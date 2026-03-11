@@ -21,8 +21,9 @@ use ruby_prism::Visit;
 /// Acceptance gate before: expected=542, actual=545, excess=3, missing=0.
 /// Acceptance gate after: expected=542, actual=538, excess=0, missing=4.
 /// Reverted because the change traded the 3 target false positives for 4 new false negatives.
-/// A correct fix needs a narrower distinction than simply checking for `&.` on the compared
-/// receiver call.
+/// A second narrower variant that only skipped `&.class` / `&.name` / `&.to_s` / `&.inspect`
+/// on the compared receiver also landed at actual=538 on 2026-03-11. A correct fix needs a
+/// narrower distinction than simply checking for `&.` on the compared receiver call(s).
 pub struct ClassEqualityComparison;
 
 impl Cop for ClassEqualityComparison {
