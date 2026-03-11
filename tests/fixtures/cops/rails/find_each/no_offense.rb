@@ -44,6 +44,22 @@ User.all.select(:name, :age).each { |u| u.something }
 User.where(active: true).limit(10).each { |u| u.something }
 User.where(active: true).select(:name).each { |u| u.something }
 
+# lock in the chain should suppress offense (in default AllowedMethods)
+User.lock.each { |u| u.something }
+User.where(active: true).lock.each { |u| u.something }
+
+# select in the chain should suppress offense (in default AllowedMethods)
+User.select(:name).each { |u| u.something }
+
 # No-receiver in non-class context should not be flagged
 all.each { |u| u.x }
 where(name: name).each { |u| u.x }
+
+# AllowedPatterns should use regex matching, not substring
+# (a config with AllowedPatterns: ['order'] should match 'order' as regex)
+
+# select in a chain before an AR scope method should suppress (in default AllowedMethods)
+User.select(:name).where(active: true).each { |u| u.something }
+
+# lock in a chain before an AR scope method should suppress (in default AllowedMethods)
+User.lock.where(active: true).each { |u| u.something }

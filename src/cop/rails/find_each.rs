@@ -34,6 +34,21 @@ use ruby_prism::Visit;
 /// whether the current scope is inside an AR-inheriting class. For each
 /// `.each` call, it walks the full receiver chain to collect all method names
 /// and checks AllowedMethods/AllowedPatterns against the entire chain.
+///
+/// ## Follow-up investigation (2026-03-10)
+///
+/// **FP=4 root causes:**
+/// 1. Hardcoded AllowedMethods default was `["order", "limit"]` but vendor
+///    `config/default.yml` has `["order", "limit", "select", "lock"]`. When
+///    config resolution fell back to hardcoded defaults, `select` and `lock`
+///    in a chain before an AR scope method (e.g., `User.select(:name).where(active: true).each`)
+///    were not suppressed.
+/// 2. AllowedPatterns used substring `contains()` matching instead of regex.
+///    RuboCop's `matches_allowed_pattern?` compiles patterns as `Regexp`, so
+///    patterns like `^order$` would work as regex but fail with substring matching.
+///
+/// **Fix:** Updated hardcoded AllowedMethods default to include `select` and
+/// `lock`. Changed AllowedPatterns matching from `contains()` to `regex::Regex`.
 pub struct FindEach;
 
 const AR_SCOPE_METHODS: &[&[u8]] = &[
@@ -79,7 +94,14 @@ impl Cop for FindEach {
     ) {
         let allowed_methods = config
             .get_string_array("AllowedMethods")
-            .unwrap_or_else(|| vec!["order".to_string(), "limit".to_string()]);
+            .unwrap_or_else(|| {
+                vec![
+                    "order".to_string(),
+                    "limit".to_string(),
+                    "select".to_string(),
+                    "lock".to_string(),
+                ]
+            });
         let allowed_patterns = config
             .get_string_array("AllowedPatterns")
             .unwrap_or_default();
@@ -192,7 +214,7 @@ impl<'pr> FindEachVisitor<'_, '_> {
                 if self
                     .allowed_patterns
                     .iter()
-                    .any(|p| method_str.contains(p.as_str()))
+                    .any(|p| regex::Regex::new(p).is_ok_and(|re| re.is_match(method_str)))
                 {
                     return true;
                 }
@@ -252,6 +274,28 @@ mod tests {
         assert!(
             diags.is_empty(),
             "AllowedPatterns should suppress offense for matching method"
+        );
+    }
+
+    #[test]
+    fn allowed_patterns_uses_regex_matching() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        // Regex pattern with anchors should match via regex, not substring
+        let config = CopConfig {
+            options: HashMap::from([(
+                "AllowedPatterns".to_string(),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("^order$".to_string())]),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"User.order(:name).each { |u| puts u }\n";
+        let diags = run_cop_full_with_config(&FindEach, source, config);
+        assert!(
+            diags.is_empty(),
+            "AllowedPatterns should use regex matching (^order$ should match 'order')"
         );
     }
 }
