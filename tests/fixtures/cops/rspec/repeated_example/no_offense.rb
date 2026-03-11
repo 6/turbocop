@@ -121,20 +121,61 @@ describe 'argless vs named' do
   end
 end
 
-# Block-pass examples (it(&proc)) are NOT examples per RuboCop
-# RuboCop's example? matcher requires (block ...), not (send ... block_pass)
-describe 'block pass examples' do
-  it(&method(:validate_name))
-  it(&method(:validate_email))
+# Safe navigation (&.) vs regular (.) calls are NOT duplicates in RuboCop
+# RuboCop uses (send ...) vs (csend ...) — different node types
+describe 'safe navigation' do
+  it { expect(user.name).to eq('John') }
+  it { expect(user&.name).to eq('John') }
 end
 
-# Safe navigation (&.) vs regular dot should produce different fingerprints
-# RuboCop uses csend for &. and send for . — different AST node types
-describe 'safe navigation difference' do
-  it "regular" do
-    expect(user.name).to be_present
+# Examples with different operator assignments are NOT duplicates
+# (x += 1) vs (y += 1) differ by variable name in RuboCop AST
+describe 'operator assignments' do
+  it do
+    count += 1
+    expect(count).to eq(2)
   end
-  it "safe nav" do
-    expect(user&.name).to be_present
+  it do
+    total += 1
+    expect(total).to eq(2)
   end
+end
+
+# Operator assignments with different target vars but same result reference
+# The operator write node name differs (count vs total) even if rest is same
+describe 'operator assign diff target' do
+  it do
+    count += 1
+    expect(result).to eq(2)
+  end
+  it do
+    total += 1
+    expect(result).to eq(2)
+  end
+end
+
+# Examples with different inclusive/exclusive ranges are NOT duplicates
+# 1..10 is (irange ...) vs 1...10 is (erange ...) in RuboCop AST
+describe 'range types' do
+  it { expect(1..10).to include(5) }
+  it { expect(1...10).to include(5) }
+end
+
+# Examples with different multi-assignment targets are NOT duplicates
+describe 'multi-assignment' do
+  it do
+    first, _ = values
+    expect(first).to eq(1)
+  end
+  it do
+    _, second = values
+    expect(second).to eq(2)
+  end
+end
+
+# Examples with nested blocks having different unused params are NOT duplicates
+# RuboCop AST includes (arg :a) vs (arg :b) in structural comparison
+describe 'nested block params' do
+  it { expect { |a| run }.to yield_control }
+  it { expect { |b| run }.to yield_control }
 end

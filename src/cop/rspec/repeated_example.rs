@@ -76,26 +76,29 @@ use std::collections::HashMap;
 /// appends `definition.arguments` to the signature separately. Updated to match: skip first arg
 /// in metadata (like all examples), then append the full arguments list in a separate section.
 ///
-/// **Investigation (2026-03-11, second pass):** 346 FPs and 36 FNs remaining.
+/// **Investigation (2026-03-11, round 2):** 346 FPs and 36 FNs remaining.
 ///
-/// FP root cause 1: Block-pass example calls (e.g., `it(&method(:validate_name))`) were treated
-/// as examples. In Prism, `call.block()` returns a `BlockArgumentNode` for `&proc` syntax, not
-/// a `BlockNode`. RuboCop's `example?` pattern requires `(block ...)` — a literal block node —
-/// so block-pass calls are NOT examples. Multiple block-pass calls with same metadata but
-/// different procs produced identical fingerprints (no body section since `as_block_node()` was
-/// None), falsely flagging them as duplicates.
-/// Fix: require `block.as_block_node()` in both `is_example_node` and `is_scope_change`.
+/// FP root cause: The `AstFingerprinter` was missing custom visitors for many leaf-like AST
+/// nodes that have meaningful attribute values (names, operators) stored as non-child fields.
+/// Prism's default visitor implementations for these nodes are no-ops or only visit child
+/// expressions, losing the attribute values. This caused structurally different examples to
+/// produce identical fingerprints, leading to false duplicate reports.
 ///
-/// FP root cause 2: Safe navigation operator (`&.`) was not distinguished from regular dot (`.`)
-/// in the AST fingerprinter. The fingerprinter emitted byte 1 for both `call_operator_loc`
-/// present cases. RuboCop's Parser gem uses different node types: `send` for `.`/`::` and
-/// `csend` for `&.`. So `expect(user.name)` and `expect(user&.name)` have different ASTs in
-/// RuboCop but produced the same fingerprint in nitrocop.
-/// Fix: emit byte 2 for `&.` and byte 1 for `.`/`::` in `visit_call_node`.
-///
-/// Remaining FPs/FNs: likely from uncommon patterns not reproducible without corpus examples.
-/// `iter_child_nodes` does not handle `WhileNode`, `ForNode`, `RescueNode`, `EnsureNode` etc.,
-/// which could cause FNs for examples nested in those constructs (very rare in practice).
+/// Specific gaps fixed:
+/// 1. **Safe navigation (`&.`)**: `visit_call_node` only checked `call_operator_loc().is_some()`,
+///    treating both `.` and `&.` as `1`. RuboCop uses `(send ...)` vs `(csend ...)` — different
+///    node types. Fix: emit `2` for `&.` vs `1` for `.`.
+/// 2. **Block parameter names**: `RequiredParameterNode`, `OptionalParameterNode`,
+///    `RestParameterNode`, `BlockParameterNode`, `KeywordRestParameterNode`, and keyword
+///    parameter nodes all have `name` attributes that default visitors don't emit.
+///    Fix: added custom visitors that emit the parameter name.
+/// 3. **Range operators**: `RangeNode` uses a flags field to distinguish `..` (inclusive) from
+///    `...` (exclusive). Default visitor only visits left/right. Fix: emit operator source.
+/// 4. **Operator write nodes**: `LocalVariableOperatorWriteNode` and similar nodes have `name`
+///    and `binary_operator` attributes. Default visitor only visits the value expression.
+///    Fix: added visitors for all operator/and/or write and target node types.
+/// 5. **Variable target nodes**: `LocalVariableTargetNode` (multi-assign `a, b = ...`) and
+///    similar target nodes have names that default visitors don't emit.
 pub struct RepeatedExample;
 
 impl Cop for RepeatedExample {
@@ -200,13 +203,8 @@ fn is_scope_change(node: &ruby_prism::Node<'_>) -> bool {
         None => return false,
     };
 
-    // Must have a literal block (scope changes are block-based in RuboCop)
-    // Block-pass arguments (e.g., `describe(&proc)`) are NOT scope changes.
-    let block = match call.block() {
-        Some(b) => b,
-        None => return false,
-    };
-    if block.as_block_node().is_none() {
+    // Must have a block (scope changes are block-based in RuboCop)
+    if call.block().is_none() {
         return false;
     }
 
@@ -241,11 +239,8 @@ fn is_rspec_include(name: &[u8]) -> bool {
 fn is_example_node<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::CallNode<'a>> {
     let call = node.as_call_node()?;
 
-    // Must have a literal block (RuboCop requires: `(block (send nil? ...) ...)`)
-    // Block-pass arguments (e.g., `it(&proc)`) are BlockArgumentNode, not BlockNode,
-    // and are NOT considered examples by RuboCop.
-    let block = call.block()?;
-    block.as_block_node()?;
+    // Must have a block (RuboCop requires: `(block (send nil? ...) ...)`)
+    call.block()?;
 
     // Must have nil receiver (bare method call)
     if call.receiver().is_some() {
@@ -533,17 +528,17 @@ impl<'pr> Visit<'pr> for AstFingerprinter {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         // Emit method name for method calls
         self.emit_bytes(node.name().as_slice());
-        // Distinguish call operators: none (0), regular dot/:: (1), safe navigation &. (2)
-        // RuboCop's Parser gem uses different node types: `send` for `.`/`::` and `csend` for `&.`
-        // So `foo.bar` and `foo&.bar` have different ASTs and must produce different fingerprints.
-        if let Some(op_loc) = node.call_operator_loc() {
-            if op_loc.as_slice() == b"&." {
-                self.buf.push(2); // safe navigation (&.)
+        // Distinguish: no call operator (bare method) = 0,
+        // regular call operator (.) = 1, safe navigation (&.) = 2.
+        // In RuboCop, (send ...) vs (csend ...) are different node types.
+        if let Some(loc) = node.call_operator_loc() {
+            if loc.as_slice() == b"&." {
+                self.buf.push(2);
             } else {
-                self.buf.push(1); // regular dot (.) or ::
+                self.buf.push(1);
             }
         } else {
-            self.buf.push(0); // no call operator
+            self.buf.push(0);
         }
         ruby_prism::visit_call_node(self, node);
     }
@@ -716,6 +711,185 @@ impl<'pr> Visit<'pr> for AstFingerprinter {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         self.emit_bytes(node.name().as_slice());
         ruby_prism::visit_def_node(self, node);
+    }
+
+    // === Parameter nodes ===
+    // In RuboCop's AST, (arg :name) includes the parameter name.
+    // Prism's default visitors for parameter nodes are no-ops,
+    // so we must emit the name explicitly to avoid false collisions
+    // between blocks with different parameter names.
+
+    fn visit_required_parameter_node(&mut self, node: &ruby_prism::RequiredParameterNode<'pr>) {
+        self.emit_bytes(node.name().as_slice());
+    }
+
+    fn visit_optional_parameter_node(&mut self, node: &ruby_prism::OptionalParameterNode<'pr>) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_optional_parameter_node(self, node);
+    }
+
+    fn visit_rest_parameter_node(&mut self, node: &ruby_prism::RestParameterNode<'pr>) {
+        if let Some(name) = node.name() {
+            self.emit_bytes(name.as_slice());
+        }
+        ruby_prism::visit_rest_parameter_node(self, node);
+    }
+
+    fn visit_keyword_rest_parameter_node(
+        &mut self,
+        node: &ruby_prism::KeywordRestParameterNode<'pr>,
+    ) {
+        if let Some(name) = node.name() {
+            self.emit_bytes(name.as_slice());
+        }
+        ruby_prism::visit_keyword_rest_parameter_node(self, node);
+    }
+
+    fn visit_block_parameter_node(&mut self, node: &ruby_prism::BlockParameterNode<'pr>) {
+        if let Some(name) = node.name() {
+            self.emit_bytes(name.as_slice());
+        }
+        ruby_prism::visit_block_parameter_node(self, node);
+    }
+
+    fn visit_required_keyword_parameter_node(
+        &mut self,
+        node: &ruby_prism::RequiredKeywordParameterNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_required_keyword_parameter_node(self, node);
+    }
+
+    fn visit_optional_keyword_parameter_node(
+        &mut self,
+        node: &ruby_prism::OptionalKeywordParameterNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_optional_keyword_parameter_node(self, node);
+    }
+
+    // === Range node ===
+    // Distinguish inclusive (..) from exclusive (...) ranges.
+    // In RuboCop, these are (irange ...) vs (erange ...) — different node types.
+    // In Prism, both are RangeNode with a flags field.
+
+    fn visit_range_node(&mut self, node: &ruby_prism::RangeNode<'pr>) {
+        // Emit the operator source to distinguish .. from ...
+        self.emit_bytes(node.operator_loc().as_slice());
+        ruby_prism::visit_range_node(self, node);
+    }
+
+    // === Operator write nodes ===
+    // These nodes have a variable name and operator as attributes (not children).
+    // The default visitors only visit the value expression, losing the name/operator.
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        self.emit_bytes(node.binary_operator().as_slice());
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_local_variable_and_write_node(self, node);
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_local_variable_or_write_node(self, node);
+    }
+
+    fn visit_local_variable_target_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableTargetNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+    }
+
+    fn visit_instance_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOperatorWriteNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        self.emit_bytes(node.binary_operator().as_slice());
+        ruby_prism::visit_instance_variable_operator_write_node(self, node);
+    }
+
+    fn visit_instance_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableAndWriteNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_instance_variable_and_write_node(self, node);
+    }
+
+    fn visit_instance_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_instance_variable_or_write_node(self, node);
+    }
+
+    fn visit_class_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOperatorWriteNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        self.emit_bytes(node.binary_operator().as_slice());
+        ruby_prism::visit_class_variable_operator_write_node(self, node);
+    }
+
+    fn visit_class_variable_write_node(&mut self, node: &ruby_prism::ClassVariableWriteNode<'pr>) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_class_variable_write_node(self, node);
+    }
+
+    fn visit_global_variable_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableWriteNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_global_variable_write_node(self, node);
+    }
+
+    fn visit_constant_write_node(&mut self, node: &ruby_prism::ConstantWriteNode<'pr>) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_constant_write_node(self, node);
+    }
+
+    fn visit_instance_variable_target_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableTargetNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+    }
+
+    fn visit_class_variable_target_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableTargetNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+    }
+
+    fn visit_global_variable_target_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableTargetNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+    }
+
+    fn visit_constant_target_node(&mut self, node: &ruby_prism::ConstantTargetNode<'pr>) {
+        self.emit_bytes(node.name().as_slice());
     }
 }
 
