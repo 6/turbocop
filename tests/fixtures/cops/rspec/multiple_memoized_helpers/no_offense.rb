@@ -55,3 +55,56 @@ describe NestedButUnderLimit do
     let(:e) { 5 }
   end
 end
+
+# Helpers inside it_behaves_like blocks are in a different scope (not counted)
+describe IncludeScope do
+  let(:a) { 1 }
+  let(:b) { 2 }
+  let(:c) { 3 }
+  let(:d) { 4 }
+  let(:e) { 5 }
+
+  it_behaves_like 'a widget' do
+    let(:f) { 6 }
+    let(:g) { 7 }
+  end
+end
+
+# Helpers inside include_examples blocks are in a different scope
+describe IncludeExamplesScope do
+  let(:a) { 1 }
+  let(:b) { 2 }
+  let(:c) { 3 }
+  let(:d) { 4 }
+  let(:e) { 5 }
+
+  include_examples 'shared stuff' do
+    let(:f) { 6 }
+  end
+end
+
+# Helpers inside include_context blocks are in a different scope
+describe IncludeContextScope do
+  let(:a) { 1 }
+  let(:b) { 2 }
+  let(:c) { 3 }
+  let(:d) { 4 }
+  let(:e) { 5 }
+
+  include_context 'common setup' do
+    let(:f) { 6 }
+  end
+end
+
+# Helpers inside it_should_behave_like blocks are in a different scope
+describe ItShouldBehaveLikeScope do
+  let(:a) { 1 }
+  let(:b) { 2 }
+  let(:c) { 3 }
+  let(:d) { 4 }
+  let(:e) { 5 }
+
+  it_should_behave_like 'a thing' do
+    let(:f) { 6 }
+  end
+end

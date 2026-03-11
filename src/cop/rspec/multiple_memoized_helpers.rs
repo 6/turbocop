@@ -11,7 +11,7 @@ use ruby_prism::Visit;
 
 /// Checks if example groups contain too many `let` and `subject` calls.
 ///
-/// ## Root cause of FNs (fixed)
+/// ## Root cause of FNs (fixed, round 1)
 ///
 /// The original implementation only looked at direct statements in the block body
 /// (`collect_direct_helper_names`). Helpers nested inside control structures
@@ -19,6 +19,23 @@ use ruby_prism::Visit;
 /// recursively walks the entire subtree, only stopping at scope boundaries (other
 /// example groups, shared groups) and examples (it, specify, etc.). The fix replaces
 /// the flat scan with a recursive depth-first walker that matches RuboCop's behavior.
+///
+/// ## Root cause of FPs (fixed, round 2)
+///
+/// 1. **Missing `Includes` scope boundaries**: RuboCop's `ExampleGroup.scope_change?`
+///    stops at `it_behaves_like`, `it_should_behave_like`, `include_examples`, and
+///    `include_context` blocks. nitrocop's `HelperCollector` was NOT stopping at these,
+///    causing helpers defined inside include blocks to be counted toward the outer
+///    group's total. Fix: added `is_rspec_include()` check to scope boundary detection.
+///
+/// 2. **Missing block requirement for let/subject**: RuboCop's `let?` pattern requires
+///    a block (`(block (send ...))`) or block-pass (`(send ... block_pass)`). nitrocop
+///    was counting bare `let(:foo)` calls without blocks. Fix: added `node.block().is_some()`
+///    check before collecting helper names.
+///
+/// 3. **String argument support**: RuboCop's `variable_definition?` extracts names from
+///    `{any_sym str dstr}` (symbols, strings, dynamic strings). nitrocop only handled
+///    symbols. Fix: added `extract_name_from_arg()` that handles all three forms.
 pub struct MultipleMemoizedHelpers;
 
 impl Cop for MultipleMemoizedHelpers {
@@ -71,8 +88,26 @@ struct MemoizedHelperVisitor<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
+/// Extract the variable name from the first argument node.
+/// Handles symbol (`:foo`), string (`"foo"`), and dynamic string (`"foo#{bar}"`) forms,
+/// matching RuboCop's `variable_definition?` pattern: `$({any_sym str dstr} ...)`.
+fn extract_name_from_arg(arg: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
+    if let Some(sym) = arg.as_symbol_node() {
+        return Some(sym.unescaped().to_vec());
+    }
+    if let Some(s) = arg.as_string_node() {
+        return Some(s.unescaped().to_vec());
+    }
+    if let Some(ds) = arg.as_interpolated_string_node() {
+        // For dynamic strings, use the raw source as the name (can't evaluate at lint time)
+        let loc = ds.location();
+        return Some(loc.as_slice().to_vec());
+    }
+    None
+}
+
 /// Extract the helper name from a let/let!/subject/subject! call.
-/// For `let(:foo) { ... }` or `let(:foo!) { ... }`, returns "foo" or "foo!".
+/// For `let(:foo) { ... }` or `let("foo") { ... }`, returns "foo".
 /// For `subject(:bar) { ... }`, returns "bar".
 /// For bare `subject { ... }`, returns "subject".
 fn extract_helper_name(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
@@ -83,8 +118,8 @@ fn extract_helper_name(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
         if let Some(args) = call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if let Some(first) = arg_list.first() {
-                if let Some(sym) = first.as_symbol_node() {
-                    return Some(sym.unescaped().to_vec());
+                if let Some(name) = extract_name_from_arg(first) {
+                    return Some(name);
                 }
             }
         }
@@ -92,14 +127,12 @@ fn extract_helper_name(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
         return Some(b"subject".to_vec());
     }
 
-    // For let/let!, extract the symbol name from the first argument
+    // For let/let!, extract the name from the first argument
     if is_rspec_let(method_name) {
         if let Some(args) = call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if let Some(first) = arg_list.first() {
-                if let Some(sym) = first.as_symbol_node() {
-                    return Some(sym.unescaped().to_vec());
-                }
+                return extract_name_from_arg(first);
             }
         }
     }
@@ -107,12 +140,22 @@ fn extract_helper_name(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
     None
 }
 
+/// RSpec include methods that act as scope boundaries.
+/// Matches RuboCop's `Includes.all`: `it_behaves_like`, `it_should_behave_like`,
+/// `include_examples`, `include_context`.
+fn is_rspec_include(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"it_behaves_like" | b"it_should_behave_like" | b"include_examples" | b"include_context"
+    )
+}
+
 /// Inner visitor that recursively collects helper names within a scope.
 ///
 /// Matches RuboCop's `ExampleGroup.find_all_in_scope()` behavior:
 /// - Traverses the entire subtree using the Visit trait
 /// - Collects all let/let!/subject/subject! calls found anywhere
-/// - Stops recursion at scope boundaries (other example groups, shared groups)
+/// - Stops recursion at scope boundaries (other example groups, shared groups, includes)
 /// - Stops recursion at examples (it, specify, etc.)
 struct HelperCollector {
     allow_subject: bool,
@@ -124,13 +167,18 @@ impl<'pr> Visit<'pr> for HelperCollector {
         let method_name = node.name().as_slice();
         let has_block = node.block().is_some_and(|b| b.as_block_node().is_some());
 
-        // Stop at scope boundaries: example groups and shared groups with blocks
+        // Stop at scope boundaries: example groups, shared groups, and includes with blocks.
+        // Matches RuboCop's ExampleGroup.scope_change? which stops at:
+        //   (block (send #rspec? {#SharedGroups.all #ExampleGroups.all} ...) ...)
+        //   (block (send nil? #Includes.all ...) ...)
         if has_block {
             let is_scope_boundary = if let Some(recv) = node.receiver() {
                 util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                     && method_name == b"describe"
             } else {
-                is_rspec_example_group(method_name) || is_rspec_shared_group(method_name)
+                is_rspec_example_group(method_name)
+                    || is_rspec_shared_group(method_name)
+                    || is_rspec_include(method_name)
             };
             if is_scope_boundary {
                 return;
@@ -142,8 +190,10 @@ impl<'pr> Visit<'pr> for HelperCollector {
             return;
         }
 
-        // Collect helper names from let/let!/subject/subject! calls
+        // Collect helper names from let/let!/subject/subject! calls.
+        // Only count calls that have a block or block-pass (matching RuboCop's `let?` pattern).
         if node.receiver().is_none()
+            && node.block().is_some()
             && (is_rspec_let(method_name)
                 || (!self.allow_subject && util::is_rspec_subject(method_name)))
         {
