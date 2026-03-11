@@ -1,7 +1,11 @@
-use crate::cop::node_type::CALL_NODE;
+use std::collections::HashSet;
+
+use ruby_prism::Visit;
+
+use crate::cop::node_type::PROGRAM_NODE;
 use crate::cop::util::{
-    RSPEC_DEFAULT_INCLUDE, RSPEC_EXAMPLES, is_blank_or_whitespace_line, is_rspec_example, line_at,
-    node_on_single_line,
+    self, RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example,
+    is_rspec_example_group, is_rspec_shared_group, line_at, node_on_single_line,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -31,7 +35,24 @@ use crate::parse::source::SourceFile;
 /// to detect this.  Fix: after the example node ends, check if the rest of the
 /// end_line is only closing syntax (whitespace, `;`, `}`, `end`).
 ///
-/// FN=2: Not addressed in this pass.
+/// FN=2: Not addressed in pass 2.
+///
+/// ## Corpus investigation (2026-03-11)
+///
+/// FP=2, FN=41. Rewrote to AST-based approach (Visit over StatementsNode) to
+/// match RuboCop's `last_child?` and `missing_separating_line` logic precisely.
+///
+/// Root causes of FN=41:
+/// 1. Text-based `is_terminator_line` was too aggressive — falsely treating
+///    lines as terminators when they weren't actually the parent's closing keyword.
+/// 2. `rubocop:enable` directive reporting: RuboCop reports the offense on the
+///    enable directive line, but nitrocop was reporting on the example's `end` line,
+///    causing FP/FN location mismatches.
+/// 3. Text-based consecutive one-liner check was less precise than AST sibling check.
+///
+/// Fix: Switched to PROGRAM_NODE + Visit pattern (same as EmptyLineAfterSubject).
+/// Uses AST siblings for `last_child?`, `build_comment_line_sets` for rubocop:enable
+/// directive handling, and AST right-sibling for consecutive one-liner detection.
 pub struct EmptyLineAfterExample;
 
 impl Cop for EmptyLineAfterExample {
@@ -48,143 +69,313 @@ impl Cop for EmptyLineAfterExample {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE]
+        &[PROGRAM_NODE]
     }
 
     fn check_node(
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let call = match node.as_call_node() {
-            Some(c) => c,
+        let program = match node.as_program_node() {
+            Some(p) => p,
             None => return,
         };
 
-        let method_name = call.name().as_slice();
-        if call.receiver().is_some() || !is_rspec_example(method_name) {
-            return;
-        }
-
-        // RuboCop's EmptyLineAfterExample uses `on_block` — it only fires on example
-        // calls that have a block (do..end or { }).  Bare calls like `skip('reason')`
-        // inside a `before` block, or `scenario` used as a variable-like method from
-        // `let(:scenario)`, are not example declarations and must be ignored.
-        if call.block().is_none() {
-            return;
-        }
-
         let allow_consecutive = config.get_bool("AllowConsecutiveOneLiners", true);
+        let (comment_lines, enable_directive_lines) = build_comment_line_sets(source, parse_result);
 
-        // Determine the end line of this example, accounting for heredocs
-        // whose content extends past the node's own location.
-        let loc = node.location();
-        let mut max_end_offset = loc.end_offset();
-        let heredoc_max = find_max_heredoc_end_offset(source, node);
-        if heredoc_max > max_end_offset {
-            max_end_offset = heredoc_max;
+        // Match RuboCop's InsideExampleGroup root scoping: only process top-level
+        // spec groups. Specs wrapped in module/class roots are intentionally skipped.
+        for stmt in program.statements().body().iter() {
+            if !is_spec_group_call(&stmt) {
+                continue;
+            }
+            let mut visitor = ExampleSeparationVisitor {
+                source,
+                cop: self,
+                diagnostics,
+                comment_lines: &comment_lines,
+                enable_directive_lines: &enable_directive_lines,
+                allow_consecutive,
+            };
+            visitor.visit(&stmt);
         }
-        let end_offset = max_end_offset.saturating_sub(1).max(loc.start_offset());
-        let (end_line, _) = source.offset_to_line_col(end_offset);
+    }
+}
 
-        let is_one_liner = node_on_single_line(source, &loc);
+struct ExampleSeparationVisitor<'a> {
+    source: &'a SourceFile,
+    cop: &'a EmptyLineAfterExample,
+    diagnostics: &'a mut Vec<Diagnostic>,
+    comment_lines: &'a HashSet<usize>,
+    enable_directive_lines: &'a HashSet<usize>,
+    allow_consecutive: bool,
+}
 
-        // Check if the example is the "last child" by inspecting the rest of
-        // the end_line after the node.  RuboCop uses AST `last_child?` for this;
-        // we approximate by checking if the remaining content on the same line
-        // is only closing syntax (whitespace, `;`, `}`, `end`).  This handles
-        // patterns like `wrapper(...) { it { ... } }` where the `it` block ends
-        // mid-line and the rest is just the parent's closing brace.
-        if is_last_child_on_line(source, max_end_offset, end_line) {
+impl<'a> ExampleSeparationVisitor<'a> {
+    fn check_example_in_list<'pr>(
+        &mut self,
+        siblings: &[ruby_prism::Node<'pr>],
+        idx: usize,
+        example_stmt: &ruby_prism::Node<'pr>,
+        example_call: &ruby_prism::CallNode<'pr>,
+    ) {
+        // RuboCop's last_child? — if this is the last sibling, skip
+        if idx + 1 >= siblings.len() {
             return;
         }
 
-        // Check if the next non-blank line is another node
-        let next_line = end_line + 1;
-        let next_content = line_at(source, next_line);
-        match next_content {
-            Some(line) => {
-                if is_blank_or_whitespace_line(line) {
-                    return; // already has blank line
-                }
-
-                // Determine the effective "check line" — skip past comments to find
-                // the first non-comment, non-blank line.  If a blank line or EOF is
-                // encountered while scanning comments, the example is properly
-                // separated and we return early.
-                let check_line = if is_comment_line(line) {
-                    let mut scan = next_line + 1;
-                    loop {
-                        match line_at(source, scan) {
-                            Some(l) if is_blank_or_whitespace_line(l) => return,
-                            Some(l) if is_comment_line(l) => {}
-                            Some(l) => break l,
-                            None => return, // end of file
-                        }
-                        scan += 1;
-                    }
-                } else {
-                    line
-                };
-
-                // If consecutive one-liners are allowed, check if the next
-                // meaningful line is also a one-liner example.
-                // Both the current AND next example must be one-liners.
-                if allow_consecutive && is_one_liner {
-                    let trimmed = check_line.iter().position(|&b| b != b' ' && b != b'\t');
-                    if let Some(start) = trimmed {
-                        let rest = &check_line[start..];
-                        if starts_with_example_keyword(rest) && is_single_line_block(rest) {
-                            return;
-                        }
-                    }
-                }
-
-                // Check for terminator keywords (last example before closing
-                // construct).  RuboCop uses `last_child?` on the AST; we
-                // approximate by recognising `end`, `else`, `elsif`, `when`,
-                // `rescue`, `ensure`, and `in` (pattern matching).
-                if is_terminator_line(check_line) {
-                    return;
-                }
-            }
-            None => return, // end of file
+        // Check consecutive one-liner exemption
+        if self.allow_consecutive
+            && is_consecutive_one_liner(self.source, example_stmt, siblings, idx)
+        {
+            return;
         }
 
-        // Report on the end line of the example
-        let method_str = std::str::from_utf8(method_name).unwrap_or("it");
-        let report_col_actual = if is_one_liner {
-            let (_, start_col) = source.offset_to_line_col(loc.start_offset());
-            start_col
-        } else {
-            // For multi-line, report at the `end` keyword column
-            if let Some(line_bytes) = line_at(source, end_line) {
-                line_bytes.iter().take_while(|&&b| b == b' ').count()
-            } else {
-                0
-            }
+        let report_line = match missing_separating_line(
+            self.source,
+            example_stmt,
+            self.comment_lines,
+            self.enable_directive_lines,
+        ) {
+            Some(line) => line,
+            None => return,
         };
 
-        diagnostics.push(self.diagnostic(
-            source,
-            end_line,
-            report_col_actual,
-            format!("Add an empty line after `{method_str}`."),
+        let report_col = line_at(self.source, report_line)
+            .map(|line| {
+                line.iter()
+                    .take_while(|&&b| b == b' ' || b == b'\t')
+                    .count()
+            })
+            .unwrap_or(0);
+
+        let method_name = std::str::from_utf8(example_call.name().as_slice()).unwrap_or("it");
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            report_line,
+            report_col,
+            format!("Add an empty line after `{method_name}`."),
         ));
     }
 }
 
-/// Walk descendants of `node` to find the maximum `closing_loc().end_offset()`
-/// among heredoc StringNode/InterpolatedStringNode children. Heredocs in Prism
-/// have their `location()` covering only the opening delimiter (`<<-OUT`), but
-/// `closing_loc()` covers the terminator line. Returns 0 if no heredocs found.
-fn find_max_heredoc_end_offset(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {
-    use ruby_prism::Visit;
+impl<'a, 'pr> Visit<'pr> for ExampleSeparationVisitor<'a> {
+    fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
+        let siblings: Vec<_> = node.body().iter().collect();
 
+        for (idx, stmt) in siblings.iter().enumerate() {
+            let call = match stmt.as_call_node() {
+                Some(c) => c,
+                None => continue,
+            };
+
+            if call.receiver().is_some() || !is_rspec_example(call.name().as_slice()) {
+                continue;
+            }
+
+            // RuboCop's on_block — only fires on example calls with a block
+            if call.block().is_none() {
+                continue;
+            }
+
+            self.check_example_in_list(&siblings, idx, stmt, &call);
+        }
+
+        ruby_prism::visit_statements_node(self, node);
+    }
+}
+
+/// Check if the current example is a consecutive one-liner that should be exempt.
+/// RuboCop: `consecutive_one_liner?` = node.single_line? && next_one_line_example?(node)
+/// where `next_one_line_example?` checks `node.right_sibling` is an example AND single_line.
+fn is_consecutive_one_liner(
+    source: &SourceFile,
+    example_stmt: &ruby_prism::Node<'_>,
+    siblings: &[ruby_prism::Node<'_>],
+    idx: usize,
+) -> bool {
+    // Current example must be single-line
+    if !node_on_single_line(source, &example_stmt.location()) {
+        return false;
+    }
+
+    // Right sibling must exist
+    let next_idx = idx + 1;
+    if next_idx >= siblings.len() {
+        return false;
+    }
+
+    let next_sibling = &siblings[next_idx];
+    // Right sibling must be an example call with a block
+    let next_call = match next_sibling.as_call_node() {
+        Some(c) => c,
+        None => return false,
+    };
+    if next_call.receiver().is_some() || !is_rspec_example(next_call.name().as_slice()) {
+        return false;
+    }
+    if next_call.block().is_none() {
+        return false;
+    }
+
+    // Right sibling must be single-line
+    node_on_single_line(source, &next_sibling.location())
+}
+
+fn is_spec_group_call(node: &ruby_prism::Node<'_>) -> bool {
+    let call = match node.as_call_node() {
+        Some(c) => c,
+        None => return false,
+    };
+
+    let name = call.name().as_slice();
+    if let Some(recv) = call.receiver() {
+        util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            && (is_rspec_example_group(name) || is_rspec_shared_group(name))
+    } else {
+        is_rspec_example_group(name) || is_rspec_shared_group(name)
+    }
+}
+
+/// Determine if an empty line is missing after a node, following RuboCop's
+/// EmptyLineSeparation mixin logic. Returns the line number to report on,
+/// or None if no offense.
+fn missing_separating_line(
+    source: &SourceFile,
+    stmt: &ruby_prism::Node<'_>,
+    comment_lines: &HashSet<usize>,
+    enable_directive_lines: &HashSet<usize>,
+) -> Option<usize> {
+    // Match RuboCop's FinalEndLocation: heredocs may extend past the node's own location
+    let loc = stmt.location();
+    let mut max_end_offset = loc.end_offset();
+    let heredoc_max = find_max_heredoc_end_offset(source, stmt);
+    if heredoc_max > max_end_offset {
+        max_end_offset = heredoc_max;
+    }
+    let end_offset = max_end_offset.saturating_sub(1).max(loc.start_offset());
+    let (end_line, _) = source.offset_to_line_col(end_offset);
+
+    // Check if the example is the "last child" on the same line — i.e., the rest
+    // of the end_line after the node is only closing syntax (whitespace, `;`, `}`, `end`).
+    // This handles inline patterns like `wrapper(...) { it { ... } }`.
+    if is_last_child_on_line(source, max_end_offset, end_line) {
+        return None;
+    }
+
+    // RuboCop's EmptyLineSeparation:
+    // - walk past directly-following comment lines
+    // - track rubocop:enable directives
+    // - if the next non-comment line is blank or EOF, no offense
+    // - otherwise report at enable directive line (if any) or end line
+    let mut line = end_line;
+    let mut enable_directive_line = None;
+    while comment_lines.contains(&(line + 1)) {
+        line += 1;
+        if enable_directive_lines.contains(&line) {
+            enable_directive_line = Some(line);
+        }
+    }
+
+    match line_at(source, line + 1) {
+        Some(next_line) if is_blank_or_whitespace_line(next_line) => None,
+        Some(_) => Some(enable_directive_line.unwrap_or(end_line)),
+        None => None,
+    }
+}
+
+fn build_comment_line_sets(
+    source: &SourceFile,
+    parse_result: &ruby_prism::ParseResult<'_>,
+) -> (HashSet<usize>, HashSet<usize>) {
+    let mut comment_lines = HashSet::new();
+    let mut enable_directive_lines = HashSet::new();
+
+    for comment in parse_result.comments() {
+        let loc = comment.location();
+        let (start_line, _) = source.offset_to_line_col(loc.start_offset());
+        let end_offset = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+        let (end_line, _) = source.offset_to_line_col(end_offset);
+
+        for line in start_line..=end_line {
+            comment_lines.insert(line);
+        }
+
+        let comment_bytes = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
+        if comment_bytes
+            .windows(b"rubocop:enable".len())
+            .any(|window| window == b"rubocop:enable")
+        {
+            enable_directive_lines.insert(start_line);
+        }
+    }
+
+    (comment_lines, enable_directive_lines)
+}
+
+/// Check if the example is the "last child" by examining what comes after it on
+/// the same line.  If the remaining content (after the node's end offset) on the
+/// end_line consists only of whitespace, semicolons, closing braces `}`, and/or
+/// the `end` keyword, the example is effectively the last child of its parent.
+fn is_last_child_on_line(source: &SourceFile, node_end_offset: usize, end_line: usize) -> bool {
+    let line_bytes = match line_at(source, end_line) {
+        Some(l) => l,
+        None => return false,
+    };
+
+    let line_start = match source.line_col_to_offset(end_line, 0) {
+        Some(offset) => offset,
+        None => return false,
+    };
+    if node_end_offset < line_start {
+        return false;
+    }
+    let pos_in_line = node_end_offset - line_start;
+
+    if pos_in_line >= line_bytes.len() {
+        return false;
+    }
+
+    let rest = &line_bytes[pos_in_line..];
+    is_only_closing_syntax(rest)
+}
+
+/// Returns true if the byte slice contains only whitespace, semicolons, closing
+/// braces `}`, and/or the `end` keyword (with word boundaries).
+fn is_only_closing_syntax(bytes: &[u8]) -> bool {
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b' ' | b'\t' | b';' | b'}' => {
+                i += 1;
+            }
+            b'e' => {
+                if bytes[i..].starts_with(b"end") {
+                    let after = i + 3;
+                    if after == bytes.len()
+                        || matches!(bytes[after], b' ' | b'\t' | b';' | b'}' | b'\n')
+                    {
+                        i = after;
+                        continue;
+                    }
+                }
+                return false;
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Walk descendants of `node` to find the maximum `closing_loc().end_offset()`
+/// among heredoc StringNode/InterpolatedStringNode children.
+fn find_max_heredoc_end_offset(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {
     struct MaxHeredocVisitor<'a> {
         source: &'a SourceFile,
         max_offset: usize,
@@ -227,177 +418,6 @@ fn find_max_heredoc_end_offset(source: &SourceFile, node: &ruby_prism::Node<'_>)
     };
     visitor.visit(node);
     visitor.max_offset
-}
-
-/// Check if the example is the "last child" by examining what comes after it on
-/// the same line.  If the remaining content (after the node's end offset) on the
-/// end_line consists only of whitespace, semicolons, closing braces `}`, and/or
-/// the `end` keyword, the example is effectively the last child of its parent.
-fn is_last_child_on_line(source: &SourceFile, node_end_offset: usize, end_line: usize) -> bool {
-    let line_bytes = match line_at(source, end_line) {
-        Some(l) => l,
-        None => return false,
-    };
-
-    // Find the start offset of the end_line to calculate the position within the line
-    let line_start = match source.line_col_to_offset(end_line, 0) {
-        Some(offset) => offset,
-        None => return false,
-    };
-    if node_end_offset < line_start {
-        return false;
-    }
-    let pos_in_line = node_end_offset - line_start;
-
-    // If the node ends at or past the end of the line, there's nothing after it
-    if pos_in_line >= line_bytes.len() {
-        return false; // Nothing after — handled by next-line checks
-    }
-
-    let rest = &line_bytes[pos_in_line..];
-
-    // Check if the rest is only closing syntax: whitespace, `;`, `}`, `end`
-    is_only_closing_syntax(rest)
-}
-
-/// Returns true if the byte slice contains only whitespace, semicolons, closing
-/// braces `}`, and/or the `end` keyword (with word boundaries).
-fn is_only_closing_syntax(bytes: &[u8]) -> bool {
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b' ' | b'\t' | b';' | b'}' => {
-                i += 1;
-            }
-            b'e' => {
-                // Check for `end` keyword with proper boundaries
-                if bytes[i..].starts_with(b"end") {
-                    let after = i + 3;
-                    if after == bytes.len()
-                        || matches!(bytes[after], b' ' | b'\t' | b';' | b'}' | b'\n')
-                    {
-                        i = after;
-                        continue;
-                    }
-                }
-                return false;
-            }
-            _ => return false,
-        }
-    }
-    true
-}
-
-/// Returns true if the trimmed line starts with `#`.
-fn is_comment_line(line: &[u8]) -> bool {
-    let trimmed_pos = line.iter().position(|&b| b != b' ' && b != b'\t');
-    matches!(trimmed_pos, Some(start) if line[start] == b'#')
-}
-
-/// Check if a line is a block/construct terminator — i.e. the example is
-/// the last child before the closing keyword.
-fn is_terminator_line(line: &[u8]) -> bool {
-    let trimmed = line.iter().position(|&b| b != b' ' && b != b'\t');
-    if let Some(start) = trimmed {
-        let rest = &line[start..];
-        if rest.starts_with(b"}") {
-            return true;
-        }
-        for keyword in &[
-            b"end" as &[u8],
-            b"else",
-            b"elsif",
-            b"when",
-            b"rescue",
-            b"ensure",
-            b"in ",
-        ] {
-            if rest.starts_with(keyword) {
-                // Ensure keyword isn't part of a longer identifier
-                if rest.len() == keyword.len()
-                    || !rest[keyword.len()].is_ascii_alphanumeric() && rest[keyword.len()] != b'_'
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-/// Check if a line represents a single-line block (contains closing `end` or `}` on same line).
-fn is_single_line_block(line: &[u8]) -> bool {
-    // Single-line brace block: `it { something }`
-    if line.contains(&b'{') && line.contains(&b'}') {
-        return true;
-    }
-
-    // Single-line do..end: `it "foo" do something end` or `it "foo" do; stuff; end;`
-    // Require `end` as the trailing keyword to avoid matching description text.
-    // Strip trailing semicolons and whitespace (some codebases use `; end;` style).
-    let mut trimmed = trim_ascii_whitespace(line);
-    while trimmed.ends_with(b";") {
-        trimmed = trim_ascii_whitespace(&trimmed[..trimmed.len() - 1]);
-    }
-    if trimmed.ends_with(b"end") && contains_keyword(trimmed, b"do") {
-        return true;
-    }
-    false
-}
-
-fn trim_ascii_whitespace(mut line: &[u8]) -> &[u8] {
-    while let Some((first, rest)) = line.split_first() {
-        if *first == b' ' || *first == b'\t' {
-            line = rest;
-        } else {
-            break;
-        }
-    }
-    while let Some((last, rest)) = line.split_last() {
-        if *last == b' ' || *last == b'\t' {
-            line = rest;
-        } else {
-            break;
-        }
-    }
-    line
-}
-
-fn contains_keyword(line: &[u8], keyword: &[u8]) -> bool {
-    if keyword.is_empty() || line.len() < keyword.len() {
-        return false;
-    }
-    line.windows(keyword.len()).enumerate().any(|(i, window)| {
-        if window != keyword {
-            return false;
-        }
-        let left_ok = i == 0 || !line[i - 1].is_ascii_alphanumeric() && line[i - 1] != b'_';
-        let right_idx = i + keyword.len();
-        let right_ok = right_idx == line.len()
-            || !line[right_idx].is_ascii_alphanumeric() && line[right_idx] != b'_';
-        left_ok && right_ok
-    })
-}
-
-/// Check if a line starts with any RSpec example keyword followed by a
-/// delimiter (space, `(`, `{`, or ` {`).  Uses the canonical
-/// `RSPEC_EXAMPLES` list so that all example variants (`its`, `xit`, `fit`,
-/// `pending`, etc.) are recognised for the consecutive-one-liner check.
-fn starts_with_example_keyword(line: &[u8]) -> bool {
-    for keyword in RSPEC_EXAMPLES {
-        let kw = keyword.as_bytes();
-        if line.starts_with(kw) {
-            // keyword must be followed by a delimiter or be the entire line
-            if line.len() == kw.len() {
-                return true;
-            }
-            let next = line[kw.len()];
-            if next == b' ' || next == b'(' || next == b'{' {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 #[cfg(test)]

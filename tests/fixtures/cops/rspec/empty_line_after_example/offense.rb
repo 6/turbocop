@@ -31,4 +31,39 @@ RSpec.describe Foo do
   it "adds a line to the end" do
     expect(true).to be true
   end
+
+  # rubocop:enable directive — offense should report on the enable directive line
+  context 'with enable directive' do
+    # rubocop:disable RSpec/Foo
+    it 'does this' do
+    end
+    # rubocop:enable RSpec/Foo
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/EmptyLineAfterExample: Add an empty line after `it`.
+    it 'does that' do
+    end
+  end
+
+  # rubocop:enable followed by rubocop:disable
+  context 'with enable then disable' do
+    # rubocop:disable RSpec/Foo
+    it 'does this' do
+    end
+    # rubocop:enable RSpec/Foo
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/EmptyLineAfterExample: Add an empty line after `it`.
+    # rubocop:disable RSpec/Foo
+    it 'does that' do
+    end
+    # rubocop:enable RSpec/Foo
+  end
+
+  # rubocop:disable directive (not enable) — offense reports on the end line
+  context 'with disable directive' do
+    it 'does this' do
+    end
+    ^^^ RSpec/EmptyLineAfterExample: Add an empty line after `it`.
+    # rubocop:disable RSpec/Foo
+    it 'does that' do
+    end
+    # rubocop:enable RSpec/Foo
+  end
 end
