@@ -37,6 +37,14 @@ it 'test' do
     ^^^^^^^^^^^ RSpec/VoidExpect: Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.
   end
 end
+# Multi-statement if branch: expect's parent is begin_type? -> void
+it 'multi-statement if' do
+  if condition
+    setup
+    expect(result)
+    ^^^^^^^^^^^^^^ RSpec/VoidExpect: Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.
+  end
+end
 # Parenthesized expect with .to is still void per RuboCop
 # (parens create a begin node, making the expect's parent begin_type?)
 it 'parenthesized chained' do

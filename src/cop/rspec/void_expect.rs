@@ -26,6 +26,22 @@ use ruby_prism::Visit;
 /// `.to_not` calls whose receiver is a ParenthesesNode containing an `expect` call,
 /// and flag those expects when inside an example. Also added missing example methods:
 /// `its`, `focus`, `skip`, `pending`.
+///
+/// Investigation (12 FP, 0 FN -> 0 FP, 0 FN):
+///
+/// Root cause of 12 FPs: RuboCop's `void?` method checks the Parser AST parent type:
+/// `parent.begin_type?` (multi-statement body) or `parent.block_type? && parent.body == expect`
+/// (sole statement in block). A sole `expect` inside a conditional (`if`, `unless`, `case/when`,
+/// modifier `if`/`unless`) has an `if_type?`/`case_type?` parent — NOT `begin_type?` — so
+/// RuboCop does NOT flag it as void. nitrocop was using `visit_statements_node` to flag ALL
+/// standalone expects in any StatementsNode, regardless of what contained the StatementsNode.
+///
+/// Fix: Split void-expect detection into two cases matching RuboCop's logic:
+///
+/// 1. `visit_block_node`/`visit_lambda_node` handle sole-statement block bodies (block_type?)
+/// 2. `visit_statements_node` only flags expects in multi-statement contexts (begin_type?)
+///
+/// Single-statement conditionals/loops are no longer flagged since they don't match either case.
 pub struct VoidExpect;
 
 /// Matcher methods that chain on expect
@@ -84,6 +100,7 @@ impl Cop for VoidExpect {
             diagnostics: Vec::new(),
             chained_expect_offsets: Vec::new(),
             in_example: 0,
+            pending_block_body: 0,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -98,6 +115,10 @@ struct VoidExpectVisitor<'a> {
     chained_expect_offsets: Vec<usize>,
     /// Depth counter for being inside an RSpec example block (it, specify, etc.)
     in_example: usize,
+    /// Counter for block body depth. Incremented when entering a BlockNode/LambdaNode,
+    /// decremented when the first StatementsNode inside it is visited.
+    /// Used to distinguish block body StatementsNode from conditional branch StatementsNode.
+    pending_block_body: usize,
 }
 
 /// If the node is a DIRECT receiverless `expect` call (NOT wrapped in parentheses),
@@ -127,6 +148,42 @@ fn extract_paren_expect_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
         }
     }
     None
+}
+
+impl VoidExpectVisitor<'_> {
+    /// Check if a statement is a void expect call and flag it if so.
+    fn check_void_expect_stmt(&mut self, stmt: &ruby_prism::Node<'_>) {
+        // Direct expect call as a statement
+        if let Some(call) = stmt.as_call_node() {
+            if call.name().as_slice() == b"expect" && call.receiver().is_none() {
+                let offset = call.location().start_offset();
+                if !self.chained_expect_offsets.contains(&offset) {
+                    let (line, column) = self.source.offset_to_line_col(offset);
+                    self.diagnostics.push(self.cop.diagnostic(
+                        self.source,
+                        line,
+                        column,
+                        "Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.".to_string(),
+                    ));
+                }
+            }
+        }
+        // Parenthesized expect as a statement: (expect ...)
+        // Always void per RuboCop (parens create begin parent)
+        if let Some(offset) = extract_paren_expect_offset(stmt) {
+            if !self.chained_expect_offsets.contains(&offset) {
+                let (line, column) = self.source.offset_to_line_col(offset);
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    "Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.".to_string(),
+                ));
+                // Mark as handled so inner StatementsNode visit doesn't double-flag
+                self.chained_expect_offsets.push(offset);
+            }
+        }
+    }
 }
 
 impl Visit<'_> for VoidExpectVisitor<'_> {
@@ -177,40 +234,72 @@ impl Visit<'_> for VoidExpectVisitor<'_> {
         }
     }
 
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'_>) {
+        // For single-statement block bodies, check if the sole statement is a void expect.
+        // In RuboCop: parent.block_type? && parent.body == expect -> void.
+        // Multi-statement block bodies are handled by visit_statements_node (begin_type? logic).
+        if self.in_example > 0 {
+            if let Some(body) = node.body() {
+                if let Some(stmts) = body.as_statements_node() {
+                    let body_nodes: Vec<_> = stmts.body().iter().collect();
+                    if body_nodes.len() == 1 {
+                        self.check_void_expect_stmt(&body_nodes[0]);
+                    }
+                }
+            }
+        }
+        // Mark that the next StatementsNode is a block body (for multi-statement handling)
+        self.pending_block_body += 1;
+        ruby_prism::visit_block_node(self, node);
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'_>) {
+        if self.in_example > 0 {
+            if let Some(body) = node.body() {
+                if let Some(stmts) = body.as_statements_node() {
+                    let body_nodes: Vec<_> = stmts.body().iter().collect();
+                    if body_nodes.len() == 1 {
+                        self.check_void_expect_stmt(&body_nodes[0]);
+                    }
+                }
+            }
+        }
+        self.pending_block_body += 1;
+        ruby_prism::visit_lambda_node(self, node);
+    }
+
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'_>) {
+        // Track whether this StatementsNode is a block/lambda body
+        let is_block_body = if self.pending_block_body > 0 {
+            self.pending_block_body -= 1;
+            true
+        } else {
+            false
+        };
+
         // Only flag void expects when inside an example block
         if self.in_example > 0 {
-            for stmt in node.body().iter() {
-                // Direct expect call as a statement
-                if let Some(call) = stmt.as_call_node() {
-                    if call.name().as_slice() == b"expect" && call.receiver().is_none() {
-                        let offset = call.location().start_offset();
-                        if !self.chained_expect_offsets.contains(&offset) {
-                            let (line, column) = self.source.offset_to_line_col(offset);
-                            self.diagnostics.push(self.cop.diagnostic(
-                                self.source,
-                                line,
-                                column,
-                                "Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.".to_string(),
-                            ));
-                        }
-                    }
+            let stmts: Vec<_> = node.body().iter().collect();
+            let multi_statement = stmts.len() > 1;
+
+            // RuboCop's void? logic:
+            // - parent.begin_type? -> true (multi-statement body in Parser AST)
+            //   Maps to: multiple statements in a StatementsNode
+            // - parent.block_type? && parent.body == expect -> true (sole statement in block)
+            //   Handled by visit_block_node/visit_lambda_node above
+            // - Single statement in an if/case/etc is NOT void (parent is if/case type)
+            //   So we skip single-statement StatementsNodes that aren't block bodies.
+            //
+            // For block bodies with a single statement, visit_block_node already handled it.
+            // For block bodies with multiple statements, multi_statement is true.
+            // For non-block contexts (if/case/etc), only multi_statement triggers void.
+            if multi_statement {
+                for stmt in &stmts {
+                    self.check_void_expect_stmt(stmt);
                 }
-                // Parenthesized expect as a statement: (expect ...)
-                // Always void per RuboCop (parens create begin parent)
-                if let Some(offset) = extract_paren_expect_offset(&stmt) {
-                    if !self.chained_expect_offsets.contains(&offset) {
-                        let (line, column) = self.source.offset_to_line_col(offset);
-                        self.diagnostics.push(self.cop.diagnostic(
-                            self.source,
-                            line,
-                            column,
-                            "Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.".to_string(),
-                        ));
-                        // Mark as handled so inner StatementsNode visit doesn't double-flag
-                        self.chained_expect_offsets.push(offset);
-                    }
-                }
+            } else if is_block_body {
+                // Single-statement block body: already handled in visit_block_node,
+                // so don't flag again here. Just consume the pending flag.
             }
         }
         // Continue visiting child nodes

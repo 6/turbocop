@@ -24,3 +24,31 @@ end
 def helper
   expect(something)
 end
+# Sole expect inside conditional branch is NOT void per RuboCop
+# (parent is if_type, not begin_type or block_type)
+it 'conditional' do
+  if condition
+    expect(result)
+  end
+end
+it 'unless branch' do
+  unless condition
+    expect(result)
+  end
+end
+it 'ternary' do
+  condition ? expect(a) : expect(b)
+end
+it 'case when sole' do
+  case value
+  when :one
+    expect(result)
+  end
+end
+# Modifier if/unless: expect is sole child of the if node
+it 'modifier if' do
+  expect(result) if condition
+end
+it 'modifier unless' do
+  expect(result) unless condition
+end
