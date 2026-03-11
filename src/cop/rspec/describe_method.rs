@@ -10,6 +10,11 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: switched to `check_source` to walk only top-level statements (unwrapping
 /// module/class/begin wrappers) and check describe calls at that level only.
+///
+/// RuboCop's `second_string_literal_argument` pattern matches both `str` (StringNode) and
+/// `dstr` (InterpolatedStringNode). The `method_name?` helper also handles dstr by checking
+/// if the first segment starts with `#` or `.`. Added InterpolatedStringNode handling to
+/// match this behavior and eliminate 64 FNs.
 pub struct DescribeMethod;
 
 impl Cop for DescribeMethod {
@@ -151,21 +156,28 @@ impl DescribeMethod {
             return true;
         }
 
-        // Second argument should be a string
-        let string_arg = if let Some(s) = arg_list[1].as_string_node() {
-            s
+        // Second argument should be a string (str) or interpolated string (dstr)
+        let is_method_desc = if let Some(s) = arg_list[1].as_string_node() {
+            let content = s.unescaped();
+            let content_str = std::str::from_utf8(content).unwrap_or("");
+            content_str.starts_with('#') || content_str.starts_with('.')
+        } else if let Some(interp) = arg_list[1].as_interpolated_string_node() {
+            // For dstr, check if the first part is a string starting with '#' or '.'
+            // This matches RuboCop's pattern: (dstr (str #method_name_prefix?) ...)
+            let parts: Vec<ruby_prism::Node<'_>> = interp.parts().iter().collect();
+            if let Some(first) = parts.first().and_then(|p| p.as_string_node()) {
+                let content = first.unescaped();
+                let content_str = std::str::from_utf8(content).unwrap_or("");
+                content_str.starts_with('#') || content_str.starts_with('.')
+            } else {
+                false
+            }
         } else {
+            // Not a string literal at all — skip
             return true;
         };
 
-        let content = string_arg.unescaped();
-        let content_str = match std::str::from_utf8(content) {
-            Ok(s) => s,
-            Err(_) => return true,
-        };
-
-        // Method descriptions must start with '#' or '.'
-        if content_str.starts_with('#') || content_str.starts_with('.') {
+        if is_method_desc {
             return true;
         }
 
