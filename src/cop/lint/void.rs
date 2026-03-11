@@ -33,6 +33,29 @@ use ruby_prism::Visit;
 /// Fixes applied: void context tracking via parent node inspection, each block
 /// operator exemption, lambda/proc detection, `.freeze` on literal detection,
 /// single-expression void body checking, dot-operator-no-args exemption.
+///
+/// ## Investigation findings (2026-03-11)
+///
+/// Root causes of remaining FPs (569) and FNs (746):
+///
+/// **FN: conditional/guard clause unwrapping missing** — RuboCop's `check_expression`
+/// does `expr = expr.body if expr.if_type?` to unwrap if/unless/ternary nodes before
+/// checking for void literals, vars, consts, self, defined?, and lambda/proc. This
+/// means `42 unless condition`, `CONST unless cond`, `x unless cond`, and
+/// `condition ? CONST : nil` are all flagged when in non-last position. Key detail:
+/// rubocop-ast's `IfNode#node_parts` normalizes `unless` by swapping branches, so
+/// `body` always returns the truthy/executing branch. In Prism, `IfNode#statements()`
+/// and `UnlessNode#statements()` serve the same purpose. Operators are NOT unwrapped
+/// through conditionals (only through `check_void_op`).
+///
+/// **FN: CheckForMethodsWithNoSideEffects not implemented** — When
+/// `CheckForMethodsWithNoSideEffects: true`, RuboCop flags nonmutating methods
+/// (sort, flatten, map, collect, etc.) in void context. This config key was read
+/// but ignored.
+///
+/// Fixes applied: conditional unwrapping via `check_conditional_body`, nonmutating
+/// method detection via `check_nonmutating` with full method list matching RuboCop's
+/// `NONMUTATING_METHODS_WITH_BANG_VERSION` and `METHODS_REPLACEABLE_BY_EACH`.
 pub struct Void;
 
 impl Cop for Void {
@@ -53,18 +76,60 @@ impl Cop for Void {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let _check_methods = config.get_bool("CheckForMethodsWithNoSideEffects", false);
+        let check_methods = config.get_bool("CheckForMethodsWithNoSideEffects", false);
 
         let mut visitor = VoidVisitor {
             cop: self,
             source,
             diagnostics: Vec::new(),
             in_each_block: false,
+            check_methods,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
     }
 }
+
+/// Nonmutating methods that have a bang version (e.g., `sort` -> `sort!`).
+const NONMUTATING_METHODS_WITH_BANG: &[&[u8]] = &[
+    b"capitalize",
+    b"chomp",
+    b"chop",
+    b"compact",
+    b"delete_prefix",
+    b"delete_suffix",
+    b"downcase",
+    b"encode",
+    b"flatten",
+    b"gsub",
+    b"lstrip",
+    b"merge",
+    b"next",
+    b"reject",
+    b"reverse",
+    b"rotate",
+    b"rstrip",
+    b"scrub",
+    b"select",
+    b"shuffle",
+    b"slice",
+    b"sort",
+    b"sort_by",
+    b"squeeze",
+    b"strip",
+    b"sub",
+    b"succ",
+    b"swapcase",
+    b"tr",
+    b"tr_s",
+    b"transform_values",
+    b"unicode_normalize",
+    b"uniq",
+    b"upcase",
+];
+
+/// Methods replaceable by `each` (e.g., `collect`, `map`).
+const METHODS_REPLACEABLE_BY_EACH: &[&[u8]] = &[b"collect", b"map"];
 
 struct VoidVisitor<'a, 'src> {
     cop: &'a Void,
@@ -73,6 +138,8 @@ struct VoidVisitor<'a, 'src> {
     /// Whether we are currently inside an `each` block body.
     /// Used to exempt void operators (enumerator filter pattern).
     in_each_block: bool,
+    /// Whether to check for nonmutating methods without side effects.
+    check_methods: bool,
 }
 
 impl VoidVisitor<'_, '_> {
@@ -86,7 +153,78 @@ impl VoidVisitor<'_, '_> {
                 column,
                 "Void value expression detected.".to_string(),
             ));
+            return;
         }
+        // RuboCop unwraps if/unless/ternary nodes to check their body for void
+        // non-operator expressions (literals, vars, consts, self, defined?, lambda/proc).
+        // e.g., `42 unless condition` flags `42` as void literal.
+        // Operators are NOT checked through this path (only through direct check_void_op).
+        self.check_conditional_body(stmt);
+
+        // CheckForMethodsWithNoSideEffects: detect nonmutating methods in void context
+        if self.check_methods {
+            self.check_nonmutating(stmt);
+        }
+    }
+
+    /// Unwrap if/unless/ternary nodes and check the body for void non-operator expressions.
+    /// Matches RuboCop's `expr = expr.body if expr.if_type?` in check_expression.
+    fn check_conditional_body(&mut self, stmt: &ruby_prism::Node<'_>) {
+        let stmts_opt = if let Some(if_node) = stmt.as_if_node() {
+            if_node.statements()
+        } else if let Some(unless_node) = stmt.as_unless_node() {
+            unless_node.statements()
+        } else {
+            return;
+        };
+        if let Some(stmts) = stmts_opt {
+            let body: Vec<_> = stmts.body().iter().collect();
+            if body.len() == 1 {
+                let inner = &body[0];
+                if is_void_non_operator(inner) {
+                    let loc = inner.location();
+                    let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                    self.diagnostics.push(self.cop.diagnostic(
+                        self.source,
+                        line,
+                        column,
+                        "Void value expression detected.".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Check for nonmutating methods used in void context.
+    /// Only called when `CheckForMethodsWithNoSideEffects` is enabled.
+    fn check_nonmutating(&mut self, stmt: &ruby_prism::Node<'_>) {
+        // Get the method name from a call node (either direct send or block with send)
+        let (method_name, loc) = if let Some(call) = stmt.as_call_node() {
+            // Direct send: `x.sort`
+            if call.block().is_some() {
+                // Block call: `[1,2,3].collect do |n| ... end`
+                (call.name().as_slice(), stmt.location())
+            } else {
+                (call.name().as_slice(), stmt.location())
+            }
+        } else {
+            return;
+        };
+
+        let is_nonmutating_bang = NONMUTATING_METHODS_WITH_BANG.contains(&method_name);
+        let is_replaceable_by_each = METHODS_REPLACEABLE_BY_EACH.contains(&method_name);
+
+        if !is_nonmutating_bang && !is_replaceable_by_each {
+            return;
+        }
+
+        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Void value expression detected.".to_string(),
+        ));
     }
 
     /// Check statements in a body, optionally including the last expression
@@ -123,6 +261,44 @@ fn is_each_method(call: &ruby_prism::CallNode<'_>) -> bool {
 fn is_void_def(node: &ruby_prism::DefNode<'_>) -> bool {
     let name = node.name().as_slice();
     name == b"initialize" || name.ends_with(b"=")
+}
+
+/// Check if a node is a void expression EXCLUDING operators.
+/// Used for conditional unwrapping (RuboCop's check_expression checks literals,
+/// vars, consts, self, defined?, lambda/proc, but NOT operators).
+fn is_void_non_operator(node: &ruby_prism::Node<'_>) -> bool {
+    // Simple literals
+    node.as_integer_node().is_some()
+        || node.as_float_node().is_some()
+        || node.as_string_node().is_some()
+        || node.as_symbol_node().is_some()
+        || node.as_self_node().is_some()
+        || node.as_nil_node().is_some()
+        || node.as_true_node().is_some()
+        || node.as_false_node().is_some()
+        || node.as_rational_node().is_some()
+        || node.as_imaginary_node().is_some()
+        // Variable reads
+        || node.as_local_variable_read_node().is_some()
+        || node.as_instance_variable_read_node().is_some()
+        || node.as_class_variable_read_node().is_some()
+        || node.as_global_variable_read_node().is_some()
+        // Constants
+        || node.as_constant_read_node().is_some()
+        || node.as_constant_path_node().is_some()
+        // Containers
+        || is_entirely_literal_container(node)
+        || node.as_regular_expression_node().is_some()
+        // Keywords
+        || node.as_source_file_node().is_some()
+        || node.as_source_line_node().is_some()
+        || node.as_source_encoding_node().is_some()
+        // defined?
+        || node.as_defined_node().is_some()
+        // Lambda/proc
+        || is_void_lambda_or_proc(node)
+        // Literal.freeze
+        || is_literal_freeze(node)
 }
 
 fn is_void_expression(node: &ruby_prism::Node<'_>, in_each_block: bool) -> bool {
@@ -422,4 +598,61 @@ impl<'pr> Visit<'pr> for VoidVisitor<'_, '_> {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(Void, "cops/lint/void");
+
+    fn config_with_check_methods() -> crate::cop::CopConfig {
+        let mut config = crate::cop::CopConfig::default();
+        config.options.insert(
+            "CheckForMethodsWithNoSideEffects".to_string(),
+            serde_yml::Value::Bool(true),
+        );
+        config
+    }
+
+    #[test]
+    fn test_check_methods_with_no_side_effects() {
+        let source = b"x.sort\n^^^^^^ Lint/Void: Void value expression detected.\ntop(x)\n";
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Void,
+            source,
+            config_with_check_methods(),
+        );
+    }
+
+    #[test]
+    fn test_check_methods_no_side_effects_disabled() {
+        let source = b"x.sort\ntop(x)\n";
+        crate::testutil::assert_cop_no_offenses_full(&Void, source);
+    }
+
+    #[test]
+    fn test_check_methods_collect_with_block() {
+        let source = b"[1,2,3].collect do |n|\n^^^^^^^^^^^^^^^^^^^^^^ Lint/Void: Void value expression detected.\n  n.to_s\nend\n\"done\"\n";
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Void,
+            source,
+            config_with_check_methods(),
+        );
+    }
+
+    #[test]
+    fn test_check_methods_chained() {
+        let source =
+            b"x.sort.flatten\n^^^^^^^^^^^^^^ Lint/Void: Void value expression detected.\ntop(x)\n";
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Void,
+            source,
+            config_with_check_methods(),
+        );
+    }
+
+    #[test]
+    fn test_method_definition_not_flagged() {
+        // def merge; end should NOT be flagged as nonmutating method
+        let source = b"def merge\nend\n\ndo_something\n";
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &Void,
+            source,
+            config_with_check_methods(),
+        );
+    }
 }

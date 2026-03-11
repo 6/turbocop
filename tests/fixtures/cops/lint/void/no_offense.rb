@@ -35,8 +35,21 @@ end
 x = 'hello'
 puts x
 result = :symbol
-42 if condition
 x = [1, 2, 3]
+
+# Assigned if statement — not void
+x = if condition
+      42
+    end
+do_something
+
+# Assigned ternary — not void
+x = condition ? 42 : nil
+do_something
+
+# Assigned modifier if — not void
+x = (42 if condition)
+do_something
 
 # Mutation operators are NOT void (they have side effects)
 def mutation_operators
@@ -121,3 +134,27 @@ def safe_nav_operator_no_args
   a&.+
   something
 end
+
+# if without body — not void
+if some_condition
+end
+puts :ok
+
+# method call inside modifier unless — has side effects, not void
+def guard_clause_with_side_effects
+  do_something unless condition
+  top
+end
+
+# return with guard clause — not void
+def return_guard
+  return 42 unless condition
+  top
+end
+
+# Empty numblock each — not void
+array.each { }
+
+# Short lambda call — not void
+lambda.(a)
+top

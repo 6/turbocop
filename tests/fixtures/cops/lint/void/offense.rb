@@ -177,3 +177,42 @@ ensure
   [1, 2, [3]]
   ^^^^^^^^^^^ Lint/Void: Void value expression detected.
 end
+
+# Guard clause / modifier conditional — RuboCop unwraps if_type? to check body
+def void_guard_clause_var
+  x = 5
+  x unless condition
+  ^ Lint/Void: Void value expression detected.
+  top
+end
+
+def void_guard_clause_const
+  CONST = 5
+  CONST unless condition
+  ^^^^^ Lint/Void: Void value expression detected.
+  top
+end
+
+def void_guard_clause_literal
+  42 unless condition
+  ^^ Lint/Void: Void value expression detected.
+  top
+end
+
+# Inside unless block (non-last expression)
+def void_inside_unless
+  CONST = 5
+  unless condition
+    CONST
+    ^^^^^ Lint/Void: Void value expression detected.
+  end
+  top
+end
+
+# Ternary with void expression
+def void_ternary
+  CONST = 5
+  condition ? CONST : nil
+              ^^^^^ Lint/Void: Void value expression detected.
+  top
+end
