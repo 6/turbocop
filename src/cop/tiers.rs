@@ -96,8 +96,16 @@ mod tests {
     #[test]
     fn tier_for_preview_cop() {
         let map = TierMap::load();
-        // Cops not in overrides default to preview
-        assert_eq!(map.tier_for("Style/StringLiterals"), Tier::Preview);
+        // If any cop is explicitly overridden as preview, check it
+        if let Some(preview_cop) = map
+            .overrides
+            .iter()
+            .find(|(_, tier)| **tier == Tier::Preview)
+        {
+            assert_eq!(map.tier_for(preview_cop.0), Tier::Preview);
+        }
+        // Cops not in overrides default to preview (default_tier)
+        assert_eq!(map.tier_for("Fake/NotInOverrides"), Tier::Preview);
     }
 
     #[test]
