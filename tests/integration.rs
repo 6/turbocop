@@ -5182,6 +5182,52 @@ fn strict_flag_accepted() {
 }
 
 #[test]
+fn prefixed_repo_path_does_not_apply_bin_exclude_to_nested_repo_files() {
+    let dir = temp_dir("prefixed_repo_path_excludes");
+    fs::create_dir_all(dir.join("corpus/sample_repo/bin")).unwrap();
+    fs::write(dir.join("corpus/sample_repo/bin/BadFile.rb"), "x = 1\n").unwrap();
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "AllCops:\n  Exclude:\n    - 'bin/**/*'\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
+        .args([
+            "--no-cache",
+            "--format",
+            "json",
+            "--only",
+            "Naming/FileName",
+            "--preview",
+            "--config",
+        ])
+        .arg(dir.join(".rubocop.yml"))
+        .arg(dir.join("corpus/sample_repo"))
+        .output()
+        .expect("Failed to execute nitrocop");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Expected Naming/FileName offense, stdout: {}, stderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("Should be valid JSON: {e}\n{stdout}"));
+    assert_eq!(
+        parsed["offenses"].as_array().map(|a| a.len()),
+        Some(1),
+        "bin/**/* should not exclude files inside a prefixed target repo: {stdout}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn strict_coverage_exits_two_for_preview_gated() {
     // Force the cop into preview tier via NITROCOP_TIERS_FILE.
     // Enable it in config, run without --preview → it's preview-gated → --strict exits 2.

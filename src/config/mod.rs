@@ -133,8 +133,9 @@ impl CopFilter {
 /// all rayon worker threads. Eliminates per-file glob compilation overhead.
 pub struct CopFilterSet {
     global_exclude: GlobSet,
-    global_exclude_re: Option<RegexSet>, // Ruby regexp global exclude patterns
-    filters: Vec<CopFilter>,             // indexed by cop position in registry
+    global_exclude_patterns: Vec<String>, // Raw glob patterns for Ruby-like confirmation
+    global_exclude_re: Option<RegexSet>,  // Ruby regexp global exclude patterns
+    filters: Vec<CopFilter>,              // indexed by cop position in registry
     /// Config directory for relativizing file paths before glob matching.
     /// Cop Include/Exclude patterns are relative to the project root
     /// (where `.rubocop.yml` lives), but file paths may include a prefix
@@ -163,9 +164,17 @@ pub struct CopFilterSet {
 }
 
 impl CopFilterSet {
+    fn matches_global_exclude_glob(&self, path: &Path) -> bool {
+        self.global_exclude.is_match(path)
+            && self
+                .global_exclude_patterns
+                .iter()
+                .any(|pattern| glob_matches(pattern, path))
+    }
+
     /// Check whether a file is globally excluded (AllCops.Exclude).
     pub fn is_globally_excluded(&self, path: &Path) -> bool {
-        if self.global_exclude.is_match(path) {
+        if self.matches_global_exclude_glob(path) {
             return true;
         }
         // Check Ruby regexp patterns against the path string
@@ -178,7 +187,7 @@ impl CopFilterSet {
         // Strip `./` prefix: file discovery produces `./vendor/foo.rb` but
         // exclude patterns use `vendor/**/*`.
         if let Ok(stripped) = path.strip_prefix("./") {
-            if self.global_exclude.is_match(stripped) {
+            if self.matches_global_exclude_glob(stripped) {
                 return true;
             }
             if let Some(ref re) = self.global_exclude_re {
@@ -196,7 +205,7 @@ impl CopFilterSet {
         // needs to match a pattern like `vendor/**`).
         for dir in [&self.base_dir, &self.config_dir].into_iter().flatten() {
             if let Ok(rel) = path.strip_prefix(dir) {
-                if self.global_exclude.is_match(rel) {
+                if self.matches_global_exclude_glob(rel) {
                     return true;
                 }
                 if let Some(ref re) = self.global_exclude_re {
@@ -2424,6 +2433,12 @@ impl ResolvedConfig {
         let global_exclude_pats: Vec<&str> =
             self.global_excludes.iter().map(|s| s.as_str()).collect();
         let global_exclude = build_glob_set(&global_exclude_pats).unwrap_or_else(GlobSet::empty);
+        let global_exclude_patterns = self
+            .global_excludes
+            .iter()
+            .filter(|pattern| extract_ruby_regexp(pattern).is_none())
+            .cloned()
+            .collect();
         let global_exclude_re = build_regex_set(&global_exclude_pats);
 
         // Cross-cop dependency: Style/RedundantConstantBase disables itself when
@@ -2625,6 +2640,7 @@ impl ResolvedConfig {
 
         CopFilterSet {
             global_exclude,
+            global_exclude_patterns,
             global_exclude_re,
             filters,
             config_dir: self.config_dir.clone(),
@@ -3317,6 +3333,7 @@ mod tests {
         let global_exclude_re = build_regex_set(&pats);
         let filter_set = CopFilterSet {
             global_exclude,
+            global_exclude_patterns: pats.iter().map(|pat| (*pat).to_string()).collect(),
             global_exclude_re,
             filters: Vec::new(),
             config_dir: config.config_dir().map(|p| p.to_path_buf()),
@@ -3344,6 +3361,72 @@ mod tests {
             !filter_set
                 .is_globally_excluded(Path::new(&format!("{}/app/models/user.rb", dir.display())))
         );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn global_exclude_does_not_match_prefixed_nested_repo_path() {
+        let pats = vec!["bin/**/*"];
+        let global_exclude = build_glob_set(&pats).unwrap_or_else(GlobSet::empty);
+        let filter_set = CopFilterSet {
+            global_exclude,
+            global_exclude_patterns: pats.iter().map(|pat| (*pat).to_string()).collect(),
+            global_exclude_re: None,
+            filters: Vec::new(),
+            config_dir: Some(PathBuf::from(".")),
+            base_dir: None,
+            sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
+            migrated_schema_version: None,
+        };
+
+        assert!(
+            !filter_set.is_globally_excluded(Path::new("corpus/sample_repo/bin/BadFile.rb")),
+            "bin/**/* should not exclude nested repo paths that only contain bin as a component"
+        );
+        assert!(
+            filter_set.is_globally_excluded(Path::new("bin/BadFile.rb")),
+            "bin/**/* should still exclude project-root bin paths"
+        );
+    }
+
+    #[test]
+    fn file_name_filter_still_matches_prefixed_nested_repo_path() {
+        let dir = std::env::temp_dir().join("nitrocop_test_file_name_prefixed_repo_path");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("corpus/sample_repo/bin")).unwrap();
+        fs::write(
+            dir.join(".rubocop.yml"),
+            "AllCops:\n  Exclude:\n    - 'bin/**/*'\n",
+        )
+        .unwrap();
+
+        let config = load_config(Some(&dir.join(".rubocop.yml")), None, None).unwrap();
+        let registry = crate::cop::registry::CopRegistry::default_registry();
+        let tier_map = crate::cop::tiers::TierMap::load();
+        let filters = config.build_cop_filters(&registry, &tier_map, true);
+        let index = registry
+            .cops()
+            .iter()
+            .position(|cop| cop.name() == "Naming/FileName")
+            .expect("Naming/FileName should be registered");
+        let cop_config = config.cop_config("Naming/FileName");
+        let filter = filters.cop_filter(index);
+        let tier = tier_map.tier_for("Naming/FileName");
+
+        assert!(
+            filter.is_enabled(),
+            "Naming/FileName should be enabled under --preview, config: {cop_config:?}, disabled_by_default: {}, rubocop_known: {}, tier: {tier:?}",
+            config.disabled_by_default,
+            config.rubocop_known_cops.contains("Naming/FileName")
+        );
+
+        assert!(
+            filters.is_cop_match(index, Path::new("corpus/sample_repo/bin/BadFile.rb")),
+            "Naming/FileName should still run on nested repo files that only contain bin as a component; config: {cop_config:?}"
+        );
+
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -4203,6 +4286,7 @@ mod tests {
         let filter = make_filter(true, &[], &["lib/tasks/*.rake"]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
             global_exclude_re: None,
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/mastodon")),
@@ -4225,6 +4309,7 @@ mod tests {
         let filter = make_filter(true, &["/tmp/test/db/migrate/**/*.rb"], &[]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
             global_exclude_re: None,
             filters: vec![filter],
             config_dir: Some(PathBuf::from("/tmp/test")),
@@ -4248,6 +4333,7 @@ mod tests {
         let filter = make_filter(true, &["**/spec/**/*_spec.rb"], &[]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
             global_exclude_re: None,
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/discourse")),
@@ -4271,6 +4357,7 @@ mod tests {
         let filter = make_filter(true, &["**/spec/**/*_spec.rb"], &["spec/requests/api/*"]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
             global_exclude_re: None,
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/discourse")),
@@ -4293,6 +4380,7 @@ mod tests {
         let filter = make_filter(true, &["**/*.rb"], &["vendor/**"]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
             global_exclude_re: None,
             filters: vec![filter],
             config_dir: None,
@@ -4311,6 +4399,7 @@ mod tests {
         let filter = make_filter(false, &[], &[]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
             global_exclude_re: None,
             filters: vec![filter],
             config_dir: None,
@@ -4330,6 +4419,7 @@ mod tests {
         let filter = make_filter(true, &["db/migrate/**/*.rb"], &[]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
             global_exclude_re: None,
             filters: vec![filter],
             config_dir: Some(PathBuf::from("/project")),
@@ -4351,6 +4441,7 @@ mod tests {
         let filter = make_filter(true, &[], &["**/app/controllers/**/*.rb"]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
             global_exclude_re: None,
             filters: vec![filter],
             config_dir: Some(PathBuf::from("/project")),
@@ -4377,6 +4468,7 @@ mod tests {
         let filter = make_filter(true, &[], &["**/app/controllers/**/*.rb"]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
             global_exclude_re: None,
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/mastodon")),
@@ -4402,6 +4494,7 @@ mod tests {
         use std::path::Path;
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
             global_exclude_re: None,
             filters: Vec::new(),
             config_dir: None,
@@ -4428,6 +4521,7 @@ mod tests {
         // No MigratedSchemaVersion set → never migrated
         let no_version = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
             global_exclude_re: None,
             filters: Vec::new(),
             config_dir: None,

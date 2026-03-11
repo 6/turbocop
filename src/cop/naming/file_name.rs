@@ -113,6 +113,15 @@ fn is_filename_snake_case(segment: &str) -> bool {
 /// Note: local `check-cop.py --rerun` batch mode can mask this mismatch because
 /// `run_corpus_check()` strips the repo prefix before global exclude matching.
 /// The direct RuboCop repro was the signal that proved the remaining FP was real.
+///
+/// Follow-up: the corpus oracle itself runs from the nitrocop workspace root and
+/// targets `repos/<repo_id>`, so repo-relative excludes like `bin/**/*` should NOT
+/// match prefixed paths such as `repos/foo/bin/bar.rb`. `CopFilterSet` was trusting
+/// `GlobSet::is_match()` directly for `AllCops: Exclude`, which matched these
+/// prefixed paths too broadly and hid some FileName offenses in local reruns.
+/// Fix: confirm global exclude hits with the Ruby-like `glob_matches()` helper
+/// before skipping the file. This preserves true repo-root excludes while matching
+/// the corpus oracle's prefixed-path behavior.
 pub struct FileName;
 
 /// Well-known Ruby files that don't follow snake_case convention.
