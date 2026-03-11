@@ -34,3 +34,53 @@ class ExecutionResult
   def example
   end
 end
+
+# attr_reader inside if/else branch — no offense (RuboCop skips if_type? parents)
+if condition
+  attr_reader :foo
+else
+  do_something
+end
+
+# attr_reader inside if/elsif branch
+if condition
+  attr_reader :foo
+elsif other_condition
+  do_something
+end
+
+# attr_writer inside case/when
+case x
+when :a
+  attr_writer :foo
+when :b
+  do_something
+end
+
+# attr_accessor inside begin/rescue
+begin
+  attr_accessor :foo
+rescue StandardError
+  handle_error
+end
+
+# attr_reader inside begin/ensure
+begin
+  attr_reader :foo
+ensure
+  cleanup
+end
+
+# attr_accessor followed by else
+if something
+  attr_accessor :bar
+else
+  other_thing
+end
+
+# attr_accessor inside unless
+unless condition
+  attr_accessor :baz
+else
+  fallback
+end

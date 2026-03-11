@@ -4,6 +4,24 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Layout/EmptyLinesAroundAttributeAccessor
+///
+/// ## Investigation (2026-03-11)
+///
+/// **Root cause of 471 FPs:** RuboCop's `next_line_node` method returns nil when
+/// `node.parent.if_type?` is true (line 118 of vendor source), meaning attr accessors
+/// inside conditional branches (if/unless/case/when/elsif/else) never fire. RuboCop
+/// also returns nil when there is no `right_sibling` (last statement before rescue/ensure/end).
+///
+/// Nitrocop's line-based approach had no equivalent check. It only skipped `end` on the
+/// next line, but not `else`, `elsif`, `when`, `in`, `rescue`, or `ensure` — all of which
+/// indicate the attr accessor is the last statement in a conditional or error-handling branch.
+///
+/// **Fix:** Added `is_block_boundary_keyword()` that checks the next trimmed line for any
+/// of these branch-closing keywords (end, else, elsif, when, in, rescue, ensure). This
+/// mirrors RuboCop's AST-level "no right sibling" check using line-level heuristics.
+///
+/// **Remaining gap:** 1 FN (nitrocop misses an offense RuboCop catches). Not investigated.
 pub struct EmptyLinesAroundAttributeAccessor;
 
 const ATTRIBUTE_METHODS: &[&[u8]] = &[b"attr_reader", b"attr_writer", b"attr_accessor", b"attr"];
@@ -71,22 +89,17 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
             return;
         }
 
-        // If next line is end of class/module, no offense
+        // If next line is end of class/module/block, or a branch keyword
+        // (else/elsif/when/in/rescue/ensure), no offense.
+        // RuboCop skips when node.parent.if_type? (no right_sibling to check).
+        // We approximate this by detecting branch-closing keywords on the next line.
         let next_trimmed: Vec<u8> = next_line
             .iter()
             .copied()
             .skip_while(|&b| b == b' ' || b == b'\t')
             .collect();
-        if next_trimmed.starts_with(b"end") {
-            let after_end = &next_trimmed[3..];
-            if after_end.is_empty()
-                || after_end[0] == b' '
-                || after_end[0] == b'\n'
-                || after_end[0] == b'\r'
-                || after_end[0] == b'#'
-            {
-                return;
-            }
+        if is_block_boundary_keyword(&next_trimmed) {
+            return;
         }
 
         // If next line is another attribute accessor, no offense
@@ -169,6 +182,34 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         }
         diagnostics.push(diag);
     }
+}
+
+/// Returns true if the trimmed line starts with a keyword that ends a block branch,
+/// meaning the attr accessor is the last statement in its branch and RuboCop would
+/// not fire (no right_sibling in the AST).
+fn is_block_boundary_keyword(trimmed: &[u8]) -> bool {
+    // Keywords that terminate a branch: end, else, elsif, when, in, rescue, ensure
+    const KEYWORDS: &[&[u8]] = &[
+        b"end", b"else", b"elsif", b"when", b"in ", b"rescue", b"ensure",
+    ];
+    for &kw in KEYWORDS {
+        if trimmed.starts_with(kw) {
+            let after = trimmed.get(kw.len());
+            // "in " already has trailing space in the keyword, so after could be anything
+            if kw == b"in " {
+                return true;
+            }
+            if after.is_none()
+                || matches!(
+                    after,
+                    Some(b' ') | Some(b'\n') | Some(b'\r') | Some(b'#') | Some(b';')
+                )
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn is_attr_method_line(trimmed: &[u8]) -> bool {
