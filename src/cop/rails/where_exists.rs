@@ -4,6 +4,17 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Rails/WhereExists — enforces consistent `exists?` style.
+///
+/// ## Investigation (2026-03-10)
+/// FP=74 root cause: "exists" style flagged ALL `where(...).exists?` regardless of argument types.
+/// RuboCop's `convertable_args?` only flags when `where` args are hash, array, or multiple args.
+/// Single string args (SQL fragments like `where("sql").exists?`), variables, and method calls
+/// are NOT convertible and should not be flagged. Fixed by adding `convertible_args()` check.
+///
+/// "where" style had a secondary issue: flagged `exists?` with multiple args (e.g.,
+/// `exists?('name = ?', 'john')`) but RuboCop's pattern only captures a single non-splat arg.
+/// Fixed by requiring exactly one arg and skipping splat args.
 pub struct WhereExists;
 
 impl Cop for WhereExists {
@@ -59,7 +70,15 @@ impl WhereExists {
         }
 
         // The inner `where` call should have arguments
-        if chain.inner_call.arguments().is_none() {
+        let inner_args = match chain.inner_call.arguments() {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+
+        // Only flag when the where arguments are convertible to exists? args.
+        // RuboCop checks: args.size > 1 || args[0].hash_type? || args[0].array_type?
+        // Single string/variable/call args (SQL fragments) are NOT convertible.
+        if !Self::convertible_args(inner_args) {
             return Vec::new();
         }
 
@@ -105,18 +124,27 @@ impl WhereExists {
             None => return Vec::new(),
         };
 
-        // Only flag hash-like or array args (not bare integers like exists?(1))
+        // RuboCop's pattern: (call _ :exists? $!splat_type?)
+        // This matches exists? with exactly one non-splat argument.
+        // Then convertable_args? checks: hash_type? || array_type?
         let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.is_empty() {
+
+        // Must have exactly one argument (multi-arg exists? is not flagged in "where" style)
+        if arg_list.len() != 1 {
+            return Vec::new();
+        }
+
+        let first = &arg_list[0];
+
+        // Skip splat arguments: exists?(*conditions)
+        if first.as_splat_node().is_some() {
             return Vec::new();
         }
 
         // Check that the arg is a hash, keyword hash, or array
-        let first = &arg_list[0];
         let is_convertible = first.as_hash_node().is_some()
             || first.as_keyword_hash_node().is_some()
-            || first.as_array_node().is_some()
-            || arg_list.len() > 1;
+            || first.as_array_node().is_some();
 
         if !is_convertible {
             return Vec::new();
@@ -130,6 +158,25 @@ impl WhereExists {
             column,
             "Use `where(...).exists?` instead of `exists?(...)`.".to_string(),
         )]
+    }
+
+    /// Check if the arguments to `where(...)` are convertible to `exists?(...)`.
+    /// RuboCop only converts hash, array, or multiple arguments — not single
+    /// string args (SQL fragments), variables, or method calls.
+    fn convertible_args(args: ruby_prism::ArgumentsNode<'_>) -> bool {
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.is_empty() {
+            return false;
+        }
+        // Multiple args: where('name = ?', 'john') — convertible
+        if arg_list.len() > 1 {
+            return true;
+        }
+        // Single arg: must be hash or array
+        let first = &arg_list[0];
+        first.as_hash_node().is_some()
+            || first.as_keyword_hash_node().is_some()
+            || first.as_array_node().is_some()
     }
 }
 
@@ -173,6 +220,41 @@ mod tests {
             ..CopConfig::default()
         };
         let source = b"User.where(name: 'john').exists?\n";
+        assert_cop_no_offenses_full_with_config(&WhereExists, source, config);
+    }
+
+    #[test]
+    fn where_style_skips_multi_arg_exists() {
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".to_string(),
+                serde_yml::Value::String("where".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        // RuboCop does NOT flag exists? with multiple args in "where" style
+        let source = b"User.exists?('name = ?', 'john')\n";
+        assert_cop_no_offenses_full_with_config(&WhereExists, source, config);
+    }
+
+    #[test]
+    fn where_style_skips_splat_arg() {
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".to_string(),
+                serde_yml::Value::String("where".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"User.exists?(*conditions)\n";
         assert_cop_no_offenses_full_with_config(&WhereExists, source, config);
     }
 }
