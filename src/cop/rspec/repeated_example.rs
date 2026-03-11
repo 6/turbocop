@@ -75,6 +75,27 @@ use std::collections::HashMap;
 /// For `its()` calls, the first argument is an attribute accessor and IS significant. RuboCop
 /// appends `definition.arguments` to the signature separately. Updated to match: skip first arg
 /// in metadata (like all examples), then append the full arguments list in a separate section.
+///
+/// **Investigation (2026-03-11, second pass):** 346 FPs and 36 FNs remaining.
+///
+/// FP root cause 1: Block-pass example calls (e.g., `it(&method(:validate_name))`) were treated
+/// as examples. In Prism, `call.block()` returns a `BlockArgumentNode` for `&proc` syntax, not
+/// a `BlockNode`. RuboCop's `example?` pattern requires `(block ...)` — a literal block node —
+/// so block-pass calls are NOT examples. Multiple block-pass calls with same metadata but
+/// different procs produced identical fingerprints (no body section since `as_block_node()` was
+/// None), falsely flagging them as duplicates.
+/// Fix: require `block.as_block_node()` in both `is_example_node` and `is_scope_change`.
+///
+/// FP root cause 2: Safe navigation operator (`&.`) was not distinguished from regular dot (`.`)
+/// in the AST fingerprinter. The fingerprinter emitted byte 1 for both `call_operator_loc`
+/// present cases. RuboCop's Parser gem uses different node types: `send` for `.`/`::` and
+/// `csend` for `&.`. So `expect(user.name)` and `expect(user&.name)` have different ASTs in
+/// RuboCop but produced the same fingerprint in nitrocop.
+/// Fix: emit byte 2 for `&.` and byte 1 for `.`/`::` in `visit_call_node`.
+///
+/// Remaining FPs/FNs: likely from uncommon patterns not reproducible without corpus examples.
+/// `iter_child_nodes` does not handle `WhileNode`, `ForNode`, `RescueNode`, `EnsureNode` etc.,
+/// which could cause FNs for examples nested in those constructs (very rare in practice).
 pub struct RepeatedExample;
 
 impl Cop for RepeatedExample {
@@ -179,8 +200,13 @@ fn is_scope_change(node: &ruby_prism::Node<'_>) -> bool {
         None => return false,
     };
 
-    // Must have a block (scope changes are block-based in RuboCop)
-    if call.block().is_none() {
+    // Must have a literal block (scope changes are block-based in RuboCop)
+    // Block-pass arguments (e.g., `describe(&proc)`) are NOT scope changes.
+    let block = match call.block() {
+        Some(b) => b,
+        None => return false,
+    };
+    if block.as_block_node().is_none() {
         return false;
     }
 
@@ -215,8 +241,11 @@ fn is_rspec_include(name: &[u8]) -> bool {
 fn is_example_node<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::CallNode<'a>> {
     let call = node.as_call_node()?;
 
-    // Must have a block (RuboCop requires: `(block (send nil? ...) ...)`)
-    call.block()?;
+    // Must have a literal block (RuboCop requires: `(block (send nil? ...) ...)`)
+    // Block-pass arguments (e.g., `it(&proc)`) are BlockArgumentNode, not BlockNode,
+    // and are NOT considered examples by RuboCop.
+    let block = call.block()?;
+    block.as_block_node()?;
 
     // Must have nil receiver (bare method call)
     if call.receiver().is_some() {
@@ -504,11 +533,17 @@ impl<'pr> Visit<'pr> for AstFingerprinter {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         // Emit method name for method calls
         self.emit_bytes(node.name().as_slice());
-        // Emit whether there's a call operator (&. vs .)
-        if node.call_operator_loc().is_some() {
-            self.buf.push(1);
+        // Distinguish call operators: none (0), regular dot/:: (1), safe navigation &. (2)
+        // RuboCop's Parser gem uses different node types: `send` for `.`/`::` and `csend` for `&.`
+        // So `foo.bar` and `foo&.bar` have different ASTs and must produce different fingerprints.
+        if let Some(op_loc) = node.call_operator_loc() {
+            if op_loc.as_slice() == b"&." {
+                self.buf.push(2); // safe navigation (&.)
+            } else {
+                self.buf.push(1); // regular dot (.) or ::
+            }
         } else {
-            self.buf.push(0);
+            self.buf.push(0); // no call operator
         }
         ruby_prism::visit_call_node(self, node);
     }

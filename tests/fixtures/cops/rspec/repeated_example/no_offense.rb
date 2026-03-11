@@ -120,3 +120,21 @@ describe 'argless vs named' do
     expect(foo).to be(bar)
   end
 end
+
+# Block-pass examples (it(&proc)) are NOT examples per RuboCop
+# RuboCop's example? matcher requires (block ...), not (send ... block_pass)
+describe 'block pass examples' do
+  it(&method(:validate_name))
+  it(&method(:validate_email))
+end
+
+# Safe navigation (&.) vs regular dot should produce different fingerprints
+# RuboCop uses csend for &. and send for . — different AST node types
+describe 'safe navigation difference' do
+  it "regular" do
+    expect(user.name).to be_present
+  end
+  it "safe nav" do
+    expect(user&.name).to be_present
+  end
+end
