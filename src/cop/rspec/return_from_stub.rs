@@ -1,14 +1,13 @@
 use crate::cop::node_type::{
-    ARRAY_NODE, ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE,
-    HASH_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, STATEMENTS_NODE, STRING_NODE,
-    SYMBOL_NODE, TRUE_NODE,
+    ARRAY_NODE, ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE,
+    CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE,
+    INTERPOLATED_STRING_NODE, NIL_NODE, RANGE_NODE, RATIONAL_NODE, REGULAR_EXPRESSION_NODE,
+    STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE,
 };
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-
-pub struct ReturnFromStub;
 
 /// Default style is `and_return` — flags block-style stubs returning static values.
 ///
@@ -16,6 +15,17 @@ pub struct ReturnFromStub;
 /// RuboCop only flags `receive` calls, not `receive_message_chain`. Fixed by checking the
 /// root method name in `find_block_on_receive_chain` and skipping non-`receive` chains.
 /// Detects: `allow(X).to receive(:y) { static_value }`
+///
+/// **Investigation (2026-03, FN=126):** `is_static_value` was missing several node types
+/// that RuboCop's `recursive_literal_or_const?` considers static:
+/// - Constants (`ConstantReadNode`, `ConstantPathNode` — e.g., `CONST`, `Foo::BAR`)
+/// - Ranges (`RangeNode` — e.g., `1..10`)
+/// - Regular expressions (`RegularExpressionNode` — e.g., `/pattern/`)
+/// - Rational/imaginary literals (`RationalNode`, `ImaginaryNode` — e.g., `1r`, `1i`)
+/// - `.freeze` on static values (e.g., `"foo".freeze`)
+///
+/// All added to match RuboCop's `recursive_literal_or_const?` behavior.
+pub struct ReturnFromStub;
 impl Cop for ReturnFromStub {
     fn name(&self) -> &'static str {
         "RSpec/ReturnFromStub"
@@ -36,12 +46,18 @@ impl Cop for ReturnFromStub {
             BLOCK_NODE,
             BLOCK_PARAMETERS_NODE,
             CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
             FALSE_NODE,
             FLOAT_NODE,
             HASH_NODE,
+            IMAGINARY_NODE,
             INTEGER_NODE,
             INTERPOLATED_STRING_NODE,
             NIL_NODE,
+            RANGE_NODE,
+            RATIONAL_NODE,
+            REGULAR_EXPRESSION_NODE,
             STATEMENTS_NODE,
             STRING_NODE,
             SYMBOL_NODE,
@@ -224,6 +240,7 @@ fn find_block_on_receive_chain<'a>(
 }
 
 fn is_static_value(node: &ruby_prism::Node<'_>) -> bool {
+    // Simple literals
     if node.as_integer_node().is_some()
         || node.as_float_node().is_some()
         || node.as_string_node().is_some()
@@ -231,11 +248,43 @@ fn is_static_value(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_true_node().is_some()
         || node.as_false_node().is_some()
         || node.as_nil_node().is_some()
+        || node.as_rational_node().is_some()
+        || node.as_imaginary_node().is_some()
+        || node.as_regular_expression_node().is_some()
     {
         return true;
     }
 
+    // Constants: Foo, Foo::BAR (recursive_literal_or_const? in RuboCop)
+    if node.as_constant_read_node().is_some() || node.as_constant_path_node().is_some() {
+        return true;
+    }
+
+    // Ranges: 1..10, 1...10 — static if both endpoints are static
+    if let Some(range) = node.as_range_node() {
+        let left_ok = match range.left() {
+            Some(l) => is_static_value(&l),
+            None => true,
+        };
+        let right_ok = match range.right() {
+            Some(r) => is_static_value(&r),
+            None => true,
+        };
+        return left_ok && right_ok;
+    }
+
+    // Interpolated strings are dynamic
     if node.as_interpolated_string_node().is_some() {
+        return false;
+    }
+
+    // .freeze on a static value is still static (e.g., "foo".freeze)
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"freeze" && call.arguments().is_none() {
+            if let Some(recv) = call.receiver() {
+                return is_static_value(&recv);
+            }
+        }
         return false;
     }
 
