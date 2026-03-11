@@ -157,3 +157,29 @@ describe SomeClass do
     end
   end
 end
+
+# Variable used only as first arg to include_examples (the shared group name)
+describe SomeClass do
+  name = condition ? 'admin' : 'user'
+  include_examples name
+end
+
+# Variable used only as first arg to it_should_behave_like
+describe SomeClass do
+  behavior = condition ? 'creates record' : 'updates record'
+  it_should_behave_like behavior
+end
+
+# Variable overwritten in nested context — outer assignment dead, not used in examples
+# The outer assignment's value is never read by any example scope; the variable
+# is only used at group level.
+describe Outer do
+  config = { default: true }
+  validate(config)
+
+  context 'custom config' do
+    it 'does something' do
+      expect(1).to eq(1)
+    end
+  end
+end

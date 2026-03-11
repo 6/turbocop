@@ -397,12 +397,18 @@ fn check_scope_for_leaky_vars(
         collect_assignments_in_scope(&stmt, &mut assignments);
     }
 
-    // For each assignment, check if the variable is referenced inside any
-    // example scope within this block.
-    for assign in &assignments {
+    // Filter out dead assignments: if a variable is unconditionally reassigned
+    // at the same scope level before any example scope reads it, the earlier
+    // assignment is dead (its value is never observed by examples).
+    let live_assignments = filter_dead_assignments(&assignments, &stmts);
+
+    // For each live assignment, check if the variable is referenced inside any
+    // example scope within this block. Use the scope-aware check that handles
+    // reassignment in nested example groups.
+    for assign in &live_assignments {
         let mut used_in_example_scope = false;
         for stmt in stmts.body().iter() {
-            if check_var_used_in_example_scopes(&stmt, &assign.name) {
+            if check_var_used_in_example_scopes_with_reassign(&stmt, &assign.name) {
                 used_in_example_scope = true;
                 break;
             }
@@ -421,6 +427,91 @@ fn check_scope_for_leaky_vars(
             );
         }
     }
+}
+
+/// Filter out dead assignments. An assignment to variable X is dead if there's
+/// a later unconditional assignment to X at the top-level statement list, and
+/// no example-scope reference to X exists between the two assignments.
+///
+/// This implements a simplified version of RuboCop's VariableForce flow analysis
+/// for the common case of sequential reassignment.
+fn filter_dead_assignments<'a>(
+    assignments: &'a [VarAssign],
+    stmts: &ruby_prism::StatementsNode<'_>,
+) -> Vec<&'a VarAssign> {
+    if assignments.is_empty() {
+        return Vec::new();
+    }
+
+    let mut live: Vec<&VarAssign> = Vec::new();
+
+    for assign in assignments {
+        // Check if this assignment is "dead": there exists a later unconditional
+        // assignment to the same variable at the same top-level statement list,
+        // with no example-scope reference to the variable between them.
+        if is_dead_assignment(assign, stmts) {
+            continue;
+        }
+        live.push(assign);
+    }
+
+    live
+}
+
+/// Check if an assignment is dead — overwritten by a later unconditional assignment
+/// at the top-level statement list with no intervening example-scope reference.
+fn is_dead_assignment(assign: &VarAssign, stmts: &ruby_prism::StatementsNode<'_>) -> bool {
+    let mut past_current = false;
+    let mut seen_example_ref = false;
+
+    for stmt in stmts.body().iter() {
+        // First, find the current assignment's position
+        if !past_current {
+            if stmt_contains_offset(&stmt, assign.offset) {
+                past_current = true;
+            }
+            continue;
+        }
+
+        // After the current assignment, check for example-scope references
+        // and later unconditional assignments
+        if check_var_used_in_example_scopes(&stmt, &assign.name) {
+            seen_example_ref = true;
+        }
+
+        if !seen_example_ref && stmt_is_unconditional_assign_to(&stmt, &assign.name) {
+            // Found a later unconditional assignment with no example reference between
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a statement contains a byte offset (for locating an assignment in the stmt list).
+fn stmt_contains_offset(node: &ruby_prism::Node<'_>, offset: usize) -> bool {
+    let loc = node.location();
+    offset >= loc.start_offset() && offset < loc.end_offset()
+}
+
+/// Check if a top-level statement unconditionally assigns to the given variable.
+fn stmt_is_unconditional_assign_to(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
+    // Direct assignment: `var = expr`
+    if let Some(lw) = node.as_local_variable_write_node() {
+        return lw.name().as_slice() == var_name;
+    }
+    // Multi-write: `a, b = expr`
+    if let Some(mw) = node.as_multi_write_node() {
+        for target in mw.lefts().iter() {
+            if let Some(lt) = target.as_local_variable_target_node() {
+                if lt.name().as_slice() == var_name {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    false
 }
 
 /// Recursively collect local variable assignments within a node, stopping at
@@ -687,6 +778,231 @@ fn collect_assignments_in_rescue_node(
     if let Some(subsequent) = rescue_node.subsequent() {
         collect_assignments_in_rescue_node(&subsequent, assigns);
     }
+}
+
+/// Scope-aware version of `check_var_used_in_example_scopes` that also checks
+/// whether the variable is reassigned inside nested example groups (making the
+/// outer assignment dead with respect to those groups' examples).
+fn check_var_used_in_example_scopes_with_reassign(
+    node: &ruby_prism::Node<'_>,
+    var_name: &[u8],
+) -> bool {
+    if let Some(call) = node.as_call_node() {
+        let name = call.name().as_slice();
+        let no_recv = call.receiver().is_none();
+
+        // Example scopes: it, before, let, subject, etc.
+        if no_recv && is_example_scope(name) {
+            if let Some(blk) = call.block() {
+                if let Some(bn) = blk.as_block_node() {
+                    if block_body_references_var(bn, var_name) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Includes methods
+        if no_recv && is_includes_method(name) {
+            if let Some(args) = call.arguments() {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                for (i, arg) in arg_list.iter().enumerate() {
+                    if i == 0 {
+                        continue;
+                    }
+                    if is_interpolated_string_or_symbol(arg) {
+                        continue;
+                    }
+                    if node_references_var(arg, var_name) {
+                        return true;
+                    }
+                }
+            }
+            if let Some(blk) = call.block() {
+                if let Some(bn) = blk.as_block_node() {
+                    if block_body_references_var(bn, var_name) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Nested example groups: check if variable is reassigned in the nested
+        // group's scope before any example reference. If so, the outer assignment
+        // is dead with respect to this group's examples.
+        if no_recv && is_rspec_example_group(name) {
+            if let Some(blk) = call.block() {
+                if let Some(bn) = blk.as_block_node() {
+                    if let Some(body) = bn.body() {
+                        if let Some(stmts) = body.as_statements_node() {
+                            // Check if the variable is reassigned at the nested
+                            // group's scope level before any example reads it
+                            if var_reassigned_before_example_ref_in_stmts(&stmts, var_name) {
+                                return false;
+                            }
+                            for s in stmts.body().iter() {
+                                if check_var_used_in_example_scopes_with_reassign(&s, var_name) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Other calls with blocks
+        if let Some(blk) = call.block() {
+            if let Some(bn) = blk.as_block_node() {
+                if let Some(body) = bn.body() {
+                    if let Some(stmts) = body.as_statements_node() {
+                        for s in stmts.body().iter() {
+                            if check_var_used_in_example_scopes_with_reassign(&s, var_name) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Recurse through control flow (same as check_var_used_in_example_scopes)
+    if let Some(if_node) = node.as_if_node() {
+        if let Some(stmts) = if_node.statements() {
+            for s in stmts.body().iter() {
+                if check_var_used_in_example_scopes_with_reassign(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+        if let Some(subsequent) = if_node.subsequent() {
+            if check_var_used_in_example_scopes_with_reassign(&subsequent, var_name) {
+                return true;
+            }
+        }
+        return false;
+    }
+    if let Some(unless_node) = node.as_unless_node() {
+        if let Some(stmts) = unless_node.statements() {
+            for s in stmts.body().iter() {
+                if check_var_used_in_example_scopes_with_reassign(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+        if let Some(else_clause) = unless_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                for s in stmts.body().iter() {
+                    if check_var_used_in_example_scopes_with_reassign(&s, var_name) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    if let Some(else_node) = node.as_else_node() {
+        if let Some(stmts) = else_node.statements() {
+            for s in stmts.body().iter() {
+                if check_var_used_in_example_scopes_with_reassign(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    if let Some(case_node) = node.as_case_node() {
+        for cond in case_node.conditions().iter() {
+            if let Some(when_node) = cond.as_when_node() {
+                if let Some(stmts) = when_node.statements() {
+                    for s in stmts.body().iter() {
+                        if check_var_used_in_example_scopes_with_reassign(&s, var_name) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(else_clause) = case_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                for s in stmts.body().iter() {
+                    if check_var_used_in_example_scopes_with_reassign(&s, var_name) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            for s in stmts.body().iter() {
+                if check_var_used_in_example_scopes_with_reassign(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+        if let Some(rescue_clause) = begin_node.rescue_clause() {
+            if check_var_in_rescue_scopes_inner(&rescue_clause, var_name) {
+                return true;
+            }
+        }
+        if let Some(else_clause) = begin_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                for s in stmts.body().iter() {
+                    if check_var_used_in_example_scopes_with_reassign(&s, var_name) {
+                        return true;
+                    }
+                }
+            }
+        }
+        if let Some(ensure_clause) = begin_node.ensure_clause() {
+            if let Some(stmts) = ensure_clause.statements() {
+                for s in stmts.body().iter() {
+                    if check_var_used_in_example_scopes_with_reassign(&s, var_name) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    if let Some(paren) = node.as_parentheses_node() {
+        if let Some(body) = paren.body() {
+            if check_var_used_in_example_scopes_with_reassign(&body, var_name) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    false
+}
+
+/// Check if a variable is reassigned at the top level of a statement list
+/// (in a nested example group) before any example scope references it.
+/// Returns true if the variable is unconditionally written before any
+/// example scope reads it, meaning the outer scope's value is dead.
+fn var_reassigned_before_example_ref_in_stmts(
+    stmts: &ruby_prism::StatementsNode<'_>,
+    var_name: &[u8],
+) -> bool {
+    for stmt in stmts.body().iter() {
+        // Check if this statement unconditionally assigns the variable
+        if stmt_is_unconditional_assign_to(&stmt, var_name) {
+            return true;
+        }
+        // Check if this statement references the variable in an example scope
+        if check_var_used_in_example_scopes(&stmt, var_name) {
+            return false;
+        }
+    }
+    false
 }
 
 /// Check if a variable is referenced inside any example scope within the given

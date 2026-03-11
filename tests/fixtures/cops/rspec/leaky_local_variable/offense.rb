@@ -161,3 +161,27 @@ RSpec.describe SomeClass do
     expect(record).to be_valid
   end
 end
+
+# Variable overwritten at scope level — only last assignment is offense (FP fix)
+# The first `result = nil` is dead; only `result = compute()` leaks.
+describe SomeClass do
+  result = nil
+  result = compute()
+  ^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  it 'checks the result' do
+    expect(result).to eq(42)
+  end
+end
+
+# Variable overwritten with intervening non-reading statement — only last is offense
+describe SomeClass do
+  count = 0
+  do_something
+  count = items.size
+  ^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  it 'has the right count' do
+    expect(count).to eq(5)
+  end
+end
