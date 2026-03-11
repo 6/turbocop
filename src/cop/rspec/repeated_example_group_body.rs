@@ -7,8 +7,18 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 /// RSpec/RepeatedExampleGroupBody: Flag example groups with identical bodies.
+///
+/// Compares example group bodies using AST-based structural hashing rather than
+/// raw source bytes. This matches RuboCop's Parser gem behavior where:
+/// - `'foo'` and `"foo"` (no interpolation) are considered identical
+/// - `foo(1)` and `foo 1` (optional parens) are considered identical
+/// - Comments are ignored (Prism separates them from the AST)
+///
+/// Root cause of 82 FN was source-byte comparison failing on syntactically
+/// equivalent but textually different bodies.
 pub struct RepeatedExampleGroupBody;
 
 impl Cop for RepeatedExampleGroupBody {
@@ -105,7 +115,7 @@ fn check_sibling_groups_iter<'a>(
     stmts: impl Iterator<Item = ruby_prism::Node<'a>>,
 ) -> Vec<Diagnostic> {
     #[allow(clippy::type_complexity)] // internal collection used only in this function
-    let mut body_map: HashMap<Vec<u8>, Vec<(usize, usize, Vec<u8>)>> = HashMap::new();
+    let mut body_map: HashMap<u64, Vec<(usize, usize, Vec<u8>)>> = HashMap::new();
 
     for stmt in stmts {
         let call = match stmt.as_call_node() {
@@ -135,24 +145,23 @@ fn check_sibling_groups_iter<'a>(
             continue;
         }
 
-        // Build body signature from the full body source.
-        // Prism heredoc locations only cover the opening delimiter (<<~FOO),
-        // not the heredoc content. We must find the max extent including
-        // heredoc closing locations so that bodies with different heredoc
-        // content produce different signatures.
-        let loc = body.location();
-        let mut end_offset = loc.end_offset();
-        let mut finder = MaxExtentFinder {
-            max_end: end_offset,
+        // Build AST-based body signature. This matches RuboCop's behavior of comparing
+        // AST structure rather than source text, so bodies that differ only in:
+        // - string quoting ('foo' vs "foo")
+        // - optional parentheses (eq(1) vs eq 1)
+        // - whitespace/formatting
+        // are considered identical.
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut visitor = AstHashVisitor {
+            hasher: &mut hasher,
+            src: source.as_bytes(),
         };
-        finder.visit(&body);
-        end_offset = finder.max_end;
-        let body_src = &source.as_bytes()[loc.start_offset()..end_offset];
+        visitor.visit(&body);
 
         // Also include metadata signature to distinguish groups with different metadata
-        let meta_sig = metadata_signature(source, &call);
-        let mut sig = meta_sig;
-        sig.extend_from_slice(body_src);
+        metadata_hash(source, &call, &mut hasher);
+
+        let sig = hasher.finish();
 
         let call_loc = call.location();
         let (line, col) = source.offset_to_line_col(call_loc.start_offset());
@@ -215,27 +224,177 @@ fn is_rspec_example_group_for_body(call: &ruby_prism::CallNode<'_>) -> bool {
     }
 }
 
-fn metadata_signature(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -> Vec<u8> {
-    let mut sig = Vec::new();
+fn metadata_hash(source: &SourceFile, call: &ruby_prism::CallNode<'_>, hasher: &mut impl Hasher) {
     if let Some(args) = call.arguments() {
         let arg_list: Vec<_> = args.arguments().iter().collect();
-        // Include all args (including first description) for body comparison
-        // since groups with same body but different descriptions should still be flagged
-        // but groups with different metadata should not
         for (i, arg) in arg_list.iter().enumerate() {
             if i == 0 {
-                // Include first arg in metadata sig only if it's a constant (class)
+                // Include first arg in signature only if it's a constant (class)
+                // RuboCop's const_arg matcher: (block (send _ _ $const ...) ...)
                 if arg.as_constant_read_node().is_some() || arg.as_constant_path_node().is_some() {
-                    let loc = arg.location();
-                    sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
+                    b"CONST_ARG:".hash(hasher);
+                    let mut visitor = AstHashVisitor {
+                        hasher,
+                        src: source.as_bytes(),
+                    };
+                    visitor.visit(arg);
                 }
                 continue;
             }
-            let loc = arg.location();
-            sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
+            // Metadata args (everything after the first arg)
+            b"META:".hash(hasher);
+            let mut visitor = AstHashVisitor {
+                hasher,
+                src: source.as_bytes(),
+            };
+            visitor.visit(arg);
         }
     }
-    sig
+}
+
+/// AST-based structural hasher that produces identical hashes for
+/// syntactically equivalent code regardless of formatting.
+///
+/// Uses Prism's Visit trait to traverse the AST. For each node,
+/// `visit_branch_node_enter` / `visit_leaf_node_enter` hashes the node type.
+/// Specific visitor overrides hash additional semantic content (names, values).
+/// This means:
+/// - `'foo'` and `"foo"` hash identically (unescaped content is the same)
+/// - `foo(1)` and `foo 1` hash identically (paren presence is not hashed)
+/// - Comments are not part of the Prism AST, so naturally ignored
+struct AstHashVisitor<'a, H: Hasher> {
+    hasher: &'a mut H,
+    src: &'a [u8],
+}
+
+impl<'a, 'pr, H: Hasher> Visit<'pr> for AstHashVisitor<'a, H> {
+    // These two callbacks fire for every node during default traversal,
+    // providing the type discriminant hash for both handled and unhandled nodes.
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        std::mem::discriminant(&node).hash(self.hasher);
+    }
+    fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        std::mem::discriminant(&node).hash(self.hasher);
+    }
+
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        // Hash unescaped content — makes 'foo' and "foo" equivalent
+        node.unescaped().hash(self.hasher);
+        // Leaf: no children to recurse into
+    }
+
+    fn visit_symbol_node(&mut self, node: &ruby_prism::SymbolNode<'pr>) {
+        node.unescaped().hash(self.hasher);
+    }
+
+    fn visit_integer_node(&mut self, node: &ruby_prism::IntegerNode<'pr>) {
+        let loc = node.location();
+        self.src[loc.start_offset()..loc.end_offset()].hash(self.hasher);
+    }
+
+    fn visit_float_node(&mut self, node: &ruby_prism::FloatNode<'pr>) {
+        let loc = node.location();
+        self.src[loc.start_offset()..loc.end_offset()].hash(self.hasher);
+    }
+
+    fn visit_regular_expression_node(&mut self, node: &ruby_prism::RegularExpressionNode<'pr>) {
+        node.unescaped().hash(self.hasher);
+        let close = node.closing_loc();
+        self.src[close.start_offset()..close.end_offset()].hash(self.hasher);
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        // Hash method name
+        node.name().as_slice().hash(self.hasher);
+        // Hash call operator type (&. vs . vs none)
+        if let Some(op) = node.call_operator_loc() {
+            let op_bytes = &self.src[op.start_offset()..op.end_offset()];
+            op_bytes.hash(self.hasher);
+        }
+        // Recurse into receiver, arguments, and block — but NOT parens.
+        // Parser gem treats foo(1) and foo 1 as identical AST, so we
+        // intentionally skip opening_loc/closing_loc.
+        if let Some(recv) = node.receiver() {
+            b"R".hash(self.hasher);
+            self.visit(&recv);
+        }
+        if let Some(args) = node.arguments() {
+            for arg in args.arguments().iter() {
+                b"A".hash(self.hasher);
+                self.visit(&arg);
+            }
+        }
+        if let Some(block) = node.block() {
+            b"B".hash(self.hasher);
+            self.visit(&block);
+        }
+        // Do NOT call ruby_prism::visit_call_node — we handle children ourselves
+    }
+
+    fn visit_constant_read_node(&mut self, node: &ruby_prism::ConstantReadNode<'pr>) {
+        node.name().as_slice().hash(self.hasher);
+    }
+
+    fn visit_constant_path_node(&mut self, node: &ruby_prism::ConstantPathNode<'pr>) {
+        if let Some(parent) = node.parent() {
+            b"P".hash(self.hasher);
+            self.visit(&parent);
+        }
+        if let Some(name) = node.name() {
+            name.as_slice().hash(self.hasher);
+        }
+        // Do NOT call default recursion — handled above
+    }
+
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+        node.name().as_slice().hash(self.hasher);
+    }
+
+    fn visit_instance_variable_read_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableReadNode<'pr>,
+    ) {
+        node.name().as_slice().hash(self.hasher);
+    }
+
+    fn visit_class_variable_read_node(&mut self, node: &ruby_prism::ClassVariableReadNode<'pr>) {
+        node.name().as_slice().hash(self.hasher);
+    }
+
+    fn visit_global_variable_read_node(&mut self, node: &ruby_prism::GlobalVariableReadNode<'pr>) {
+        node.name().as_slice().hash(self.hasher);
+    }
+
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        node.name().as_slice().hash(self.hasher);
+        ruby_prism::visit_local_variable_write_node(self, node);
+    }
+
+    fn visit_instance_variable_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableWriteNode<'pr>,
+    ) {
+        node.name().as_slice().hash(self.hasher);
+        ruby_prism::visit_instance_variable_write_node(self, node);
+    }
+
+    fn visit_class_variable_write_node(&mut self, node: &ruby_prism::ClassVariableWriteNode<'pr>) {
+        node.name().as_slice().hash(self.hasher);
+        ruby_prism::visit_class_variable_write_node(self, node);
+    }
+
+    fn visit_global_variable_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableWriteNode<'pr>,
+    ) {
+        node.name().as_slice().hash(self.hasher);
+        ruby_prism::visit_global_variable_write_node(self, node);
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        node.name().as_slice().hash(self.hasher);
+        ruby_prism::visit_def_node(self, node);
+    }
 }
 
 fn is_skip_or_pending_body(body: &ruby_prism::Node<'_>) -> bool {
@@ -254,34 +413,6 @@ fn is_skip_or_pending_body(body: &ruby_prism::Node<'_>) -> bool {
         }
     }
     false
-}
-
-/// Visitor that finds the maximum source offset among all descendant nodes,
-/// including heredoc closing locations which extend beyond the parent node's range.
-struct MaxExtentFinder {
-    max_end: usize,
-}
-
-impl<'pr> Visit<'pr> for MaxExtentFinder {
-    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
-        if let Some(close) = node.closing_loc() {
-            let end = close.end_offset();
-            if end > self.max_end {
-                self.max_end = end;
-            }
-        }
-        ruby_prism::visit_interpolated_string_node(self, node);
-    }
-
-    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
-        if let Some(close) = node.closing_loc() {
-            let end = close.end_offset();
-            if end > self.max_end {
-                self.max_end = end;
-            }
-        }
-        ruby_prism::visit_string_node(self, node);
-    }
 }
 
 fn is_parent_group(name: &[u8]) -> bool {
@@ -311,4 +442,68 @@ mod tests {
         RepeatedExampleGroupBody,
         "cops/rspec/repeated_example_group_body"
     );
+
+    #[test]
+    fn detects_identical_bodies_with_different_string_quoting() {
+        // RuboCop's AST comparison treats 'foo' and "foo" (no interpolation) as identical
+        let source = br#"
+describe 'case a' do
+  it { expect(subject).to eq('hello') }
+end
+
+describe 'case b' do
+  it { expect(subject).to eq("hello") }
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&RepeatedExampleGroupBody, source);
+        assert_eq!(
+            diags.len(),
+            2,
+            "Expected 2 offenses for identical bodies with different quoting, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn detects_identical_bodies_with_optional_parens() {
+        // RuboCop's AST comparison treats foo(1) and foo 1 as identical
+        let source = b"
+describe 'case a' do
+  it { expect(subject).to eq(1) }
+end
+
+describe 'case b' do
+  it { expect(subject).to eq 1 }
+end
+";
+        let diags = crate::testutil::run_cop_full(&RepeatedExampleGroupBody, source);
+        assert_eq!(
+            diags.len(),
+            2,
+            "Expected 2 offenses for identical bodies with different parens, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn detects_identical_bodies_with_comments_diff() {
+        // RuboCop's AST ignores comments; bodies differing only in comments should match
+        let source = b"
+describe 'case a' do
+  # this is a comment
+  it { do_something }
+end
+
+describe 'case b' do
+  it { do_something }
+end
+";
+        let diags = crate::testutil::run_cop_full(&RepeatedExampleGroupBody, source);
+        assert_eq!(
+            diags.len(),
+            2,
+            "Expected 2 offenses for bodies differing only in comments, got: {:?}",
+            diags
+        );
+    }
 }
