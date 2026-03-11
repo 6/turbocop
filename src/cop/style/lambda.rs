@@ -3,6 +3,21 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-11)
+///
+/// Corpus oracle reported FP=2, FN=2.
+///
+/// FP=2: Puppet passes lambdas as `lambda() { ... }` when probing callable
+/// signatures. RuboCop keys on the selector source being exactly `lambda`, so
+/// it ignores calls with an explicit empty arglist. Nitrocop previously flagged
+/// those forms because it treated every bare `lambda` call with a block as a
+/// style candidate.
+///
+/// FN=2: Bridgetown still reports two missing multiline literal cases in a
+/// `rubylayout.rb` front-matter template. A generic `render html->{ <<~HTML ... }`
+/// reproduction already matches RuboCop in fixtures, which suggests the
+/// remaining corpus misses are likely file/context-specific rather than this
+/// cop's core selector logic.
 pub struct Lambda;
 
 impl Cop for Lambda {
@@ -42,6 +57,13 @@ impl Cop for Lambda {
         }
 
         if call.name().as_slice() != b"lambda" {
+            return;
+        }
+
+        // RuboCop only considers block nodes whose selector source is exactly
+        // `lambda`, so explicit empty-arg forms like `lambda() { ... }` are
+        // ignored.
+        if call.closing_loc().is_some() {
             return;
         }
 

@@ -4,6 +4,8 @@ g = -> { puts "hello" }
 
 obj.lambda { |x| x }
 
+result = lambda() { |x| x }
+
 # Multi-line lambda do...end is correct in line_count_dependent style
 j = lambda do |x|
   x * 2

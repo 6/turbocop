@@ -18,3 +18,9 @@ k = -> do
     action
   end
 end
+
+render html->{ <<~HTML
+           ^^ Style/Lambda: Use the `lambda` method for multiline lambdas.
+  <h1>#{text->{ title }}</h1>
+HTML
+}
