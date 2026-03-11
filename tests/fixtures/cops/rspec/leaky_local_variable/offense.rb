@@ -143,3 +143,21 @@ describe SomeClass do
     user = create(:user)
   end
 end
+
+# Variable assigned outside describe block, used in before hook
+user = create(:user)
+^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+describe SomeClass do
+  before { user.update(admin: true) }
+end
+
+# Variable assigned outside describe block, used in example
+record = build(:record)
+^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+RSpec.describe SomeClass do
+  it 'validates the record' do
+    expect(record).to be_valid
+  end
+end

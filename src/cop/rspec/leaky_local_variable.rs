@@ -2,6 +2,7 @@ use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
 use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 /// Flags local variable assignments at the example-group level that are then
@@ -50,6 +51,28 @@ use crate::parse::source::SourceFile;
 /// assigned before the top-level `describe` block, complex flow-sensitive
 /// reassignment patterns). A full VariableForce implementation would close this
 /// gap but is a significant engineering effort.
+///
+/// ## Investigation (FP=32, FN=409, 2026-03-11)
+///
+/// **FN fix: file-level variables (major FN source)**
+/// Added `check_source` to detect variables assigned at file level (outside
+/// describe blocks) that are referenced inside example scopes within describe
+/// blocks. Corpus FN examples showed patterns like `spec_helper/xcscheme.rb:5`
+/// where variables are assigned at line 2-6 before any describe block.
+/// Implementation uses `check_file_level_vars` which collects file-level
+/// assignments and checks them against all describe blocks in the file.
+///
+/// **FP fix: begin-block reassignment (reduces remaining FPs)**
+/// Improved `is_unconditional_var_write` to recurse into `begin` blocks and
+/// parenthesized expressions. A write inside `begin; x = ...; end` at the
+/// start of an example block means the outer variable is never read, matching
+/// RuboCop's VariableForce behavior.
+///
+/// **Remaining gaps:** 32 FPs from prior cycle likely involve complex
+/// reassignment patterns (e.g., reassignment after non-reading statements,
+/// or inside rescue blocks). 409 FNs from prior cycle partially addressed
+/// by file-level variable detection; remaining FNs likely from VariableForce's
+/// comprehensive scope tracking that we don't fully replicate.
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
@@ -67,6 +90,18 @@ impl Cop for LeakyLocalVariable {
 
     fn interested_node_types(&self) -> &'static [u8] {
         &[BLOCK_NODE, CALL_NODE]
+    }
+
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        check_file_level_vars(source, &parse_result.node(), diagnostics, self);
     }
 
     fn check_node(
@@ -113,6 +148,229 @@ impl Cop for LeakyLocalVariable {
 struct VarAssign {
     name: Vec<u8>,
     offset: usize,
+}
+
+/// Check for file-level variable assignments that leak into describe blocks.
+/// This handles the case where variables are assigned before/outside the top-level
+/// describe block and then referenced inside example scopes within it.
+fn check_file_level_vars(
+    source: &SourceFile,
+    program: &ruby_prism::Node<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+    cop: &LeakyLocalVariable,
+) {
+    let program_node = match program.as_program_node() {
+        Some(p) => p,
+        None => return,
+    };
+    let stmts = match program_node.statements().body().is_empty() {
+        true => return,
+        false => program_node.statements(),
+    };
+
+    // Collect file-level variable assignments (not inside describe blocks)
+    let mut file_level_assigns: Vec<VarAssign> = Vec::new();
+    for stmt in stmts.body().iter() {
+        collect_file_level_assignments(&stmt, &mut file_level_assigns);
+    }
+
+    if file_level_assigns.is_empty() {
+        return;
+    }
+
+    // For each file-level assignment, check if the variable is referenced
+    // inside any example scope within any describe block in the file
+    for assign in &file_level_assigns {
+        let mut used = false;
+        for stmt in stmts.body().iter() {
+            if check_var_used_in_describe_blocks(&stmt, &assign.name) {
+                used = true;
+                break;
+            }
+        }
+        if used {
+            let (line, column) = source.offset_to_line_col(assign.offset);
+            diagnostics.push(
+                cop.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Do not use local variables defined outside of examples inside of them."
+                        .to_string(),
+                ),
+            );
+        }
+    }
+}
+
+/// Collect variable assignments at file level, stopping at describe blocks,
+/// class/module definitions, and method definitions.
+fn collect_file_level_assignments(node: &ruby_prism::Node<'_>, assigns: &mut Vec<VarAssign>) {
+    // Direct assignment
+    if let Some(lw) = node.as_local_variable_write_node() {
+        assigns.push(VarAssign {
+            name: lw.name().as_slice().to_vec(),
+            offset: lw.location().start_offset(),
+        });
+        return;
+    }
+
+    // or-write: `x ||= expr`
+    if let Some(ow) = node.as_local_variable_or_write_node() {
+        assigns.push(VarAssign {
+            name: ow.name().as_slice().to_vec(),
+            offset: ow.location().start_offset(),
+        });
+        return;
+    }
+
+    // and-write: `x &&= expr`
+    if let Some(aw) = node.as_local_variable_and_write_node() {
+        assigns.push(VarAssign {
+            name: aw.name().as_slice().to_vec(),
+            offset: aw.location().start_offset(),
+        });
+        return;
+    }
+
+    // Multi-write: `a, b = expr`
+    if let Some(mw) = node.as_multi_write_node() {
+        for target in mw.lefts().iter() {
+            if let Some(lt) = target.as_local_variable_target_node() {
+                assigns.push(VarAssign {
+                    name: lt.name().as_slice().to_vec(),
+                    offset: lt.location().start_offset(),
+                });
+            }
+        }
+        return;
+    }
+
+    // Stop at describe blocks, classes, modules, defs - these are scope boundaries
+    if let Some(call) = node.as_call_node() {
+        let name = call.name().as_slice();
+        let no_recv = call.receiver().is_none()
+            || (call
+                .receiver()
+                .is_some_and(|r| util::constant_name(&r).is_some_and(|n| n == b"RSpec")));
+        if no_recv && is_rspec_example_group(name) {
+            return;
+        }
+        // For other calls (e.g., iterators), recurse into block body
+        if let Some(blk) = call.block() {
+            if let Some(bn) = blk.as_block_node() {
+                if let Some(body) = bn.body() {
+                    if let Some(stmts) = body.as_statements_node() {
+                        for s in stmts.body().iter() {
+                            collect_file_level_assignments(&s, assigns);
+                        }
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    // Recurse through control flow
+    if let Some(if_node) = node.as_if_node() {
+        if let Some(stmts) = if_node.statements() {
+            for s in stmts.body().iter() {
+                collect_file_level_assignments(&s, assigns);
+            }
+        }
+        if let Some(subsequent) = if_node.subsequent() {
+            collect_file_level_assignments(&subsequent, assigns);
+        }
+        return;
+    }
+
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            for s in stmts.body().iter() {
+                collect_file_level_assignments(&s, assigns);
+            }
+        }
+    }
+
+    // Stop at class/module/def
+}
+
+/// Check if a variable is referenced inside any example scope within describe
+/// blocks found in the given node tree.
+fn check_var_used_in_describe_blocks(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
+    if let Some(call) = node.as_call_node() {
+        let name = call.name().as_slice();
+        let is_eg = if let Some(recv) = call.receiver() {
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                && is_rspec_example_group(name)
+        } else {
+            is_rspec_example_group(name)
+        };
+
+        if is_eg {
+            // Found a describe block - check if the variable is used in its example scopes
+            if let Some(blk) = call.block() {
+                if let Some(bn) = blk.as_block_node() {
+                    if let Some(body) = bn.body() {
+                        if let Some(stmts) = body.as_statements_node() {
+                            for s in stmts.body().iter() {
+                                if check_var_used_in_example_scopes(&s, var_name) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        // For other calls with blocks, recurse
+        if let Some(blk) = call.block() {
+            if let Some(bn) = blk.as_block_node() {
+                if let Some(body) = bn.body() {
+                    if let Some(stmts) = body.as_statements_node() {
+                        for s in stmts.body().iter() {
+                            if check_var_used_in_describe_blocks(&s, var_name) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Recurse through control flow
+    if let Some(if_node) = node.as_if_node() {
+        if let Some(stmts) = if_node.statements() {
+            for s in stmts.body().iter() {
+                if check_var_used_in_describe_blocks(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+        if let Some(subsequent) = if_node.subsequent() {
+            if check_var_used_in_describe_blocks(&subsequent, var_name) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            for s in stmts.body().iter() {
+                if check_var_used_in_describe_blocks(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    false
 }
 
 /// Check an example group block for leaky local variables.
@@ -704,22 +962,14 @@ fn var_written_before_read_in_stmts(
     stmts: &ruby_prism::StatementsNode<'_>,
     var_name: &[u8],
 ) -> bool {
-    for stmt in stmts.body().iter() {
-        // Check if this statement is an unconditional write to the variable
-        if is_unconditional_var_write(&stmt, var_name) {
-            return true;
-        }
-        // Check if this statement reads the variable (in any position)
-        if node_reads_var(&stmt, var_name) {
-            return false;
-        }
-    }
-    false
+    var_written_before_read_in_body(stmts, var_name)
 }
 
 /// Check if a node is an unconditional write to the given variable.
-/// Only matches direct `var = expr` assignments, not `var ||= expr`
-/// or conditional assignments (those might not execute).
+/// Matches direct `var = expr` assignments and multi-writes, but not
+/// `var ||= expr` or conditional assignments (those might not execute).
+/// Also recurses into `begin` blocks and parentheses, since those always
+/// execute their contents.
 fn is_unconditional_var_write(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
     if let Some(lw) = node.as_local_variable_write_node() {
         return lw.name().as_slice() == var_name;
@@ -731,6 +981,39 @@ fn is_unconditional_var_write(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> b
                     return true;
                 }
             }
+        }
+        return false;
+    }
+    // `begin ... end` always executes — check if the first statement in the
+    // begin body is an unconditional write (recursively).
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            return var_written_before_read_in_body(&stmts, var_name);
+        }
+    }
+    // Parenthesized expressions always execute
+    if let Some(paren) = node.as_parentheses_node() {
+        if let Some(body) = paren.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                return var_written_before_read_in_body(&stmts, var_name);
+            }
+        }
+    }
+    false
+}
+
+/// Check if a variable is written before read in a sequence of statements.
+/// Extracted from `var_written_before_read_in_stmts` for reuse.
+fn var_written_before_read_in_body(
+    stmts: &ruby_prism::StatementsNode<'_>,
+    var_name: &[u8],
+) -> bool {
+    for stmt in stmts.body().iter() {
+        if is_unconditional_var_write(&stmt, var_name) {
+            return true;
+        }
+        if node_reads_var(&stmt, var_name) {
+            return false;
         }
     }
     false

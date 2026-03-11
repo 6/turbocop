@@ -145,3 +145,15 @@ describe SomeClass do
   role = 'admin'
   include_context 'shared setup', "#{role} context"
 end
+
+# Variable reassigned inside begin block before use (VariableForce)
+describe SomeClass do
+  user = create(:user)
+
+  it 'updates the user' do
+    begin
+      user = create(:other_user)
+      expect(user).to be_valid
+    end
+  end
+end
