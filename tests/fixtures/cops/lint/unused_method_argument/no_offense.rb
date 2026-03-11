@@ -108,3 +108,10 @@ end
 def with_receiver_binding(name, value)
   some_object.binding
 end
+
+# method param captured by block (not shadowed) — still used
+def captured_in_nested_block(x)
+  items.each do |item|
+    nested.each { |n| process(x, item, n) }
+  end
+end

@@ -42,3 +42,22 @@ def multi_target(a, b)
                     ^ Lint/UnusedMethodArgument: Unused method argument - `b`.
   a, b = 1, 2
 end
+
+# block parameter shadows method parameter — method param is unused
+def shadowed_by_block(x)
+                      ^ Lint/UnusedMethodArgument: Unused method argument - `x`.
+  items.each { |x| puts x }
+end
+
+# lambda parameter shadows method parameter — method param is unused
+def shadowed_by_lambda(x)
+                       ^ Lint/UnusedMethodArgument: Unused method argument - `x`.
+  transform = ->(x) { x * 2 }
+  transform.call(42)
+end
+
+# binding(&block) is NOT Kernel#binding — does not suppress unused arg warning
+def with_binding_block_pass(bar, &blk)
+                            ^^^ Lint/UnusedMethodArgument: Unused method argument - `bar`.
+  binding(&blk)
+end

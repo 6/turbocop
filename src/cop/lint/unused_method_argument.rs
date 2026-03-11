@@ -24,6 +24,17 @@ use ruby_prism::Visit;
 /// - **FN: empty methods with `IgnoreEmptyMethods: false`** — a double-return bug in the
 ///   `body.is_none()` branch caused empty methods to always be skipped, even when config
 ///   set `IgnoreEmptyMethods: false`. Fixed to properly check params when body is absent.
+///
+/// ## Additional fixes (corpus 99.6% → improved):
+/// - **FN: block/lambda parameter shadowing** — when a block or lambda declares a parameter
+///   with the same name as a method parameter (e.g., `def foo(x); items.each { |x| x }`),
+///   the read inside the block refers to the block's variable, NOT the method's. VarReadFinder
+///   now tracks `block_depth` and uses Prism's `depth()` field on read/write nodes to only
+///   count references that reach back to the method scope (`depth >= block_depth`).
+/// - **FP: `binding(&block)` incorrectly suppressed warnings** — in RuboCop's Parser AST,
+///   a block-pass `&block` is a child of the send node, making it look like `binding` has
+///   arguments. Prism separates block arguments from regular arguments. Fixed to also check
+///   that the call's `block()` is not a `BlockArgumentNode`.
 pub struct UnusedMethodArgument;
 
 impl Cop for UnusedMethodArgument {
@@ -183,6 +194,7 @@ impl Cop for UnusedMethodArgument {
             names: Vec::new(),
             has_forwarding_super: false,
             has_binding_call: false,
+            block_depth: 0,
         };
         if let Some(ref b) = body {
             finder.visit(b);
@@ -347,11 +359,23 @@ struct VarReadFinder {
     names: Vec<Vec<u8>>,
     has_forwarding_super: bool,
     has_binding_call: bool,
+    /// Number of block/lambda scopes we've entered. Used to correctly scope
+    /// variable reads: only reads at depth >= block_depth reference the
+    /// method's parameters. Reads at depth < block_depth reference a
+    /// block/lambda's own parameter (which may shadow the method param).
+    block_depth: u32,
 }
 
 impl<'pr> Visit<'pr> for VarReadFinder {
     fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
-        self.names.push(node.name().as_slice().to_vec());
+        // Only count this read as a method-param reference if its depth
+        // reaches back to the method scope. `depth` is how many scopes
+        // up from the innermost enclosing scope the variable resolves to.
+        // A read inside a block with depth 0 refers to the block's own
+        // variable (which may shadow a method param with the same name).
+        if node.depth() >= self.block_depth {
+            self.names.push(node.name().as_slice().to_vec());
+        }
     }
 
     // Compound assignment operators (+=, -=, etc.) implicitly read the variable
@@ -359,7 +383,9 @@ impl<'pr> Visit<'pr> for VarReadFinder {
         &mut self,
         node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
     ) {
-        self.names.push(node.name().as_slice().to_vec());
+        if node.depth() >= self.block_depth {
+            self.names.push(node.name().as_slice().to_vec());
+        }
         ruby_prism::visit_local_variable_operator_write_node(self, node);
     }
 
@@ -368,7 +394,9 @@ impl<'pr> Visit<'pr> for VarReadFinder {
         &mut self,
         node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
     ) {
-        self.names.push(node.name().as_slice().to_vec());
+        if node.depth() >= self.block_depth {
+            self.names.push(node.name().as_slice().to_vec());
+        }
         ruby_prism::visit_local_variable_and_write_node(self, node);
     }
 
@@ -377,7 +405,9 @@ impl<'pr> Visit<'pr> for VarReadFinder {
         &mut self,
         node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
     ) {
-        self.names.push(node.name().as_slice().to_vec());
+        if node.depth() >= self.block_depth {
+            self.names.push(node.name().as_slice().to_vec());
+        }
         ruby_prism::visit_local_variable_or_write_node(self, node);
     }
 
@@ -391,11 +421,34 @@ impl<'pr> Visit<'pr> for VarReadFinder {
     // `obj.binding`) as making all variables referenced, so we match that
     // behavior. Only `binding` with arguments (e.g. `binding(:something)`)
     // is excluded — that's not Kernel#binding.
+    // Also exclude `binding(&block)` — in RuboCop's Parser AST, a block_pass
+    // is an argument that makes `args.children.empty?` false, so RuboCop
+    // does NOT treat `binding(&block)` as Kernel#binding.
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if node.name().as_slice() == b"binding" && node.arguments().is_none() {
+        if node.name().as_slice() == b"binding"
+            && node.arguments().is_none()
+            && node
+                .block()
+                .is_none_or(|b| b.as_block_argument_node().is_none())
+        {
             self.has_binding_call = true;
         }
         ruby_prism::visit_call_node(self, node);
+    }
+
+    // Block/lambda scopes increment block_depth so that variable reads
+    // inside them are correctly scoped. Only reads with depth >= block_depth
+    // reference the method's parameters.
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        self.block_depth += 1;
+        ruby_prism::visit_block_node(self, node);
+        self.block_depth -= 1;
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        self.block_depth += 1;
+        ruby_prism::visit_lambda_node(self, node);
+        self.block_depth -= 1;
     }
 
     // Don't recurse into nested def/class/module/sclass (they have their own scope)
@@ -499,6 +552,52 @@ mod tests {
         assert!(
             !diags.is_empty(),
             "Expected offense for unused arg in empty method when IgnoreEmptyMethods=false"
+        );
+    }
+
+    #[test]
+    fn test_block_param_shadows_method_param_fn() {
+        // When a block parameter shadows a method parameter, the method param
+        // is unused even though a variable with the same name is read inside
+        // the block. RuboCop's VariableForce correctly scopes this.
+        let diags = crate::testutil::run_cop_full(
+            &UnusedMethodArgument,
+            b"def foo(x)\n  items.each { |x| puts x }\nend\n",
+        );
+        assert!(
+            diags.iter().any(|d| d.message.contains("x")),
+            "Expected offense for method param 'x' shadowed by block param, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_lambda_param_shadows_method_param_fn() {
+        // Lambda parameter shadows method parameter
+        let diags = crate::testutil::run_cop_full(
+            &UnusedMethodArgument,
+            b"def foo(x)\n  ->(x) { puts x }\nend\n",
+        );
+        assert!(
+            diags.iter().any(|d| d.message.contains("x")),
+            "Expected offense for method param 'x' shadowed by lambda param, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_binding_with_block_pass_still_flags() {
+        // binding(&block) is NOT Kernel#binding — should still flag unused args
+        // RuboCop's Parser treats &block as an argument, so VariableForce
+        // does not suppress warnings.
+        let diags = crate::testutil::run_cop_full(
+            &UnusedMethodArgument,
+            b"def foo(bar, &blk)\n  binding(&blk)\nend\n",
+        );
+        assert!(
+            diags.iter().any(|d| d.message.contains("bar")),
+            "Expected offense for unused 'bar' when binding(&blk), got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
     }
 
