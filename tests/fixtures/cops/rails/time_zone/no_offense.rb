@@ -5,7 +5,6 @@ DateTime.current
 Process.clock_gettime(Process::CLOCK_MONOTONIC)
 Time.now.utc
 Time.now.in_time_zone
-Time.now.getutc
 Time.now.to_i
 Time.utc(2000)
 Time.gm(2000, 1, 1)
@@ -25,3 +24,10 @@ Time.at(timestamp).to_datetime.in_time_zone
 Time.at(payload.updated_at / 1000).to_datetime.in_time_zone("UTC")
 Time.now.to_i
 Time.parse(str).iso8601
+# Qualified constant paths — NOT top-level Time, should not be flagged
+Some::Time.now
+Module::Time.parse("2023-01-01")
+Foo::Bar::Time.at(0)
+Some::Time.new(2023, 1, 1)
+Some::Time.local(2023, 1, 1)
+Some::Time.now(0).strftime('%H:%M')

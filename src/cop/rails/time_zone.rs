@@ -1,11 +1,34 @@
-use crate::cop::node_type::{
-    ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE,
-};
-use crate::cop::util;
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Rails/TimeZone — checks for Time methods without zone.
+///
+/// ## Investigation (2026-03-10)
+///
+/// **FP root cause (qualified constant paths):** `util::constant_name()` extracted
+/// just the last segment of a ConstantPathNode, so `Some::Time.now` matched as
+/// `Time` and was falsely flagged. Fix: inline the constant check to verify the
+/// receiver is either a bare `Time` (ConstantReadNode) or root-qualified `::Time`
+/// (ConstantPathNode with parent=None/cbase). Matches RuboCop's `(const {nil? cbase} :Time)`.
+///
+/// **FN root cause (extra SAFE_METHODS):** `getutc`, `rfc2822`, `rfc822`, `to_r`
+/// were in the safe methods list but are NOT in RuboCop's ACCEPTED_METHODS, causing
+/// `Time.now.getutc` etc. to be incorrectly exempted. Removed these methods.
+///
+/// **Remaining gaps:**
+/// - `localtime` handling: RuboCop treats `localtime` without args as an offense
+///   (`MSG_LOCALTIME`) and `localtime` with args as accepted. Nitrocop currently
+///   treats all `localtime` as safe (byte scanner limitation). This causes FNs for
+///   bare `Time.now.localtime`.
+/// - Strict mode does not check GOOD_METHODS chain (e.g., `Time.now.zone` is
+///   flagged in strict mode but shouldn't be). Requires AST parent walking.
+/// - `String#to_time` detection (RuboCop's `on_send` for `to_time`) not implemented.
+/// - Byte-level chain scanner vs RuboCop's AST parent walking: the scanner works
+///   correctly for most cases because `call.location().end_offset()` ends at the
+///   closing paren of arguments, so `foo(Time.now).utc` correctly sees `)` (not
+///   `.utc`) after `Time.now`. Edge cases with complex nesting may still diverge.
 pub struct TimeZone;
 
 impl Cop for TimeZone {
@@ -18,15 +41,7 @@ impl Cop for TimeZone {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            ASSOC_NODE,
-            CALL_NODE,
-            HASH_NODE,
-            KEYWORD_HASH_NODE,
-            NIL_NODE,
-            STRING_NODE,
-            SYMBOL_NODE,
-        ]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -56,8 +71,22 @@ impl Cop for TimeZone {
             Some(r) => r,
             None => return,
         };
-        // Handle both ConstantReadNode (Time) and ConstantPathNode (::Time)
-        if util::constant_name(&recv) != Some(b"Time") {
+        // Handle ConstantReadNode (Time) and ConstantPathNode (::Time) but NOT
+        // qualified paths like Some::Time — only unqualified or root-qualified.
+        // RuboCop: (const {nil? cbase} :Time)
+        if let Some(cr) = recv.as_constant_read_node() {
+            if cr.name().as_slice() != b"Time" {
+                return;
+            }
+        } else if let Some(cp) = recv.as_constant_path_node() {
+            // ::Time — parent must be None (cbase), not Some::Time
+            if cp.parent().is_some() {
+                return;
+            }
+            if cp.name().map(|n| n.as_slice()) != Some(b"Time") {
+                return;
+            }
+        } else {
             return;
         }
 
@@ -207,9 +236,11 @@ fn has_timezone_specifier(bytes: &[u8]) -> bool {
 /// true if any method in the chain is a timezone-safe method. Handles chains
 /// like `.to_datetime.in_time_zone(...)` by following `.method(args)` segments.
 fn chain_contains_tz_safe_method(bytes: &[u8], start: usize) -> bool {
+    // Matches RuboCop's ACCEPTED_METHODS + GOOD_METHODS + [:current] for flexible mode.
+    // Notably excludes getutc, rfc2822, rfc822, to_r which are NOT in RuboCop's lists.
+    // localtime is kept because RuboCop accepts localtime WITH arguments (handled specially).
     const SAFE_METHODS: &[&[u8]] = &[
         b"utc",
-        b"getutc",
         b"getlocal",
         b"in_time_zone",
         b"localtime",
@@ -218,11 +249,8 @@ fn chain_contains_tz_safe_method(bytes: &[u8], start: usize) -> bool {
         b"jisx0301",
         b"rfc3339",
         b"httpdate",
-        b"rfc2822",
-        b"rfc822",
         b"to_i",
         b"to_f",
-        b"to_r",
         b"zone",
         b"current",
     ];

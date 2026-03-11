@@ -11,3 +11,6 @@ end
 
 ::Time.now
        ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+Time.now.getutc
+     ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
