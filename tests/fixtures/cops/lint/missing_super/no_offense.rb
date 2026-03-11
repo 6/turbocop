@@ -63,3 +63,30 @@ class Foo
     do_something
   end
 end
+
+# FP fix: def initialize inside a non-Class.new block within a class with parent
+# RuboCop checks nearest block ancestor first — if it's not Class.new(Parent), no offense
+class Child < Parent
+  some_method do
+    def initialize
+      do_something
+    end
+  end
+end
+
+# FP fix: Class.new(Parent) with intervening non-Class.new block
+Class.new(Parent) do
+  items.each do
+    def initialize
+      do_something
+    end
+  end
+end
+
+# FP fix: Class.new without parent inside class with parent
+class Child < Parent
+  Class.new do
+    def initialize
+    end
+  end
+end

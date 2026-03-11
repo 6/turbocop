@@ -36,3 +36,24 @@ class Foo
     end
   end
 end
+
+# FN fix: callback inside a module should also be flagged
+module Callbacks
+  def method_added(name)
+  ^^^^^^^^^^^^^^^^^^^^^ Lint/MissingSuper: Call `super` to invoke callback defined in the parent class.
+  end
+end
+
+module Hooks
+  def self.inherited(base)
+  ^^^^^^^^^^^^^^^^^^^^^^^^ Lint/MissingSuper: Call `super` to invoke callback defined in the parent class.
+  end
+end
+
+module Extensions
+  class << self
+    def singleton_method_added(name)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/MissingSuper: Call `super` to invoke callback defined in the parent class.
+    end
+  end
+end

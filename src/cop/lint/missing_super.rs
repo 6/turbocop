@@ -3,6 +3,21 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// ## Corpus investigation (2026-03-11)
+///
+/// Corpus oracle reported FP=73, FN=43.
+///
+/// FP=73: `is_inside_class_with_stateful_parent()` walked the full class_stack
+/// looking for any `Class.new(Parent)` ancestor, but RuboCop's
+/// `inside_class_with_stateful_parent?` only checks the nearest block ancestor.
+/// If the nearest block is not `Class.new(Parent)`, no offense. Fixed by
+/// tracking non-Class.new blocks as `ClassContext::Block` and stopping the
+/// search when one is encountered.
+///
+/// FN=43: `is_inside_class_or_sclass()` returned false for modules, but
+/// RuboCop's `callback_method_def?` uses `each_ancestor(:class, :sclass, :module)`
+/// — callbacks inside modules should also be flagged. Fixed by including
+/// `Module` in the accepted contexts for callback methods.
 pub struct MissingSuper;
 
 /// Lifecycle callback method names that require `super`.
@@ -71,6 +86,10 @@ enum ClassContext {
     Module,
     /// Inside `class << self`.
     Sclass,
+    /// Inside a non-Class.new block (e.g., `items.each do ... end`).
+    /// RuboCop checks the nearest block ancestor first — if it's not
+    /// Class.new(Parent), `initialize` without super is not an offense.
+    Block,
 }
 
 struct MissingSuperVisitor<'a, 'src> {
@@ -104,16 +123,29 @@ impl MissingSuperVisitor<'_, '_> {
     }
 
     fn is_inside_class_with_stateful_parent(&self) -> bool {
+        // RuboCop's logic: first check nearest block ancestor. If it's a
+        // Class.new(Parent) block, check the parent. If it's any other block,
+        // return false. If no block ancestor, check nearest class ancestor.
+        // We track both blocks and classes in class_stack, so walk from
+        // innermost outward: Block stops the search (FP fix), ClassNew* and
+        // ClassWith* resolve it, Sclass is transparent.
         #[allow(clippy::never_loop)] // intentional: find-first via early return
         for ctx in self.class_stack.iter().rev() {
             match ctx {
-                ClassContext::ClassWithParent(parent) => {
-                    return !self.is_stateless_or_allowed(parent);
-                }
                 ClassContext::ClassNewWithParent(parent) => {
                     return !self.is_stateless_or_allowed(parent);
                 }
-                ClassContext::ClassWithoutParent | ClassContext::ClassNewWithoutParent => {
+                ClassContext::ClassNewWithoutParent => {
+                    return false;
+                }
+                ClassContext::Block => {
+                    // Nearest block ancestor is not Class.new(Parent) — no offense.
+                    return false;
+                }
+                ClassContext::ClassWithParent(parent) => {
+                    return !self.is_stateless_or_allowed(parent);
+                }
+                ClassContext::ClassWithoutParent => {
                     return false;
                 }
                 ClassContext::Sclass => {
@@ -128,7 +160,9 @@ impl MissingSuperVisitor<'_, '_> {
         false
     }
 
-    fn is_inside_class_or_sclass(&self) -> bool {
+    fn is_inside_class_module_or_sclass(&self) -> bool {
+        // RuboCop's callback_method_def? checks each_ancestor(:class, :sclass, :module)
+        // — callbacks inside modules should also be flagged.
         #[allow(clippy::never_loop)] // intentional: find-first via early return
         for ctx in self.class_stack.iter().rev() {
             match ctx {
@@ -136,8 +170,12 @@ impl MissingSuperVisitor<'_, '_> {
                 | ClassContext::ClassWithoutParent
                 | ClassContext::ClassNewWithParent(_)
                 | ClassContext::ClassNewWithoutParent
-                | ClassContext::Sclass => return true,
-                ClassContext::Module => return false,
+                | ClassContext::Sclass
+                | ClassContext::Module => return true,
+                ClassContext::Block => {
+                    // Blocks are transparent for callback lookup
+                    continue;
+                }
             }
         }
         false
@@ -223,6 +261,14 @@ impl<'pr> Visit<'pr> for MissingSuperVisitor<'_, '_> {
         ruby_prism::visit_call_node(self, node);
     }
 
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        // Track non-Class.new blocks. Class.new blocks are handled in
+        // visit_call_node which intercepts before reaching here.
+        self.class_stack.push(ClassContext::Block);
+        ruby_prism::visit_block_node(self, node);
+        self.class_stack.pop();
+    }
+
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         let method_name = node.name().as_slice();
 
@@ -239,8 +285,8 @@ impl<'pr> Visit<'pr> for MissingSuperVisitor<'_, '_> {
                 ));
             }
         } else if Self::is_callback_name(method_name) {
-            // Instance method callbacks (like method_added) - need to be inside a class
-            if self.is_inside_class_or_sclass() && !Self::def_contains_super(node) {
+            // Instance method callbacks (like method_added) - need to be inside a class or module
+            if self.is_inside_class_module_or_sclass() && !Self::def_contains_super(node) {
                 let loc = node.location();
                 let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                 self.diagnostics.push(self.cop.diagnostic(
