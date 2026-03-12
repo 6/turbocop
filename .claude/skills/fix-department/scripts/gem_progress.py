@@ -101,6 +101,32 @@ def cop_gem(cop_name: str) -> str:
     return DEPT_TO_GEM.get(dept, "unknown")
 
 
+def classify_cop(cop: dict, synthetic_entry: dict | None = None) -> str:
+    """Classify a cop using corpus results first, then synthetic fallback."""
+    exercised = cop.get("exercised")
+    if exercised is None:
+        exercised = cop.get("matches", 0) + cop.get("fp", 0) + cop.get("fn", 0) > 0
+
+    if exercised:
+        fp = cop.get("fp", 0)
+        fn = cop.get("fn", 0)
+        if fp == 0 and fn == 0:
+            return "perfect"
+        if fp > 0 and fn == 0:
+            return "fp_only"
+        if fp == 0 and fn > 0:
+            return "fn_only"
+        return "both"
+
+    if synthetic_entry:
+        if synthetic_entry.get("diverging"):
+            return "synthetic_diverging"
+        if synthetic_entry.get("perfect_match"):
+            return "synthetic_perfect"
+
+    return "untested"
+
+
 def find_project_root() -> Path:
     """Find the git repo root."""
     result = subprocess.run(
@@ -166,17 +192,30 @@ def build_gem_stats(by_cop: list[dict], registry_cops: set[str] | None = None,
             "untested_cops": [],  # cop names missing from corpus
         }
 
-    # Count registry cops per gem and find untested ones
+    # Count registry cops per gem.
     if registry_cops:
         for cop in registry_cops:
             gem = cop_gem(cop)
             if gem not in gems:
                 continue
             gems[gem]["total_in_registry"] += 1
-            if cop not in corpus_cop_names:
-                # If synthetic data covers this cop, don't count as untested
-                if cop in synthetic:
-                    continue
+
+    # Cops missing from the oracle payload are rare, but classify them the same
+    # way as inactive corpus cops: synthetic coverage counts, otherwise untested.
+    if registry_cops:
+        for cop in sorted(registry_cops - corpus_cop_names):
+            gem = cop_gem(cop)
+            if gem not in gems:
+                continue
+            syn = synthetic.get(cop)
+            status = classify_cop({"cop": cop, "matches": 0, "fp": 0, "fn": 0}, syn)
+            if status == "synthetic_perfect":
+                gems[gem]["perfect"] += 1
+            elif status == "synthetic_diverging":
+                gems[gem]["syn_fp"] += syn.get("fp", 0)
+                gems[gem]["syn_fn"] += syn.get("fn", 0)
+                gems[gem]["syn_diverging"] += 1
+            else:
                 gems[gem]["untested"] += 1
                 gems[gem]["untested_cops"].append(cop)
 
@@ -185,57 +224,36 @@ def build_gem_stats(by_cop: list[dict], registry_cops: set[str] | None = None,
         if gem not in gems:
             continue
         g = gems[gem]
-        g["total_in_corpus"] += 1
+        status = classify_cop(c, synthetic.get(c["cop"]))
+        if c.get("exercised"):
+            g["total_in_corpus"] += 1
         g["total_fp"] += c["fp"]
         g["total_fn"] += c["fn"]
         g["total_matches"] += c["matches"]
         g["cops"].append(c)
 
-        is_diverging = c["fp"] > 0 or c["fn"] > 0
-        is_fixed = c["cop"] in fixed
-
-        if not is_diverging:
+        if status in {"perfect", "synthetic_perfect"}:
             g["perfect"] += 1
-        elif is_fixed:
+        elif status == "synthetic_diverging":
+            syn = synthetic.get(c["cop"], {})
+            g["syn_fp"] += syn.get("fp", 0)
+            g["syn_fn"] += syn.get("fn", 0)
+            g["syn_diverging"] += 1
+        elif status == "untested":
+            g["untested"] += 1
+            g["untested_cops"].append(c["cop"])
+        elif c["cop"] in fixed:
             g["fixed"] += 1
             g["fixed_cops"].append(c["cop"])
-        elif c["fp"] > 0 and c["fn"] == 0:
+        elif status == "fp_only":
             g["fp_only"] += 1
             g["diverging"] += 1
-        elif c["fp"] == 0 and c["fn"] > 0:
+        elif status == "fn_only":
             g["fn_only"] += 1
             g["diverging"] += 1
         else:
             g["both"] += 1
             g["diverging"] += 1
-
-    # Aggregate synthetic-only divergence per gem
-    if synthetic:
-        for gem_name_key, g in gems.items():
-            gem_depts = set(GEM_DEPARTMENTS.get(gem_name_key, []))
-            for c in g["cops"]:
-                if c["matches"] == 0 and c["fp"] == 0 and c["fn"] == 0:
-                    syn = synthetic.get(c["cop"])
-                    if syn and syn.get("diverging"):
-                        g["syn_fp"] += syn.get("fp", 0)
-                        g["syn_fn"] += syn.get("fn", 0)
-                        g["syn_diverging"] += 1
-            # Also check untested cops that only exist in synthetic
-            for cop in list(synthetic.keys()):
-                dept = cop_department(cop)
-                if dept not in gem_depts:
-                    continue
-                gem = DEPT_TO_GEM.get(dept)
-                if gem != gem_name_key:
-                    continue
-                # Skip cops already in corpus
-                if any(c["cop"] == cop for c in g["cops"]):
-                    continue
-                syn = synthetic[cop]
-                if syn.get("diverging"):
-                    g["syn_fp"] += syn.get("fp", 0)
-                    g["syn_fn"] += syn.get("fn", 0)
-                    g["syn_diverging"] += 1
 
     # Sort lists for stable output
     for g in gems.values():
@@ -341,7 +359,7 @@ def print_summary(gems: dict[str, dict], run_date: str, summary: dict, has_regis
 
     # Legend
     if has_registry:
-        legend = "  Reg=registry cops  Corpus=triggered on corpus  Untest=never triggered  Perf=0 FP+FN"
+        legend = "  Reg=registry cops  Corpus=triggered on corpus  Untest=no corpus or synthetic coverage  Perf=0 FP+FN"
         if has_fixed:
             legend += "  Fixed=pending confirm"
         legend += "  Dvrg=FP or FN >0"
@@ -424,16 +442,43 @@ def print_gem_detail(gem_name: str, gems: dict[str, dict], run_date: str,
     fixed_set = set(g["fixed_cops"])
 
     # Categorize cops (exclude fixed cops from diverging categories)
-    perfect = sorted([c for c in cops if c["fp"] == 0 and c["fn"] == 0],
-                     key=lambda c: c["cop"])
+    perfect = sorted(
+        [
+            c for c in cops
+            if classify_cop(c, synthetic.get(c["cop"]) if synthetic else None)
+            in {"perfect", "synthetic_perfect"}
+        ],
+        key=lambda c: c["cop"],
+    )
     fixed = sorted([c for c in cops if c["cop"] in fixed_set],
                    key=lambda c: c["cop"])
-    fp_only = sorted([c for c in cops if c["fp"] > 0 and c["fn"] == 0 and c["cop"] not in fixed_set],
-                     key=lambda c: c["fp"], reverse=True)
-    fn_only = sorted([c for c in cops if c["fp"] == 0 and c["fn"] > 0 and c["cop"] not in fixed_set],
-                     key=lambda c: c["fn"], reverse=True)
-    both = sorted([c for c in cops if c["fp"] > 0 and c["fn"] > 0 and c["cop"] not in fixed_set],
-                  key=lambda c: c["fp"], reverse=True)
+    fp_only = sorted(
+        [
+            c for c in cops
+            if classify_cop(c, synthetic.get(c["cop"]) if synthetic else None) == "fp_only"
+            and c["cop"] not in fixed_set
+        ],
+        key=lambda c: c["fp"],
+        reverse=True,
+    )
+    fn_only = sorted(
+        [
+            c for c in cops
+            if classify_cop(c, synthetic.get(c["cop"]) if synthetic else None) == "fn_only"
+            and c["cop"] not in fixed_set
+        ],
+        key=lambda c: c["fn"],
+        reverse=True,
+    )
+    both = sorted(
+        [
+            c for c in cops
+            if classify_cop(c, synthetic.get(c["cop"]) if synthetic else None) == "both"
+            and c["cop"] not in fixed_set
+        ],
+        key=lambda c: c["fp"],
+        reverse=True,
+    )
 
     print(f"{gem_name} — Conformance Deep Dive ({run_date})")
     print(f"Departments: {', '.join(GEM_DEPARTMENTS[gem_name])}")
@@ -441,9 +486,9 @@ def print_gem_detail(gem_name: str, gems: dict[str, dict], run_date: str,
     corpus = g["total_in_corpus"]
     untested = g["untested"]
     if reg > 0:
-        print(f"{reg} cops in registry, {corpus} in corpus, {untested} untested (never triggered)")
+        print(f"{reg} cops in registry, {corpus} exercised on corpus, {untested} untested (no corpus or synthetic coverage)")
     else:
-        print(f"{corpus} cops in corpus")
+        print(f"{corpus} cops exercised on corpus")
     print(f"{g['perfect']} verified perfect, {g['diverging']} diverging "
           f"({g['fp_only']} FP-only, {g['fn_only']} FN-only, {g['both']} both)")
     print()
@@ -513,21 +558,17 @@ def print_gem_detail(gem_name: str, gems: dict[str, dict], run_date: str,
 
     # Untested cops (in registry but never triggered on corpus)
     if g["untested_cops"]:
-        print(f"Untested ({g['untested']} — in registry but never triggered on corpus):")
+        print(f"Untested ({g['untested']} — no corpus or synthetic coverage):")
         for cop in g["untested_cops"]:
             print(f"  {cop}")
         print()
 
     # Synthetic-only divergence (cops with 0 corpus activity but FP/FN in synthetic)
     if synthetic:
-        gem_depts = set(GEM_DEPARTMENTS.get(gem_name, []))
         syn_diverging = []
         for c in cops:
-            if c["matches"] == 0 and c["fp"] == 0 and c["fn"] == 0:
-                # Zero corpus activity — check synthetic
-                syn = synthetic.get(c["cop"])
-                if syn and syn.get("diverging"):
-                    syn_diverging.append(syn)
+            if classify_cop(c, synthetic.get(c["cop"])) == "synthetic_diverging":
+                syn_diverging.append(synthetic[c["cop"]])
         if syn_diverging:
             syn_diverging.sort(key=lambda s: s.get("fp", 0) + s.get("fn", 0), reverse=True)
             print(f"Synthetic-only divergence ({len(syn_diverging)} — no corpus activity, but diverge on synthetic tests):")
