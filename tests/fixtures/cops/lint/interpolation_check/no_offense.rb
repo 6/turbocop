@@ -42,3 +42,13 @@ escaped = '\#{not_interpolation}'
 x = 'text #{
   some_value
 }'
+
+# BEGIN in interpolation — Parser gem rejects this as invalid syntax,
+# so RuboCop does not flag it. Prism accepts it but we must match RuboCop.
+msg = '#{BEGIN { setup }}'
+txt = 'test #{BEGIN { x = 1 }}'
+
+# \U escape — in single-quoted strings \U is literal backslash + U.
+# When converted to double-quoted, Parser gem rejects \U as invalid escape.
+# Prism accepts it, but we must match RuboCop behavior.
+label = '\U+0041 is #{char}'

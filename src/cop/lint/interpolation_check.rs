@@ -36,6 +36,21 @@ use crate::parse::source::SourceFile;
 /// Fix: Restrict `}` search to same line (matching `.*` behavior), always return
 /// true for `%q` validity (matching RuboCop's gsub behavior), filter additional
 /// Prism-specific context errors.
+///
+/// Round 3 (56 FP, 0 FN at 92.1%):
+///
+/// FP causes — Prism/Parser gem divergences in `valid_syntax?`:
+/// - `BEGIN` in interpolation: nitrocop was filtering "BEGIN is permitted" Prism
+///   errors, treating `'#{BEGIN { ... }}'` as valid. But the Parser gem rejects
+///   BEGIN inside interpolation (returns nil AST), so RuboCop's `valid_syntax?`
+///   returns false. Fix: stop filtering "BEGIN is permitted" errors.
+/// - `\U` escape: In single-quoted strings, `\U` is literal backslash + U. When
+///   converted to double-quoted, Prism accepts `\U` as an unknown escape (treated
+///   as literal), but the Parser gem throws a fatal `SyntaxError`. Fix: pre-check
+///   for `\U` in content and reject it before Prism parsing.
+///
+/// The "Invalid " error filter (for yield, retry, break, next, redo) remains
+/// correct — the Parser gem accepts these as valid syntax while Prism rejects them.
 pub struct InterpolationCheck;
 
 impl Cop for InterpolationCheck {
@@ -172,22 +187,46 @@ fn valid_syntax_as_double_quoted(source: &[u8]) -> bool {
         return false;
     };
 
+    // Pre-check: reject backslash sequences that the Parser gem rejects but Prism
+    // accepts. In single-quoted strings these are literal text, but when converted
+    // to double-quoted they become escape sequences with different Parser/Prism
+    // behavior.
+    // - \U: Prism accepts as unknown escape (literal), Parser throws fatal error.
+    let content = &source_str[1..source_str.len() - 1];
+    if has_parser_rejected_escape(content) {
+        return false;
+    }
+
     // Parse with Prism and check for syntax errors.
     // Filter out semantic errors (e.g., "Invalid yield", "Invalid retry") that
     // the Parser gem accepts but Prism rejects. These start with "Invalid" and
     // represent runtime-checked conditions, not true syntax problems.
-    // Also filter "BEGIN is permitted only at toplevel" which is a context error
-    // that Parser gem accepts.
+    // Note: "BEGIN is permitted only at toplevel" is NOT filtered — the Parser gem
+    // rejects BEGIN inside interpolation (returns ast=nil), so we must reject it too.
     let result = ruby_prism::parse(double_quoted.as_bytes());
     let has_syntax_error = result.errors().any(|e| {
         let msg = e.message();
         let msg_bytes = msg.as_bytes();
-        // Filter semantic/context errors that Parser gem accepts:
+        // Filter semantic errors that Parser gem accepts:
         // - "Invalid yield", "Invalid retry", "Invalid break", etc.
-        // - "BEGIN is permitted only at toplevel"
-        !msg_bytes.starts_with(b"Invalid ") && !msg_bytes.starts_with(b"BEGIN is permitted")
+        !msg_bytes.starts_with(b"Invalid ")
     });
     !has_syntax_error
+}
+
+/// Check if the content (between quotes) contains backslash escape sequences
+/// that the Parser gem rejects but Prism accepts in double-quoted strings.
+/// Currently checks for `\U` (uppercase U after backslash).
+fn has_parser_rejected_escape(content: &str) -> bool {
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'\\' && bytes[i + 1] == b'U' {
+            return true;
+        }
+        i += 1;
+    }
+    false
 }
 
 #[cfg(test)]
@@ -252,5 +291,24 @@ mod tests {
         assert!(!has_unescaped_interpolation(b"'\\\\#{foo}'"));
         // '\\\\#{foo}' - four backslashes then #{foo}
         assert!(!has_unescaped_interpolation(b"'\\\\\\\\#{foo}'"));
+    }
+
+    #[test]
+    fn test_begin_in_interpolation_invalid() {
+        // BEGIN inside interpolation: Parser gem rejects (ast=nil), so
+        // RuboCop's valid_syntax? returns false. We must match this.
+        assert!(!valid_syntax_as_double_quoted(b"'#{BEGIN {}}'"));
+        assert!(!valid_syntax_as_double_quoted(b"'test #{BEGIN { x = 1 }}'"));
+    }
+
+    #[test]
+    fn test_backslash_u_uppercase_invalid() {
+        // \U in single-quoted string is literal. When converted to double-quoted,
+        // Parser gem throws fatal SyntaxError, but Prism accepts it.
+        // We must reject it to match RuboCop.
+        assert!(!valid_syntax_as_double_quoted(b"'\\U+0041 #{foo}'"));
+        assert!(!valid_syntax_as_double_quoted(b"'\\U #{bar}'"));
+        // Lowercase \u with valid hex is fine
+        assert!(valid_syntax_as_double_quoted(b"'#{foo}'"));
     }
 }
