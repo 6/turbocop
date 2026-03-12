@@ -51,6 +51,9 @@ use crate::parse::source::SourceFile;
 /// Investigation notes:
 /// - The reported `hexapdf` FN points at a hash literal line with no numbered
 ///   identifiers, so there is no live cop repro to fix.
+/// - The local `hexapdf` corpus checkout matches the manifest SHA
+///   `f1176c6413df266cd07e27c17aa76e6264bd86dc`, so this row is stale oracle
+///   data rather than local repo drift.
 /// - The batch gate still prints a large raw delta because
 ///   `--corpus-check` includes 1,285 file-drop offenses from a `jruby` parser
 ///   crash repo; the RuboCop-aligned comparison is exact.

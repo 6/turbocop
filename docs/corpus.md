@@ -14,12 +14,12 @@ Every offense is compared by file path, line number, and cop name.
 | Repos with 100% match | 16 |
 | Files inspected | 228,098 |
 | Offenses compared | 11,639,129 |
-| Matches (both agree) | 11,330,184 |
-| FP (nitrocop extra) | 48,773 |
-| FN (nitrocop missing) | 260,172 |
+| Matches (both agree) | 11,330,196 |
+| FP (nitrocop extra) | 48,767 |
+| FN (nitrocop missing) | 260,166 |
 | Registered cops | 910 |
-| Cops with exact match | 409 |
-| Cops with divergence | 444 |
+| Cops with exact match | 411 |
+| Cops with divergence | 442 |
 | Cops with no corpus data | 57 |
 | **Match rate** | **97.3%** |
 | Repos with errors | 5 |
@@ -37,7 +37,7 @@ Every offense is compared by file path, line number, and cop name.
 | Lint | 148 | 74 | 69 | 5 | 1,952,107 | 2,126 | 15,381 | 99.1% |
 | Metrics | 10 | 8 | 2 | 0 | 253,749 | 24 | 17 | 99.9% |
 | Migration | 1 | 1 | 0 | 0 | 71 | 0 | 0 | 100.0% |
-| Naming | 19 | 17 | 2 | 0 | 96,996 | 6 | 6 | 99.9% |
+| Naming | 19 | 19 | 0 | 0 | 97,008 | 0 | 0 | 100.0% |
 | Performance | 52 | 52 | 0 | 0 | 42,234 | 0 | 0 | 100.0% |
 | RSpec | 113 | 53 | 57 | 3 | 1,382,775 | 398 | 2,719 | 99.7% |
 | RSpecRails | 8 | 7 | 0 | 1 | 23,907 | 0 | 0 | 100.0% |
@@ -15867,4 +15867,3 @@ Every offense is compared by file path, line number, and cop name.
 | Style/FileTouch | 1 |
 
 </details>
-

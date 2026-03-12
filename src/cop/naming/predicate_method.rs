@@ -4,101 +4,34 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// FN=232 investigation (2026-03):
-/// Root cause: ReturnFinder called `classify_node()` on explicit `return` arguments,
-/// but `classify_node` only handles leaf nodes and CallNode. Compound expressions
-/// (AndNode, OrNode, IfNode, CaseNode, etc.) fell through to ReturnType::Unknown,
-/// causing conservative mode to skip the method entirely.
-/// Fix: Changed ReturnFinder to call `collect_implicit_return()` for single return
-/// arguments, which properly recurses into compound expressions.
-/// Also added CaseMatchNode (pattern matching `case...in...end`) handling in
-/// `collect_implicit_return`, alongside the existing CaseNode support.
+/// ## Corpus investigation (2026-03-11)
 ///
-/// ## Corpus investigation (2026-03-10)
+/// Corpus oracle reported FP=6, FN=5.
 ///
-/// Corpus oracle reported FP=0, FN=221.
+/// Fixed FP=6 and FN=4 with two behavior corrections:
+/// - Top-level `ParenthesesNode` returns are treated as `Opaque`, matching
+///   Parser's `:begin` wrappers. This fixed the corpus FPs where
+///   non-predicate methods returned parenthesized comparisons or boolean
+///   chains, and it also fixed `archive?`, whose final parenthesized `||`
+///   chain should not count as a known boolean return.
+/// - Missing `else` branches in Prism conditionals are no longer synthesized as
+///   literal `nil` returns. On live corpus examples, RuboCop still treats
+///   boolean-only `if`/`elsif` bodies as predicate returns, while the synthetic
+///   `nil` branch produced FNs (`to_boolean`, `jruby` parse helpers) and an FP
+///   for `read_node?`.
 ///
-/// Two root causes:
-/// 1. Visitor didn't recurse into def bodies, so nested defs (inside class << obj,
-///    singleton classes, blocks inside methods) were never visited. Fix: added
-///    `ruby_prism::visit_def_node(self, node)` to recurse.
-/// 2. Conservative mode was too aggressive: variables, constants, self, lambda,
-///    and call+block all returned `Unknown`, triggering conservative skip. But
-///    RuboCop only skips for `super`/`zsuper` and unknown *method calls*
-///    (`call_type?`). Non-call AST nodes (variables, `:block`, `:self`, etc.)
-///    don't trigger skip. Fix: changed non-call returns from `Unknown` to `Opaque`,
-///    and distinguished BlockNode (Opaque) from BlockArgumentNode (still a call).
+/// Remaining local verify issue:
+/// - `scripts/verify-cop-locations.py` still shows the `discourse` example as
+///   remaining, but local nitrocop now flags the same `invite` method at line
+///   1276 while the CI oracle example points to line 1282. The local
+///   `vendor/corpus/discourse__discourse__9c8f125` checkout is at
+///   `a135e21d...`, not the manifest SHA `9c8f125f...`, so this is local
+///   corpus line drift rather than current cop logic.
 ///
-/// ## Follow-up investigation (2026-03-10, FP=1, FN=20)
-///
-/// Root cause: ParenthesesNode not unwrapped in `collect_implicit_return`.
-/// In RuboCop's Parser gem, parentheses don't create AST nodes — `(a? && b?)`
-/// is just `(and (send nil :a?) (send nil :b?))`. In Prism, parens create
-/// `ParenthesesNode` wrapping the inner expression. `collect_implicit_return`
-/// didn't handle ParenthesesNode, so it fell through to `classify_node` which
-/// only called `classify_node` recursively (not `collect_implicit_return`).
-/// This meant compound expressions (AndNode, OrNode, IfNode, etc.) inside
-/// parens were classified as `Opaque` instead of being decomposed into their
-/// component return types.
-///
-/// Fix: Added ParenthesesNode handling in `collect_implicit_return` that
-/// unwraps the paren and recurses via `collect_implicit_return` (not
-/// `classify_node`), so inner compound expressions are properly decomposed.
-///
-/// Remaining FP=1, FN=~15 may be due to other edge cases (e.g., ForNode
-/// not handled as conditional, or config resolution differences). Further
-/// investigation would need corpus example locations.
-///
-/// ## Parenthesized and/or FP fix (2026-03-10, FP=62→0)
-///
-/// Root cause: In RuboCop's Parser gem, parenthesized expressions in ||/&&
-/// chains create :begin wrapper nodes. `extract_and_or_clauses` returns these
-/// :begin nodes as-is (NOT unwrapped), and `boolean_return?` / `call_type?`
-/// do not recognize :begin nodes. So `(a == 1) || (b == 2)` is NOT flagged.
-///
-/// In Prism, `collect_implicit_return` was unwrapping ParenthesesNode and
-/// recursing, exposing the inner boolean comparisons. Fix: added
-/// `collect_and_or_leaves()` which decomposes nested and/or chains but treats
-/// ParenthesesNode leaves as Opaque instead of unwrapping them. Top-level
-/// ParenthesesNode (not inside and/or) is still unwrapped normally.
-///
-/// ## Nested def return leaking fix (2026-03-11, FP=6→0)
-///
-/// Root cause: ReturnFinder stopped at nested DefNode/ClassNode/ModuleNode
-/// boundaries, but RuboCop's `each_descendant(:return)` traverses the entire
-/// subtree without stopping. This means `return` statements inside nested
-/// defs "leak" into the outer method's return value analysis in RuboCop.
-/// While semantically incorrect (return inside nested def returns from that
-/// def, not the outer method), we must match RuboCop's behavior.
-///
-/// Impact: Methods containing nested defs with non-boolean explicit returns
-/// were incorrectly flagged as predicates (FP), because nitrocop didn't see
-/// the non-boolean return values that RuboCop included.
-///
-/// Fix: Removed the visit_def_node/visit_class_node/visit_module_node stops
-/// in ReturnFinder so it traverses the entire body subtree.
-///
-/// Remaining FN=6: Could not identify root cause without corpus example
-/// locations. Exhaustive comparison of RuboCop's return value analysis vs
-/// nitrocop's implementation showed no other logic divergences for:
-/// comparison_method (including <=> exclusion), predicate_method, negation,
-/// conditionals, and/or chains, parenthesized expressions, begin/kwbegin,
-/// rescue, assignments, variables, blocks, lambdas, super, etc.
-///
-/// ## Corpus rerun (2026-03-11)
-///
-/// Local acceptance gate `python3 scripts/check-cop.py Naming/PredicateMethod
-/// --verbose --rerun` matched RuboCop exactly (0 FP, 0 FN). The CI corpus row
-/// of FP=6/FN=5 is stale.
-///
-/// Investigation notes:
-/// - The reported FN rows in `autolab/lib/archive.rb` and
-///   `discourse/app/models/topic.rb` do not reproduce locally.
-/// - At least one historical FP row was config noise: `redmine` disables
-///   `Naming/PredicateMethod` in `.rubocop.yml`.
-/// - The batch gate still prints `1 FP remain from CI baseline` because
-///   `--corpus-check` shows raw offense deltas alongside file-drop noise from a
-///   `jruby` parser-crash repo; the RuboCop-aligned comparison is exact.
+/// `check-cop.py --rerun` remains count-only and is still noisy here because
+/// `--corpus-check` includes file-drop adjustments from a `jruby` parser-crash
+/// repo. Use `verify-cop-locations.py` plus the final `bench_nitrocop -- conform`
+/// gate for department completion.
 pub struct PredicateMethod;
 
 const MSG_PREDICATE: &str = "Predicate method names should end with `?`.";
@@ -443,18 +376,12 @@ fn collect_implicit_return(
         return;
     }
 
-    // ParenthesesNode -- unwrap and recurse. In Parser gem, parentheses
-    // don't create an AST node, so RuboCop processes the inner expression
-    // directly through process_return_values (expanding and/or/conditionals).
-    // We must do the same: recurse via collect_implicit_return, not classify_node,
-    // so compound expressions (AndNode, OrNode, IfNode, etc.) inside parens
-    // are properly decomposed.
+    // ParenthesesNode -- treat as Opaque. In Parser gem, top-level parenthesized
+    // expressions become :begin wrappers, and PredicateMethod does not unwrap
+    // those :begin nodes before boolean/non-boolean classification.
     if let Some(paren) = node.as_parentheses_node() {
-        if let Some(body) = paren.body() {
-            collect_implicit_return(&body, returns, wayward);
-        } else {
-            returns.push(ReturnType::NonBooleanLiteral);
-        }
+        let _ = paren;
+        returns.push(ReturnType::Opaque);
         return;
     }
 
@@ -500,8 +427,6 @@ fn collect_implicit_return(
             } else {
                 returns.push(ReturnType::NonBooleanLiteral);
             }
-        } else {
-            returns.push(ReturnType::NonBooleanLiteral);
         }
         return;
     }
@@ -530,8 +455,6 @@ fn collect_implicit_return(
             } else {
                 returns.push(ReturnType::NonBooleanLiteral);
             }
-        } else {
-            returns.push(ReturnType::NonBooleanLiteral);
         }
         return;
     }
@@ -563,8 +486,6 @@ fn collect_implicit_return(
             } else {
                 returns.push(ReturnType::NonBooleanLiteral);
             }
-        } else {
-            returns.push(ReturnType::NonBooleanLiteral);
         }
         return;
     }
@@ -596,8 +517,6 @@ fn collect_implicit_return(
             } else {
                 returns.push(ReturnType::NonBooleanLiteral);
             }
-        } else {
-            returns.push(ReturnType::NonBooleanLiteral);
         }
         return;
     }
@@ -682,14 +601,11 @@ fn collect_and_or_leaves(
 
 /// Classify a single node as a ReturnType.
 fn classify_node(node: &ruby_prism::Node<'_>, wayward: &[String]) -> ReturnType {
-    // ParenthesesNode -- unwrap and classify the inner body.
-    // (true) -> Boolean, but (a? && b?) -> And/Or -> Unknown
+    // ParenthesesNode -- treat as Opaque. Parser gem keeps top-level parens as
+    // :begin wrappers, and RuboCop doesn't unwrap those wrappers here.
     if let Some(paren) = node.as_parentheses_node() {
-        if let Some(body) = paren.body() {
-            return classify_node(&body, wayward);
-        } else {
-            return ReturnType::NonBooleanLiteral;
-        }
+        let _ = paren;
+        return ReturnType::Opaque;
     }
 
     // true/false literals

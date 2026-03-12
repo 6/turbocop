@@ -59,12 +59,6 @@ def self.enterprise?
   @enterprise ||= root.join('enterprise').exist?
 end
 
-# Predicate with modifier-if assignment as implicit return
-def valid_event_payload?
-    ^^^^^^^^^^^^^^^^^^^^^ Naming/PredicateMethod: Non-predicate method names should not end with `?`.
-  @channel = Channel::Line.find_by(line_channel_id: @params[:line_channel_id]) if @params[:line_channel_id]
-end
-
 # Explicit return with compound and-expression (return a? && b?)
 def has_flag
     ^^^^^^^^ Naming/PredicateMethod: Predicate method names should end with `?`.
@@ -107,36 +101,26 @@ def fragment_exist?(key, options = nil)
   end
 end
 
-# Predicate method returning a variable (not call_type in RuboCop)
-# with non-boolean literal in another branch
-def instance_type?(type)
-    ^^^^^^^^^^^^^^^ Naming/PredicateMethod: Non-predicate method names should not end with `?`.
-  if type.is_a?(Types::Name::Instance)
-    type
-  end
-end
-
 # Non-predicate returning block_argument predicate call
 def self.auto_bump_topic!
          ^^^^^^^^^^^^^^^^ Naming/PredicateMethod: Predicate method names should end with `?`.
   Category.shuffle.any?(&:auto_bump_topic!)
 end
 
-# Parenthesized compound boolean expression (and)
-def check_both
+# If/elsif boolean chain with no final else still counts as predicate
+def to_boolean
     ^^^^^^^^^^ Naming/PredicateMethod: Predicate method names should end with `?`.
-  (x.present? && y.present?)
+  if ["true", true].include? value
+    true
+  elsif ["false", false].include? value
+    false
+  end
 end
 
-# Parenthesized compound boolean expression (or)
-def check_either
-    ^^^^^^^^^^^^ Naming/PredicateMethod: Predicate method names should end with `?`.
-  (a > b || c < d)
+# Predicate name with explicit nil return and parenthesized boolean expression
+def archive?(filename)
+    ^^^^^^^^ Naming/PredicateMethod: Non-predicate method names should not end with `?`.
+  return nil unless filename
+  archive_type = get_archive_type(filename)
+  (archive_type.include?("tar") || archive_type.include?("gzip") || archive_type.include?("zip"))
 end
-
-# Parenthesized negation
-def check_not
-    ^^^^^^^^^ Naming/PredicateMethod: Predicate method names should end with `?`.
-  (!disabled?)
-end
-

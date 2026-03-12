@@ -159,6 +159,11 @@ def check_status(a, b)
   (a == 1) || b == 2
 end
 
+# Predicate with modifier-if assignment and no else is acceptable
+def valid_event_payload?
+  @channel = Channel::Line.find_by(line_channel_id: @params[:line_channel_id]) if @params[:line_channel_id]
+end
+
 # Parenthesized and-chain inside or-chain
 def compare_values(existing, latest)
   existing.value != latest[:value] ||
@@ -187,4 +192,39 @@ def enabled
     end
   end
   status == :ok
+end
+
+# Predicate name with only opaque branch values is acceptable
+def instance_type?(type)
+  if type.is_a?(Types::Name::Instance)
+    type
+  end
+end
+
+# Parenthesized top-level comparisons are wrapped as :begin in Parser
+def color_contrast(color)
+  _, bright = find_color_diff 0x000000, color
+  (bright > 128)
+end
+
+# Parenthesized top-level boolean chains are also wrapped as :begin
+def check_both
+  (x.present? && y.present?)
+end
+
+def check_either
+  (a > b || c < d)
+end
+
+def check_not
+  (!disabled?)
+end
+
+# If/elsif with yields and no final else is still acceptable
+def read_node?(node, block_pass)
+  if block_pass.any?
+    yield(node)
+  elsif file_open_read?(node.parent)
+    yield(node.parent)
+  end
 end
