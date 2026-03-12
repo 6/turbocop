@@ -89,6 +89,19 @@ use crate::parse::source::SourceFile;
 /// Fixed by rewriting `collect_top_level_spec_groups` to only unwrap module/class/begin
 /// when they are the SOLE statement at the current level, exactly mirroring RuboCop's
 /// `top_level_nodes` recursion pattern.
+///
+/// ## Root cause of remaining FPs (round 5, ~10 FP + ~0 FN)
+///
+/// Source-text-based constant path extraction: for `ConstantPathNode` (e.g., `Foo::Bar`),
+/// the old code extracted raw source text via `location().start_offset()..end_offset()`.
+/// When the constant path spanned multiple lines (e.g., `Foo::\n  Bar`), the extracted
+/// text included whitespace/newlines, producing wrong expected paths like `foo/\n  bar`
+/// instead of `foo/bar`. RuboCop's Parser gem uses AST-based `const_name` which always
+/// returns clean `Foo::Bar` regardless of source formatting.
+///
+/// Fixed by replacing source-text extraction with recursive AST traversal
+/// (`collect_constant_path_segments`) that walks `ConstantPathNode.parent()` and
+/// `ConstantPathNode.name()` to collect clean name segments.
 pub struct SpecFilePathFormat;
 
 impl Cop for SpecFilePathFormat {
@@ -165,10 +178,9 @@ impl Cop for SpecFilePathFormat {
                 .unwrap_or("")
                 .to_string()
         } else if let Some(cp) = first_arg.as_constant_path_node() {
-            let loc = cp.location();
-            let text = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
-            let s = std::str::from_utf8(text).unwrap_or("");
-            s.trim_start_matches("::").to_string()
+            // Walk the AST to extract constant path segments, avoiding source
+            // text which can contain whitespace/newlines between :: and names.
+            collect_constant_path_segments(&cp.as_node()).join("::")
         } else {
             return;
         };
@@ -395,17 +407,31 @@ fn check_spec_group_call<'pr>(
 }
 
 /// Extract the defined name segments from a module/class constant path.
-fn extract_defined_name(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Vec<String> {
+/// Uses AST traversal instead of source text to avoid whitespace/newline issues.
+fn extract_defined_name(_source: &SourceFile, node: &ruby_prism::Node<'_>) -> Vec<String> {
+    collect_constant_path_segments(node)
+}
+
+/// Recursively walk a ConstantPathNode or ConstantReadNode to collect name segments.
+/// For `Foo::Bar::Baz`, returns `["Foo", "Bar", "Baz"]`.
+/// For `::Foo::Bar`, returns `["Foo", "Bar"]` (leading `::` is ignored).
+fn collect_constant_path_segments(node: &ruby_prism::Node<'_>) -> Vec<String> {
     if let Some(cr) = node.as_constant_read_node() {
         let name = std::str::from_utf8(cr.name().as_slice()).unwrap_or("");
         return vec![name.to_string()];
     }
     if let Some(cp) = node.as_constant_path_node() {
-        let loc = cp.location();
-        let text = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
-        let s = std::str::from_utf8(text).unwrap_or("");
-        let s = s.trim_start_matches("::");
-        return s.split("::").map(|p| p.to_string()).collect();
+        let mut segments = if let Some(parent) = cp.parent() {
+            collect_constant_path_segments(&parent)
+        } else {
+            // Leading :: (e.g., ::Foo) — parent is None
+            Vec::new()
+        };
+        if let Some(name_id) = cp.name() {
+            let name = std::str::from_utf8(name_id.as_slice()).unwrap_or("");
+            segments.push(name.to_string());
+        }
+        return segments;
     }
     Vec::new()
 }
@@ -1034,6 +1060,40 @@ mod tests {
         assert!(
             !diags.is_empty(),
             "Should flag bare describe with require sibling"
+        );
+    }
+
+    // FP: multi-line constant path should be parsed from AST, not source text
+    #[test]
+    fn multiline_constant_path_no_offense() {
+        let source = b"describe Foo::\n  Bar do\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathFormat,
+            source,
+            CopConfig::default(),
+            "foo/bar_spec.rb",
+        );
+        assert!(
+            diags.is_empty(),
+            "Should not flag multi-line constant path with correct path, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    // FP: constant path with spaces around :: should still match
+    #[test]
+    fn constant_path_with_spaces_no_offense() {
+        let source = b"describe Foo ::Bar do\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathFormat,
+            source,
+            CopConfig::default(),
+            "foo/bar_spec.rb",
+        );
+        assert!(
+            diags.is_empty(),
+            "Should not flag constant path with spaces, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
     }
 }
