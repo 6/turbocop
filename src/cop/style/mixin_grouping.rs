@@ -3,25 +3,24 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
-/// ## Corpus investigation (2026-03-12)
+/// ## Corpus investigation (2026-03-13)
 ///
 /// Corpus oracle reported FP=2, FN=0.
 ///
 /// FP=2: both false positives came from `class << self` bodies that contain
-/// multi-argument mixin macros such as `include Foo, Bar`.
+/// multi-argument mixin macros such as `include Foo, Bar` in puppetlabs/puppet.
 ///
-/// Attempted fix: skip `SingletonClassNode` bodies entirely so `class << self`
-/// helpers are ignored.
-/// Acceptance gate before: expected=196, actual=198, excess=2, missing=0.
-/// Acceptance gate after: expected=196, actual=181, excess=0, missing=15.
-/// A second attempt that skipped only bare `include` inside singleton-class
-/// bodies also landed at actual=181 and did not clear the known FP locations in
-/// `puppetlabs/puppet`.
+/// Root cause: RuboCop only defines `on_class` and `on_module` (aliased) for
+/// this cop — there is no `on_sclass`. So `class << self` bodies are never
+/// checked by RuboCop. nitrocop was incorrectly visiting `SingletonClassNode`.
 ///
-/// Reverted because the change introduced 15 false negatives across the corpus.
-/// A correct fix needs a narrower distinction than simply ignoring singleton
-/// classes; some real RuboCop offenses are still emitted from singleton-class
-/// scopes.
+/// Fix: removed `visit_singleton_class_node` entirely. The default Visit impl
+/// still recurses into singleton class children, so any nested class/module
+/// nodes inside `class << self` are still checked by `visit_class_node` /
+/// `visit_module_node`.
+///
+/// Previous attempts that also landed at actual=181 likely had a different bug
+/// (e.g., breaking the recursive visit into singleton class children).
 pub struct MixinGrouping;
 
 const MIXIN_METHODS: &[&[u8]] = &[b"include", b"extend", b"prepend"];
@@ -119,14 +118,10 @@ impl<'pr> Visit<'pr> for MixinGroupingVisitor<'_> {
         ruby_prism::visit_module_node(self, node);
     }
 
-    fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
-        if let Some(body) = node.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                self.check_body_statements(&stmts);
-            }
-        }
-        ruby_prism::visit_singleton_class_node(self, node);
-    }
+    // Note: RuboCop's on_class/on_module do NOT handle sclass (class << self).
+    // We intentionally skip visit_singleton_class_node. The default Visit impl
+    // still recurses into singleton class children, so nested class/module nodes
+    // inside class << self are still checked.
 }
 
 #[cfg(test)]
