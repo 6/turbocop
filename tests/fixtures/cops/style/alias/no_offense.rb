@@ -26,14 +26,23 @@ alias $new_global $old_global
 
 alias $stdout $stderr
 
-# alias inside class_eval is OK (class_eval opens class scope, alias keyword valid)
+# alias_method inside class_eval is OK (dynamic scope, alias keyword won't work)
 SomeClass.class_eval do
-  alias new_name old_name
+  alias_method :new_name, :old_name
 end
 
-# alias inside module_eval is OK (module_eval opens module scope, alias keyword valid)
+# alias_method inside module_eval is OK (dynamic scope, alias keyword won't work)
 SomeModule.module_eval do
-  alias new_name old_name
+  alias_method :new_name, :old_name
+end
+
+# alias_method inside class_eval with self.included pattern
+module SomeModule
+  def self.included(base)
+    base.class_eval do
+      alias_method :new_method, :old_method
+    end
+  end
 end
 
 # alias_method with no arguments

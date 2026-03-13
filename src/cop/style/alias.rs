@@ -4,6 +4,14 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/Alias: enforces `alias` vs `alias_method` usage.
+///
+/// Investigation (2026-03-13): FP=428 caused by treating `class_eval` and `module_eval`
+/// blocks as `Lexical` scope. RuboCop treats ALL blocks (except `instance_eval`) as
+/// `:dynamic` scope, which means `alias_method` inside `class_eval`/`module_eval` is
+/// NOT flagged (because `alias` keyword doesn't work in dynamic eval contexts).
+/// Fix: removed special-casing of `class_eval`/`module_eval` as `Lexical` — they now
+/// correctly use `Dynamic` scope like all other non-instance_eval blocks.
 pub struct Alias;
 
 /// Scope type for determining whether alias or alias_method should be used.
@@ -177,8 +185,6 @@ impl Visit<'_> for AliasVisitor<'_, '_> {
             let name = node.name().as_slice();
             let scope = if name == b"instance_eval" {
                 ScopeType::InstanceEval
-            } else if name == b"class_eval" || name == b"module_eval" {
-                ScopeType::Lexical
             } else {
                 ScopeType::Dynamic
             };
