@@ -1,6 +1,5 @@
 {
   "name": "nitrocop",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "mounts": [
     "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly",
     "source=/run/host-services/ssh-auth.sock,target=/ssh-agent,type=bind"
@@ -17,5 +16,12 @@
   },
   "postCreateCommand": ".devcontainer/setup.sh",
   "postStartCommand": "sudo chmod 666 /ssh-agent 2>/dev/null || true",
-  "remoteUser": "vscode"
+  "remoteUser": "vscode",
+  "dockerComposeFile": [
+    "docker-compose.yml",
+    "docker-compose.kap.yml"
+  ],
+  "service": "app",
+  "workspaceFolder": "/workspace",
+  "initializeCommand": "kap sidecar-init"
 }
