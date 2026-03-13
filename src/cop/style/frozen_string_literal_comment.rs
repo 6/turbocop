@@ -218,7 +218,7 @@ fn is_frozen_string_literal_true(line: &[u8]) -> bool {
         if let Some(pos) = trimmed.find("frozen_string_literal:") {
             let after = &trimmed[pos + "frozen_string_literal:".len()..];
             // Extract the value: take until `;` or `-*-`
-            let value = after.split(|c| c == ';' || c == '-').next().unwrap_or("");
+            let value = after.split([';', '-']).next().unwrap_or("");
             return value.trim() == "true";
         }
     }
