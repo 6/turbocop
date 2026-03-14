@@ -1,8 +1,15 @@
-use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Checks for nested modifier conditionals/loops.
+///
+/// ## Investigation findings
+/// FN root cause: only handled `IfNode` and `UnlessNode` as outer/inner modifiers.
+/// `WhileNode` and `UntilNode` can also be modifier forms (no `end` keyword) and
+/// participate in nested modifier combinations like `something if a while b`.
+/// Fix: added WHILE_NODE/UNTIL_NODE to interested_node_types and inner body checks.
 pub struct NestedModifier;
 
 impl Cop for NestedModifier {
@@ -11,7 +18,7 @@ impl Cop for NestedModifier {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[IF_NODE, UNLESS_NODE]
+        &[IF_NODE, UNLESS_NODE, WHILE_NODE, UNTIL_NODE]
     }
 
     fn check_node(
@@ -23,7 +30,7 @@ impl Cop for NestedModifier {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Get the body of a modifier conditional (if/unless)
+        // Get the body of a modifier conditional/loop (if/unless/while/until)
         let body_node = if let Some(if_node) = node.as_if_node() {
             // Must be modifier form (no end keyword, has if keyword, not ternary)
             if if_node.end_keyword_loc().is_some() {
@@ -43,6 +50,17 @@ impl Cop for NestedModifier {
                 return;
             }
             unless_node.statements()
+        } else if let Some(while_node) = node.as_while_node() {
+            // Must be modifier form (no closing/end keyword)
+            if while_node.closing_loc().is_some() {
+                return;
+            }
+            while_node.statements()
+        } else if let Some(until_node) = node.as_until_node() {
+            if until_node.closing_loc().is_some() {
+                return;
+            }
+            until_node.statements()
         } else {
             return;
         };
@@ -90,6 +108,35 @@ impl Cop for NestedModifier {
                     "Avoid using nested modifiers.".to_string(),
                 ));
             }
+        }
+
+        if let Some(inner_while) = body[0].as_while_node() {
+            // Must be modifier form (no closing/end keyword)
+            if inner_while.closing_loc().is_some() {
+                return;
+            }
+            let inner_kw = inner_while.keyword_loc();
+            let (line, column) = source.offset_to_line_col(inner_kw.start_offset());
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Avoid using nested modifiers.".to_string(),
+            ));
+        }
+
+        if let Some(inner_until) = body[0].as_until_node() {
+            if inner_until.closing_loc().is_some() {
+                return;
+            }
+            let inner_kw = inner_until.keyword_loc();
+            let (line, column) = source.offset_to_line_col(inner_kw.start_offset());
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Avoid using nested modifiers.".to_string(),
+            ));
         }
     }
 }
