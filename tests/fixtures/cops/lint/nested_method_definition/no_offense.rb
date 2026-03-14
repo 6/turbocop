@@ -2,14 +2,6 @@ def foo
   something
 end
 
-def bar
-  class MyClass
-    def inner_method
-      work
-    end
-  end
-end
-
 def with_qualified_scope
   ::Class.new do
     def inner
@@ -175,6 +167,60 @@ end
 def foo
   define_method(:bar) do
     def helper
+    end
+  end
+end
+
+# Nested def inside def inside class << self (scope-creating ancestor above outer def)
+class NilNode
+  class << self
+    def instance
+      @instance ||= begin
+        def instance
+          return @instance
+        end
+        new
+      end
+    end
+  end
+end
+
+# Nested def inside def inside Struct.new block (scope-creating ancestor above outer def)
+Control = Struct.new(:code, :desc) do
+  def initialize(raw_data)
+    self[:code] = raw_data[:code]
+
+    def status
+      :ok
+    end
+  end
+end
+
+# Nested def inside def inside Class.new block
+klass = Class.new do
+  def setup
+    def helper
+      42
+    end
+  end
+end
+
+# Nested def inside def inside Module.new block
+mod = Module.new do
+  def configure
+    def validate
+      true
+    end
+  end
+end
+
+# Nested def inside def inside define_method block
+class Builder
+  define_method(:build) do
+    def assemble
+      def connect
+        true
+      end
     end
   end
 end

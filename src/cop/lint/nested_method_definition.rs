@@ -1,8 +1,8 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::{CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, SINGLETON_CLASS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 /// Checks for nested method definitions.
@@ -18,16 +18,39 @@ use crate::parse::source::SourceFile;
 ///    e.g., `AllowedMethods: ['has_many']` exempts `def` inside `has_many do...end` blocks.
 /// 3. **FN (Data.define):** Missing `Data.define` as a scope-creating call (added in
 ///    Ruby 3.2, recognized by rubocop-ast's `class_constructor?`).
+/// 4. **FP (scope-creating ancestor above outer def):** The old approach walked only
+///    inside the outer def's body to find scope-creating blocks. But RuboCop checks
+///    ALL ancestors of the inner def for scope-creating blocks — including those ABOVE
+///    the outer def. For example, `def` nested inside `def` inside `Struct.new do...end`
+///    or `class << self` was incorrectly flagged because the scope-creating ancestor
+///    was above the outer def. Fix: switch from `check_node` on `DEF_NODE` to
+///    `check_source` with a full-tree visitor that tracks both def depth and scope
+///    depth across the entire AST.
 pub struct NestedMethodDefinition;
 
-struct NestedDefFinder<'a> {
-    found: Vec<usize>,
-    skip_depth: usize,
-    // Stack of booleans: true if the branch node was a scope-creating node
-    scope_stack: Vec<bool>,
-    // AllowedMethods/AllowedPatterns from config, checked against enclosing block method names
+/// Full-tree visitor that tracks def nesting depth and scope-creating context depth.
+///
+/// RuboCop's algorithm (on_def): for each inner def, check if there's a def ancestor
+/// AND whether any ancestor block/sclass is scope-creating. If any scope-creating
+/// ancestor exists anywhere above the inner def, the offense is suppressed.
+///
+/// This visitor mirrors that by maintaining:
+/// - `def_depth`: incremented when entering any DefNode
+/// - `scope_depth`: incremented when entering scope-creating blocks (class_eval,
+///   Class.new, Struct.new, etc.) or singleton class nodes
+///
+/// A def is flagged only when `def_depth > 0` (inside another def) AND
+/// `scope_depth == 0` (no scope-creating ancestor anywhere above).
+struct FullTreeWalker<'a> {
+    source: &'a SourceFile,
+    cop: &'a NestedMethodDefinition,
+    def_depth: usize,
+    scope_depth: usize,
     allowed_methods: Option<&'a [String]>,
     allowed_patterns: Option<&'a [String]>,
+    diagnostics: &'a mut Vec<Diagnostic>,
+    // Stack to track what each branch node contributed (def_depth_inc, scope_depth_inc)
+    stack: Vec<(bool, bool)>,
 }
 
 /// Check if a `defs` node (def with receiver) has an allowed receiver type.
@@ -63,31 +86,53 @@ fn has_allowed_receiver(def_node: &ruby_prism::DefNode<'_>) -> bool {
     false
 }
 
-impl<'pr> Visit<'pr> for NestedDefFinder<'_> {
+impl<'pr> Visit<'pr> for FullTreeWalker<'_> {
     fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-        let is_scope = node.as_class_node().is_some()
-            || node.as_module_node().is_some()
-            || node.as_singleton_class_node().is_some()
+        let mut is_def = false;
+        let mut is_scope = false;
+
+        if node.as_def_node().is_some() {
+            is_def = true;
+        } else if node.as_singleton_class_node().is_some()
             || is_scope_creating_call(&node)
-            || is_allowed_method_call(&node, self.allowed_methods, self.allowed_patterns);
-        self.scope_stack.push(is_scope);
-        if is_scope {
-            self.skip_depth += 1;
+            || is_allowed_method_call(&node, self.allowed_methods, self.allowed_patterns)
+        {
+            is_scope = true;
         }
-        if self.skip_depth == 0 {
+
+        // Check for offense BEFORE incrementing counters
+        if is_def && self.def_depth > 0 && self.scope_depth == 0 {
             if let Some(def_node) = node.as_def_node() {
-                // Skip defs with allowed receiver types (variable, constant, call).
-                // But NOT self — def self.method is still an offense.
                 if !has_allowed_receiver(&def_node) {
-                    self.found.push(node.location().start_offset());
+                    let offset = node.location().start_offset();
+                    let (line, column) = self.source.offset_to_line_col(offset);
+                    self.diagnostics.push(self.cop.diagnostic(
+                        self.source,
+                        line,
+                        column,
+                        "Method definitions must not be nested. Use `lambda` instead.".to_string(),
+                    ));
                 }
             }
         }
+
+        if is_def {
+            self.def_depth += 1;
+        }
+        if is_scope {
+            self.scope_depth += 1;
+        }
+        self.stack.push((is_def, is_scope));
     }
 
     fn visit_branch_node_leave(&mut self) {
-        if let Some(true) = self.scope_stack.pop() {
-            self.skip_depth -= 1;
+        if let Some((is_def, is_scope)) = self.stack.pop() {
+            if is_def {
+                self.def_depth -= 1;
+            }
+            if is_scope {
+                self.scope_depth -= 1;
+            }
         }
     }
 }
@@ -178,58 +223,30 @@ impl Cop for NestedMethodDefinition {
         Severity::Warning
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            CALL_NODE,
-            CLASS_NODE,
-            DEF_NODE,
-            MODULE_NODE,
-            SINGLETON_CLASS_NODE,
-        ]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let def_node = match node.as_def_node() {
-            Some(n) => n,
-            None => return,
-        };
-
-        let body = match def_node.body() {
-            Some(b) => b,
-            None => return,
-        };
-
-        // AllowedMethods/AllowedPatterns are checked against enclosing block call
-        // names inside the finder, not against the outer def's name.
         let allowed_methods = config.get_string_array("AllowedMethods");
         let allowed_patterns = config.get_string_array("AllowedPatterns");
 
-        let mut finder = NestedDefFinder {
-            found: vec![],
-            skip_depth: 0,
-            scope_stack: vec![],
+        let root = parse_result.node();
+        let mut walker = FullTreeWalker {
+            source,
+            cop: self,
+            def_depth: 0,
+            scope_depth: 0,
             allowed_methods: allowed_methods.as_deref(),
             allowed_patterns: allowed_patterns.as_deref(),
+            diagnostics,
+            stack: vec![],
         };
-        finder.visit(&body);
-
-        diagnostics.extend(finder.found.iter().map(|&offset| {
-            let (line, column) = source.offset_to_line_col(offset);
-            self.diagnostic(
-                source,
-                line,
-                column,
-                "Method definitions must not be nested. Use `lambda` instead.".to_string(),
-            )
-        }));
+        walker.visit(&root);
     }
 }
 

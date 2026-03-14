@@ -40,3 +40,23 @@ def do_something
     end
   end
 end
+
+# def inside a class inside a def is still an offense (class is NOT scope-creating per RuboCop)
+def bar
+  class MyClass
+    def inner_method
+    ^^^^^^^^^^^^^^^^ Lint/NestedMethodDefinition: Method definitions must not be nested. Use `lambda` instead.
+      work
+    end
+  end
+end
+
+# def inside a module inside a def is still an offense
+def baz
+  module MyModule
+    def inner_method
+    ^^^^^^^^^^^^^^^^ Lint/NestedMethodDefinition: Method definitions must not be nested. Use `lambda` instead.
+      work
+    end
+  end
+end
