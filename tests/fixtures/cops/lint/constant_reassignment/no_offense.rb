@@ -67,3 +67,71 @@ MARKER = :first
 Class.new do
   MARKER = :second
 end
+
+# Variable-path constant assignment (not a fixed path)
+lvar::FOO = 1
+lvar::FOO = 2
+
+# Nested variable-path constant
+lvar::FOO::BAR = 1
+lvar::FOO::BAR = 2
+
+# remove_const clears the constant so re-assignment is OK
+class Cleaner
+  TOKEN = :old
+
+  remove_const :TOKEN
+
+  TOKEN = :new
+end
+
+# remove_const with string argument
+class Fixer
+  STAMP = :old
+
+  remove_const 'STAMP'
+
+  STAMP = :new
+end
+
+# Constant in namespace and top-level :: prefix
+module Scope
+  INNER = :yes
+  ::INNER = :no
+end
+
+# Same name but different namespace paths from top-level
+module Outer
+  module Inner
+    DEEP = :a
+  end
+
+  ::Inner::DEEP = :b
+end
+
+# self.remove_const also clears the constant
+class Modifier
+  FLAG = :old
+
+  self.remove_const :FLAG
+
+  FLAG = :new
+end
+
+# Constant assignment inside a method (not simple)
+class Worker
+  MARK = :original
+
+  def setup
+    MARK = :changed
+  end
+end
+
+# Constant assignment inside a lambda (not simple)
+class Evaluator
+  LABEL = :static
+
+  process = -> {
+    LABEL = :dynamic
+  }
+end
