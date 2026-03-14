@@ -4,6 +4,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-14)
+///
+/// FP=1 (rpush/rpush): `expect(fake_http2_request).to receive(:on).with(:close), &on_close`
+/// was flagged. RuboCop's NodePattern `(send ... :to #receive_message?)` only matches
+/// when `.to` has exactly one argument (no block_pass). When `&proc` is passed as a
+/// block argument, the Parser AST adds it as a `block_pass` child of the send node,
+/// making the pattern not match. Fixed by checking if `.to` has a BlockArgumentNode.
 pub struct MessageExpectation;
 
 /// Default style is `allow` — flags `expect(...).to receive` in favor of `allow`.
@@ -50,6 +57,17 @@ impl Cop for MessageExpectation {
 
         let method_name = call.name().as_slice();
         if method_name != b"to" {
+            return;
+        }
+
+        // If .to has a &proc block argument, skip — RuboCop's NodePattern
+        // (send ... :to #receive_message?) requires exactly one argument with no
+        // block_pass. A block_pass adds an extra child to the send node, preventing
+        // the pattern from matching.
+        if call
+            .block()
+            .is_some_and(|b| b.as_block_argument_node().is_some())
+        {
             return;
         }
 
