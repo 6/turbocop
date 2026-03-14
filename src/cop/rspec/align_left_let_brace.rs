@@ -229,7 +229,11 @@ mod tests {
 
         for (name, open_off, close_off) in &visitor.calls {
             let before = &source[..*open_off];
-            let line_start = before.iter().rposition(|&b| b == b'\n').map(|i| i + 1).unwrap_or(0);
+            let line_start = before
+                .iter()
+                .rposition(|&b| b == b'\n')
+                .map(|i| i + 1)
+                .unwrap_or(0);
             let col = open_off - line_start;
             let open_char = source.get(*open_off).copied().unwrap_or(0) as char;
             let _ = (name, close_off, col, open_char); // Suppress unused warnings
@@ -237,7 +241,12 @@ mod tests {
 
         // The key assertion: both let and let! should produce exactly 1 block each,
         // and their open offsets should be pointing to `{` (the block brace), not `#` or `{` inside interpolation
-        assert_eq!(visitor.calls.len(), 2, "Expected 2 let blocks, got: {:?}", visitor.calls);
+        assert_eq!(
+            visitor.calls.len(),
+            2,
+            "Expected 2 let blocks, got: {:?}",
+            visitor.calls
+        );
 
         let (name0, open0, _close0) = &visitor.calls[0];
         let (name1, open1, _close1) = &visitor.calls[1];
@@ -246,8 +255,16 @@ mod tests {
         assert_eq!(name1, "let!");
 
         // char at open0 should be `{` (the block brace)
-        assert_eq!(source[*open0] as char, '{', "open0 should be block `{{`, got {:?} at offset {}", source[*open0] as char, open0);
-        assert_eq!(source[*open1] as char, '{', "open1 should be block `{{`, got {:?} at offset {}", source[*open1] as char, open1);
+        assert_eq!(
+            source[*open0] as char, '{',
+            "open0 should be block `{{`, got {:?} at offset {}",
+            source[*open0] as char, open0
+        );
+        assert_eq!(
+            source[*open1] as char, '{',
+            "open1 should be block `{{`, got {:?} at offset {}",
+            source[*open1] as char, open1
+        );
 
         // Column of block `{` for `let("foo#{1}") { 1 }`:
         // let("foo#{1}") { 1 }
@@ -269,9 +286,10 @@ mod tests {
         // If nitrocop flags them as a group and finds col0 != col1, it would report an offense.
 
         // Write result to file for inspection
-        let result = format!("calls: {:?}\ncol0={} col1={} line2_start={}\nchar0={:?} char1={:?}\n",
-            visitor.calls, col0, col1, line2_start,
-            source[*open0] as char, source[*open1] as char);
+        let result = format!(
+            "calls: {:?}\ncol0={} col1={} line2_start={}\nchar0={:?} char1={:?}\n",
+            visitor.calls, col0, col1, line2_start, source[*open0] as char, source[*open1] as char
+        );
         std::fs::write("/tmp/debug_interp_result.txt", &result).ok();
 
         // Key: col0 and col1 differ, so the cops SHOULD group them and report an offense.

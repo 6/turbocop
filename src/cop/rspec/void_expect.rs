@@ -254,9 +254,7 @@ impl Visit<'_> for VoidExpectVisitor<'_> {
         // `it '...', &(proc do end)` has a BlockArgumentNode in call.block(),
         // which RuboCop does NOT treat as an example block (it uses `each_ancestor(:block)`
         // which only matches actual block nodes, not block_pass).
-        let is_example = node
-            .block()
-            .is_some_and(|b| b.as_block_node().is_some())
+        let is_example = node.block().is_some_and(|b| b.as_block_node().is_some())
             && node.receiver().is_none()
             && EXAMPLE_METHODS.iter().any(|m| name.as_slice() == *m);
 
