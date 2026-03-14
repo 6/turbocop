@@ -37,6 +37,23 @@ use ruby_prism::Visit;
 ///   was missed for post-splat params and `**kwargs`.
 /// - Lambda/block body scopes also omitted some parameter kinds, so nested blocks could miss
 ///   outer block params.
+///
+/// ## Corpus investigation (2026-03-14)
+///
+/// Corpus oracle reported FP=10, FN=42.
+///
+/// FP fixes applied:
+/// - **Ractor.new block detection**: `is_ractor_new_call` detects `Ractor.new(...)` calls
+///   and handles their blocks with an isolated scope (no shadowing check). RuboCop
+///   explicitly skips Ractor blocks because Ractors cannot access outer scope, so
+///   shadowing is intentional. Previously `is_ractor_new_block` was stubbed out.
+///   Implementation uses `visit_call_node` override since Prism's BlockNode lacks
+///   parent pointers.
+/// - **When-condition assignment suppression**: Variables assigned in `when` conditions
+///   (e.g., `when decl = env.fetch(...)`) are now marked with `when_condition_of_case`.
+///   Blocks in the same `when` body that reuse the variable name are suppressed.
+///   This matches RuboCop's `same_conditions_node_different_branch?` logic where both
+///   the block and the outer variable resolve to the same conditional (case) node.
 pub struct ShadowingOuterLocalVariable;
 
 impl Cop for ShadowingOuterLocalVariable {
@@ -68,6 +85,8 @@ impl Cop for ShadowingOuterLocalVariable {
             diagnostics: Vec::new(),
             scopes: Vec::new(),
             conditional_branch_stack: Vec::new(),
+            when_condition_case_offset: None,
+            in_when_body_of_case: None,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -82,6 +101,12 @@ struct VarInfo {
     /// shadowing when block and outer var are in different branches of the
     /// same conditional.
     conditional_branch: Option<(usize, usize)>,
+    /// If the variable was assigned inside a `when` condition (not body),
+    /// this is the case node offset. Used to suppress shadowing when a
+    /// block in the same `when` body reuses the variable name — matching
+    /// RuboCop's VariableForce behavior where both resolve to the same
+    /// conditional (case) node.
+    when_condition_of_case: Option<usize>,
 }
 
 struct ShadowVisitor<'a, 'src> {
@@ -92,6 +117,11 @@ struct ShadowVisitor<'a, 'src> {
     scopes: Vec<HashMap<String, VarInfo>>,
     /// Stack of (case_node_offset, branch_offset) for current when/if/else branch.
     conditional_branch_stack: Vec<(usize, usize)>,
+    /// When visiting a `when` condition, the case node offset.
+    /// Variables assigned while this is Some are marked as when-condition vars.
+    when_condition_case_offset: Option<usize>,
+    /// When inside a `when` body, the case node offset for suppression checks.
+    in_when_body_of_case: Option<usize>,
 }
 
 impl ShadowVisitor<'_, '_> {
@@ -109,6 +139,7 @@ impl ShadowVisitor<'_, '_> {
         if let Some(scope) = self.scopes.last_mut() {
             let info = VarInfo {
                 conditional_branch: self.conditional_branch_stack.last().copied(),
+                when_condition_of_case: self.when_condition_case_offset,
             };
             scope.insert(name.to_string(), info);
         }
@@ -147,6 +178,31 @@ impl ShadowVisitor<'_, '_> {
                 self.visit(&subsequent);
                 self.conditional_branch_stack.pop();
             }
+        }
+    }
+
+    /// Visit a when node, tracking when-condition vs when-body context.
+    /// Variables assigned in when conditions are marked with `when_condition_of_case`
+    /// so that blocks in the same when body don't report false-positive shadowing.
+    fn visit_when_node_with_case_offset(
+        &mut self,
+        node: &ruby_prism::WhenNode<'_>,
+        case_offset: usize,
+    ) {
+        // Visit when conditions with when_condition_case_offset set
+        let saved = self.when_condition_case_offset;
+        self.when_condition_case_offset = Some(case_offset);
+        for condition in node.conditions().iter() {
+            self.visit(&condition);
+        }
+        self.when_condition_case_offset = saved;
+
+        // Visit when body with in_when_body_of_case set
+        if let Some(stmts) = node.statements() {
+            let saved_body = self.in_when_body_of_case;
+            self.in_when_body_of_case = Some(case_offset);
+            self.visit_statements_node(&stmts);
+            self.in_when_body_of_case = saved_body;
         }
     }
 
@@ -383,18 +439,35 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         self.scopes = saved_scopes;
     }
 
-    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
-        // Skip Ractor.new blocks — Ractor should not access outer variables,
-        // so shadowing is intentional and encouraged.
-        if is_ractor_new_block(node) {
-            self.scopes.push(HashMap::new());
-            ruby_prism::visit_block_node(self, node);
-            self.scopes.pop();
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        // For Ractor.new calls, handle the block with an isolated scope
+        // (no shadowing check) since Ractor intentionally shadows outer vars.
+        if is_ractor_new_call(node) {
+            // Visit receiver and arguments normally
+            if let Some(receiver) = node.receiver() {
+                self.visit(&receiver);
+            }
+            if let Some(arguments) = node.arguments() {
+                self.visit_arguments_node(&arguments);
+            }
+            // Visit block with isolated scope (no shadowing check)
+            if let Some(block) = node.block() {
+                if let Some(block_node) = block.as_block_node() {
+                    self.scopes.push(HashMap::new());
+                    ruby_prism::visit_block_node(self, &block_node);
+                    self.scopes.pop();
+                }
+            }
             return;
         }
+        // Default call node visiting
+        ruby_prism::visit_call_node(self, node);
+    }
 
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let outer_locals = self.current_locals();
         let block_cond_branch = self.current_conditional_branch();
+        let when_body_case = self.in_when_body_of_case;
 
         // Check block parameters against outer locals
         if let Some(params_node) = node.parameters() {
@@ -405,6 +478,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
                     &block_params,
                     &outer_locals,
                     block_cond_branch,
+                    when_body_case,
                     &mut self.diagnostics,
                 );
             }
@@ -429,6 +503,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         // Lambdas behave like blocks for shadowing purposes
         let outer_locals = self.current_locals();
         let block_cond_branch = self.current_conditional_branch();
+        let when_body_case = self.in_when_body_of_case;
 
         if let Some(params_node) = node.parameters() {
             if let Some(block_params) = params_node.as_block_parameters_node() {
@@ -438,6 +513,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
                     &block_params,
                     &outer_locals,
                     block_cond_branch,
+                    when_body_case,
                     &mut self.diagnostics,
                 );
             }
@@ -516,7 +592,13 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
             let branch_offset = condition.location().start_offset();
             self.conditional_branch_stack
                 .push((case_offset, branch_offset));
-            self.visit(&condition);
+            // Visit the when node — our visit_when_node handles
+            // condition vs body tracking for when-condition assignments.
+            if let Some(when_node) = condition.as_when_node() {
+                self.visit_when_node_with_case_offset(&when_node, case_offset);
+            } else {
+                self.visit(&condition);
+            }
             self.conditional_branch_stack.pop();
         }
 
@@ -562,16 +644,18 @@ fn is_different_conditional_branch(
     }
 }
 
-/// Check if a block node is `Ractor.new(...) do |...| end`.
-fn is_ractor_new_block(node: &ruby_prism::BlockNode<'_>) -> bool {
-    // The block's parent call is available as the CallNode that owns this block.
-    // In Prism, BlockNode doesn't have a direct parent pointer, but we can check
-    // the source around the block. However, BlockNode is always a child of a CallNode.
-    // We need to check the call that owns this block.
-    // Unfortunately, Prism's visitor doesn't give us the parent node.
-    // We'll skip Ractor detection for now since it's rare in practice.
-    // TODO: implement Ractor detection if needed
-    let _ = node;
+/// Check if a CallNode is `Ractor.new(...)`.
+fn is_ractor_new_call(node: &ruby_prism::CallNode<'_>) -> bool {
+    let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
+    if name != "new" {
+        return false;
+    }
+    if let Some(receiver) = node.receiver() {
+        if let Some(constant) = receiver.as_constant_read_node() {
+            let const_name = std::str::from_utf8(constant.name().as_slice()).unwrap_or("");
+            return const_name == "Ractor";
+        }
+    }
     false
 }
 
@@ -583,6 +667,7 @@ fn check_multi_target_shadow(
     mt: &ruby_prism::MultiTargetNode<'_>,
     outer_locals: &HashMap<String, VarInfo>,
     block_cond_branch: Option<(usize, usize)>,
+    in_when_body_of_case: Option<usize>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for target in mt.lefts().iter() {
@@ -597,6 +682,7 @@ fn check_multi_target_shadow(
                 req.location(),
                 outer_locals,
                 block_cond_branch,
+                in_when_body_of_case,
                 diagnostics,
             );
         } else if let Some(inner) = target.as_multi_target_node() {
@@ -606,6 +692,7 @@ fn check_multi_target_shadow(
                 &inner,
                 outer_locals,
                 block_cond_branch,
+                in_when_body_of_case,
                 diagnostics,
             );
         }
@@ -622,6 +709,7 @@ fn check_multi_target_shadow(
                 req.location(),
                 outer_locals,
                 block_cond_branch,
+                in_when_body_of_case,
                 diagnostics,
             );
         }
@@ -634,6 +722,7 @@ fn check_block_parameters_shadow(
     block_params: &ruby_prism::BlockParametersNode<'_>,
     outer_locals: &HashMap<String, VarInfo>,
     block_cond_branch: Option<(usize, usize)>,
+    in_when_body_of_case: Option<usize>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if let Some(inner_params) = block_params.parameters() {
@@ -643,6 +732,7 @@ fn check_block_parameters_shadow(
             &inner_params,
             outer_locals,
             block_cond_branch,
+            in_when_body_of_case,
             diagnostics,
         );
 
@@ -654,6 +744,7 @@ fn check_block_parameters_shadow(
                     &multi_target,
                     outer_locals,
                     block_cond_branch,
+                    in_when_body_of_case,
                     diagnostics,
                 );
             }
@@ -667,6 +758,7 @@ fn check_block_parameters_shadow(
                     &multi_target,
                     outer_locals,
                     block_cond_branch,
+                    in_when_body_of_case,
                     diagnostics,
                 );
             }
@@ -688,6 +780,7 @@ fn check_block_parameters_shadow(
             local.location(),
             outer_locals,
             block_cond_branch,
+            in_when_body_of_case,
             diagnostics,
         );
     }
@@ -699,6 +792,7 @@ fn check_block_params_shadow(
     params: &ruby_prism::ParametersNode<'_>,
     outer_locals: &HashMap<String, VarInfo>,
     block_cond_branch: Option<(usize, usize)>,
+    in_when_body_of_case: Option<usize>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     // Required params
@@ -714,6 +808,7 @@ fn check_block_params_shadow(
                 req.location(),
                 outer_locals,
                 block_cond_branch,
+                in_when_body_of_case,
                 diagnostics,
             );
         }
@@ -732,6 +827,7 @@ fn check_block_params_shadow(
                 opt.location(),
                 outer_locals,
                 block_cond_branch,
+                in_when_body_of_case,
                 diagnostics,
             );
         }
@@ -750,6 +846,7 @@ fn check_block_params_shadow(
                 req.location(),
                 outer_locals,
                 block_cond_branch,
+                in_when_body_of_case,
                 diagnostics,
             );
         }
@@ -769,6 +866,7 @@ fn check_block_params_shadow(
                 keyword.location(),
                 outer_locals,
                 block_cond_branch,
+                in_when_body_of_case,
                 diagnostics,
             );
         } else if let Some(keyword) = p.as_optional_keyword_parameter_node() {
@@ -783,6 +881,7 @@ fn check_block_params_shadow(
                 keyword.location(),
                 outer_locals,
                 block_cond_branch,
+                in_when_body_of_case,
                 diagnostics,
             );
         }
@@ -802,6 +901,7 @@ fn check_block_params_shadow(
                     rest_param.location(),
                     outer_locals,
                     block_cond_branch,
+                    in_when_body_of_case,
                     diagnostics,
                 );
             }
@@ -822,6 +922,7 @@ fn check_block_params_shadow(
                     keyword_rest.location(),
                     outer_locals,
                     block_cond_branch,
+                    in_when_body_of_case,
                     diagnostics,
                 );
             }
@@ -841,6 +942,7 @@ fn check_block_params_shadow(
                 block.location(),
                 outer_locals,
                 block_cond_branch,
+                in_when_body_of_case,
                 diagnostics,
             );
         }
@@ -860,6 +962,7 @@ fn build_block_body_scope(
                 name,
                 VarInfo {
                     conditional_branch: None,
+                    when_condition_of_case: None,
                 },
             );
         }
@@ -875,6 +978,7 @@ fn build_block_body_scope(
                 name.to_string(),
                 VarInfo {
                     conditional_branch: None,
+                    when_condition_of_case: None,
                 },
             );
         }
@@ -883,6 +987,7 @@ fn build_block_body_scope(
     scope
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_shadow(
     cop: &ShadowingOuterLocalVariable,
     source: &SourceFile,
@@ -890,6 +995,7 @@ fn check_shadow(
     loc: ruby_prism::Location<'_>,
     outer_locals: &HashMap<String, VarInfo>,
     block_cond_branch: Option<(usize, usize)>,
+    in_when_body_of_case: Option<usize>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if name.is_empty() || name.starts_with('_') {
@@ -900,6 +1006,17 @@ fn check_shadow(
         // of the same conditional (case/when, if/else).
         if is_different_conditional_branch(info.conditional_branch, block_cond_branch) {
             return;
+        }
+        // Skip if the outer variable was assigned in a `when` condition and
+        // the block is inside a `when` body of the same case node. RuboCop's
+        // VariableForce resolves both to the same conditional (case) node
+        // and suppresses the shadowing warning.
+        if let (Some(var_case), Some(block_case)) =
+            (info.when_condition_of_case, in_when_body_of_case)
+        {
+            if var_case == block_case {
+                return;
+            }
         }
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(cop.diagnostic(
@@ -957,6 +1074,7 @@ fn collect_multi_target_names_from_params(
                     name,
                     VarInfo {
                         conditional_branch: None,
+                        when_condition_of_case: None,
                     },
                 );
             }
@@ -972,6 +1090,7 @@ fn collect_multi_target_names_from_params(
                     name,
                     VarInfo {
                         conditional_branch: None,
+                        when_condition_of_case: None,
                     },
                 );
             }

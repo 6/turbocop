@@ -162,3 +162,32 @@ class Worker
     puts command
   end
 end
+
+# Ractor.new block — shadowing is intentional (Ractor can't access outer scope)
+def start_ractor(*args)
+  Ractor.new(*args) do |*args|
+    puts args.inspect
+  end
+end
+
+# Ractor.new with single param
+def start_worker(p)
+  Ractor.new(p) do |p|
+    puts p.inspect
+  end
+end
+
+# Variable assigned in when condition, block param in when body
+def process(env)
+  case
+  when decl = env.fetch(:type, nil)
+    decl.each do |decl|
+      puts decl
+    end
+  when decl = env.fetch(:other, nil)
+    decl.map do |decl|
+      decl.to_s
+    end
+  end
+end
+
