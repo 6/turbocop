@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Tries multiple strategies in order:
 1. `gh` CLI (if installed and authenticated)
-2. GitHub REST API with GH_TOKEN / GH_TOKEN_FOR_ACTIONS_READ / GITHUB_TOKEN env var
+2. GitHub REST API with GH_TOKEN env var
 3. Parse checked-in docs/corpus.md (summary data only, no per-file detail)
 4. Helpful error message with instructions
 
@@ -200,9 +200,7 @@ def _github_api_download(url: str, token: str) -> bytes:
 
 def _try_curl_api(repo: str | None) -> tuple[Path, int, str] | None:
     """Try downloading via GitHub REST API with GH_TOKEN env var."""
-    token = (os.environ.get("GH_TOKEN")
-             or os.environ.get("GH_TOKEN_FOR_ACTIONS_READ")
-             or os.environ.get("GITHUB_TOKEN"))
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
         # Fall back to gh CLI auth token if available
         try:
@@ -243,7 +241,7 @@ def _try_curl_api(repo: str | None) -> tuple[Path, int, str] | None:
     if not token:
         # Can list artifacts without auth, but can't download
         print("Found corpus oracle run but need a token to download artifacts.", file=sys.stderr)
-        print("Set GH_TOKEN, GH_TOKEN_FOR_ACTIONS_READ, or GITHUB_TOKEN env var, or run: gh auth login", file=sys.stderr)
+        print("Set GH_TOKEN or GITHUB_TOKEN env var, or run: gh auth login", file=sys.stderr)
         return None
 
     try:
@@ -454,7 +452,7 @@ def download_corpus_results(
 
     Tries strategies in order:
     1. gh CLI (if installed and authenticated)
-    2. GitHub REST API with GH_TOKEN/GH_TOKEN_FOR_ACTIONS_READ/GITHUB_TOKEN env var
+    2. GitHub REST API with GH_TOKEN/GITHUB_TOKEN env var
     3. Parse checked-in docs/corpus.md (summary data only)
     4. Exit with helpful error message
 
@@ -487,7 +485,7 @@ def download_corpus_results(
     print("", file=sys.stderr)
     print("Options:", file=sys.stderr)
     print("  1. Install and authenticate gh: gh auth login", file=sys.stderr)
-    print("  2. Set GH_TOKEN, GH_TOKEN_FOR_ACTIONS_READ, or GITHUB_TOKEN env var (needs actions:read scope)", file=sys.stderr)
+    print("  2. Set GH_TOKEN or GITHUB_TOKEN env var", file=sys.stderr)
     print("  3. Download manually and pass --input corpus-results.json", file=sys.stderr)
     if repo:
         print(f"  4. Visit https://github.com/{repo}/actions and download the", file=sys.stderr)
