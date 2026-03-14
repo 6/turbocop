@@ -117,3 +117,29 @@ while x > 0
     raise MyError
   end
 end
+
+# begin/rescue where both paths break — RuboCop does not flag these
+# because begin/rescue creates error handling context, not a break statement
+loop do
+  begin
+    raise 'err'
+  rescue StandardError
+    break
+  end
+end
+
+[1].each do
+  begin
+    raise StandardError.new('err')
+  rescue => e
+    return
+  end
+end
+
+while true
+  begin
+    raise 'foo'
+  rescue StandardError
+    break 'bar'
+  end
+end

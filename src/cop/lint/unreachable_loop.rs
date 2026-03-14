@@ -3,6 +3,18 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// ## Corpus investigation (2026-03-14)
+///
+/// Corpus oracle reported FP=10, FN=81.
+///
+/// FP=10: All from loops containing `begin/rescue` blocks where both the main
+/// body (raises) and rescue clause (break/return) are break statements. The cop
+/// was treating these as "always breaks" but RuboCop does NOT — in Parser gem's
+/// AST, `begin/rescue` has a rescue node as last child, and rescue is not a
+/// `break_statement?` type. Fixed by returning false for begin nodes with rescue
+/// clauses, matching RuboCop's behavior.
+///
+/// FN=81: Not investigated in this batch — likely missing detection patterns.
 pub struct UnreachableLoop;
 
 impl Cop for UnreachableLoop {
@@ -157,18 +169,12 @@ fn is_break_statement(node: &ruby_prism::Node<'_>) -> bool {
 
     // Begin/kwbegin block
     if let Some(begin_node) = node.as_begin_node() {
+        // RuboCop does NOT treat begin/rescue as a break statement.
+        // In Parser gem's AST, begin/rescue's last child is the rescue node,
+        // and rescue is not a break_statement type. So even if both the main
+        // body and all rescue clauses break, RuboCop doesn't flag the loop.
         if begin_node.rescue_clause().is_some() {
-            let main_breaks = begin_node
-                .statements()
-                .map(|stmts| {
-                    let body: Vec<_> = stmts.body().iter().collect();
-                    stmts_break(&body)
-                })
-                .unwrap_or(false);
-
-            let rescues_break = all_rescue_clauses_break(begin_node.rescue_clause());
-
-            return main_breaks && rescues_break;
+            return false;
         }
 
         if let Some(stmts) = begin_node.statements() {
