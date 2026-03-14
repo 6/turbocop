@@ -49,7 +49,7 @@ use ruby_prism::Visit;
 ///
 /// ## Investigation (2026-03-11, round 3)
 ///
-/// **Root cause of remaining 13 FPs:** After-send timing mismatch in `=~`, `===`,
+/// **Root cause of remaining 18→13 FPs:** After-send timing mismatch in `=~`, `===`,
 /// and `match` handlers.
 ///
 /// RuboCop uses `after_send` which fires AFTER all child nodes (including the
@@ -65,6 +65,25 @@ use ruby_prism::Visit;
 /// semantics. Also fixed `match` to always reset to None unconditionally (matching
 /// RuboCop's `@valid_ref = nil` at the start of `after_send`), including when
 /// called with no arguments.
+///
+/// ## Investigation (2026-03-14, round 4)
+///
+/// **Root cause of remaining 13 FPs:** Save/restore of `current_capture_count`
+/// around `visit_case_node` and `visit_case_match_node`.
+///
+/// RuboCop's `on_when` / `on_in_pattern` just set `@valid_ref` for each clause
+/// and let the last clause's value persist after the case statement ends. There
+/// is no save/restore mechanism. Nitrocop was saving `current_capture_count`
+/// before the case and restoring it after, which meant:
+/// - Before case: `Some(N)` (from a previous regexp or initial `Some(0)`)
+/// - Last when/in clause: non-literal condition → `None`
+/// - After case: restored to `Some(N)` instead of `None`
+/// - `$M` references after the case: flagged by nitrocop (M > N) but not by
+///   RuboCop (nil = don't flag)
+///
+/// **Fix:** Removed save/restore of `current_capture_count` in both
+/// `visit_case_node` and `visit_case_match_node`, matching RuboCop's behavior
+/// where the last clause's capture state leaks out.
 pub struct OutOfRangeRegexpRef;
 
 impl Cop for OutOfRangeRegexpRef {
@@ -294,7 +313,10 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
         // Matches RuboCop's on_when behavior: literal regexp conditions set @valid_ref
         // to max captures; non-literal conditions (constants, variables) set @valid_ref
         // to nil (= None here), meaning $N references won't be flagged.
-        let saved = self.current_capture_count;
+        //
+        // Note: RuboCop does NOT save/restore @valid_ref around case/when — the last
+        // when clause's capture state persists after the case statement. We match this
+        // by not saving/restoring here.
         for condition in node.conditions().iter() {
             if let Some(when_node) = condition.as_when_node() {
                 let mut has_literal_regexp = false;
@@ -320,11 +342,11 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
         if let Some(else_clause) = node.else_clause() {
             self.visit_else_node(&else_clause);
         }
-        self.current_capture_count = saved;
     }
 
     fn visit_case_match_node(&mut self, node: &ruby_prism::CaseMatchNode<'pr>) {
-        let saved = self.current_capture_count;
+        // Matches RuboCop's on_in_pattern behavior — no save/restore, the last
+        // in clause's capture state persists after the case statement.
         for condition in node.conditions().iter() {
             if let Some(in_node) = condition.as_in_node() {
                 let (has_regexp, max_captures) = has_regexp_in_pattern(&in_node.pattern());
@@ -343,7 +365,6 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
         if let Some(else_clause) = node.else_clause() {
             self.visit_else_node(&else_clause);
         }
-        self.current_capture_count = saved;
     }
 
     fn visit_numbered_reference_read_node(

@@ -184,3 +184,33 @@ puts $3
 /(foo)(bar)/ =~ str
 foo.match
 puts $2
+
+# case/when: capture count from last when clause should persist after the case statement.
+# RuboCop does NOT save/restore @valid_ref around case/when — the last when clause's
+# capture state leaks out. If the last when clause is a non-literal condition, @valid_ref
+# is nil, and $N after the case should not be flagged.
+/(foo)(bar)(baz)/ =~ str
+case str
+when /(abc)/
+  $1
+when SOME_CONSTANT
+  $1
+end
+$1
+$2
+$3
+$4
+
+# case/in: capture count from last in clause should persist after the case statement.
+# Same as case/when — RuboCop does not save/restore around case/in.
+/(foo)(bar)(baz)/ =~ str
+case obj
+in /(abc)/
+  $1
+in Integer
+  $1
+end
+$1
+$2
+$3
+$4
