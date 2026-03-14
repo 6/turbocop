@@ -4,3 +4,9 @@ r = /[aba]/
         ^ Lint/DuplicateRegexpCharacterClassElement: Duplicate element inside regexp character class
 r = /[1231]/
          ^ Lint/DuplicateRegexpCharacterClassElement: Duplicate element inside regexp character class
+# Duplicate single quotes in character class
+r = /["'']/
+       ^ Lint/DuplicateRegexpCharacterClassElement: Duplicate element inside regexp character class
+# Duplicate in interpolated regex
+r = /["'']?.*foo/
+       ^ Lint/DuplicateRegexpCharacterClassElement: Duplicate element inside regexp character class

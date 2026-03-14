@@ -21,3 +21,11 @@ r = /[\x20-\x7E]/
 r = /[\\<>@"!#$%&*+=?^`{|}~:;]/
 # Octal escapes should not trigger false positives
 r = /[\0\1\2]/
+# Escaped backslash before bracket should not be treated as escaped bracket
+r = /(\\[[:space:]]|[^[:space:]])*/
+# POSIX class in negated character class is not a duplicate
+r = /[^[:space:]]/
+# Escaped brackets are literal, not character class delimiters
+r = /(\w+\.|\[\w+\]\.)?/
+# Mixed escaped brackets and character classes
+r = /(?:\w+|\[\w+\])/

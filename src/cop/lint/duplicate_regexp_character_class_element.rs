@@ -1,10 +1,23 @@
-use crate::cop::node_type::REGULAR_EXPRESSION_NODE;
+use crate::cop::node_type::{INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 /// Checks for duplicate elements in Regexp character classes.
 /// For example, `/[xyx]/` has a duplicate `x`.
+///
+/// ## Corpus investigation (2026-03-14)
+///
+/// FP root causes:
+/// - The escape check `chars[i-1] != '\\'` failed on `\\[` (escaped backslash + literal bracket).
+///   `\\` is an escaped backslash, so the `[` after it is NOT escaped. Fixed by counting
+///   consecutive preceding backslashes: odd count means the bracket is escaped, even means it's not.
+/// - Using `regexp.unescaped()` instead of raw source bytes caused mismatches between parsed
+///   content and source offsets. Switched to `content_loc().as_slice()` for raw source.
+///
+/// FN root causes:
+/// - Interpolated regexes (`InterpolatedRegularExpressionNode`) were not handled at all.
+///   Added support by extracting string parts from interpolated regex nodes.
 pub struct DuplicateRegexpCharacterClassElement;
 
 impl Cop for DuplicateRegexpCharacterClassElement {
@@ -17,7 +30,10 @@ impl Cop for DuplicateRegexpCharacterClassElement {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[REGULAR_EXPRESSION_NODE]
+        &[
+            REGULAR_EXPRESSION_NODE,
+            INTERPOLATED_REGULAR_EXPRESSION_NODE,
+        ]
     }
 
     fn check_node(
@@ -29,58 +45,69 @@ impl Cop for DuplicateRegexpCharacterClassElement {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let regexp = match node.as_regular_expression_node() {
-            Some(r) => r,
-            None => return,
-        };
-
-        let content = regexp.unescaped();
-        let content_str = match std::str::from_utf8(content) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-
-        let bytes = source.as_bytes();
-        let content_loc = regexp.content_loc();
-        let content_start = content_loc.start_offset();
-
-        // Simple character class analysis: find [...] blocks and check for duplicates
-        let mut i = 0;
-        let chars: Vec<char> = content_str.chars().collect();
-        while i < chars.len() {
-            if chars[i] == '[' && (i == 0 || chars[i - 1] != '\\') {
-                // Find matching ] (handling nested [...], POSIX classes, escapes)
-                let end = find_char_class_end(&chars, i);
-                if let Some(j) = end {
-                    // Extract content between [ and ]
-                    let start = i + 1;
-                    let class_content = &chars[start..j];
-
-                    // Skip character classes that use && (intersection) — too complex
-                    // to analyze for duplicates (matches RuboCop behavior).
-                    let has_intersection =
-                        class_content.windows(2).any(|w| w[0] == '&' && w[1] == '&');
-                    if !has_intersection {
-                        check_class_for_duplicates(
-                            self,
-                            source,
-                            &chars,
-                            class_content,
-                            start,
-                            content_start,
-                            bytes,
-                            diagnostics,
-                        );
-                    }
-                    i = j + 1;
-                } else {
-                    i += 1;
-                }
-            } else {
-                i += 1;
+        if let Some(regexp) = node.as_regular_expression_node() {
+            let content_slice = regexp.content_loc().as_slice();
+            let Ok(content_str) = std::str::from_utf8(content_slice) else {
+                return;
+            };
+            let content_start = regexp.content_loc().start_offset();
+            let chars: Vec<char> = content_str.chars().collect();
+            let mut offsets = Vec::with_capacity(chars.len());
+            let mut offset = content_start;
+            for ch in &chars {
+                offsets.push(Some(offset));
+                offset += ch.len_utf8();
             }
+            check_regexp_content(self, source, &chars, &offsets, diagnostics);
+            return;
+        }
+
+        if let Some(regexp) = node.as_interpolated_regular_expression_node() {
+            let mut chars = Vec::new();
+            let mut offsets = Vec::new();
+
+            for part in regexp.parts().iter() {
+                if let Some(string) = part.as_string_node() {
+                    let Ok(content) = std::str::from_utf8(string.content_loc().as_slice()) else {
+                        return;
+                    };
+                    let mut offset = string.content_loc().start_offset();
+                    for ch in content.chars() {
+                        chars.push(ch);
+                        offsets.push(Some(offset));
+                        offset += ch.len_utf8();
+                    }
+                    continue;
+                }
+
+                // Non-string part (interpolation) — insert placeholder
+                chars.push('\0');
+                offsets.push(None);
+            }
+
+            check_regexp_content(self, source, &chars, &offsets, diagnostics);
         }
     }
+}
+
+/// Check whether the character at `pos` is an unescaped `[`.
+/// Counts consecutive backslashes before `pos`: odd = bracket is escaped, even = not escaped.
+fn is_unescaped_open_bracket(chars: &[char], pos: usize) -> bool {
+    if chars[pos] != '[' {
+        return false;
+    }
+    let mut backslash_count = 0;
+    let mut p = pos;
+    while p > 0 {
+        p -= 1;
+        if chars[p] == '\\' {
+            backslash_count += 1;
+        } else {
+            break;
+        }
+    }
+    // Even number of preceding backslashes means the bracket is NOT escaped
+    backslash_count % 2 == 0
 }
 
 /// Find the closing `]` for a character class starting at `chars[pos]` == `[`.
@@ -128,16 +155,59 @@ fn find_char_class_end(chars: &[char], open: usize) -> Option<usize> {
     None
 }
 
+/// Top-level scan: find character classes in the regex and check each for duplicates.
+fn check_regexp_content(
+    cop: &DuplicateRegexpCharacterClassElement,
+    source: &SourceFile,
+    chars: &[char],
+    offsets: &[Option<usize>],
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut i = 0;
+    while i < chars.len() {
+        // Skip null placeholders (interpolation boundaries)
+        if chars[i] == '\0' {
+            i += 1;
+            continue;
+        }
+        if is_unescaped_open_bracket(chars, i) {
+            // Find matching ] (handling nested [...], POSIX classes, escapes)
+            let end = find_char_class_end(chars, i);
+            if let Some(j) = end {
+                // Extract content between [ and ]
+                let start = i + 1;
+                let class_content = &chars[start..j];
+
+                // Skip character classes that use && (intersection) — too complex
+                // to analyze for duplicates (matches RuboCop behavior).
+                let has_intersection = class_content.windows(2).any(|w| w[0] == '&' && w[1] == '&');
+                if !has_intersection {
+                    check_class_for_duplicates(
+                        cop,
+                        source,
+                        class_content,
+                        &offsets[start..j],
+                        diagnostics,
+                    );
+                }
+                i = j + 1;
+            } else {
+                i += 1;
+            }
+        } else if chars[i] == '\\' && i + 1 < chars.len() {
+            i += escape_sequence_len(chars, i);
+        } else {
+            i += 1;
+        }
+    }
+}
+
 /// Check a character class body for duplicate elements, emitting diagnostics.
-#[allow(clippy::too_many_arguments)] // internal helper with tightly-coupled params
 fn check_class_for_duplicates(
     cop: &DuplicateRegexpCharacterClassElement,
     source: &SourceFile,
-    all_chars: &[char],
     class_content: &[char],
-    class_start_in_all: usize, // index into `all_chars` where class body starts
-    content_start: usize,      // byte offset of regex content in source
-    bytes: &[u8],
+    class_offsets: &[Option<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let mut seen = std::collections::HashSet::new();
@@ -147,6 +217,12 @@ fn check_class_for_duplicates(
         k += 1;
     }
     while k < class_content.len() {
+        // Skip null placeholders (interpolation boundaries)
+        if class_content[k] == '\0' {
+            // Interpolation inside a character class — we can't reliably analyze
+            // what comes from the interpolation, so skip the rest of this class.
+            return;
+        }
         // Skip POSIX character classes like [:digit:], [:alpha:], etc.
         if class_content[k] == '[' && k + 1 < class_content.len() && class_content[k + 1] == ':' {
             let mut p = k + 2;
@@ -159,15 +235,7 @@ fn check_class_for_duplicates(
             }
             let posix_class: String = class_content[k..p].iter().collect();
             if !seen.insert(posix_class) {
-                emit_duplicate(
-                    cop,
-                    source,
-                    all_chars,
-                    class_start_in_all + k,
-                    content_start,
-                    bytes,
-                    diagnostics,
-                );
+                emit_duplicate(cop, source, class_offsets, k, diagnostics);
             }
             k = p;
         } else if class_content[k] == '[' {
@@ -176,15 +244,7 @@ fn check_class_for_duplicates(
             if let Some(end) = find_char_class_end(&nested_chars, 0) {
                 let entity: String = nested_chars[..=end].iter().collect();
                 if !seen.insert(entity) {
-                    emit_duplicate(
-                        cop,
-                        source,
-                        all_chars,
-                        class_start_in_all + k,
-                        content_start,
-                        bytes,
-                        diagnostics,
-                    );
+                    emit_duplicate(cop, source, class_offsets, k, diagnostics);
                 }
                 k += end + 1;
             } else {
@@ -213,28 +273,12 @@ fn check_class_for_duplicates(
                     .iter()
                     .collect();
                 if !seen.insert(range_str) {
-                    emit_duplicate(
-                        cop,
-                        source,
-                        all_chars,
-                        class_start_in_all + k,
-                        content_start,
-                        bytes,
-                        diagnostics,
-                    );
+                    emit_duplicate(cop, source, class_offsets, k, diagnostics);
                 }
                 k = range_end_start + range_end_len;
             } else {
                 if !seen.insert(entity) {
-                    emit_duplicate(
-                        cop,
-                        source,
-                        all_chars,
-                        class_start_in_all + k,
-                        content_start,
-                        bytes,
-                        diagnostics,
-                    );
+                    emit_duplicate(cop, source, class_offsets, k, diagnostics);
                 }
                 k += esc_len;
             }
@@ -255,30 +299,14 @@ fn check_class_for_duplicates(
                 .iter()
                 .collect();
             if !seen.insert(range) {
-                emit_duplicate(
-                    cop,
-                    source,
-                    all_chars,
-                    class_start_in_all + k,
-                    content_start,
-                    bytes,
-                    diagnostics,
-                );
+                emit_duplicate(cop, source, class_offsets, k, diagnostics);
             }
             k = range_end_start + range_end_len;
         } else {
             // Single character
             let ch = class_content[k].to_string();
             if !seen.insert(ch) {
-                emit_duplicate(
-                    cop,
-                    source,
-                    all_chars,
-                    class_start_in_all + k,
-                    content_start,
-                    bytes,
-                    diagnostics,
-                );
+                emit_duplicate(cop, source, class_offsets, k, diagnostics);
             }
             k += 1;
         }
@@ -361,15 +389,11 @@ fn escape_sequence_len(chars: &[char], start: usize) -> usize {
 fn emit_duplicate(
     cop: &DuplicateRegexpCharacterClassElement,
     source: &SourceFile,
-    all_chars: &[char],
-    pos_in_all: usize,
-    content_start: usize,
-    bytes: &[u8],
+    class_offsets: &[Option<usize>],
+    k: usize,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let char_offset: usize = all_chars[..pos_in_all].iter().map(|c| c.len_utf8()).sum();
-    let byte_pos = content_start + char_offset;
-    if byte_pos < bytes.len() {
+    if let Some(byte_pos) = class_offsets.get(k).copied().flatten() {
         let (line, column) = source.offset_to_line_col(byte_pos);
         diagnostics.push(cop.diagnostic(
             source,
