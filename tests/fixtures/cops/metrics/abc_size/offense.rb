@@ -190,3 +190,64 @@ def multi_write_call_targets
   r.update_size
   update_size
 end
+
+# Interpolated regex =~ should count as B+1 (not skipped like literal regex).
+# In Parser gem, /#{ interp }/ =~ expr is (send (regexp ...) :=~ expr) — counted as B+1.
+# Only non-interpolated /literal/ =~ expr becomes match_with_lvasgn (NOT counted).
+# A=17, B=1 (interpolated =~), C=0 => sqrt(289+1) = sqrt(290) = 17.03
+def method_with_interpolated_regex_branch
+^^^ Metrics/AbcSize: Assignment Branch Condition size for method_with_interpolated_regex_branch is too high. [17.03/17]
+  a = 1
+  b = 2
+  c = 3
+  d = 4
+  e = 5
+  f = 6
+  g = 7
+  h = 8
+  i = 9
+  j = 10
+  k = 11
+  l = 12
+  m = 13
+  n = 14
+  o = 15
+  p = 16
+  q = /#{a}/ =~ "test"
+end
+
+# Nested rescue inside rescue body should count as separate C+1.
+# The in_rescue_chain flag must not suppress nested begin...rescue...end.
+# A=16, B=5 (foo,bar,baz,qux,quux), C=3 (if, outer rescue, nested rescue)
+# => sqrt(256+25+9) = sqrt(290) = 17.03
+# Without nested rescue counted: C=2 => sqrt(256+25+4) = sqrt(285) = 16.88 < 17
+def method_with_nested_rescue_in_body
+^^^ Metrics/AbcSize: Assignment Branch Condition size for method_with_nested_rescue_in_body is too high. [17.03/17]
+  a = 1
+  b = 2
+  c = 3
+  d = 4
+  e = 5
+  f = 6
+  g = 7
+  h = 8
+  i = 9
+  j = 10
+  k = 11
+  l = 12
+  m = 13
+  n = 14
+  o = 15
+  p = foo(bar(baz(qux(quux))))
+  if a
+    begin
+      nil
+    rescue
+      begin
+        nil
+      rescue
+        nil
+      end
+    end
+  end
+end

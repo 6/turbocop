@@ -275,3 +275,29 @@ def method_with_or_assign_block_value
   result ||= addrs.first
   result&.ip_address
 end
+
+# Interpolated regex =~ counts as B+1, but literal regex =~ does NOT
+# (match_with_lvasgn in Parser). This method has literal regex =~ which
+# should not be counted as a branch.
+# A=17, B=0, C=1 (comparison via =~? No — =~ on literal regex is skipped entirely)
+# Actually: /regex/ =~ expr is fully skipped → B=0, C=0
+# With just assignments: A=17 => score = 17.0, NOT > 17 => no offense.
+def method_with_literal_regex_match
+  a = 1
+  b = 2
+  c = 3
+  d = 4
+  e = 5
+  f = 6
+  g = 7
+  h = 8
+  i = 9
+  j = 10
+  k = 11
+  l = 12
+  m = 13
+  n = 14
+  o = 15
+  p = 16
+  q = /pattern/ =~ "test"
+end

@@ -217,10 +217,28 @@ use crate::parse::source::SourceFile;
 /// Prism, the index is `LocalVariableTargetNode` which has no `count_node` arm.
 /// Fix: ForNode handler now does A+=2 instead of A+=1.
 ///
-/// Remaining FN=3: Near-threshold methods where nitrocop scores slightly below
-/// 17.0 but RuboCop scores above. Root causes are subtle counting differences
-/// in backtick xstring handling, regex =~ receiver handling, or chained method
-/// call counting in the actual (non-reduced) corpus files.
+/// ## Corpus investigation (2026-03-14)
+///
+/// Corpus oracle reported FP=0, FN=3.
+///
+/// Bug 1 (FN): Interpolated regex `=~` was incorrectly skipped. In Parser gem,
+/// only non-interpolated `/literal/ =~ expr` produces `match_with_lvasgn` (NOT
+/// a `:send`). Interpolated `/#{ x }/ =~ expr` is `(send (regexp ...) :=~ expr)`
+/// and IS counted as B+1. nitrocop was skipping both. Fix: only skip
+/// `RegularExpressionNode` receivers, not `InterpolatedRegularExpressionNode`.
+///
+/// Bug 2 (FN): Nested `begin...rescue...end` inside a rescue body was not
+/// counted as C+1. The `in_rescue_chain` flag (designed to prevent chained
+/// `rescue` clauses from double-counting) remained true while visiting the
+/// rescue body, suppressing nested rescues. Fix: manually visit rescue
+/// children, resetting `in_rescue_chain=false` for the body while keeping it
+/// true for `subsequent` chained clauses.
+///
+/// Note: backtick xstring (`` `cmd` ``) does NOT count as a branch. In Parser
+/// gem, `` `cmd` `` is `(xstr ...)`, NOT `(send nil :` `` ` `` ` ...)`. Only
+/// the explicit `Kernel.` `` ` `` `(cmd)` form is a `:send`.
+///
+/// All 3 FN fixed. FP=0 confirmed via verify-cop-locations.py.
 pub struct AbcSize;
 
 /// Known iterating method names that make blocks count toward conditions.
@@ -701,14 +719,13 @@ impl AbcCounter {
             ruby_prism::Node::CallNode { .. } => {
                 if let Some(call) = node.as_call_node() {
                     let method_name = call.name().as_slice();
-                    // In Parser gem, `/regex/ =~ expr` is `match_with_lvasgn` (not a :send),
-                    // so it's NOT counted as a branch. In Prism, it's a CallNode with name `=~`.
-                    // Skip it to match RuboCop behavior.
+                    // In Parser gem, `/regex/ =~ expr` (non-interpolated) is `match_with_lvasgn`
+                    // (not a :send), so it's NOT counted as a branch. But `/#{ interp }/ =~ expr`
+                    // is `(send (regexp ...) :=~ expr)` — a regular :send that IS counted as B+1.
+                    // Only skip non-interpolated regex receivers to match RuboCop.
                     if method_name == b"=~" {
                         if let Some(receiver) = call.receiver() {
-                            if receiver.as_regular_expression_node().is_some()
-                                || receiver.as_interpolated_regular_expression_node().is_some()
-                            {
+                            if receiver.as_regular_expression_node().is_some() {
                                 return;
                             }
                         }
@@ -910,10 +927,9 @@ impl<'pr> Visit<'pr> for AbcCounter {
         // RuboCop counts `rescue` as a single condition for the entire chain.
         // In Prism, rescue clauses are chained via `subsequent`, so visit_rescue_node
         // is called once per clause. Only count +1 for the first rescue in the chain.
-        let is_first = !self.in_rescue_chain;
-        if is_first {
+        let was_in_chain = self.in_rescue_chain;
+        if !was_in_chain {
             self.conditions += 1;
-            self.in_rescue_chain = true;
         }
 
         // `rescue => var` — the rescue reference is an assignment in RuboCop
@@ -928,10 +944,28 @@ impl<'pr> Visit<'pr> for AbcCounter {
             }
         }
 
-        ruby_prism::visit_rescue_node(self, node);
-        if is_first {
-            self.in_rescue_chain = false;
+        // Visit exceptions, reference, and body with in_rescue_chain=false so that
+        // nested begin...rescue...end blocks inside the rescue body get counted
+        // independently. Only subsequent (chained) rescue clauses should be suppressed.
+        self.in_rescue_chain = false;
+        for exception in node.exceptions().iter() {
+            self.visit(&exception);
         }
+        if let Some(ref_node) = node.reference() {
+            self.visit(&ref_node);
+        }
+        if let Some(stmts) = node.statements() {
+            self.visit(&stmts.as_node());
+        }
+
+        // Visit subsequent (chained) rescue with in_rescue_chain=true to suppress
+        // the extra condition count for chained clauses.
+        if let Some(subsequent) = node.subsequent() {
+            self.in_rescue_chain = true;
+            self.visit(&subsequent.as_node());
+        }
+
+        self.in_rescue_chain = was_in_chain;
     }
 
     // InNode: count +1 condition for the `in` clause, then visit children with
