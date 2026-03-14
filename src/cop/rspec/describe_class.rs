@@ -211,7 +211,7 @@ fn check_top_level_describe(
     // Also, `describe '...', &(proc do end)` uses BlockArgumentNode in call.block(),
     // which RuboCop does NOT treat as a spec group (requires `(block (send ...))` pattern,
     // i.e., an actual BlockNode wrapper, not block_pass).
-    if call.block().map_or(true, |b| b.as_block_node().is_none()) {
+    if call.block().is_none_or(|b| b.as_block_node().is_none()) {
         return;
     }
 
