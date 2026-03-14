@@ -49,3 +49,15 @@ format("%s %version", val)
 format("%s %note: more", val)
 "%s %result here" % [val]
 '%' % []
+
+# Annotated named format with flags/width before <name>
+format("%-2<pos>d", pos: 1)
+format('%06<hex>x', hex: 10)
+format("%-8<loc>s", loc: "en")
+format("%.3<number>d", number: 42)
+format('%4<human>d', human: 100)
+format('\\%06<hex>x', hex: 10)
+
+# Numbered format with *N$ dynamic width
+"%1$*2$s" % ["a", 8]
+"%1$*10$s" % ["a",0,0,0,0,0,0,0,0,8]

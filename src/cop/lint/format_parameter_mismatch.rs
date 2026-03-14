@@ -50,6 +50,32 @@ use crate::parse::source::SourceFile;
 /// - Restrict format type to `[bBdiouxXeEfgGaAcps]` via `is_format_type()`
 /// - Remove splat special-casing for String#% (literal count like RuboCop)
 /// - Require valid type for numbered (`%N$X`) and annotated named (`%<name>X`)
+///
+/// ## Additional conformance investigation (2026-03-14)
+///
+/// **Root causes of remaining FPs (9) and FNs (19):**
+/// 1. Annotated named format with flags/width before `<name>` — e.g.,
+///    `%-2<pos>d`, `%06<hex>x`. nitrocop only checked for `<` immediately
+///    after `%`, missing cases where flags/width precede the name. RuboCop's
+///    SEQUENCE regex supports NAME in multiple positions relative to flags/width.
+/// 2. `*N$` dynamic width in numbered formats — `%1$*2$s` has both numbered
+///    arg ref `1$` and numbered width ref `*2$`. nitrocop tracked `1$` for
+///    max_numbered but ignored `*N$` width refs, causing miscount.
+/// 3. `*N$` in initial position — `%*2$s` has `*` followed by `2$`. Without
+///    digit_dollar before the `*`, this was parsed as unnumbered `*` + digits,
+///    missing the numbered reference. RuboCop treats `*2$` as NUMBER_ARG in
+///    WIDTH, and `2$` makes it numbered.
+/// 4. Mixed format with `*` and `N$` — `%*.*2$s` mixes unnumbered `*` width
+///    with numbered `.*2$` precision, which RuboCop detects as mixed/invalid.
+/// 5. Named format `%{name}` with `String#%` and empty array — `"%{foo}" % []`
+///    should flag (0 args, expects 1 hash). nitrocop returned early for all
+///    named formats with `String#%`.
+///
+/// **Fixes applied (round 3):**
+/// - Check for `<name>` after flags/width/precision in unnumbered path
+/// - Track `*N$` width refs in max_numbered for both initial and numbered paths
+/// - Detect `*` without `N$` as unnumbered contributor for mixing detection
+/// - Flag named `%{name}` format with non-hash RHS in `String#%`
 pub struct FormatParameterMismatch;
 
 impl Cop for FormatParameterMismatch {
@@ -130,8 +156,12 @@ fn check_format_sprintf(
     };
 
     let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
-    // RuboCop requires arguments.size > 1 (format string + at least one arg)
-    if arg_list.len() <= 1 {
+    // RuboCop requires arguments.size > 1 (format string + at least one arg).
+    // In Parser gem, block_pass (&block) is included in arguments; in Prism it's
+    // separate via call.block(). Count it to match RuboCop's behavior.
+    let has_block_arg = call.block().is_some();
+    let effective_arg_count = arg_list.len() + usize::from(has_block_arg);
+    if effective_arg_count <= 1 {
         return Vec::new();
     }
 
@@ -164,7 +194,7 @@ fn check_format_sprintf(
     // If any remaining arg is a splat, be conservative for format/sprintf
     let has_splat = remaining_args.iter().any(|a| a.as_splat_node().is_some());
 
-    let arg_count = remaining_args.len();
+    let arg_count = remaining_args.len() + usize::from(has_block_arg);
 
     // Parse format sequences
     let parse_result = parse_format_string(&fmt_str.value);
@@ -274,7 +304,22 @@ fn check_string_percent(
     match parse_result {
         FormatParseResult::Fields(field_count) => {
             if field_count.named {
-                // Named formats expect a hash — don't check further
+                // Named formats (%{name}) expect a hash argument.
+                // If RHS is an array (not a hash), it's a mismatch.
+                if let Some(arr) = rhs.as_array_node() {
+                    let arg_count = arr.elements().iter().count();
+                    let loc = call.message_loc().unwrap_or(call.location());
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![cop.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!(
+                            "Number of arguments ({}) to `String#%` doesn't match the number of fields ({}).",
+                            arg_count, 1
+                        ),
+                    )];
+                }
                 return Vec::new();
             }
 
@@ -444,6 +489,31 @@ fn is_format_type(b: u8) -> bool {
     )
 }
 
+/// Tries to parse `*` possibly followed by `N$` (digit_dollar) for dynamic width/precision.
+/// Returns `(advanced_past_star, numbered_ref)` where `numbered_ref` is the `N` if `N$` was found.
+fn parse_star_with_optional_dollar(bytes: &[u8], pos: usize) -> (usize, Option<usize>) {
+    let len = bytes.len();
+    if pos >= len || bytes[pos] != b'*' {
+        return (pos, None);
+    }
+    let mut i = pos + 1; // skip '*'
+    // Check for N$ after *
+    let digit_start = i;
+    while i < len && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i > digit_start && i < len && bytes[i] == b'$' {
+        // Found *N$ pattern
+        let num_str = std::str::from_utf8(&bytes[digit_start..i]).unwrap_or("");
+        let n = num_str.parse::<usize>().ok();
+        i += 1; // skip '$'
+        (i, n)
+    } else {
+        // Just *, no N$
+        (pos + 1, None)
+    }
+}
+
 fn parse_format_string(fmt: &str) -> FormatParseResult {
     let bytes = fmt.as_bytes();
     let len = bytes.len();
@@ -471,7 +541,7 @@ fn parse_format_string(fmt: &str) -> FormatParseResult {
             continue;
         }
 
-        // Named format: %{name} or %<name>
+        // Named template format: %{name} (no type required)
         if bytes[i] == b'{' {
             has_named = true;
             // Skip to closing }
@@ -484,51 +554,42 @@ fn parse_format_string(fmt: &str) -> FormatParseResult {
             continue;
         }
 
+        // Annotated named format immediately after %: %<name>...TYPE
         if bytes[i] == b'<' {
-            // Skip to closing >
-            while i < len && bytes[i] != b'>' {
-                i += 1;
-            }
-            if i < len {
-                i += 1;
-                // After >, may have more_flags, width, precision before TYPE
-                // Skip flags
-                while i < len && matches!(bytes[i], b'-' | b'+' | b' ' | b'0' | b'#') {
-                    i += 1;
-                }
-                // Skip width
-                while i < len && bytes[i].is_ascii_digit() {
-                    i += 1;
-                }
-                // Skip precision
-                if i < len && bytes[i] == b'.' {
-                    i += 1;
-                    while i < len && bytes[i].is_ascii_digit() {
-                        i += 1;
-                    }
-                }
-                // TYPE is required for %<name>X format (annotated named)
-                if i < len && is_format_type(bytes[i]) {
-                    has_named = true;
-                    i += 1;
-                }
+            if let Some(end) = parse_annotated_name(bytes, i) {
+                i = end;
+                has_named = true;
             }
             continue;
         }
 
-        // Check for numbered: %1$s, %2$d, etc.
-        // Flags, width, precision, then conversion
+        // Parse flags: [ #0+-] and also digit_dollar (N$) which RuboCop treats as a flag
         let start = i;
-        // Skip flags
+        // Skip standard flags
         while i < len && matches!(bytes[i], b'-' | b'+' | b' ' | b'0' | b'#') {
             i += 1;
         }
 
-        // Check for `*` (dynamic width — counts as an extra arg)
+        // Check for `*` (dynamic width) or width digits
         let mut extra_args = 0;
+        // Track whether this sequence has any numbered (*N$) or unnumbered (*) star refs
+        let mut seq_has_numbered_star = false;
+        let mut seq_has_unnumbered_star = false;
         if i < len && bytes[i] == b'*' {
-            extra_args += 1;
-            i += 1;
+            let (new_i, numbered_ref) = parse_star_with_optional_dollar(bytes, i);
+            i = new_i;
+            if let Some(n) = numbered_ref {
+                // *N$ — numbered width reference
+                seq_has_numbered_star = true;
+                has_numbered = true;
+                if n > max_numbered {
+                    max_numbered = n;
+                }
+            } else {
+                // Plain * — unnumbered extra arg
+                seq_has_unnumbered_star = true;
+                extra_args += 1;
+            }
         } else {
             // Skip width digits
             while i < len && bytes[i].is_ascii_digit() {
@@ -536,48 +597,61 @@ fn parse_format_string(fmt: &str) -> FormatParseResult {
             }
         }
 
-        // Check for `$` (numbered argument)
+        // Check for `$` (numbered argument, e.g., %1$s where digits before $ are the arg number)
         if i < len && bytes[i] == b'$' {
             // This is a numbered format like %1$s
-            // Extract the number
+            // Extract the number from bytes between start and current position
             let num_str = std::str::from_utf8(&bytes[start..i]).unwrap_or("");
             // Remove any flag characters from the front to get the number
             let num_part: String = num_str.chars().filter(|c| c.is_ascii_digit()).collect();
             let parsed_num = num_part.parse::<usize>().ok();
             i += 1; // skip '$'
-            // Skip the rest of the format specifier after $
-            // Skip flags again
+
+            // After $, parse the rest of the format specifier
+            // Skip flags
             while i < len && matches!(bytes[i], b'-' | b'+' | b' ' | b'0' | b'#') {
                 i += 1;
             }
+
             // Skip width (could be * for dynamic width with numbered ref)
             if i < len && bytes[i] == b'*' {
-                i += 1;
-                // Skip optional digit_dollar for width arg: *N$
-                let w_start = i;
-                while i < len && bytes[i].is_ascii_digit() {
-                    i += 1;
+                let (new_i, numbered_ref) = parse_star_with_optional_dollar(bytes, i);
+                i = new_i;
+                if let Some(n) = numbered_ref {
+                    // *N$ width reference in numbered format
+                    has_numbered = true;
+                    if n > max_numbered {
+                        max_numbered = n;
+                    }
                 }
-                if i < len && bytes[i] == b'$' {
-                    i += 1;
-                } else {
-                    i = w_start; // not a digit_dollar, reset
-                    // but still consumed the *
-                }
+                // Plain * in numbered format — still an unnumbered reference,
+                // which means mixing (will be caught by mix_count check)
             } else {
                 while i < len && bytes[i].is_ascii_digit() {
                     i += 1;
                 }
             }
+
             // Skip precision
             if i < len && bytes[i] == b'.' {
                 i += 1;
-                while i < len && bytes[i].is_ascii_digit() {
-                    i += 1;
+                if i < len && bytes[i] == b'*' {
+                    let (new_i, numbered_ref) = parse_star_with_optional_dollar(bytes, i);
+                    i = new_i;
+                    if let Some(n) = numbered_ref {
+                        has_numbered = true;
+                        if n > max_numbered {
+                            max_numbered = n;
+                        }
+                    }
+                } else {
+                    while i < len && bytes[i].is_ascii_digit() {
+                        i += 1;
+                    }
                 }
             }
-            // Conversion type must be valid — only then count as numbered format
-            // (matches RuboCop: SEQUENCE regex requires TYPE at end)
+
+            // Conversion type must be valid
             if i < len && is_format_type(bytes[i]) {
                 if let Some(n) = parsed_num {
                     has_numbered = true;
@@ -590,12 +664,32 @@ fn parse_format_string(fmt: &str) -> FormatParseResult {
             continue;
         }
 
+        // Not a numbered format (no $ found). Check for <name> (annotated named
+        // format where flags/width precede the name, e.g., %-2<pos>d, %06<hex>x)
+        if i < len && bytes[i] == b'<' {
+            if let Some(end) = parse_annotated_name(bytes, i) {
+                i = end;
+                has_named = true;
+                continue;
+            }
+        }
+
         // Skip precision
         if i < len && bytes[i] == b'.' {
             i += 1;
             if i < len && bytes[i] == b'*' {
-                extra_args += 1;
-                i += 1;
+                let (new_i, numbered_ref) = parse_star_with_optional_dollar(bytes, i);
+                i = new_i;
+                if let Some(n) = numbered_ref {
+                    seq_has_numbered_star = true;
+                    has_numbered = true;
+                    if n > max_numbered {
+                        max_numbered = n;
+                    }
+                } else {
+                    seq_has_unnumbered_star = true;
+                    extra_args += 1;
+                }
             } else {
                 while i < len && bytes[i].is_ascii_digit() {
                     i += 1;
@@ -603,13 +697,29 @@ fn parse_format_string(fmt: &str) -> FormatParseResult {
             }
         }
 
+        // Check for <name> after precision too (e.g., %.3<number>d)
+        if i < len && bytes[i] == b'<' {
+            if let Some(end) = parse_annotated_name(bytes, i) {
+                i = end;
+                has_named = true;
+                continue;
+            }
+        }
+
         // Conversion specifier — must be a valid Ruby format type.
-        // RuboCop's FormatString::TYPE = [bBdiouxXeEfgGaAcps]
-        // If no valid type follows, this is NOT a format sequence at all
-        // (the preceding flags/width/precision/star are just literal text).
         if i < len && is_format_type(bytes[i]) {
-            has_unnumbered = true;
-            count += 1 + extra_args;
+            // A sequence can contribute to both numbered and unnumbered if it
+            // mixes *N$ with plain * (e.g., %*.*2$s). Track each contribution.
+            if seq_has_unnumbered_star {
+                has_unnumbered = true;
+                count += 1 + extra_args;
+            } else if seq_has_numbered_star {
+                // Entirely numbered (all stars are *N$), don't count as unnumbered
+            } else {
+                // No stars at all — regular unnumbered format
+                has_unnumbered = true;
+                count += 1;
+            }
             i += 1;
         }
     }
@@ -641,6 +751,47 @@ fn parse_format_string(fmt: &str) -> FormatParseResult {
         count,
         named: false,
     })
+}
+
+/// Parse an annotated named format: `<name>` followed by optional flags/width/precision and
+/// a required TYPE character. Returns the position after the TYPE if valid, None otherwise.
+fn parse_annotated_name(bytes: &[u8], start: usize) -> Option<usize> {
+    let len = bytes.len();
+    if start >= len || bytes[start] != b'<' {
+        return None;
+    }
+    // Skip to closing >
+    let mut i = start + 1;
+    while i < len && bytes[i] != b'>' {
+        i += 1;
+    }
+    if i >= len {
+        return None;
+    }
+    i += 1; // skip '>'
+
+    // After >, may have more_flags, width, precision before TYPE
+    // Skip flags
+    while i < len && matches!(bytes[i], b'-' | b'+' | b' ' | b'0' | b'#') {
+        i += 1;
+    }
+    // Skip width
+    while i < len && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    // Skip precision
+    if i < len && bytes[i] == b'.' {
+        i += 1;
+        while i < len && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+    }
+    // TYPE is required for annotated named format
+    if i < len && is_format_type(bytes[i]) {
+        Some(i + 1)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
