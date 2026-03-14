@@ -15,7 +15,7 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 **Features**
 
 - **910 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
-- **97.2% conformance** against RuboCop across [**1,000 open-source repos**](docs/corpus.md)
+- **97.3% conformance** against RuboCop across [**1,000 open-source repos**](docs/corpus.md)
 - **Autocorrect** (`-a`/`-A`) is partial — work in progress
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
@@ -56,22 +56,22 @@ nitrocop supports 910 cops from 6 RuboCop gems.
 
 Compared with RuboCop on [**1,000 open-source repos**](docs/corpus.md) (225k Ruby files).
 
-97.2% of compared issue reports matched (11.1M of 11.5M). 466 of 910 cops matched exactly; 444 differed.
+97.3% of compared issue reports matched (11.1M of 11.5M). 470 of 910 cops matched exactly; 440 differed.
 
 **[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (588 cops)
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| Layout | 100 | 35 | 65 | 35.0% |
+| Layout | 100 | 36 | 64 | 36.0% |
 | Lint | 148 | 79 | 69 | 53.3% |
 | Style | 287 | 95 | 192 | 33.1% |
-| Metrics | 10 | 9 | 1 | 90.0% |
+| Metrics | 10 | 10 | 0 | ✓ 100.0% |
 | Naming | 19 | 17 | 2 | 89.4% |
 | Security | 6 | 6 | 0 | ✓ 100.0% |
 | Bundler | 7 | 7 | 0 | ✓ 100.0% |
 | Gemspec | 10 | 10 | 0 | ✓ 100.0% |
-| Migration | 1 | 0 | 1 | 0.0% |
-| **Total** | **588** | **258** | **330** | **43.8%** |
+| Migration | 1 | 1 | 0 | ✓ 100.0% |
+| **Total** | **588** | **261** | **327** | **44.3%** |
 
 **[rubocop-rails](https://github.com/rubocop/rubocop-rails)** `2.34.3` (138 cops)
 
@@ -101,7 +101,7 @@ Compared with RuboCop on [**1,000 open-source repos**](docs/corpus.md) (225k Rub
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| FactoryBot | 11 | 10 | 1 | 90.9% |
+| FactoryBot | 11 | 11 | 0 | ✓ 100.0% |
 
 "Matched exactly" means nitrocop produced no extra issues and missed no issues for that cop anywhere in the corpus.
 See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.
