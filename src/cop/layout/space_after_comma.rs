@@ -66,7 +66,11 @@ impl Cop for SpaceAfterComma {
                 continue;
             }
             // Check commas in code regions AND inside heredoc interpolation
-            if !code_map.is_code(i) && !code_map.is_heredoc_interpolation(i) {
+            // (but not inside nested string/regex/symbol literals within interpolation)
+            if !code_map.is_code(i)
+                && (!code_map.is_heredoc_interpolation(i)
+                    || code_map.is_non_code_in_heredoc_interpolation(i))
+            {
                 continue;
             }
             // Skip if this comma is part of a global variable ($, or $;)

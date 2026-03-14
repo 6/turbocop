@@ -22,6 +22,11 @@ pub struct CodeMap {
     /// `ranges` (heredocs mark everything non-code), but cops like SpaceAfterComma
     /// need to inspect code inside heredoc interpolation.
     heredoc_interpolation_ranges: Vec<(usize, usize)>,
+    /// Sorted, non-overlapping (start, end) byte ranges of string/regex/symbol
+    /// literals that are nested inside heredoc interpolation blocks. For example,
+    /// in `<<~STR\n  #{method('arg,')}\nSTR`, the `'arg,'` range is in this set.
+    /// Used to exclude non-code content when inspecting heredoc interpolation.
+    heredoc_interpolation_non_code_ranges: Vec<(usize, usize)>,
 }
 
 impl CodeMap {
@@ -49,8 +54,33 @@ impl CodeMap {
             string_ranges.push((data_loc.start_offset(), data_loc.end_offset()));
         }
 
-        // Sort and merge string ranges
+        // Sort string ranges (but don't merge yet — we need the un-merged list
+        // to identify nested string literals inside heredoc interpolation).
         string_ranges.sort_unstable();
+
+        // Sort and merge heredoc interpolation ranges early so we can use them
+        // to identify nested non-code ranges before string_ranges gets merged.
+        heredoc_interpolation_ranges.sort_unstable();
+        let heredoc_interpolation_ranges = merge_ranges(heredoc_interpolation_ranges);
+
+        // Compute non-code ranges within heredoc interpolation: string/regex/symbol
+        // literals whose range is fully contained in a heredoc interpolation range.
+        // Must be done before merging string_ranges (which absorbs nested strings
+        // into the larger heredoc body range, making them indistinguishable).
+        let mut heredoc_interpolation_non_code_ranges: Vec<(usize, usize)> = string_ranges
+            .iter()
+            .filter(|&&(s, e)| {
+                heredoc_interpolation_ranges
+                    .iter()
+                    .any(|&(is, ie)| s >= is && e <= ie)
+            })
+            .copied()
+            .collect();
+        heredoc_interpolation_non_code_ranges.sort_unstable();
+        let heredoc_interpolation_non_code_ranges =
+            merge_ranges(heredoc_interpolation_non_code_ranges);
+
+        // Now merge string ranges
         let string_ranges = merge_ranges(string_ranges);
 
         // Sort and merge heredoc ranges
@@ -60,10 +90,6 @@ impl CodeMap {
         // Sort and merge regex ranges
         regex_ranges.sort_unstable();
         let regex_ranges = merge_ranges(regex_ranges);
-
-        // Sort and merge heredoc interpolation ranges
-        heredoc_interpolation_ranges.sort_unstable();
-        let heredoc_interpolation_ranges = merge_ranges(heredoc_interpolation_ranges);
 
         // Full non-code ranges include comments + strings + __END__ data section
         let mut ranges = string_ranges.clone();
@@ -80,6 +106,7 @@ impl CodeMap {
             heredoc_ranges,
             regex_ranges,
             heredoc_interpolation_ranges,
+            heredoc_interpolation_non_code_ranges,
         }
     }
 
@@ -112,6 +139,13 @@ impl CodeMap {
     /// that some cops (e.g. SpaceAfterComma) need to inspect.
     pub fn is_heredoc_interpolation(&self, offset: usize) -> bool {
         Self::in_ranges(&self.heredoc_interpolation_ranges, offset)
+    }
+
+    /// Returns true if the given byte offset is inside a string/regex/symbol
+    /// literal that is nested within heredoc interpolation. For example,
+    /// `'arg,'` inside `<<~STR\n  #{method('arg,')}\nSTR`.
+    pub fn is_non_code_in_heredoc_interpolation(&self, offset: usize) -> bool {
+        Self::in_ranges(&self.heredoc_interpolation_non_code_ranges, offset)
     }
 
     fn in_ranges(ranges: &[(usize, usize)], offset: usize) -> bool {

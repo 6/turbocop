@@ -36,3 +36,11 @@ end
 
 # Trailing comma before } with space is always OK (any style)
 { foo: bar, }
+
+# Commas inside string literals nested in heredoc interpolation are not code
+expected = <<~STR
+  #{method('1,2,3')}
+STR
+output = <<~MSG
+  #{colorize("item,value")}
+MSG
