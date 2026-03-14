@@ -86,6 +86,12 @@ use crate::parse::source::SourceFile;
 ///   is on a line starting with `in ` (indicating it's a guard, not a standalone condition).
 /// - ~10 FPs: Config/exclude differences (files excluded by RuboCop project config but not
 ///   by nitrocop). These are config resolution issues, not cop logic bugs.
+///
+/// ## Corpus investigation (2026-03-14)
+///
+/// Corpus oracle reported FP=10, FN=0. All remaining FPs are config/exclude
+/// differences — files excluded by target project .rubocop.yml but not by
+/// nitrocop's config resolution. No cop logic bugs remain.
 pub struct LiteralAsCondition;
 
 /// Check if a node is a literal value (matches RuboCop's `literal?`).

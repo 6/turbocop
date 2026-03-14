@@ -28,6 +28,15 @@ use ruby_prism::Visit;
 ///
 /// 4. **remove_const tracking**: `remove_const :FOO` or `remove_const 'FOO'`
 ///    removes the constant from the seen set, allowing re-assignment without offense.
+/// ## Corpus investigation (2026-03-14)
+///
+/// Corpus oracle reported FP=6, FN=0. All 6 FPs are config/exclude differences:
+/// - jruby (2): spec/ruby/fixtures/constants.rb — intentional reassignment
+///   test fixtures excluded by project .rubocop.yml
+/// - natalie (2): same file (mirrors jruby's spec suite)
+/// - rufo (2): .rb.spec formatter test files excluded by project config
+/// Cop logic correctly detects reassignment; the files are excluded by the
+/// target project's RuboCop configuration. No cop logic bugs.
 pub struct ConstantReassignment;
 
 impl Cop for ConstantReassignment {

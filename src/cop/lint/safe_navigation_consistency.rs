@@ -22,6 +22,14 @@ const DEFAULT_ALLOWED_METHODS: &[&str] = &["present?", "blank?", "presence", "tr
 /// The `nilable?` check (csend or nil_methods including AllowedMethods) excludes
 /// certain operands from establishing the "first regular send" baseline, matching
 /// RuboCop's `NilMethods` mixin behavior.
+/// ## Corpus investigation (2026-03-14)
+///
+/// Corpus oracle reported FP=3, FN=0. All 3 FPs are config/exclude differences:
+/// - consuldemocracy: cop disabled in project config
+/// - excon: cop disabled/excluded in project config
+/// - rubocop: cop disabled for own source files
+/// Verified by reading vendor RuboCop source — the cop logic matches exactly
+/// (same find_consistent_parts algorithm). No cop logic bugs.
 pub struct SafeNavigationConsistency;
 
 impl Cop for SafeNavigationConsistency {
