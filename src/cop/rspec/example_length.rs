@@ -1,6 +1,9 @@
 use crate::cop::metrics::method_length::{body_has_heredoc, max_descendant_end_line};
 use crate::cop::node_type::CALL_NODE;
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example};
+use crate::cop::util::{
+    RSPEC_DEFAULT_INCLUDE, collect_foldable_ranges, collect_heredoc_ranges, count_body_lines_ex,
+    is_rspec_example,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -104,49 +107,8 @@ impl Cop for ExampleLength {
         // RuboCop's CodeLength mixin uses CountComments config (default false for
         // RSpec/ExampleLength), meaning comment-only lines are NOT counted.
         let count_comments = config.get_bool("CountComments", false);
-        let block_loc = block.location();
-        let default_end = block_loc
-            .end_offset()
-            .saturating_sub(1)
-            .max(block_loc.start_offset());
-
-        // When the body contains heredocs, RuboCop switches from `body.source.lines` to
-        // `source_from_node_with_heredoc(body)`. The latter uses `descendant.last_line`
-        // (not the body node's own `last_line`), so the outermost nested block's closing
-        // `end` keyword is excluded. Replicate by adjusting the effective end offset.
-        let effective_end = if let Some(ref body) = block.body() {
-            if body_has_heredoc(source, body) {
-                let max_line = max_descendant_end_line(source, body);
-                if max_line > 0 {
-                    source
-                        .line_col_to_offset(max_line + 1, 0)
-                        .unwrap_or(default_end)
-                } else {
-                    default_end
-                }
-            } else {
-                default_end
-            }
-        } else {
-            default_end
-        };
-
-        let count = util::count_body_lines(
-            source,
-            block_loc.start_offset(),
-            effective_end,
-            count_comments,
-        );
-
-        // Adjust for CountAsOne: multi-line arrays/hashes/heredocs count as 1 line
         let count_as_one = config.get_string_array("CountAsOne").unwrap_or_default();
-        let adjusted = if !count_as_one.is_empty() {
-            let reduction =
-                count_multiline_reductions(source, &block, &count_as_one, count_comments);
-            count.saturating_sub(reduction)
-        } else {
-            count
-        };
+        let adjusted = count_example_lines(source, &block, count_comments, &count_as_one);
 
         if adjusted > max {
             let loc = call.location();
@@ -161,154 +123,111 @@ impl Cop for ExampleLength {
     }
 }
 
-/// Count how many extra lines multi-line constructs add.
-/// RuboCop replaces each foldable construct with 1 line: `length - code_length(node) + 1`.
-/// So the reduction per construct is `code_length(node) - 1`, where `code_length` counts
-/// non-blank, non-comment lines in the construct's source (matching `irrelevant_line?`).
+/// Count body lines of an RSpec example block, matching RuboCop's CodeLengthCalculator.
 ///
-/// Uses `each_top_level_descendant` logic via Visit trait: recursively descends into
-/// all child nodes looking for foldable types. When found, counts reduction and does
-/// NOT recurse further (only top-level foldable nodes are folded).
-fn count_multiline_reductions(
+/// Key behaviors:
+///
+/// 1. **Body-based start**: uses body.location().start_offset() to avoid including
+///    `do` or `{` delimiter lines. For brace blocks where body starts on the same
+///    line as `{`, shifts effective_start back one line so body_start_line is counted.
+///
+/// 2. **Heredoc descendants**: when the body contains heredocs, uses
+///    max_descendant_end_line to compute the effective end (matching RuboCop's
+///    `source_from_node_with_heredoc` which excludes the body root's `end` keyword).
+///
+/// 3. **Brace block closing line**: for `{ }` blocks where body ends on same line
+///    as `}`, extends effective_end to include that line (matches `body.source.lines`).
+///
+/// 4. **CountAsOne folding**: applies collect_foldable_ranges for arrays/hashes/etc.
+fn count_example_lines(
     source: &SourceFile,
     block: &ruby_prism::BlockNode<'_>,
-    count_as_one: &[String],
     count_comments: bool,
+    count_as_one: &[String],
 ) -> usize {
-    use ruby_prism::Visit;
-
-    struct FoldableVisitor<'a> {
-        source: &'a SourceFile,
-        count_as_one: &'a [String],
-        count_comments: bool,
-        reduction: usize,
-        /// When > 0, we're inside a foldable node and should NOT recurse further
-        skip_depth: usize,
-    }
-
-    impl FoldableVisitor<'_> {
-        fn is_foldable(&self, node: &ruby_prism::Node<'_>) -> bool {
-            if self.count_as_one.iter().any(|s| s == "array") && node.as_array_node().is_some() {
-                return true;
-            }
-            if self.count_as_one.iter().any(|s| s == "hash")
-                && (node.as_hash_node().is_some() || node.as_keyword_hash_node().is_some())
-            {
-                return true;
-            }
-            if self.count_as_one.iter().any(|s| s == "heredoc")
-                && (node.as_interpolated_string_node().is_some() || node.as_string_node().is_some())
-            {
-                return true;
-            }
-            if self.count_as_one.iter().any(|s| s == "method_call") {
-                if let Some(call) = node.as_call_node() {
-                    if call.block().is_none() {
-                        return true;
-                    }
-                }
-            }
-            false
-        }
-    }
-
-    impl<'pr> Visit<'pr> for FoldableVisitor<'_> {
-        fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-            if self.skip_depth > 0 {
-                self.skip_depth += 1;
-                return;
-            }
-            if self.is_foldable(&node) {
-                let code_len = node_code_length(self.source, &node.location(), self.count_comments);
-                if code_len > 1 {
-                    self.reduction += code_len - 1;
-                }
-                // Skip recursing into this foldable node
-                self.skip_depth = 1;
-            }
-        }
-
-        fn visit_branch_node_leave(&mut self) {
-            if self.skip_depth > 0 {
-                self.skip_depth -= 1;
-            }
-        }
-
-        fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-            if self.skip_depth > 0 {
-                return;
-            }
-            // Leaf nodes that are foldable (e.g., single-line string)
-            if self.is_foldable(&node) {
-                let code_len = node_code_length(self.source, &node.location(), self.count_comments);
-                if code_len > 1 {
-                    self.reduction += code_len - 1;
-                }
-            }
-        }
-    }
-
     let body = match block.body() {
         Some(b) => b,
         None => return 0,
     };
 
-    let mut visitor = FoldableVisitor {
-        source,
-        count_as_one,
-        count_comments,
-        reduction: 0,
-        skip_depth: 0,
+    // Use body start offset (not block opening) to match RuboCop's `body.source.lines`.
+    // For BeginNode (rescue/ensure), use statements().start_offset() to skip the
+    // BeginNode's own location which points to the opening keyword.
+    let body_start_offset = body
+        .as_begin_node()
+        .and_then(|b| b.statements())
+        .map(|s| s.location().start_offset())
+        .unwrap_or_else(|| body.location().start_offset());
+    let (body_start_line, _) = source.offset_to_line_col(body_start_offset);
+
+    // Effective start: shift back one line so count_body_lines_ex (which counts
+    // from start_line+1) starts at body_start_line.
+    let opening_offset = block.opening_loc().start_offset();
+    let (opening_line, _) = source.offset_to_line_col(opening_offset);
+    let effective_start_offset = if body_start_line > 1 {
+        source
+            .line_col_to_offset(body_start_line - 1, 0)
+            .unwrap_or(opening_offset)
+    } else {
+        opening_offset
     };
-    visitor.visit(&body);
-    visitor.reduction
-}
 
-/// Trim leading and trailing whitespace (space, tab, CR) from a byte slice.
-fn trim_ws(b: &[u8]) -> &[u8] {
-    let start = b
-        .iter()
-        .position(|&c| c != b' ' && c != b'\t' && c != b'\r');
-    match start {
-        Some(s) => {
-            let end = b
-                .iter()
-                .rposition(|&c| c != b' ' && c != b'\t' && c != b'\r')
-                .unwrap();
-            &b[s..=end]
+    // Determine effective end offset.
+    let closing_offset = block.closing_loc().start_offset();
+    let (closing_line, _) = source.offset_to_line_col(closing_offset);
+
+    let mut effective_end_offset = closing_offset;
+
+    if body_has_heredoc(source, &body) {
+        // When body contains heredocs, RuboCop's source_from_node_with_heredoc
+        // computes end line as max across descendants (NOT the body root itself),
+        // so the inner block's `end` keyword is excluded. Match that behavior.
+        let max_line = max_descendant_end_line(source, &body);
+        if max_line > 0 && max_line <= closing_line {
+            if let Some(next_line_start) = source.line_col_to_offset(max_line + 1, 0) {
+                effective_end_offset = next_line_start;
+            }
         }
-        None => &[],
+    } else if body.as_begin_node().is_none() {
+        // For brace blocks: when body ends on same line as `}`, the body's last
+        // line content must be included. RuboCop's `body.source.lines` includes it
+        // but count_body_lines_ex excludes the end line. Extend to include it.
+        let (body_end_line, _) =
+            source.offset_to_line_col(body.location().end_offset().saturating_sub(1));
+        if body_end_line == closing_line {
+            if let Some(next_line_start) = source.line_col_to_offset(closing_line + 1, 0) {
+                effective_end_offset = next_line_start;
+            } else {
+                effective_end_offset = block.closing_loc().end_offset();
+            }
+        }
     }
-}
 
-/// Count non-blank, non-comment lines within a node's source range.
-/// Matches RuboCop's `CodeLengthCalculator#code_length` for non-classlike nodes:
-/// `body.source.lines.count { |line| !irrelevant_line?(line) }`.
-fn node_code_length(
-    source: &SourceFile,
-    loc: &ruby_prism::Location<'_>,
-    count_comments: bool,
-) -> usize {
-    let (start_line, _) = source.offset_to_line_col(loc.start_offset());
-    let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
-    let (end_line, _) = source.offset_to_line_col(end_off);
+    // Collect foldable ranges from CountAsOne config.
+    let mut all_foldable: Vec<(usize, usize)> = Vec::new();
+    if !count_as_one.is_empty() {
+        all_foldable.extend(collect_foldable_ranges(source, &body, count_as_one));
+        if count_as_one.iter().any(|s| s == "heredoc") {
+            all_foldable.extend(collect_heredoc_ranges(source, &body));
+        }
+    }
+    all_foldable.sort();
+    all_foldable.dedup();
 
-    let lines: Vec<&[u8]> = source.lines().collect();
-    let mut count = 0;
-    for line_num in start_line..=end_line {
-        if line_num > lines.len() {
-            break;
-        }
-        let line = lines[line_num - 1];
-        let trimmed = trim_ws(line);
-        if trimmed.is_empty() {
-            continue;
-        }
-        if !count_comments && trimmed.starts_with(b"#") {
-            continue;
-        }
+    let mut count = count_body_lines_ex(
+        source,
+        effective_start_offset,
+        effective_end_offset,
+        count_comments,
+        &all_foldable,
+    );
+
+    // When body_start_line == 1 AND opening is on line 1, count_body_lines_ex
+    // starts from line 2, missing line 1 body content. Add 1 to compensate.
+    if body_start_line == 1 && opening_line == 1 {
         count += 1;
     }
+
     count
 }
 
