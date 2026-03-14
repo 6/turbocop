@@ -4,6 +4,7 @@ use crate::cop::node_type::{
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 /// FP investigation (2026-03-10): 49 FPs from two root causes:
 ///
@@ -20,6 +21,19 @@ use crate::parse::source::SourceFile;
 ///    at the top of `on_send` before method-specific checks. This caused FPs on
 ///    `"str".safe_concat(x)` and `out.safe_concat(t('key'))`.
 ///    Fix: moved exemption checks to the top of `check_node`, before method dispatch.
+///
+/// ## Investigation (2026-03-14): 24 FPs
+///
+/// **FP root cause**: `contains_i18n_call` used manual recursion that explicitly handled
+/// CallNode, ParenthesesNode, and InterpolatedStringNode — but MISSED KeywordHashNode,
+/// HashNode, BlockNode bodies, and other container types. When an i18n call appeared
+/// inside a hash argument (e.g., `raw(cell(..., context: { placeholder: t(...) }))`) or
+/// inside a block body (e.g., `"#{render(...) { I18n.t(...) }}".html_safe`), the manual
+/// recursion didn't descend into those nodes, so the i18n suppression was missed.
+///
+/// Fix: Replaced manual recursion with a `Visit`-based subtree walker (`I18nSearcher`)
+/// that uses `ruby_prism::visit_call_node` for automatic complete traversal, matching
+/// RuboCop's `def_node_search :i18n_method?` behavior.
 pub struct OutputSafety;
 
 const I18N_METHODS: &[&[u8]] = &[b"t", b"translate", b"l", b"localize"];
@@ -68,56 +82,33 @@ fn is_i18n_call(call: &ruby_prism::CallNode<'_>) -> bool {
 }
 
 /// Deep recursive search for any i18n method call in the entire node tree.
-/// Matches RuboCop's `def_node_search :i18n_method?` which searches all descendants.
+/// Matches RuboCop's `def_node_search :i18n_method?` which searches ALL descendants
+/// (including nodes inside keyword hash arguments, block bodies, etc.).
+///
+/// The previous manual recursion missed KeywordHashNode/HashNode/BlockNode, causing FPs
+/// when i18n calls appeared inside hash arguments (e.g., `t(...)` in `context: {placeholder: t(...)}`).
+/// Using a Visit-based traversal ensures complete coverage like RuboCop's node_search.
 fn contains_i18n_call(node: &ruby_prism::Node<'_>) -> bool {
-    if let Some(call) = node.as_call_node() {
-        if is_i18n_call(&call) {
-            return true;
-        }
-        // Recurse into receiver
-        if let Some(recv) = call.receiver() {
-            if contains_i18n_call(&recv) {
-                return true;
-            }
-        }
-        // Recurse into arguments
-        if let Some(args) = call.arguments() {
-            for arg in args.arguments().iter() {
-                if contains_i18n_call(&arg) {
-                    return true;
-                }
-            }
-        }
-        // Recurse into block argument if present
-        if let Some(block) = call.block() {
-            if contains_i18n_call(&block) {
-                return true;
-            }
-        }
-        return false;
+    struct I18nSearcher {
+        found: bool,
     }
-    // For non-call nodes, check common container types
-    if let Some(paren) = node.as_parentheses_node() {
-        if let Some(body) = paren.body() {
-            if contains_i18n_call(&body) {
-                return true;
+
+    impl<'pr> Visit<'pr> for I18nSearcher {
+        fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+            if self.found {
+                return;
             }
+            if is_i18n_call(node) {
+                self.found = true;
+                return;
+            }
+            ruby_prism::visit_call_node(self, node);
         }
     }
-    if let Some(interp) = node.as_interpolated_string_node() {
-        for part in interp.parts().iter() {
-            if let Some(emb) = part.as_embedded_statements_node() {
-                if let Some(stmts) = emb.statements() {
-                    for stmt in stmts.body().iter() {
-                        if contains_i18n_call(&stmt) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    false
+
+    let mut searcher = I18nSearcher { found: false };
+    searcher.visit(node);
+    searcher.found
 }
 
 impl Cop for OutputSafety {

@@ -32,3 +32,8 @@ format_text(I18n.t('msg'), 'extra').html_safe
 # safe_concat with i18n in argument
 out.safe_concat(t('key'))
 buffer.safe_concat(I18n.translate('msg'))
+
+# i18n inside keyword hash argument should suppress offense
+# (RuboCop's def_node_search :i18n_method? searches ALL descendants including hash values)
+raw(cell("component", context: { placeholder: t("key") }))
+some_helper(options: { label: I18n.t("label") }).html_safe
