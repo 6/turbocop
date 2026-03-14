@@ -29,6 +29,15 @@ use crate::parse::source::SourceFile;
 ///    represents as `[]=` on `errors` directly, not on `errors[...]`).
 ///    Also missing `messages_details_assignment?` pattern for
 ///    `errors.messages[:name] = []`.
+///
+/// ## Investigation findings (2026-03-14)
+///
+/// **FP root cause (28 FPs):** Pattern 4 (`DEPRECATED_ERRORS_METHODS`: `keys`,
+/// `values`, `to_h`, `to_xml`) was using `is_errors_receiver` which matches
+/// BOTH `errors` AND `errors.messages`/`errors.details`. So `errors.messages.keys`
+/// was incorrectly flagged — but `errors.messages` returns a plain Hash and
+/// calling `.keys` on it is perfectly valid. Fixed by using `is_errors_call`
+/// (direct `errors` only) in Pattern 4.
 pub struct DeprecatedActiveModelErrorsMethods;
 
 const MSG: &str = "Avoid manipulating ActiveModel errors as hash directly.";
@@ -109,9 +118,11 @@ impl Cop for DeprecatedActiveModelErrorsMethods {
         let model_file = is_model_file(source);
 
         // Pattern 4: errors.keys / errors.values / errors.to_h / errors.to_xml
+        // Only flag when receiver is `errors` directly — NOT `errors.messages` or
+        // `errors.details` (those return a plain Hash, so .keys/.values etc. are valid).
         if DEPRECATED_ERRORS_METHODS.contains(&method_name) {
             if let Some(recv) = call.receiver() {
-                if is_errors_receiver(&recv, model_file) {
+                if is_errors_call(&recv, model_file) {
                     let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
