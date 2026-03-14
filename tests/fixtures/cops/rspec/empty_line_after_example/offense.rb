@@ -67,3 +67,25 @@ RSpec.describe Foo do
     # rubocop:enable RSpec/Foo
   end
 end
+
+# Examples inside a module wrapper — must be detected (RuboCop on_block fires everywhere)
+module SomeModule
+  RSpec.describe Foo do
+    it 'does this' do
+    end
+    ^^^ RSpec/EmptyLineAfterExample: Add an empty line after `it`.
+    it 'does that' do
+    end
+  end
+end
+
+# Examples inside a class wrapper
+class SomeClass
+  RSpec.describe Bar do
+    it 'first example' do
+    end
+    ^^^ RSpec/EmptyLineAfterExample: Add an empty line after `it`.
+    it 'second example' do
+    end
+  end
+end
