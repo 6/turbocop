@@ -25,3 +25,5 @@ def foo(baz_2: nil); end
 # even with TargetRubyVersion 4.0, so RuboCop's on_sym never fires.
 :''
 :""
+# Special global $$ (PID) — bare name is empty after sigil stripping
+$$ = 1

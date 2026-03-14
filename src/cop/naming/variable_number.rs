@@ -65,6 +65,14 @@ use crate::parse::source::SourceFile;
 /// symbols (`:""`, `:''`) still have `:dsym` in Parser gem and are not
 /// checked by RuboCop, so we skip those by checking `opening_loc` for a
 /// colon prefix.
+///
+/// ## Corpus investigation (2026-03-14) — batch 2
+///
+/// Corpus oracle reported FP=1 on opal/opal `$$` global variable.
+/// Root cause: `trim_start_matches('$')` strips BOTH `$` chars from `$$`,
+/// leaving empty bare name `""`. The empty name fails the normalcase regex.
+/// RuboCop doesn't fire on `$$` because Parser gem handles it differently.
+/// Fix: skip variables with empty bare names after sigil stripping.
 pub struct VariableNumber;
 
 const DEFAULT_ALLOWED: &[&str] = &[
@@ -190,6 +198,12 @@ impl Cop for VariableNumber {
             // Strip sigils: @@ for class vars, @ for instance vars, $ for globals
             let bare = name_str.trim_start_matches('@').trim_start_matches('$');
             let is_bare = bare.len() == name_str.len(); // no sigil stripped
+            // Skip variables whose entire name IS the sigil (e.g., $$ → bare "").
+            // RuboCop's Parser gem doesn't produce gvasgn for $$ in the same way,
+            // so these are never checked.
+            if bare.is_empty() {
+                return;
+            }
             if !is_allowed(bare, &allowed_ids, &allowed_pats) {
                 if let Some(diag) = check_number_style(
                     self,
