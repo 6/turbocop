@@ -151,3 +151,70 @@ class Child < Parent
     end
   end
 end
+
+# FP fix: class with parent defined inside a block — RuboCop's
+# inside_class_with_stateful_parent? checks each_ancestor(:any_block).first
+# FIRST, ignoring any class between the def and the block. If any block ancestor
+# exists and it's not Class.new(Parent), no offense — even when a class with
+# parent is between the def and the block.
+some_method do
+  class Child < Parent
+    def initialize
+      do_something
+    end
+  end
+end
+
+# FP fix: class with parent inside a test/RSpec describe block
+describe "something" do
+  class TestHelper < Base
+    def initialize
+      do_something
+    end
+  end
+end
+
+# FP fix: class with parent inside a context block
+context "testing" do
+  class TestClass < Parent
+    def initialize
+      do_something
+    end
+  end
+end
+
+# FP fix: nested blocks — outermost block still takes precedence
+outer_block do
+  inner_block do
+    class MyClass < Base
+      def initialize
+        do_something
+      end
+    end
+  end
+end
+
+# FP fix: class with parent inside shared_examples block
+shared_examples "initializable" do
+  class Example < Parent
+    def initialize
+      do_something
+    end
+  end
+end
+
+# FP fix: callback inside Class.new block — RuboCop's callback_method_def?
+# checks each_ancestor(:class, :sclass, :module), but Class.new blocks are
+# :block type in RuboCop AST, not :class. So callbacks inside Class.new are
+# NOT flagged.
+Class.new do
+  def method_added(name)
+    do_something
+  end
+end
+
+Class.new(Parent) do
+  def self.inherited(base)
+    do_something
+  end
+end

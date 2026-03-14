@@ -35,6 +35,27 @@ use ruby_prism::Visit;
 ///    in a nested scope inside `def initialize` counts as "containing super"
 ///    for RuboCop, preventing the offense. Removed the early-return overrides
 ///    in `SuperFinder` to match.
+///
+/// ## Corpus investigation round 3 (2026-03-14)
+///
+/// Corpus oracle reported FP=63, FN=21.
+///
+/// FP fixes (two root causes):
+/// 1. `is_inside_class_with_stateful_parent()` walked the class_stack from
+///    innermost outward, stopping at the first class OR block. But RuboCop's
+///    `inside_class_with_stateful_parent?` uses two SEPARATE ancestor searches:
+///    first `each_ancestor(:any_block).first` (looks past classes), then
+///    `each_ancestor(:class).first` (only if no block found). This means a
+///    block wrapping a class suppresses the offense even when the class has a
+///    parent (e.g., `describe do; class Foo < Bar; def initialize; end; end; end`).
+///    Fixed by splitting into two-phase search: Phase 1 scans entire stack for
+///    blocks (skipping classes), Phase 2 scans for classes only if no block found.
+/// 2. `is_inside_class_module_or_sclass()` treated `ClassNewWithParent` and
+///    `ClassNewWithoutParent` as class ancestors, but in RuboCop AST these are
+///    `:block` nodes, not `:class`. `callback_method_def?` uses
+///    `each_ancestor(:class, :sclass, :module)` which does NOT find blocks.
+///    Fixed by making ClassNew* contexts transparent (continue) in the callback
+///    ancestor check.
 pub struct MissingSuper;
 
 /// Lifecycle callback method names that require `super`.
@@ -140,57 +161,77 @@ impl MissingSuperVisitor<'_, '_> {
     }
 
     fn is_inside_class_with_stateful_parent(&self) -> bool {
-        // RuboCop's logic: first check nearest block ancestor. If it's a
-        // Class.new(Parent) block, check the parent. If it's any other block,
-        // return false. If no block ancestor, check nearest class ancestor.
-        // We track both blocks and classes in class_stack, so walk from
-        // innermost outward: Block stops the search (FP fix), ClassNew* and
-        // ClassWith* resolve it, Sclass is transparent.
-        #[allow(clippy::never_loop)] // intentional: find-first via early return
+        // RuboCop's two-phase ancestor logic:
+        //
+        // Phase 1: Find the nearest block ancestor (each_ancestor(:any_block).first).
+        //   This looks through ALL ancestors — classes, modules, sclass are all
+        //   transparent during this search. If ANY block ancestor exists:
+        //   - If it's Class.new(Parent), check the parent.
+        //   - Otherwise (non-Class.new block), return false — no offense.
+        //
+        // Phase 2: Only if NO block ancestor exists at all, find the nearest
+        //   class ancestor (each_ancestor(:class).first). If found with a
+        //   stateful parent, offense.
+        //
+        // Key insight: RuboCop checks blocks and classes independently via
+        // separate each_ancestor calls. A block that wraps a class still takes
+        // precedence — even if the class is closer to the def than the block.
+
+        // Phase 1: scan entire stack for nearest block
         for ctx in self.class_stack.iter().rev() {
             match ctx {
                 ClassContext::ClassNewWithParent(parent) => {
                     return !self.is_stateless_or_allowed(parent);
                 }
-                ClassContext::ClassNewWithoutParent => {
+                ClassContext::ClassNewWithoutParent | ClassContext::Block => {
                     return false;
                 }
-                ClassContext::Block => {
-                    // Nearest block ancestor is not Class.new(Parent) — no offense.
-                    return false;
-                }
+                // Classes, modules, sclass are transparent during block search
+                ClassContext::ClassWithParent(_)
+                | ClassContext::ClassWithoutParent
+                | ClassContext::Sclass
+                | ClassContext::Module => continue,
+            }
+        }
+
+        // Phase 2: no block ancestor found — check for class ancestor
+        for ctx in self.class_stack.iter().rev() {
+            match ctx {
                 ClassContext::ClassWithParent(parent) => {
                     return !self.is_stateless_or_allowed(parent);
                 }
                 ClassContext::ClassWithoutParent => {
                     return false;
                 }
-                ClassContext::Sclass => {
-                    // class << self is transparent, continue looking up
-                    continue;
-                }
-                ClassContext::Module => {
-                    return false;
-                }
+                // Sclass and Module are transparent during class search
+                // (RuboCop's each_ancestor(:class) skips :sclass and :module)
+                ClassContext::Sclass | ClassContext::Module => continue,
+                // Block/ClassNew* already handled in phase 1
+                ClassContext::ClassNewWithParent(_)
+                | ClassContext::ClassNewWithoutParent
+                | ClassContext::Block => continue,
             }
         }
         false
     }
 
     fn is_inside_class_module_or_sclass(&self) -> bool {
-        // RuboCop's callback_method_def? checks each_ancestor(:class, :sclass, :module)
-        // — callbacks inside modules should also be flagged.
-        #[allow(clippy::never_loop)] // intentional: find-first via early return
+        // RuboCop's callback_method_def? checks each_ancestor(:class, :sclass, :module).
+        // Note: Class.new blocks are `:block` type in RuboCop AST, NOT `:class`,
+        // so they are NOT found by this ancestor search. Only explicit `class`,
+        // `class << self`, and `module` nodes count.
         for ctx in self.class_stack.iter().rev() {
             match ctx {
                 ClassContext::ClassWithParent(_)
                 | ClassContext::ClassWithoutParent
-                | ClassContext::ClassNewWithParent(_)
-                | ClassContext::ClassNewWithoutParent
                 | ClassContext::Sclass
                 | ClassContext::Module => return true,
-                ClassContext::Block => {
-                    // Blocks are transparent for callback lookup
+                // Blocks (including Class.new blocks) are transparent for
+                // callback class ancestor lookup — RuboCop's
+                // each_ancestor(:class, :sclass, :module) skips blocks.
+                ClassContext::Block
+                | ClassContext::ClassNewWithParent(_)
+                | ClassContext::ClassNewWithoutParent => {
                     continue;
                 }
             }
