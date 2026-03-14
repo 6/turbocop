@@ -7,3 +7,14 @@ end
 foo.select do |x|
   x > 1
 end
+make_routes = -> (a) {
+  a.map { |c| c.name }
+}
+action = -> () {
+  do_something
+}
+handler = -> (opts = {}) {
+  opts.reduce({}) do |memo, k|
+    memo
+  end
+}

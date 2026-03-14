@@ -1,23 +1,55 @@
-use crate::cop::node_type::BLOCK_NODE;
+use crate::cop::node_type::{BLOCK_NODE, LAMBDA_NODE};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-10)
+/// ## Corpus investigation (2026-03-14)
 ///
-/// CI baseline reported FP=1, FN=6.
+/// FP=1: backslash line continuation before `do` (e.g. `method(arg) \\\n  do |x|`)
+/// caused the blank line after `do` to be flagged. RuboCop uses
+/// `send_node.last_line` as the reference, so the `do` line itself is the
+/// "first body line" and the blank line is not adjacent to the opening.
+/// Fix: walk backward through `\\`-continued lines to find the effective
+/// first line of the block construct.
 ///
-/// Attempted fix: add `LAMBDA_NODE` coverage so lambda bodies like `-> do`
-/// and `-> {` reused the shared body-empty-line helper. The focused fixture
-/// passed, but the corpus rerun regressed broadly to expected=24,730,
-/// actual=24,668, CI baseline=24,725, missing=62, file-drop noise=911.
-///
-/// The negative delta was spread across many repos rather than the sampled
-/// lambda cases alone, so the lambda-node expansion was reverted. A correct
-/// fix needs to add lambda coverage without perturbing the existing
-/// block-body counts.
+/// FN=6: lambda brace/do blocks (`-> (a) {`, `-> do`) were not checked
+/// because the cop only visited `BLOCK_NODE`. Added `LAMBDA_NODE`.
+/// Previous attempt (2026-03-10) regressed because it did not adjust
+/// `keyword_offset` for backslash continuations simultaneously; this
+/// combined fix resolves both.
 pub struct EmptyLinesAroundBlockBody;
+
+/// Walk backward from `opening_line` (1-indexed) through lines ending with
+/// `\` (backslash continuation) and return the byte offset of the start of
+/// the earliest continuation line. Returns the original `opening_offset`
+/// unchanged when there is no continuation.
+fn adjusted_keyword_offset(source: &SourceFile, opening_offset: usize) -> usize {
+    let (mut line, _) = source.offset_to_line_col(opening_offset);
+    loop {
+        if line <= 1 {
+            break;
+        }
+        let prev_line = line - 1;
+        if let Some(prev_bytes) = util::line_at(source, prev_line) {
+            // Strip trailing newline/carriage-return, then check for `\`
+            let mut end = prev_bytes.len();
+            while end > 0 && (prev_bytes[end - 1] == b'\n' || prev_bytes[end - 1] == b'\r') {
+                end -= 1;
+            }
+            if end > 0 && prev_bytes[end - 1] == b'\\' {
+                line = prev_line;
+                continue;
+            }
+        }
+        break;
+    }
+    if let Some(off) = source.line_col_to_offset(line, 0) {
+        off
+    } else {
+        opening_offset
+    }
+}
 
 impl Cop for EmptyLinesAroundBlockBody {
     fn name(&self) -> &'static str {
@@ -25,7 +57,7 @@ impl Cop for EmptyLinesAroundBlockBody {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE]
+        &[BLOCK_NODE, LAMBDA_NODE]
     }
 
     fn supports_autocorrect(&self) -> bool {
@@ -42,32 +74,45 @@ impl Cop for EmptyLinesAroundBlockBody {
         corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "no_empty_lines");
-        let block_node = match node.as_block_node() {
-            Some(b) => b,
-            None => return,
+        let (opening_offset, closing_offset) = if let Some(b) = node.as_block_node() {
+            (
+                b.opening_loc().start_offset(),
+                b.closing_loc().start_offset(),
+            )
+        } else if let Some(l) = node.as_lambda_node() {
+            (
+                l.opening_loc().start_offset(),
+                l.closing_loc().start_offset(),
+            )
+        } else {
+            return;
         };
+
+        // For the "beginning" check, walk backward through backslash
+        // continuations so that `method(arg) \\\n  do |x|` uses the
+        // method-call line as the reference (matching RuboCop's
+        // send_node.last_line behavior).
+        let effective_opening = adjusted_keyword_offset(source, opening_offset);
 
         match style {
             "empty_lines" => {
-                // Require empty lines at beginning and end of block body
                 diagnostics.extend(
                     util::check_missing_empty_lines_around_body_with_corrections(
                         self.name(),
                         source,
-                        block_node.opening_loc().start_offset(),
-                        block_node.closing_loc().start_offset(),
+                        effective_opening,
+                        closing_offset,
                         "block",
                         corrections,
                     ),
                 );
             }
             _ => {
-                // "no_empty_lines" (default): flag extra empty lines
                 diagnostics.extend(util::check_empty_lines_around_body_with_corrections(
                     self.name(),
                     source,
-                    block_node.opening_loc().start_offset(),
-                    block_node.closing_loc().start_offset(),
+                    effective_opening,
+                    closing_offset,
                     "block",
                     corrections,
                 ));
