@@ -90,3 +90,19 @@ if condition
 else
   do_something
 end
+
+# include followed by whitespace-only line (should be treated as blank)
+class WithTrailingSpaces
+  include Comparable
+    
+  def compute
+  end
+end
+
+# extend followed by whitespace-only line
+module WithTabs
+  extend ActiveSupport::Concern
+	
+  def setup
+  end
+end
