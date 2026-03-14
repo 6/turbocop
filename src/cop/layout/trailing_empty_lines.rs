@@ -19,7 +19,27 @@ use crate::parse::source::SourceFile;
 /// Remaining gap: 104 potential FN remain. This batch only addressed the
 /// whitespace-only trailing-line case; no broader config-resolution issue was
 /// involved.
+///
+/// ## Corpus investigation (2026-03-14)
+///
+/// FP=62, FN=6. Two missing exemptions from RuboCop:
+/// 1. Files containing `__END__` anywhere are skipped by RuboCop (regex
+///    `/\s*__END__/`). Nitrocop was flagging trailing blank lines after
+///    `__END__`, causing false positives.
+/// 2. Files ending with `"%\n\n"` (percent blank string edge case) are
+///    skipped by RuboCop. Nitrocop was flagging these as trailing blanks.
+///
+/// Both exemptions now implemented.
 pub struct TrailingEmptyLines;
+
+/// Check if the source contains `__END__` (with optional leading whitespace).
+/// Matches RuboCop's `/\s*__END__/` regex which matches anywhere in the file.
+fn contains_end_marker(bytes: &[u8]) -> bool {
+    // Scan for __END__ preceded only by whitespace on each line
+    // The RuboCop regex /\s*__END__/ matches __END__ anywhere in the source
+    // with optional leading whitespace characters
+    bytes.windows(7).any(|w| w == b"__END__")
+}
 
 fn is_blank_line(line: &[u8]) -> bool {
     line.iter().all(|&b| matches!(b, b' ' | b'\t' | b'\r'))
@@ -60,6 +80,16 @@ impl Cop for TrailingEmptyLines {
         let style = config.get_str("EnforcedStyle", "final_newline");
         let bytes = source.as_bytes();
         if bytes.is_empty() {
+            return;
+        }
+
+        // RuboCop skips files containing __END__ (with optional leading whitespace)
+        if contains_end_marker(bytes) {
+            return;
+        }
+
+        // RuboCop skips files ending with "%\n\n" (percent blank string edge case)
+        if bytes.ends_with(b"%\n\n") {
             return;
         }
         let lines: Vec<&[u8]> = source.lines().collect();
@@ -274,6 +304,38 @@ mod tests {
         TrailingEmptyLines.check_lines(&source, &config, &mut diags, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].message, "Trailing blank line missing.");
+    }
+
+    #[test]
+    fn skip_file_with_end_marker() {
+        // RuboCop skips files containing __END__ anywhere
+        let source = SourceFile::from_bytes("test.rb", b"x = 1\n__END__\nsome data\n\n".to_vec());
+        let mut diags = Vec::new();
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert!(diags.is_empty(), "should skip files containing __END__");
+    }
+
+    #[test]
+    fn skip_file_with_end_marker_leading_whitespace() {
+        let source = SourceFile::from_bytes("test.rb", b"x = 1\n  __END__\nsome data\n\n".to_vec());
+        let mut diags = Vec::new();
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert!(
+            diags.is_empty(),
+            "should skip files with __END__ preceded by whitespace"
+        );
+    }
+
+    #[test]
+    fn skip_file_ending_with_percent_blank_string() {
+        // RuboCop skips files ending with "%\n\n"
+        let source = SourceFile::from_bytes("test.rb", b"x = \"%\n\n".to_vec());
+        let mut diags = Vec::new();
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert!(
+            diags.is_empty(),
+            "should skip files ending with percent blank string"
+        );
     }
 
     #[test]
