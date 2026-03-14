@@ -20,6 +20,17 @@ use ruby_prism::Visit;
 /// `collect_top_level_groups` unwrapped `BeginNode` (including `begin..rescue..end`).
 /// In RuboCop, `begin..rescue..end` is `:kwbegin` and NOT unwrapped.
 /// Fix: Removed `BeginNode` unwrapping from `collect_top_level_groups`.
+///
+/// ## Corpus investigation (2026-03-14)
+///
+/// FP=2, FN=2 from asciidoctor-pdf. Both FPs are `@quality` reads inside
+/// `def optimize_file` inside `create_class do...end` blocks within `it` examples.
+/// `create_class` is a custom anonymous-class creation helper (not `Class.new`).
+/// RuboCop's `valid_usage?` checks `each_ancestor(:block)` for `dynamic_class?`
+/// (which matches `Class.new` only). Since `create_class` is not `Class.new`, these
+/// SHOULD be flagged by both tools. The FP may be a corpus artifact (project config
+/// or rubocop-rspec version difference). Without cloned corpus repos, cannot confirm
+/// root cause. FN=2 also from same repo, likely related. No code fix applied.
 pub struct InstanceVariable;
 
 impl Cop for InstanceVariable {
