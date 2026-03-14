@@ -23,6 +23,12 @@ use crate::parse::source::SourceFile;
 /// transparent `{kwbegin begin if def}` list). In Prism, statements are direct children
 /// of `BeginNode`. Fixed by overriding `visit_begin_node` to mark the scope as opaque when
 /// `rescue_clause` or `ensure_clause` is present. Plain `begin...end` remains transparent.
+///
+/// Corpus investigation (round 4): 2 FPs from `include GravatarHelper, GravatarHelper::PublicMethods, ERB::Util`
+/// in redmine forks. Root cause: RuboCop's node pattern `(send nil? ${:include :extend :prepend} const)`
+/// matches exactly ONE `const` argument. Multi-argument mixin calls like `include A, B, C`
+/// don't match the pattern and are not flagged. nitrocop was incorrectly accepting any number
+/// of const arguments. Fixed by requiring exactly one argument in the const check.
 pub struct MixinUsage;
 
 const MIXIN_METHODS: &[&[u8]] = &[b"include", b"extend", b"prepend"];
@@ -71,15 +77,18 @@ impl<'pr> Visit<'pr> for MixinUsageVisitor<'_> {
             && node.receiver().is_none()
             && !self.in_opaque_scope
         {
-            // RuboCop's node pattern requires `const` args. Method call arguments like
-            // `include T('...')` are not flagged.
-            let is_const_mixin = node.arguments().is_some_and(|args| {
-                args.arguments().iter().all(|arg| {
-                    arg.as_constant_read_node().is_some() || arg.as_constant_path_node().is_some()
-                })
+            // RuboCop's node pattern `(send nil? ${:include :extend :prepend} const)`
+            // matches exactly ONE `const` argument. Multi-argument calls like
+            // `include A, B, C` don't match, nor do method call arguments like
+            // `include T('...')`.
+            let is_single_const_mixin = node.arguments().is_some_and(|args| {
+                let arguments: Vec<_> = args.arguments().iter().collect();
+                arguments.len() == 1
+                    && (arguments[0].as_constant_read_node().is_some()
+                        || arguments[0].as_constant_path_node().is_some())
             });
 
-            if is_const_mixin {
+            if is_single_const_mixin {
                 let method_str = std::str::from_utf8(method_bytes).unwrap_or("include");
                 let loc = node.location();
                 let (line, column) = self.source.offset_to_line_col(loc.start_offset());

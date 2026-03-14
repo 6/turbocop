@@ -49,3 +49,7 @@ begin
 ensure
   cleanup
 end
+# Multiple constant arguments: RuboCop's pattern matches only a single const
+include GravatarHelper, GravatarHelper::PublicMethods, ERB::Util
+extend A, B
+prepend X, Y, Z
