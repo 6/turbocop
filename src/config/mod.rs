@@ -2219,6 +2219,19 @@ impl ResolvedConfig {
                 .entry("EndAlignmentStyle".to_string())
                 .or_insert_with(|| Value::String(end_style.to_string()));
         }
+        // Inject Layout/SpaceInsideHashLiteralBraces EnforcedStyle for Layout/SpaceAfterComma
+        // (mirrors RuboCop's `space_forbidden_before_rcurly?` which reads the sibling cop's style)
+        if name == "Layout/SpaceAfterComma" {
+            let braces_config = self.cop_configs.get("Layout/SpaceInsideHashLiteralBraces");
+            let braces_style = braces_config
+                .and_then(|cc| cc.options.get("EnforcedStyle"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("space");
+            config
+                .options
+                .entry("__SpaceInsideHashBracesStyle".to_string())
+                .or_insert_with(|| Value::String(braces_style.to_string()));
+        }
         // Inject Style/StringLiterals EnforcedStyle for Style/QuotedSymbols
         // (mirrors RuboCop's `config.for_cop('Style/StringLiterals')` lookup)
         if name == "Style/QuotedSymbols" {

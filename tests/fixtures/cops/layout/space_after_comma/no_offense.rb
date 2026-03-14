@@ -33,3 +33,6 @@ case [0, 1, 2, 3]
 in 0, 1,;
   true
 end
+
+# Trailing comma before } with space is always OK (any style)
+{ foo: bar, }

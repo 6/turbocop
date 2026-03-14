@@ -28,6 +28,15 @@ use crate::parse::source::SourceFile;
 ///   `is_code()` returns false for these commas. Fixed by also checking
 ///   `code_map.is_heredoc_interpolation()` which tracks `#{}` content ranges
 ///   within heredocs separately.
+///
+/// ## Corpus investigation (2026-03-14, continued)
+///
+/// FP=200 root cause:
+/// - RuboCop's `SpaceAfterPunctuation#space_required_before?` skips commas before
+///   `}` when `Layout/SpaceInsideHashLiteralBraces` has `EnforcedStyle: no_space`.
+///   Nitrocop was not reading the sibling cop's config. Fixed by injecting
+///   `__SpaceInsideHashBracesStyle` from the config layer (same pattern as
+///   `MaxLineLength` injection) and skipping comma-before-`}` when `no_space`.
 pub struct SpaceAfterComma;
 
 impl Cop for SpaceAfterComma {
@@ -44,11 +53,14 @@ impl Cop for SpaceAfterComma {
         source: &SourceFile,
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
+        // RuboCop's SpaceAfterPunctuation#space_required_before? skips commas
+        // before `}` when Layout/SpaceInsideHashLiteralBraces uses `no_space`.
+        let skip_rcurly = config.get_str("__SpaceInsideHashBracesStyle", "space") == "no_space";
         for (i, &byte) in bytes.iter().enumerate() {
             if byte != b',' {
                 continue;
@@ -66,6 +78,10 @@ impl Cop for SpaceAfterComma {
             // SpaceAfterPunctuation#allowed_type? skips ), ], and |.
             // Also skip comma before semicolon (pattern matching: `in 0, 1,;`).
             if matches!(next, Some(b')') | Some(b']') | Some(b'|') | Some(b';')) {
+                continue;
+            }
+            // Skip commas before `}` when SpaceInsideHashLiteralBraces uses no_space
+            if next == Some(b'}') && skip_rcurly {
                 continue;
             }
             // Skip line continuation: `,\` followed by newline
@@ -117,6 +133,44 @@ mod tests {
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);
         assert_eq!(corrected, b"foo(1, 2)\n");
+    }
+
+    #[test]
+    fn comma_before_rcurly_no_space_style() {
+        // When SpaceInsideHashLiteralBraces uses no_space, comma before } is OK
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "__SpaceInsideHashBracesStyle".to_string(),
+            serde_yml::Value::String("no_space".to_string()),
+        );
+        let config = CopConfig {
+            options,
+            ..CopConfig::default()
+        };
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &SpaceAfterComma,
+            b"{foo: bar,}\n",
+            config,
+        );
+    }
+
+    #[test]
+    fn comma_before_rcurly_space_style() {
+        // When SpaceInsideHashLiteralBraces uses space (default), comma before } IS an offense
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "__SpaceInsideHashBracesStyle".to_string(),
+            serde_yml::Value::String("space".to_string()),
+        );
+        let config = CopConfig {
+            options,
+            ..CopConfig::default()
+        };
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &SpaceAfterComma,
+            b"{foo: bar,}\n         ^ Layout/SpaceAfterComma: Space missing after comma.\n",
+            config,
+        );
     }
 
     #[test]
