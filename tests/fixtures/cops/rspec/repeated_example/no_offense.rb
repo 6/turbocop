@@ -291,3 +291,27 @@ describe "lambda keyword param vs keyword splat" do
     -> { f.ruby2_keywords }.should complain(/Skipping set/)
   end
 end
+
+# &&/|| operators are NOT duplicates — AndNode vs OrNode must produce different fingerprints
+describe 'and vs or operators' do
+  it 'uses && operators' do
+    defined?(a && b).should == 'expression'
+    defined?(b && a).should == 'expression'
+  end
+
+  it 'uses || operators' do
+    defined?(a || b).should == 'expression'
+    defined?(b || a).should == 'expression'
+  end
+end
+
+# and/or keyword operators are also NOT duplicates (same Prism nodes as &&/||)
+describe 'and vs or keyword operators' do
+  it 'uses and operator' do
+    defined?(x and y).should == 'expression'
+  end
+
+  it 'uses or operator' do
+    defined?(x or y).should == 'expression'
+  end
+end
