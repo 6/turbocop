@@ -3,7 +3,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
-/// Corpus: 5 FPs fixed.
+/// Corpus: 6 FPs fixed.
 ///
 /// Round 1 (4 FPs): Multi-line `when` conditions (conditions spanning multiple lines)
 /// with comment-only bodies. The AllowComments search started from the `when` keyword
@@ -17,6 +17,33 @@ use crate::parse::source::SourceFile;
 /// content lines (not blank, not comment) and stopped before reaching the actual
 /// comment in the when body. Fix: use `closing_loc().end_offset()` for StringNode
 /// and InterpolatedStringNode conditions to get the true end past the heredoc.
+///
+/// Round 3 (1 FP): Empty `when` before `else` with comment in else body. Pattern:
+/// `when /\Afile:/\nelse\n  # comment\n  code`. RuboCop's CommentsHelp#find_end_line
+/// uses the right_sibling's start line as the search boundary, which extends past
+/// the `else` keyword into the else body. Comments between `else` and the first
+/// else-body statement are found, suppressing the offense. Fix: extend the
+/// blank/comment line scan to also skip `when`/`else`/`end` keyword lines.
+/// Check if a trimmed line starts with a Ruby case/when structural keyword
+/// (`when`, `else`, `end`). Used to extend the AllowComments search range
+/// past these keywords to match RuboCop's CommentsHelp behavior.
+fn is_ruby_keyword_line(trimmed: &[u8]) -> bool {
+    for keyword in &[b"when" as &[u8], b"else", b"end"] {
+        if trimmed.starts_with(keyword) {
+            // Keyword must be the whole token: followed by whitespace, newline, or end of content
+            let rest = &trimmed[keyword.len()..];
+            if rest.is_empty()
+                || rest[0].is_ascii_whitespace()
+                || rest[0] == b'#'
+                || rest[0] == b';'
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub struct EmptyWhen;
 
 impl Cop for EmptyWhen {
@@ -96,7 +123,12 @@ impl Cop for EmptyWhen {
                 .position(|&b| b == b'\n')
                 .map_or(src.len(), |p| last_cond_end + p);
 
-            // Extend past subsequent blank/comment-only lines
+            // Extend past subsequent blank/comment-only lines.
+            // Also scan past `when`/`else`/`end` keyword lines to match RuboCop's
+            // CommentsHelp#find_end_line, which uses the right_sibling's start line
+            // as the end boundary. This means comments in the `else` body (between
+            // the `else` keyword and the first statement) are included in the
+            // comment search for the preceding empty `when`.
             let mut search_end = line_end;
             let mut pos = if line_end < src.len() {
                 line_end + 1
@@ -114,7 +146,8 @@ impl Cop for EmptyWhen {
                     .skip_while(|b| b.is_ascii_whitespace())
                     .copied()
                     .collect::<Vec<u8>>();
-                if trimmed.is_empty() || trimmed.starts_with(b"#") {
+                let is_keyword_line = is_ruby_keyword_line(&trimmed);
+                if trimmed.is_empty() || trimmed.starts_with(b"#") || is_keyword_line {
                     search_end = next_nl;
                     pos = if next_nl < src.len() {
                         next_nl + 1

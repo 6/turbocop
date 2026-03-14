@@ -69,3 +69,16 @@ TEXT
 when "other"
   process(content)
 end
+# Empty when before else with comment in else body (RuboCop's AllowComments
+# search extends through the else keyword into the else body, finding the
+# comment there and suppressing the offense)
+case config[:database].to_s
+when ""
+  raise ArgumentError, "missing database"
+when ":memory:"
+  @memory_database = true
+when /\Afile:/
+else
+  # Otherwise we have a path relative to root
+  config[:database] = File.expand_path(config[:database])
+end
