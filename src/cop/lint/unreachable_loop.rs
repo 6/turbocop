@@ -243,24 +243,6 @@ fn is_break_statement(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
-/// Check if all rescue clauses in a chain break.
-fn all_rescue_clauses_break(rescue_clause: Option<ruby_prism::RescueNode<'_>>) -> bool {
-    let mut current = rescue_clause;
-    while let Some(rescue_node) = current {
-        let rescue_breaks = rescue_node
-            .statements()
-            .map(|stmts| {
-                let body: Vec<_> = stmts.body().iter().collect();
-                stmts_break(&body)
-            })
-            .unwrap_or(false);
-        if !rescue_breaks {
-            return false;
-        }
-        current = rescue_node.subsequent();
-    }
-    true
-}
 
 struct ContinueKeywordFinder {
     found: bool,
