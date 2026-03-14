@@ -10,7 +10,10 @@ use crate::parse::source::SourceFile;
 /// - **Fix:** Added `CASE_MATCH_NODE` to `interested_node_types` and handle `InNode`
 ///   conditions with `.in_loc()` for the `in` keyword location, using `in` instead of
 ///   `when` in diagnostic messages.
-/// - **FP (4):** Small count from jruby/natalie edge cases, not addressed here.
+/// - **FP (4):** Root cause: missing `end_and_last_conditional_same_line?` guard from
+///   RuboCop. When using `end` style, RuboCop skips the check if the `end` keyword is on
+///   the same line as the last conditional (`else` or last `when`/`in`). Without this
+///   guard, nitrocop would flag `when`/`in` in compact trailing forms as misindented.
 pub struct CaseIndentation;
 
 impl Cop for CaseIndentation {
@@ -38,7 +41,14 @@ impl Cop for CaseIndentation {
         // Handle both CaseNode (case/when) and CaseMatchNode (case/in pattern matching)
         if let Some(case_node) = node.as_case_node() {
             let case_loc = case_node.case_keyword_loc();
-            let (_, case_col) = source.offset_to_line_col(case_loc.start_offset());
+            let (case_line, case_col) = source.offset_to_line_col(case_loc.start_offset());
+
+            // Skip single-line case expressions (RuboCop skips these)
+            let (end_line, _) =
+                source.offset_to_line_col(case_node.end_keyword_loc().start_offset());
+            if case_line == end_line {
+                return;
+            }
 
             let base_col = if style == "end" {
                 source
@@ -79,7 +89,14 @@ impl Cop for CaseIndentation {
             }
         } else if let Some(case_match_node) = node.as_case_match_node() {
             let case_loc = case_match_node.case_keyword_loc();
-            let (_, case_col) = source.offset_to_line_col(case_loc.start_offset());
+            let (case_line, case_col) = source.offset_to_line_col(case_loc.start_offset());
+
+            // Skip single-line case expressions (RuboCop skips these)
+            let (end_line, _) =
+                source.offset_to_line_col(case_match_node.end_keyword_loc().start_offset());
+            if case_line == end_line {
+                return;
+            }
 
             let base_col = if style == "end" {
                 source
