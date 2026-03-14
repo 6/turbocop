@@ -143,3 +143,47 @@ outer(
   SQL
   other_arg
 )
+
+# Heredoc call inside a method definition (ancestor has `end` keyword)
+def my_method
+  expect_eq(
+    result,
+    <<~MSG
+      hello world
+    MSG
+  )
+end
+
+# Heredoc call inside a class definition
+class MyClass
+  validate(<<~SQL
+    SELECT 1
+  SQL
+  )
+end
+
+# Heredoc call inside a do..end block
+items.each do |item|
+  process(<<~TEXT
+    content here
+  TEXT
+  )
+end
+
+# Heredoc call inside an if block
+if condition
+  render(<<~HTML
+    <div>hello</div>
+  HTML
+  )
+end
+
+# Heredoc call inside nested end-bearing constructs
+class Config
+  def setup
+    validate(<<~YAML
+      key: value
+    YAML
+    )
+  end
+end

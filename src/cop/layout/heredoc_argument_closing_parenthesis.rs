@@ -1,7 +1,7 @@
-use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 /// Layout/HeredocArgumentClosingParenthesis
 ///
@@ -29,6 +29,23 @@ use crate::parse::source::SourceFile;
 ///
 /// 4. **Removed spurious `STRING_NODE`/`INTERPOLATED_STRING_NODE` from interested types**
 ///    since they always returned early at the `as_call_node()` check.
+///
+/// Investigation findings (2026-03-13):
+/// Root cause of remaining 1,689 FPs: the `end` keyword ancestor check was far too
+/// narrow — it only checked for `end` on the same line immediately before the closing
+/// paren. RuboCop's `end_keyword_before_closing_parenthesis?` actually checks if ANY
+/// ancestor of the send node has an `end` keyword via:
+///   `parenthesized_send_node.ancestors.any? { |a| a.loc_is?(:end, 'end') }`
+/// This suppresses the cop for any call inside a `def`, `class`, `module`, `do..end`
+/// block, `if/unless/while/until/for/case/begin` statement, etc. In practice, the cop
+/// only fires at the top level or inside brace-delimited constructs (lambdas, procs).
+///
+/// Fix: switched from `check_node` to `check_source` with a custom visitor that tracks
+/// `end_depth` — how many `end`-bearing ancestor constructs we're inside. The cop only
+/// fires when `end_depth == 0`. Node types that increment depth: DefNode, ClassNode,
+/// ModuleNode, SingletonClassNode, BlockNode (do..end only, not braces), BeginNode,
+/// IfNode/UnlessNode/WhileNode/UntilNode (statement forms with end_keyword), ForNode,
+/// CaseNode, CaseMatchNode.
 pub struct HeredocArgumentClosingParenthesis;
 
 impl Cop for HeredocArgumentClosingParenthesis {
@@ -40,24 +57,113 @@ impl Cop for HeredocArgumentClosingParenthesis {
         false
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
+        let mut visitor = HeredocParenVisitor {
+            source,
+            cop: self,
+            end_depth: 0,
+            end_stack: Vec::new(),
+            diagnostics: Vec::new(),
         };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
 
+struct HeredocParenVisitor<'a> {
+    source: &'a SourceFile,
+    cop: &'a HeredocArgumentClosingParenthesis,
+    end_depth: usize,
+    /// Stack of booleans: true if the corresponding branch node had an `end` keyword.
+    end_stack: Vec<bool>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl HeredocParenVisitor<'_> {
+    /// Check if a branch node is an `end`-bearing construct.
+    fn has_end_keyword(&self, node: &ruby_prism::Node<'_>) -> bool {
+        let bytes = self.source.as_bytes();
+
+        // DefNode, ClassNode, ModuleNode, SingletonClassNode always have `end`
+        if node.as_def_node().is_some()
+            || node.as_class_node().is_some()
+            || node.as_module_node().is_some()
+            || node.as_singleton_class_node().is_some()
+        {
+            return true;
+        }
+
+        // BlockNode: only do..end (not brace blocks)
+        if let Some(block) = node.as_block_node() {
+            return block.closing_loc().as_slice() == b"end";
+        }
+
+        // BeginNode (explicit begin..end)
+        if node.as_begin_node().is_some() {
+            return true;
+        }
+
+        // IfNode, UnlessNode — only statement form (has end_keyword_loc)
+        if let Some(if_node) = node.as_if_node() {
+            // Statement if has end_keyword_loc; modifier if does not
+            if if_node.end_keyword_loc().is_some() {
+                return true;
+            }
+        }
+        if let Some(unless_node) = node.as_unless_node() {
+            if unless_node.end_keyword_loc().is_some() {
+                return true;
+            }
+        }
+
+        // WhileNode, UntilNode — only statement form
+        if let Some(while_node) = node.as_while_node() {
+            // Statement while has closing_loc with "end"
+            if let Some(closing) = while_node.closing_loc() {
+                if closing.as_slice() == b"end" {
+                    return true;
+                }
+            }
+        }
+        if let Some(until_node) = node.as_until_node() {
+            if let Some(closing) = until_node.closing_loc() {
+                if closing.as_slice() == b"end" {
+                    return true;
+                }
+            }
+        }
+
+        // ForNode
+        if node.as_for_node().is_some() {
+            return true;
+        }
+
+        // CaseNode, CaseMatchNode
+        if node.as_case_node().is_some() || node.as_case_match_node().is_some() {
+            return true;
+        }
+
+        // Lambda body with do..end (LambdaNode closing is `end` or `}`)
+        if let Some(lambda) = node.as_lambda_node() {
+            let closing = lambda.closing_loc();
+            let slice = &bytes[closing.start_offset()..closing.end_offset()];
+            if slice == b"end" {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn check_call(&mut self, call: &ruby_prism::CallNode<'_>) {
         // Must have parenthesized call
         let open_loc = match call.opening_loc() {
             Some(loc) => loc,
@@ -77,9 +183,9 @@ impl Cop for HeredocArgumentClosingParenthesis {
             None => return,
         };
 
-        let bytes = source.as_bytes();
+        let bytes = self.source.as_bytes();
 
-        // Collect heredoc info: which args are heredocs, and their body end positions
+        // Collect heredoc info
         let mut has_heredoc = false;
         let mut max_heredoc_body_end: usize = 0;
         let mut last_heredoc_opener_line: usize = 0;
@@ -89,7 +195,7 @@ impl Cop for HeredocArgumentClosingParenthesis {
                 has_heredoc = true;
                 if body_end > max_heredoc_body_end {
                     max_heredoc_body_end = body_end;
-                    let (line, _) = source.offset_to_line_col(opener_offset);
+                    let (line, _) = self.source.offset_to_line_col(opener_offset);
                     last_heredoc_opener_line = line;
                 }
             }
@@ -99,7 +205,7 @@ impl Cop for HeredocArgumentClosingParenthesis {
             return;
         }
 
-        let (close_line, close_col) = source.offset_to_line_col(close_loc.start_offset());
+        let (close_line, close_col) = self.source.offset_to_line_col(close_loc.start_offset());
 
         // If the closing paren is on the same line as the last heredoc opener, it's correct
         if close_line == last_heredoc_opener_line {
@@ -123,12 +229,41 @@ impl Cop for HeredocArgumentClosingParenthesis {
             return;
         }
 
-        diagnostics.push(self.diagnostic(
-            source,
+        // RuboCop's end_keyword_before_closing_parenthesis? checks ALL ancestors.
+        // If any ancestor has an `end` keyword, suppress.
+        if self.end_depth > 0 {
+            return;
+        }
+
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
             close_line,
             close_col,
             "Put the closing parenthesis for a method call with a HEREDOC parameter on the same line as the HEREDOC opening.".to_string(),
         ));
+    }
+}
+
+impl Visit<'_> for HeredocParenVisitor<'_> {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'_>) {
+        let has_end = self.has_end_keyword(&node);
+        self.end_stack.push(has_end);
+        if has_end {
+            self.end_depth += 1;
+        }
+    }
+
+    fn visit_branch_node_leave(&mut self) {
+        if let Some(had_end) = self.end_stack.pop() {
+            if had_end {
+                self.end_depth -= 1;
+            }
+        }
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'_>) {
+        self.check_call(node);
+        ruby_prism::visit_call_node(self, node);
     }
 }
 
