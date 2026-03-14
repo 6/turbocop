@@ -506,6 +506,7 @@ fn element_modified_recursive(node: &ruby_prism::Node<'_>, el_name: &str) -> boo
 /// - `(lvasgn %1 ...)` — variable assignment
 /// - `(send (lvar %1) :<< ...)` — shovel operator
 /// - `(dstr (begin (lvar %1)))` — interpolation
+///
 /// Does NOT match op/or/and-assignment due to NodePattern arity mismatch.
 fn lvar_used(node: &ruby_prism::Node<'_>, var_name: &str) -> bool {
     // Direct variable read
