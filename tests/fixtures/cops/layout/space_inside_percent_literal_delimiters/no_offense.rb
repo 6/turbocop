@@ -4,3 +4,7 @@ z = %w[a b c]
 a = %i()
 b = [1, 2, 3]
 c = %w(single)
+d = %x(ls -l)
+e = %x[echo hello]
+f = `backtick command`
+g = %x(#{cmd} --flag)
