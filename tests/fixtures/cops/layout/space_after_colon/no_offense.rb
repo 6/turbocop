@@ -10,3 +10,8 @@ h = {
   app_icon:
     APP_ICON_SIZES
 }
+# Optional keyword arguments with proper spacing
+def f(a:, b: 2); end
+def g(name: "default", size: 10); end
+# Required keyword arguments (no value, no check needed)
+def h(a:, b:); end

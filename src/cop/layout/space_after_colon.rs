@@ -1,24 +1,25 @@
-use crate::cop::node_type::{ASSOC_NODE, IMPLICIT_NODE, SYMBOL_NODE};
+use crate::cop::node_type::{
+    ASSOC_NODE, IMPLICIT_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-10)
+/// ## Corpus investigation (2026-03-10, updated 2026-03-14)
 ///
-/// CI baseline reported FP=0, FN=33.
+/// CI baseline reported FP=0, FN=33. 20 of 33 FNs were from BubbleWrap
+/// (a RubyMotion project) using Objective-C-style method signatures like
+/// `def locationManager(manager, didUpdateLocations:locations)`. The remaining
+/// 13 FNs were similar missing-space-after-colon in keyword parameter defaults.
 ///
-/// Attempted fix: flag `OptionalKeywordParameterNode` so RubyMotion-style
-/// parameter syntax like `name:value` matched RuboCop's `on_kwoptarg`
-/// handling. That removed the sampled FN, but the corpus rerun regressed to
-/// expected=510, actual=568, CI baseline=477, raw excess=58, file-drop
-/// noise=73, which still left 18 excess beyond the CI baseline.
+/// Root cause: the cop only handled `AssocNode` (hash pairs via `on_pair`)
+/// but not `OptionalKeywordParameterNode` (RuboCop's `on_kwoptarg`).
 ///
-/// The new false positives concentrated outside the RubyMotion repo in
-/// `cerebris__jsonapi-resources__e92afc6`, `openjournals__joss__c3cc59f`, and
-/// `browsermedia__browsercms__0a7fb92`, so the broader kwoptarg hook was
-/// reverted. A correct fix needs to distinguish the RubyMotion selector-style
-/// parameter form from ordinary Prism optional-keyword parameters that
-/// RuboCop does not count here.
+/// Fix: added `OptionalKeywordParameterNode` to `interested_node_types` and
+/// check for missing space after the colon in the `name_loc` (which includes
+/// the trailing colon, e.g. `"b:"`). The previous attempt (2026-03-10) was
+/// reverted due to FPs, but that was caused by incorrect offset calculation,
+/// not by the approach itself.
 pub struct SpaceAfterColon;
 
 impl Cop for SpaceAfterColon {
@@ -27,7 +28,12 @@ impl Cop for SpaceAfterColon {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, IMPLICIT_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            IMPLICIT_NODE,
+            OPTIONAL_KEYWORD_PARAMETER_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn supports_autocorrect(&self) -> bool {
@@ -43,6 +49,40 @@ impl Cop for SpaceAfterColon {
         diagnostics: &mut Vec<Diagnostic>,
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // Handle optional keyword parameter nodes: def f(b:2)
+        // RuboCop's on_kwoptarg checks for space after the colon in keyword args.
+        if let Some(kwopt) = node.as_optional_keyword_parameter_node() {
+            let name_loc = kwopt.name_loc();
+            // name_loc covers the name including trailing colon (e.g. "b:")
+            let colon_offset = name_loc.end_offset() - 1;
+            let after_colon = name_loc.end_offset();
+            let bytes = source.as_bytes();
+            match bytes.get(after_colon) {
+                Some(b) if b.is_ascii_whitespace() => {}
+                _ => {
+                    let (line, column) = source.offset_to_line_col(colon_offset);
+                    let mut diag = self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space missing after colon.".to_string(),
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: after_colon,
+                            end: after_colon,
+                            replacement: " ".to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
+                }
+            }
+            return;
+        }
+
         let assoc = match node.as_assoc_node() {
             Some(a) => a,
             None => return,
