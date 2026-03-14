@@ -9,6 +9,11 @@ use crate::parse::source::SourceFile;
 /// strings (e.g., test files for rdoc/yard/coderay parsers). Fixed by
 /// switching from `check_lines` to `check_source` to access the CodeMap
 /// and skip `=begin` lines that fall within heredoc byte ranges.
+///
+/// Additional 4 FPs from `=begin` appearing after `__END__` data section
+/// markers. RuboCop stops parsing at `__END__`, so block comments in the
+/// data section are not flagged. Fixed by using `is_not_string()` which
+/// covers heredocs, string literals, and `__END__` data sections.
 pub struct BlockComments;
 
 impl Cop for BlockComments {
@@ -29,8 +34,10 @@ impl Cop for BlockComments {
             // =begin must be at the start of a line
             if line.starts_with(b"=begin") && (line.len() == 6 || line[6].is_ascii_whitespace()) {
                 // Skip =begin inside heredocs (e.g., test files for rdoc/yard)
+                // or after __END__ data section marker (not real code).
+                // is_not_string() returns false for heredocs, strings, and __END__ data.
                 if let Some(offset) = source.line_col_to_offset(i + 1, 0) {
-                    if code_map.is_heredoc(offset) {
+                    if !code_map.is_not_string(offset) {
                         continue;
                     }
                 }

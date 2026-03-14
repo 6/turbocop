@@ -26,3 +26,9 @@ content3 = <<-'EOF'
   not a real block comment
 =end
 EOF
+
+# =begin after __END__ should not be flagged (data section, not code)
+__END__
+=begin
+this is data, not a block comment
+=end
