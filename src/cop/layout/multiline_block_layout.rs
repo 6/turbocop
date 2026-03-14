@@ -1,8 +1,22 @@
-use crate::cop::node_type::{BEGIN_NODE, BLOCK_NODE};
+use crate::cop::node_type::{BEGIN_NODE, BLOCK_NODE, LAMBDA_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Layout/MultilineBlockLayout
+///
+/// Checks whether multiline do..end or brace blocks have a newline after the
+/// block start. Also checks that block arguments are on the same line as the
+/// block opener.
+///
+/// Handles both regular blocks (`foo { }`, `foo do end`) and lambda literals
+/// (`-> { }`, `-> do end`). In Prism, regular blocks are `BlockNode` while
+/// lambda literals are `LambdaNode` — both must be checked.
+///
+/// RuboCop uses `on_block` aliased to `on_numblock` and `on_itblock`, which
+/// covers all block variants. In Prism, numbered-parameter blocks and
+/// it-blocks are still `BlockNode` (with implicit parameter nodes), so
+/// handling `BlockNode` + `LambdaNode` covers all cases.
 pub struct MultilineBlockLayout;
 
 impl Cop for MultilineBlockLayout {
@@ -11,7 +25,7 @@ impl Cop for MultilineBlockLayout {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BEGIN_NODE, BLOCK_NODE]
+        &[BEGIN_NODE, BLOCK_NODE, LAMBDA_NODE]
     }
 
     fn check_node(
@@ -23,14 +37,43 @@ impl Cop for MultilineBlockLayout {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let block_node = match node.as_block_node() {
-            Some(b) => b,
-            None => return,
-        };
+        // Extract the common fields from either BlockNode or LambdaNode
+        if let Some(block_node) = node.as_block_node() {
+            self.check_block(
+                source,
+                block_node.opening_loc(),
+                block_node.closing_loc(),
+                block_node.parameters(),
+                block_node.body(),
+                config,
+                diagnostics,
+            );
+        } else if let Some(lambda_node) = node.as_lambda_node() {
+            self.check_block(
+                source,
+                lambda_node.opening_loc(),
+                lambda_node.closing_loc(),
+                lambda_node.parameters(),
+                lambda_node.body(),
+                config,
+                diagnostics,
+            );
+        }
+    }
+}
 
-        let opening_loc = block_node.opening_loc();
-        let closing_loc = block_node.closing_loc();
-
+impl MultilineBlockLayout {
+    #[allow(clippy::too_many_arguments)]
+    fn check_block(
+        &self,
+        source: &SourceFile,
+        opening_loc: ruby_prism::Location<'_>,
+        closing_loc: ruby_prism::Location<'_>,
+        parameters: Option<ruby_prism::Node<'_>>,
+        body: Option<ruby_prism::Node<'_>>,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let (open_line, _) = source.offset_to_line_col(opening_loc.start_offset());
         let (close_line, _) = source.offset_to_line_col(closing_loc.start_offset());
 
@@ -42,7 +85,7 @@ impl Cop for MultilineBlockLayout {
         // Check 1: Block arguments should be on the same line as block start
         // Skip implicit parameter nodes (ItParametersNode for `it`,
         // NumberedParametersNode for `_1`) — they have no visible source.
-        if let Some(params) = block_node.parameters() {
+        if let Some(params) = parameters {
             if params.as_it_parameters_node().is_some()
                 || params.as_numbered_parameters_node().is_some()
             {
@@ -93,7 +136,7 @@ impl Cop for MultilineBlockLayout {
         }
 
         // Check 2: Block body should NOT be on the same line as block start
-        if let Some(body) = block_node.body() {
+        if let Some(body) = body {
             // When the block contains rescue/ensure, Prism wraps the body in a
             // BeginNode whose location spans from the `do`/`{` keyword — not from
             // the first actual statement.  Unwrap to find the real first expression.

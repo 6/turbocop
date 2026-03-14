@@ -48,3 +48,21 @@ annotations_collection.zip(other_annotations_collection) do |(_actual_line, actu
                                                              (_expected_line, expected_annotation)|
   compare(actual_annotation, expected_annotation)
 end
+
+# Lambda with body on next line (no offense)
+html = -> {
+  content
+}
+
+# Lambda with params, body on next line
+transform = ->(x) {
+  x + 1
+}
+
+# Lambda do..end body on next line
+action = -> do
+  run_task
+end
+
+# Single-line lambda (no offense)
+double = ->(x) { x * 2 }
