@@ -17,6 +17,11 @@ pub struct CodeMap {
     /// Sorted, non-overlapping (start, end) byte ranges of regex literal content.
     /// Used by cops that need to skip content inside regex literals specifically.
     regex_ranges: Vec<(usize, usize)>,
+    /// Sorted, non-overlapping (start, end) byte ranges of `#{}` interpolation
+    /// content inside heredocs. These regions are marked as non-code by the main
+    /// `ranges` (heredocs mark everything non-code), but cops like SpaceAfterComma
+    /// need to inspect code inside heredoc interpolation.
+    heredoc_interpolation_ranges: Vec<(usize, usize)>,
 }
 
 impl CodeMap {
@@ -26,12 +31,14 @@ impl CodeMap {
         let mut string_ranges = Vec::new();
         let mut heredoc_ranges = Vec::new();
         let mut regex_ranges = Vec::new();
+        let mut heredoc_interpolation_ranges = Vec::new();
 
         // Walk AST to collect string/regex/symbol ranges
         let mut collector = NonCodeCollector {
             ranges: &mut string_ranges,
             heredoc_ranges: &mut heredoc_ranges,
             regex_ranges: &mut regex_ranges,
+            heredoc_interpolation_ranges: &mut heredoc_interpolation_ranges,
         };
         collector.visit(&parse_result.node());
 
@@ -54,6 +61,10 @@ impl CodeMap {
         regex_ranges.sort_unstable();
         let regex_ranges = merge_ranges(regex_ranges);
 
+        // Sort and merge heredoc interpolation ranges
+        heredoc_interpolation_ranges.sort_unstable();
+        let heredoc_interpolation_ranges = merge_ranges(heredoc_interpolation_ranges);
+
         // Full non-code ranges include comments + strings + __END__ data section
         let mut ranges = string_ranges.clone();
         for comment in parse_result.comments() {
@@ -68,6 +79,7 @@ impl CodeMap {
             string_ranges,
             heredoc_ranges,
             regex_ranges,
+            heredoc_interpolation_ranges,
         }
     }
 
@@ -94,6 +106,14 @@ impl CodeMap {
         Self::in_ranges(&self.regex_ranges, offset)
     }
 
+    /// Returns true if the given byte offset is inside `#{}` interpolation
+    /// within a heredoc. These offsets are marked non-code by `is_code()` (since
+    /// the entire heredoc body is non-code), but contain actual Ruby expressions
+    /// that some cops (e.g. SpaceAfterComma) need to inspect.
+    pub fn is_heredoc_interpolation(&self, offset: usize) -> bool {
+        Self::in_ranges(&self.heredoc_interpolation_ranges, offset)
+    }
+
     fn in_ranges(ranges: &[(usize, usize)], offset: usize) -> bool {
         ranges
             .binary_search_by(|&(start, end)| {
@@ -113,6 +133,7 @@ struct NonCodeCollector<'a> {
     ranges: &'a mut Vec<(usize, usize)>,
     heredoc_ranges: &'a mut Vec<(usize, usize)>,
     regex_ranges: &'a mut Vec<(usize, usize)>,
+    heredoc_interpolation_ranges: &'a mut Vec<(usize, usize)>,
 }
 
 impl<'pr> Visit<'pr> for NonCodeCollector<'_> {
@@ -174,6 +195,19 @@ impl NonCodeCollector<'_> {
                             let range = (first_start, last.location().end_offset());
                             self.ranges.push(range);
                             self.heredoc_ranges.push(range);
+                        }
+                    }
+                    // Track interpolation regions inside heredocs so cops can
+                    // optionally inspect code within #{...} in heredoc bodies.
+                    for part in isn.parts().iter() {
+                        if let Some(esn) = part.as_embedded_statements_node() {
+                            // The EmbeddedStatementsNode covers `#{...}` — record
+                            // just the statements inside (excluding `#{` and `}`).
+                            if let Some(stmts) = esn.statements() {
+                                let sloc = stmts.location();
+                                self.heredoc_interpolation_ranges
+                                    .push((sloc.start_offset(), sloc.end_offset()));
+                            }
                         }
                     }
                 } else {

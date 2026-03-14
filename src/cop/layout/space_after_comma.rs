@@ -13,14 +13,21 @@ use crate::parse::source::SourceFile;
 /// adds `\t` to the allowed post-comma whitespace set and covers that case in
 /// the fixture.
 ///
-/// Acceptance gate after this patch (`scripts/check-cop.py --verbose --rerun`):
-/// expected=19,897, actual=22,236, CI baseline=19,953, raw excess=2,339,
-/// missing=0, file-drop noise=5,945. The rerun still passes against the CI
-/// baseline once that existing parser-crash noise is applied.
+/// ## Corpus investigation (2026-03-14)
 ///
-/// Remaining gap: sampled FP dropped, but the raw excess is still dominated by
-/// `jruby__jruby__0303464` file-drop noise, so no broader comma-token rewrite
-/// was attempted in this batch.
+/// FP=7 root causes:
+/// - 6 FP from line continuation `\` after comma: `,\` at end of line is valid
+///   because the continuation merges with the next line. Fixed by skipping commas
+///   whose next byte is `\` followed by `\n`.
+/// - 1 FP from trailing comma before semicolon in pattern matching (`in 0, 1,;`).
+///   Fixed by adding `;` to the allowed-after-comma set (like `)`, `]`, `|`).
+///
+/// FN=8 root causes:
+/// - All FNs are commas inside `#{}` interpolation within heredocs. The CodeMap
+///   marks entire heredoc bodies (including interpolation) as non-code, so
+///   `is_code()` returns false for these commas. Fixed by also checking
+///   `code_map.is_heredoc_interpolation()` which tracks `#{}` content ranges
+///   within heredocs separately.
 pub struct SpaceAfterComma;
 
 impl Cop for SpaceAfterComma {
@@ -43,40 +50,53 @@ impl Cop for SpaceAfterComma {
     ) {
         let bytes = source.as_bytes();
         for (i, &byte) in bytes.iter().enumerate() {
-            if byte == b',' && code_map.is_code(i) {
-                // Skip if this comma is part of a global variable ($, or $;)
-                if i > 0 && bytes[i - 1] == b'$' {
+            if byte != b',' {
+                continue;
+            }
+            // Check commas in code regions AND inside heredoc interpolation
+            if !code_map.is_code(i) && !code_map.is_heredoc_interpolation(i) {
+                continue;
+            }
+            // Skip if this comma is part of a global variable ($, or $;)
+            if i > 0 && bytes[i - 1] == b'$' {
+                continue;
+            }
+            let next = bytes.get(i + 1).copied();
+            // Skip commas before closing delimiters — RuboCop's
+            // SpaceAfterPunctuation#allowed_type? skips ), ], and |.
+            // Also skip comma before semicolon (pattern matching: `in 0, 1,;`).
+            if matches!(next, Some(b')') | Some(b']') | Some(b'|') | Some(b';')) {
+                continue;
+            }
+            // Skip line continuation: `,\` followed by newline
+            if next == Some(b'\\') {
+                let after_backslash = bytes.get(i + 2).copied();
+                if matches!(after_backslash, Some(b'\n') | Some(b'\r') | None) {
                     continue;
                 }
-                let next = bytes.get(i + 1).copied();
-                // Skip commas before closing delimiters — RuboCop's
-                // SpaceAfterPunctuation#allowed_type? skips ), ], and |.
-                if matches!(next, Some(b')') | Some(b']') | Some(b'|')) {
-                    continue;
+            }
+            if !matches!(
+                next,
+                Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | None
+            ) {
+                let (line, column) = source.offset_to_line_col(i);
+                let mut diag = self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Space missing after comma.".to_string(),
+                );
+                if let Some(ref mut corr) = corrections {
+                    corr.push(crate::correction::Correction {
+                        start: i + 1,
+                        end: i + 1,
+                        replacement: " ".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
                 }
-                if !matches!(
-                    next,
-                    Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | None
-                ) {
-                    let (line, column) = source.offset_to_line_col(i);
-                    let mut diag = self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space missing after comma.".to_string(),
-                    );
-                    if let Some(ref mut corr) = corrections {
-                        corr.push(crate::correction::Correction {
-                            start: i + 1,
-                            end: i + 1,
-                            replacement: " ".to_string(),
-                            cop_name: self.name(),
-                            cop_index: 0,
-                        });
-                        diag.corrected = true;
-                    }
-                    diagnostics.push(diag);
-                }
+                diagnostics.push(diag);
             }
         }
     }

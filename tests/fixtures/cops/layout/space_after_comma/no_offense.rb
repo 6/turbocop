@@ -19,3 +19,17 @@ end
 foo(a, b,)
 [1, 2,]
 pairs = [['ADJ',	'Adjective']]
+
+# Line continuation: comma before backslash at end of line is OK
+add project.permalink, lastmod: project.updated_at,\
+                       changefreq: 'monthly'
+
+s_09, s_08, s_07, s_06 = \
+(l /= 10; digits[l % 10]), (l /= 10; digits[l % 10]),\
+(l /= 10; digits[l % 10]), (l /= 10; digits[l % 10])
+
+# Trailing comma before semicolon in pattern matching
+case [0, 1, 2, 3]
+in 0, 1,;
+  true
+end
