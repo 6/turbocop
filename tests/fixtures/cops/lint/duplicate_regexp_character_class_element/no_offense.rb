@@ -29,3 +29,16 @@ r = /[^[:space:]]/
 r = /(\w+\.|\[\w+\]\.)?/
 # Mixed escaped brackets and character classes
 r = /(?:\w+|\[\w+\])/
+# Extended mode (/x) comments should not be treated as regex content
+r = /
+  [a-z]          # matches [lowercase] letters
+  [0-9]          # matches [digits]
+/x
+r = /
+  "([^"]+)"      # capture "quoted" text
+  \s+            # whitespace
+/x
+r = /
+  (\w+)          # word chars
+  (["']).+?\1    # quoted string with ["'] chars
+/x

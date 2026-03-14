@@ -18,6 +18,14 @@ use crate::parse::source::SourceFile;
 /// FN root causes:
 /// - Interpolated regexes (`InterpolatedRegularExpressionNode`) were not handled at all.
 ///   Added support by extracting string parts from interpolated regex nodes.
+///
+/// ## Extended mode FP fix (2026-03-14)
+///
+/// In extended mode (`/x`), `#` starts a comment until end of line. The cop was treating
+/// comment text as regex content, finding false "duplicate" character class elements from
+/// bracket characters in comments. Fixed by detecting the `/x` flag and skipping from `#`
+/// to end of line in `check_regexp_content` (outside character classes only, since `#` is
+/// literal inside `[...]`).
 pub struct DuplicateRegexpCharacterClassElement;
 
 impl Cop for DuplicateRegexpCharacterClassElement {
@@ -58,7 +66,8 @@ impl Cop for DuplicateRegexpCharacterClassElement {
                 offsets.push(Some(offset));
                 offset += ch.len_utf8();
             }
-            check_regexp_content(self, source, &chars, &offsets, diagnostics);
+            let extended = regexp.is_extended();
+            check_regexp_content(self, source, &chars, &offsets, extended, diagnostics);
             return;
         }
 
@@ -85,9 +94,15 @@ impl Cop for DuplicateRegexpCharacterClassElement {
                 offsets.push(None);
             }
 
-            check_regexp_content(self, source, &chars, &offsets, diagnostics);
+            let extended = is_extended_regex(regexp.closing_loc().as_slice());
+            check_regexp_content(self, source, &chars, &offsets, extended, diagnostics);
         }
     }
+}
+
+/// Check if the closing location of a regex contains the `x` flag (extended mode).
+fn is_extended_regex(closing_loc: &[u8]) -> bool {
+    closing_loc.contains(&b'x')
 }
 
 /// Check whether the character at `pos` is an unescaped `[`.
@@ -161,6 +176,7 @@ fn check_regexp_content(
     source: &SourceFile,
     chars: &[char],
     offsets: &[Option<usize>],
+    extended: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let mut i = 0;
@@ -168,6 +184,14 @@ fn check_regexp_content(
         // Skip null placeholders (interpolation boundaries)
         if chars[i] == '\0' {
             i += 1;
+            continue;
+        }
+        // In extended mode, # starts a comment until end of line (outside character classes)
+        if extended && chars[i] == '#' {
+            // Skip to end of line
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
             continue;
         }
         if is_unescaped_open_bracket(chars, i) {
