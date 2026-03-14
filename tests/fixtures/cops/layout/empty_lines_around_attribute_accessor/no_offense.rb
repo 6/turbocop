@@ -120,3 +120,85 @@ end
 class OnlyAttr
   attr_reader :bar
 end
+
+# attr_accessor inside Class.new { } followed by }.new — block closing
+result = define_class("ResultInstance") {
+  attr_accessor :id, :created_at
+}.new
+
+# attr_reader inside Class.new do...end followed by end.new
+result = Class.new do
+  attr_reader :bar
+end.new
+
+# attr_accessor inside Class.new { } followed by }.new with method chain
+result = Class.new {
+  attr_accessor :name
+}.new.freeze
+
+# multi-line attr_accessor with comma continuation and blank lines between args
+class Config
+  attr_accessor :username_attribute_names,           # first attribute
+                                                     # as the login.
+
+                :password_attribute_name,           # second attribute
+                                                     # for encryption.
+
+                :email_attribute_name              # third attribute
+end
+
+# multi-line attr_accessor followed by end (inside class_eval block)
+base.sorcery_config.class_eval do
+  attr_accessor :token_attribute_name, # token attribute name.
+                :expiry_attribute_name # expiry attribute name.
+end
+
+# attr_accessor with splat argument followed by comment then alias
+attr_accessor(*VALID_OPTIONS_KEYS)
+# @private
+alias auth_token= private_token=
+
+# attr_accessor with conditional modifier (unless) — next line is code
+def new(*)
+  attr_accessor :parser unless method_defined? :parser
+  result        = super
+  result.parser = OptionParser.new
+  result
+end
+
+# attr_reader with conditional modifier (unless) and method call arg
+def offset(*keys)
+  keys.each do |key|
+    attr_reader key unless method_defined?(method_name(key))
+    define_method :"#{key}=" do |value|
+    end
+  end
+end
+
+# attr_reader with variable argument followed by comment then allowed method
+attr_reader(attrb.name)
+# compatibility fix
+public(attrb.name)
+
+# attr_reader followed by comment then blank line (no offense needed)
+class ChordQuality
+  attr_reader :name
+  # QUALITIES_FILE = File.expand_path("qualities.json", __FILE__)
+
+  private
+
+  def something
+  end
+end
+
+# long single-line attr_reader followed by comment then blank line
+class Services
+  attr_reader :accounts
+  attr_reader :account_links, :sessions, :domains, :fees, :balance, :charges
+  # end of generated section
+
+  attr_reader :oauth
+
+  def initialize
+  end
+end

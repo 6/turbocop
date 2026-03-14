@@ -33,7 +33,22 @@ use crate::parse::source::SourceFile;
 /// naturally via `node.right_sibling` which only exists for direct children of a statements
 /// body. Eliminated 100 FPs across 38 repos.
 ///
-/// **Remaining gap:** 1 FN (nitrocop misses an offense RuboCop catches). Not investigated.
+/// **Fix 4 (2026-03-14):** Three additional FP fixes:
+/// (a) Block boundary detection now handles `end.method` and `}.method` patterns,
+///     where the attr is the last statement inside `Class.new { }` or `do...end` blocks
+///     followed by `.new` or other method chains. Previously only `end` followed by
+///     space/newline/nothing was recognized. (~11 FPs across decidim, factory_bot, etc.)
+/// (b) Comment lookahead now checks for blank lines, allowed methods, and alias after
+///     comments, not just attr methods. This fixes cases like `attr_reader :name` followed
+///     by a comment then `public()`, or a comment then blank line. (~5 FPs)
+/// (c) Added right-side expression check: if there is non-whitespace, non-comment content
+///     after the call's end_offset on the same line (e.g., `attr_accessor :x unless cond`),
+///     the call is part of a larger expression and should be skipped. (~2 FPs: travis, spreadsheet)
+///
+/// **Remaining gap:** 3 FNs — 2 from camping (minified Ruby, mid-line attr calls) and 1 from
+/// CocoaPods (`attr_accessor name` followed by `alias_method ... if boolean` where the `if`
+/// modifier makes RuboCop treat it as non-allowed, but nitrocop's line-based check sees
+/// `alias_method` and allows it).
 pub struct EmptyLinesAroundAttributeAccessor;
 
 const ATTRIBUTE_METHODS: &[&[u8]] = &[b"attr_reader", b"attr_writer", b"attr_accessor", b"attr"];
@@ -106,7 +121,24 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                 return;
             }
         }
-        let (last_line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+        let (last_line, last_col) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+
+        // If there is non-whitespace, non-comment content after the call's end on the
+        // same line, the attr call is part of a larger expression (e.g.,
+        // `attr_accessor :parser unless method_defined? :parser`). Skip it.
+        // RuboCop handles this via AST: the call is inside an UnlessModifierNode and
+        // has no right_sibling in a statements body.
+        if last_line > 0 && (last_line - 1) < lines.len() {
+            let call_end_line = lines[last_line - 1];
+            let after_call = &call_end_line[(last_col + 1).min(call_end_line.len())..];
+            let has_trailing_code = after_call
+                .iter()
+                .find(|&&b| b != b' ' && b != b'\t')
+                .is_some_and(|&b| b != b'\n' && b != b'\r' && b != b'#');
+            if has_trailing_code {
+                return;
+            }
+        }
 
         // Check if the next line exists and is not empty
         if last_line >= lines.len() {
@@ -139,11 +171,20 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         }
 
         // If next line is a comment, look past comments to see if the next code line
-        // is another attribute accessor. This allows YARD-style documented accessors:
+        // is another attribute accessor, an allowed method, alias, a block boundary,
+        // or if there's a blank line after the comments (no offense needed).
+        // This allows YARD-style documented accessors:
         //   attr_reader :value
         //   # @return [Exception, nil]
         //   attr_reader :handled_error
         if next_trimmed.starts_with(b"#") {
+            let allowed = config.get_string_array("AllowedMethods");
+            let allowed_for_comment: Vec<String> = allowed.unwrap_or_else(|| {
+                DEFAULT_ALLOWED_METHODS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            });
             let mut idx = last_line + 1;
             while idx < lines.len() {
                 let line_trimmed: Vec<u8> = lines[idx]
@@ -151,8 +192,8 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                     .copied()
                     .skip_while(|&b| b == b' ' || b == b'\t')
                     .collect();
-                if line_trimmed.is_empty() || line_trimmed == b"\n" || line_trimmed == b"\r\n" {
-                    break; // blank line means end of group
+                if is_blank_or_whitespace_line(lines[idx]) {
+                    return; // blank line after comments means no offense
                 }
                 if line_trimmed.starts_with(b"#") {
                     idx += 1;
@@ -160,6 +201,23 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                 }
                 if is_attr_method_line(&line_trimmed) {
                     return;
+                }
+                if is_block_boundary_keyword(&line_trimmed) {
+                    return;
+                }
+                if _allow_alias_syntax && line_trimmed.starts_with(b"alias ") {
+                    return;
+                }
+                for am in &allowed_for_comment {
+                    let mb = am.as_bytes();
+                    if line_trimmed.starts_with(mb) {
+                        let after = line_trimmed.get(mb.len());
+                        if after.is_none()
+                            || matches!(after, Some(b' ') | Some(b'(') | Some(b'\n') | Some(b'\r'))
+                        {
+                            return;
+                        }
+                    }
                 }
                 break;
             }
@@ -233,12 +291,16 @@ fn is_block_boundary_keyword(trimmed: &[u8]) -> bool {
             if after.is_none()
                 || matches!(
                     after,
-                    Some(b' ') | Some(b'\n') | Some(b'\r') | Some(b'#') | Some(b';')
+                    Some(b' ') | Some(b'\n') | Some(b'\r') | Some(b'#') | Some(b';') | Some(b'.')
                 )
             {
                 return true;
             }
         }
+    }
+    // Also handle `}` or `}.method` — closing brace of a block
+    if trimmed.first() == Some(&b'}') {
+        return true;
     }
     false
 }
