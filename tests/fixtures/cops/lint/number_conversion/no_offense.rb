@@ -17,3 +17,6 @@ Time.now.to_i
 Time.now.to_f
 DateTime.new(2012, 8, 29, 22, 35, 0).to_i
 Time.now.to_datetime.to_i
+# Block-pass with additional arguments should not be flagged
+foo.map(x, &:to_i)
+foo.reduce(0, &:to_f)

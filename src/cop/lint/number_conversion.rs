@@ -22,6 +22,23 @@ use crate::parse::source::SourceFile;
 /// 2. Added symbol form detection: block-pass `&:to_i` and symbol arg `:to_f`
 ///    patterns (for `try`/`send`/etc.) with single-argument guard.
 /// 3. Added Kernel conversion methods to the receiver-call skip list.
+///
+/// ## Corpus investigation findings (2026-03-14)
+///
+/// Root causes of 16 FP + 40 FN (from 99.7% match rate):
+/// - FP: Block-pass with additional arguments like `foo.map(x, &:to_i)` was
+///   incorrectly flagged. In RuboCop, block_pass counts as an argument so
+///   `arguments.one?` returns false for these; in Prism, block is separate.
+/// - FN: Bare symbol form without explicit receiver (implicit self) like
+///   `map(&:to_i)` or `try(:to_f)` was incorrectly skipped. RuboCop's
+///   `handle_as_symbol` guard checks the method name capture (never nil),
+///   not the AST receiver, so it flags these.
+///
+/// Fixes applied:
+/// 1. Added `call.arguments().is_some()` guard in block_pass branch to skip
+///    when regular arguments exist alongside the block_pass.
+/// 2. Removed the `call.receiver().is_none()` early return from
+///    `handle_symbol_form` so bare symbol forms are flagged.
 pub struct NumberConversion;
 
 const CONVERSION_METHODS: &[(&[u8], &str)] = &[
@@ -155,6 +172,7 @@ impl NumberConversion {
     }
 
     /// Handle symbol form: `map(&:to_i)`, `try(:to_f)`, `send(:to_c)`, etc.
+    /// RuboCop flags these even without an explicit receiver (implicit self).
     fn handle_symbol_form(
         &self,
         source: &SourceFile,
@@ -163,13 +181,14 @@ impl NumberConversion {
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        // Must have a receiver
-        if call.receiver().is_none() {
-            return;
-        }
-
         // Check block-pass form: map(&:to_i)
+        // In RuboCop, block_pass counts as an argument, so `map(x, &:to_i)` has 2 args
+        // and is skipped by `arguments.one?`. In Prism, block is separate from arguments,
+        // so we must check that no regular arguments exist alongside the block_pass.
         if let Some(block) = call.block() {
+            if call.arguments().is_some() {
+                return;
+            }
             if let Some(block_arg) = block.as_block_argument_node() {
                 if let Some(expr) = block_arg.expression() {
                     if let Some(sym) = expr.as_symbol_node() {
