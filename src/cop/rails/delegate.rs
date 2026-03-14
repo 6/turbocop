@@ -29,6 +29,17 @@ use crate::parse::source::SourceFile;
 /// - Added `private :method_name` form detection
 /// - Added prefixed delegation matching when `EnforceForPrefixed: true`
 /// - Extended prefix skip (for `EnforceForPrefixed: false`) to all receiver types
+///
+/// ## Investigation (2026-03-14): FP=20
+///
+/// **FP root cause**: `is_in_module_function_scope` only scanned BACKWARDS from the def
+/// for `module_function`. Patterns like `end; module_function :adapters` (inline after
+/// the def's `end`) and `module_function :method_name` declared later in the module body
+/// were missed. RuboCop's `module_function_declared?` walks ALL descendants of the
+/// ancestor module — both before and after the def.
+///
+/// Fix: Added forward scan from the def line that checks if any subsequent line in the
+/// same scope contains `module_function` (including `module_function :name` symbol forms).
 pub struct Delegate;
 
 impl Cop for Delegate {
@@ -359,10 +370,27 @@ fn is_private_symbol_arg(source: &SourceFile, method_name: &[u8], def_offset: us
 
 /// Check if the def is inside a module that has `module_function` declared.
 /// This matches RuboCop's `module_function_declared?` which checks ancestors
-/// for any `module_function` call (both standalone and inline).
+/// for any `module_function` call (both standalone and inline) — BEFORE OR AFTER
+/// the def. The key difference from the original: we scan both backwards AND
+/// forwards for `module_function :method_name` (with symbol arg, appearing after).
+///
+/// Patterns detected:
+/// - Standalone `module_function` (makes all following methods module functions)
+/// - `module_function def method_name` (inline on same line)
+/// - `module_function :method_name` (applies to specific method, often after the def)
+/// - `end; module_function :name` (inline after def's `end`)
 fn is_in_module_function_scope(source: &SourceFile, def_offset: usize) -> bool {
     let (def_line, def_col) = source.offset_to_line_col(def_offset);
     let lines: Vec<&[u8]> = source.lines().collect();
+
+    /// Check if a trimmed line is any module_function form.
+    fn is_module_function_line(trimmed: &[u8]) -> bool {
+        trimmed == b"module_function"
+            || trimmed.starts_with(b"module_function\n")
+            || trimmed.starts_with(b"module_function\r")
+            || trimmed.starts_with(b"module_function ")
+            || trimmed.starts_with(b"module_function#")
+    }
 
     // Scan backwards from the def line looking for `module_function` at the same
     // or lower indentation within the same module scope.
@@ -373,19 +401,9 @@ fn is_in_module_function_scope(source: &SourceFile, def_offset: usize) -> bool {
             .count();
         let trimmed: Vec<u8> = line[indent..].to_vec();
 
-        // Check for standalone `module_function` or `module_function def ...`
-        if indent <= def_col
-            && (trimmed == b"module_function"
-                || trimmed.starts_with(b"module_function\n")
-                || trimmed.starts_with(b"module_function\r")
-                || trimmed.starts_with(b"module_function ")
-                || trimmed.starts_with(b"module_function#"))
-        {
+        if indent <= def_col && is_module_function_line(&trimmed) {
             return true;
         }
-
-        // Also check for inline `module_function def method_name`
-        // (this is on the same line as the def, handled above with `module_function `)
 
         // Stop at module/class boundary at lower indentation
         if indent < def_col && (trimmed.starts_with(b"module ") || trimmed.starts_with(b"class ")) {
@@ -394,21 +412,43 @@ fn is_in_module_function_scope(source: &SourceFile, def_offset: usize) -> bool {
     }
 
     // Also check inline: the def line itself might have `module_function def foo`
-    if def_line > 0 || !lines.is_empty() {
-        let line = if def_line <= lines.len() {
-            lines.get(def_line.saturating_sub(1))
-        } else {
-            None
-        };
-        if let Some(line) = line {
-            let trimmed: Vec<u8> = line
-                .iter()
-                .copied()
-                .skip_while(|&b| b == b' ' || b == b'\t')
-                .collect();
-            if trimmed.starts_with(b"module_function def ") {
-                return true;
-            }
+    if let Some(line) = lines.get(def_line.saturating_sub(1)) {
+        let trimmed: Vec<u8> = line
+            .iter()
+            .copied()
+            .skip_while(|&b| b == b' ' || b == b'\t')
+            .collect();
+        if trimmed.starts_with(b"module_function def ") {
+            return true;
+        }
+    }
+
+    // RuboCop's `module_function_declared?` searches ALL descendants of the ancestor
+    // module, including nodes that appear AFTER the def. Scan forward from the def's
+    // line for any `module_function` reference, stopping at the enclosing scope boundary.
+    //
+    // This catches patterns like:
+    //   `end; module_function :method_name`  (inline on same line as end)
+    //   `module_function :method_name`        (after the def on its own line)
+    for line in lines[def_line..].iter() {
+        let indent = line
+            .iter()
+            .take_while(|&&b| b == b' ' || b == b'\t')
+            .count();
+        let trimmed: &[u8] = &line[indent..];
+
+        // Stop at module/class boundary at lower indentation (scope ends)
+        if indent < def_col && (trimmed.starts_with(b"module ") || trimmed.starts_with(b"class ")) {
+            break;
+        }
+
+        // Check if this line contains `module_function` at all (as a word boundary).
+        // Handles `module_function :name`, `end; module_function :name`, etc.
+        if line
+            .windows(b"module_function".len())
+            .any(|w| w == b"module_function")
+        {
+            return true;
         }
     }
 

@@ -104,3 +104,23 @@ end
 def fox(bar)
   bar.fox
 end
+
+# module_function :name AFTER the def — RuboCop skips these
+module Adapter
+  def adapters
+    Adapter.adapters
+  end; module_function :adapters
+
+  def register(name, condition)
+    Adapter.register(name, condition)
+  end; module_function :register
+end
+
+# module_function :name on a subsequent line in the same module scope
+module SecurityUtils
+  def secure_compare(a, b)
+    OpenSSL.fixed_length_secure_compare(a, b)
+  end
+
+  module_function :secure_compare
+end
