@@ -21,6 +21,16 @@ use crate::parse::source::SourceFile;
 /// `expected=69,729`, `actual=72,210`, `CI baseline=69,618`, `missing=0`.
 /// The raw delta (`+2,592`) stayed within `jruby`'s parser-crash file-drop
 /// noise (`4,141`), so the rerun passed unchanged.
+///
+/// ## Corpus investigation (2026-03-14)
+///
+/// CI baseline: FP=0, FN=62. All 62 FNs were multi-line calls where the
+/// `BlockArgumentNode` (`&block`, `&handler`, `&@callback`) was on a different
+/// line from the other arguments. In Prism, `BlockArgumentNode` lives on
+/// `call.block()`, not in `call.arguments()`, so `collect_arg_locs` never
+/// included it. The `last_line` check saw all regular args on the same line
+/// and returned early (no offense). Fix: include `call.block()` when it is a
+/// `BlockArgumentNode` in the arg_locs vector.
 pub struct FirstMethodArgumentLineBreak;
 
 impl Cop for FirstMethodArgumentLineBreak {
@@ -69,10 +79,18 @@ impl Cop for FirstMethodArgumentLineBreak {
                 return;
             };
 
-            (
-                call.location().start_offset(),
-                collect_arg_locs(args.arguments().iter().collect()),
-            )
+            let mut arg_locs = collect_arg_locs(args.arguments().iter().collect());
+
+            // In Prism, BlockArgumentNode (&block) is on call.block(), not in arguments().
+            // Include it so multiline detection accounts for block args on different lines.
+            if let Some(block) = call.block() {
+                if block.as_block_argument_node().is_some() {
+                    let loc = block.location();
+                    arg_locs.push((loc.start_offset(), loc.end_offset()));
+                }
+            }
+
+            (call.location().start_offset(), arg_locs)
         } else if let Some(super_node) = node.as_super_node() {
             if super_node.lparen_loc().is_none() {
                 return;

@@ -26,3 +26,7 @@ something
 # All arguments on the same line as call, closing paren on next line
 raise_error(SomeError, %r(some message)
                  )
+
+# Block argument on same line as other args
+process(data, &handler)
+client.send(request_method, :post, &@callback)
