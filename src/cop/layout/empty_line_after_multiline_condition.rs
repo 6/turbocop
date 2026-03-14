@@ -15,6 +15,11 @@ use ruby_prism::Visit;
 ///   statement (`right_sibling`). Without AST parent pointers, we approximate
 ///   by scanning for the next non-blank line after the condition and checking
 ///   if it looks like a continuation statement.
+/// - Multiline check compared keyword line vs predicate end line, but RuboCop's
+///   `condition.multiline?` compares the predicate's own first_line vs last_line.
+///   This caused FPs when `if`/`unless` is at end of line with a single-line
+///   predicate on the next line (e.g., `raise ... if\n  cond`). Fixed by comparing
+///   predicate start line vs end line instead.
 ///
 /// **FN root causes:**
 /// - Missing `case/when` support: multiline when conditions need an empty line
@@ -260,12 +265,13 @@ impl EmptyLineAfterMultilineCondition {
         predicate: &ruby_prism::Node<'_>,
         kw_loc: &ruby_prism::Location<'_>,
     ) -> Vec<Diagnostic> {
-        let (kw_line, _) = source.offset_to_line_col(kw_loc.start_offset());
+        let (pred_start_line, _) = source.offset_to_line_col(predicate.location().start_offset());
         let pred_end = predicate.location().end_offset().saturating_sub(1);
         let (pred_end_line, _) = source.offset_to_line_col(pred_end);
 
-        // Only check multiline conditions
-        if kw_line == pred_end_line {
+        // Only check multiline conditions — compare predicate's own start vs end line,
+        // matching RuboCop's `condition.multiline?` which checks first_line vs last_line.
+        if pred_start_line == pred_end_line {
             return Vec::new();
         }
 

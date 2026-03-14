@@ -95,6 +95,21 @@ rescue FooError
   handle_error
 end
 
+# Modifier if where keyword is at end of line but predicate is single-line
+# RuboCop checks condition.multiline? (predicate first_line vs last_line)
+raise ArgumentError, "bad index" if
+  index > size && index < max
+
+# Modifier unless where keyword is at end of line but predicate is single-line
+do_something unless
+  condition_met?
+
+# Block if where keyword is at end of line but predicate is single-line
+if
+  some_condition
+  do_something
+end
+
 # Ternary if — no offense even if condition is multiline (rare but possible)
 x = (a &&
   b) ? 1 : 2
