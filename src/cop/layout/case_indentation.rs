@@ -50,6 +50,28 @@ impl Cop for CaseIndentation {
                 return;
             }
 
+            // Skip when "end" style and the end keyword is on the same line as
+            // the last conditional (else or last when). RuboCop skips these to
+            // avoid false positives on compact trailing forms.
+            if style == "end" {
+                let last_cond_line = if let Some(else_clause) = case_node.else_clause() {
+                    Some(
+                        source
+                            .offset_to_line_col(else_clause.else_keyword_loc().start_offset())
+                            .0,
+                    )
+                } else {
+                    // Use the last when's keyword line
+                    case_node.conditions().iter().last().and_then(|c| {
+                        c.as_when_node()
+                            .map(|w| source.offset_to_line_col(w.keyword_loc().start_offset()).0)
+                    })
+                };
+                if last_cond_line == Some(end_line) {
+                    return;
+                }
+            }
+
             let base_col = if style == "end" {
                 source
                     .offset_to_line_col(case_node.end_keyword_loc().start_offset())
@@ -96,6 +118,28 @@ impl Cop for CaseIndentation {
                 source.offset_to_line_col(case_match_node.end_keyword_loc().start_offset());
             if case_line == end_line {
                 return;
+            }
+
+            // Skip when "end" style and the end keyword is on the same line as
+            // the last conditional (else or last in). RuboCop skips these to
+            // avoid false positives on compact trailing forms.
+            if style == "end" {
+                let last_cond_line = if let Some(else_clause) = case_match_node.else_clause() {
+                    Some(
+                        source
+                            .offset_to_line_col(else_clause.else_keyword_loc().start_offset())
+                            .0,
+                    )
+                } else {
+                    // Use the last in's keyword line
+                    case_match_node.conditions().iter().last().and_then(|c| {
+                        c.as_in_node()
+                            .map(|i| source.offset_to_line_col(i.in_loc().start_offset()).0)
+                    })
+                };
+                if last_cond_line == Some(end_line) {
+                    return;
+                }
             }
 
             let base_col = if style == "end" {
@@ -184,6 +228,36 @@ mod tests {
         assert!(
             diags2.is_empty(),
             "IndentOneStep should accept indented when"
+        );
+    }
+
+    #[test]
+    fn end_style_skips_when_end_on_same_line_as_else() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("end".into()),
+            )]),
+            ..CopConfig::default()
+        };
+
+        // end on same line as else — RuboCop skips the check entirely
+        let src = b"x = case foo\n    when 1 then :a\n    when 2 then :b\n    else :c end\n";
+        let diags = run_cop_full_with_config(&CaseIndentation, src, config.clone());
+        assert!(
+            diags.is_empty(),
+            "end style should skip when end is on same line as else"
+        );
+
+        // end on same line as last when (no else) — RuboCop skips
+        let src2 = b"x = case foo\n    when 1 then :a\n    when 2 then :b end\n";
+        let diags2 = run_cop_full_with_config(&CaseIndentation, src2, config);
+        assert!(
+            diags2.is_empty(),
+            "end style should skip when end is on same line as last when"
         );
     }
 
