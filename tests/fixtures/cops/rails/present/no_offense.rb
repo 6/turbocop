@@ -38,3 +38,11 @@ foo && !foo&.empty?
 foo != nil && !bar.empty?
 !!x && !y.empty?
 a && !b.empty?
+
+# blank? called with argument (class method style, e.g. Helpers.blank?(value)) should NOT be flagged
+# RuboCop's NodePattern `(send $_ :blank?)` requires blank? to have no arguments
+!Helpers.blank?(value)
+!SomeModule::Helpers.blank?(options[:key])
+unless Helpers.blank?(value)
+  do_something
+end

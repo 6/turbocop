@@ -33,6 +33,16 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: Added `is_safe_nav()` helper to skip safe navigation calls in all three check methods.
 /// Added receiver source comparison for patterns 1, 3, and 4.
+///
+/// ## Investigation (2026-03-14)
+///
+/// **FP root cause (57 FP):** `blank?` called WITH arguments was flagged. RuboCop's NodePattern
+/// `(send $_ :blank?)` only matches when `blank?` has NO arguments. The pattern
+/// `!Helpers.blank?(value)` or `unless Helpers.blank?(value)` uses `blank?` as a class method
+/// with an argument — RuboCop doesn't flag these, nitrocop did.
+///
+/// Fix: Added argument count check in `check_not_blank` and `check_unless_blank`. If the `blank?`
+/// call has any arguments, skip flagging to match RuboCop's NodePattern behavior.
 pub struct Present;
 
 impl Cop for Present {
@@ -108,6 +118,15 @@ impl Cop for Present {
             return;
         }
 
+        // RuboCop's NodePattern `(send $_ :blank?)` only matches blank? with NO arguments.
+        // `!Helpers.blank?(value)` (blank? called as class method with arg) must not be flagged.
+        if inner_call
+            .arguments()
+            .is_some_and(|a| !a.arguments().is_empty())
+        {
+            return;
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
@@ -148,6 +167,14 @@ impl Present {
             return None;
         }
         if is_safe_nav(&pred_call) {
+            return None;
+        }
+        // RuboCop's NodePattern `(send $_ :blank?)` only matches blank? with NO arguments.
+        // `unless Helpers.blank?(value)` should NOT be flagged.
+        if pred_call
+            .arguments()
+            .is_some_and(|a| !a.arguments().is_empty())
+        {
             return None;
         }
 
