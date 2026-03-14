@@ -60,4 +60,18 @@ RSpec.describe Foo do
     _1.finalize
     _1.verify
   end
+
+  # Heredoc inside a block wrapper: when the body is a single block call
+  # containing a heredoc, RuboCop's source_from_node_with_heredoc excludes
+  # the block's closing `end` keyword (it's not a descendant node).
+  # Lines: Dir.chdir(1) + content=heredoc(1) + body(1) + END(1) + blank(skip) + expect(1) = 5
+  it 'example with heredoc in single-statement block wrapper' do
+    Dir.chdir('/tmp') do
+      content = to_pdf <<~END, analyze: :image
+      image::square.png[pdfwidth=1in]
+      END
+
+      expect(content).to have_size 1
+    end
+  end
 end

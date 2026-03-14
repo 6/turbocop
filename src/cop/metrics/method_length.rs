@@ -508,7 +508,7 @@ fn extract_define_method_name(call: &ruby_prism::CallNode<'_>) -> Option<String>
 }
 
 /// Check if a body node contains any heredoc descendants.
-fn body_has_heredoc(source: &SourceFile, body: &ruby_prism::Node<'_>) -> bool {
+pub(crate) fn body_has_heredoc(source: &SourceFile, body: &ruby_prism::Node<'_>) -> bool {
     use ruby_prism::Visit;
 
     struct HeredocDetector<'a> {
@@ -557,7 +557,7 @@ fn body_has_heredoc(source: &SourceFile, body: &ruby_prism::Node<'_>) -> bool {
 /// considering heredoc closing locations. This replicates RuboCop's
 /// `source_from_node_with_heredoc` behavior where the effective end
 /// is the max descendant last_line (not the container node's last_line).
-fn max_descendant_end_line(source: &SourceFile, body: &ruby_prism::Node<'_>) -> usize {
+pub(crate) fn max_descendant_end_line(source: &SourceFile, body: &ruby_prism::Node<'_>) -> usize {
     let heredoc_ranges = collect_heredoc_ranges(source, body);
     let max_heredoc_line = heredoc_ranges
         .iter()

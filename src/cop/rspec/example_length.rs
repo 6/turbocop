@@ -1,3 +1,4 @@
+use crate::cop::metrics::method_length::{body_has_heredoc, max_descendant_end_line};
 use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example};
 use crate::cop::{Cop, CopConfig};
@@ -16,6 +17,14 @@ use crate::parse::source::SourceFile;
 ///    (numbered params like `_1`) or `itblock` (Ruby 3.4 `it` keyword param). In Prism
 ///    these are still BlockNode but with NumberedParametersNode or ItParametersNode as
 ///    parameters. Added guard to skip these block types.
+/// 3. Heredoc body lines counted in nested block `end` (FP=11, 2026-03-14): When the
+///    body is a single block call (e.g., `Dir.chdir do ... end`) containing heredocs,
+///    RuboCop switches from `body.source.lines` to `source_from_node_with_heredoc(body)`.
+///    The latter tracks `descendant.last_line` (not the container node's `last_line`),
+///    so the nested block's closing `end` keyword is EXCLUDED from the count. Nitrocop
+///    was counting the nested `end` line, producing [6/5] where RuboCop counts [5/5].
+///    Fix: when the body has heredocs, use `max_descendant_end_line` to compute the
+///    effective end offset, matching RuboCop's `source_from_node_with_heredoc` behavior.
 ///
 /// ### FN root causes (fixed):
 /// 1. CountAsOne reduction was using line span instead of code length. RuboCop counts
@@ -96,13 +105,36 @@ impl Cop for ExampleLength {
         // RSpec/ExampleLength), meaning comment-only lines are NOT counted.
         let count_comments = config.get_bool("CountComments", false);
         let block_loc = block.location();
+        let default_end = block_loc
+            .end_offset()
+            .saturating_sub(1)
+            .max(block_loc.start_offset());
+
+        // When the body contains heredocs, RuboCop switches from `body.source.lines` to
+        // `source_from_node_with_heredoc(body)`. The latter uses `descendant.last_line`
+        // (not the body node's own `last_line`), so the outermost nested block's closing
+        // `end` keyword is excluded. Replicate by adjusting the effective end offset.
+        let effective_end = if let Some(ref body) = block.body() {
+            if body_has_heredoc(source, body) {
+                let max_line = max_descendant_end_line(source, body);
+                if max_line > 0 {
+                    source
+                        .line_col_to_offset(max_line + 1, 0)
+                        .unwrap_or(default_end)
+                } else {
+                    default_end
+                }
+            } else {
+                default_end
+            }
+        } else {
+            default_end
+        };
+
         let count = util::count_body_lines(
             source,
             block_loc.start_offset(),
-            block_loc
-                .end_offset()
-                .saturating_sub(1)
-                .max(block_loc.start_offset()),
+            effective_end,
             count_comments,
         );
 
