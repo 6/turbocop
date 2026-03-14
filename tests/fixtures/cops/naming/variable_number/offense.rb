@@ -41,3 +41,9 @@ $global_var_1 += 10
 ^^^^ Naming/VariableNumber: Use normalcase for variable numbers.
 $_1 = 1
 ^^^ Naming/VariableNumber: Use normalcase for variable numbers.
+
+# Empty string hash key — with TargetRubyVersion 4.0, Parser gem creates
+# :sym (not :dsym) for hash-key empty symbols, so RuboCop's on_sym fires
+# and the normalcase regex fails on empty strings
+{"": true}
+ ^^ Naming/VariableNumber: Use normalcase for symbol numbers.

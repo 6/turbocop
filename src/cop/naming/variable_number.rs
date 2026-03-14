@@ -56,12 +56,15 @@ use crate::parse::source::SourceFile;
 ///
 /// Corpus oracle reported FP=0, FN=1 on hexapdf test_serializer.rb:101.
 /// The offense is on `"":` (empty string hash key). With TargetRubyVersion: 4.0
-/// (the corpus baseline), Parser gem treats `"":` as a `:sym` node instead of
-/// `:dsym`, causing RuboCop's `on_sym` to fire. With default Ruby version,
-/// it's `:dsym` and the cop skips it. Prism always creates a SymbolNode with
-/// empty `unescaped()`, which our code correctly skips. Fixing this would
-/// require special-casing TargetRubyVersion-dependent parsing behavior for a
-/// single edge case. Given 15,524 matches at 99.99%, deferred.
+/// (the corpus baseline), Parser gem treats `"":` as `:sym` (not `:dsym`),
+/// causing RuboCop's `on_sym` to fire. The normalcase regex doesn't match
+/// empty strings, so it flags them.
+///
+/// Fix: stop skipping empty names in `check_number_style`, but only for
+/// hash-key symbols (no colon-prefix opening in Prism). Standalone empty
+/// symbols (`:""`, `:''`) still have `:dsym` in Parser gem and are not
+/// checked by RuboCop, so we skip those by checking `opening_loc` for a
+/// colon prefix.
 pub struct VariableNumber;
 
 const DEFAULT_ALLOWED: &[&str] = &[
@@ -229,6 +232,20 @@ impl Cop for VariableNumber {
             if let Some(sym) = node.as_symbol_node() {
                 let name = sym.unescaped();
                 let name_str = std::str::from_utf8(name).unwrap_or("");
+                // Skip standalone empty symbols (:'' and :""). In Parser gem
+                // with TargetRubyVersion >= 4.0, these are :dsym (not :sym),
+                // so RuboCop's on_sym never fires. Only hash-key empty symbols
+                // ("": val) become :sym in Parser 4.0. In Prism, standalone
+                // symbols have a colon-prefix opening (`:` or `:`), while
+                // hash-key symbols don't.
+                if name_str.is_empty() {
+                    let is_standalone = sym
+                        .opening_loc()
+                        .is_some_and(|loc| loc.as_slice().starts_with(b":"));
+                    if is_standalone {
+                        return;
+                    }
+                }
                 if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
                     // For empty-value symbols like :"", value_loc() may return
                     // a zero-length range at an incorrect offset. Use the full
@@ -296,11 +313,16 @@ fn check_number_style(
     identifier_type: &str,
     is_bare_name: bool,
 ) -> Option<Diagnostic> {
-    // Find if name contains digits.
-    // Empty names (e.g. `:""`  empty-string symbol) are skipped — RuboCop's
-    // Parser gem creates dsym (not sym) for these, so on_sym never fires.
+    // Skip names without digits — the style regex always matches non-empty
+    // strings ending with a non-digit character. But empty names (e.g. `:""`
+    // from `"":` hash key syntax) DON'T match any style regex. With
+    // TargetRubyVersion >= 4.0, Parser gem creates :sym for `"":` (instead
+    // of :dsym in older versions), so RuboCop's on_sym fires and the regex
+    // check fails on the empty string → offense. Prism always creates
+    // SymbolNode for these, so we match RuboCop 4.0 behavior by not skipping
+    // empty names.
     let has_digit = name.bytes().any(|b| b.is_ascii_digit());
-    if !has_digit || name.is_empty() {
+    if !has_digit && !name.is_empty() {
         return None;
     }
 
@@ -438,10 +460,26 @@ mod tests {
     }
 
     #[test]
-    fn empty_string_symbol_is_not_offense() {
-        // RuboCop's Parser gem creates dsym (not sym) for empty symbols,
-        // so the cop never checks them.
+    fn empty_hash_key_symbol_is_offense() {
+        // With TargetRubyVersion >= 4.0, hash-key empty symbols ("": val)
+        // are :sym in Parser gem, so RuboCop's on_sym fires and the normalcase
+        // regex fails on empty strings. Prism creates SymbolNode without
+        // colon opening for hash keys.
+        let diags = crate::testutil::run_cop_full(&VariableNumber, b"{\"\":1}\n");
+        assert_eq!(
+            diags.len(),
+            1,
+            "expected hash-key empty symbol to be flagged"
+        );
+    }
+
+    #[test]
+    fn standalone_empty_symbol_is_no_offense() {
+        // Standalone empty symbols (:'' and :"") are :dsym in Parser gem
+        // (even with Ruby 4.0), so RuboCop's on_sym never fires.
         let diags = crate::testutil::run_cop_full(&VariableNumber, b":\"\"\n");
-        assert_eq!(diags.len(), 0);
+        assert_eq!(diags.len(), 0, "standalone :\"\" should NOT be flagged");
+        let diags = crate::testutil::run_cop_full(&VariableNumber, b":''\n");
+        assert_eq!(diags.len(), 0, "standalone :'' should NOT be flagged");
     }
 }
