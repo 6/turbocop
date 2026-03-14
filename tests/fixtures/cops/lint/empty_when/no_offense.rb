@@ -60,3 +60,12 @@ when /\AWEBrick [\d.]+/,
 when /\Aother/
   process(line)
 end
+# Heredoc condition with comment body (AllowComments: true)
+case content
+when <<~TEXT
+  expected content
+TEXT
+  # heredoc match is intentionally ignored
+when "other"
+  process(content)
+end

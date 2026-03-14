@@ -3,11 +3,20 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
-/// Corpus: 4 FPs fixed. All were multi-line `when` conditions (conditions spanning
-/// multiple lines) with comment-only bodies. The AllowComments search started from
-/// the `when` keyword line, so for multi-line conditions the continuation lines
-/// (containing code) broke the blank/comment scan before reaching the actual comment.
+/// Corpus: 5 FPs fixed.
+///
+/// Round 1 (4 FPs): Multi-line `when` conditions (conditions spanning multiple lines)
+/// with comment-only bodies. The AllowComments search started from the `when` keyword
+/// line, so for multi-line conditions the continuation lines (containing code) broke
+/// the blank/comment scan before reaching the actual comment.
 /// Fix: start the scan from the end of the last condition expression instead.
+///
+/// Round 2 (1 FP): Heredoc condition (`when <<~TEXT ... TEXT`). Prism's StringNode
+/// location only covers the opening delimiter (`<<~TEXT`), not the heredoc body or
+/// closing delimiter. The line-forward scan from `last_cond_end` hit the heredoc
+/// content lines (not blank, not comment) and stopped before reaching the actual
+/// comment in the when body. Fix: use `closing_loc().end_offset()` for StringNode
+/// and InterpolatedStringNode conditions to get the true end past the heredoc.
 pub struct EmptyWhen;
 
 impl Cop for EmptyWhen {
@@ -59,10 +68,25 @@ impl Cop for EmptyWhen {
 
             // For multi-line when conditions, start scanning from after the
             // last condition expression, not from the `when` keyword line.
+            // For heredoc conditions (StringNode, InterpolatedStringNode), the
+            // node's location only covers the opening delimiter (e.g. `<<~TEXT`),
+            // but the actual content and closing delimiter extend much further.
+            // Use closing_loc when available to get the true end offset.
             let conditions = when_node.conditions();
             let last_cond_end = conditions
                 .iter()
-                .map(|c| c.location().end_offset())
+                .map(|c| {
+                    let loc_end = c.location().end_offset();
+                    // Check for heredoc closing delimiter beyond the node location
+                    let closing_end = if let Some(s) = c.as_string_node() {
+                        s.closing_loc().map(|l| l.end_offset()).unwrap_or(loc_end)
+                    } else if let Some(s) = c.as_interpolated_string_node() {
+                        s.closing_loc().map(|l| l.end_offset()).unwrap_or(loc_end)
+                    } else {
+                        loc_end
+                    };
+                    loc_end.max(closing_end)
+                })
                 .max()
                 .unwrap_or(when_start);
 
