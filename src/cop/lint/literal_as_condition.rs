@@ -52,13 +52,34 @@ use crate::parse::source::SourceFile;
 ///
 /// Corpus oracle reported FP=20, FN=0.
 ///
-/// FP fix: Removed `XStringNode` and `InterpolatedXStringNode` from `is_literal()`.
-/// RuboCop's `literal?` (from rubocop-ast) does NOT include `xstr` in its LITERAL_TYPES.
-/// Backtick commands execute at runtime and are not literals. The RuboCop spec only tests
-/// these literal types in conditions: `1`, `2.0`, `[1]`, `{}`, `:sym`, `:"#{a}"`.
-/// Neither plain xstrings (`` `cmd` ``) nor interpolated xstrings (`` `#{expr}` ``) appear.
-/// The previous FN fix that added InterpolatedXStringNode was overcorrecting — those FNs
-/// were actually correct RuboCop behavior (not flagging xstrings).
+/// Previous fix: Removed `XStringNode` and `InterpolatedXStringNode` from `is_literal()`.
+/// This was based on an incorrect claim that rubocop-ast's `literal?` excludes `xstr`.
+/// In fact, `xstr` IS in rubocop-ast's `TRUTHY_LITERALS`. Empirically verified with
+/// RuboCop v1.85.1: `if \`cmd\`` IS flagged as an offense. The removal was wrong.
+///
+/// ## Corpus investigation (2026-03-14)
+///
+/// Corpus oracle reported FP=20, FN=127.
+///
+/// FN fix: Added `XStringNode` and `InterpolatedXStringNode` back to `is_literal()`.
+/// Empirically verified all literal types against RuboCop v1.85.1 with Prism parser:
+/// - Flagged in conditions: int, float, str, dstr, sym, dsym, array, hash, true, false,
+///   nil, rational, complex, xstr (both plain and interpolated)
+/// - NOT flagged: regex in if/while/unless/until (Prism converts to MatchLastLineNode),
+///   range in if (Prism converts to FlipFlopNode)
+/// - `RegularExpressionNode`/`InterpolatedRegularExpressionNode` correctly remain in
+///   `is_literal()` — they appear as `case` predicates and `when` conditions where
+///   RuboCop does flag them. Only in if/while/unless/until do regexes become
+///   MatchLastLineNode/InterpolatedMatchLastLineNode (not in our literal set).
+///
+/// Also added test coverage for: xstring in if/while/bang contexts, elsif with literal
+/// condition, interpolated symbol (`:"#{a}"`), and regex/interpolated-regex as
+/// no-offense in if conditions.
+///
+/// FP=20 root cause: Not yet identified. All literal types in `is_literal()` verified
+/// as matching RuboCop's `TRUTHY_LITERALS` + `FALSEY_LITERALS`. The remaining FPs may
+/// be from edge cases in config resolution, disable comment handling, or other subtle
+/// behavioral differences. Requires corpus data with example locations to investigate.
 pub struct LiteralAsCondition;
 
 /// Check if a node is a literal value (matches RuboCop's `literal?`).
@@ -83,6 +104,8 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
             | ruby_prism::Node::InterpolatedStringNode { .. }
             | ruby_prism::Node::InterpolatedSymbolNode { .. }
             | ruby_prism::Node::InterpolatedRegularExpressionNode { .. }
+            | ruby_prism::Node::XStringNode { .. }
+            | ruby_prism::Node::InterpolatedXStringNode { .. }
     )
 }
 

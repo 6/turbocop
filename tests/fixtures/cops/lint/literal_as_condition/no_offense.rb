@@ -56,15 +56,21 @@ begin
   break if condition
 end until false
 
-# Backtick commands (xstrings) are not literals — they execute at runtime
-if `uname`
+# Regex in if condition → MatchLastLineNode, not RegularExpressionNode
+if /pattern/
   top
 end
 
-while `#{counter} < 10`
-  break
+# Interpolated regex in if condition → InterpolatedMatchLastLineNode
+if /pattern #{x}/
+  top
 end
 
-unless `check_ready`
+# Range in if condition → FlipFlopNode, not RangeNode
+# (flip-flop semantics, not literal range)
+# NOTE: Cannot test this because Ruby parser warnings may interfere
+
+# Regex in unless/while/until → also MatchLastLineNode
+unless /ready/
   retry
 end

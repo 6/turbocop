@@ -126,3 +126,30 @@ until 42
       ^^ Lint/LiteralAsCondition: Literal `42` appeared as a condition.
   top
 end
+
+# xstring (backtick commands) are literals per RuboCop
+if `uname`
+   ^^^^^^^ Lint/LiteralAsCondition: Literal ``uname`` appeared as a condition.
+  top
+end
+while `cmd`
+      ^^^^^ Lint/LiteralAsCondition: Literal ``cmd`` appeared as a condition.
+  top
+  break
+end
+!`cmd`
+ ^^^^^ Lint/LiteralAsCondition: Literal ``cmd`` appeared as a condition.
+
+# elsif with literal condition
+if condition
+  top
+elsif 42
+      ^^ Lint/LiteralAsCondition: Literal `42` appeared as a condition.
+  foo
+end
+
+# interpolated symbol in if
+if :"#{a}"
+   ^^^^^^^ Lint/LiteralAsCondition: Literal `:"#{a}"` appeared as a condition.
+  top
+end
