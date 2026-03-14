@@ -33,3 +33,29 @@ class Helper
   def action
   end
 end
+
+# Access modifier inside a block, missing blank line after
+included do
+  private
+  ^^^^^^^ Layout/EmptyLinesAroundAccessModifier: Keep a blank line after `private`.
+  def test
+  end
+end
+
+# Access modifier inside a block, missing blank line before and after
+included do
+  def setup
+  end
+  private
+  ^^^^^^^ Layout/EmptyLinesAroundAccessModifier: Keep a blank line before and after `private`.
+  def test
+  end
+end
+
+# Access modifier inside a brace block, missing blank line after
+included {
+  protected
+  ^^^^^^^^^ Layout/EmptyLinesAroundAccessModifier: Keep a blank line after `protected`.
+  def test
+  end
+}

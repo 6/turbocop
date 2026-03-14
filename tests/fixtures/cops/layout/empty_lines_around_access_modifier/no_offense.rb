@@ -87,11 +87,14 @@ class Conversation
   end
 end
 
-# Access modifiers inside a block body (not a class/module) should not be flagged
+# Access modifiers inside a block body are checked like class bodies
 app = Sinatra.new do
   private
+
   def priv; end
+
   public
+
   def pub; end
 end
 
@@ -137,5 +140,34 @@ class Config
   private # internal helpers
 
   def helper
+  end
+end
+
+# Access modifier inside a block at the beginning (no blank needed before)
+included do
+  private
+
+  def test; end
+end
+
+# Access modifier inside a block with arguments
+included do |foo|
+  private
+
+  def test; end
+end
+
+# Access modifier inside a brace block at the beginning
+included {
+  private
+
+  def test; end
+}
+
+# Access modifier inside a nested block
+ActiveSupport.on_load(:active_storage_attachment) do
+  private
+
+  def secret
   end
 end

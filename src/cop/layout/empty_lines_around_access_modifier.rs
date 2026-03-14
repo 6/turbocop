@@ -1,4 +1,4 @@
-use crate::cop::util::is_blank_line;
+use crate::cop::util::is_blank_or_whitespace_line;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
@@ -17,13 +17,19 @@ use crate::parse::source::SourceFile;
 ///    line started with `class`/`module`, missing the continuation line.
 ///    Fix: store class/module/block opening lines from the AST in the collector, and
 ///    use those for boundary detection instead of text matching.
+/// 3. Whitespace-only "blank" lines (e.g., lines with trailing spaces/tabs) were
+///    not recognized as blank by `is_blank_line`. Repos like coderay and redcar use
+///    trailing whitespace on otherwise empty lines.
+///    Fix: switched to `is_blank_or_whitespace_line` (2026-03-14).
 ///
 /// FN root causes:
 /// 1. Access modifiers with trailing comments (`private # comment`) were rejected by
 ///    the line-content check which required `end_trimmed == method_name`.
 ///    Fix: allow trailing `# comment` after the modifier.
-/// 2. Access modifiers inside blocks (`included do ... end`) are excluded by the
-///    visitor but RuboCop flags them. Not yet fixed (requires block scope tracking).
+/// 2. Access modifiers inside blocks (`included do ... end`) were excluded by the
+///    visitor (pushed as non-class scope), but RuboCop treats them as valid scopes.
+///    Fix: treat blocks in class/module scope (or top-level) as class-like scopes,
+///    while blocks inside method bodies remain excluded (2026-03-14).
 /// 3. `only_before` style: missing "Remove a blank line after" offense for
 ///    `private`/`protected`. Not yet fixed.
 pub struct EmptyLinesAroundAccessModifier;
@@ -250,13 +256,20 @@ impl<'pr> ruby_prism::Visit<'pr> for AccessModifierCollector {
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
-        // Block bodies maintain the enclosing scope behavior.
-        // RuboCop considers blocks as valid macro scopes, but for now we
-        // continue to exclude them to avoid false positives. The block_line
-        // tracking from RuboCop is complex and requires separate handling.
-        self.push_non_class_scope();
-        ruby_prism::visit_block_node(self, node);
-        self.pop_scope();
+        // RuboCop treats block bodies as valid scopes for access modifiers
+        // (e.g., `included do`, `ActiveSupport.on_load do`, etc.), but only
+        // when the block is in a class/module scope (not inside a method body).
+        if self.in_class_body() || self.scope_stack.is_empty() {
+            let opening = node.location().start_offset();
+            let closing = node.location().end_offset();
+            self.push_class_scope(opening, closing);
+            ruby_prism::visit_block_node(self, node);
+            self.pop_scope();
+        } else {
+            self.push_non_class_scope();
+            ruby_prism::visit_block_node(self, node);
+            self.pop_scope();
+        }
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
@@ -356,7 +369,8 @@ impl Cop for EmptyLinesAroundAccessModifier {
                             idx -= 1;
                             continue;
                         }
-                        found_blank_or_boundary = is_blank_line(prev) || is_body_opening(prev);
+                        found_blank_or_boundary =
+                            is_blank_or_whitespace_line(prev) || is_body_opening(prev);
                         break;
                     }
                     found_blank_or_boundary
@@ -368,7 +382,7 @@ impl Cop for EmptyLinesAroundAccessModifier {
                 true
             } else if line < lines.len() {
                 let next = lines[line];
-                is_blank_line(next)
+                is_blank_or_whitespace_line(next)
             } else {
                 true
             };

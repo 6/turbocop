@@ -36,3 +36,30 @@ class Helper
   def action
   end
 end
+
+# Access modifier inside a block, missing blank line after
+included do
+  private
+
+  def test
+  end
+end
+
+# Access modifier inside a block, missing blank line before and after
+included do
+  def setup
+  end
+
+  private
+
+  def test
+  end
+end
+
+# Access modifier inside a brace block, missing blank line after
+included {
+  protected
+
+  def test
+  end
+}
