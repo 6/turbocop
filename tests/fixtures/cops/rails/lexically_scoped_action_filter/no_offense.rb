@@ -62,3 +62,36 @@ class ConditionalController < ActionController
 
   def cancel; end
 end
+
+# Block form with no positional args — RuboCop pattern requires exactly one non-hash arg
+class BlockFilterController < ApplicationController
+  before_action(only: :show) do
+    @record = Record.find(params[:id])
+  end
+
+  def show; end
+end
+
+# Block form without parens
+module BlockMixin
+  included do
+    before_action only: :index do
+      authenticate!
+    end
+  end
+
+  def index; end
+end
+
+# Multiple positional method names — 2 non-hash args, not matched by RuboCop pattern
+class MultiNameController < ApplicationController
+  skip_before_action :authenticate, :track, only: [:index]
+
+  def index; end
+end
+
+class MultiNameSkipController < ApplicationController
+  before_action :load_resource, :set_locale, only: :show
+
+  def show; end
+end

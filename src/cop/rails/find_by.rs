@@ -3,6 +3,20 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Rails/FindBy
+///
+/// ## Investigation (2026-03-14): FP=10, FN=1
+///
+/// FPs were caused by two issues:
+/// 1. `where(...).take(1)` was flagged — RuboCop only flags `take` with zero
+///    arguments (checks `node.arguments.empty?`). Fixed by skipping when the
+///    outer call has arguments.
+/// 2. Location mismatch — nitrocop reported at the start of the entire chain
+///    expression while RuboCop reports at the `take`/`first` keyword location
+///    (RESTRICT_ON_SEND fires on the `take`/`first` node itself). Fixed by
+///    using `message_loc()` on the outer call.
+///
+/// The remaining FN was a location mismatch in a multi-line chain (same offense, different line).
 pub struct FindBy;
 
 impl Cop for FindBy {
@@ -46,8 +60,21 @@ impl Cop for FindBy {
             return;
         }
 
+        // Skip `take(n)` / `first(n)` — RuboCop only flags zero-argument calls.
+        let outer_call = node.as_call_node().expect("validated by as_method_chain");
+        if outer_call
+            .arguments()
+            .is_some_and(|a| !a.arguments().is_empty())
+        {
+            return;
+        }
+
         let method_name = if is_first { "first" } else { "take" };
-        let loc = node.location();
+        // Report at the `take`/`first` keyword location (message_loc) to match RuboCop.
+        // RuboCop's RESTRICT_ON_SEND fires on the take/first node and reports at loc.selector.
+        let loc = outer_call
+            .message_loc()
+            .unwrap_or_else(|| outer_call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,

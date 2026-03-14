@@ -36,6 +36,13 @@ use crate::parse::source::SourceFile;
 /// - Added recursive search for filter calls in nested blocks to handle
 ///   `included do ... end` pattern.
 /// - Maintained existing delegate/alias_method/alias recognition.
+///
+/// **Fixes applied (round 3): FP=8**
+/// - Block forms (`before_action(only: :x) do...end`) and multi-name forms
+///   (`skip_before_action :a, :b, only: [...]`) produced FPs. RuboCop's
+///   NodePattern `(send nil? {filters} _ (hash (pair (sym {:only :except}) $_)))`
+///   requires exactly ONE non-hash positional arg. Fixed by counting non-hash
+///   args and skipping if not exactly 1.
 pub struct LexicallyScopedActionFilter;
 
 /// (call_start_offset, only_action_names, except_action_names)
@@ -213,7 +220,10 @@ fn collect_filter_calls_recursive(
 
 /// Extract action names (as symbol or string values) from the :only or :except keyword arg
 /// of a filter call. Returns just the names (no offsets needed since we report on the call).
-/// RuboCop's pattern requires the keyword hash to contain ONLY the only:/except: pair.
+/// RuboCop's pattern: `(send nil? {filters} _ (hash (pair (sym {:only :except}) $_)))`
+/// This requires EXACTLY ONE non-hash positional arg before the keyword hash. Forms with
+/// 0 positional args (block-only forms like `before_action(only: :x) do...end`) or 2+
+/// positional args (`skip_before_action :a, :b, only: [...]`) are not matched by RuboCop.
 fn extract_action_names_from_call(call: &ruby_prism::CallNode<'_>, key: &[u8]) -> Vec<Vec<u8>> {
     let mut results = Vec::new();
 
@@ -222,7 +232,18 @@ fn extract_action_names_from_call(call: &ruby_prism::CallNode<'_>, key: &[u8]) -
         None => return results,
     };
 
-    for arg in args.arguments().iter() {
+    let arg_list: Vec<_> = args.arguments().iter().collect();
+
+    // Must have exactly 1 non-keyword-hash positional arg (the filter proc/symbol).
+    let non_hash_count = arg_list
+        .iter()
+        .filter(|a| a.as_keyword_hash_node().is_none())
+        .count();
+    if non_hash_count != 1 {
+        return results;
+    }
+
+    for arg in arg_list.iter() {
         let kw = match arg.as_keyword_hash_node() {
             Some(k) => k,
             None => continue,
