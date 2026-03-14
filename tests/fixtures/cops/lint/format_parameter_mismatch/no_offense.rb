@@ -61,3 +61,11 @@ format('\\%06<hex>x', hex: 10)
 # Numbered format with *N$ dynamic width
 "%1$*2$s" % ["a", 8]
 "%1$*10$s" % ["a",0,0,0,0,0,0,0,0,8]
+
+# Custom DSL method named format with block (not Kernel#format)
+format 'text/latex' do |obj|
+  obj.to_s
+end
+format 'text/html' do |obj|
+  obj.to_s
+end
