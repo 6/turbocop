@@ -4,6 +4,14 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03-14):
+/// - 1 FP: parameters following a multi-line default value (e.g., `), adapter: ...`)
+///   were flagged even though they don't begin their line. Fixed by adding
+///   `begins_its_line` check, matching RuboCop's Alignment mixin behavior.
+/// - 14 FNs: block parameters (`&blk`, `&block`) were not included in alignment
+///   checking because Prism stores them separately via `params.block()` rather
+///   than in the regular parameter lists. Fixed by collecting all parameter
+///   offsets including block params. Also added `keyword_rest` params.
 pub struct ParameterAlignment;
 
 impl Cop for ParameterAlignment {
@@ -37,25 +45,34 @@ impl Cop for ParameterAlignment {
             None => return,
         };
 
-        let requireds: Vec<_> = params.requireds().iter().collect();
-        let optionals: Vec<_> = params.optionals().iter().collect();
-        let mut all_params: Vec<ruby_prism::Node<'_>> = Vec::new();
-        all_params.extend(requireds);
-        all_params.extend(optionals);
+        // Collect start offsets for all parameter types, including block params.
+        // We use offsets directly because BlockParameterNode is a different type
+        // than Node and can't be stored in the same Vec.
+        let mut param_offsets: Vec<usize> = Vec::new();
+        for p in params.requireds().iter() {
+            param_offsets.push(p.location().start_offset());
+        }
+        for p in params.optionals().iter() {
+            param_offsets.push(p.location().start_offset());
+        }
         if let Some(rest) = params.rest() {
-            all_params.push(rest);
+            param_offsets.push(rest.location().start_offset());
         }
         for kw in params.keywords().iter() {
-            all_params.push(kw);
+            param_offsets.push(kw.location().start_offset());
+        }
+        if let Some(kw_rest) = params.keyword_rest() {
+            param_offsets.push(kw_rest.location().start_offset());
+        }
+        if let Some(block) = params.block() {
+            param_offsets.push(block.location().start_offset());
         }
 
-        if all_params.len() < 2 {
+        if param_offsets.len() < 2 {
             return;
         }
 
-        let first_param = &all_params[0];
-        let (first_line, first_col) =
-            source.offset_to_line_col(first_param.location().start_offset());
+        let (first_line, first_col) = source.offset_to_line_col(param_offsets[0]);
 
         let base_col = match style {
             "with_fixed_indentation" => {
@@ -69,14 +86,18 @@ impl Cop for ParameterAlignment {
 
         // Only check the FIRST parameter on each new line. Multiple parameters
         // on the same continuation line should not be checked individually.
+        // Also skip parameters that don't begin their line (e.g., after a
+        // closing paren of a multi-line default value: `), adapter: ...`).
         let mut last_checked_line = first_line;
-        for param in all_params.iter().skip(1) {
-            let (param_line, param_col) =
-                source.offset_to_line_col(param.location().start_offset());
+        for &offset in param_offsets.iter().skip(1) {
+            let (param_line, param_col) = source.offset_to_line_col(offset);
             if param_line == last_checked_line {
                 continue; // Same line as a previously checked param, skip
             }
             last_checked_line = param_line;
+            if !util::begins_its_line(source, offset) {
+                continue; // Parameter doesn't begin its line (e.g., after `)` of a default value)
+            }
             if param_col != base_col {
                 let msg = if style == "with_fixed_indentation" {
                     "Use one level of indentation for parameters following the first line of a multi-line method definition."
