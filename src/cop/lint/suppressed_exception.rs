@@ -12,6 +12,15 @@ use crate::parse::source::SourceFile;
 /// on the rescue line itself (e.g., `rescue # ignore` or `rescue StandardError # skip`).
 /// RuboCop treats these as commented rescue bodies and does not flag them.
 /// Fix: also check the rescue keyword line for a trailing `#` comment.
+///
+/// ## Investigation (2026-03-14)
+/// Corpus: FP=9, FN=49.
+/// FP root cause: in multi-rescue chains, nitrocop scanned for comments only up to
+/// the next rescue clause's start line. RuboCop's `comment_between_rescue_and_end?`
+/// scans from the rescue line all the way to the ancestor's `end` keyword. This means
+/// comments in subsequent rescue clauses or ensure/else blocks satisfy AllowComments
+/// for earlier empty rescue clauses. Fix: always use the ancestor begin node's end
+/// keyword as the scan boundary, matching RuboCop's behavior.
 pub struct SuppressedException;
 
 impl Cop for SuppressedException {
@@ -72,19 +81,11 @@ impl Cop for SuppressedException {
                 if allow_comments && suppressed {
                     let (rescue_line, _) =
                         source.offset_to_line_col(rescue_node.keyword_loc().start_offset());
-                    let clause_end_line = if let Some(sub) = rescue_node.subsequent() {
-                        source
-                            .offset_to_line_col(sub.keyword_loc().start_offset())
-                            .0
-                    } else if let Some(else_clause) = begin_node.else_clause() {
-                        source
-                            .offset_to_line_col(else_clause.location().start_offset())
-                            .0
-                    } else if let Some(ensure_clause) = begin_node.ensure_clause() {
-                        source
-                            .offset_to_line_col(ensure_clause.location().start_offset())
-                            .0
-                    } else if let Some(end_loc) = begin_node.end_keyword_loc() {
+                    // RuboCop scans from the rescue line to the ancestor's end keyword
+                    // for comment lines, not just to the next rescue clause. This means
+                    // comments anywhere in subsequent rescue/else/ensure blocks satisfy
+                    // AllowComments for earlier empty rescue clauses.
+                    let clause_end_line = if let Some(end_loc) = begin_node.end_keyword_loc() {
                         source.offset_to_line_col(end_loc.start_offset()).0
                     } else {
                         rescue_line + 1
