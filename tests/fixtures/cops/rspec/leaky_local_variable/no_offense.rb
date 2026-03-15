@@ -206,14 +206,13 @@ describe SomeClass do
   end
 end
 
-# File-level variable reassigned at group scope before any example — file-level value is dead
-# RuboCop's VariableForce tracks that the group-level reassignment shadows the file-level one.
-user = create(:user)
+# File-level variable reassigned at group scope before any example — file-level value is dead.
+# The group-level reassignment `status = :active` shadows the file-level assignment.
+# No offense should be reported for the file-level assignment; the group-level one is handled
+# separately by check_node (and IS an offense, tested in offense.rb).
+status = :inactive
 
 describe SomeClass do
-  user = create(:other_user)
-
-  it 'works' do
-    use(user)
-  end
+  status = :active  # unconditional group-level reassignment before any example
+  status  # used at group level, not in example scope
 end

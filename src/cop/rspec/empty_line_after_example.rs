@@ -53,6 +53,21 @@ use crate::parse::source::SourceFile;
 /// Fix: Switched to PROGRAM_NODE + Visit pattern (same as EmptyLineAfterSubject).
 /// Uses AST siblings for `last_child?`, `build_comment_line_sets` for rubocop:enable
 /// directive handling, and AST right-sibling for consecutive one-liner detection.
+///
+/// ## Corpus investigation (2026-03-14)
+///
+/// FP=0, FN=292 across 37 repos (parslet=38, ransack=30, daru=28, thredded=27, etc.).
+///
+/// Root cause: the cop was incorrectly scoped to only visit top-level spec group
+/// calls, borrowing the `InsideExampleGroup` restriction from EmptyLineAfterSubject.
+/// However, EmptyLineAfterExample does NOT use InsideExampleGroup — RuboCop's
+/// `on_block` handler fires for ALL blocks in the file, including examples inside
+/// `module` and `class` wrappers. Any `it`/`specify`/etc. block without a receiver
+/// anywhere in a spec file is checked.
+///
+/// Fix: removed the top-level spec group filter; the visitor now starts from the
+/// program root and walks all nodes. The FN count was 292; removing the scoping
+/// restriction captures examples inside module/class wrapping at file scope.
 pub struct EmptyLineAfterExample;
 
 impl Cop for EmptyLineAfterExample {
