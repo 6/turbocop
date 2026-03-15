@@ -5,28 +5,23 @@ use crate::parse::source::SourceFile;
 
 /// ## Corpus investigation (2026-03-10, updated 2026-03-14)
 ///
-/// CI baseline reported FP=4, FN=87.
+/// **Round 1 (FP=4, FN=87):** FPs were `.when(...)` Arel method calls.
+/// Fixed by checking for `.` or `&.` before keyword. FNs were missing
+/// "space before" checks; added broad before/after detection.
 ///
-/// **FP root cause (4):** All FPs were `.when(...)` Arel method calls
-/// (e.g., `Arel::Nodes::Case.new.when(...)`) misidentified as `when` keywords.
-/// Fixed by checking if the keyword text is preceded by `.` or `&.`, which
-/// indicates a method call rather than a keyword.
-///
-/// **FN root cause (87):** The original implementation only checked "space after"
-/// for `keyword(` patterns at line starts. RuboCop also checks "space before"
-/// keywords — e.g., `1and 2`, `""rescue a`, `self[:key]:super end`. Most FNs
-/// came from compact/minified Ruby (camping gem) with missing spaces before
-/// keywords like `rescue`, `and`, `or`, `if`, `super`.
-///
-/// Fixed by adding "space before missing" detection: when a keyword is preceded
-/// by a non-whitespace, non-operator char (not in `\s(|{\[;,*=`), and the
-/// keyword is in a code region per CodeMap, report an offense.
-///
-/// Also expanded "space after" detection to fire for any non-space char after
-/// a keyword (not just `(`), matching RuboCop's broader checks. Keywords like
-/// `break`, `defined?`, `next`, `not`, `rescue`, `super`, `yield` accept `(`
-/// without complaint; `super` and `yield` also accept `[` and `super` accepts
-/// `::`.
+/// **Round 2 (FP=634, FN=38):** Massive FPs from text-based scanning
+/// hitting non-keyword uses of keyword-named identifiers:
+/// - `@case`, `@in`, `@next`, `@end`, `@begin` etc. — instance/class/global
+///   variables with keyword names. Fixed by treating `@` and `$` as word-
+///   boundary characters in `is_word_before`.
+/// - `Pry::rescue`, `Pango::EllipsizeMode::END` — constant-path method calls.
+///   Fixed by extending `is_method_call` to detect `::` before keyword.
+/// - `:end`, `:begin`, `:rescue` — symbol literals. Added `is_symbol_literal`.
+/// - `{ case: 1, end: 2 }` — hash keys. Added `is_hash_key`.
+/// - `ensure!`, `next!`, `break?` — method names. Added `!`/`?` suffix check.
+/// - `end[0]`, `end.method` — chaining after `end`. RuboCop never checks
+///   "space after" for `end`, only "space before". Fixed by skipping
+///   space-after check for `end` keyword.
 pub struct SpaceAroundKeyword;
 
 /// Keywords that accept `(` immediately after them (no space required).
