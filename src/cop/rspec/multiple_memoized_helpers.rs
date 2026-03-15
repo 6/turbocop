@@ -53,21 +53,23 @@ use ruby_prism::Visit;
 /// parent group (producing FPs). Fix: scope boundary check now also accepts all group methods
 /// with `RSpec` receiver.
 ///
-/// ## Root cause of FNs (fixed, round 4)
+/// ## `let (:foo)` with space before paren — intentionally not unwrapped
 ///
-/// **`ParenthesesNode` not unwrapped in `extract_name_from_arg`**: When a method call has a
-/// space before the argument parentheses (`let (:foo) { }` instead of `let(:foo) { }`),
-/// Prism parses the argument differently. `let(:foo)` produces `CallNode` with `opening_loc`
-/// set and the argument as a bare `SymbolNode`. `let (:foo)` (space before paren) produces
-/// `CallNode` with no `opening_loc` and the argument as a `ParenthesesNode` wrapping a
-/// `StatementsNode` containing the `SymbolNode`. The `extract_name_from_arg` function only
-/// handled `SymbolNode`, `StringNode`, and `InterpolatedStringNode` directly, missing the
-/// `ParenthesesNode` wrapper case entirely. Fix: added `ParenthesesNode` unwrapping that
-/// recurses into the inner expression.
+/// When a method call has a space before the argument parentheses (`let (:foo) { }` instead
+/// of `let(:foo) { }`), Prism wraps the argument in a `ParenthesesNode` (in Parser gem, a
+/// `(begin ...)` node). RuboCop's `variable_definition?` NodePattern only matches bare
+/// `{any_sym str dstr}`, so `let (:foo)` returns `nil` from name extraction. RuboCop then
+/// counts all such nil values as ONE collective helper via `.uniq.count`.
 ///
-/// This pattern (`let (:name)` with space) is common in real-world specs (corpus oracle
-/// reported FP=0, FN=769 before this fix). Identified via corpus FN example at
-/// `airbnb/synapse: spec/lib/synapse/service_watcher_multi_spec.rb:7`.
+/// We match this behavior: `extract_name_from_arg` returns `None` for `ParenthesesNode`,
+/// and the `HelperCollector` inserts a fixed sentinel value so all space-paren lets collapse
+/// to a single entry. This means `let (:a)` + `let (:b)` + `let (:c)` count as 1 helper,
+/// not 3.
+///
+/// **History:** Round 4 originally unwrapped `ParenthesesNode` to individually count these
+/// calls, but this caused 55 FPs (puppet: 36, openproject: 13, dragonfly: 3, omnibus: 2,
+/// ifme: 1) because nitrocop overcounted relative to RuboCop. Reverted to match RuboCop's
+/// nil-dedup behavior.
 pub struct MultipleMemoizedHelpers;
 
 impl Cop for MultipleMemoizedHelpers {
@@ -124,11 +126,14 @@ struct MemoizedHelperVisitor<'a> {
 /// Handles symbol (`:foo`), string (`"foo"`), and dynamic string (`"foo#{bar}"`) forms,
 /// matching RuboCop's `variable_definition?` pattern: `$({any_sym str dstr} ...)`.
 ///
-/// Also unwraps `ParenthesesNode` — `let (:foo) { }` (with a space before the paren)
-/// parses the argument as `ParenthesesNode(SymbolNode(:foo))` in Prism, while
-/// `let(:foo) { }` produces `SymbolNode(:foo)` directly. This is a Prism-specific
-/// quirk: a space before `(` makes Prism treat `(...)` as a parenthesized expression
-/// rather than an argument list bracket.
+/// **Important:** Does NOT unwrap `ParenthesesNode`. When there is a space before the
+/// argument paren (`let (:foo) { }` vs `let(:foo) { }`), Prism wraps the argument in a
+/// `ParenthesesNode`. In the Parser gem, this produces `(begin (sym :foo))` instead of
+/// bare `(sym :foo)`. RuboCop's `variable_definition?` NodePattern only matches bare
+/// `{any_sym str dstr}`, so `let (:foo)` returns `nil` from `variable_definition?`.
+/// RuboCop then counts all such nil values as ONE collective helper via `.uniq.count`.
+/// We match this behavior by returning `None` here, and the caller inserts a fixed
+/// sentinel value so all space-paren lets collapse to a single entry.
 fn extract_name_from_arg(arg: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
     if let Some(sym) = arg.as_symbol_node() {
         return Some(sym.unescaped().to_vec());
@@ -141,18 +146,8 @@ fn extract_name_from_arg(arg: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
         let loc = ds.location();
         return Some(loc.as_slice().to_vec());
     }
-    // Unwrap parenthesized expressions: `let (:foo) { }` (space before paren) parses
-    // the argument as ParenthesesNode wrapping the actual symbol/string.
-    if let Some(parens) = arg.as_parentheses_node() {
-        if let Some(body) = parens.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                let items: Vec<_> = stmts.body().iter().collect();
-                if items.len() == 1 {
-                    return extract_name_from_arg(&items[0]);
-                }
-            }
-        }
-    }
+    // ParenthesesNode (from `let (:foo)` with space) is intentionally NOT unwrapped.
+    // See doc comment above for rationale.
     None
 }
 
@@ -249,6 +244,12 @@ impl<'pr> Visit<'pr> for HelperCollector {
         {
             if let Some(name) = extract_helper_name(node) {
                 self.names.insert(name);
+            } else {
+                // When the name can't be extracted (e.g., `let (:foo)` with a space before
+                // paren — Prism wraps the arg in ParenthesesNode), insert a fixed sentinel.
+                // This matches RuboCop's behavior: `variable_definition?` returns nil for
+                // these cases, and `.uniq.count` collapses all nils into ONE entry.
+                self.names.insert(b"__unknown_variable__".to_vec());
             }
         }
 
@@ -525,6 +526,35 @@ mod tests {
             diags
         );
         assert!(diags[0].message.contains("[7/5]"));
+    }
+
+    #[test]
+    fn let_with_space_before_paren_counts_as_one() {
+        // `let (:foo)` (space before paren) is treated differently by RuboCop:
+        // Parser gem wraps the arg in `(begin ...)`, so `variable_definition?` returns nil.
+        // All such nil values collapse to ONE via `.uniq.count`.
+        // Here: 6 space-paren lets = 1 collective helper ≤ 5. No offense.
+        let source = b"describe Foo do\n  let (:a) { 1 }\n  let (:b) { 2 }\n  let (:c) { 3 }\n  let (:d) { 4 }\n  let (:e) { 5 }\n  let (:f) { 6 }\n  it { expect(true).to be true }\nend\n";
+        let diags = crate::testutil::run_cop_full(&MultipleMemoizedHelpers, source);
+        assert!(
+            diags.is_empty(),
+            "Space-paren lets should collapse to 1 helper (matching RuboCop): {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn let_with_space_mixed_with_normal_lets() {
+        // 5 normal lets + 2 space-paren lets = 5 + 1 (nil group) = 6 > 5. Offense.
+        let source = b"describe Foo do\n  let(:a) { 1 }\n  let(:b) { 2 }\n  let(:c) { 3 }\n  let(:d) { 4 }\n  let(:e) { 5 }\n  let (:f) { 6 }\n  let (:g) { 7 }\n  it { expect(true).to be true }\nend\n";
+        let diags = crate::testutil::run_cop_full(&MultipleMemoizedHelpers, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "5 named + 1 nil group = 6 > 5, should fire: {:?}",
+            diags
+        );
+        assert!(diags[0].message.contains("[6/5]"));
     }
 
     #[test]

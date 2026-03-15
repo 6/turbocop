@@ -164,11 +164,24 @@ RSpec.shared_context 'under limit with receiver' do
   let(:b) { 2 }
 end
 
-# let (:name) with space before parens - under the limit
-describe SpacedLetUnderLimit do
+# let (:name) with space before parens — RuboCop's variable_definition? returns nil
+# for (begin (sym :foo)) args, so all space-paren lets collapse to 1 unique helper.
+# 6 space-paren lets = 1 helper ≤ 5. No offense.
+describe SpacedLetAllCollapse do
   let (:a) { 1 }
   let (:b) { 2 }
   let (:c) { 3 }
   let (:d) { 4 }
   let (:e) { 5 }
+  let (:f) { 6 }
+end
+
+# Mixed: 4 normal lets + 2 space-paren lets = 4 + 1 (nil group) = 5. No offense.
+describe SpacedLetMixed do
+  let(:a) { 1 }
+  let(:b) { 2 }
+  let(:c) { 3 }
+  let(:d) { 4 }
+  let (:e) { 5 }
+  let (:f) { 6 }
 end

@@ -151,14 +151,3 @@ RSpec.shared_examples 'too many with receiver' do
   let(:e) { 5 }
   let(:f) { 6 }
 end
-
-# let (:name) with space before parens — arg is ParenthesesNode wrapping SymbolNode
-describe SpacedLetForm do
-^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleMemoizedHelpers: Example group has too many memoized helpers [6/5]
-  let (:a) { 1 }
-  let (:b) { 2 }
-  let (:c) { 3 }
-  let (:d) { 4 }
-  let (:e) { 5 }
-  let (:f) { 6 }
-end
