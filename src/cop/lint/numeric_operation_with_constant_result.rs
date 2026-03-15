@@ -1,4 +1,4 @@
-use crate::cop::node_type::CALL_NODE;
+use crate::cop::node_type::{CALL_NODE, LOCAL_VARIABLE_OPERATOR_WRITE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -14,6 +14,15 @@ use crate::parse::source::SourceFile;
 /// are excluded because the type is unknown (could be Array, String, etc.).
 /// Fix: only flag when receiver is a CallNode with no receiver (bare method call),
 /// not LocalVariableReadNode or any other expression type.
+///
+/// ## Corpus investigation (2026-03-15)
+///
+/// Corpus oracle reported FP=0, FN=2.
+///
+/// FN fix:
+/// - Prism represents `x *= 0` as `LocalVariableOperatorWriteNode`, not a
+///   `CallNode`. The initial implementation only checked plain operator calls
+///   (`x * 0`, `x / x`, `x ** 0`) and skipped abbreviated assignment forms.
 pub struct NumericOperationWithConstantResult;
 
 impl Cop for NumericOperationWithConstantResult {
@@ -26,7 +35,7 @@ impl Cop for NumericOperationWithConstantResult {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE]
+        &[CALL_NODE, LOCAL_VARIABLE_OPERATOR_WRITE_NODE]
     }
 
     fn check_node(
@@ -38,6 +47,29 @@ impl Cop for NumericOperationWithConstantResult {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        if let Some(op_assign) = node.as_local_variable_operator_write_node() {
+            let operator = op_assign.binary_operator().as_slice();
+            let value = op_assign.value();
+
+            let has_constant_result = match operator {
+                b"*" => is_zero(&value, source),
+                b"**" => is_zero(&value, source),
+                _ => false,
+            };
+
+            if has_constant_result {
+                let loc = op_assign.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Numeric operation with a constant result detected.".to_string(),
+                ));
+            }
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
