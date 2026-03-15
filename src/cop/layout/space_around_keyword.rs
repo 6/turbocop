@@ -91,15 +91,23 @@ fn is_word_end(bytes: &[u8], kw_end: usize) -> bool {
     !(ch.is_ascii_alphanumeric() || ch == b'_')
 }
 
-/// Returns true if the byte before position `i` is a letter or underscore,
-/// meaning this is NOT a keyword boundary (e.g., `sand` should not match `and`).
+/// Returns true if the byte before position `i` is a letter, underscore,
+/// or variable sigil (`@`, `$`), meaning this is NOT a keyword boundary.
+/// `@case` is an instance variable, `$end` is a global variable, etc.
 /// Digits are allowed before keywords: `1and` is parsed as `1 and ...`.
 fn is_word_before(bytes: &[u8], i: usize) -> bool {
     if i == 0 {
         return false;
     }
     let ch = bytes[i - 1];
-    ch.is_ascii_alphabetic() || ch == b'_'
+    if ch.is_ascii_alphabetic() || ch == b'_' {
+        return true;
+    }
+    // `@case`, `@@end`, `$next` — variable sigils make this a variable name
+    if ch == b'@' || ch == b'$' {
+        return true;
+    }
+    false
 }
 
 impl Cop for SpaceAroundKeyword {
@@ -177,6 +185,26 @@ impl Cop for SpaceAroundKeyword {
                     continue;
                 }
 
+                // Check if preceded by `:` — that's a symbol literal (`:end`, `:rescue`)
+                // but NOT `::` which is handled by `is_method_call` above
+                if is_symbol_literal(bytes, i) {
+                    continue;
+                }
+
+                // Check if followed by `!` or `?` — method name like `ensure!`, `next?`
+                // (but not `defined?` which already includes `?` in the keyword)
+                if i + kw_len < len
+                    && (bytes[i + kw_len] == b'!'
+                        || (kw != b"defined?" && bytes[i + kw_len] == b'?'))
+                {
+                    continue;
+                }
+
+                // Check if used as a hash key (`end:`, `case:`) — not a keyword
+                if is_hash_key(bytes, i, kw_len) {
+                    continue;
+                }
+
                 let kw_str = std::str::from_utf8(kw).unwrap_or("");
 
                 // --- Check "space before missing" ---
@@ -240,7 +268,7 @@ impl Cop for SpaceAroundKeyword {
     }
 }
 
-/// Check if the keyword at position `i` is a method call (preceded by `.` or `&.`).
+/// Check if the keyword at position `i` is a method call (preceded by `.`, `&.`, or `::`).
 fn is_method_call(bytes: &[u8], i: usize) -> bool {
     if i == 0 {
         return false;
@@ -255,12 +283,49 @@ fn is_method_call(bytes: &[u8], i: usize) -> bool {
         // Could be `&.` or just `.`
         return true;
     }
+    // `Foo::rescue`, `Bar::next` — constant path method calls
+    if bytes[j] == b':' && j > 0 && bytes[j - 1] == b':' {
+        return true;
+    }
     false
 }
 
 /// Check if the keyword is preceded by `def ` (method definition).
 fn preceded_by_def(bytes: &[u8], i: usize) -> bool {
     i >= 4 && &bytes[i - 4..i] == b"def "
+}
+
+/// Check if the keyword at position `i` is preceded by `:` making it a symbol literal.
+/// Returns true for `:end`, `:rescue`, etc. but NOT for `::rescue` (constant path).
+fn is_symbol_literal(bytes: &[u8], i: usize) -> bool {
+    if i == 0 {
+        return false;
+    }
+    if bytes[i - 1] != b':' {
+        return false;
+    }
+    // It's `::` (constant path), not a symbol — handled separately by is_method_call
+    if i >= 2 && bytes[i - 2] == b':' {
+        return false;
+    }
+    true
+}
+
+/// Check if the keyword at position `i` is used as a hash key (`end:`, `case:`)
+/// where a colon follows the keyword without space. The colon must NOT be `::`.
+fn is_hash_key(bytes: &[u8], i: usize, kw_len: usize) -> bool {
+    let end_pos = i + kw_len;
+    if end_pos >= bytes.len() {
+        return false;
+    }
+    if bytes[end_pos] != b':' {
+        return false;
+    }
+    // Make sure it's not `::` (namespace operator)
+    if end_pos + 1 < bytes.len() && bytes[end_pos + 1] == b':' {
+        return false;
+    }
+    true
 }
 
 /// Returns true if this keyword accepts `(` immediately after it.
