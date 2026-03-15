@@ -17,6 +17,14 @@ use crate::parse::source::SourceFile;
 ///    using `message_loc()` on the outer call.
 ///
 /// The remaining FN was a location mismatch in a multi-line chain (same offense, different line).
+///
+/// ## Investigation (2026-03-15): FP=3, FN=3
+///
+/// FP and FN root cause: RuboCop's `offense_range` reports from `where` to `take`/`first`,
+/// starting at the `where` keyword line. For multiline `where(\n...\n).take`, nitrocop was
+/// reporting at the `take` line (using outer call's message_loc), but RuboCop reports at
+/// the `where` line. This caused FP at the `take` line and FN at the `where` line.
+/// Fixed by reporting at `chain.inner_call.message_loc()` (the `where` keyword location).
 pub struct FindBy;
 
 impl Cop for FindBy {
@@ -70,11 +78,14 @@ impl Cop for FindBy {
         }
 
         let method_name = if is_first { "first" } else { "take" };
-        // Report at the `take`/`first` keyword location (message_loc) to match RuboCop.
-        // RuboCop's RESTRICT_ON_SEND fires on the take/first node and reports at loc.selector.
-        let loc = outer_call
+        // RuboCop's offense_range goes from `where` to `take`/`first`, starting at `where`.
+        // Report at the `where` keyword location to match RuboCop's line number.
+        // For single-line calls this is the same line; for multiline `where(\n...\n).take`
+        // this correctly reports at the `where` line instead of the `take` line.
+        let where_call = &chain.inner_call;
+        let loc = where_call
             .message_loc()
-            .unwrap_or_else(|| outer_call.location());
+            .unwrap_or_else(|| where_call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
