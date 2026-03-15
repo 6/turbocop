@@ -33,18 +33,32 @@ fn is_ternary_safe_assignment(paren: &ruby_prism::ParenthesesNode<'_>) -> bool {
         let stmts_body = stmts.body();
         if stmts_body.len() == 1 {
             let inner = &stmts_body.iter().next().unwrap();
-            return inner.as_local_variable_write_node().is_some()
-                || inner.as_instance_variable_write_node().is_some()
-                || inner.as_class_variable_write_node().is_some()
-                || inner.as_global_variable_write_node().is_some()
-                || inner.as_constant_write_node().is_some();
+            return is_write_or_indexed_assign(&inner);
         }
     }
-    body.as_local_variable_write_node().is_some()
-        || body.as_instance_variable_write_node().is_some()
-        || body.as_class_variable_write_node().is_some()
-        || body.as_global_variable_write_node().is_some()
-        || body.as_constant_write_node().is_some()
+    is_write_or_indexed_assign(&body)
+}
+
+/// Check if a node is a variable write or an indexed assignment (`[]=`).
+/// We intentionally only handle `[]=` (not all setter methods like `foo.bar=`)
+/// because the previous broader fix caused corpus regressions.
+fn is_write_or_indexed_assign(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_local_variable_write_node().is_some()
+        || node.as_instance_variable_write_node().is_some()
+        || node.as_class_variable_write_node().is_some()
+        || node.as_global_variable_write_node().is_some()
+        || node.as_constant_write_node().is_some()
+        || is_indexed_assign(node)
+}
+
+/// Check if a node is an indexed assignment (`obj[key] = val`), which Prism
+/// parses as a `CallNode` with method name `[]=`.
+fn is_indexed_assign(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        call.name().as_slice() == b"[]="
+    } else {
+        false
+    }
 }
 
 /// Check if a condition is "complex" (not a simple variable/constant/method call).
