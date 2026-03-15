@@ -10,3 +10,8 @@ foo(bar)
 #
 # Example: frozen_string_literal comment with leading space
 # followed by code at column 0
+
+
+
+value = 1
+other_value = 2

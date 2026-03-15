@@ -22,12 +22,13 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Whitespace-only blank line fix (2026-03-15)
 ///
-/// FP=2 on jruby and webistrano: lines containing only whitespace (e.g., `" \n"`)
-/// were treated as non-blank and flagged as initial indentation. RuboCop skips
-/// whitespace-only lines. Fix: when scanning for the first non-blank non-comment
-/// line, also skip lines where no non-whitespace character is found.
-/// This also fixed FN=1 where the actual indented code line after the
-/// whitespace-only blank line was not being reached.
+/// FP=2 on jruby and webistrano: lines containing only whitespace (including
+/// CRLF blank lines that become `" \r"` after `SourceFile::lines()`) were
+/// treated as non-blank and flagged as initial indentation. RuboCop skips
+/// whitespace-only lines. Fix: when scanning for the first non-blank
+/// non-comment line, also treat `\r` as ignorable horizontal whitespace.
+/// This also fixes the paired FN where the actual indented code line after the
+/// whitespace-only blank line was never reached.
 pub struct InitialIndentation;
 
 impl Cop for InitialIndentation {
@@ -63,7 +64,7 @@ impl Cop for InitialIndentation {
             };
 
             // Skip whitespace-only lines (treat as blank) and pure comment lines
-            let trimmed = effective.iter().find(|&&b| b != b' ' && b != b'\t');
+            let trimmed = effective.iter().find(|&&b| !is_horizontal_whitespace(b));
             match trimmed {
                 None => continue,        // whitespace-only line
                 Some(&b'#') => continue, // pure comment line
@@ -107,6 +108,10 @@ impl Cop for InitialIndentation {
     }
 }
 
+fn is_horizontal_whitespace(b: u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\r')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +125,7 @@ mod tests {
         deep_indent = "deep_indent.rb",
         comment_then_indented_code = "comment_then_indented_code.rb",
         comments_then_indented = "comments_then_indented.rb",
+        whitespace_only_blank_then_indented = "whitespace_only_blank_then_indented.rb",
     );
 
     #[test]
@@ -134,6 +140,14 @@ mod tests {
     #[test]
     fn leading_blank_then_unindented() {
         let source = SourceFile::from_bytes("test.rb", b"\nx = 1\n".to_vec());
+        let mut diags = Vec::new();
+        InitialIndentation.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn whitespace_only_crlf_line_then_unindented() {
+        let source = SourceFile::from_bytes("test.rb", b"# comment\r\n \r\nx = 1\r\n".to_vec());
         let mut diags = Vec::new();
         InitialIndentation.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
