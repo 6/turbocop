@@ -49,3 +49,12 @@ if /foo/.match?(x)
 elsif x.match?(/bar/)
 elsif x.match?(/baz/)
 end
+
+# Long chain should produce only ONE offense (at the top-level if)
+if x == 1
+^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.
+elsif x == 2
+elsif x == 3
+elsif x == 4
+elsif x == 5
+end

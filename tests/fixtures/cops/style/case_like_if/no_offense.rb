@@ -69,3 +69,33 @@ if match?(/foo/)
 elsif x.match?(/bar/)
 elsif x.match?(/baz/)
 end
+
+# unless should not be flagged (RuboCop skips unless)
+unless x == 1
+elsif x == 2
+elsif x == 3
+end
+
+# include? without a receiver should not be flagged
+if include?(Foo)
+elsif include?(Bar)
+elsif include?(Baz)
+end
+
+# cover? without a receiver should not be flagged
+if x == 1
+elsif cover?(Bar)
+elsif x == 3
+end
+
+# Single-letter constant names should not count as const_reference
+if x == F
+elsif B == x
+elsif C == x
+end
+
+# equal? without a receiver should not be flagged
+if equal?(Foo)
+elsif Bar == x
+elsif x == 3
+end

@@ -40,6 +40,12 @@ use crate::parse::source::SourceFile;
 /// - 37 FNs were from: (1) `ConstantPathNode` not treated as const_reference,
 ///   (2) parenthesized conditions not deparenthesized, (3) `include?`/`cover?`
 ///   with range not supported.
+/// - 398 FPs (second round): nitrocop was processing `elsif` IfNodes as
+///   top-level `if` nodes. In Prism, `elsif` branches are nested IfNodes.
+///   A chain of N branches produced up to N-2 extra offenses when N>=4
+///   (with MinBranchesCount=3). Fix: skip nodes whose `if_keyword_loc`
+///   starts with "elsif" or "unless", and skip modifier if (no end keyword)
+///   and ternary (no if_keyword_loc). This matches RuboCop's `should_check?`.
 pub struct CaseLikeIf;
 
 impl Cop for CaseLikeIf {
@@ -80,6 +86,24 @@ impl Cop for CaseLikeIf {
             Some(n) => n,
             None => return,
         };
+
+        // Skip unless, elsif, modifier if, and ternary nodes (matches RuboCop's should_check?)
+        // In Prism, elsif branches are nested IfNodes whose if_keyword_loc starts with "elsif".
+        // Unless nodes have if_keyword_loc starting with "unless".
+        // Ternary has no if_keyword_loc. Modifier if has no end_keyword_loc.
+        match if_node.if_keyword_loc() {
+            None => return, // ternary operator
+            Some(kw_loc) => {
+                let kw = &source.as_bytes()[kw_loc.start_offset()..kw_loc.end_offset()];
+                if kw.starts_with(b"elsif") || kw.starts_with(b"unless") {
+                    return;
+                }
+            }
+        }
+        // Modifier if: no end keyword
+        if if_node.end_keyword_loc().is_none() {
+            return;
+        }
 
         // Count branches (if + elsif chain)
         let mut branch_count = 1;
