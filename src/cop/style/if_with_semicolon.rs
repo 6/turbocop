@@ -3,6 +3,17 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Flags `if cond; body end` when the entire construct is on a single line.
+///
+/// ## Investigation (2026-03)
+/// **FP root cause:** The cop was flagging multi-line `if true;\n  body\nend` where a
+/// semicolon appears after the condition but the body is on the next line. This pattern
+/// occurs in jruby benchmarks and other codebases (27 FPs in corpus). Prism sometimes
+/// reports `;` via `then_keyword_loc`, and the fallback source-scan also found semicolons
+/// before newlines. Neither path checked whether the `end` keyword was on the same line.
+///
+/// **Fix:** After detecting a semicolon, verify the `end` keyword is on the same line as
+/// the `if` keyword. RuboCop only flags truly single-line forms (`if foo; bar end`).
 pub struct IfWithSemicolon;
 
 impl Cop for IfWithSemicolon {
