@@ -207,12 +207,14 @@ describe SomeClass do
 end
 
 # File-level variable reassigned at group scope before any example — file-level value is dead.
-# The group-level reassignment `status = :active` shadows the file-level assignment.
-# No offense should be reported for the file-level assignment; the group-level one is handled
-# separately by check_node (and IS an offense, tested in offense.rb).
-status = :inactive
+# The variable is referenced only in the group-level expression (not inside an example scope).
+# So no offense for the file-level assignment.
+payload = build(:payload)
 
 describe SomeClass do
-  status = :active  # unconditional group-level reassignment before any example
-  status  # used at group level, not in example scope
+  payload.validate  # used at group level, not in example scope
+
+  it 'works' do
+    expect(1).to eq(1)
+  end
 end
