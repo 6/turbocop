@@ -230,7 +230,9 @@ impl Cop for SpaceAroundKeyword {
                 }
 
                 // --- Check "space after missing" ---
-                if i + kw_len < len {
+                // RuboCop only checks "space before" for `end` (not "space after"),
+                // since chaining after `end` is common: `end.method`, `end[0]`, etc.
+                if kw != b"end" && i + kw_len < len {
                     let after = bytes[i + kw_len];
                     let skip_after = accepted_after(after)
                         || (after == b'(' && is_accept_left_paren(kw))
