@@ -13,22 +13,15 @@ use crate::parse::source::SourceFile;
 ///
 /// Corpus oracle reported FP=1, FN=0.
 ///
-/// Attempted fix: treat setter-style `CallNode`s such as `[]=` as safe
-/// assignments in parenthesized ternary conditions. The focused fixture passed,
-/// but the corpus gate shifted from `Actual=1783` to `Actual=1781` against
-/// `Expected=1782`, replacing the known FP with an FN instead of improving
-/// total conformance.
+/// **First attempt (reverted):** treated all setter-style `CallNode`s (methods
+/// ending in `=`) as safe assignments. This was too broad — it fixed the FP
+/// but introduced 2 new FNs elsewhere (shifted from 1783→1781 against
+/// expected 1782).
 ///
-/// Reverted. A correct fix needs to distinguish truly safe setter assignments
-/// from the existing ternary mismatches without changing the corpus count.
-///
-/// Additional investigation (2026-03-14): the cached Asciidoctor corpus example
-/// lives under a project config that explicitly sets
-/// `Style/TernaryParentheses: Enabled: false`, so that reported FP is attributable
-/// to config handling or stale oracle data rather than the ternary matcher itself.
-/// After fixing the external-config nested-config path, the quick corpus gate is
-/// `expected=1726, actual=1724, excess=0, missing=2`, so the remaining
-/// divergence is now entirely on the missing-offense side.
+/// **Second attempt (2026-03-15):** narrowed scope to only `[]=` (indexed
+/// assignment like `@hash[key] = val`). This is the specific pattern in the
+/// FP location (`asciidoctor`, line 1092). Other setter methods like
+/// `foo.bar = val` are left unhandled to avoid the previous regression.
 pub struct TernaryParentheses;
 
 /// Check if a parenthesized node contains a safe assignment (=) in ternary context.
@@ -41,7 +34,7 @@ fn is_ternary_safe_assignment(paren: &ruby_prism::ParenthesesNode<'_>) -> bool {
         let stmts_body = stmts.body();
         if stmts_body.len() == 1 {
             let inner = &stmts_body.iter().next().unwrap();
-            return is_write_or_indexed_assign(&inner);
+            return is_write_or_indexed_assign(inner);
         }
     }
     is_write_or_indexed_assign(&body)
