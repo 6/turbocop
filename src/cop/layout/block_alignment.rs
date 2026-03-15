@@ -30,6 +30,24 @@ use crate::parse::source::SourceFile;
 /// - Added `begins_its_line` check to skip non-line-beginning closers
 /// - Added brace block (`{..}`) checking with same alignment rules
 /// - Fixed `start_of_block` style to use do-line indent (not `do` column) per RuboCop spec
+///
+/// ## Corpus investigation findings (2026-03-14)
+///
+/// Root causes of remaining 411 FP:
+/// 1. **String concatenation `+` continuation** — Lines ending with `+` (common in
+///    RSpec multiline descriptions like `it "foo " + "bar" do`) were not recognized
+///    as expression continuations. `find_chain_expression_start` stopped too early,
+///    computing wrong `expression_start_indent` and flagging correctly-aligned `end`.
+///    Fixed by adding `+` to the continuation character set.
+///
+/// Root causes of remaining 103 FN:
+/// 1. **Assignment RHS alignment accepted** — `find_call_expression_col` walked
+///    backward from `do`/`{` to find the call expression start, but stopped at the
+///    RHS of assignments (e.g., `answer = prompt.select do`). This made `call_expr_col`
+///    point to `prompt` instead of `answer`, causing nitrocop to accept `end` aligned
+///    with the RHS when RuboCop requires alignment with the LHS variable.
+///    Fixed by adding `skip_assignment_backward` to walk through `=`/`+=`/`||=`/etc.
+///    to find the LHS variable.
 pub struct BlockAlignment;
 
 impl Cop for BlockAlignment {
