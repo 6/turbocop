@@ -5,21 +5,80 @@ use crate::parse::source::SourceFile;
 
 pub struct ActiveSupportOnLoad;
 
-/// Map of Rails framework classes to their on_load hook names.
-const FRAMEWORK_CLASSES: &[(&[u8], &[u8], &str)] = &[
-    (b"ActiveRecord", b"Base", "active_record"),
-    (b"ActionController", b"Base", "action_controller"),
-    (b"ActionController", b"API", "action_controller"),
+/// Complete map of Rails framework classes to their on_load hook names.
+/// Includes all entries from RuboCop's LOAD_HOOKS, RAILS_5_2_LOAD_HOOKS,
+/// and RAILS_7_1_LOAD_HOOKS maps.
+const LOAD_HOOKS: &[(&str, &str)] = &[
+    // LOAD_HOOKS (base)
+    ("ActionCable", "action_cable"),
+    ("ActionCable::Channel::Base", "action_cable_channel"),
+    ("ActionCable::Connection::Base", "action_cable_connection"),
     (
-        b"ActionController",
-        b"TestCase",
-        "action_controller_test_case",
+        "ActionCable::Connection::TestCase",
+        "action_cable_connection_test_case",
     ),
-    (b"ActionView", b"Base", "action_view"),
-    (b"ActionMailer", b"Base", "action_mailer"),
-    (b"ActiveJob", b"Base", "active_job"),
-    (b"ActionCable", b"Channel", "action_cable_channel"),
-    (b"ActionCable", b"Connection", "action_cable_connection"),
+    ("ActionController::API", "action_controller"),
+    ("ActionController::Base", "action_controller"),
+    ("ActionController::TestCase", "action_controller_test_case"),
+    (
+        "ActionDispatch::IntegrationTest",
+        "action_dispatch_integration_test",
+    ),
+    ("ActionDispatch::Request", "action_dispatch_request"),
+    ("ActionDispatch::Response", "action_dispatch_response"),
+    (
+        "ActionDispatch::SystemTestCase",
+        "action_dispatch_system_test_case",
+    ),
+    ("ActionMailbox::Base", "action_mailbox"),
+    (
+        "ActionMailbox::InboundEmail",
+        "action_mailbox_inbound_email",
+    ),
+    ("ActionMailbox::Record", "action_mailbox_record"),
+    ("ActionMailbox::TestCase", "action_mailbox_test_case"),
+    ("ActionMailer::Base", "action_mailer"),
+    ("ActionMailer::TestCase", "action_mailer_test_case"),
+    ("ActionText::Content", "action_text_content"),
+    ("ActionText::Record", "action_text_record"),
+    ("ActionText::RichText", "action_text_rich_text"),
+    ("ActionView::Base", "action_view"),
+    ("ActionView::TestCase", "action_view_test_case"),
+    ("ActiveJob::Base", "active_job"),
+    ("ActiveJob::TestCase", "active_job_test_case"),
+    ("ActiveRecord::Base", "active_record"),
+    ("ActiveStorage::Attachment", "active_storage_attachment"),
+    ("ActiveStorage::Blob", "active_storage_blob"),
+    ("ActiveStorage::Record", "active_storage_record"),
+    (
+        "ActiveStorage::VariantRecord",
+        "active_storage_variant_record",
+    ),
+    ("ActiveSupport::TestCase", "active_support_test_case"),
+    // RAILS_5_2_LOAD_HOOKS
+    (
+        "ActiveRecord::ConnectionAdapters::SQLite3Adapter",
+        "active_record_sqlite3adapter",
+    ),
+    // RAILS_7_1_LOAD_HOOKS
+    ("ActiveRecord::TestFixtures", "active_record_fixtures"),
+    ("ActiveModel::Model", "active_model"),
+    (
+        "ActionText::EncryptedRichText",
+        "action_text_encrypted_rich_text",
+    ),
+    (
+        "ActiveRecord::ConnectionAdapters::PostgreSQLAdapter",
+        "active_record_postgresqladapter",
+    ),
+    (
+        "ActiveRecord::ConnectionAdapters::Mysql2Adapter",
+        "active_record_mysql2adapter",
+    ),
+    (
+        "ActiveRecord::ConnectionAdapters::TrilogyAdapter",
+        "active_record_trilogyadapter",
+    ),
 ];
 
 const PATCH_METHODS: &[&[u8]] = &[b"include", b"prepend", b"extend"];
@@ -37,12 +96,8 @@ fn match_framework_class(node: &ruby_prism::Node<'_>, source: &SourceFile) -> Op
         text
     };
 
-    for &(module_name, class_name, hook) in FRAMEWORK_CLASSES {
-        let mut expected = Vec::new();
-        expected.extend_from_slice(module_name);
-        expected.extend_from_slice(b"::");
-        expected.extend_from_slice(class_name);
-        if text == expected.as_slice() {
+    for &(constant_path, hook) in LOAD_HOOKS {
+        if text == constant_path.as_bytes() {
             return Some(hook);
         }
     }
