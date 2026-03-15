@@ -33,6 +33,21 @@ use crate::parse::source::SourceFile;
 /// the left operand, so Prism produces a RangeNode (not ParenthesesNode) as
 /// the argument, and `as_parentheses_node()` filters it. Removed the compound
 /// range check entirely.
+///
+/// ## Corpus investigation (2026-03-15)
+///
+/// Corpus oracle reported FP=2, FN=19.
+///
+/// FP=2: RuboCop only treats `.` and `&.` send syntax as candidates here, so
+/// `Foo::bar (x)` constant-path calls are ignored. It also skips block-pass
+/// forms like `define_method (name), &block`.
+///
+/// FN=19: the earlier Prism-specific hash exemption was too broad. Real-world
+/// cases like `to eq ({...})` and `json.errors ({...})` still count as grouped
+/// expressions in RuboCop, so parenthesized hash literals must be flagged.
+///
+/// All known CI FP/FN locations are fixed locally. The remaining aggregate
+/// rerun delta is count-only noise within existing file-drop/parser-crash drift.
 pub struct ParenthesesAsGroupedExpression;
 
 impl Cop for ParenthesesAsGroupedExpression {
@@ -87,6 +102,24 @@ impl Cop for ParenthesesAsGroupedExpression {
             return;
         }
 
+        // RuboCop's matcher only treats `.` and `&.` call syntax as candidates.
+        // Constant-path class method calls like `Foo::bar (x)` are ignored.
+        if call
+            .call_operator_loc()
+            .is_some_and(|op| op.as_slice() == b"::")
+        {
+            return;
+        }
+
+        // Block-pass arguments (`..., &block`) are parsed separately from the
+        // positional arg list. RuboCop skips these forms.
+        if call
+            .block()
+            .is_some_and(|block| block.as_block_argument_node().is_some())
+        {
+            return;
+        }
+
         let arguments = match call.arguments() {
             Some(a) => a,
             None => return,
@@ -122,21 +155,6 @@ impl Cop for ParenthesesAsGroupedExpression {
         let between = &source.as_bytes()[msg_end..paren_start];
         if between.is_empty() || !between.iter().all(|&b| b == b' ' || b == b'\t') {
             return;
-        }
-
-        // Skip when the body of the parens is a hash literal — matches RuboCop's
-        // `first_arg.hash_type?` exclusion. `method ({a: 1})` with explicit braces
-        // produces a ParenthesesNode wrapping a HashNode.
-        if let Some(body) = paren_node.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                let inner = stmts.body();
-                if inner.len() == 1 {
-                    let expr = inner.iter().next().unwrap();
-                    if expr.as_hash_node().is_some() || expr.as_keyword_hash_node().is_some() {
-                        return;
-                    }
-                }
-            }
         }
 
         // NOTE: The compound range check (`rand (a - b)..(c - d)`) was removed.
@@ -218,16 +236,19 @@ mod tests {
             (b"method (x) || y\n", 0),
             (b"method (x) + 1\n", 0),
             (b"puts (2 + 3) * 4\n", 0),
-            // Hash inside parens - should NOT be flagged (FP fix)
-            (b"method ({a: 1})\n", 0),
-            (b"foo ({a: 1, b: 2})\n", 0),
-            (b"foo ({})\n", 0),
+            // Hash inside parens - RuboCop still treats these as grouped expressions
+            (b"method ({a: 1})\n", 1),
+            (b"foo ({a: 1, b: 2})\n", 1),
+            (b"foo ({})\n", 1),
             // Range inside parens with call endpoints - should be flagged
             // (was FN: compound range check excluded ranges with call endpoints,
             // but Prism already handles true compound ranges by not wrapping them
             // in ParenthesesNode)
             (b"rand (1.to_i..10)\n", 1),
             (b"rand (a[0]..b[1])\n", 1),
+            // Constant-path receivers and block-pass calls are accepted
+            (b"if DryrunUtils::is_folder? (@url)\n  value\nend\n", 0),
+            (b"define_method (test_name name), &block\n", 0),
         ];
         for (src, expected_count) in test_cases {
             let diagnostics = crate::testutil::run_cop_full(&cop, src);
