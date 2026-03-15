@@ -38,3 +38,9 @@ super {
   yield if block_given?
   process
 }
+
+expect {
+       ^ Style/BlockDelimiters: Prefer `do...end` over `{...}` for multi-line blocks.
+  subject.log("a")
+  subject.debug("b")
+}.to output("a\nb\n").to_stdout

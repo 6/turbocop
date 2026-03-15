@@ -110,11 +110,6 @@ render node: -> {
   puts "rendered"
 end
 
-# Multi-line brace block with chained return value — allowed
-items.map { |x|
-  x.to_s
-}.join(", ")
-
 # Hash[] with multi-line chained block — allowed
 Hash[list.map { |k, v|
   [k, v.to_s]
