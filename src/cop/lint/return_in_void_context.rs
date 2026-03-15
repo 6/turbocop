@@ -3,6 +3,25 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Checks for the use of `return` with a value in a context where the value
+/// will be ignored (`initialize` and setter methods like `foo=`).
+///
+/// ## Investigation findings
+///
+/// FP root cause: the cop did not track lambda/define_method/define_singleton_method
+/// scope boundaries. A `return` inside a lambda returns from the lambda, not from
+/// the enclosing method, so it should not be flagged. Same for `define_method` and
+/// `define_singleton_method` blocks.
+///
+/// FN root cause: the cop only checked `initialize` methods, but RuboCop also flags
+/// `return value` inside setter methods (names ending in `=`, e.g. `foo=`). Also,
+/// the cop only checked instance methods but RuboCop skips class-level methods
+/// (`def self.initialize`).
+///
+/// RuboCop's `SCOPE_CHANGING_METHODS` are: `lambda`, `define_method`,
+/// `define_singleton_method`. In Prism, `lambda { }` and `lambda do...end` both
+/// produce `LambdaNode`, so we stop recursion there. For `define_method` and
+/// `define_singleton_method`, we intercept `visit_call_node` and skip the block body.
 pub struct ReturnInVoidContext;
 
 impl Cop for ReturnInVoidContext {
@@ -23,7 +42,7 @@ impl Cop for ReturnInVoidContext {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let mut visitor = InitializeVisitor {
+        let mut visitor = VoidContextVisitor {
             cop: self,
             source,
             diagnostics: Vec::new(),
@@ -33,21 +52,60 @@ impl Cop for ReturnInVoidContext {
     }
 }
 
-struct InitializeVisitor<'a, 'src> {
+/// Returns true if `name` is a void context method: `initialize` or a setter (`foo=`).
+/// Excludes operator methods like `==`, `!=`, `<=`, `>=`, `<=>`, `[]=`.
+fn is_void_method(name: &[u8]) -> bool {
+    if name == b"initialize" {
+        return true;
+    }
+    // Setter methods end with `=` but exclude operators
+    if name.ends_with(b"=") && name.len() >= 2 {
+        let prefix = &name[..name.len() - 1];
+        // Exclude ==, !=, <=, >=, <=>, []=
+        if prefix == b"="
+            || prefix == b"!"
+            || prefix == b"<"
+            || prefix == b">"
+            || prefix == b"<=>"
+            || prefix == b"[]"
+        {
+            return false;
+        }
+        return true;
+    }
+    false
+}
+
+/// Format the method name for the diagnostic message.
+fn format_method_name(name: &[u8]) -> String {
+    String::from_utf8_lossy(name).to_string()
+}
+
+struct VoidContextVisitor<'a, 'src> {
     cop: &'a ReturnInVoidContext,
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
 }
 
-impl<'pr> Visit<'pr> for InitializeVisitor<'_, '_> {
+impl<'pr> Visit<'pr> for VoidContextVisitor<'_, '_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        if node.name().as_slice() != b"initialize" {
-            // Still recurse into nested defs (though unlikely)
+        let name = node.name().as_slice();
+
+        // Skip class methods (def self.initialize / def self.foo=)
+        if node.receiver().is_some() {
             ruby_prism::visit_def_node(self, node);
             return;
         }
 
-        // Found initialize method, look for return nodes with values
+        if !is_void_method(name) {
+            // Still recurse into nested defs to find void context methods inside
+            ruby_prism::visit_def_node(self, node);
+            return;
+        }
+
+        let method_name = format_method_name(name);
+
+        // Found void context method, look for return nodes with values
         let mut finder = ReturnWithValueFinder {
             offsets: Vec::new(),
         };
@@ -61,7 +119,7 @@ impl<'pr> Visit<'pr> for InitializeVisitor<'_, '_> {
                 self.source,
                 line,
                 column,
-                "Do not return a value in `initialize`.".to_string(),
+                format!("Do not return a value in `{method_name}`."),
             ));
         }
     }
@@ -70,6 +128,9 @@ impl<'pr> Visit<'pr> for InitializeVisitor<'_, '_> {
 struct ReturnWithValueFinder {
     offsets: Vec<usize>,
 }
+
+/// Scope-changing method names where `return` exits the block, not the enclosing method.
+const SCOPE_CHANGING_METHODS: &[&[u8]] = &[b"lambda", b"define_method", b"define_singleton_method"];
 
 impl<'pr> Visit<'pr> for ReturnWithValueFinder {
     fn visit_return_node(&mut self, node: &ruby_prism::ReturnNode<'pr>) {
@@ -80,10 +141,25 @@ impl<'pr> Visit<'pr> for ReturnWithValueFinder {
         ruby_prism::visit_return_node(self, node);
     }
 
-    // Don't recurse into nested def/class/module
+    // Don't recurse into nested def/class/module — they create new scopes
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
     fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
     fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+
+    // Don't recurse into lambda — return inside lambda returns from the lambda
+    fn visit_lambda_node(&mut self, _node: &ruby_prism::LambdaNode<'pr>) {}
+
+    // Don't recurse into define_method/define_singleton_method blocks —
+    // return inside these exits the block, not the enclosing method
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let name = node.name().as_slice();
+        if SCOPE_CHANGING_METHODS.contains(&name) && node.block().is_some() {
+            // Skip the entire call (including its block body)
+            return;
+        }
+        // For other calls, recurse normally (including into block bodies)
+        ruby_prism::visit_call_node(self, node);
+    }
 }
 
 #[cfg(test)]

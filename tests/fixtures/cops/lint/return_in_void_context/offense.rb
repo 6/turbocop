@@ -18,3 +18,30 @@ class Baz
     ^^^^^^^^^^^^^^ Lint/ReturnInVoidContext: Do not return a value in `initialize`.
   end
 end
+
+class WithSetter
+  def foo=(bar)
+    return 42
+    ^^^^^^^^^ Lint/ReturnInVoidContext: Do not return a value in `foo=`.
+  end
+end
+
+# return with value inside a regular block within initialize (still an offense)
+class WithBlock
+  def initialize
+    items.each do
+      return :qux
+      ^^^^^^^^^^^ Lint/ReturnInVoidContext: Do not return a value in `initialize`.
+    end
+  end
+end
+
+# return with value inside proc within initialize (still an offense - proc doesn't change scope)
+class WithProc
+  def initialize
+    proc do
+      return :qux
+      ^^^^^^^^^^^ Lint/ReturnInVoidContext: Do not return a value in `initialize`.
+    end
+  end
+end
