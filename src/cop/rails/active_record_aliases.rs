@@ -3,6 +3,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Rails/ActiveRecordAliases: flags `update_attributes` / `update_attributes!`
+/// and suggests `update` / `update!` instead.
+///
+/// Investigation findings:
+/// - 55 FNs were caused by skipping calls without an explicit receiver (implicit self).
+///   RuboCop flags `update_attributes` regardless of receiver presence, since the method
+///   name is specific enough. Removed the `receiver().is_none()` guard to match.
 pub struct ActiveRecordAliases;
 
 impl Cop for ActiveRecordAliases {
@@ -46,11 +53,6 @@ impl Cop for ActiveRecordAliases {
         } else {
             return;
         };
-
-        // Must have a receiver (obj.update_attributes)
-        if call.receiver().is_none() {
-            return;
-        }
 
         let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
