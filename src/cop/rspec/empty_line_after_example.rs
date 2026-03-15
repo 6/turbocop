@@ -4,8 +4,8 @@ use ruby_prism::Visit;
 
 use crate::cop::node_type::PROGRAM_NODE;
 use crate::cop::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example,
-    is_rspec_example_group, is_rspec_shared_group, line_at, node_on_single_line,
+    RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example, line_at,
+    node_on_single_line,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -89,22 +89,19 @@ impl Cop for EmptyLineAfterExample {
         let allow_consecutive = config.get_bool("AllowConsecutiveOneLiners", true);
         let (comment_lines, enable_directive_lines) = build_comment_line_sets(source, parse_result);
 
-        // Match RuboCop's InsideExampleGroup root scoping: only process top-level
-        // spec groups. Specs wrapped in module/class roots are intentionally skipped.
-        for stmt in program.statements().body().iter() {
-            if !is_spec_group_call(&stmt) {
-                continue;
-            }
-            let mut visitor = ExampleSeparationVisitor {
-                source,
-                cop: self,
-                diagnostics,
-                comment_lines: &comment_lines,
-                enable_directive_lines: &enable_directive_lines,
-                allow_consecutive,
-            };
-            visitor.visit(&stmt);
-        }
+        // RuboCop's EmptyLineAfterExample uses `on_block` which fires for ALL blocks
+        // in the file, not just those inside top-level spec groups. Unlike
+        // EmptyLineAfterSubject (which uses InsideExampleGroup), this cop checks
+        // any example block found anywhere — including inside module/class wrappers.
+        let mut visitor = ExampleSeparationVisitor {
+            source,
+            cop: self,
+            diagnostics,
+            comment_lines: &comment_lines,
+            enable_directive_lines: &enable_directive_lines,
+            allow_consecutive,
+        };
+        visitor.visit_program_node(&program);
     }
 }
 
@@ -226,21 +223,6 @@ fn is_consecutive_one_liner(
 
     // Right sibling must be single-line
     node_on_single_line(source, &next_sibling.location())
-}
-
-fn is_spec_group_call(node: &ruby_prism::Node<'_>) -> bool {
-    let call = match node.as_call_node() {
-        Some(c) => c,
-        None => return false,
-    };
-
-    let name = call.name().as_slice();
-    if let Some(recv) = call.receiver() {
-        util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
-            && (is_rspec_example_group(name) || is_rspec_shared_group(name))
-    } else {
-        is_rspec_example_group(name) || is_rspec_shared_group(name)
-    }
 }
 
 /// Determine if an empty line is missing after a node, following RuboCop's
