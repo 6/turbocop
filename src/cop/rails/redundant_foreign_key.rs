@@ -27,6 +27,17 @@ use crate::parse::source::SourceFile;
 /// - Added `:as` option handling for polymorphic `has_*` associations.
 /// - Added string association name support for `belongs_to`.
 /// - For `has_*` outside a class context, the cop correctly skips (no model name to derive FK).
+///
+/// ## Investigation findings (2026-03-14)
+///
+/// **FP root cause (89 FPs):** RuboCop's node_matcher pattern
+/// `(send nil? method ({sym str} name) $(hash <...>))` strictly matches
+/// 2-argument calls (name + options_hash). When a scope lambda/proc is present
+/// (e.g., `has_many :hard_disks, -> { ... }, class_name: "Disk", foreign_key: :hardware_id`),
+/// the call has 3 arguments and the pattern does NOT match — RuboCop skips it.
+/// Nitrocop's `keyword_arg_value` searched through ALL arguments regardless,
+/// causing false positives. Fixed by checking for non-hash intermediate arguments
+/// (scope lambdas) and returning early when found.
 pub struct RedundantForeignKey;
 
 impl Cop for RedundantForeignKey {
@@ -75,8 +86,10 @@ impl Cop for RedundantForeignKey {
             None => return,
         };
 
+        let args_list: Vec<_> = args.arguments().iter().collect();
+
         // First argument should be a symbol or string (association name)
-        let first_arg = match args.arguments().iter().next() {
+        let first_arg = match args_list.first() {
             Some(a) => a,
             None => return,
         };
@@ -87,6 +100,20 @@ impl Cop for RedundantForeignKey {
         } else {
             return;
         };
+
+        // RuboCop's node pattern `(send nil? method ({sym str} name) hash)` only matches
+        // 2-argument calls (name + options_hash). If a scope lambda/proc is present as
+        // the second argument (e.g., `has_many :posts, -> { scope }, foreign_key: :x`),
+        // RuboCop skips the check. We replicate this by checking for non-hash/non-keyword-hash
+        // intermediate arguments.
+        if args_list.len() > 2 {
+            // Check if any argument between first and last is not a hash
+            for arg in args_list[1..args_list.len() - 1].iter() {
+                if arg.as_hash_node().is_none() && arg.as_keyword_hash_node().is_none() {
+                    return; // Scope lambda or other non-hash argument present
+                }
+            }
+        }
 
         // Check for foreign_key keyword arg
         let fk_value = match keyword_arg_value(&call, b"foreign_key") {

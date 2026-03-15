@@ -40,3 +40,13 @@ end
 
 # has_and_belongs_to_many not inside a class
 has_and_belongs_to_many :authors, foreign_key: :book_id
+
+# has_many/has_one with scope lambda — RuboCop skips these (only checks 2-arg calls)
+class Hardware
+  has_many :hard_disks, -> { where.not(device_type: 'floppy').order(:location) }, class_name: "Disk", foreign_key: :hardware_id
+  has_many :floppies, -> { where(device_type: 'floppy') }, class_name: "Disk", foreign_key: :hardware_id
+end
+
+class User
+  has_one :recent_post, -> { order(created_at: :desc) }, class_name: "Post", foreign_key: :user_id
+end
