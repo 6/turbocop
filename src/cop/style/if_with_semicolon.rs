@@ -50,7 +50,25 @@ impl Cop for IfWithSemicolon {
         // the source between predicate end and body start on the SAME LINE only
         // (to avoid false positives from semicolons in comments on subsequent lines).
         let has_semicolon = if let Some(then_loc) = if_node.then_keyword_loc() {
-            then_loc.as_slice() == b";"
+            if then_loc.as_slice() != b";" {
+                false
+            } else {
+                // Semicolon found, but only flag if the body is on the same line
+                // as the `if` keyword. Multi-line `if true;\n  body\nend` should
+                // not be flagged — RuboCop only flags single-line forms.
+                let if_line = source.offset_to_line_col(if_kw_loc.start_offset()).0;
+                let body_line = if let Some(stmts) = if_node.statements() {
+                    source.offset_to_line_col(stmts.location().start_offset()).0
+                } else if let Some(sub) = if_node.subsequent() {
+                    // `if cond; else ...` with no body before else — check else line
+                    source.offset_to_line_col(sub.location().start_offset()).0
+                } else if let Some(end_loc) = if_node.end_keyword_loc() {
+                    source.offset_to_line_col(end_loc.start_offset()).0
+                } else {
+                    return;
+                };
+                if_line == body_line
+            }
         } else {
             let pred_end = if_node.predicate().location().end_offset();
             let body_start = if let Some(stmts) = if_node.statements() {
