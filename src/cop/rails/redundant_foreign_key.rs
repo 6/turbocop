@@ -39,6 +39,14 @@ use crate::parse::source::SourceFile;
 /// causing false positives. Fixed by checking for non-hash intermediate arguments
 /// (scope lambdas) and returning early when found.
 ///
+/// ## Investigation findings (2026-03-15, round 2)
+///
+/// **FP root cause (1 FP):** `has_many` with a trailing `do...end` block was
+/// flagged but RuboCop skips it. RuboCop's node_matcher pattern
+/// `(send nil? method ({sym str} name) $(hash <...>))` doesn't match calls
+/// that have a trailing block in the Parser AST.
+/// Fix: skip when `call.block().is_some()`.
+///
 /// ## Investigation findings (2026-03-15)
 ///
 /// **FP+FN root cause (51 FP, 50 FN):** Symmetric per-repo — every FP had a
@@ -81,6 +89,11 @@ impl Cop for RedundantForeignKey {
             None => return,
         };
         if call.receiver().is_some() {
+            return;
+        }
+
+        // RuboCop's node_matcher pattern doesn't match calls with trailing blocks
+        if call.block().is_some() {
             return;
         }
 

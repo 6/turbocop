@@ -50,3 +50,11 @@ end
 class User
   has_one :recent_post, -> { order(created_at: :desc) }, class_name: "Post", foreign_key: :user_id
 end
+
+# has_many with trailing block — RuboCop skips these
+class Post
+  has_many :comments, foreign_key: :post_id do
+    def custom
+    end
+  end
+end
