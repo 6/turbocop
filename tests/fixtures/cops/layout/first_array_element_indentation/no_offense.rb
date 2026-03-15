@@ -46,7 +46,14 @@ X = (%i[
   b
 ] + other).freeze
 
-# Array inside a hash literal that is a method argument
-foo(status: 200, body: { "responses" => [
-  "code" => 200, "body" => "OK"
-] }.to_json)
+# Array as RHS of % operator inside method call
+gc.draw('text %d,%d %s' % [
+  left.round + 2,
+  header_height + 14,
+  shell_quote(week_f.to_s)
+])
+
+# Indented % operator array in method body
+  image.draw('rectangle %d,%d %d,%d' % [
+    0, 0, width, height
+  ])

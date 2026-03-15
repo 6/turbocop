@@ -4,6 +4,30 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Layout/FirstArrayElementIndentation cop.
+///
+/// ## Investigation findings (2026-03-15)
+///
+/// **FP root cause (208 FPs, now fixed):** `find_left_paren_on_line` was finding
+/// the `(` of method calls like `gc.draw('fmt' % [...])` where the `%` operator
+/// sits between `(` and `[`. The array is the RHS of `%`, not a direct argument
+/// of the method call. Fix: `is_preceded_by_percent_operator()` checks if `[` is
+/// immediately preceded by `%` and falls back to line-relative indent.
+///
+/// **FP root cause #2 (subset):** `find_left_paren_on_line` stopped at unmatched
+/// `{` (hash literal) before `[`, returning `None` and using line-relative. This
+/// caused missed offenses for patterns like `method({ key: [...] })` where RuboCop
+/// uses paren-relative. Fix: continue scanning past unmatched `{` to find `(`.
+/// `is_direct_argument` now also scans past `}` after `]` to detect hash chaining
+/// (`{ key: [...] }.to_json`), correctly falling back to line-relative in that case.
+///
+/// **Remaining FNs (~134):** Three categories:
+/// 1. WhatWeb plugins (~41) use tab indentation; `indentation_of()` only counts
+///    spaces, producing incorrect `open_line_indent`. Needs TabWidth support.
+/// 2. Whitehall/similar (~85) have `method({ key: [` where `[` is on the same
+///    line as `(` — these should now be fixed by the `find_left_paren_on_line`
+///    change allowing scanning past `{`. Verification requires corpus re-run.
+/// 3. "parent hash key" relative messages (~5) — RuboCop feature not implemented.
 pub struct FirstArrayElementIndentation;
 
 /// Describes what the expected indentation is relative to.
@@ -18,13 +42,12 @@ enum IndentBaseType {
 }
 
 /// Scan backwards from `bracket_col` on `line_bytes` to find an unmatched `(`
-/// that directly contains this array (not separated by an unmatched `[` or `{`).
-/// Returns `Some(column)` if found, `None` otherwise.
+/// that contains this array. Returns `Some(column)` if found, `None` otherwise.
 ///
-/// This tracks balanced parens, brackets, AND braces. If we encounter an
-/// unmatched `[` or `{` before finding an unmatched `(`, the array is nested
-/// inside another array or a hash literal, not a direct argument of the
-/// method call, so we return `None`.
+/// This tracks balanced parens, brackets, and braces. Unmatched `{` or `[`
+/// are allowed — the array may be nested inside a hash literal or another
+/// array that is itself inside method call parens (e.g.,
+/// `method({ key: [...] })`). Only an unmatched `(` is returned.
 fn find_left_paren_on_line(line_bytes: &[u8], bracket_col: usize) -> Option<usize> {
     let end = bracket_col.min(line_bytes.len());
     let mut paren_depth: i32 = 0;
@@ -35,36 +58,42 @@ fn find_left_paren_on_line(line_bytes: &[u8], bracket_col: usize) -> Option<usiz
             b')' => paren_depth += 1,
             b'(' => {
                 if paren_depth == 0 {
-                    // Found an unmatched `(`. Only return it if we haven't
-                    // passed through an unmatched `[` or `{` (which would mean
-                    // our array is nested inside another array or hash literal).
-                    if bracket_depth == 0 && brace_depth == 0 {
-                        return Some(i);
-                    }
-                    return None;
+                    return Some(i);
                 }
                 paren_depth -= 1;
             }
             b']' => bracket_depth += 1,
             b'[' => {
-                if bracket_depth == 0 {
-                    // Unmatched `[` -- our array is inside another array.
-                    return None;
+                if bracket_depth > 0 {
+                    bracket_depth -= 1;
                 }
-                bracket_depth -= 1;
             }
             b'}' => brace_depth += 1,
             b'{' => {
-                if brace_depth == 0 {
-                    // Unmatched `{` -- our array is inside a hash literal or block.
-                    return None;
+                if brace_depth > 0 {
+                    brace_depth -= 1;
                 }
-                brace_depth -= 1;
             }
             _ => {}
         }
     }
     None
+}
+
+/// Check if the `[` is immediately preceded by a `%` operator (string formatting).
+/// In patterns like `gc.draw('format' % [...])`, the array is the RHS of the `%`
+/// operator, not a direct argument of the method call's parentheses. Scans
+/// backwards from the `[` position, skipping whitespace.
+fn is_preceded_by_percent_operator(line_bytes: &[u8], bracket_col: usize) -> bool {
+    let end = bracket_col.min(line_bytes.len());
+    for i in (0..end).rev() {
+        match line_bytes[i] {
+            b' ' | b'\t' => continue,
+            b'%' => return true,
+            _ => return false,
+        }
+    }
+    false
 }
 
 /// Check if the array is used as a direct argument (not as a receiver of
@@ -75,6 +104,10 @@ fn find_left_paren_on_line(line_bytes: &[u8], bracket_col: usize) -> Option<usiz
 /// after `]` is `)`, `,`, end of line, or nothing relevant).
 /// Returns `false` if `]` is followed by `.`, `+`, `-`, `*`, etc. indicating
 /// the array is part of a larger expression.
+///
+/// When the array is inside a hash literal, this also skips past the closing
+/// `}` and any trailing `)` to check if the hash itself is chained (e.g.,
+/// `{ key: [...] }.to_json`).
 fn is_direct_argument(source_bytes: &[u8], closing_end_offset: usize) -> bool {
     let mut i = closing_end_offset;
     let len = source_bytes.len();
@@ -88,6 +121,23 @@ fn is_direct_argument(source_bytes: &[u8], closing_end_offset: usize) -> bool {
     match source_bytes[i] {
         // Array is followed by a method call or operator => part of expression
         b'.' | b'+' | b'-' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^' => false,
+        // If `]` is followed by `}`, the array is inside a hash. Skip past
+        // the `}` and any closing parens/whitespace to check if the HASH
+        // is chained with a method call.
+        b'}' => {
+            i += 1;
+            // Skip whitespace after }
+            while i < len && (source_bytes[i] == b' ' || source_bytes[i] == b'\t') {
+                i += 1;
+            }
+            if i >= len {
+                return true;
+            }
+            !matches!(
+                source_bytes[i],
+                b'.' | b'+' | b'-' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^'
+            )
+        }
         // Everything else (closing paren, comma, newline, etc.) => direct argument
         _ => true,
     }
@@ -160,10 +210,16 @@ impl Cop for FirstArrayElementIndentation {
 
                 if let Some(paren_col) = find_left_paren_on_line(open_line_bytes, open_col) {
                     // If the `[` is on the same line as a method call's `(`,
-                    // and the array is a direct argument (not part of a chain
-                    // like `[...].join()` or `[...] + other`), indent relative
-                    // to the position after `(`.
-                    if is_direct_argument(source.as_bytes(), closing_end) {
+                    // indent relative to the position after `(`, unless:
+                    // - The `[` is preceded by a `%` operator (e.g.,
+                    //   `gc.draw('format' % [...])`) — the array belongs to `%`,
+                    //   not to the enclosing method call.
+                    // - The array (or enclosing hash) is part of a chain or
+                    //   expression (e.g., `[...].join()`, `{ key: [...] }.to_json`)
+                    let use_paren_relative =
+                        !is_preceded_by_percent_operator(open_line_bytes, open_col)
+                            && is_direct_argument(source.as_bytes(), closing_end);
+                    if use_paren_relative {
                         (
                             paren_col + 1,
                             IndentBaseType::FirstColumnAfterLeftParenthesis,
@@ -415,6 +471,67 @@ mod tests {
         assert!(
             diags.is_empty(),
             "bracket at line indent should not be flagged: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn percent_operator_array_not_paren_relative() {
+        // gc.draw('format %d' % [...]) -- the array is arg to %, not to draw()
+        // The ( of draw( is on the same line, but % operator separates them.
+        // Should use line-relative indent, not paren-relative.
+        let src = b"gc.draw('text %d,%d' % [\n  left.round,\n  header_height\n])\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(
+            diags.is_empty(),
+            "array after % operator should use line-relative indent, not paren-relative: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn percent_operator_array_indented_in_method() {
+        // Same pattern but indented inside a method body
+        let src = b"    gc.draw('rect %d,%d %d,%d' % [\n      0, 0, width, height\n    ])\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(
+            diags.is_empty(),
+            "indented % operator array should use line-relative indent: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn array_inside_hash_arg_inside_parens_flags_paren_relative() {
+        // build_type("test", { "associations" => [
+        //   { "key" => "docs" },
+        // ] })
+        // The [ is inside a hash literal that is inside parens.
+        // RuboCop uses paren-relative indent: ( is at col 10, so expected = 13.
+        let src = b"build_type(\"test\", { \"associations\" => [\n  {\n    \"key\" => \"docs\",\n  },\n] })\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(
+            !diags.is_empty(),
+            "array inside hash arg inside parens should flag with paren-relative indent: {:?}",
+            diags
+        );
+        assert!(
+            diags[0]
+                .message
+                .contains("first position after the preceding left parenthesis"),
+            "should use paren-relative message: {}",
+            diags[0].message
+        );
+    }
+
+    #[test]
+    fn hash_with_to_json_chain_uses_line_indent() {
+        // Array inside hash that's chained with .to_json — should use line-relative
+        let src = b"foo(status: 200, body: { \"responses\" => [\n  \"code\" => 200, \"body\" => \"OK\"\n] }.to_json)\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(
+            diags.is_empty(),
+            "array in hash chained with .to_json should use line-relative: {:?}",
             diags
         );
     }
