@@ -39,6 +39,23 @@ use ruby_prism::Visit;
 ///
 /// Cop logic correctly detects reassignment; the files are excluded by the
 /// target project's RuboCop configuration. No cop logic bugs.
+///
+/// ## Corpus investigation (2026-03-15)
+///
+/// The remaining FP=6 were not config noise. The corpus oracle runs against
+/// `bench/corpus/baseline_rubocop.yml`, so repo-local excludes are ignored.
+///
+/// Root causes:
+/// - Explicit `begin ... end` bodies are not treated as simple assignment
+///   contexts by RuboCop, so a constant written inside `begin` must not be
+///   compared against writes outside that block.
+/// - `class << self` bodies are also ignored by this cop. RuboCop does not
+///   register reassignments within an sclass body, nor between sclass
+///   constants and the surrounding class body.
+///
+/// Fix:
+/// - Treat all `BeginNode` and `SingletonClassNode` scopes as non-simple
+///   contexts so their constant writes are ignored for reassignment tracking.
 pub struct ConstantReassignment;
 
 impl Cop for ConstantReassignment {
@@ -101,7 +118,7 @@ impl ConstantReassignmentVisitor<'_, '_> {
     /// For `self::FOO` inside class A, returns `::A::FOO`.
     /// Returns None for variable paths like `lvar::FOO`.
     fn fqn_from_constant_path(&self, node: &ruby_prism::ConstantPathNode<'_>) -> Option<String> {
-        let (segments, is_absolute) = self.collect_path_segments(node)?;
+        let (segments, is_absolute) = Self::collect_path_segments(node)?;
 
         if is_absolute {
             Some(format!("::{}", segments.join("::")))
@@ -120,7 +137,6 @@ impl ConstantReassignmentVisitor<'_, '_> {
     /// Also returns whether the path is absolute (rooted at cbase `::`) or
     /// relative to `self`.
     fn collect_path_segments(
-        &self,
         node: &ruby_prism::ConstantPathNode<'_>,
     ) -> Option<(Vec<String>, bool)> {
         let seg_name = node
@@ -133,7 +149,7 @@ impl ConstantReassignmentVisitor<'_, '_> {
                 let parent_name = std::str::from_utf8(parent_const.name().as_slice()).unwrap_or("");
                 Some((vec![parent_name.to_string(), seg_name], false))
             } else if let Some(parent_path) = parent.as_constant_path_node() {
-                let (mut segments, is_absolute) = self.collect_path_segments(&parent_path)?;
+                let (mut segments, is_absolute) = Self::collect_path_segments(&parent_path)?;
                 segments.push(seg_name);
                 Some((segments, is_absolute))
             } else if parent.as_self_node().is_some() {
@@ -249,13 +265,15 @@ impl<'pr> Visit<'pr> for ConstantReassignmentVisitor<'_, '_> {
     }
 
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
-        if node.rescue_clause().is_some() {
-            self.non_simple_depth += 1;
-            ruby_prism::visit_begin_node(self, node);
-            self.non_simple_depth -= 1;
-        } else {
-            ruby_prism::visit_begin_node(self, node);
-        }
+        self.non_simple_depth += 1;
+        ruby_prism::visit_begin_node(self, node);
+        self.non_simple_depth -= 1;
+    }
+
+    fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
+        self.non_simple_depth += 1;
+        ruby_prism::visit_singleton_class_node(self, node);
+        self.non_simple_depth -= 1;
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {

@@ -135,3 +135,20 @@ class Evaluator
     LABEL = :dynamic
   }
 end
+
+# Explicit begin blocks are not simple assignment contexts
+FOO = :bar
+
+begin
+  FOO = :baz
+end
+
+# Singleton class bodies are ignored by RuboCop for this cop
+class SingletonConstants
+  class << self
+    FLAG = :one
+    FLAG = :two
+  end
+
+  FLAG = :three
+end
