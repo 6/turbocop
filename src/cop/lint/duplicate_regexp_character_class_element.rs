@@ -26,6 +26,12 @@ use crate::parse::source::SourceFile;
 /// bracket characters in comments. Fixed by detecting the `/x` flag and skipping from `#`
 /// to end of line in `check_regexp_content` (outside character classes only, since `#` is
 /// literal inside `[...]`).
+///
+/// ## Corpus investigation update (2026-03-15)
+///
+/// Corpus oracle reported the remaining FN=1 on degenerate ranges such as
+/// `[A-Aa-z0-9]`. RuboCop treats `A-A` as duplicating the endpoint element and
+/// reports the second `A`, not the range as a unique entity.
 pub struct DuplicateRegexpCharacterClassElement;
 
 impl Cop for DuplicateRegexpCharacterClassElement {
@@ -293,6 +299,16 @@ fn check_class_for_duplicates(
                 } else {
                     1
                 };
+                let range_end: String = class_content
+                    [range_end_start..range_end_start + range_end_len]
+                    .iter()
+                    .collect();
+                if entity == range_end {
+                    seen.insert(entity);
+                    emit_duplicate(cop, source, class_offsets, range_end_start, diagnostics);
+                    k = range_end_start + range_end_len;
+                    continue;
+                }
                 let range_str: String = class_content[k..range_end_start + range_end_len]
                     .iter()
                     .collect();
@@ -319,6 +335,16 @@ fn check_class_for_duplicates(
             } else {
                 1
             };
+            let start = class_content[k].to_string();
+            let end: String = class_content[range_end_start..range_end_start + range_end_len]
+                .iter()
+                .collect();
+            if start == end {
+                seen.insert(start);
+                emit_duplicate(cop, source, class_offsets, range_end_start, diagnostics);
+                k = range_end_start + range_end_len;
+                continue;
+            }
             let range: String = class_content[k..range_end_start + range_end_len]
                 .iter()
                 .collect();

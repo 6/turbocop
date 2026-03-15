@@ -10,3 +10,5 @@ r = /["'']/
 # Duplicate in interpolated regex
 r = /["'']?.*foo/
         ^ Lint/DuplicateRegexpCharacterClassElement: Duplicate element inside regexp character class
+r = /[A-Aa-z0-9]+/
+        ^ Lint/DuplicateRegexpCharacterClassElement: Duplicate element inside regexp character class
