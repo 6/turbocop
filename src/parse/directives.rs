@@ -191,7 +191,56 @@ impl DisabledRanges {
                         // Normalize Department::CopName -> Department/CopName
                         let cop = normalize_directive_cop_name(cop);
                         let cop = cop.as_str();
-                        if let Some((start_line, _col, directive_idx)) = open_disables.remove(cop) {
+                        if cop == "all" {
+                            // `# rubocop:enable all` closes ALL open disables,
+                            // not just a disable for the literal string "all".
+                            for (open_cop, (start_line, _col, directive_idx)) in
+                                open_disables.drain()
+                            {
+                                let range = (start_line, line);
+                                ranges.entry(open_cop).or_default().push(range);
+                                if directive_idx < directives.len() {
+                                    directives[directive_idx].range = range;
+                                }
+                            }
+                        } else if let Some(dept) = cop.strip_suffix("/*").or_else(|| {
+                            // A bare department name (no `/`) also closes all cops
+                            // in that department.
+                            if !cop.contains('/') { Some(cop) } else { None }
+                        }) {
+                            // `# rubocop:enable Department` closes the department
+                            // disable AND any individual cop disables in that dept.
+                            // First close exact match (department name itself)
+                            if let Some((start_line, _col, directive_idx)) =
+                                open_disables.remove(dept)
+                            {
+                                let range = (start_line, line);
+                                ranges.entry(dept.to_string()).or_default().push(range);
+                                if directive_idx < directives.len() {
+                                    directives[directive_idx].range = range;
+                                }
+                            }
+                            // Also close any individual cops in that department
+                            let dept_prefix = format!("{dept}/");
+                            let matching_cops: Vec<String> = open_disables
+                                .keys()
+                                .filter(|k| k.starts_with(&dept_prefix))
+                                .cloned()
+                                .collect();
+                            for open_cop in matching_cops {
+                                if let Some((start_line, _col, directive_idx)) =
+                                    open_disables.remove(&open_cop)
+                                {
+                                    let range = (start_line, line);
+                                    ranges.entry(open_cop).or_default().push(range);
+                                    if directive_idx < directives.len() {
+                                        directives[directive_idx].range = range;
+                                    }
+                                }
+                            }
+                        } else if let Some((start_line, _col, directive_idx)) =
+                            open_disables.remove(cop)
+                        {
                             let range = (start_line, line);
                             ranges.entry(cop.to_string()).or_default().push(range);
                             // Update the directive's range
@@ -532,6 +581,82 @@ mod tests {
         assert!(dr.is_disabled("Metrics/BlockLength", 2));
         assert!(dr.is_disabled("Metrics/BlockLength", 3));
         assert!(!dr.is_disabled("Metrics/BlockLength", 4));
+    }
+
+    #[test]
+    fn enable_all_closes_individual_cop_disables() {
+        // `# rubocop:disable Layout/EndAlignment` followed by `# rubocop:enable all`
+        // should close the Layout/EndAlignment disable.
+        let src = "    # rubocop:disable Layout/IndentationWidth, Layout/EndAlignment\n\
+                   x = if true\n\
+                     1\n\
+                   end\n\
+                   # rubocop:enable all\n\
+                   y = if true\n\
+                     2\n\
+                   end\n";
+        let dr = disabled_ranges(src);
+        // Line 2-4 should be disabled for Layout/EndAlignment (within disable-enable block)
+        assert!(
+            dr.is_disabled("Layout/EndAlignment", 2),
+            "Layout/EndAlignment should be disabled at line 2 (before enable all)"
+        );
+        // Line 6-8 should NOT be disabled (after `# rubocop:enable all`)
+        assert!(
+            !dr.is_disabled("Layout/EndAlignment", 6),
+            "Layout/EndAlignment should NOT be disabled at line 6 (after enable all)"
+        );
+        assert!(
+            !dr.is_disabled("Layout/EndAlignment", 8),
+            "Layout/EndAlignment should NOT be disabled at line 8 (after enable all)"
+        );
+        // Layout/IndentationWidth should also be re-enabled
+        assert!(
+            !dr.is_disabled("Layout/IndentationWidth", 6),
+            "Layout/IndentationWidth should NOT be disabled at line 6 (after enable all)"
+        );
+    }
+
+    #[test]
+    fn enable_all_closes_individual_cop_disables_exact_format() {
+        // Exact format from rage-rb corpus file
+        let src = "    # rubocop:disable Layout/IndentationWidth, Layout/EndAlignment, Layout/HeredocIndentation\n\
+                   x = if true\n\
+                     1\n\
+                   end\n\
+                   y = if true\n\
+                     2\n\
+                   end\n\
+                       # rubocop:enable all\n\
+                   z = if true\n\
+                     3\n\
+                   end\n";
+        let dr = disabled_ranges(src);
+        // Line 2 should be disabled
+        assert!(
+            dr.is_disabled("Layout/EndAlignment", 2),
+            "Layout/EndAlignment should be disabled at line 2"
+        );
+        // Line 9 (after enable all) should NOT be disabled
+        assert!(
+            !dr.is_disabled("Layout/EndAlignment", 9),
+            "Layout/EndAlignment should NOT be disabled at line 9 (after enable all)"
+        );
+    }
+
+    #[test]
+    fn enable_all_closes_department_disables() {
+        // `# rubocop:disable Layout` followed by `# rubocop:enable all`
+        let src = "# rubocop:disable Layout\nx = 1\n# rubocop:enable all\ny = 2\n";
+        let dr = disabled_ranges(src);
+        assert!(
+            dr.is_disabled("Layout/EndAlignment", 2),
+            "Layout department should be disabled before enable all"
+        );
+        assert!(
+            !dr.is_disabled("Layout/EndAlignment", 4),
+            "Layout department should NOT be disabled after enable all"
+        );
     }
 
     #[test]
