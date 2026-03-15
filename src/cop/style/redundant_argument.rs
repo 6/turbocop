@@ -3,6 +3,19 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Checks for redundant arguments passed to certain methods where the argument
+/// matches the method's default value.
+///
+/// ## Corpus investigation findings (94 FP, 93 FN, symmetric):
+/// All FP/FN pairs were caused by reporting the offense at `call.location()`
+/// (start of entire call expression including receiver) instead of at the
+/// argument range. For multiline receivers (e.g., `[...].join("")`), the
+/// receiver spans multiple lines, so the offense was reported on the wrong
+/// line entirely. RuboCop reports at `opening_loc` (the `(`) for parenthesized
+/// calls, or at the argument node for unparenthesized calls.
+///
+/// Fix: use `call.opening_loc()` to get the `(` position for parenthesized
+/// calls, falling back to `arg.location()` for unparenthesized calls.
 pub struct RedundantArgument;
 
 impl Cop for RedundantArgument {
@@ -64,10 +77,18 @@ impl Cop for RedundantArgument {
         };
 
         if redundant {
-            let _method_str = std::str::from_utf8(method_bytes).unwrap_or("");
             let arg_src = std::str::from_utf8(arg.location().as_slice()).unwrap_or("");
-            let loc = call.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
+
+            // Report at the argument range, matching RuboCop's behavior:
+            // - Parenthesized: span from opening paren to closing paren, e.g. ('')
+            // - Non-parenthesized: span just the argument
+            let offset = if let Some(open) = call.opening_loc() {
+                open.start_offset()
+            } else {
+                arg.location().start_offset()
+            };
+
+            let (line, column) = source.offset_to_line_col(offset);
             diagnostics.push(self.diagnostic(
                 source,
                 line,
