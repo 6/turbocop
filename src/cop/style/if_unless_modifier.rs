@@ -4,6 +4,34 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Style/IfUnlessModifier: Checks for `if` and `unless` statements that would
+/// fit on one line if written as modifier `if`/`unless`.
+///
+/// ## Investigation findings (2026-03-15)
+///
+/// FP root causes (301 FPs):
+/// 1. **Chained calls after `end`**: `if test; something; end.inspect` — RuboCop
+///    skips via `node.chained?`. nitrocop was missing this check entirely. Fix:
+///    detect non-whitespace after `end` keyword on the same line.
+/// 2. **Comment on `end` line**: `end # comment` — RuboCop checks
+///    `line_with_comment?(node.loc.last_line)`. nitrocop checked comments between
+///    body and end but not on the end line itself. Fix: check end line for comments.
+/// 3. **Named regexp captures**: `/(?<name>\d)/ =~ str` — RuboCop's
+///    `named_capture_in_condition?` checks `match_with_lvasgn_type?`. Fix: detect
+///    `MatchWriteNode` in condition (Prism equivalent).
+/// 4. **Endless method def in body**: `def method_name = body` — RuboCop's
+///    `endless_method?` skips these to avoid `Style/AmbiguousEndlessMethodDefinition`.
+///    Fix: check if body is a DefNode with `equal_loc()`.
+/// 5. **Pattern matching in condition**: `if [42] in [x]` — RuboCop skips
+///    `any_match_pattern_type?`. Fix: detect MatchPredicateNode/MatchRequiredNode.
+/// 6. **nonempty_line_count > 3**: Multiline conditions like `if a &&\n  b\n  body\nend`
+///    have 4+ non-empty lines. RuboCop skips these. Fix: count non-empty lines in
+///    the entire if/unless node source range.
+///
+/// FN root causes (8,324 FNs): Not addressed in this change. The high FN count
+/// likely stems from config resolution differences (MaxLineLength defaults, tab
+/// width handling) and cases where nitrocop's length estimation is slightly off
+/// compared to RuboCop's more precise calculation.
 pub struct IfUnlessModifier;
 
 /// Check if a node (or any descendant) contains a heredoc.
@@ -81,6 +109,60 @@ impl<'pr> Visit<'pr> for LvasgnFinder {
     fn visit_local_variable_write_node(&mut self, _node: &ruby_prism::LocalVariableWriteNode<'pr>) {
         self.found = true;
     }
+}
+
+/// Check if the condition contains a named regexp capture (`/(?<x>...)/ =~ str`).
+///
+/// RuboCop's `named_capture_in_condition?` checks `match_with_lvasgn_type?`.
+/// In Prism, this is represented as a `MatchWriteNode`.
+fn condition_contains_named_capture(node: &ruby_prism::Node<'_>) -> bool {
+    let mut finder = NamedCaptureFinder { found: false };
+    finder.visit(node);
+    finder.found
+}
+
+struct NamedCaptureFinder {
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for NamedCaptureFinder {
+    fn visit_match_write_node(&mut self, _node: &ruby_prism::MatchWriteNode<'pr>) {
+        self.found = true;
+    }
+}
+
+/// Check if the condition contains pattern matching (`in` operator).
+///
+/// RuboCop's `pattern_matching_nodes` checks `any_match_pattern_type?`.
+/// In Prism, `[42] in [x]` is a `MatchPredicateNode` and `[42] => x` is
+/// `MatchRequiredNode`.
+fn condition_contains_pattern_matching(node: &ruby_prism::Node<'_>) -> bool {
+    let mut finder = PatternMatchFinder { found: false };
+    finder.visit(node);
+    finder.found
+}
+
+struct PatternMatchFinder {
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for PatternMatchFinder {
+    fn visit_match_predicate_node(&mut self, _node: &ruby_prism::MatchPredicateNode<'pr>) {
+        self.found = true;
+    }
+    fn visit_match_required_node(&mut self, _node: &ruby_prism::MatchRequiredNode<'pr>) {
+        self.found = true;
+    }
+}
+
+/// Check if a body node is an endless method definition (`def method_name = body`).
+///
+/// RuboCop skips these to avoid conflict with `Style/AmbiguousEndlessMethodDefinition`.
+fn body_is_endless_method(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(def_node) = node.as_def_node() {
+        return def_node.equal_loc().is_some();
+    }
+    false
 }
 
 /// Check if a node (or any descendant) contains a nested conditional
@@ -195,6 +277,24 @@ impl Cop for IfUnlessModifier {
             return;
         }
 
+        // Skip if the condition contains a named regexp capture — modifier form
+        // changes semantics (RuboCop: named_capture_in_condition?).
+        if condition_contains_named_capture(&predicate) {
+            return;
+        }
+
+        // Skip if the condition contains pattern matching (in/=>) — modifier form
+        // changes variable scoping semantics (RuboCop: pattern_matching_nodes).
+        if condition_contains_pattern_matching(&predicate) {
+            return;
+        }
+
+        // Skip if the body is an endless method definition — conflict with
+        // Style/AmbiguousEndlessMethodDefinition (RuboCop: endless_method?).
+        if body_is_endless_method(&body_node) {
+            return;
+        }
+
         // Skip if the body contains any nested conditional (if/unless/ternary).
         // RuboCop's `nested_conditional?` checks if any branch contains a nested
         // `:if` node, which includes ternaries (e.g., `a = x ? y : z`).
@@ -264,17 +364,21 @@ impl Cop for IfUnlessModifier {
             }
         }
 
-        // Skip if there's a comment before `end` on its own line
+        // Skip if there's a comment before `end` on its own line, a comment on the
+        // `end` line, or code after `end` on the same line (chained calls like
+        // `end.inspect`, `end&.foo`, `end + 2`).
         {
-            let end_offset: Option<usize> = if let Some(if_node) = node.as_if_node() {
-                if_node.end_keyword_loc().map(|loc| loc.start_offset())
+            let end_loc: Option<ruby_prism::Location<'_>> = if let Some(if_node) = node.as_if_node()
+            {
+                if_node.end_keyword_loc()
             } else if let Some(unless_node) = node.as_unless_node() {
-                unless_node.end_keyword_loc().map(|loc| loc.start_offset())
+                unless_node.end_keyword_loc()
             } else {
                 None
             };
-            if let Some(end_off) = end_offset {
-                let (end_line, _) = source.offset_to_line_col(end_off);
+            if let Some(end_loc) = end_loc {
+                let end_off = end_loc.start_offset();
+                let (end_line, end_col) = source.offset_to_line_col(end_off);
                 if end_line > body_start_line + 1 {
                     // There are lines between body and end — check for comments
                     let lines: Vec<&[u8]> = source.lines().collect();
@@ -292,6 +396,42 @@ impl Cop for IfUnlessModifier {
                         }
                     }
                 }
+
+                // Check if the `end` line has a comment or code after `end`
+                // (chained calls, binary operators, etc.)
+                let lines: Vec<&[u8]> = source.lines().collect();
+                if end_line > 0 && end_line <= lines.len() {
+                    let end_line_bytes = lines[end_line - 1];
+                    let after_end_col = end_col + 3; // "end" is 3 bytes
+                    if after_end_col < end_line_bytes.len() {
+                        let after_end = &end_line_bytes[after_end_col..];
+                        let trimmed = after_end
+                            .iter()
+                            .copied()
+                            .skip_while(|&b| b == b' ' || b == b'\t')
+                            .collect::<Vec<_>>();
+                        // Any non-empty content after `end` (comment or code) means
+                        // we can't simply convert to modifier form
+                        if !trimmed.is_empty() && trimmed[0] != b'\n' && trimmed[0] != b'\r' {
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Skip if the entire if/unless node has more than 3 non-empty lines.
+        // RuboCop's `non_eligible_node?` checks `node.nonempty_line_count > 3`.
+        // This catches multiline conditions like `if a &&\n  b\n  body\nend`.
+        {
+            let node_src =
+                &source.as_bytes()[node.location().start_offset()..node.location().end_offset()];
+            let nonempty_count = node_src
+                .split(|&b| b == b'\n')
+                .filter(|line| line.iter().any(|&b| b != b' ' && b != b'\t' && b != b'\r'))
+                .count();
+            if nonempty_count > 3 {
+                return;
             }
         }
 

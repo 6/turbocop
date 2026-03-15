@@ -113,3 +113,52 @@ class Foo
       end
   end
 end
+
+# Chained call after end — RuboCop skips chained if-end (node.chained?)
+if test
+  something
+end.inspect
+
+if test
+  something
+end&.inspect
+
+# Binary operator after end — not convertible (code_after)
+if test
+  1
+end + 2
+
+# Comment on end line — RuboCop: line_with_comment?(node.loc.last_line)
+if a
+  b
+end # comment
+
+# Named regexp capture in condition — modifier form changes semantics
+if /(?<name>\d+)/ =~ input
+  name
+end
+
+# Endless method definition in body — Style/AmbiguousEndlessMethodDefinition conflict
+if condition
+  def method_name = body
+end
+
+if condition
+  def self.method_name = body
+end
+
+# Pattern matching (in) in condition — modifier form changes variable scoping
+if [42] in [x]
+  x
+end
+
+# Multiline condition (nonempty_line_count > 3) — RuboCop won't suggest modifier
+if a &&
+   b
+  do_something
+end
+
+unless some_long_condition ||
+       another_condition
+  do_something
+end
