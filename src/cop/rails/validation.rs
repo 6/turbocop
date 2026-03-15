@@ -9,6 +9,13 @@ use crate::parse::source::SourceFile;
 /// FP=1, FN=0 per corpus oracle. Could not reproduce locally — check-cop.py
 /// shows PASS (0 excess). The single FP was likely a config-dependent artifact
 /// (e.g., repo-specific Exclude/Include overrides not replicated locally).
+///
+/// ## Investigation (2026-03-15, round 2)
+///
+/// **FP root cause (1 FP):** Bare validator calls with no arguments
+/// (e.g., `validates_numericality_of` with no field name) were flagged.
+/// RuboCop's `on_send` returns early with `return unless node.last_argument`.
+/// Fix: added `call.arguments().is_some()` check before flagging.
 pub struct Validation;
 
 const OLD_VALIDATORS: &[(&[u8], &str)] = &[
@@ -54,7 +61,7 @@ impl Cop for Validation {
         };
 
         for &(old_name, replacement) in OLD_VALIDATORS {
-            if is_dsl_call(&call, old_name) {
+            if is_dsl_call(&call, old_name) && call.arguments().is_some() {
                 let loc = call.message_loc().unwrap_or(call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let old_str = String::from_utf8_lossy(old_name);
