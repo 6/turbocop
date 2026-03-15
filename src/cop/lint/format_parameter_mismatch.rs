@@ -76,6 +76,19 @@ use crate::parse::source::SourceFile;
 /// - Track `*N$` width refs in max_numbered for both initial and numbered paths
 /// - Detect `*` without `N$` as unnumbered contributor for mixing detection
 /// - Flag named `%{name}` format with non-hash RHS in `String#%`
+///
+/// ## Corpus investigation (2026-03-14)
+///
+/// Corpus oracle reported FP=29, FN=6.
+///
+/// FP=16 (iruby): Custom DSL method `format 'text/latex' do |obj|` was
+/// incorrectly treated as `Kernel#format`. Root cause: `call.block()` includes
+/// both `do...end` blocks (BlockNode) and `&blk` arguments (BlockArgumentNode),
+/// but RuboCop's Parser gem only counts `&blk` in `arguments.size`, not
+/// `do...end` blocks. Fixed by checking `as_block_argument_node()` specifically.
+///
+/// Remaining FP=13, FN=6: Not investigated in this batch — likely config/exclude
+/// issues or edge cases in format string parsing.
 pub struct FormatParameterMismatch;
 
 impl Cop for FormatParameterMismatch {
@@ -157,9 +170,13 @@ fn check_format_sprintf(
 
     let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
     // RuboCop requires arguments.size > 1 (format string + at least one arg).
-    // In Parser gem, block_pass (&block) is included in arguments; in Prism it's
-    // separate via call.block(). Count it to match RuboCop's behavior.
-    let has_block_arg = call.block().is_some();
+    // In Parser gem, block_pass (&block) is included in arguments but do...end
+    // blocks are NOT — they wrap the send node as a separate block node.
+    // In Prism, both are in call.block(), but only BlockArgumentNode (&blk)
+    // should count as an argument to match RuboCop's behavior.
+    let has_block_arg = call
+        .block()
+        .is_some_and(|b| b.as_block_argument_node().is_some());
     let effective_arg_count = arg_list.len() + usize::from(has_block_arg);
     if effective_arg_count <= 1 {
         return Vec::new();
