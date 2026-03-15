@@ -100,6 +100,21 @@ use std::collections::HashMap;
 /// 5. **Variable target nodes**: `LocalVariableTargetNode` (multi-assign `a, b = ...`) and
 ///    similar target nodes have names that default visitors don't emit.
 ///
+/// **Investigation (2026-03-14, round 5):** 82 FPs and 34 FNs remaining.
+///
+/// FP root cause: `AndNode` (`&&`/`and`) and `OrNode` (`||`/`or`) had no custom visitors in
+/// `AstFingerprinter`. When either node appears as a *child* of another node (e.g., inside
+/// `DefinedNode` as `defined?(a && b)`), the parent's default visitor calls
+/// `self.visit(&child)` directly — bypassing `fingerprint_node` — so no type tag is emitted
+/// for the child. Since `AndNode` and `OrNode` have the same child structure (left, right),
+/// both produce identical byte sequences and examples using `&&` vs `||` are incorrectly
+/// flagged as duplicates. Fix: added `visit_and_node` (emits byte 1) and `visit_or_node`
+/// (emits byte 2) to disambiguate them.
+///
+/// The same missing-type-tag pattern also applies to `IfNode`/`UnlessNode` and
+/// `WhileNode`/`UntilNode` pairs. Added custom visitors for all four to prevent future FPs
+/// if examples using `if` vs `unless` or `while` vs `until` appear in the corpus.
+///
 /// **Investigation (2026-03-14):** 168 FPs and 34 FNs remaining.
 ///
 /// FP root cause 1: The `AstFingerprinter::visit_call_node` did not emit a block presence
@@ -1157,6 +1172,55 @@ impl<'pr> Visit<'pr> for AstFingerprinter {
 
     fn visit_constant_target_node(&mut self, node: &ruby_prism::ConstantTargetNode<'pr>) {
         self.emit_bytes(node.name().as_slice());
+    }
+
+    // === Logical binary operator nodes ===
+    //
+    // `&&`/`and` → AndNode (tag differs from OrNode), `||`/`or` → OrNode.
+    // Both share the same child structure (left, right). When either node is
+    // visited as a *child* of another node (e.g., `defined?(a && b)` where
+    // `DefinedNode`'s default visitor calls `self.visit(&value)` directly),
+    // the node's type tag is NOT emitted — only the children's bytes are
+    // produced. So `a && b` and `a || b` produce identical fingerprints.
+    //
+    // Fix: emit a distinguishing byte before delegating so the two operators
+    // are always distinguishable, even when reached via a parent's default
+    // visitor rather than via `fingerprint_node`.
+    fn visit_and_node(&mut self, node: &ruby_prism::AndNode<'pr>) {
+        self.buf.push(1); // disambiguate AndNode from OrNode
+        ruby_prism::visit_and_node(self, node);
+    }
+
+    fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'pr>) {
+        self.buf.push(2); // disambiguate OrNode from AndNode
+        ruby_prism::visit_or_node(self, node);
+    }
+
+    // === Conditional and loop nodes ===
+    //
+    // `if` → IfNode and `unless` → UnlessNode share the same child structure
+    // (predicate, then-statements, else-clause). Similarly `while` → WhileNode
+    // and `until` → UntilNode share the same structure (predicate, statements).
+    // When visited as children without going through `fingerprint_node`, their
+    // type tags are not emitted and the two forms become indistinguishable.
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        self.buf.push(1); // disambiguate IfNode from UnlessNode
+        ruby_prism::visit_if_node(self, node);
+    }
+
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        self.buf.push(2); // disambiguate UnlessNode from IfNode
+        ruby_prism::visit_unless_node(self, node);
+    }
+
+    fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        self.buf.push(1); // disambiguate WhileNode from UntilNode
+        ruby_prism::visit_while_node(self, node);
+    }
+
+    fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        self.buf.push(2); // disambiguate UntilNode from WhileNode
+        ruby_prism::visit_until_node(self, node);
     }
 }
 
