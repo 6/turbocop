@@ -14,3 +14,11 @@ y = 2
 
 # Rackup options on first line of config.ru are allowed
 # (tested via inline test below since fixture is not config.ru)
+
+# Syntax-error files should not be checked by this cop.
+#~# ORIGINAL retry
+
+retry
+
+#~# EXPECTED
+retry

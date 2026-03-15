@@ -37,21 +37,31 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Corpus investigation (2026-03-15)
 ///
-/// CI now reports FP=2, FN=0 on `#~# ORIGINAL` / `#~# EXPECTED` lines in
-/// rufo's `.rb.spec` formatter fixtures.
+/// CI reports FP=2, FN=0 on `#~# ORIGINAL` / `#~# EXPECTED` lines in rufo's
+/// formatter fixtures.
 ///
-/// Local investigation found two important constraints:
+/// Local reduction reproduced the exact two false positives with this
+/// six-line file:
 ///
-/// 1. The corpus scripts run with `--config bench/corpus/baseline_rubocop.yml`,
-///    so repo-local settings like rufo's `Layout: Enabled: false` and
-///    `AllCops: Exclude: spec/**/*` are intentionally ignored here.
-/// 2. Replaying the cited CI FP examples locally via `reduce-mismatch.py`
-///    reports `rubocop also fires` under that same baseline config, so the
-///    current local corpus bundle does not reproduce them as nitrocop-only FPs.
+/// ```text
+/// #~# ORIGINAL retry
 ///
-/// No cop or file-discovery change was accepted in this round. A future fix
-/// should start by reconciling CI/local corpus oracle drift before changing
-/// `missing_space_after_hash` or file discovery again.
+/// retry
+///
+/// #~# EXPECTED
+/// retry
+/// ```
+///
+/// Root cause: this is a syntax-error file (`retry` outside `rescue`), not a
+/// special `#~#` comment shape. RuboCop's commissioner only runs
+/// `on_new_investigation` cops when `processed_source.valid_syntax?` is true,
+/// so `Layout/LeadingCommentSpace` is skipped entirely. nitrocop's shared
+/// linter still allows some Prism parse errors through, so this cop was seeing
+/// the comments and flagging them.
+///
+/// Fix: bail out of `check_source` when Prism reported parse errors, matching
+/// RuboCop's valid-syntax gate for this cop. A broader shared parse-error
+/// policy cleanup may still be needed separately.
 pub struct LeadingCommentSpace;
 
 impl Cop for LeadingCommentSpace {
@@ -77,6 +87,10 @@ impl Cop for LeadingCommentSpace {
         let _allow_rbs_inline = config.get_bool("AllowRBSInlineAnnotation", false);
         let _allow_steep = config.get_bool("AllowSteepAnnotation", false);
         let bytes = source.as_bytes();
+
+        if parse_result.errors().next().is_some() {
+            return;
+        }
 
         for comment in parse_result.comments() {
             let loc = comment.location();
