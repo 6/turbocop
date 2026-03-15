@@ -54,30 +54,30 @@ Config auto-discovery walks up from the target directory to find `.rubocop.yml`.
 <!-- corpus-cops:start -->
 nitrocop supports 910 cops from 6 RuboCop gems.
 
-Compared with RuboCop on [**1,000 open-source repos**](docs/corpus.md) (225k Ruby files).
+Compared with RuboCop on [**1,000 open-source repos**](docs/corpus.md) (229k Ruby files).
 
-97.1% of compared issue reports matched (11.1M of 11.5M). 498 of 910 cops matched exactly; 412 differed.
+97.1% of compared issue reports matched (11.5M of 11.8M). 506 of 910 cops matched exactly; 404 differed.
 
 **[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (588 cops)
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| Layout | 100 | 46 | 54 | 46.0% |
+| Layout | 100 | 47 | 53 | 47.0% |
 | Lint | 148 | 83 | 65 | 56.0% |
-| Style | 287 | 100 | 187 | 34.8% |
-| Metrics | 10 | 10 | 0 | ✓ 100.0% |
+| Style | 287 | 103 | 184 | 35.8% |
+| Metrics | 10 | 9 | 1 | 90.0% |
 | Naming | 19 | 19 | 0 | ✓ 100.0% |
 | Security | 6 | 6 | 0 | ✓ 100.0% |
 | Bundler | 7 | 7 | 0 | ✓ 100.0% |
 | Gemspec | 10 | 10 | 0 | ✓ 100.0% |
 | Migration | 1 | 1 | 0 | ✓ 100.0% |
-| **Total** | **588** | **282** | **306** | **47.9%** |
+| **Total** | **588** | **285** | **303** | **48.4%** |
 
 **[rubocop-rails](https://github.com/rubocop/rubocop-rails)** `2.34.3` (138 cops)
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| Rails | 138 | 83 | 55 | 60.1% |
+| Rails | 138 | 89 | 49 | 64.4% |
 
 **[rubocop-performance](https://github.com/rubocop/rubocop-performance)** `1.26.1` (52 cops)
 
@@ -89,7 +89,7 @@ Compared with RuboCop on [**1,000 open-source repos**](docs/corpus.md) (225k Rub
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| RSpec | 113 | 62 | 51 | 54.8% |
+| RSpec | 113 | 61 | 52 | 53.9% |
 
 **[rubocop-rspec_rails](https://github.com/rubocop/rubocop-rspec_rails)** `2.32.0` (8 cops)
 
