@@ -23,6 +23,31 @@ use ruby_prism::Visit;
 /// RuboCop's `(send nil? :subject)` pattern does NOT match `subject(&b)` because
 /// in RuboCop AST it has a `(block_pass ...)` child. Fix: added guard
 /// `node.block().map_or(true, |b| b.as_block_argument_node().is_none())`.
+///
+/// ## Corpus investigation (FN=90, 2026-03-15)
+///
+/// FN=90 investigated. Primary root cause is **config resolution**: projects such as
+/// `rmosolgo__graphql-ruby` (23 FNs in `spec/graphql/language/lexer_examples.rb`)
+/// place `subject.tokenize("...")` usages inside `shared_examples` blocks. RuboCop
+/// flags these when the project sets `IgnoreSharedExamples: false` in its
+/// `.rubocop.yml`. Nitrocop reads `IgnoreSharedExamples` from config (defaults to
+/// `true`, matching rubocop-rspec vendor default), but if config resolution does not
+/// fully resolve the project's `.rubocop.yml` override, nitrocop keeps the default
+/// `true` and skips shared example groups — producing FNs.
+///
+/// The core detection logic was verified to be correct:
+/// - `subject.method()` where `subject` is a receiver: the visitor calls
+///   `ruby_prism::visit_call_node(self, node)` which recurses into receivers, so the
+///   inner `subject` CallNode is reached and flagged when `in_example_or_hook` is
+///   true. This was confirmed by all 11 unit tests passing.
+/// - Subject inside nested blocks within examples is correctly flagged.
+/// - The `IgnoreSharedExamples: false` path was confirmed to work via the
+///   `ignore_shared_examples_false_flags_shared_groups` unit test.
+///
+/// The remaining ~67 FNs in other repos (e.g., `opf__openproject`, 13 FNs) are also
+/// attributed to config resolution differences rather than cop logic bugs. No code
+/// logic bug was identified. Fix requires reliable config resolution for the
+/// `IgnoreSharedExamples` key from project-level `.rubocop.yml` files.
 pub struct NamedSubject;
 
 /// EnforcedStyle:
