@@ -63,3 +63,23 @@ included {
   def test
   end
 }
+
+# Top-level access modifier at the beginning of the file needs a blank line after
+public
+
+def public_toplevel_method
+end
+
+# Top-level access modifier after earlier code still needs a blank line after
+def helper
+end
+
+private
+
+VALUE = 1
+
+# Comment lines do not count as the required blank line after a top-level modifier
+private
+
+# comment
+1

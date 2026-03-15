@@ -30,8 +30,24 @@ use crate::parse::source::SourceFile;
 ///    visitor (pushed as non-class scope), but RuboCop treats them as valid scopes.
 ///    Fix: treat blocks in class/module scope (or top-level) as class-like scopes,
 ///    while blocks inside method bodies remain excluded (2026-03-14).
-/// 3. `only_before` style: missing "Remove a blank line after" offense for
+/// 3. Bare top-level access modifiers were never collected because the visitor
+///    treated an empty scope stack as "outside a macro scope". RuboCop's
+///    `in_macro_scope?` explicitly includes the file root, so `public`/`private`
+///    at top level were missed, including `private` followed by a comment line.
+///    Fix: treat the root as a valid access-modifier scope boundary while still
+///    requiring explicit block propagation for nested scopes (2026-03-15).
+/// 4. `only_before` style: missing "Remove a blank line after" offense for
 ///    `private`/`protected`. Not yet fixed.
+///
+/// Remaining gaps (2026-03-15):
+/// - `sinatra__sinatra__9e5c4ec:test/settings_test.rb:457,459` still verify as
+///   FPs, but the isolated reducer no longer reproduces them as current
+///   nitrocop-only offenses, which suggests line-drift or repo-context
+///   sensitivity rather than a stable standalone bug.
+/// - `jruby__jruby__0303464:test/jruby/test_proc_visibility.rb:30,33` and the
+///   JRuby/Natalie `module_function` examples still verify as FNs, but local
+///   reduction currently shows nitrocop also firing somewhere in those files, so
+///   exact-location parity remains unresolved.
 pub struct EmptyLinesAroundAccessModifier;
 
 const ACCESS_MODIFIERS: &[&[u8]] = &[b"private", b"protected", b"public", b"module_function"];
@@ -152,20 +168,38 @@ struct ModifierInfo {
     body_closing_line: usize,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScopeKind {
+    ClassLike,
+    DslBlock,
+    NonClass,
+}
+
 /// AST visitor that collects byte offsets of bare access modifier calls that are
 /// direct children of class/module/singleton_class bodies (not method or lambda bodies).
 struct AccessModifierCollector {
     /// Collected access modifier info.
     modifiers: Vec<ModifierInfo>,
-    /// Stack of (in_class_body, body_opening_line, body_closing_line) for scope tracking.
-    scope_stack: Vec<(bool, usize, usize)>,
+    /// Stack of (scope_kind, body_opening_line, body_closing_line) for scope tracking.
+    scope_stack: Vec<(ScopeKind, usize, usize)>,
 }
 
 impl AccessModifierCollector {
-    fn in_class_body(&self) -> bool {
+    fn in_access_modifier_scope(&self) -> bool {
+        if self.scope_stack.is_empty() {
+            return true;
+        }
+
         self.scope_stack
             .last()
-            .map(|(in_body, _, _)| *in_body)
+            .map(|(kind, _, _)| matches!(kind, ScopeKind::ClassLike | ScopeKind::DslBlock))
+            .unwrap_or(false)
+    }
+
+    fn in_propagating_class_scope(&self) -> bool {
+        self.scope_stack
+            .last()
+            .map(|(kind, _, _)| *kind == ScopeKind::ClassLike)
             .unwrap_or(false)
     }
 
@@ -177,7 +211,7 @@ impl AccessModifierCollector {
     }
 
     fn check_call(&mut self, call: &ruby_prism::CallNode<'_>) {
-        if !self.in_class_body() {
+        if !self.in_access_modifier_scope() {
             return;
         }
         if call.receiver().is_some() {
@@ -203,16 +237,51 @@ impl AccessModifierCollector {
 
     fn push_class_scope(&mut self, body_opening_line: usize, body_closing_line: usize) {
         self.scope_stack
-            .push((true, body_opening_line, body_closing_line));
+            .push((ScopeKind::ClassLike, body_opening_line, body_closing_line));
+    }
+
+    fn push_dsl_block_scope(&mut self, body_opening_line: usize, body_closing_line: usize) {
+        self.scope_stack
+            .push((ScopeKind::DslBlock, body_opening_line, body_closing_line));
     }
 
     fn push_non_class_scope(&mut self) {
-        self.scope_stack.push((false, 0, 0));
+        self.scope_stack.push((ScopeKind::NonClass, 0, 0));
     }
 
     fn pop_scope(&mut self) {
         self.scope_stack.pop();
     }
+}
+
+fn is_class_constructor_call(call: &ruby_prism::CallNode<'_>) -> bool {
+    if call.name().as_slice() != b"new" {
+        return false;
+    }
+
+    let Some(receiver) = call.receiver() else {
+        return false;
+    };
+
+    if let Some(const_read) = receiver.as_constant_read_node() {
+        return matches!(
+            const_read.name().as_slice(),
+            b"Class" | b"Module" | b"Struct" | b"Data"
+        );
+    }
+
+    if let Some(const_path) = receiver.as_constant_path_node() {
+        if const_path.parent().is_none() {
+            if let Some(name_node) = const_path.name() {
+                return matches!(
+                    name_node.as_slice(),
+                    b"Class" | b"Module" | b"Struct" | b"Data"
+                );
+            }
+        }
+    }
+
+    false
 }
 
 impl<'pr> ruby_prism::Visit<'pr> for AccessModifierCollector {
@@ -256,10 +325,7 @@ impl<'pr> ruby_prism::Visit<'pr> for AccessModifierCollector {
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
-        // RuboCop treats block bodies as valid scopes for access modifiers
-        // (e.g., `included do`, `ActiveSupport.on_load do`, etc.), but only
-        // when the block is in a class/module scope (not inside a method body).
-        if self.in_class_body() || self.scope_stack.is_empty() {
+        if self.in_propagating_class_scope() {
             let opening = node.location().start_offset();
             let closing = node.location().end_offset();
             self.push_class_scope(opening, closing);
@@ -279,6 +345,25 @@ impl<'pr> ruby_prism::Visit<'pr> for AccessModifierCollector {
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if let Some(block_node) = node.block().and_then(|b| b.as_block_node()) {
+            let opening = block_node.location().start_offset();
+            let closing = block_node.location().end_offset();
+
+            if is_class_constructor_call(node) {
+                self.push_class_scope(opening, closing);
+                ruby_prism::visit_block_node(self, &block_node);
+                self.pop_scope();
+                return;
+            }
+
+            if self.scope_stack.is_empty() && node.receiver().is_none() {
+                self.push_dsl_block_scope(opening, closing);
+                ruby_prism::visit_block_node(self, &block_node);
+                self.pop_scope();
+                return;
+            }
+        }
+
         self.check_call(node);
         ruby_prism::visit_call_node(self, node);
     }
@@ -338,16 +423,26 @@ impl Cop for EmptyLinesAroundAccessModifier {
 
             let modifier_str = std::str::from_utf8(method_name).unwrap_or("");
 
-            // Convert body opening/closing offsets to 1-based line numbers
-            let (body_opening_line, _) = source.offset_to_line_col(modifier.body_opening_line);
-            let body_closing_offset = modifier.body_closing_line;
-            // The closing offset points to the end of `end`, so the `end` keyword is on
-            // the line containing that offset. We want the line before that.
-            let body_closing_line = if body_closing_offset > 0 {
-                let (cl, _) = source.offset_to_line_col(body_closing_offset - 1);
-                cl
-            } else {
+            let at_root = modifier.body_opening_line == 0 && modifier.body_closing_line == 0;
+
+            // Convert body opening/closing offsets to 1-based line numbers.
+            let body_opening_line = if at_root {
                 0
+            } else {
+                source.offset_to_line_col(modifier.body_opening_line).0
+            };
+            let body_closing_line = if at_root {
+                lines.len() + 1
+            } else {
+                let body_closing_offset = modifier.body_closing_line;
+                // The closing offset points to the end of `end`, so the `end` keyword is on
+                // the line containing that offset. We want the line before that.
+                if body_closing_offset > 0 {
+                    let (cl, _) = source.offset_to_line_col(body_closing_offset - 1);
+                    cl
+                } else {
+                    0
+                }
             };
 
             // Check if we're at a class/module body opening (line right after the opening)

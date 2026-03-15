@@ -171,3 +171,27 @@ ActiveSupport.on_load(:active_storage_attachment) do
   def secret
   end
 end
+
+# Nested DSL block inside another block should not be treated as a visibility scope
+it "builds a Sinatra app" do
+  app = Sinatra.new do
+    private
+    def priv; end
+    public
+    def pub; end
+  end
+end
+
+# Receiverful top-level eval-style blocks should not be treated as visibility scopes
+DidYouMean::JaroWinkler.module_eval do
+  module_function
+  def distance(str1, str2)
+  end if RUBY_ENGINE != "jruby"
+end
+
+# A comment before a top-level access modifier counts as a separator
+# comment
+private
+
+def top_level_helper
+end
