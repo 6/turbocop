@@ -31,6 +31,13 @@ use std::hash::{Hash, Hasher};
 ///
 /// Corpus oracle reported FP=2, FN=28.
 ///
+/// FN=28: All from describe blocks inside `if`/`elsif`/`else` branches at the top level
+/// of spec files (e.g., InSpec control specs with platform conditionals). The cop only
+/// checked sibling groups at the ProgramNode level and inside block bodies, but never
+/// recursed into if/elsif/else/case branch bodies. Fixed by adding
+/// `collect_branch_diagnostics()` which recursively walks if/elsif/else/unless/case
+/// branches and calls `check_sibling_groups` on each branch's StatementsNode.
+///
 /// FP=2: Both in rom-rb/rom `core/spec/unit/rom/commands/pre_and_post_processors_spec.rb`
 /// at lines 100 and 148. Two `context` blocks with bodies containing
 /// `Class.new(ROM::Commands::Create[:memory]) do result :many; before :prepare;
@@ -110,7 +117,56 @@ fn check_sibling_groups(
     source: &SourceFile,
     stmts: &ruby_prism::StatementsNode<'_>,
 ) -> Vec<Diagnostic> {
-    check_sibling_groups_iter(cop, source, stmts.body().iter())
+    let mut diagnostics = check_sibling_groups_iter(cop, source, stmts.body().iter());
+    // Recurse into if/elsif/else/unless/case branches to find sibling groups there.
+    // RuboCop's on_begin fires for every multi-statement body including branch bodies.
+    for stmt in stmts.body().iter() {
+        collect_branch_diagnostics(cop, source, &stmt, &mut diagnostics);
+    }
+    diagnostics
+}
+
+/// Recursively collect diagnostics from if/elsif/else/unless/case branch bodies.
+fn collect_branch_diagnostics(
+    cop: &RepeatedExampleGroupBody,
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if let Some(if_node) = node.as_if_node() {
+        if let Some(stmts) = if_node.statements() {
+            diagnostics.extend(check_sibling_groups(cop, source, &stmts));
+        }
+        if let Some(subsequent) = if_node.subsequent() {
+            collect_branch_diagnostics(cop, source, &subsequent, diagnostics);
+        }
+    } else if let Some(unless_node) = node.as_unless_node() {
+        if let Some(stmts) = unless_node.statements() {
+            diagnostics.extend(check_sibling_groups(cop, source, &stmts));
+        }
+        if let Some(else_clause) = unless_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                diagnostics.extend(check_sibling_groups(cop, source, &stmts));
+            }
+        }
+    } else if let Some(else_node) = node.as_else_node() {
+        if let Some(stmts) = else_node.statements() {
+            diagnostics.extend(check_sibling_groups(cop, source, &stmts));
+        }
+    } else if let Some(case_node) = node.as_case_node() {
+        for condition in case_node.conditions().iter() {
+            if let Some(when_node) = condition.as_when_node() {
+                if let Some(stmts) = when_node.statements() {
+                    diagnostics.extend(check_sibling_groups(cop, source, &stmts));
+                }
+            }
+        }
+        if let Some(else_clause) = case_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                diagnostics.extend(check_sibling_groups(cop, source, &stmts));
+            }
+        }
+    }
 }
 
 fn check_sibling_groups_iter<'a>(

@@ -48,3 +48,36 @@ control 'test-01' do
     it { should eq 0 }
   end
 end
+
+if condition
+  describe 'branch a' do
+  ^^^^^^^^^^^^^^^^^^^^^^^ RSpec/RepeatedExampleGroupBody: Repeated describe block body on line(s) [47]
+    it { should exist }
+    it { should be_enabled }
+  end
+  describe 'branch b' do
+  ^^^^^^^^^^^^^^^^^^^^^^^ RSpec/RepeatedExampleGroupBody: Repeated describe block body on line(s) [43]
+    it { should exist }
+    it { should be_enabled }
+  end
+elsif other_condition
+  describe 'branch c' do
+  ^^^^^^^^^^^^^^^^^^^^^^^ RSpec/RepeatedExampleGroupBody: Repeated describe block body on line(s) [56]
+    it { should be_valid }
+    it { should respond_to :name }
+  end
+  describe 'branch d' do
+  ^^^^^^^^^^^^^^^^^^^^^^^ RSpec/RepeatedExampleGroupBody: Repeated describe block body on line(s) [52]
+    it { should be_valid }
+    it { should respond_to :name }
+  end
+else
+  describe 'branch e' do
+  ^^^^^^^^^^^^^^^^^^^^^^^ RSpec/RepeatedExampleGroupBody: Repeated describe block body on line(s) [64]
+    it { should be_nil }
+  end
+  describe 'branch f' do
+  ^^^^^^^^^^^^^^^^^^^^^^^ RSpec/RepeatedExampleGroupBody: Repeated describe block body on line(s) [61]
+    it { should be_nil }
+  end
+end
