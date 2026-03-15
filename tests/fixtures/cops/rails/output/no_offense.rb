@@ -26,3 +26,7 @@ p&.do_something
 obj.print
 something.p
 nothing.pp
+
+# p/puts as direct argument to another call (parent is call)
+foo(p(value))
+bar(puts("msg"))

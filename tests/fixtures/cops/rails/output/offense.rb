@@ -32,3 +32,15 @@ $stdout.write
 ^^^^^^^^^^^^^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
 STDERR.write
 ^^^^^^^^^^^^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
+# output call inside a block that is an argument of another call
+bar(foo { puts "hello" })
+          ^^^^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
+something.map { |x| print x }
+                    ^^^^^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
+items.each { |i| p i }
+                 ^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
+# deeply nested: block inside argument inside block inside argument
+formatter = proc do |msg|
+  msg.tap { |m| puts m }
+                ^^^^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
+end

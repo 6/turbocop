@@ -27,6 +27,16 @@ use ruby_prism::Visit;
 ///   calls, and receiver start to selector end for receivered IO calls. Fixed using
 ///   `message_loc()` and range calculation.
 /// - Message updated to match RuboCop: "Use Rails's logger if you want to log."
+///
+/// ## Corpus investigation (2026-03-15)
+///
+/// FP=0, FN=65. Root cause: `parent_is_call` flag leaked into block bodies
+/// when the block's call was itself an argument of another call.
+/// E.g. `bar(foo { puts "hello" })` or `formatter = proc { msg.tap { puts msg } }`.
+/// When `foo` was visited as bar's argument, `parent_is_call` was set to true.
+/// The block of `foo` restored `was` (which was true), so `puts` inside the block
+/// incorrectly had `parent_is_call = true` and was skipped. Fixed by always
+/// resetting `parent_is_call = false` when entering block bodies.
 pub struct Output;
 
 const MSG: &str = "Do not write to stdout. Use Rails's logger if you want to log.";
@@ -161,9 +171,14 @@ impl<'pr> Visit<'pr> for OutputVisitor<'_> {
             }
         }
         self.parent_is_call = was;
-        // Visit block body with parent_is_call = false (blocks are not "parent call" context)
+        // Visit block body with parent_is_call = false (blocks are not "parent call" context).
+        // Must explicitly set to false rather than relying on `was`, because `was` could be
+        // `true` when this call is itself an argument of another call (e.g. `bar(foo { puts })`).
         if let Some(block) = node.block() {
+            let was_for_block = self.parent_is_call;
+            self.parent_is_call = false;
             self.visit(&block);
+            self.parent_is_call = was_for_block;
         }
     }
 }
