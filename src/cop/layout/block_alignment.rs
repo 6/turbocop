@@ -216,6 +216,10 @@ fn line_indent(bytes: &[u8], offset: usize) -> usize {
 /// the call expression starts. This handles cases like:
 ///   key: value.map do |x|
 ///        ^--- call_expr_col (aligned with value.map)
+///
+/// When the block is on the RHS of an assignment (=, +=, ||=, etc.), this
+/// continues walking backward through the assignment operator to find the LHS
+/// variable, matching RuboCop's behavior of aligning with the assignment target.
 /// Returns the column of the first character of the call expression.
 fn find_call_expression_col(bytes: &[u8], do_offset: usize) -> usize {
     // Find start of current line
@@ -270,7 +274,108 @@ fn find_call_expression_col(bytes: &[u8], do_offset: usize) -> usize {
         }
     }
 
+    // Check if we stopped at an assignment operator. If so, continue backward
+    // through it to find the LHS variable (RuboCop aligns with the assignment target).
+    let call_pos = pos;
+    if call_pos > line_start {
+        let after_call = skip_assignment_backward(bytes, line_start, call_pos);
+        if after_call != call_pos {
+            return after_call - line_start;
+        }
+    }
+
     pos - line_start
+}
+
+/// If `pos` points just after a call expression and there's an assignment
+/// operator (=, +=, -=, *=, /=, ||=, &&=, <<=, >>=, etc.) before it,
+/// skip backward through the operator and whitespace, then walk backward
+/// through the LHS identifier to find the assignment target.
+/// Returns the new position (start of LHS), or `pos` unchanged if no
+/// assignment is found.
+fn skip_assignment_backward(bytes: &[u8], line_start: usize, pos: usize) -> usize {
+    // Skip whitespace before the call expression
+    let mut p = pos;
+    while p > line_start && bytes[p - 1] == b' ' {
+        p -= 1;
+    }
+
+    // Check for assignment operator ending with '='
+    if p > line_start && bytes[p - 1] == b'=' {
+        // Could be =, +=, -=, *=, /=, ||=, &&=, <<=, >>=, %=, **=, ^=
+        // But NOT ==, !=, <=, >=
+        let eq_pos = p - 1;
+        let mut op_start = eq_pos;
+
+        if op_start > line_start {
+            let prev = bytes[op_start - 1];
+            match prev {
+                b'+' | b'-' | b'*' | b'/' | b'%' | b'^' => {
+                    op_start -= 1;
+                }
+                b'|' if op_start >= 2 + line_start && bytes[op_start - 2] == b'|' => {
+                    op_start -= 2;
+                }
+                b'&' if op_start >= 2 + line_start && bytes[op_start - 2] == b'&' => {
+                    op_start -= 2;
+                }
+                b'<' if op_start >= 2 + line_start && bytes[op_start - 2] == b'<' => {
+                    op_start -= 2;
+                }
+                b'>' if op_start >= 2 + line_start && bytes[op_start - 2] == b'>' => {
+                    op_start -= 2;
+                }
+                b'*' if op_start >= 2 + line_start && bytes[op_start - 2] == b'*' => {
+                    op_start -= 2;
+                }
+                // Bare `=` — but reject `==`, `!=`, `<=`, `>=`
+                b'=' | b'!' | b'<' | b'>' => {
+                    return pos; // Not a simple assignment
+                }
+                _ => {
+                    // Bare `=` with a non-operator char before it — this is a simple assignment
+                }
+            }
+        }
+
+        // Skip whitespace before the operator
+        let mut lhs_end = op_start;
+        while lhs_end > line_start && bytes[lhs_end - 1] == b' ' {
+            lhs_end -= 1;
+        }
+
+        // Walk backward through the LHS identifier (variable, ivar, cvar, etc.)
+        let mut lhs_pos = lhs_end;
+        while lhs_pos > line_start {
+            let ch = bytes[lhs_pos - 1];
+            if ch.is_ascii_alphanumeric()
+                || ch == b'_'
+                || ch == b'@'
+                || ch == b'$'
+                || ch == b'.'
+                || ch == b'['
+                || ch == b']'
+            {
+                lhs_pos -= 1;
+            } else if ch == b':' && lhs_pos >= 2 + line_start && bytes[lhs_pos - 2] == b':' {
+                lhs_pos -= 2;
+            } else if ch == b',' {
+                // Multi-assignment: `a, b = ...` — continue to find the first variable
+                lhs_pos -= 1;
+                while lhs_pos > line_start && bytes[lhs_pos - 1] == b' ' {
+                    lhs_pos -= 1;
+                }
+            } else {
+                break;
+            }
+        }
+
+        if lhs_pos < lhs_end {
+            return lhs_pos;
+        }
+    }
+
+    pos
 }
 
 /// Walk backwards from the do-line to find the start of the method chain expression.
@@ -334,6 +439,7 @@ fn find_chain_expression_start(bytes: &[u8], do_offset: usize) -> usize {
 
         // Check if previous line ends with `\` (backslash continuation),
         // `.` or `&.` (trailing dot method chain), `,` (multiline argument list),
+        // `+` or other binary operators (string concatenation, logical operators),
         // or has unclosed brackets (multiline literal/args).
         let prev_line_content = &bytes[prev_line_start..prev_line_end];
         let trimmed_end = prev_line_content
@@ -341,7 +447,18 @@ fn find_chain_expression_start(bytes: &[u8], do_offset: usize) -> usize {
             .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r');
         if let Some(last_non_ws) = trimmed_end {
             let last_byte = prev_line_content[last_non_ws];
-            if last_byte == b'\\' || last_byte == b',' || last_byte == b'.' {
+            if last_byte == b'\\' || last_byte == b',' || last_byte == b'.' || last_byte == b'+' {
+                line_start = prev_line_start;
+                continue;
+            }
+            // Check for trailing logical operators: ||, &&
+            // Single | or & could be block parameter delimiter or block-pass, so only
+            // match double operators.
+            if last_byte == b'|' && last_non_ws > 0 && prev_line_content[last_non_ws - 1] == b'|' {
+                line_start = prev_line_start;
+                continue;
+            }
+            if last_byte == b'&' && last_non_ws > 0 && prev_line_content[last_non_ws - 1] == b'&' {
                 line_start = prev_line_start;
                 continue;
             }

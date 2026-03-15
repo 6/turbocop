@@ -58,3 +58,35 @@ to = lambda { |env|
       response[1].delete("x-cascade")
   end
 }
+
+# string concatenation with + on multiline method description (RSpec-style)
+it "should convert " +
+    "some value " +
+    "correctly" do
+  run_test
+end
+
+# string concatenation with + on multiline describe block
+describe User, "when created with a name known to cause issues " +
+    "in certain cases" do
+  it "should work" do
+    expect(true).to be true
+  end
+end
+
+# block as argument inside parentheses — end aligns with method inside parens
+expect(arr.all? do |o|
+         o.valid?
+       end)
+
+# multiline with || continuation: do on second line
+a ||
+  items.each do |x|
+  process(x)
+end
+
+# multiline with && continuation: do on second line
+(value.is_a? Array) &&
+  value.all? do |subvalue|
+  type_check(subvalue)
+end
