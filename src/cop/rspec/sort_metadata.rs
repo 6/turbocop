@@ -1,5 +1,7 @@
 use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
+use crate::cop::util::{
+    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_hook,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -13,6 +15,15 @@ use crate::parse::source::SourceFile;
 /// Root cause: `&(proc do end)` stores a BlockArgumentNode in call.block(),
 /// not a BlockNode. RuboCop's on_block pattern only fires for BlockNode.
 /// Fix: require call.block().as_block_node().is_some() instead of is_some().
+///
+/// ## Corpus investigation (2026-03-15)
+///
+/// FN=10: All from hooks (`before`/`after`/`around`) called on config objects
+/// with unsorted metadata, e.g. `config.after(:each, type: :system, js: true)`.
+/// Root cause: cop only checked `is_rspec_example_group` and `is_rspec_example`,
+/// missing hook methods entirely. Also, hooks are called on config variables
+/// (not `RSpec.*` constants), so the receiver check needed relaxing for hooks.
+/// Fix: added `is_rspec_hook` check; for hooks, accept any receiver.
 pub struct SortMetadata;
 
 impl Cop for SortMetadata {
@@ -48,8 +59,10 @@ impl Cop for SortMetadata {
 
         let method_name = call.name().as_slice();
 
-        // Must be an RSpec method
-        if !is_rspec_example_group(method_name) && !is_rspec_example(method_name) {
+        let is_hook = is_rspec_hook(method_name);
+
+        // Must be an RSpec example/group method or a hook
+        if !is_hook && !is_rspec_example_group(method_name) && !is_rspec_example(method_name) {
             return;
         }
 
@@ -58,10 +71,13 @@ impl Cop for SortMetadata {
             return;
         }
 
-        // Must be receiverless or RSpec.* / ::RSpec.*
-        if let Some(recv) = call.receiver() {
-            if util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
-                return;
+        // For example/group methods: must be receiverless or RSpec.* / ::RSpec.*
+        // For hooks: accept any receiver (e.g. config.before, c.after)
+        if !is_hook {
+            if let Some(recv) = call.receiver() {
+                if util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+                    return;
+                }
             }
         }
 
@@ -70,7 +86,17 @@ impl Cop for SortMetadata {
             None => return,
         };
 
-        let arg_list: Vec<_> = args.arguments().iter().collect();
+        let all_args: Vec<_> = args.arguments().iter().collect();
+
+        // For hooks, skip the first argument (scope like :each, :all, :suite, :context).
+        // RuboCop's Metadata mixin pattern uses `_ $...` to skip the first arg.
+        // For example/group methods, skip nothing (the description is handled by
+        // the trailing-symbol logic below which only collects trailing symbols).
+        let arg_list = if is_hook && !all_args.is_empty() {
+            &all_args[1..]
+        } else {
+            &all_args[..]
+        };
 
         // Collect trailing symbol arguments (metadata)
         // Find the first symbol argument after the description

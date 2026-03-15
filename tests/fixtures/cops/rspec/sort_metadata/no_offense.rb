@@ -18,3 +18,9 @@ end
 # only fires for BlockNode, not BlockArgumentNode
 it 'Something', cli: true, visual: true, if: condition, &(proc do
 end)
+
+# Hooks with sorted metadata should not be flagged
+RSpec.configure do |c|
+  c.before(:each, :a, :b) { freeze_time }
+  c.after(:each, baz: true, foo: 'bar') { travel_back }
+end
