@@ -12,3 +12,6 @@ condition ? true : false
 defined?(::JSON::Ext::Parser) ? ::JSON::Ext::Parser : nil
 defined?(Foo) ? Foo : "fallback"
 yield ? 1 : 0
+
+# Safe assignment: indexed assignment in ternary condition
+(@cache[key] = compute_value) ? true : false

@@ -38,3 +38,8 @@ def with_locale_param(url_hash)
   end
   url_hash
 end
+
+# Multi-write destructuring in outer condition - assigned var used in inner modifier
+if directives && (result, = directives['call-seq'])
+  process(result) if result
+end
