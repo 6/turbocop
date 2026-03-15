@@ -27,3 +27,12 @@ warning = "In #{resource_name} you exposed a `has_one` relationship "\
 
 result = "prefix " \
   "continued" + extra_info
+
+# %Q{} percent string head + continuation with leading spaces:
+# RuboCop's autocorrect crashes (LINE_1_ENDING doesn't match `} \`)
+# so the entire dstr processing is aborted, reporting 0 offenses.
+message = %Q{expected "#{resource}[#{identity}]"} \
+  " with action :#{action} to be present." \
+  " Other #{resource} resources:" \
+  "\n\n" \
+  "  " + similar_resources.join("\n  ") + "\n "

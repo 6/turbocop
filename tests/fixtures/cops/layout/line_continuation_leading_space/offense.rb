@@ -41,11 +41,3 @@ raise SpoofError, "IP spoofing attack?! " \
   " HTTP_FORWARDED=" + req.forwarded.map { "for=#{_1}" }.join(", ")
    ^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
 
-message = %Q{expected "#{resource}[#{identity}]"} \
-  " with action :#{action} to be present." \
-   ^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
-  " Other resources:" \
-   ^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
-  "\n\n" \
-  "  " + similar_resources.join("\n  ") + "\n "
-   ^^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.

@@ -54,23 +54,26 @@ use crate::parse::source::SourceFile;
 /// Moved the former no_offense `+`-receiver test case to offense since RuboCop
 /// does flag leading spaces in dstr nodes even when they're `+` receivers.
 ///
-/// ## Corpus investigation (2026-03-15, round 2)
+/// ## Fix (2026-03-15, round 2) — chefspec FP=3
 ///
-/// CI still reports FP=3 in chefspec
-/// (`resource_matcher.rb:77/78/80`), but local repro no longer supports
-/// treating them as real cop FPs.
+/// CI reported FP=3 in chefspec (`resource_matcher.rb:77/78/80`):
+/// `%Q{expected "#{name}[#{id}]"} \ " with action :#{act}..." \ ...`
 ///
-/// `reduce-mismatch.py` replays those exact locations under
-/// `bench/corpus/baseline_rubocop.yml`. With the current local corpus bundle,
-/// it reports `rubocop also fires` on the chefspec sample before reduction.
-/// That means the cited CI FP examples are not reproducible locally as
-/// nitrocop-only offenses.
+/// Root cause: RuboCop's `investigate_trailing_style` autocorrect block uses
+/// `first_line[LINE_1_ENDING]` where `LINE_1_ENDING = /['"]\s*\\\n/`. When
+/// the first line of a continuation pair ends with a non-quote character
+/// (e.g., `} \` from `%Q{...}`), the regex returns nil and the autocorrect
+/// block crashes (`nil.length`). RuboCop's error handler catches the crash
+/// and aborts the entire `on_dstr` processing, so no offenses are recorded
+/// for that dstr node.
 ///
-/// No additional cop change was accepted in this round. The current logic
-/// already matches vendored RuboCop's simple `on_dstr` implementation more
-/// closely than the earlier heuristic variants, and another speculative change
-/// would risk regressing the FN fixes above. Revisit after a fresh corpus
-/// oracle rerun or if CI/local RuboCop environment drift is confirmed.
+/// Fix: before calling `check_trailing_style`, verify the first line ends
+/// with a quote before `\` via `first_line_ends_with_quote_before_backslash`.
+/// If not AND the second line would trigger an offense (leading spaces after
+/// opening quote), break the loop to match RuboCop's crash-stops-processing
+/// behavior. If the second line wouldn't trigger an offense, continue to the
+/// next pair (matching RuboCop's early return from `investigate_trailing_style`
+/// before reaching the crash point).
 pub struct LineContinuationLeadingSpace;
 
 impl Cop for LineContinuationLeadingSpace {
@@ -143,6 +146,21 @@ impl LineContinuationVisitor<'_> {
                 "leading" => self.check_leading_style(first_line, line_num),
                 _ => {
                     if skip_trailing_style {
+                        continue;
+                    }
+                    if !first_line_ends_with_quote_before_backslash(first_line) {
+                        // RuboCop's autocorrect block crashes when
+                        // first_line doesn't match LINE_1_ENDING (no
+                        // quote before `\`), but only if second_line
+                        // would trigger an offense (leading spaces after
+                        // opening quote). The crash kills the entire
+                        // on_dstr processing. If second_line wouldn't
+                        // trigger an offense, RuboCop returns early from
+                        // investigate_trailing_style without reaching the
+                        // crash, and subsequent pairs are still checked.
+                        if would_trigger_trailing_offense(second_line) {
+                            break;
+                        }
                         continue;
                     }
                     self.check_trailing_style(second_line, line_num + 1);
@@ -236,6 +254,43 @@ fn trim_cr(line: &[u8]) -> &[u8] {
 
 fn is_horizontal_whitespace(b: u8) -> bool {
     matches!(b, b' ' | b'\t')
+}
+
+/// Returns true if the line would trigger a trailing-style offense — i.e.,
+/// starts with optional whitespace, a quote, then one or more spaces.
+/// Mirrors the logic in `check_trailing_style` without emitting diagnostics.
+fn would_trigger_trailing_offense(line: &[u8]) -> bool {
+    let Some(quote_idx) = line.iter().position(|b| !is_horizontal_whitespace(*b)) else {
+        return false;
+    };
+    if !matches!(line[quote_idx], b'\'' | b'"') {
+        return false;
+    }
+    line[quote_idx + 1..]
+        .iter()
+        .take_while(|b| is_horizontal_whitespace(**b))
+        .count()
+        > 0
+}
+
+/// Returns true if the line ends with `['"] \s* \\` — i.e., a standard quote
+/// delimiter before the backslash continuation. Returns false for percent
+/// strings like `%Q{...} \` where the line ends with `} \`.
+///
+/// RuboCop's `LINE_1_ENDING` regex (`/['"]\s*\\\n/`) requires a quote before
+/// the backslash. When it doesn't match, RuboCop's autocorrect block crashes
+/// (nil.length), killing the entire `on_dstr` processing. We replicate this by
+/// breaking the loop when the first line lacks a quote ending.
+fn first_line_ends_with_quote_before_backslash(line: &[u8]) -> bool {
+    let Some(backslash_idx) = line.iter().rposition(|b| *b == b'\\') else {
+        return false;
+    };
+    let before_backslash = &line[..backslash_idx];
+    before_backslash
+        .iter()
+        .rev()
+        .find(|b| !is_horizontal_whitespace(**b))
+        .is_some_and(|b| matches!(b, b'\'' | b'"'))
 }
 
 fn should_skip_trailing_style(
