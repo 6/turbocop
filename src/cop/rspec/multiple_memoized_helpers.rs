@@ -107,6 +107,12 @@ struct MemoizedHelperVisitor<'a> {
 /// Extract the variable name from the first argument node.
 /// Handles symbol (`:foo`), string (`"foo"`), and dynamic string (`"foo#{bar}"`) forms,
 /// matching RuboCop's `variable_definition?` pattern: `$({any_sym str dstr} ...)`.
+///
+/// Also unwraps `ParenthesesNode` — `let (:foo) { }` (with a space before the paren)
+/// parses the argument as `ParenthesesNode(SymbolNode(:foo))` in Prism, while
+/// `let(:foo) { }` produces `SymbolNode(:foo)` directly. This is a Prism-specific
+/// quirk: a space before `(` makes Prism treat `(...)` as a parenthesized expression
+/// rather than an argument list bracket.
 fn extract_name_from_arg(arg: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
     if let Some(sym) = arg.as_symbol_node() {
         return Some(sym.unescaped().to_vec());
@@ -118,6 +124,18 @@ fn extract_name_from_arg(arg: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
         // For dynamic strings, use the raw source as the name (can't evaluate at lint time)
         let loc = ds.location();
         return Some(loc.as_slice().to_vec());
+    }
+    // Unwrap parenthesized expressions: `let (:foo) { }` (space before paren) parses
+    // the argument as ParenthesesNode wrapping the actual symbol/string.
+    if let Some(parens) = arg.as_parentheses_node() {
+        if let Some(body) = parens.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                let items: Vec<_> = stmts.body().iter().collect();
+                if items.len() == 1 {
+                    return extract_name_from_arg(&items[0]);
+                }
+            }
+        }
     }
     None
 }
