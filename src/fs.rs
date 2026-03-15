@@ -144,6 +144,7 @@ const RUBY_EXTENSIONS: &[&str] = &[
     "ru",
     "ruby",
     "schema",
+    "spec",
     "thor",
     "watchr",
 ];
