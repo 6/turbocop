@@ -1,5 +1,5 @@
 use crate::cop::node_type::{CALL_NODE, STRING_NODE, SYMBOL_NODE};
-use crate::cop::util::keyword_arg_value;
+use crate::cop::util::{keyword_arg_pair_start_offset, keyword_arg_value};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -38,6 +38,20 @@ use crate::parse::source::SourceFile;
 /// Nitrocop's `keyword_arg_value` searched through ALL arguments regardless,
 /// causing false positives. Fixed by checking for non-hash intermediate arguments
 /// (scope lambdas) and returning early when found.
+///
+/// ## Investigation findings (2026-03-15)
+///
+/// **FP+FN root cause (51 FP, 50 FN):** Symmetric per-repo — every FP had a
+/// corresponding FN at line+1 in the same file. Root cause was reporting the
+/// diagnostic at the CallNode's start (the `has_many`/`belongs_to` keyword) instead
+/// of the `foreign_key:` AssocNode pair. For multiline associations like:
+/// ```ruby
+/// has_many :items,           # line N — nitrocop reported here (FP, wrong line)
+///   foreign_key: :model_id   # line N+1 — RuboCop reports here (FN, expected)
+/// ```
+/// Fixed by using `keyword_arg_pair_start_offset` to locate the `foreign_key:` key
+/// and reporting at that position. Also updated the message to match RuboCop's
+/// "Specifying the default value for `foreign_key` is redundant."
 pub struct RedundantForeignKey;
 
 impl Cop for RedundantForeignKey {
@@ -171,13 +185,17 @@ impl Cop for RedundantForeignKey {
         };
 
         if fk_name == expected {
-            let loc = node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            // Report at the `foreign_key:` pair location, not the call start.
+            // RuboCop annotates on the `foreign_key: value` pair, which matters
+            // for multiline associations where the pair is on a different line.
+            let offset = keyword_arg_pair_start_offset(&call, b"foreign_key")
+                .unwrap_or_else(|| node.location().start_offset());
+            let (line, column) = source.offset_to_line_col(offset);
             diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
-                "Redundant `foreign_key` -- it matches the default.".to_string(),
+                "Specifying the default value for `foreign_key` is redundant.".to_string(),
             ));
         }
     }

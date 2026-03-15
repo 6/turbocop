@@ -1009,6 +1009,40 @@ pub fn keyword_arg_value<'a>(
     None
 }
 
+/// Get the start offset of the AssocNode for a keyword argument in a call's arguments.
+///
+/// This is useful when you need to report a diagnostic at the `key: value` pair
+/// rather than at the call node's start (e.g., for multiline associations where
+/// the key may be on a different line than the method call).
+pub fn keyword_arg_pair_start_offset(call: &ruby_prism::CallNode<'_>, key: &[u8]) -> Option<usize> {
+    let args = call.arguments()?;
+    for arg in args.arguments().iter() {
+        if let Some(kw) = arg.as_keyword_hash_node() {
+            for elem in kw.elements().iter() {
+                if let Some(assoc) = elem.as_assoc_node() {
+                    if let Some(sym) = assoc.key().as_symbol_node() {
+                        if sym.unescaped() == key {
+                            return Some(assoc.key().location().start_offset());
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(hash) = arg.as_hash_node() {
+            for elem in hash.elements().iter() {
+                if let Some(assoc) = elem.as_assoc_node() {
+                    if let Some(sym) = assoc.key().as_symbol_node() {
+                        if sym.unescaped() == key {
+                            return Some(assoc.key().location().start_offset());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Get the constant name (last segment) from a constant path or constant read node.
 ///
 /// For `ActiveRecord::Base`, returns `b"Base"`.
