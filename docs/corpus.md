@@ -13,13 +13,13 @@ Every offense is compared by file path, line number, and cop name.
 | Repos | 1000 |
 | Repos with 100% match | 17 |
 | Files inspected | 229,815 |
-| Offenses compared | 11,813,556 |
-| Matches (both agree) | 11,495,937 |
-| FP (nitrocop extra) | 44,723 |
-| FN (nitrocop missing) | 272,896 |
+| Offenses compared | 11,812,643 |
+| Matches (both agree) | 11,496,835 |
+| FP (nitrocop extra) | 43,810 |
+| FN (nitrocop missing) | 271,998 |
 | Registered cops | 910 |
-| Cops with exact match | 454 |
-| Cops with divergence | 398 |
+| Cops with exact match | 471 |
+| Cops with divergence | 381 |
 | Cops with no corpus data | 58 |
 | **Match rate** | **97.3%** |
 | Repos with errors | 1 |
@@ -33,17 +33,17 @@ Every offense is compared by file path, line number, and cop name.
 | Bundler | 7 | 7 | 0 | 0 | 39,815 | 0 | 0 | 100.0% |
 | FactoryBot | 11 | 11 | 0 | 0 | 21,250 | 0 | 0 | 100.0% |
 | Gemspec | 10 | 10 | 0 | 0 | 12,588 | 0 | 0 | 100.0% |
-| Layout | 100 | 47 | 53 | 0 | 1,484,133 | 36,551 | 97,102 | 91.7% |
-| Lint | 148 | 79 | 64 | 5 | 1,960,065 | 1,819 | 15,392 | 99.1% |
+| Layout | 100 | 51 | 49 | 0 | 1,484,080 | 36,400 | 97,155 | 91.7% |
+| Lint | 148 | 88 | 55 | 5 | 1,960,084 | 1,816 | 15,373 | 99.1% |
 | Metrics | 10 | 10 | 0 | 0 | 255,993 | 0 | 0 | 100.0% |
 | Migration | 1 | 1 | 0 | 0 | 71 | 0 | 0 | 100.0% |
 | Naming | 19 | 19 | 0 | 0 | 97,768 | 0 | 0 | 100.0% |
 | Performance | 52 | 52 | 0 | 0 | 42,998 | 0 | 0 | 100.0% |
 | RSpec | 113 | 58 | 52 | 3 | 1,442,687 | 122 | 2,124 | 99.8% |
 | RSpecRails | 8 | 7 | 0 | 1 | 22,777 | 0 | 0 | 100.0% |
-| Rails | 138 | 47 | 47 | 44 | 146,353 | 1,549 | 30,481 | 82.0% |
+| Rails | 138 | 49 | 45 | 44 | 146,755 | 1,486 | 30,079 | 82.2% |
 | Security | 6 | 6 | 0 | 0 | 2,926 | 0 | 0 | 100.0% |
-| Style | 287 | 100 | 182 | 5 | 5,966,513 | 4,682 | 127,797 | 97.8% |
+| Style | 287 | 102 | 180 | 5 | 5,967,043 | 3,986 | 127,267 | 97.8% |
 
 ## RuboCop Warnings
 
@@ -56,12 +56,12 @@ Every offense is compared by file path, line number, and cop name.
 
 ## Diverging Cops
 
-398 cops diverge from RuboCop on the corpus. 454 cops match RuboCop exactly. 58 cops have no corpus data.
+381 cops diverge from RuboCop on the corpus. 471 cops match RuboCop exactly. 58 cops have no corpus data.
 
 | Cop | Matches | FP | FN | Match % |
 |-----|--------:|---:|---:|--------:|
 | Style/MethodCallWithArgsParentheses | 1,516,922 | 59 | 54,201 | 96.5% |
-| Layout/IndentationWidth | 64,802 | 58 | 46,996 | 57.9% |
+| Layout/IndentationWidth | 64,808 | 58 | 46,990 | 57.9% |
 | Rails/SchemaComment | 0 | 0 | 21,208 | 0.0% |
 | Layout/ArgumentAlignment | 30,489 | 19,769 | 26 | 60.6% |
 | Layout/RedundantLineBreak | 120,350 | 9,109 | 10,656 | 85.8% |
@@ -143,7 +143,7 @@ Every offense is compared by file path, line number, and cop name.
 | Style/ClassAndModuleChildren | 21,834 | 4 | 359 | 98.3% |
 | Style/DocumentDynamicEvalDefinition | 568 | 1 | 350 | 61.8% |
 | Layout/ClassStructure | 9,469 | 1 | 342 | 96.5% |
-| Lint/ConstantResolution | 1,786,284 | 3 | 296 | 99.9% |
+| Lint/ConstantResolution | 1,786,285 | 3 | 295 | 99.9% |
 | Style/FormatStringToken | 6,053 | 120 | 161 | 95.5% |
 | Style/CombinableLoops | 89 | 36 | 219 | 25.8% |
 | Style/SuperArguments | 2,064 | 86 | 168 | 89.0% |
@@ -156,45 +156,35 @@ Every offense is compared by file path, line number, and cop name.
 | Layout/FirstArrayElementIndentation | 10,749 | 138 | 54 | 98.2% |
 | Lint/FloatComparison | 684 | 0 | 191 | 78.1% |
 | Style/AndOr | 3,415 | 1 | 188 | 94.7% |
-| Style/RedundantArgument | 1,145 | 94 | 93 | 85.9% |
 | Style/ArrayFirstLast | 35,407 | 22 | 162 | 99.4% |
 | Style/TrailingCommaInHashLiteral | 46,980 | 1 | 182 | 99.6% |
 | Lint/RedundantSafeNavigation | 40 | 0 | 182 | 18.0% |
 | Style/MethodCallWithoutArgsParentheses | 4,274 | 0 | 174 | 96.0% |
-| Style/NegatedIf | 8,627 | 76 | 95 | 98.0% |
 | Layout/RescueEnsureAlignment | 151 | 128 | 42 | 47.0% |
-| Style/RedundantSelfAssignmentBranch | 254 | 124 | 38 | 61.0% |
 | Style/Documentation | 150,582 | 35 | 126 | 99.8% |
 | Lint/AmbiguousOperatorPrecedence | 6,925 | 0 | 159 | 97.7% |
-| Layout/ElseAlignment | 3,174 | 110 | 46 | 95.3% |
+| Layout/ElseAlignment | 3,176 | 110 | 44 | 95.3% |
 | Style/InverseMethods | 716 | 20 | 134 | 82.2% |
 | Style/NestedTernaryOperator | 487 | 0 | 153 | 76.0% |
 | Style/RedundantReturn | 7,571 | 1 | 152 | 98.0% |
-| Style/HashTransformValues | 54 | 47 | 104 | 26.3% |
-| Layout/AssignmentIndentation | 329 | 149 | 1 | 68.6% |
 | Style/ArrayCoercion | 377 | 0 | 145 | 72.2% |
 | Style/CollectionMethods | 10,310 | 0 | 144 | 98.6% |
-| Style/EmptyCaseCondition | 531 | 65 | 77 | 78.9% |
 | Layout/MultilineMethodArgumentLineBreaks | 61,360 | 30 | 107 | 99.7% |
 | Style/FileRead | 151 | 20 | 115 | 52.7% |
 | Lint/SelfAssignment | 52 | 0 | 133 | 28.1% |
 | RSpec/LeakyLocalVariable | 1,717 | 53 | 75 | 93.0% |
+| Rails/RootPathnameMethods | 753 | 1 | 127 | 85.4% |
 | Style/MissingRespondToMissing | 517 | 1 | 123 | 80.6% |
 | Style/MagicCommentFormat | 224 | 0 | 123 | 64.5% |
+| Layout/FirstArgumentIndentation | 7,979 | 5 | 114 | 98.5% |
 | Style/ConstantVisibility | 50,292 | 0 | 118 | 99.7% |
 | RSpec/ReturnFromStub | 1,614 | 2 | 112 | 93.4% |
-| Rails/Blank | 2,285 | 2 | 112 | 95.2% |
-| Style/StringHashKeys | 240,582 | 62 | 52 | 99.9% |
 | RSpec/ContextWording | 48,255 | 0 | 112 | 99.7% |
-| Rails/InverseOf | 1,442 | 0 | 108 | 93.0% |
 | RSpec/Output | 1,861 | 0 | 105 | 94.6% |
 | Lint/RedundantStringCoercion | 688 | 0 | 103 | 86.9% |
-| Rails/Delegate | 6,938 | 1 | 102 | 98.5% |
 | Style/StringLiterals | 2,077,440 | 0 | 103 | 99.9% |
-| Rails/RedundantForeignKey | 214 | 51 | 50 | 67.9% |
 | Style/SelectByRegexp | 312 | 1 | 100 | 75.5% |
 | RSpec/RepeatedExample | 1,894 | 58 | 42 | 94.9% |
-| Rails/TimeZone | 13,450 | 17 | 82 | 99.2% |
 | Style/TrivialAccessors | 3,043 | 5 | 94 | 96.8% |
 | Layout/EmptyLinesAfterModuleInclusion | 5,093 | 9 | 88 | 98.1% |
 | Rails/ActionControllerFlashBeforeRender | 0 | 0 | 97 | 0.0% |
@@ -202,20 +192,16 @@ Every offense is compared by file path, line number, and cop name.
 | Lint/UnexpectedBlockArity | 0 | 0 | 93 | 0.0% |
 | Style/RedundantCondition | 459 | 8 | 85 | 83.1% |
 | Lint/SymbolConversion | 8,339 | 0 | 92 | 98.9% |
-| Rails/UnknownEnv | 123 | 2 | 90 | 57.2% |
 | Style/ArrayIntersect | 251 | 0 | 92 | 73.1% |
 | Layout/TrailingWhitespace | 73,558 | 87 | 4 | 99.8% |
 | Rails/TransactionExitStatement | 0 | 0 | 91 | 0.0% |
 | Style/ArgumentsForwarding | 23,365 | 10 | 81 | 99.6% |
-| Style/GlobalVars | 9,426 | 68 | 23 | 99.0% |
 | Lint/UnreachableCode | 251 | 1 | 89 | 73.6% |
 | RSpec/NamedSubject | 66,439 | 0 | 90 | 99.8% |
-| Style/StringLiteralsInInterpolation | 7,688 | 65 | 24 | 98.8% |
 | Style/IfWithBooleanLiteralBranches | 161 | 48 | 37 | 65.4% |
 | Style/Semicolon | 6,323 | 34 | 51 | 98.6% |
 | RSpec/LeadingSubject | 4,411 | 0 | 84 | 98.1% |
 | Lint/UnreachableLoop | 853 | 2 | 81 | 91.1% |
-| Style/BlockDelimiters | 24,885 | 68 | 14 | 99.6% |
 | Lint/UselessAccessModifier | 664 | 8 | 73 | 89.1% |
 | Style/HashExcept | 89 | 0 | 78 | 53.2% |
 | Style/HashTransformKeys | 35 | 2 | 76 | 30.9% |
@@ -224,7 +210,7 @@ Every offense is compared by file path, line number, and cop name.
 | Rails/HasManyOrHasOneDependent | 2,068 | 0 | 76 | 96.4% |
 | Style/AccessModifierDeclarations | 409 | 0 | 71 | 85.2% |
 | Style/ReturnNilInPredicateMethodDefinition | 614 | 0 | 69 | 89.8% |
-| Style/AccessorGrouping | 6,588 | 67 | 0 | 98.9% |
+| Rails/TimeZone | 13,473 | 7 | 59 | 99.5% |
 | Style/RedundantInitialize | 122 | 41 | 25 | 64.8% |
 | Rails/Output | 9,544 | 0 | 65 | 99.3% |
 | Style/RedundantFormat | 40 | 3 | 62 | 38.0% |
@@ -232,14 +218,12 @@ Every offense is compared by file path, line number, and cop name.
 | RSpec/DescribeMethod | 1,083 | 0 | 63 | 94.5% |
 | Style/RedundantSelfAssignment | 61 | 15 | 48 | 49.1% |
 | Rails/RakeEnvironment | 2,487 | 0 | 62 | 97.5% |
+| Style/StringHashKeys | 240,633 | 60 | 1 | 99.9% |
 | Layout/EmptyLineAfterMultilineCondition | 3,049 | 39 | 21 | 98.0% |
 | Style/RedundantSort | 151 | 21 | 38 | 71.9% |
 | Style/BitwisePredicate | 188 | 0 | 58 | 76.4% |
 | Layout/SpaceAroundKeyword | 1,658 | 16 | 41 | 96.6% |
 | Lint/InterpolationCheck | 615 | 1 | 56 | 91.5% |
-| Style/MultilineIfModifier | 1,687 | 44 | 12 | 96.7% |
-| Layout/LineEndStringConcatenationIndentation | 2,487 | 47 | 8 | 97.8% |
-| Rails/ActiveRecordAliases | 594 | 0 | 55 | 91.5% |
 | RSpec/ExpectOutput | 218 | 0 | 54 | 80.1% |
 | Style/DoubleNegation | 664 | 28 | 25 | 92.6% |
 | Lint/ShadowingOuterLocalVariable | 1,476 | 7 | 44 | 96.6% |
@@ -253,6 +237,7 @@ Every offense is compared by file path, line number, and cop name.
 | RSpec/MessageSpies | 43,213 | 0 | 46 | 99.8% |
 | Style/ClassMethodsDefinitions | 3,527 | 12 | 33 | 98.7% |
 | Style/IfWithSemicolon | 38 | 3 | 41 | 46.3% |
+| Style/MultilineIfModifier | 1,699 | 44 | 0 | 97.4% |
 | Style/PercentQLiterals | 419 | 0 | 44 | 90.4% |
 | Layout/MultilineArrayLineBreaks | 71,098 | 0 | 43 | 99.9% |
 | RSpec/MessageExpectation | 38,656 | 0 | 43 | 99.8% |
@@ -272,6 +257,7 @@ Every offense is compared by file path, line number, and cop name.
 | RSpec/ImplicitBlockExpectation | 4 | 0 | 31 | 11.4% |
 | Style/MapCompactWithConditionalBlock | 7 | 10 | 21 | 18.4% |
 | RSpec/RepeatedExampleGroupBody | 827 | 2 | 28 | 96.4% |
+| Rails/Delegate | 7,012 | 2 | 28 | 99.5% |
 | Style/ComparableClamp | 1 | 0 | 30 | 3.2% |
 | Lint/DuplicateMethods | 1,345 | 3 | 26 | 97.8% |
 | Rails/FilePath | 1,629 | 1 | 28 | 98.2% |
@@ -280,17 +266,15 @@ Every offense is compared by file path, line number, and cop name.
 | Style/RedundantDoubleSplatHashBraces | 41 | 0 | 28 | 59.4% |
 | Style/RedundantInterpolation | 1,866 | 0 | 27 | 98.5% |
 | Style/ReverseFind | 108 | 15 | 12 | 80.0% |
+| Layout/AssignmentIndentation | 329 | 25 | 1 | 92.6% |
 | Lint/ReturnInVoidContext | 98 | 15 | 11 | 79.0% |
-| Style/HashLikeCase | 121 | 24 | 2 | 82.3% |
 | Style/NumericLiteralPrefix | 4,595 | 13 | 13 | 99.4% |
 | Rails/ActiveSupportOnLoad | 170 | 0 | 25 | 87.1% |
 | Rails/DuplicateAssociation | 15 | 0 | 25 | 37.5% |
-| Rails/RootPathnameMethods | 859 | 4 | 21 | 97.1% |
 | Style/EmptyClassDefinition | 841 | 0 | 25 | 97.1% |
 | Style/RedundantEach | 9 | 0 | 25 | 26.4% |
-| Style/FrozenStringLiteralComment | 123,583 | 10 | 14 | 99.9% |
 | RSpec/LeakyConstantDeclaration | 5,675 | 0 | 23 | 99.5% |
-| Style/OperatorMethodCall | 87 | 18 | 5 | 79.0% |
+| Style/FrozenStringLiteralComment | 123,584 | 10 | 13 | 99.9% |
 | Style/TrailingCommaInArrayLiteral | 15,643 | 3 | 20 | 99.8% |
 | Lint/EmptyWhen | 253 | 0 | 22 | 92.0% |
 | Style/NegativeArrayIndex | 36 | 2 | 20 | 62.0% |
@@ -301,7 +285,7 @@ Every offense is compared by file path, line number, and cop name.
 | Style/NegatedWhile | 199 | 9 | 11 | 90.8% |
 | Lint/FormatParameterMismatch | 89 | 13 | 6 | 82.4% |
 | Style/RedundantHeredocDelimiterQuotes | 4,129 | 4 | 15 | 99.5% |
-| Layout/EmptyLinesAroundAttributeAccessor | 1,530 | 0 | 18 | 98.8% |
+| Layout/LineEndStringConcatenationIndentation | 2,491 | 14 | 4 | 99.2% |
 | Layout/SpaceAroundBlockParameters | 551 | 0 | 18 | 96.8% |
 | Style/CaseLikeIf | 364 | 12 | 6 | 95.2% |
 | Style/ClassVars | 3,081 | 0 | 18 | 99.4% |
@@ -318,12 +302,12 @@ Every offense is compared by file path, line number, and cop name.
 | Rails/ReflectionClassName | 48 | 0 | 15 | 76.1% |
 | Style/DisableCopsWithinSourceCodeDirective | 11,950 | 4 | 11 | 99.8% |
 | Style/EmptyStringInsideInterpolation | 672 | 0 | 15 | 97.8% |
-| Layout/FirstArgumentIndentation | 8,080 | 1 | 13 | 99.8% |
 | Style/MapIntoArray | 634 | 5 | 9 | 97.8% |
 | Style/NumericPredicate | 14,607 | 7 | 7 | 99.9% |
 | Style/QuotedSymbols | 12,500 | 0 | 14 | 99.8% |
 | Style/RedundantFilterChain | 66 | 5 | 9 | 82.5% |
 | Style/UnpackFirst | 387 | 8 | 6 | 96.5% |
+| Lint/RedundantCopEnableDirective | 34 | 4 | 9 | 72.3% |
 | RSpec/ExpectInHook | 3,571 | 0 | 13 | 99.6% |
 | Style/CommentedKeyword | 5,731 | 3 | 10 | 99.7% |
 | Style/RedundantFreeze | 1,227 | 0 | 13 | 98.9% |
@@ -334,7 +318,6 @@ Every offense is compared by file path, line number, and cop name.
 | Rails/EagerEvaluationLogMessage | 146 | 0 | 12 | 92.4% |
 | Rails/SelectMap | 9 | 0 | 12 | 42.8% |
 | Style/YodaExpression | 5,952 | 4 | 8 | 99.7% |
-| Lint/RedundantCopEnableDirective | 34 | 2 | 9 | 75.5% |
 | RSpec/ContextMethod | 2,928 | 1 | 10 | 99.6% |
 | RSpec/EmptyExampleGroup | 1,607 | 0 | 11 | 99.3% |
 | RSpec/ExpectInLet | 226 | 0 | 11 | 95.3% |
@@ -354,12 +337,11 @@ Every offense is compared by file path, line number, and cop name.
 | Rails/MatchRoute | 653 | 0 | 9 | 98.6% |
 | Style/ClassCheck | 2,227 | 0 | 9 | 99.5% |
 | Style/PerlBackrefs | 5,229 | 0 | 9 | 99.8% |
-| Layout/SpaceInsidePercentLiteralDelimiters | 1,863 | 0 | 8 | 99.5% |
-| Lint/DeprecatedOpenSSLConstant | 127 | 0 | 8 | 94.0% |
 | Lint/ShadowedException | 62 | 5 | 3 | 88.5% |
 | Rails/FindByOrAssignmentMemoization | 392 | 0 | 8 | 98.0% |
 | Rails/PluckInWhere | 50 | 0 | 8 | 86.2% |
 | Style/ExponentialNotation | 67 | 0 | 8 | 89.3% |
+| Style/OperatorMethodCall | 87 | 3 | 5 | 91.5% |
 | Style/SingleLineMethods | 6,522 | 0 | 8 | 99.8% |
 | Style/SlicingWithRange | 2,137 | 4 | 4 | 99.6% |
 | Style/StringMethods | 409 | 0 | 8 | 98.0% |
@@ -372,16 +354,17 @@ Every offense is compared by file path, line number, and cop name.
 | Style/CommandLiteral | 928 | 0 | 7 | 99.2% |
 | Style/EvenOdd | 150 | 0 | 7 | 95.5% |
 | Style/ReturnNil | 5,358 | 5 | 2 | 99.8% |
+| Style/StringLiteralsInInterpolation | 7,711 | 6 | 1 | 99.9% |
 | Style/TopLevelMethodDefinition | 7,982 | 0 | 7 | 99.9% |
-| Layout/EndAlignment | 5,185 | 0 | 6 | 99.8% |
 | Lint/ConstantReassignment | 13 | 6 | 0 | 68.4% |
+| Style/BlockDelimiters | 24,899 | 6 | 0 | 99.9% |
 | Style/EmptyLiteral | 586 | 0 | 6 | 98.9% |
 | Style/ExplicitBlockArgument | 1,939 | 4 | 2 | 99.6% |
 | Style/NonNilCheck | 259 | 0 | 6 | 97.7% |
 | Style/ParenthesesAroundCondition | 1,362 | 5 | 1 | 99.5% |
 | Style/RegexpLiteral | 19,284 | 0 | 6 | 99.9% |
+| Layout/EmptyLinesAroundAttributeAccessor | 1,543 | 0 | 5 | 99.6% |
 | Layout/FirstMethodArgumentLineBreak | 70,583 | 0 | 5 | 99.9% |
-| Lint/DeprecatedClassMethods | 562 | 5 | 0 | 99.1% |
 | Lint/EmptyExpression | 74 | 0 | 5 | 93.6% |
 | Lint/MissingSuper | 8,069 | 0 | 5 | 99.9% |
 | Lint/ShadowedArgument | 169 | 0 | 5 | 97.1% |
@@ -389,22 +372,22 @@ Every offense is compared by file path, line number, and cop name.
 | RSpec/ScatteredLet | 2,127 | 0 | 5 | 99.7% |
 | RSpec/SharedContext | 23 | 0 | 5 | 82.1% |
 | Rails/HttpStatus | 1,820 | 0 | 5 | 99.7% |
+| Rails/InverseOf | 1,549 | 4 | 1 | 99.6% |
 | Rails/LexicallyScopedActionFilter | 269 | 0 | 5 | 98.1% |
 | Style/FileEmpty | 45 | 0 | 5 | 90.0% |
-| Layout/SpaceAfterColon | 523 | 0 | 4 | 99.2% |
+| Style/NegatedIf | 8,722 | 5 | 0 | 99.9% |
 | RSpec/IdenticalEqualityAssertion | 242 | 0 | 4 | 98.3% |
 | RSpec/InstanceVariable | 155,440 | 2 | 2 | 99.9% |
 | RSpec/LetBeforeExamples | 1,209 | 0 | 4 | 99.6% |
 | RSpec/MultipleDescribes | 2,202 | 0 | 4 | 99.8% |
-| Rails/SquishedSQLHeredocs | 3,469 | 4 | 0 | 99.8% |
+| Rails/SquishedSQLHeredocs | 3,468 | 3 | 1 | 99.8% |
 | Style/FileNull | 222 | 0 | 4 | 98.2% |
 | Style/MultilineIfThen | 1,195 | 0 | 4 | 99.6% |
 | Style/RedundantCapitalW | 181 | 3 | 1 | 97.8% |
 | Style/RedundantSortBy | 4 | 0 | 4 | 50.0% |
 | Style/Sample | 9 | 0 | 4 | 69.2% |
 | Style/StringChars | 254 | 2 | 2 | 98.4% |
-| Layout/InitialIndentation | 31 | 2 | 1 | 91.1% |
-| Layout/LeadingCommentSpace | 19,910 | 2 | 1 | 99.9% |
+| Layout/LineContinuationLeadingSpace | 1,183 | 3 | 0 | 99.7% |
 | Layout/TrailingEmptyLines | 9,956 | 2 | 1 | 99.9% |
 | Lint/NumberConversion | 24,317 | 0 | 3 | 99.9% |
 | Lint/RedundantRegexpQuantifiers | 0 | 0 | 3 | 0.0% |
@@ -414,17 +397,15 @@ Every offense is compared by file path, line number, and cop name.
 | Style/NumberedParameters | 69 | 0 | 3 | 95.8% |
 | Style/StaticClass | 3,133 | 0 | 3 | 99.9% |
 | Style/TrailingCommaInBlockArgs | 5 | 0 | 3 | 62.5% |
-| Layout/HeredocArgumentClosingParenthesis | 75 | 0 | 2 | 97.4% |
-| Layout/LineContinuationLeadingSpace | 1,181 | 0 | 2 | 99.8% |
-| Lint/DeprecatedConstants | 52 | 0 | 2 | 96.2% |
+| Layout/InitialIndentation | 31 | 1 | 1 | 93.9% |
+| Layout/LeadingCommentSpace | 19,911 | 2 | 0 | 99.9% |
 | Lint/EmptyBlock | 5,991 | 1 | 1 | 99.9% |
 | Lint/NestedMethodDefinition | 370 | 0 | 2 | 99.4% |
 | Lint/NextWithoutAccumulator | 0 | 0 | 2 | 0.0% |
-| Lint/NumericOperationWithConstantResult | 2 | 0 | 2 | 50.0% |
 | Lint/SafeNavigationWithEmpty | 3 | 0 | 2 | 60.0% |
-| Lint/UselessDefined | 17 | 0 | 2 | 89.4% |
 | RSpec/ReceiveCounts | 215 | 0 | 2 | 99.0% |
 | RSpec/SubjectStub | 3,460 | 2 | 0 | 99.9% |
+| Rails/Blank | 2,395 | 0 | 2 | 99.9% |
 | Rails/DuplicateScope | 39 | 0 | 2 | 95.1% |
 | Rails/FindById | 54 | 0 | 2 | 96.4% |
 | Rails/IndexBy | 143 | 0 | 2 | 98.6% |
@@ -440,11 +421,7 @@ Every offense is compared by file path, line number, and cop name.
 | Lint/AmbiguousBlockAssociation | 6,032 | 0 | 1 | 99.9% |
 | Lint/BinaryOperatorWithIdenticalOperands | 440 | 0 | 1 | 99.7% |
 | Lint/DuplicateRegexpCharacterClassElement | 165 | 0 | 1 | 99.3% |
-| Lint/DuplicateRequire | 47 | 0 | 1 | 97.9% |
-| Lint/RedundantTypeConversion | 85 | 0 | 1 | 98.8% |
 | Lint/RefinementImportMethods | 0 | 1 | 0 | 0.0% |
-| Lint/RequireParentheses | 7 | 0 | 1 | 87.5% |
-| Lint/UselessRescue | 50 | 0 | 1 | 98.0% |
 | RSpec/AlignLeftLetBrace | 46,869 | 1 | 0 | 99.9% |
 | RSpec/AlignRightLetBrace | 56,908 | 1 | 0 | 99.9% |
 | RSpec/EmptyMetadata | 0 | 0 | 1 | 0.0% |
@@ -452,12 +429,18 @@ Every offense is compared by file path, line number, and cop name.
 | Rails/ActionOrder | 702 | 0 | 1 | 99.8% |
 | Rails/NegateInclude | 2,467 | 0 | 1 | 99.9% |
 | Rails/OrderArguments | 1,533 | 0 | 1 | 99.9% |
+| Rails/RedundantForeignKey | 264 | 1 | 0 | 99.6% |
 | Rails/UnusedRenderContent | 42 | 0 | 1 | 97.6% |
 | Rails/Validation | 1,298 | 1 | 0 | 99.9% |
 | Style/FileWrite | 1,195 | 0 | 1 | 99.9% |
+| Style/GlobalVars | 9,448 | 0 | 1 | 99.9% |
+| Style/HashLikeCase | 122 | 0 | 1 | 99.1% |
+| Style/HashTransformValues | 157 | 0 | 1 | 99.3% |
 | Style/KeywordParametersOrder | 315 | 0 | 1 | 99.6% |
 | Style/NumberedParametersLimit | 46 | 0 | 1 | 97.8% |
 | Style/OpenStructUse | 1,820 | 0 | 1 | 99.9% |
+| Style/RedundantArgument | 1,238 | 1 | 0 | 99.9% |
+| Style/RedundantSelfAssignmentBranch | 292 | 1 | 0 | 99.6% |
 
 <details>
 <summary><strong>Style/MethodCallWithArgsParentheses</strong> — 1,516,922 matches, 59 FP, 54,201 FN (96.5%)</summary>
@@ -471,29 +454,29 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `24pullrequests__24pullrequests__381028d: spec/requests/contributions_spec.rb:63  [Use parentheses for method calls with arguments.]`
-- `24pullrequests__24pullrequests__381028d: spec/models/user_spec.rb:12  [Use parentheses for method calls with arguments.]`
+- `24pullrequests__24pullrequests__381028d: spec/requests/contributions_spec.rb:93  [Use parentheses for method calls with arguments.]`
+- `24pullrequests__24pullrequests__381028d: spec/models/contribution_spec.rb:58  [Use parentheses for method calls with arguments.]`
 - `24pullrequests__24pullrequests__381028d: bin/rspec:3  [Use parentheses for method calls with arguments.]`
 - ... and 54,198 more (see corpus-results.json for full list)
 
 </details>
 
 <details>
-<summary><strong>Layout/IndentationWidth</strong> — 64,802 matches, 58 FP, 46,996 FN (57.9%)</summary>
+<summary><strong>Layout/IndentationWidth</strong> — 64,808 matches, 58 FP, 46,990 FN (57.9%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/security/python_analyzer.rb:259  [Use 2 (not 0) spaces for indentation.]`
 - `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/security/rails_analyzer.rb:196  [Use 2 (not -2) spaces for indentation.]`
+- `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/security/python_analyzer.rb:259  [Use 2 (not 0) spaces for indentation.]`
 - `SquareSquash__web__e73f280: lib/workers/symbolication_creator.rb:40  [Use 2 (not -5) spaces for indentation.]`
 - ... and 55 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `24pullrequests__24pullrequests__381028d: app/models/score_calculator.rb:11  [Use 2 (not 4) spaces for indentation.]`
-- `24pullrequests__24pullrequests__381028d: app/models/score_calculator.rb:156  [Use 2 (not 4) spaces for indentation.]`
-- `24pullrequests__24pullrequests__381028d: app/models/score_calculator.rb:132  [Use 2 (not 4) spaces for indentation.]`
-- ... and 46,993 more (see corpus-results.json for full list)
+- `24pullrequests__24pullrequests__381028d: app/models/score_calculator.rb:140  [Use 2 (not 4) spaces for indentation.]`
+- `24pullrequests__24pullrequests__381028d: app/models/score_calculator.rb:144  [Use 2 (not 4) spaces for indentation.]`
+- `24pullrequests__24pullrequests__381028d: app/models/score_calculator.rb:14  [Use 2 (not 4) spaces for indentation.]`
+- ... and 46,987 more (see corpus-results.json for full list)
 
 </details>
 
@@ -502,9 +485,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `24pullrequests__24pullrequests__381028d: db/migrate/20141223044223_add_thank_you_email_sent_to_user.rb:3  [New database column without `comment`.]`
-- `24pullrequests__24pullrequests__381028d: db/migrate/20131202171451_create_organisations.rb:11  [New database table without `comment`.]`
-- `24pullrequests__24pullrequests__381028d: db/migrate/20141023191920_add_user_id_to_events.rb:3  [New database column without `comment`.]`
+- `24pullrequests__24pullrequests__381028d: db/migrate/20151127190033_add_featured_to_project.rb:4  [New database column without `comment`.]`
+- `24pullrequests__24pullrequests__381028d: db/migrate/20131125081458_add_comments_count_to_pull_requests.rb:3  [New database column without `comment`.]`
+- `24pullrequests__24pullrequests__381028d: db/migrate/20211212143544_add_invalid_token_to_users.rb:3  [New database column without `comment`.]`
 - ... and 21,205 more (see corpus-results.json for full list)
 
 </details>
@@ -514,16 +497,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `24pullrequests__24pullrequests__381028d: spec/models/project_search_spec.rb:50  [Align the arguments of a method call if they span more than one line.]`
-- `24pullrequests__24pullrequests__381028d: spec/mailers/thank_you_mailer_spec.rb:8  [Align the arguments of a method call if they span more than one line.]`
 - `24pullrequests__24pullrequests__381028d: config/initializers/simple_form_bootstrap.rb:33  [Align the arguments of a method call if they span more than one line.]`
+- `24pullrequests__24pullrequests__381028d: spec/models/project_search_spec.rb:49  [Align the arguments of a method call if they span more than one line.]`
+- `24pullrequests__24pullrequests__381028d: spec/mailers/reminder_mailer_spec.rb:58  [Align the arguments of a method call if they span more than one line.]`
 - ... and 19,766 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/storage_adapter/active_storage/preprocessor.rb:34  [Align the arguments of a method call if they span more than one line.]`
-- `avo-hq__avo__c7b9fc8: lib/avo/concerns/pagination.rb:55  [Align the arguments of a method call if they span more than one line.]`
 - `avo-hq__avo__c7b9fc8: lib/avo/fields/location_field.rb:21  [Align the arguments of a method call if they span more than one line.]`
+- `avo-hq__avo__c7b9fc8: lib/avo/concerns/pagination.rb:55  [Align the arguments of a method call if they span more than one line.]`
 - ... and 23 more (see corpus-results.json for full list)
 
 </details>
@@ -571,9 +554,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `24pullrequests__24pullrequests__381028d: app/models/contribution.rb:4  [Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.]`
-- `24pullrequests__24pullrequests__381028d: app/controllers/contributions_controller.rb:31  [Modifier form of `unless` makes the line too long.]`
 - `24pullrequests__24pullrequests__381028d: app/models/contribution.rb:5  [Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.]`
+- `24pullrequests__24pullrequests__381028d: app/controllers/projects_controller.rb:119  [Modifier form of `unless` makes the line too long.]`
+- `24pullrequests__24pullrequests__381028d: app/controllers/contributions_controller.rb:26  [Modifier form of `unless` makes the line too long.]`
 - ... and 8,352 more (see corpus-results.json for full list)
 
 </details>
@@ -585,7 +568,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `AaronLasseigne__active_interaction__97667c8: lib/active_interaction/array_input.rb:60  [`if` condition requires an `else`-clause.]`
 - `ActsAsParanoid__acts_as_paranoid__050702d: lib/acts_as_paranoid/core.rb:188  [`if` condition requires an `else`-clause.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/page.rb:439  [`if` condition requires an `else`-clause.]`
+- `AlchemyCMS__alchemy_cms__4c2023f: spec/controllers/alchemy/admin/attachments_controller_spec.rb:14  [`if` condition requires an `else`-clause.]`
 - ... and 7,460 more (see corpus-results.json for full list)
 
 </details>
@@ -595,16 +578,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
+- `AlchemyCMS__alchemy_cms__4c2023f: lib/alchemy/tasks/usage.rb:25  [Align `.map` with `Alchemy::Page` on line 21.]`
 - `AlchemyCMS__alchemy_cms__4c2023f: lib/alchemy/tasks/usage.rb:13  [Align `.map` with `.all` on line 9.]`
 - `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/resource.rb:223  [Align `.collect` with `.select` on line 221.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: lib/alchemy/tasks/usage.rb:25  [Align `.map` with `Alchemy::Page` on line 21.]`
 - ... and 1,725 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `24pullrequests__24pullrequests__381028d: app/models/aggregation_filter.rb:6  [Use 2 (not 0) spaces for indenting an expression spanning multiple lines.]`
 - `24pullrequests__24pullrequests__381028d: app/models/aggregation_filter.rb:7  [Use 2 (not 0) spaces for indenting an expression spanning multiple lines.]`
 - `24pullrequests__24pullrequests__381028d: app/models/user.rb:241  [Align `.compact` with `(organisations_string || "")` on line 238.]`
+- `24pullrequests__24pullrequests__381028d: app/models/aggregation_filter.rb:6  [Use 2 (not 0) spaces for indenting an expression spanning multiple lines.]`
 - ... and 4,883 more (see corpus-results.json for full list)
 
 </details>
@@ -615,15 +598,15 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `24pullrequests__24pullrequests__381028d: app/models/contribution.rb:38  [Use `create!` instead of `create` if the return value is not checked. Or check `persisted?` on model returned from `create`.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: app/controllers/alchemy/admin/tags_controller.rb:23  [Use `create!` instead of `create` if the return value is not checked. Or check `persisted?` on model returned from `create`.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: app/jobs/alchemy/storage_adapter/active_storage/sanitize_svg_job.rb:18  [Use `create!` instead of `create` if the return value is not checked.]`
+- `AlchemyCMS__alchemy_cms__4c2023f: app/controllers/alchemy/admin/attachments_controller.rb:54  [Use `create!` instead of `create` if the return value is not checked. Or check `persisted?` on model returned from `create`.]`
+- `AlchemyCMS__alchemy_cms__4c2023f: spec/dummy/app/controllers/application_controller.rb:13  [Use `find_or_create_by!` instead of `find_or_create_by` if the return value is not checked. Or check `persisted?` on model returned from `find_or_create_by`.]`
 - ... and 1,459 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `24pullrequests__24pullrequests__381028d: spec/models/user_spec.rb:223  [Use `save!` instead of `save` if the return value is not checked.]`
-- `24pullrequests__24pullrequests__381028d: spec/models/user_spec.rb:40  [Use `save!` instead of `save` if the return value is not checked.]`
+- `24pullrequests__24pullrequests__381028d: spec/models/user_spec.rb:413  [Use `save!` instead of `save` if the return value is not checked.]`
 - `24pullrequests__24pullrequests__381028d: app/models/user.rb:250  [Use `save!` instead of `save` if the return value is not checked.]`
+- `24pullrequests__24pullrequests__381028d: app/models/user.rb:65  [Use `update!` instead of `update` if the return value is not checked.]`
 - ... and 4,675 more (see corpus-results.json for full list)
 
 </details>
@@ -635,7 +618,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `24pullrequests__24pullrequests__381028d: bin/yarn:4  [Right hand side of multi-line assignment is on the same line as the assignment operator `=`.]`
 - `AaronLasseigne__active_interaction__97667c8: spec/active_interaction/i18n_spec.rb:16  [Right hand side of multi-line assignment is on the same line as the assignment operator `=`.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: lib/alchemy/tasks/usage.rb:9  [Right hand side of multi-line assignment is on the same line as the assignment operator `=`.]`
+- `AlchemyCMS__alchemy_cms__4c2023f: lib/alchemy/tasks/usage.rb:21  [Right hand side of multi-line assignment is on the same line as the assignment operator `=`.]`
 - ... and 1,529 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -659,9 +642,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `AlchemyCMS__alchemy_cms__4c2023f: app/controllers/alchemy/admin/ingredients_controller.rb:14  [Align the operands of an expression in an assignment spanning multiple lines.]`
+- `AlchemyCMS__alchemy_cms__4c2023f: app/controllers/alchemy/admin/pictures_controller.rb:150  [Align the operands of an expression in an assignment spanning multiple lines.]`
 - `AlchemyCMS__alchemy_cms__4c2023f: app/components/alchemy/admin/link_dialog/internal_tab.rb:28  [Align the operands of an expression in an assignment spanning multiple lines.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: app/components/alchemy/admin/link_dialog/external_tab.rb:25  [Align the operands of an expression in an assignment spanning multiple lines.]`
+- `AlchemyCMS__alchemy_cms__4c2023f: app/controllers/alchemy/admin/pictures_controller.rb:151  [Align the operands of an expression in an assignment spanning multiple lines.]`
 - ... and 5,353 more (see corpus-results.json for full list)
 
 </details>
@@ -673,14 +656,14 @@ Every offense is compared by file path, line number, and cop name.
 
 - `cyberark__conjur__8031a2a: engines/conjur_audit/spec/dummy/config/initializers/secret_token.rb:3  [Unused block argument - `o`.]`
 - `dry-rb__dry-monads__20957eb: spec/unit/list_spec.rb:21  [Unused block argument - `o`.]`
-- `nanoc__nanoc__c151308: nanoc-checking/spec/nanoc/checking/checks/external_links_spec.rb:67  [Unused block argument - `c`.]`
+- `nanoc__nanoc__c151308: nanoc-checking/spec/nanoc/checking/checks/external_links_spec.rb:5  [Unused block argument - `c`.]`
 - ... and 10 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: lib/alchemy/engine.rb:137  [Unused block argument - `app`. You can omit the argument if you don't care about it.]`
-- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_array.rb:150  [Unused block argument - `opt`. If it's necessary, use `_` or `_opt` as an argument name to indicate that it won't be used.]`
-- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/model_binding.rb:170  [Unused block argument - `new_value`. You can omit the argument if you don't care about it.]`
+- `AndyObtiva__glimmer__90326e6: lib/glimmer/config.rb:41  [Unused block argument - `args`. If it's necessary, use `_` or `_args` as an argument name to indicate that it won't be used.]`
+- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_array.rb:122  [Unused block argument - `opt`. If it's necessary, use `_` or `_opt` as an argument name to indicate that it won't be used.]`
 - ... and 5,317 more (see corpus-results.json for full list)
 
 </details>
@@ -690,11 +673,11 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
+- `AssetSync__asset_sync__aab9010: lib/generators/asset_sync/templates/asset_sync.rb:50  [unexpected '>'; expected an expression after the operator
+(Using Ruby 4.0 parser; configure using `TargetRubyVersion` parameter, under `AllCops`)]`
+- `AssetSync__asset_sync__aab9010: lib/generators/asset_sync/templates/asset_sync.rb:43  [unexpected '>'; expected an expression after the operator
+(Using Ruby 4.0 parser; configure using `TargetRubyVersion` parameter, under `AllCops`)]`
 - `AssetSync__asset_sync__aab9010: lib/generators/asset_sync/templates/asset_sync.rb:3  [unexpected '>'; expected an expression after the operator
-(Using Ruby 4.0 parser; configure using `TargetRubyVersion` parameter, under `AllCops`)]`
-- `AssetSync__asset_sync__aab9010: lib/generators/asset_sync/templates/asset_sync.rb:38  [unexpected '>'; expected an expression after the operator
-(Using Ruby 4.0 parser; configure using `TargetRubyVersion` parameter, under `AllCops`)]`
-- `AssetSync__asset_sync__aab9010: lib/generators/asset_sync/templates/asset_sync.rb:27  [unexpected '>'; expected an expression after the operator
 (Using Ruby 4.0 parser; configure using `TargetRubyVersion` parameter, under `AllCops`)]`
 - ... and 4,116 more (see corpus-results.json for full list)
 
@@ -709,9 +692,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: lib/arachni/option_groups/audit.rb:287  [Space inside parentheses detected.]`
-- `Arachni__arachni__c1710d6: lib/arachni/option_group.rb:31  [Space inside parentheses detected.]`
-- `Arachni__arachni__c1710d6: ui/cli/framework/option_parser.rb:409  [Space inside parentheses detected.]`
+- `Arachni__arachni__c1710d6: lib/arachni/element/cookie/capabilities/inputtable.rb:45  [Space inside parentheses detected.]`
+- `Arachni__arachni__c1710d6: lib/arachni/rpc/server/dispatcher/service.rb:91  [Space inside parentheses detected.]`
+- `Arachni__arachni__c1710d6: lib/arachni/rpc/server/framework.rb:79  [Space inside parentheses detected.]`
 - ... and 4,097 more (see corpus-results.json for full list)
 
 </details>
@@ -728,8 +711,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/page_definition.rb:90  [Use a guard clause (`unless File.exist?(layouts_file_path); raise LoadError, "Could not find page_layouts.yml file! Please run `rails generate alchemy:install`"; end`) instead of wrapping the code inside a conditional expression.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: lib/alchemy/seeder.rb:126  [Use a guard clause (`raise DefaultLanguageNotFoundError unless default_language`) instead of wrapping the code inside a conditional expression.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: lib/alchemy/admin/preview_url.rb:75  [Use a guard clause (`raise MissingProtocolError, "Please provide the protocol with preview['host']" if uri.instance_of?(URI::Generic)`) instead of wrapping the code inside a conditional expression.]`
+- `AlchemyCMS__alchemy_cms__4c2023f: app/helpers/alchemy/pages_helper.rb:172  [Use a guard clause (`raise error, message if Rails.application.config.consider_all_requests_local?`) instead of wrapping the code inside a conditional expression.]`
+- `AlchemyCMS__alchemy_cms__4c2023f: app/services/alchemy/update_checks/ruby_gems.rb:21  [Use a guard clause (`raise UpdateServiceUnavailable unless response.is_a?(Net::HTTPSuccess)`) instead of wrapping the code inside a conditional expression.]`
 - ... and 3,906 more (see corpus-results.json for full list)
 
 </details>
@@ -740,14 +723,14 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `AssetSync__asset_sync__aab9010: lib/asset_sync/config.rb:385  [Inconsistent indentation detected.]`
-- `BetterErrors__better_errors__fde3b70: lib/better_errors/middleware.rb:66  [Inconsistent indentation detected.]`
+- `BetterErrors__better_errors__fde3b70: lib/better_errors/repl/basic.rb:12  [Inconsistent indentation detected.]`
 - `BetterErrors__better_errors__fde3b70: lib/better_errors/repl/pry.rb:73  [Inconsistent indentation detected.]`
 - ... and 1,878 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Hackplayers__evil-winrm__84a543c: evil-winrm.rb:188  [Inconsistent indentation detected.]`
 - `Hackplayers__evil-winrm__84a543c: evil-winrm.rb:187  [Inconsistent indentation detected.]`
+- `Hackplayers__evil-winrm__84a543c: evil-winrm.rb:188  [Inconsistent indentation detected.]`
 - `ManageIQ__manageiq__b530ec7: lib/vmdb/gettext/domains.rb:29  [Inconsistent indentation detected.]`
 - ... and 1,936 more (see corpus-results.json for full list)
 
@@ -758,9 +741,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `AaronLasseigne__active_interaction__97667c8: lib/active_interaction/filter.rb:202  [Prefer `Object#__send__` or `Object#public_send` to `send`.]`
-- `AaronLasseigne__active_interaction__97667c8: lib/active_interaction/filters/abstract_date_time_filter.rb:35  [Prefer `Object#__send__` or `Object#public_send` to `send`.]`
 - `AaronLasseigne__active_interaction__97667c8: lib/active_interaction/filters/abstract_numeric_filter.rb:30  [Prefer `Object#__send__` or `Object#public_send` to `send`.]`
+- `AaronLasseigne__active_interaction__97667c8: lib/active_interaction/filter.rb:196  [Prefer `Object#__send__` or `Object#public_send` to `send`.]`
+- `AaronLasseigne__active_interaction__97667c8: lib/active_interaction/filter.rb:202  [Prefer `Object#__send__` or `Object#public_send` to `send`.]`
 - ... and 3,563 more (see corpus-results.json for full list)
 
 </details>
@@ -770,16 +753,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `Arachni__arachni__c1710d6: ui/cli/rpc/client/instance.rb:134  [Operator `|=` should be surrounded by a single space.]`
-- `Arachni__arachni__c1710d6: components/plugins/defaults/meta/remedies/discovery.rb:46  [Operator `+=` should be surrounded by a single space.]`
 - `Arachni__arachni__c1710d6: ui/cli/output.rb:450  [Operator `||=` should be surrounded by a single space.]`
+- `Arachni__arachni__c1710d6: spec/support/servers/arachni/element/capabilities/analyzable/differential.rb:146  [Operator `+=` should be surrounded by a single space.]`
+- `Arachni__arachni__c1710d6: spec/support/servers/arachni/element/form.rb:98  [Operator `+=` should be surrounded by a single space.]`
 - ... and 314 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `24pullrequests__24pullrequests__381028d: spec/support/pull_request_helpers.rb:19  [Operator `=>` should be surrounded by a single space.]`
 - `24pullrequests__24pullrequests__381028d: app/controllers/users_controller.rb:13  [Operator `=` should be surrounded by a single space.]`
-- `Apipie__apipie-rails__2692590: spec/dummy/app/controllers/pets_controller.rb:201  [Operator `=` should be surrounded by a single space.]`
+- `Apipie__apipie-rails__2692590: spec/dummy/app/controllers/pets_controller.rb:387  [Operator `=` should be surrounded by a single space.]`
 - ... and 3,037 more (see corpus-results.json for full list)
 
 </details>
@@ -790,15 +773,15 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `AaronLasseigne__active_interaction__97667c8: lib/active_interaction/filters/hash_filter.rb:40  [Redundant `self` detected.]`
-- `CocoaPods__CocoaPods__458dd19: spec/cocoapods-integration-specs/install_static_swift_modules/before/Podfile:17  [Redundant `self` detected.]`
-- `CocoaPods__CocoaPods__458dd19: examples/Modules Example/Podfile:25  [Redundant `self` detected.]`
+- `CocoaPods__CocoaPods__458dd19: examples/Modules Example/Podfile:24  [Redundant `self` detected.]`
+- `CocoaPods__CocoaPods__458dd19: spec/cocoapods-integration-specs/install_static_swift_modules/before/Podfile:16  [Redundant `self` detected.]`
 - ... and 172 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Apipie__apipie-rails__2692590: lib/apipie/param_description.rb:188  [Redundant `self` detected.]`
 - `Apipie__apipie-rails__2692590: lib/apipie/param_description.rb:187  [Redundant `self` detected.]`
-- `Arachni__arachni__c1710d6: lib/arachni/element/capabilities/inputtable.rb:320  [Redundant `self` detected.]`
+- `Arachni__arachni__c1710d6: lib/arachni/http/request.rb:842  [Redundant `self` detected.]`
 - ... and 2,930 more (see corpus-results.json for full list)
 
 </details>
@@ -808,9 +791,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `AndyObtiva__glimmer__90326e6: spec/lib/glimmer/data_binding/model_binding_spec.rb:742  [Space between { and | missing.]`
-- `AndyObtiva__glimmer__90326e6: spec/lib/glimmer/data_binding/model_binding_spec.rb:676  [Space between { and | missing.]`
 - `AndyObtiva__glimmer__90326e6: spec/lib/glimmer/data_binding/model_binding_spec.rb:645  [Space between { and | missing.]`
+- `AndyObtiva__glimmer__90326e6: spec/lib/glimmer/data_binding/model_binding_spec.rb:676  [Space between { and | missing.]`
+- `AndyObtiva__glimmer__90326e6: spec/lib/glimmer/data_binding/model_binding_spec.rb:742  [Space between { and | missing.]`
 - ... and 2,844 more (see corpus-results.json for full list)
 
 </details>
@@ -820,16 +803,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `activemerchant__active_merchant__ca45b1b: test/unit/gateways/payu_latam_test.rb:728  [Use 2 spaces for indentation in a heredoc by using `<<~` instead of `<<-`.]`
 - `activemerchant__active_merchant__ca45b1b: test/unit/gateways/payu_latam_test.rb:590  [Use 2 spaces for indentation in a heredoc by using `<<~` instead of `<<-`.]`
-- `catarse__catarse__0d73a61: db/migrate/20151106040218_view_project_detail_contribution_per_referral.rb:4  [Use 2 spaces for indentation in a heredoc by using `<<~` instead of `<<-`.]`
+- `activemerchant__active_merchant__ca45b1b: test/unit/gateways/payu_latam_test.rb:728  [Use 2 spaces for indentation in a heredoc by using `<<~` instead of `<<-`.]`
+- `catarse__catarse__0d73a61: db/migrate/20151110171247_fix_project_detail_contribution_per_referral.rb:36  [Use 2 spaces for indentation in a heredoc by using `<<~` instead of `<<-`.]`
 - ... and 78 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
+- `Apipie__apipie-rails__2692590: spec/controllers/users_controller_spec.rb:684  [Use 2 spaces for indentation in a heredoc by using `<<~` instead of `<<`.]`
 - `Apipie__apipie-rails__2692590: lib/tasks/apipie.rake:313  [Use 2 spaces for indentation in a heredoc by using `<<~` instead of `<<`.]`
 - `Apipie__apipie-rails__2692590: spec/controllers/users_controller_spec.rb:678  [Use 2 spaces for indentation in a heredoc by using `<<~` instead of `<<`.]`
-- `Apipie__apipie-rails__2692590: spec/controllers/users_controller_spec.rb:684  [Use 2 spaces for indentation in a heredoc by using `<<~` instead of `<<`.]`
 - ... and 2,592 more (see corpus-results.json for full list)
 
 </details>
@@ -851,16 +834,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `Arachni__arachni__c1710d6: lib/arachni/framework/parts/browser.rb:141  [Useless assignment to variable - `bp`.]`
 - `Arachni__arachni__c1710d6: ui/cli/rpc/client/remote.rb:64  [Useless assignment to variable - `instance`.]`
+- `Arachni__arachni__c1710d6: lib/arachni/framework/parts/browser.rb:141  [Useless assignment to variable - `bp`.]`
 - `Arachni__arachni__c1710d6: spec/support/shared/check.rb:196  [Useless assignment to variable - `e`.]`
 - ... and 1,094 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AndyObtiva__glimmer__90326e6: lib/glimmer/dsl/engine.rb:64  [Useless assignment to variable - `e`.]`
-- `Arachni__arachni__c1710d6: lib/arachni/processes/instances.rb:197  [Useless assignment to variable - `e`.]`
 - `Arachni__arachni__c1710d6: lib/arachni/processes/instances.rb:208  [Useless assignment to variable - `e`.]`
+- `Arachni__arachni__c1710d6: lib/arachni/parser.rb:121  [Useless assignment to variable - `e`.]`
 - ... and 1,422 more (see corpus-results.json for full list)
 
 </details>
@@ -870,9 +853,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
+- `FontCustom__fontcustom__86d7f8d: spec/spec_helper.rb:32  [Use the new Ruby 1.9 hash syntax.]`
 - `FontCustom__fontcustom__86d7f8d: spec/spec_helper.rb:24  [Use the new Ruby 1.9 hash syntax.]`
 - `FontCustom__fontcustom__86d7f8d: spec/spec_helper.rb:28  [Use the new Ruby 1.9 hash syntax.]`
-- `FontCustom__fontcustom__86d7f8d: spec/spec_helper.rb:32  [Use the new Ruby 1.9 hash syntax.]`
 - ... and 2,153 more (see corpus-results.json for full list)
 
 </details>
@@ -889,9 +872,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `24pullrequests__24pullrequests__381028d: app/models/contribution.rb:5  [Use safe navigation (`&.`) instead of checking if an object exists before calling the method.]`
 - `24pullrequests__24pullrequests__381028d: app/models/contribution.rb:4  [Use safe navigation (`&.`) instead of checking if an object exists before calling the method.]`
-- `AndyObtiva__glimmer__90326e6: spec/spec_helper.rb:71  [Use safe navigation (`&.`) instead of checking if an object exists before calling the method.]`
+- `24pullrequests__24pullrequests__381028d: app/models/contribution.rb:5  [Use safe navigation (`&.`) instead of checking if an object exists before calling the method.]`
+- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/model_binding.rb:227  [Use safe navigation (`&.`) instead of checking if an object exists before calling the method.]`
 - ... and 2,114 more (see corpus-results.json for full list)
 
 </details>
@@ -902,8 +885,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AndyObtiva__glimmer__90326e6: spec/spec_helper.rb:79  [Avoid trailing inline comments.]`
-- `Arachni__arachni__c1710d6: spec/support/fixtures/plugins/with_options.rb:1  [Avoid trailing inline comments.]`
-- `Arachni__arachni__c1710d6: components/checks/passive/grep/insecure_cookies.rb:1  [Avoid trailing inline comments.]`
+- `Arachni__arachni__c1710d6: components/checks/passive/grep/html_objects.rb:1  [Avoid trailing inline comments.]`
+- `Arachni__arachni__c1710d6: spec/support/fixtures/plugins_with_priorities/p2.rb:1  [Avoid trailing inline comments.]`
 - ... and 1,973 more (see corpus-results.json for full list)
 
 </details>
@@ -921,8 +904,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Arachni__arachni__c1710d6: lib/arachni/http/response.rb:122  [Use `alias redirection? redirect?` instead of `alias :redirection? :redirect?`.]`
-- `Arachni__arachni__c1710d6: lib/arachni/ui/foo/output.rb:103  [Use `alias debug debug_on` instead of `alias :debug :debug_on`.]`
-- `Arachni__arachni__c1710d6: lib/arachni/check/auditor.rb:353  [Use `alias log_remote_directory_if_exists log_remote_file_if_exists` instead of `alias :log_remote_directory_if_exists :log_remote_file_if_exists`.]`
+- `Arachni__arachni__c1710d6: lib/arachni/support/database/hash.rb:187  [Use `alias key? include?` instead of `alias :key? :include?`.]`
+- `Arachni__arachni__c1710d6: lib/arachni/state/plugins.rb:38  [Use `alias []= store` instead of `alias :[]= :store`.]`
 - ... and 1,771 more (see corpus-results.json for full list)
 
 </details>
@@ -934,14 +917,14 @@ Every offense is compared by file path, line number, and cop name.
 
 - `Apipie__apipie-rails__2692590: lib/tasks/apipie.rake:175  [Use the return value of `if` expression for variable assignment and comparison.]`
 - `ManageIQ__manageiq__b530ec7: app/models/miq_report/generator.rb:742  [Use the return value of `if` expression for variable assignment and comparison.]`
-- `Netflix-Skunkworks__Scumblr__66ed69a: app/controllers/results_controller.rb:670  [Use the return value of `if` expression for variable assignment and comparison.]`
+- `Netflix-Skunkworks__Scumblr__66ed69a: lib/search_providers/reddit.rb:42  [Use the return value of `if` expression for variable assignment and comparison.]`
 - ... and 102 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Apipie__apipie-rails__2692590: lib/apipie/extractor/writer.rb:344  [Use the return of the conditional for variable assignment and comparison.]`
-- `Arachni__arachni__c1710d6: components/reporters/html.rb:219  [Use the return of the conditional for variable assignment and comparison.]`
-- `Arachni__arachni__c1710d6: spec/support/shared/external/wavsep.rb:76  [Use the return of the conditional for variable assignment and comparison.]`
+- `Arachni__arachni__c1710d6: lib/arachni/option_groups/paths.rb:47  [Use the return of the conditional for variable assignment and comparison.]`
+- `Arachni__arachni__c1710d6: lib/arachni/browser/element_locator.rb:161  [Use the return of the conditional for variable assignment and comparison.]`
 - ... and 1,570 more (see corpus-results.json for full list)
 
 </details>
@@ -957,8 +940,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: lib/alchemy/svg_scrubber.rb:96  [Use `next` to skip iteration.]`
-- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_hash.rb:166  [Use `next` to skip iteration.]`
-- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_hash.rb:311  [Use `next` to skip iteration.]`
+- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_hash.rb:242  [Use `next` to skip iteration.]`
+- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_hash.rb:204  [Use `next` to skip iteration.]`
 - ... and 1,426 more (see corpus-results.json for full list)
 
 </details>
@@ -968,9 +951,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `ankane__ruby-polars__f274df0: test/string_name_space_test.rb:6  [Do not use `#to_datetime`.]`
 - `ankane__ruby-polars__f274df0: lib/polars/string_expr.rb:226  [Do not use `#to_datetime`.]`
-- `discourse__discourse__9c8f125: script/bulk_import/generic_bulk.rb:2236  [Do not use `#to_datetime`.]`
+- `ankane__ruby-polars__f274df0: test/string_name_space_test.rb:6  [Do not use `#to_datetime`.]`
+- `discourse__discourse__9c8f125: script/bulk_import/generic_bulk.rb:2405  [Do not use `#to_datetime`.]`
 - ... and 50 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -987,9 +970,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `24pullrequests__24pullrequests__381028d: app/models/pull_request_downloader.rb:32  [Use one space in front of backslash.]`
 - `24pullrequests__24pullrequests__381028d: app/models/pull_request_downloader.rb:43  [Use one space in front of backslash.]`
-- `BetterErrors__better_errors__fde3b70: lib/better_errors/error_page.rb:144  [Use one space in front of backslash.]`
+- `24pullrequests__24pullrequests__381028d: app/models/pull_request_downloader.rb:32  [Use one space in front of backslash.]`
+- `BetterErrors__better_errors__fde3b70: lib/better_errors/error_page_style.rb:8  [Use one space in front of backslash.]`
 - ... and 1,354 more (see corpus-results.json for full list)
 
 </details>
@@ -1008,7 +991,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `Apipie__apipie-rails__2692590: spec/dummy/app/controllers/users_controller.rb:128  [Redundant escape of > inside string literal.]`
 - `Arachni__arachni__c1710d6: lib/arachni/selenium/webdriver/element.rb:15  [Redundant escape of " inside string literal.]`
-- `CocoaPods__CocoaPods__458dd19: spec/unit/resolver_spec.rb:434  [Redundant escape of ) inside string literal.]`
+- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/installer/xcode/pods_project_generator/pod_target_installer.rb:892  [Redundant escape of $ inside string literal.]`
 - ... and 1,333 more (see corpus-results.json for full list)
 
 </details>
@@ -1020,7 +1003,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `AndyObtiva__glimmer__90326e6: spec/lib/glimmer/config_spec.rb:58  [Do not use space inside array brackets.]`
 - `Apipie__apipie-rails__2692590: spec/controllers/users_controller_spec.rb:368  [Do not use space inside empty array brackets.]`
-- `Arachni__arachni__c1710d6: lib/arachni/element/cookie/dom.rb:37  [Do not use space inside array brackets.]`
+- `Arachni__arachni__c1710d6: spec/components/checks/active/unvalidated_redirect_dom_spec.rb:8  [Do not use space inside array brackets.]`
 - ... and 1,303 more (see corpus-results.json for full list)
 
 </details>
@@ -1031,15 +1014,15 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/storage_adapter.rb:44  [Void value expression detected.]`
+- `Apipie__apipie-rails__2692590: lib/apipie/param_description.rb:36  [Void value expression detected.]`
 - `Apipie__apipie-rails__2692590: lib/apipie/generator/swagger/type.rb:14  [Void value expression detected.]`
-- `Apipie__apipie-rails__2692590: lib/apipie/validator.rb:110  [Void value expression detected.]`
 - ... and 609 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `CocoaPods__CocoaPods__458dd19: spec/unit/installer/installation_options_spec.rb:16  [Operator `==` used in void context.]`
-- `CocoaPods__CocoaPods__458dd19: spec/unit/installer/analyzer_spec.rb:2226  [Operator `==` used in void context.]`
-- `CocoaPods__CocoaPods__458dd19: spec/unit/installer/analyzer_spec.rb:2128  [Operator `==` used in void context.]`
+- `CocoaPods__CocoaPods__458dd19: spec/unit/config_spec.rb:123  [Operator `==` used in void context.]`
+- `CocoaPods__CocoaPods__458dd19: spec/unit/installer/analyzer_spec.rb:2258  [Operator `==` used in void context.]`
+- `CocoaPods__CocoaPods__458dd19: spec/unit/installer/analyzer_spec.rb:2330  [Operator `==` used in void context.]`
 - ... and 656 more (see corpus-results.json for full list)
 
 </details>
@@ -1050,15 +1033,15 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `Arachni__arachni__c1710d6: spec/arachni/option_groups/audit_spec.rb:16  [`%w`-literals should be delimited by `[` and `]`.]`
-- `CocoaPods__CocoaPods__458dd19: spec/unit/target/build_settings_spec.rb:52  [`%w`-literals should be delimited by `[` and `]`.]`
-- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/installer/user_project_integrator.rb:174  [`%w`-literals should be delimited by `[` and `]`.]`
+- `CocoaPods__CocoaPods__458dd19: spec/unit/validator_spec.rb:976  [`%w`-literals should be delimited by `[` and `]`.]`
+- `CocoaPods__CocoaPods__458dd19: spec/unit/validator_spec.rb:1086  [`%w`-literals should be delimited by `[` and `]`.]`
 - ... and 55 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Apipie__apipie-rails__2692590: lib/apipie/extractor/recorder.rb:110  [`%`-literals should be delimited by `(` and `)`.]`
 - `FontCustom__fontcustom__86d7f8d: lib/fontcustom/generator/template.rb:216  [`%Q`-literals should be delimited by `(` and `)`.]`
-- `SAML-Toolkits__ruby-saml__2970ad9: test/logoutrequest_test.rb:93  [`%r`-literals should be delimited by `{` and `}`.]`
+- `SAML-Toolkits__ruby-saml__2970ad9: test/logoutrequest_test.rb:54  [`%r`-literals should be delimited by `{` and `}`.]`
 - ... and 1,126 more (see corpus-results.json for full list)
 
 </details>
@@ -1070,14 +1053,14 @@ Every offense is compared by file path, line number, and cop name.
 
 - `AlchemyCMS__alchemy_cms__4c2023f: lib/alchemy/name_conversions.rb:16  [Use string `"` instead of regexp `/` as the argument.]`
 - `Apipie__apipie-rails__2692590: lib/apipie/generator/swagger/operation_id.rb:40  [Use string `"` instead of regexp `/` as the argument.]`
-- `Arachni__arachni__c1710d6: lib/arachni/issue.rb:477  [Use string `"` instead of regexp `/` as the argument.]`
+- `Arachni__arachni__c1710d6: lib/arachni/component/options/base.rb:111  [Use string `"` instead of regexp `/` as the argument.]`
 - ... and 130 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `24pullrequests__24pullrequests__381028d: app/helpers/application_helper.rb:7  [Use string `'#'` as argument instead of regexp `/\#/`.]`
 - `Arachni__arachni__c1710d6: components/reporters/html.rb:162  [Use string `"\n"` as argument instead of regexp `/\n/`.]`
-- `CocoaPods__CocoaPods__458dd19: spec/functional/command/spec_spec.rb:336  [Use string `"\n"` as argument instead of regexp `/\n/`.]`
+- `CocoaPods__CocoaPods__458dd19: spec/functional/command/spec_spec.rb:342  [Use string `"\n"` as argument instead of regexp `/\n/`.]`
 - ... and 984 more (see corpus-results.json for full list)
 
 </details>
@@ -1089,14 +1072,14 @@ Every offense is compared by file path, line number, and cop name.
 
 - `24pullrequests__24pullrequests__381028d: app/models/user.rb:238  [Don't use parentheses around a method argument.]`
 - `GeorgeKaraszi__ActiveRecordExtended__fe0e094: lib/active_record_extended/query_methods/foster_select.rb:57  [Don't use parentheses around a unary operation.]`
-- `GeorgeKaraszi__ActiveRecordExtended__fe0e094: lib/active_record_extended/utilities/support.rb:54  [Don't use parentheses around a unary operation.]`
+- `GeorgeKaraszi__ActiveRecordExtended__fe0e094: lib/active_record_extended/query_methods/with_cte.rb:160  [Don't use parentheses around a unary operation.]`
 - ... and 304 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AndyObtiva__glimmer__90326e6: lib/glimmer/dsl/bind_expression.rb:35  [Don't use parentheses around a method call.]`
-- `Arachni__arachni__c1710d6: spec/arachni/check/auditor_spec.rb:463  [Don't use parentheses around a method call.]`
 - `Arachni__arachni__c1710d6: spec/support/lib/web_server_manager.rb:24  [Don't use parentheses around a method argument.]`
+- `Arachni__arachni__c1710d6: spec/arachni/check/auditor_spec.rb:463  [Don't use parentheses around a method call.]`
 - ... and 744 more (see corpus-results.json for full list)
 
 </details>
@@ -1106,9 +1089,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `AaronLasseigne__active_interaction__97667c8: spec/active_interaction/filter_spec.rb:54  [Unnecessary disabling of `RSpec/VerifiedDoubles`.]`
 - `AaronLasseigne__active_interaction__97667c8: spec/active_interaction/integration/array_interaction_spec.rb:34  [Unnecessary disabling of `Style/SymbolProc`.]`
 - `AaronLasseigne__active_interaction__97667c8: spec/active_interaction/filters/file_filter_spec.rb:25  [Unnecessary disabling of `RSpec/VerifiedDoubles`.]`
+- `AaronLasseigne__active_interaction__97667c8: spec/active_interaction/filter_spec.rb:54  [Unnecessary disabling of `RSpec/VerifiedDoubles`.]`
 - ... and 1,042 more (see corpus-results.json for full list)
 
 </details>
@@ -1118,16 +1101,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `Arachni__arachni__c1710d6: lib/arachni/option_groups/scope.rb:23  [Unnecessary spacing detected.]`
+- `Arachni__arachni__c1710d6: lib/arachni/element/capabilities/inputtable.rb:273  [Unnecessary spacing detected.]`
 - `Arachni__arachni__c1710d6: components/checks/passive/backup_files.rb:19  [Unnecessary spacing detected.]`
-- `Arachni__arachni__c1710d6: components/plugins/vector_feed.rb:74  [Unnecessary spacing detected.]`
+- `Arachni__arachni__c1710d6: lib/arachni/option_groups/scope.rb:23  [Unnecessary spacing detected.]`
 - ... and 523 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Freika__dawarich__3d1ae95: spec/services/points/raw_data/archiver_spec.rb:248  [Unnecessary spacing detected.]`
 - `Freika__dawarich__3d1ae95: spec/requests/api/v1/locations_spec.rb:253  [Unnecessary spacing detected.]`
-- `ManageIQ__manageiq__b530ec7: app/models/miq_ae_method.rb:26  [Unnecessary spacing detected.]`
+- `Freika__dawarich__3d1ae95: spec/services/points/raw_data/archiver_spec.rb:248  [Unnecessary spacing detected.]`
+- `ManageIQ__manageiq__b530ec7: app/models/host.rb:162  [Unnecessary spacing detected.]`
 - ... and 500 more (see corpus-results.json for full list)
 
 </details>
@@ -1139,13 +1122,13 @@ Every offense is compared by file path, line number, and cop name.
 
 - `SAML-Toolkits__ruby-saml__2970ad9: test/response_test.rb:555  [Line is too long. [128/120]]`
 - `activeadmin__activeadmin__c3de750: spec/tasks/changelog_spec.rb:20  [Line is too long. [128/120]]`
-- `activemerchant__active_merchant__ca45b1b: test/unit/gateways/adyen_test.rb:2143  [Line is too long. [1040/120]]`
+- `activemerchant__active_merchant__ca45b1b: test/unit/gateways/payu_in_test.rb:517  [Line is too long. [160/120]]`
 - ... and 145 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: spec/arachni/browser/javascript/dom_monitor_spec.rb:120  [Line is too long. [150/120]]`
 - `Arachni__arachni__c1710d6: spec/arachni/browser/javascript/dom_monitor_spec.rb:124  [Line is too long. [150/120]]`
+- `Arachni__arachni__c1710d6: spec/arachni/browser/javascript/dom_monitor_spec.rb:116  [Line is too long. [150/120]]`
 - `Arachni__arachni__c1710d6: spec/arachni/browser/javascript/dom_monitor_spec.rb:210  [Line is too long. [382/120]]`
 - ... and 871 more (see corpus-results.json for full list)
 
@@ -1156,16 +1139,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `loomio__loomio__ec49b69: app/services/mybb_service.rb:57  [Indent `)` to column 0 (not 7).]`
 - `loomio__loomio__ec49b69: app/services/mybb_service.rb:66  [Indent `)` to column 0 (not 6).]`
 - `loomio__loomio__ec49b69: app/services/mybb_service.rb:31  [Indent `)` to column 2 (not 6).]`
+- `loomio__loomio__ec49b69: app/services/mybb_service.rb:44  [Indent `)` to column 2 (not 6).]`
 - ... and 4 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: lib/arachni/http/cookie_jar.rb:202  [Indent `)` to column 14 (not 12)]`
 - `Arachni__arachni__c1710d6: lib/arachni/uri.rb:580  [Indent `)` to column 14 (not 12)]`
-- `Arachni__arachni__c1710d6: spec/support/shared/check.rb:227  [Indent `)` to column 14 (not 8)]`
+- `Arachni__arachni__c1710d6: lib/arachni/issue.rb:204  [Align `)` with `(`.]`
+- `Arachni__arachni__c1710d6: lib/arachni/http/cookie_jar.rb:202  [Indent `)` to column 14 (not 12)]`
 - ... and 996 more (see corpus-results.json for full list)
 
 </details>
@@ -1183,8 +1166,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `FortAwesome__font-awesome-sass__54e0103: lib/font_awesome/sass/rails/helpers.rb:6  [Do not use parallel assignment.]`
-- `JoshCheek__seeing_is_believing__cea723c: lib/seeing_is_believing/event_stream/producer.rb:12  [Do not use parallel assignment.]`
 - `JoshCheek__seeing_is_believing__cea723c: lib/seeing_is_believing/compatibility.rb:11  [Do not use parallel assignment.]`
+- `JoshCheek__seeing_is_believing__cea723c: lib/seeing_is_believing/event_stream/producer.rb:12  [Do not use parallel assignment.]`
 - ... and 969 more (see corpus-results.json for full list)
 
 </details>
@@ -1201,9 +1184,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: ui/cli/framework/option_parser.rb:533  [Use `\` instead of `<<` to concatenate multiline strings.]`
-- `Arachni__arachni__c1710d6: spec/arachni/http/proxy_server_spec.rb:212  [Use `\` instead of `<<` to concatenate multiline strings.]`
+- `Arachni__arachni__c1710d6: lib/arachni/element/capabilities/analyzable/timeout.rb:221  [Use `\` instead of `<<` to concatenate multiline strings.]`
 - `Arachni__arachni__c1710d6: spec/arachni/http/client_spec.rb:491  [Use `\` instead of `+` to concatenate multiline strings.]`
+- `Arachni__arachni__c1710d6: components/plugins/proxy.rb:550  [Use `\` instead of `+` to concatenate multiline strings.]`
 - ... and 985 more (see corpus-results.json for full list)
 
 </details>
@@ -1214,8 +1197,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Apipie__apipie-rails__2692590: apipie-rails.gemspec:3  [Prefer `$LOAD_PATH` over `$:`.]`
+- `Apipie__apipie-rails__2692590: spec/support/rake.rb:12  [Prefer `$LOADED_FEATURES` over `$"`.]`
 - `Apipie__apipie-rails__2692590: spec/dummy/components/test_engine/test_engine.gemspec:1  [Prefer `$LOAD_PATH` over `$:`.]`
-- `Apipie__apipie-rails__2692590: spec/dummy/config/boot.rb:10  [Prefer `$LOAD_PATH` over `$:`.]`
 - ... and 983 more (see corpus-results.json for full list)
 
 </details>
@@ -1251,9 +1234,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `CocoaPods__CocoaPods__458dd19: spec/unit/user_interface/inspector_reporter_spec.rb:39  [Redundant escape inside regexp literal]`
-- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/installer/user_project_integrator/target_integrator/xcconfig_integrator.rb:117  [Redundant escape inside regexp literal]`
 - `CocoaPods__CocoaPods__458dd19: spec/unit/user_interface/inspector_reporter_spec.rb:24  [Redundant escape inside regexp literal]`
+- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/sources_manager.rb:74  [Redundant escape inside regexp literal]`
+- `CocoaPods__CocoaPods__458dd19: spec/unit/user_interface/inspector_reporter_spec.rb:39  [Redundant escape inside regexp literal]`
 - ... and 874 more (see corpus-results.json for full list)
 
 </details>
@@ -1264,8 +1247,8 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `brianmario__mysql2__b009d7e: spec/mysql2/statement_spec.rb:95  [Use underscores(_) as thousands separator.]`
-- `ffi__ffi__9abfa3f: spec/ffi/callback_spec.rb:256  [Use underscores(_) as thousands separator.]`
-- `ffi__ffi__9abfa3f: spec/ffi/struct_spec.rb:386  [Use underscores(_) as thousands separator.]`
+- `ffi__ffi__9abfa3f: spec/ffi/library_spec.rb:353  [Use underscores(_) as thousands separator.]`
+- `ffi__ffi__9abfa3f: spec/ffi/struct_spec.rb:383  [Use underscores(_) as thousands separator.]`
 - ... and 116 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -1302,8 +1285,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: app/services/alchemy/update_checker.rb:33  [Missing method documentation comment.]`
+- `ManageIQ__manageiq__b530ec7: app/models/mixins/supports_feature_mixin.rb:113  [Missing method documentation comment.]`
 - `ManageIQ__manageiq__b530ec7: app/models/mixins/supports_feature_mixin.rb:109  [Missing method documentation comment.]`
-- `ManageIQ__manageiq__b530ec7: app/models/mixins/supports_feature_mixin.rb:82  [Missing method documentation comment.]`
 - ... and 559 more (see corpus-results.json for full list)
 
 </details>
@@ -1313,16 +1296,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `CocoaPods__Xcodeproj__2cf6a22: lib/xcodeproj/scheme.rb:334  [Add empty line after guard clause.]`
 - `CocoaPods__Xcodeproj__2cf6a22: lib/xcodeproj/project/object/build_phase.rb:261  [Add empty line after guard clause.]`
+- `CocoaPods__Xcodeproj__2cf6a22: lib/xcodeproj/scheme.rb:334  [Add empty line after guard clause.]`
 - `Docverter__docverter__7d6fd32: lib/docverter-server/manifest.rb:68  [Add empty line after guard clause.]`
 - ... and 365 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Apipie__apipie-rails__2692590: lib/apipie/application.rb:440  [Add empty line after guard clause.]`
-- `Apipie__apipie-rails__2692590: lib/apipie/application.rb:442  [Add empty line after guard clause.]`
 - `Apipie__apipie-rails__2692590: spec/spec_helper.rb:46  [Add empty line after guard clause.]`
+- `Apipie__apipie-rails__2692590: lib/apipie/application.rb:442  [Add empty line after guard clause.]`
+- `Apipie__apipie-rails__2692590: spec/lib/swagger/swagger_dsl_spec.rb:87  [Add empty line after guard clause.]`
 - ... and 373 more (see corpus-results.json for full list)
 
 </details>
@@ -1332,9 +1315,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `karafka__karafka__4fc191e: spec/lib/karafka/instrumentation/logger_listener_spec.rb:34  [Example group has too many memoized helpers [10/5]]`
-- `karafka__karafka__4fc191e: spec/lib/karafka/instrumentation/logger_listener_spec.rb:45  [Example group has too many memoized helpers [10/5]]`
-- `karafka__karafka__4fc191e: spec/lib/karafka/instrumentation/callbacks/error_spec.rb:18  [Example group has too many memoized helpers [6/5]]`
+- `karafka__karafka__4fc191e: spec/lib/karafka/instrumentation/logger_listener_spec.rb:77  [Example group has too many memoized helpers [10/5]]`
+- `karafka__karafka__4fc191e: spec/lib/karafka/base_consumer_spec.rb:331  [Example group has too many memoized helpers [8/5]]`
+- `karafka__karafka__4fc191e: spec/lib/karafka/pro/processing/parallel_segments/filters/mom_spec.rb:180  [Example group has too many memoized helpers [8/5]]`
 - ... and 719 more (see corpus-results.json for full list)
 
 </details>
@@ -1346,14 +1329,14 @@ Every offense is compared by file path, line number, and cop name.
 
 - `Apipie__apipie-rails__2692590: lib/apipie/dsl_definition.rb:570  [Use `each_key` instead of `each` and remove the unused `_apipie_dsl_data` block argument.]`
 - `CocoaPods__Xcodeproj__2cf6a22: lib/xcodeproj/project/object/build_configuration.rb:232  [Use `each_key` instead of `keys.each`.]`
-- `ManageIQ__manageiq__b530ec7: app/models/drift_state.rb:18  [Use `each_key` instead of `keys.each`.]`
+- `ManageIQ__manageiq__b530ec7: app/models/miq_server/worker_management/monitor/settings.rb:35  [Use `each_key` instead of `keys.each`.]`
 - ... and 122 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_array.rb:374  [Use `each_key` instead of `each` and remove the unused `options` block argument.]`
 - `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_array.rb:81  [Use `each_key` instead of `each` and remove the unused `options` block argument.]`
 - `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_array.rb:111  [Use `each_key` instead of `each` and remove the unused `options` block argument.]`
+- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_array.rb:374  [Use `each_key` instead of `each` and remove the unused `options` block argument.]`
 - ... and 585 more (see corpus-results.json for full list)
 
 </details>
@@ -1363,16 +1346,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `activemerchant__active_merchant__ca45b1b: lib/active_merchant/billing/gateways/authorize_net_cim.rb:624  [Use `if` with `present?` instead of `unless` with `blank?`.]`
 - `activemerchant__active_merchant__ca45b1b: lib/active_merchant/billing/gateways/itransact.rb:297  [Use `if` with `present?` instead of `unless` with `blank?`.]`
 - `activemerchant__active_merchant__ca45b1b: lib/active_merchant/billing/gateways/payflow/payflow_common_api.rb:126  [Use `if` with `present?` instead of `unless` with `blank?`.]`
+- `activemerchant__active_merchant__ca45b1b: lib/active_merchant/billing/gateways/authorize_net_cim.rb:624  [Use `if` with `present?` instead of `unless` with `blank?`.]`
 - ... and 54 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `24pullrequests__24pullrequests__381028d: app/models/user.rb:224  [Prefer `if email.blank? || contributions_count < 24 || thank_you_email_sent` over `unless email.present? && contributions_count >= 24 && !thank_you_email_sent`.]`
 - `AssetSync__asset_sync__aab9010: lib/asset_sync/config.rb:87  [Prefer `if google_json_key_location.blank? && google_json_key_string.blank?` over `unless google_json_key_location.present? || google_json_key_string.present?`.]`
-- `CanineHQ__canine__df55ff3: app/models/concerns/account_unique_name.rb:11  [Prefer `if name.blank? || cluster.blank?` over `unless name.present? && cluster.present?`.]`
+- `CanineHQ__canine__df55ff3: app/actions/projects/update.rb:23  [Prefer `if provider_params.blank? || provider_params[:provider_id].blank?` over `unless provider_params.present? && provider_params[:provider_id].present?`.]`
 - ... and 626 more (see corpus-results.json for full list)
 
 </details>
@@ -1382,16 +1365,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `coderwall__coderwall-legacy__08382e1: spec/vcr_helper.rb:51  [Space missing to the left of {.]`
-- `coderwall__coderwall-legacy__08382e1: spec/vcr_helper.rb:40  [Space missing to the left of {.]`
-- `coderwall__coderwall-legacy__08382e1: spec/vcr_helper.rb:31  [Space missing to the left of {.]`
+- `coderwall__coderwall-legacy__08382e1: spec/vcr_helper.rb:43  [Space missing to the left of {.]`
+- `coderwall__coderwall-legacy__08382e1: spec/vcr_helper.rb:36  [Space missing to the left of {.]`
+- `coderwall__coderwall-legacy__08382e1: spec/vcr_helper.rb:47  [Space missing to the left of {.]`
 - ... and 14 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ConradIrwin__pry-rescue__21e41e7: lib/pry-rescue/source_location.rb:5  [Space missing to the left of {.]`
 - `ConradIrwin__pry-rescue__21e41e7: lib/pry-rescue/source_location.rb:6  [Space missing to the left of {.]`
-- `ReactiveX__RxRuby__fb1c5cf: test/rx/concurrency/test_periodic_scheduler.rb:41  [Space missing to the left of {.]`
+- `ConradIrwin__pry-rescue__21e41e7: lib/pry-rescue/source_location.rb:5  [Space missing to the left of {.]`
+- `ReactiveX__RxRuby__fb1c5cf: test/rx/concurrency/test_periodic_scheduler.rb:61  [Space missing to the left of {.]`
 - ... and 644 more (see corpus-results.json for full list)
 
 </details>
@@ -1420,16 +1403,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `catarse__catarse__0d73a61: app/models/balance_transfer.rb:20  [Do not use spaces between `->` and `(` in lambda literals.]`
+- `catarse__catarse__0d73a61: app/models/balance_transfer.rb:24  [Do not use spaces between `->` and `(` in lambda literals.]`
 - `catarse__catarse__0d73a61: app/models/balance_transfer.rb:16  [Do not use spaces between `->` and `(` in lambda literals.]`
-- `catarse__catarse__0d73a61: app/models/balance_transfer.rb:12  [Do not use spaces between `->` and `(` in lambda literals.]`
+- `catarse__catarse__0d73a61: app/models/balance_transfer.rb:20  [Do not use spaces between `->` and `(` in lambda literals.]`
 - ... and 14 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `JoshCheek__seeing_is_believing__cea723c: spec/binary/config_spec.rb:250  [Do not use spaces between `->` and `(` in lambda literals.]`
-- `JoshCheek__seeing_is_believing__cea723c: lib/seeing_is_believing/binary/annotate_marked_lines.rb:50  [Do not use spaces between `->` and `(` in lambda literals.]`
-- `JoshCheek__seeing_is_believing__cea723c: spec/binary/config_spec.rb:233  [Do not use spaces between `->` and `(` in lambda literals.]`
+- `JoshCheek__seeing_is_believing__cea723c: spec/seeing_is_believing_spec.rb:74  [Do not use spaces between `->` and `(` in lambda literals.]`
+- `JoshCheek__seeing_is_believing__cea723c: spec/binary/config_spec.rb:570  [Do not use spaces between `->` and `(` in lambda literals.]`
+- `JoshCheek__seeing_is_believing__cea723c: spec/binary/config_spec.rb:205  [Do not use spaces between `->` and `(` in lambda literals.]`
 - ... and 624 more (see corpus-results.json for full list)
 
 </details>
@@ -1439,16 +1422,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `catarse__catarse__0d73a61: spec/controllers/projects/project_report_exports_controller_spec.rb:1  [Unnecessary utf-8 encoding comment.]`
-- `catarse__catarse__0d73a61: spec/controllers/users_controller_spec.rb:1  [Unnecessary utf-8 encoding comment.]`
 - `catarse__catarse__0d73a61: spec/controllers/api_tokens_controller_spec.rb:1  [Unnecessary utf-8 encoding comment.]`
+- `catarse__catarse__0d73a61: spec/controllers/projects/project_report_exports_controller_spec.rb:1  [Unnecessary utf-8 encoding comment.]`
+- `catarse__catarse__0d73a61: spec/controllers/application_controller_spec.rb:1  [Unnecessary utf-8 encoding comment.]`
 - ... and 112 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `rouge-ruby__rouge__1a40dda: spec/lexers/isbl_spec.rb:1  [Unnecessary utf-8 encoding comment.]`
-- `rouge-ruby__rouge__1a40dda: spec/lexers/julia_spec.rb:1  [Unnecessary utf-8 encoding comment.]`
-- `rouge-ruby__rouge__1a40dda: lib/rouge/lexers/vhdl.rb:1  [Unnecessary utf-8 encoding comment.]`
+- `rouge-ruby__rouge__1a40dda: lib/rouge/lexers/sqf.rb:1  [Unnecessary utf-8 encoding comment.]`
+- `rouge-ruby__rouge__1a40dda: spec/lexers/syzlang_spec.rb:1  [Unnecessary utf-8 encoding comment.]`
+- `rouge-ruby__rouge__1a40dda: spec/lexers/fsharp_spec.rb:1  [Unnecessary utf-8 encoding comment.]`
 - ... and 491 more (see corpus-results.json for full list)
 
 </details>
@@ -1458,16 +1441,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `helpyio__helpy__26aff0e: app/jobs/import_job.rb:103  [Move `object.attributes = obj_hash` out of the conditional.]`
 - `helpyio__helpy__26aff0e: app/jobs/import_job.rb:127  [Move `object.attributes = obj_hash` out of the conditional.]`
-- `helpyio__helpy__26aff0e: app/jobs/import_job.rb:146  [Move `object.attributes = obj_hash` out of the conditional.]`
+- `helpyio__helpy__26aff0e: app/jobs/import_job.rb:77  [Move `object.attributes = obj_hash` out of the conditional.]`
+- `helpyio__helpy__26aff0e: app/jobs/import_job.rb:103  [Move `object.attributes = obj_hash` out of the conditional.]`
 - ... and 6 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AndyObtiva__glimmer__90326e6: lib/glimmer/dsl/static_expression.rb:94  [Move `self.downcased(true)` out of the conditional.]`
 - `AndyObtiva__glimmer__90326e6: lib/glimmer/dsl/static_expression.rb:90  [Move `self.downcased(true)` out of the conditional.]`
-- `CanineHQ__canine__df55ff3: app/actions/environment_variables/bulk_update.rb:40  [Move `update_attrs = {}` out of the conditional.]`
+- `CanineHQ__canine__df55ff3: app/services/k8/build_cloud_manager.rb:125  [Move `create_builder!` out of the conditional.]`
 - ... and 597 more (see corpus-results.json for full list)
 
 </details>
@@ -1477,9 +1460,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ReactiveX__RxRuby__fb1c5cf: test/rx/internal/test_priority_queue.rb:28  [`it` is the default block parameter; consider another name.]`
 - `ReactiveX__RxRuby__fb1c5cf: lib/rx/internal/priority_queue.rb:35  [`it` is the default block parameter; consider another name.]`
-- `Shopify__roast__9c72794: test/roast/command_runner_test.rb:245  [`it` is the default block parameter; consider another name.]`
+- `ReactiveX__RxRuby__fb1c5cf: test/rx/internal/test_priority_queue.rb:28  [`it` is the default block parameter; consider another name.]`
+- `Shopify__roast__9c72794: test/roast/command_runner_test.rb:244  [`it` is the default block parameter; consider another name.]`
 - ... and 606 more (see corpus-results.json for full list)
 
 </details>
@@ -1506,8 +1489,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Arachni__arachni__c1710d6: lib/arachni/parser/with_children/search.rb:69  [Redundant `begin` block detected.]`
-- `Arachni__arachni__c1710d6: lib/arachni/parser/with_children/search.rb:58  [Redundant `begin` block detected.]`
 - `Arachni__arachni__c1710d6: lib/arachni/parser/with_children/search.rb:29  [Redundant `begin` block detected.]`
+- `Arachni__arachni__c1710d6: lib/arachni/parser/with_children/search.rb:40  [Redundant `begin` block detected.]`
 - ... and 584 more (see corpus-results.json for full list)
 
 </details>
@@ -1542,8 +1525,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AndyObtiva__glimmer__90326e6: spec/lib/glimmer/data_binding/observable_model_spec.rb:247  [Use `%w` or `%W` for an array of words.]`
-- `AndyObtiva__glimmer__90326e6: spec/lib/glimmer/data_binding/observable_hash_spec.rb:68  [Use `%w` or `%W` for an array of words.]`
-- `AndyObtiva__glimmer__90326e6: spec/lib/glimmer/data_binding/observable_hash_spec.rb:81  [Use `%w` or `%W` for an array of words.]`
+- `AndyObtiva__glimmer__90326e6: spec/lib/glimmer/data_binding/observable_model_spec.rb:350  [Use `%w` or `%W` for an array of words.]`
+- `AndyObtiva__glimmer__90326e6: spec/lib/glimmer/data_binding/observable_array_spec.rb:107  [Use `%w` or `%W` for an array of words.]`
 - ... and 469 more (see corpus-results.json for full list)
 
 </details>
@@ -1572,16 +1555,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `Arachni__arachni__c1710d6: spec/arachni/element/link_template_spec.rb:399  [Prefer string interpolation to string concatenation.]`
-- `Arachni__arachni__c1710d6: spec/arachni/element/link_template_spec.rb:323  [Prefer string interpolation to string concatenation.]`
+- `Arachni__arachni__c1710d6: spec/arachni/parser_spec.rb:491  [Prefer string interpolation to string concatenation.]`
+- `Arachni__arachni__c1710d6: spec/arachni/element/link_spec.rb:256  [Prefer string interpolation to string concatenation.]`
 - `Arachni__arachni__c1710d6: spec/arachni/element/link_template_spec.rb:378  [Prefer string interpolation to string concatenation.]`
 - ... and 116 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: components/plugins/form_dicattack.rb:119  [Prefer string interpolation to string concatenation.]`
-- `Arachni__arachni__c1710d6: components/plugins/defaults/meta/remedies/timing_attacks.rb:24  [Prefer string interpolation to string concatenation.]`
 - `Arachni__arachni__c1710d6: components/plugins/autologin.rb:116  [Prefer string interpolation to string concatenation.]`
+- `Arachni__arachni__c1710d6: arachni.gemspec:18  [Prefer string interpolation to string concatenation.]`
+- `Arachni__arachni__c1710d6: components/plugins/defaults/meta/remedies/timing_attacks.rb:24  [Prefer string interpolation to string concatenation.]`
 - ... and 422 more (see corpus-results.json for full list)
 
 </details>
@@ -1592,8 +1575,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: spec/dummy/db/migrate/20121026104128_create_events.rb:14  [Put one space between the method name and the first argument.]`
-- `Arachni__arachni__c1710d6: spec/components/plugins/login_script_spec.rb:278  [Put one space between the method name and the first argument.]`
-- `Arachni__arachni__c1710d6: spec/components/plugins/login_script_spec.rb:248  [Put one space between the method name and the first argument.]`
+- `Arachni__arachni__c1710d6: spec/arachni/browser/javascript/taint_tracer_spec.rb:1330  [Put one space between the method name and the first argument.]`
+- `Arachni__arachni__c1710d6: spec/arachni/check/auditor_spec.rb:1003  [Put one space between the method name and the first argument.]`
 - ... and 537 more (see corpus-results.json for full list)
 
 </details>
@@ -1603,9 +1586,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: spec/support/servers/arachni/element/capabilities/analyzable/differential.rb:38  [`EOHTML` is not aligned with `<<-EOHTML`.]`
+- `Arachni__arachni__c1710d6: spec/support/servers/arachni/element/capabilities/analyzable/signature.rb:9  [`EOHTML` is not aligned with `<<-EOHTML`.]`
 - `Arachni__arachni__c1710d6: spec/support/servers/arachni/check/auditor.rb:166  [`EOHTML` is not aligned with `html =<<-EOHTML`.]`
-- `Arachni__arachni__c1710d6: spec/support/servers/arachni/browser.rb:360  [`EOHTML` is not aligned with `<<-EOHTML`.]`
+- `Arachni__arachni__c1710d6: spec/support/servers/arachni/element/capabilities/analyzable/differential.rb:38  [`EOHTML` is not aligned with `<<-EOHTML`.]`
 - ... and 533 more (see corpus-results.json for full list)
 
 </details>
@@ -1616,14 +1599,14 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `24pullrequests__24pullrequests__381028d: config/initializers/rack_attack.rb:7  [Use `ENV.fetch('MAX_REQUESTS_PER_MINUTE', nil)` instead of `ENV['MAX_REQUESTS_PER_MINUTE']`.]`
-- `AssetSync__asset_sync__aab9010: lib/asset_sync/engine.rb:54  [Use `ENV.fetch('ASSET_SYNC_REMOTE_FILE_LIST_REMOTE_PATH', nil)` instead of `ENV['ASSET_SYNC_REMOTE_FILE_LIST_REMOTE_PATH']`.]`
-- `AssetSync__asset_sync__aab9010: lib/asset_sync/engine.rb:25  [Use `ENV.fetch('AWS_SECRET_ACCESS_KEY', nil)` instead of `ENV['AWS_SECRET_ACCESS_KEY']`.]`
+- `AssetSync__asset_sync__aab9010: spec/integration/backblaze_intergration_spec.rb:11  [Use `ENV.fetch('FOG_REGION', nil)` instead of `ENV['FOG_REGION']`.]`
+- `AssetSync__asset_sync__aab9010: lib/asset_sync/engine.rb:20  [Use `ENV.fetch('FOG_PORT', nil)` instead of `ENV['FOG_PORT']`.]`
 - ... and 123 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `CocoaPods__CocoaPods__458dd19: examples/Vendored Framework Example/Podfile:3  [Use `ENV.fetch('COCOAPODS_SPEC_REPO', nil)` instead of `ENV['COCOAPODS_SPEC_REPO']`.]`
-- `CocoaPods__CocoaPods__458dd19: spec/unit/external_sources/podspec_source_spec.rb:48  [Use `ENV.fetch('HOME', nil)` instead of `ENV['HOME']`.]`
+- `CocoaPods__CocoaPods__458dd19: examples/multiple test specs Example/Podfile:3  [Use `ENV.fetch('COCOAPODS_SPEC_REPO', nil)` instead of `ENV['COCOAPODS_SPEC_REPO']`.]`
+- `CocoaPods__CocoaPods__458dd19: examples/HeaderMappingsDir Example/Podfile:3  [Use `ENV.fetch('COCOAPODS_SPEC_REPO', nil)` instead of `ENV['COCOAPODS_SPEC_REPO']`.]`
 - `CocoaPods__CocoaPods__458dd19: spec/unit/external_sources/path_source_spec.rb:84  [Use `ENV.fetch('HOME', nil)` instead of `ENV['HOME']`.]`
 - ... and 359 more (see corpus-results.json for full list)
 
@@ -1635,8 +1618,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: spec/libraries/configuration_methods_spec.rb:5  [Controllers should subclass `ApplicationController`.]`
-- `Apipie__apipie-rails__2692590: app/controllers/apipie/apipies_controller.rb:2  [Controllers should subclass `ApplicationController`.]`
-- `Apipie__apipie-rails__2692590: spec/dummy/app/controllers/api/base_controller.rb:2  [Controllers should subclass `ApplicationController`.]`
+- `Apipie__apipie-rails__2692590: spec/dummy/app/controllers/tagged_dogs_controller.rb:6  [Controllers should subclass `ApplicationController`.]`
+- `Apipie__apipie-rails__2692590: spec/dummy/app/controllers/tagged_cats_controller.rb:6  [Controllers should subclass `ApplicationController`.]`
 - ... and 469 more (see corpus-results.json for full list)
 
 </details>
@@ -1647,15 +1630,15 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `Arachni__arachni__c1710d6: spec/arachni/rpc/client/base_spec.rb:2  [Sort `require` in alphabetical order.]`
-- `Arachni__arachni__c1710d6: spec/arachni/rest/server_spec.rb:2  [Sort `require` in alphabetical order.]`
 - `Arachni__arachni__c1710d6: spec/arachni/rpc/server/plugin/manager_spec.rb:2  [Sort `require` in alphabetical order.]`
+- `Arachni__arachni__c1710d6: spec/arachni/rest/server_spec.rb:2  [Sort `require` in alphabetical order.]`
 - ... and 95 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `24pullrequests__24pullrequests__381028d: config/application.rb:7  [Sort `require` in alphabetical order.]`
-- `24pullrequests__24pullrequests__381028d: config/application.rb:10  [Sort `require` in alphabetical order.]`
 - `24pullrequests__24pullrequests__381028d: config/application.rb:13  [Sort `require` in alphabetical order.]`
+- `24pullrequests__24pullrequests__381028d: config/application.rb:9  [Sort `require` in alphabetical order.]`
+- `24pullrequests__24pullrequests__381028d: config/application.rb:5  [Sort `require` in alphabetical order.]`
 - ... and 366 more (see corpus-results.json for full list)
 
 </details>
@@ -1666,14 +1649,14 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `JoshCheek__seeing_is_believing__cea723c: lib/seeing_is_believing/binary/commentable_lines.rb:63  [Avoid multi-line chains of blocks.]`
-- `JoshCheek__seeing_is_believing__cea723c: lib/seeing_is_believing/binary/remove_annotations.rb:78  [Avoid multi-line chains of blocks.]`
 - `JoshCheek__seeing_is_believing__cea723c: lib/seeing_is_believing/binary/commentable_lines.rb:60  [Avoid multi-line chains of blocks.]`
+- `JoshCheek__seeing_is_believing__cea723c: lib/seeing_is_believing/binary/remove_annotations.rb:78  [Avoid multi-line chains of blocks.]`
 - ... and 148 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: lib/arachni/page.rb:450  [Avoid multi-line chains of blocks.]`
 - `Arachni__arachni__c1710d6: spec/support/shared/element/capabilities/refreshable.rb:27  [Avoid multi-line chains of blocks.]`
+- `Arachni__arachni__c1710d6: lib/arachni/page.rb:450  [Avoid multi-line chains of blocks.]`
 - `Arachni__arachni__c1710d6: components/path_extractors/comments.rb:19  [Avoid multi-line chains of blocks.]`
 - ... and 310 more (see corpus-results.json for full list)
 
@@ -1685,8 +1668,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Apipie__apipie-rails__2692590: lib/apipie/extractor.rb:33  [Extra empty line detected at class body beginning.]`
-- `Arachni__arachni__c1710d6: lib/arachni/element_filter.rb:193  [Extra empty line detected at class body end.]`
-- `Arachni__arachni__c1710d6: lib/arachni/browser.rb:168  [Extra empty line detected at class body end.]`
+- `Arachni__arachni__c1710d6: lib/arachni/browser.rb:130  [Extra empty line detected at class body beginning.]`
+- `Arachni__arachni__c1710d6: lib/arachni/element_filter.rb:19  [Extra empty line detected at class body beginning.]`
 - ... and 428 more (see corpus-results.json for full list)
 
 </details>
@@ -1696,7 +1679,7 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `envygeeks__jekyll-assets__056d2c8: lib/jekyll/assets/version.rb:7  [Freeze mutable objects assigned to constants.]`
+- `envygeeks__jekyll-assets__056d2c8: lib/jekyll/assets/plugins/srcmap.rb:15  [Freeze mutable objects assigned to constants.]`
 - `envygeeks__jekyll-assets__056d2c8: lib/jekyll/assets/logger.rb:8  [Freeze mutable objects assigned to constants.]`
 - `envygeeks__jekyll-assets__056d2c8: lib/jekyll/assets/plugins/srcmap.rb:14  [Freeze mutable objects assigned to constants.]`
 - ... and 23 more (see corpus-results.json for full list)
@@ -1715,16 +1698,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `antiwork__gumroad__782a69f: spec/services/dispute_evidence/create_from_dispute_service_spec.rb:82  [Redundant line continuation.]`
 - `antiwork__gumroad__782a69f: spec/services/dispute_evidence/create_from_dispute_service_spec.rb:170  [Redundant line continuation.]`
+- `antiwork__gumroad__782a69f: spec/services/dispute_evidence/create_from_dispute_service_spec.rb:82  [Redundant line continuation.]`
 - `antiwork__gumroad__782a69f: app/services/seller_mobile_analytics_service.rb:56  [Redundant line continuation.]`
 - ... and 11 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `CocoaPods__Xcodeproj__2cf6a22: spec/scheme_spec.rb:727  [Redundant line continuation.]`
-- `CocoaPods__Xcodeproj__2cf6a22: spec/scheme_spec.rb:566  [Redundant line continuation.]`
-- `CocoaPods__Xcodeproj__2cf6a22: spec/scheme_spec.rb:555  [Redundant line continuation.]`
+- `CocoaPods__Xcodeproj__2cf6a22: spec/scheme_spec.rb:713  [Redundant line continuation.]`
+- `CocoaPods__Xcodeproj__2cf6a22: spec/scheme_spec.rb:647  [Redundant line continuation.]`
+- `CocoaPods__Xcodeproj__2cf6a22: spec/scheme_spec.rb:724  [Redundant line continuation.]`
 - ... and 401 more (see corpus-results.json for full list)
 
 </details>
@@ -1743,7 +1726,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `AlchemyCMS__alchemy_cms__4c2023f: app/services/alchemy/update_checks/ruby_gems.rb:12  [Pass `&:prerelease?` as an argument to `reject!` instead of a block.]`
 - `Eigenfocus__eigenfocus__0bf9c6c: spec/features/project_management/using_views/kanban/using_favorite_labels_spec.rb:43  [Pass `&:value` as an argument to `map` instead of a block.]`
-- `antiwork__gumroad__782a69f: app/models/concerns/user/taxation.rb:111  [Pass `&:is_a_stripe_connect_account?` as an argument to `select` instead of a block.]`
+- `antiwork__gumroad__782a69f: spec/shared_examples/with_workflow_form_context.rb:34  [Pass `&:last` as an argument to `map` instead of a block.]`
 - ... and 97 more (see corpus-results.json for full list)
 
 </details>
@@ -1755,7 +1738,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `Apipie__apipie-rails__2692590: spec/lib/apipie/extractor/writer_spec.rb:109  [Remove unnecessary existence check `File.exist?`.]`
 - `Arachni__arachni__c1710d6: lib/arachni/support/database/base.rb:72  [Remove unnecessary existence check `File.exist?`.]`
-- `Eric-Guo__wechat__84e1e9c: spec/lib/wechat/corp_jsapi_ticket_spec.rb:24  [Remove unnecessary existence check `File.exist?`.]`
+- `Eric-Guo__wechat__84e1e9c: spec/lib/wechat/public_jsapi_ticket_spec.rb:24  [Remove unnecessary existence check `File.exist?`.]`
 - ... and 404 more (see corpus-results.json for full list)
 
 </details>
@@ -1773,8 +1756,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `BetterErrors__better_errors__fde3b70: spec/better_errors/stack_frame_spec.rb:106  [Incorrect line number for `eval`; use `__LINE__` instead of `123`.]`
-- `ConradIrwin__pry-rescue__21e41e7: spec/fixtures/raiseother.rb:1  [Incorrect line number for `eval`; use `__LINE__ + 1` instead of `1`.]`
 - `ConradIrwin__pry-rescue__21e41e7: spec/fixtures/initial.rb:1  [Incorrect line number for `eval`; use `__LINE__ + 1` instead of `1`.]`
+- `ConradIrwin__pry-rescue__21e41e7: spec/fixtures/raiseother.rb:1  [Incorrect line number for `eval`; use `__LINE__ + 1` instead of `1`.]`
 - ... and 388 more (see corpus-results.json for full list)
 
 </details>
@@ -1784,8 +1767,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `jmettraux__rufus-scheduler__4a73a05: spec/job_cron_spec.rb:229  [Prefer multiline `do`...`end` block.]`
 - `jmettraux__rufus-scheduler__4a73a05: spec/job_repeat_spec.rb:199  [Prefer multiline `do`...`end` block.]`
+- `jmettraux__rufus-scheduler__4a73a05: spec/job_cron_spec.rb:229  [Prefer multiline `do`...`end` block.]`
 - `jruby__jruby__0303464: test/jruby/test_thread.rb:146  [Prefer multiline `do`...`end` block.]`
 - ... and 381 more (see corpus-results.json for full list)
 
@@ -1797,8 +1780,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Shopify__liquid__d897899: test/unit/tags/comment_tag_unit_test.rb:148  [Avoid comma after the last parameter of a method call.]`
-- `Shopify__liquid__d897899: test/unit/tags/comment_tag_unit_test.rb:162  [Avoid comma after the last parameter of a method call.]`
 - `Shopify__liquid__d897899: test/unit/tags/comment_tag_unit_test.rb:134  [Avoid comma after the last parameter of a method call.]`
+- `Shopify__liquid__d897899: test/unit/tags/comment_tag_unit_test.rb:162  [Avoid comma after the last parameter of a method call.]`
 - ... and 375 more (see corpus-results.json for full list)
 
 </details>
@@ -1808,15 +1791,15 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `puppetlabs__puppet__e227c27: spec/unit/indirector/none_spec.rb:10  [Use nested module/class definitions instead of compact style.]`
-- `puppetlabs__puppet__e227c27: spec/unit/indirector/plain_spec.rb:12  [Use nested module/class definitions instead of compact style.]`
 - `puppetlabs__puppet__e227c27: spec/unit/indirector/memory_spec.rb:16  [Use nested module/class definitions instead of compact style.]`
+- `puppetlabs__puppet__e227c27: spec/unit/indirector/plain_spec.rb:12  [Use nested module/class definitions instead of compact style.]`
+- `puppetlabs__puppet__e227c27: spec/unit/indirector/none_spec.rb:10  [Use nested module/class definitions instead of compact style.]`
 - ... and 1 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Apipie__apipie-rails__2692590: lib/apipie/rspec/response_validation_helper.rb:88  [Use nested module/class definitions instead of compact style.]`
-- `Arachni__arachni__c1710d6: ui/cli/rpc/client/instance.rb:17  [Use nested module/class definitions instead of compact style.]`
+- `Arachni__arachni__c1710d6: ui/cli/utilities.rb:14  [Use nested module/class definitions instead of compact style.]`
 - `Arachni__arachni__c1710d6: ui/cli/rest/server.rb:16  [Use nested module/class definitions instead of compact style.]`
 - ... and 356 more (see corpus-results.json for full list)
 
@@ -1848,14 +1831,14 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `CocoaPods__CocoaPods__458dd19: lib/cocoapods/resolver.rb:266  [`public_methods` is supposed to appear before `private_methods`.]`
+- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/target/pod_target.rb:897  [`public_methods` is supposed to appear before `private_methods`.]`
 - `CocoaPods__CocoaPods__458dd19: lib/cocoapods/target/pod_target.rb:863  [`public_methods` is supposed to appear before `protected_methods`.]`
-- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/target/pod_target.rb:944  [`public_methods` is supposed to appear before `private_methods`.]`
 - ... and 339 more (see corpus-results.json for full list)
 
 </details>
 
 <details>
-<summary><strong>Lint/ConstantResolution</strong> — 1,786,284 matches, 3 FP, 296 FN (99.9%)</summary>
+<summary><strong>Lint/ConstantResolution</strong> — 1,786,285 matches, 3 FP, 295 FN (99.9%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
 
@@ -1866,9 +1849,9 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `CanineHQ__canine__df55ff3: spec/integration/api/models/project.rb:3  [Fully qualify this constant to avoid possibly ambiguous resolution.]`
-- `CanineHQ__canine__df55ff3: spec/integration/api/models/projects.rb:3  [Fully qualify this constant to avoid possibly ambiguous resolution.]`
 - `CanineHQ__canine__df55ff3: spec/integration/api/models/pods.rb:3  [Fully qualify this constant to avoid possibly ambiguous resolution.]`
-- ... and 293 more (see corpus-results.json for full list)
+- `CanineHQ__canine__df55ff3: spec/integration/api/models/pod.rb:3  [Fully qualify this constant to avoid possibly ambiguous resolution.]`
+- ... and 292 more (see corpus-results.json for full list)
 
 </details>
 
@@ -1877,16 +1860,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `Netflix__fast_jsonapi__68a5515: spec/lib/object_serializer_performance_spec.rb:72  [Prefer annotated tokens (like `%<foo>s`) over unannotated tokens (like `%s`).]`
 - `Netflix__fast_jsonapi__68a5515: spec/lib/object_serializer_performance_spec.rb:85  [Prefer annotated tokens (like `%<foo>s`) over unannotated tokens (like `%s`).]`
+- `Netflix__fast_jsonapi__68a5515: spec/lib/object_serializer_performance_spec.rb:72  [Prefer annotated tokens (like `%<foo>s`) over unannotated tokens (like `%s`).]`
 - `RolifyCommunity__rolify__3d5234d: lib/generators/mongoid/rolify_generator.rb:32  [Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).]`
 - ... and 117 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `RolifyCommunity__rolify__3d5234d: lib/generators/mongoid/rolify_generator.rb:33  [Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).]`
-- `ankane__strong_migrations__4d22559: lib/strong_migrations/error_messages.rb:10  [Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).]`
-- `ankane__strong_migrations__4d22559: lib/strong_migrations/error_messages.rb:210  [Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).]`
+- `ankane__strong_migrations__4d22559: lib/strong_migrations/error_messages.rb:249  [Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).]`
+- `ankane__strong_migrations__4d22559: lib/strong_migrations/error_messages.rb:9  [Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).]`
 - ... and 158 more (see corpus-results.json for full list)
 
 </details>
@@ -1917,14 +1900,14 @@ Every offense is compared by file path, line number, and cop name.
 
 - `Shopify__identity_cache__4e9907d: test/helpers/cache_connection.rb:10  [Call `super` without arguments and parentheses when the signature is identical.]`
 - `Shopify__semian__568d073: lib/semian/activerecord_adapter.rb:71  [Call `super` without arguments and parentheses when the signature is identical.]`
-- `airbrake__airbrake__73af58d: lib/airbrake/rails/http_client.rb:9  [Call `super` without arguments and parentheses when the signature is identical.]`
+- `airbrake__airbrake__73af58d: lib/airbrake/rails/http.rb:11  [Call `super` without arguments and parentheses when the signature is identical.]`
 - ... and 83 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_array.rb:210  [Call `super` without arguments and parentheses when the signature is identical.]`
-- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_hash.rb:219  [Call `super` without arguments and parentheses when the signature is identical.]`
+- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_array.rb:292  [Call `super` without arguments and parentheses when the signature is identical.]`
 - `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_array.rb:320  [Call `super` without arguments and parentheses when the signature is identical.]`
+- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_array.rb:244  [Call `super` without arguments and parentheses when the signature is identical.]`
 - ... and 165 more (see corpus-results.json for full list)
 
 </details>
@@ -1941,9 +1924,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `JoshCheek__seeing_is_believing__cea723c: spec/code_spec.rb:191  [Extra blank line detected.]`
 - `JoshCheek__seeing_is_believing__cea723c: spec/code_spec.rb:190  [Extra blank line detected.]`
-- `Netflix-Skunkworks__Scumblr__66ed69a: test/tasks/vulnerability_helper_test.rb:23  [Extra blank line detected.]`
+- `JoshCheek__seeing_is_believing__cea723c: spec/code_spec.rb:191  [Extra blank line detected.]`
+- `Netflix-Skunkworks__Scumblr__66ed69a: config/initializers/mime_types.rb:15  [Extra blank line detected.]`
 - ... and 223 more (see corpus-results.json for full list)
 
 </details>
@@ -1954,14 +1937,14 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: app/components/alchemy/ingredients/picture_editor.rb:55  [Align `end` with the start of the line where the block is defined.]`
-- `Arachni__arachni__c1710d6: spec/support/shared/element/capabilities/mutable.rb:266  [Align `end` with the start of the line where the block is defined.]`
 - `Arachni__arachni__c1710d6: spec/support/shared/element/capabilities/mutable.rb:344  [Align `end` with the start of the line where the block is defined.]`
+- `Arachni__arachni__c1710d6: spec/support/shared/element/capabilities/mutable.rb:306  [Align `end` with the start of the line where the block is defined.]`
 - ... and 173 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: spec/support/shared/element/capabilities/auditable.rb:407  [`end` at 407, 24 is not aligned with `auditable.audit( payloads,` at 404, 31 or `format: [ Arachni::Check::Auditor::Format::STRAIGHT ] ) do |_, element|` at 405, 42.]`
 - `Arachni__arachni__c1710d6: spec/support/shared/element/capabilities/auditable/line_buffered.rb:293  [`end` at 293, 24 is not aligned with `auditable.line_buffered_audit( payloads,` at 290, 31 or `format: [ Arachni::Check::Auditor::Format::STRAIGHT ] ) do |_, element|` at 291, 62.]`
+- `Arachni__arachni__c1710d6: spec/support/shared/element/capabilities/auditable.rb:407  [`end` at 407, 24 is not aligned with `auditable.audit( payloads,` at 404, 31 or `format: [ Arachni::Check::Auditor::Format::STRAIGHT ] ) do |_, element|` at 405, 42.]`
 - `Arachni__arachni__c1710d6: spec/support/shared/element/capabilities/auditable/buffered.rb:240  [`end` at 240, 24 is not aligned with `auditable.buffered_audit( {},` at 237, 31 or `format: [ Arachni::Check::Auditor::Format::STRAIGHT ] ) do |_, element|` at 238, 57.]`
 - ... and 52 more (see corpus-results.json for full list)
 
@@ -1972,9 +1955,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `greasyfork-org__greasyfork__9f42777: db/migrate/20140527025707_update_deleted_and_locked.rb:30  [Tab detected in indentation.]`
-- `greasyfork-org__greasyfork__9f42777: db/migrate/20140301023544_add_assessments.rb:17  [Tab detected in indentation.]`
-- `greasyfork-org__greasyfork__9f42777: db/migrate/20140919234605_create_localized_script_attribute.rb:41  [Tab detected in indentation.]`
+- `greasyfork-org__greasyfork__9f42777: db/migrate/20140222031705_create_script_applies_tos.rb:15  [Tab detected in indentation.]`
+- `greasyfork-org__greasyfork__9f42777: db/migrate/20140714161558_add_locale_to_script_set_automatic_types.rb:8  [Tab detected in indentation.]`
+- `greasyfork-org__greasyfork__9f42777: db/migrate/20150211170950_add_version_to_script.rb:7  [Tab detected in indentation.]`
 - ... and 222 more (see corpus-results.json for full list)
 
 </details>
@@ -2028,8 +2011,8 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `catarse__catarse__0d73a61: app/models/subscription_monthly_report_for_project_owner.rb:66  [Indent the right bracket the same as the start of the line where the left bracket is.]`
-- `comfy__comfortable-mexican-sofa__8f7e425: test/lib/revisions_test.rb:23  [Indent the right bracket the same as the first position after the preceding left parenthesis.]`
 - `comfy__comfortable-mexican-sofa__8f7e425: test/lib/revisions_test.rb:21  [Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.]`
+- `comfy__comfortable-mexican-sofa__8f7e425: test/lib/revisions_test.rb:23  [Indent the right bracket the same as the first position after the preceding left parenthesis.]`
 - ... and 135 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -2062,29 +2045,10 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
+- `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/security/curl_analyzer.rb:200  [Use `&&` instead of `and`.]`
 - `Netflix-Skunkworks__Scumblr__66ed69a: db/migrate/20170517173248_update_github_search_task_options.rb:18  [Use `||` instead of `or`.]`
 - `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/security/curl_analyzer.rb:194  [Use `||` instead of `or`.]`
-- `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/security/curl_analyzer.rb:200  [Use `&&` instead of `and`.]`
 - ... and 185 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Style/RedundantArgument</strong> — 1,145 matches, 94 FP, 93 FN (85.9%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `ManageIQ__manageiq__b530ec7: lib/tasks/po_to_json_override.rb:39  [Argument `""` is redundant because it is implied by default.]`
-- `NatLabRockies__api-umbrella__bdda392: test/support/api_umbrella_test_helpers/admin_auth.rb:244  [Argument `""` is redundant because it is implied by default.]`
-- `NatLabRockies__api-umbrella__bdda392: test/support/api_umbrella_test_helpers/admin_auth.rb:303  [Argument `""` is redundant because it is implied by default.]`
-- ... and 91 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `ManageIQ__manageiq__b530ec7: lib/tasks/po_to_json_override.rb:42  [Argument "" is redundant because it is implied by default.]`
-- `NatLabRockies__api-umbrella__bdda392: test/support/api_umbrella_test_helpers/admin_auth.rb:283  [Argument "" is redundant because it is implied by default.]`
-- `NatLabRockies__api-umbrella__bdda392: test/support/api_umbrella_test_helpers/admin_auth.rb:313  [Argument "" is redundant because it is implied by default.]`
-- ... and 90 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2100,9 +2064,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Freika__dawarich__3d1ae95: app/services/stats/hexagon_calculator.rb:103  [Use `first`.]`
 - `Freika__dawarich__3d1ae95: app/services/users/digests/activity_breakdown_calculator.rb:52  [Use `first`.]`
-- `ManageIQ__manageiq__b530ec7: app/models/user.rb:307  [Use `first`.]`
+- `Freika__dawarich__3d1ae95: app/services/stats/hexagon_calculator.rb:103  [Use `first`.]`
+- `ManageIQ__manageiq__b530ec7: spec/models/miq_region_remote_spec.rb:21  [Use `first`.]`
 - ... and 159 more (see corpus-results.json for full list)
 
 </details>
@@ -2118,7 +2082,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `NatLabRockies__api-umbrella__bdda392: test/proxy/formatted_errors/test_data_variables.rb:59  [Avoid comma after the last item of a hash.]`
 - `NatLabRockies__api-umbrella__bdda392: test/admin_ui/login/test_external_providers.rb:228  [Avoid comma after the last item of a hash.]`
-- `Shopify__krane__278ce51: test/unit/krane/kubernetes_resource_test.rb:437  [Avoid comma after the last item of a hash.]`
+- `Shopify__krane__278ce51: test/unit/krane/kubernetes_resource_test.rb:426  [Avoid comma after the last item of a hash.]`
 - ... and 179 more (see corpus-results.json for full list)
 
 </details>
@@ -2129,8 +2093,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_array.rb:78  [Redundant safe navigation detected, use `.` instead.]`
+- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_hash.rb:113  [Redundant safe navigation detected, use `.` instead.]`
 - `AndyObtiva__glimmer__90326e6: spec/fixtures/glimmer/dsl/swt/text_expression.rb:13  [Redundant safe navigation detected, use `.` instead.]`
-- `AndyObtiva__glimmer__90326e6: lib/glimmer/data_binding/observable_model.rb:149  [Redundant safe navigation detected, use `.` instead.]`
 - ... and 179 more (see corpus-results.json for full list)
 
 </details>
@@ -2142,27 +2106,8 @@ Every offense is compared by file path, line number, and cop name.
 
 - `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/security/python_analyzer.rb:190  [Do not use parentheses for method calls with no arguments.]`
 - `ReactiveX__RxRuby__fb1c5cf: lib/rx/linq/observable/to_async.rb:4  [Do not use parentheses for method calls with no arguments.]`
-- `activeadmin__activeadmin__c3de750: spec/unit/views/components/columns_spec.rb:120  [Do not use parentheses for method calls with no arguments.]`
+- `activeadmin__activeadmin__c3de750: spec/unit/views/components/columns_spec.rb:101  [Do not use parentheses for method calls with no arguments.]`
 - ... and 171 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Style/NegatedIf</strong> — 8,627 matches, 76 FP, 95 FN (98.0%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `Arachni__arachni__c1710d6: lib/arachni/option_groups/scope.rb:215  [Favor `unless` over `if` for negative conditions.]`
-- `Parallels__vagrant-parallels__dda5c93: lib/vagrant-parallels/action/setup_package_files.rb:39  [Favor `unless` over `if` for negative conditions.]`
-- `SAML-Toolkits__ruby-saml__2970ad9: lib/onelogin/ruby-saml/logging.rb:27  [Favor `unless` over `if` for negative conditions.]`
-- ... and 73 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `Arachni__arachni__c1710d6: lib/arachni/option_groups/scope.rb:214  [Favor `unless` over `if` for negative conditions.]`
-- `NatLabRockies__api-umbrella__bdda392: tasks/outdated.thor:337  [Favor `unless` over `if` for negative conditions.]`
-- `NatLabRockies__api-umbrella__bdda392: Thorfile:3  [Favor `unless` over `if` for negative conditions.]`
-- ... and 92 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2173,7 +2118,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `JoshCheek__seeing_is_believing__cea723c: spec/event_stream_spec.rb:441  [Align `rescue` with `begin`.]`
 - `JoshCheek__seeing_is_believing__cea723c: spec/event_stream_spec.rb:448  [Align `rescue` with `begin`.]`
-- `ManageIQ__manageiq__b530ec7: spec/lib/ansible/runner_spec.rb:31  [Align `rescue` with `begin`.]`
+- `ManageIQ__manageiq__b530ec7: spec/lib/ansible/runner_spec.rb:467  [Align `rescue` with `begin`.]`
 - ... and 125 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -2182,25 +2127,6 @@ Every offense is compared by file path, line number, and cop name.
 - `TracksApp__tracks__53cf4b4: app/controllers/todos/todo_create_params_helper.rb:160  [`rescue` at 160, 6 is not aligned with `def set_id_by_id_string` at 156, 4.]`
 - `autolab__Autolab__674efe9: app/controllers/assessment/grading.rb:283  [`rescue` at 283, 0 is not aligned with `def quickSetScoreDetails` at 258, 2.]`
 - ... and 39 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Style/RedundantSelfAssignmentBranch</strong> — 254 matches, 124 FP, 38 FN (61.0%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `Arachni__arachni__c1710d6: lib/arachni/page/dom.rb:262  [Redundant self-assignment branch. The variable `value` is assigned to itself in one of the branches.]`
-- `Arachni__arachni__c1710d6: lib/arachni/option_groups/browser_cluster.rb:109  [Redundant self-assignment branch. The variable `regexp` is assigned to itself in one of the branches.]`
-- `Arachni__arachni__c1710d6: lib/arachni/issue.rb:423  [Redundant self-assignment branch. The variable `value` is assigned to itself in one of the branches.]`
-- ... and 121 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `Arachni__arachni__c1710d6: lib/arachni/option_groups/input.rb:141  [Remove the self-assignment branch.]`
-- `Arachni__arachni__c1710d6: lib/arachni/option_groups/scope.rb:206  [Remove the self-assignment branch.]`
-- `Arachni__arachni__c1710d6: lib/arachni/option_groups/browser_cluster.rb:110  [Remove the self-assignment branch.]`
-- ... and 35 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2236,13 +2162,13 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Layout/ElseAlignment</strong> — 3,174 matches, 110 FP, 46 FN (95.3%)</summary>
+<summary><strong>Layout/ElseAlignment</strong> — 3,176 matches, 110 FP, 44 FN (95.3%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `24pullrequests__24pullrequests__381028d: app/models/contribution.rb:39  [Align `else` with `if`.]`
 - `NatLabRockies__api-umbrella__bdda392: test/support/api_umbrella_shared_tests/data_tables_api.rb:193  [Align `else` with `if`.]`
-- `NatLabRockies__api-umbrella__bdda392: test/apis/v1/analytics/test_drilldown_admin_permissions.rb:56  [Align `else` with `if`.]`
+- `NatLabRockies__api-umbrella__bdda392: test/support/models/published_config.rb:10  [Align `else` with `if`.]`
 - ... and 107 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -2250,7 +2176,7 @@ Every offense is compared by file path, line number, and cop name.
 - `Apipie__apipie-rails__2692590: lib/apipie/resource_description.rb:72  [Align `else` with `when`.]`
 - `awesome-print__awesome_print__8a7ff0a: spec/formats_spec.rb:594  [Align `else` with `unless`.]`
 - `awesome-print__awesome_print__8a7ff0a: lib/awesome_print/core_ext/awesome_method_array.rb:59  [Align `else` with `unless`.]`
-- ... and 43 more (see corpus-results.json for full list)
+- ... and 41 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2261,14 +2187,14 @@ Every offense is compared by file path, line number, and cop name.
 
 - `Arachni__arachni__c1710d6: lib/arachni/data/issues.rb:164  [Use `none?` instead of inverting `any?`.]`
 - `Arachni__arachni__c1710d6: lib/arachni/check/manager.rb:110  [Use `reject` instead of inverting `select`.]`
-- `ReactiveX__RxRuby__fb1c5cf: lib/rx/operators/aggregates.rb:77  [Use `reject` instead of inverting `select`.]`
+- `ReactiveX__RxRuby__fb1c5cf: lib/rx/operators/aggregates.rb:66  [Use `reject` instead of inverting `select`.]`
 - ... and 17 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `24pullrequests__24pullrequests__381028d: lib/tasks/projects.rake:63  [Use `select!` instead of inverting `reject!`.]`
 - `Arachni__arachni__c1710d6: spec/support/shared/element/capabilities/mutable.rb:135  [Use `select` instead of inverting `reject`.]`
-- `Arachni__arachni__c1710d6: lib/arachni/ruby/hash.rb:116  [Use `select` instead of inverting `reject`.]`
+- `Arachni__arachni__c1710d6: lib/arachni/rpc/server/framework/distributor.rb:393  [Use `select!` instead of inverting `reject!`.]`
 - ... and 131 more (see corpus-results.json for full list)
 
 </details>
@@ -2279,7 +2205,7 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `CanineHQ__canine__df55ff3: app/services/favicon_service.rb:77  [Ternary operators must not be nested. Prefer `if` or `else` constructs instead.]`
-- `ManageIQ__manageiq__b530ec7: app/models/metric/ci_mixin.rb:51  [Ternary operators must not be nested. Prefer `if` or `else` constructs instead.]`
+- `ManageIQ__manageiq__b530ec7: app/models/metric/ci_mixin.rb:50  [Ternary operators must not be nested. Prefer `if` or `else` constructs instead.]`
 - `ManageIQ__manageiq__b530ec7: app/models/vm_or_template.rb:1058  [Ternary operators must not be nested. Prefer `if` or `else` constructs instead.]`
 - ... and 150 more (see corpus-results.json for full list)
 
@@ -2295,44 +2221,9 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `CocoaPods__CocoaPods__458dd19: spec/unit/executable_spec.rb:114  [Redundant `return` detected.]`
-- `ReactiveX__RxRuby__fb1c5cf: examples/group_join.rb:14  [Redundant `return` detected.]`
-- `ReactiveX__RxRuby__fb1c5cf: lib/rx/concurrency/periodic_scheduler.rb:15  [Redundant `return` detected.]`
+- `ReactiveX__RxRuby__fb1c5cf: examples/concat_map_observer.rb:9  [Redundant `return` detected.]`
+- `ReactiveX__RxRuby__fb1c5cf: test/rx/core/test_observable_creation.rb:301  [Redundant `return` detected.]`
 - ... and 149 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Style/HashTransformValues</strong> — 54 matches, 47 FP, 104 FN (26.3%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `CocoaPods__CocoaPods__458dd19: spec/unit/installer/xcode/single_pods_project_generator_spec.rb:83  [Prefer `transform_values` over `each_with_object`.]`
-- `CocoaPods__CocoaPods__458dd19: spec/unit/installer/xcode/pods_project_generator/project_generator_spec.rb:84  [Prefer `transform_values` over `each_with_object`.]`
-- `CocoaPods__CocoaPods__458dd19: spec/unit/installer/xcode/multi_pods_project_generator_spec.rb:81  [Prefer `transform_values` over `each_with_object`.]`
-- ... and 44 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/target/pod_target.rb:183  [Prefer `transform_values` over `Hash[_.map {...}]`.]`
-- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/target/pod_target.rb:94  [Prefer `transform_values` over `Hash[_.map {...}]`.]`
-- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/installer/project_cache/target_cache_key.rb:136  [Prefer `transform_values` over `Hash[_.map {...}]`.]`
-- ... and 101 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Layout/AssignmentIndentation</strong> — 329 matches, 149 FP, 1 FN (68.6%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `Arachni__arachni__c1710d6: lib/arachni/element/cookie.rb:274  [Indent the first line of the right-hand-side of a multi-line assignment.]`
-- `Arachni__arachni__c1710d6: spec/arachni/element/form_spec.rb:577  [Indent the first line of the right-hand-side of a multi-line assignment.]`
-- `activeadmin__activeadmin__c3de750: features/support/env.rb:80  [Indent the first line of the right-hand-side of a multi-line assignment.]`
-- ... and 146 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/project.rb:474  [Indent the first line of the right-hand-side of a multi-line assignment.]`
 
 </details>
 
@@ -2341,9 +2232,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `CanineHQ__canine__df55ff3: app/services/saml/authenticator.rb:87  [Use `Array(groups)` instead of explicit `Array` check.]`
 - `CanineHQ__canine__df55ff3: app/services/oidc/authenticator.rb:146  [Use `Array(groups)` instead of explicit `Array` check.]`
-- `CocoaPods__Xcodeproj__2cf6a22: lib/xcodeproj/project/object_list.rb:215  [Use `Array(objects)` instead of explicit `Array` check.]`
+- `CanineHQ__canine__df55ff3: app/services/saml/authenticator.rb:87  [Use `Array(groups)` instead of explicit `Array` check.]`
+- `CocoaPods__Xcodeproj__2cf6a22: lib/xcodeproj/project/object_attributes.rb:390  [Use `Array(isas)` instead of explicit `Array` check.]`
 - ... and 142 more (see corpus-results.json for full list)
 
 </details>
@@ -2353,29 +2244,10 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Shopify__roast__9c72794: examples/next_break_parallel.rb:14  [Prefer `map` over `collect`.]`
-- `Shopify__roast__9c72794: tutorial/07_processing_collections/parallel_map.rb:70  [Prefer `map` over `collect`.]`
-- `Shopify__roast__9c72794: tutorial/08_iterative_workflows/basic_repeat.rb:48  [Prefer `map` over `collect`.]`
+- `Shopify__roast__9c72794: tutorial/07_processing_collections/parallel_map.rb:58  [Prefer `map` over `collect`.]`
+- `Shopify__roast__9c72794: tutorial/07_processing_collections/basic_map.rb:32  [Prefer `map` over `collect`.]`
+- `Shopify__roast__9c72794: examples/collect_from.rb:64  [Prefer `map` over `collect`.]`
 - ... and 141 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Style/EmptyCaseCondition</strong> — 531 matches, 65 FP, 77 FN (78.9%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `Freika__dawarich__3d1ae95: app/services/tracks/time_chunker.rb:41  [Do not use empty `case` condition, instead use an `if` expression.]`
-- `Shopify__liquid__d897899: lib/liquid/block_body.rb:130  [Do not use empty `case` condition, instead use an `if` expression.]`
-- `basecamp__once-campfire__dde94b0: app/models/message.rb:32  [Do not use empty `case` condition, instead use an `if` expression.]`
-- ... and 62 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `Apipie__apipie-rails__2692590: lib/apipie/extractor.rb:105  [Do not use empty `case` condition, instead use an `if` expression.]`
-- `Freika__dawarich__3d1ae95: app/controllers/family/memberships_controller.rb:24  [Do not use empty `case` condition, instead use an `if` expression.]`
-- `ManageIQ__manageiq__b530ec7: app/models/ems_refresh.rb:63  [Do not use empty `case` condition, instead use an `if` expression.]`
-- ... and 74 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2384,16 +2256,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `basecamp__fizzy__a02042b: app/helpers/filters_helper.rb:33  [Each argument in a multi-line method call must start on a separate line.]`
 - `basecamp__fizzy__a02042b: app/helpers/clipboard_helper.rb:3  [Each argument in a multi-line method call must start on a separate line.]`
+- `basecamp__fizzy__a02042b: app/helpers/filters_helper.rb:33  [Each argument in a multi-line method call must start on a separate line.]`
 - `basecamp__fizzy__a02042b: app/helpers/columns_helper.rb:34  [Each argument in a multi-line method call must start on a separate line.]`
 - ... and 27 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `aasm__aasm__726a578: lib/motion-aasm.rb:29  [Each argument in a multi-line method call must start on a separate line.]`
-- `asciidoctor__asciidoctor-pdf__dadceca: spec/font_spec.rb:186  [Each argument in a multi-line method call must start on a separate line.]`
-- `asciidoctor__asciidoctor-pdf__dadceca: spec/cli_spec.rb:93  [Each argument in a multi-line method call must start on a separate line.]`
+- `asciidoctor__asciidoctor-pdf__dadceca: spec/index_spec.rb:1433  [Each argument in a multi-line method call must start on a separate line.]`
+- `asciidoctor__asciidoctor-pdf__dadceca: spec/cli_spec.rb:102  [Each argument in a multi-line method call must start on a separate line.]`
 - ... and 104 more (see corpus-results.json for full list)
 
 </details>
@@ -2411,8 +2283,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `MiniProfiler__rack-mini-profiler__92610ca: lib/mini_profiler/storage/file_store.rb:21  [Use `File.binread`.]`
-- `autolab__Autolab__674efe9: app/models/assessment.rb:441  [Use `File.read`.]`
-- `autolab__Autolab__674efe9: app/models/assessment.rb:259  [Use `File.read`.]`
+- `autolab__Autolab__674efe9: spec/controllers/assessments_controller_spec.rb:184  [Use `File.read`.]`
+- `autolab__Autolab__674efe9: app/models/assessment.rb:340  [Use `File.read`.]`
 - ... and 112 more (see corpus-results.json for full list)
 
 </details>
@@ -2422,8 +2294,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: spec/arachni/page_spec.rb:50  [Self-assignment detected.]`
 - `Arachni__arachni__c1710d6: spec/arachni/page_spec.rb:39  [Self-assignment detected.]`
+- `Arachni__arachni__c1710d6: spec/arachni/page_spec.rb:50  [Self-assignment detected.]`
 - `Arachni__arachni__c1710d6: spec/support/shared/element/capabilities/inputtable.rb:496  [Self-assignment detected.]`
 - ... and 130 more (see corpus-results.json for full list)
 
@@ -2435,8 +2307,8 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `cyberark__conjur__8031a2a: spec/app/domain/data_objects/mapper_spec.rb:8  [Do not use local variables defined outside of examples inside of them.]`
-- `dev-sec__linux-baseline__09a182b: controls/sysctl_spec.rb:399  [Do not use local variables defined outside of examples inside of them.]`
 - `dev-sec__linux-baseline__09a182b: controls/sysctl_spec.rb:400  [Do not use local variables defined outside of examples inside of them.]`
+- `dev-sec__linux-baseline__09a182b: controls/sysctl_spec.rb:399  [Do not use local variables defined outside of examples inside of them.]`
 - ... and 50 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -2445,6 +2317,22 @@ Every offense is compared by file path, line number, and cop name.
 - `CocoaPods__Xcodeproj__2cf6a22: spec/spec_helper/xcscheme.rb:6  [Do not use local variables defined outside of examples inside of them.]`
 - `TrestleAdmin__trestle__bd7443b: spec/trestle/form/fields/form_field_examples.rb:2  [Do not use local variables defined outside of examples inside of them.]`
 - ... and 72 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
+<summary><strong>Rails/RootPathnameMethods</strong> — 753 matches, 1 FP, 127 FN (85.4%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `forem__forem__72d7c44: spec/models/organization_spec.rb:276  [`Rails.root` is a `Pathname`, so you can use `Rails.root.join(...).open` instead.]`
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `alphagov__whitehall__a640792: features/step_definitions/image_steps.rb:28  [`Rails.root` is a `Pathname`, so you can use `Rails.root.join("test/fixtures/images/test-svg.svg").open`.]`
+- `alphagov__whitehall__a640792: test/components/admin/edition_images/image_component_test.rb:40  [`Rails.root` is a `Pathname`, so you can use `Rails.root.join("test/fixtures/images/test-svg.svg").open`.]`
+- `alphagov__whitehall__a640792: test/unit/app/models/concerns/lead_image_test.rb:6  [`Rails.root` is a `Pathname`, so you can use `Rails.root.join("test/fixtures/big-cheese.960x640.jpg").open`.]`
+- ... and 124 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2469,10 +2357,29 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `diaspora__diaspora__49f3442: spec/integration/api/photos_controller_spec.rb:1  [Prefer lower snake case for magic comments.]`
-- `diaspora__diaspora__49f3442: spec/integration/api/aspects_controller_spec.rb:1  [Prefer lower snake case for magic comments.]`
 - `diaspora__diaspora__49f3442: spec/integration/api/reshares_controller_spec.rb:1  [Prefer lower snake case for magic comments.]`
+- `diaspora__diaspora__49f3442: spec/integration/api/aspects_controller_spec.rb:1  [Prefer lower snake case for magic comments.]`
+- `diaspora__diaspora__49f3442: spec/integration/api/post_interactions_controller_spec.rb:1  [Prefer lower snake case for magic comments.]`
 - ... and 120 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
+<summary><strong>Layout/FirstArgumentIndentation</strong> — 7,979 matches, 5 FP, 114 FN (98.5%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `ManageIQ__manageiq__b530ec7: app/models/manageiq/providers/ansible_runner_workflow.rb:9  [Indent the first argument one step more than the start of the previous line.]`
+- `consuldemocracy__consuldemocracy__9d2544d: app/form_builders/consul_form_builder.rb:29  [Indent the first argument one step more than the start of the previous line.]`
+- `consuldemocracy__consuldemocracy__9d2544d: app/form_builders/consul_form_builder.rb:16  [Indent the first argument one step more than the start of the previous line.]`
+- ... and 2 more (see corpus-results.json for full list)
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `antiwork__gumroad__782a69f: app/presenters/receipt_presenter/payment_info.rb:334  [Indent the first argument one step more than the start of the previous line.]`
+- `antiwork__gumroad__782a69f: app/presenters/receipt_presenter/payment_info.rb:299  [Indent the first argument one step more than the start of the previous line.]`
+- `antiwork__gumroad__782a69f: app/presenters/receipt_presenter/item_info.rb:65  [Indent the first argument one step more than the start of the previous line.]`
+- ... and 111 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2483,7 +2390,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `asciidoctor__asciidoctor__33c50c7: lib/asciidoctor/extensions.rb:636  [Explicitly make `DSL` public or private using either `#public_constant` or `#private_constant`.]`
 - `asciidoctor__asciidoctor__33c50c7: lib/asciidoctor/extensions.rb:489  [Explicitly make `DSL` public or private using either `#public_constant` or `#private_constant`.]`
-- `asciidoctor__asciidoctor__33c50c7: lib/asciidoctor/extensions.rb:405  [Explicitly make `DSL` public or private using either `#public_constant` or `#private_constant`.]`
+- `asciidoctor__asciidoctor__33c50c7: lib/asciidoctor/extensions.rb:675  [Explicitly make `DSL` public or private using either `#public_constant` or `#private_constant`.]`
 - ... and 115 more (see corpus-results.json for full list)
 
 </details>
@@ -2493,51 +2400,15 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `procore-oss__blueprinter__fef297b: spec/units/blueprint_validator_spec.rb:26  [Use `and_return` for static values.]`
 - `procore-oss__blueprinter__fef297b: spec/units/blueprint_validator_spec.rb:35  [Use `and_return` for static values.]`
+- `procore-oss__blueprinter__fef297b: spec/units/blueprint_validator_spec.rb:26  [Use `and_return` for static values.]`
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `AlchemyCMS__alchemy_cms__4c2023f: spec/requests/alchemy/page_request_caching_spec.rb:32  [Use `and_return` for static values.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: spec/requests/alchemy/sitemap_spec.rb:31  [Use `and_return` for static values.]`
+- `AlchemyCMS__alchemy_cms__4c2023f: spec/requests/alchemy/admin/pages_controller_spec.rb:457  [Use `and_return` for static values.]`
+- `AlchemyCMS__alchemy_cms__4c2023f: spec/requests/alchemy/page_request_caching_spec.rb:27  [Use `and_return` for static values.]`
 - `AlchemyCMS__alchemy_cms__4c2023f: spec/requests/alchemy/admin/pages_controller_spec.rb:468  [Use `and_return` for static values.]`
 - ... and 109 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Rails/Blank</strong> — 2,285 matches, 2 FP, 112 FN (95.2%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `danbooru__danbooru__fd45f0f: app/logical/source/extractor/behance.rb:72  [Use `if element.at("div").blank?` instead of `unless element.at("div").present?`.]`
-- `danbooru__danbooru__fd45f0f: app/logical/source/extractor/blogger.rb:56  [Use `if element.at("div").blank?` instead of `unless element.at("div").present?`.]`
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `Arachni__arachni__c1710d6: components/checks/passive/allowed_methods.rb:38  [Use `methods.blank?` instead of `!methods || methods.empty?`.]`
-- `Arachni__arachni__c1710d6: lib/arachni/uri.rb:345  [Use `url.blank?` instead of `!url || url.empty?`.]`
-- `Arachni__arachni__c1710d6: lib/arachni/page.rb:527  [Use `h[type].blank?` instead of `!h[type] || h[type].empty?`.]`
-- ... and 109 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Style/StringHashKeys</strong> — 240,582 matches, 62 FP, 52 FN (99.9%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `david942j__seccomp-tools__4445b20: lib/seccomp-tools/syscall.rb:73  [Prefer symbols instead of strings as hash keys.]`
-- `instacart__makara__a19b682: spec/active_record/connection_adapters/makara_abstract_adapter_spec.rb:51  [Prefer symbols instead of strings as hash keys.]`
-- `instacart__makara__a19b682: spec/active_record/connection_adapters/makara_abstract_adapter_spec.rb:96  [Prefer symbols instead of strings as hash keys.]`
-- ... and 59 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `NatLabRockies__api-umbrella__bdda392: test/support/api_umbrella_test_helpers/process.rb:70  [Prefer symbols instead of strings as hash keys.]`
-- `NatLabRockies__api-umbrella__bdda392: test/support/api_umbrella_test_helpers/process.rb:69  [Prefer symbols instead of strings as hash keys.]`
-- `Shopify__roast__9c72794: lib/roast/command_runner.rb:72  [Prefer symbols instead of strings as hash keys.]`
-- ... and 49 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2546,22 +2417,10 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: spec/arachni/http/request_spec.rb:1004  [Context description should match /^when\b/, /^with\b/, or /^without\b/.]`
 - `Arachni__arachni__c1710d6: spec/arachni/browser_spec.rb:1097  [Context description should match /^when\b/, /^with\b/, or /^without\b/.]`
-- `Arachni__arachni__c1710d6: spec/arachni/http/request_spec.rb:1147  [Context description should match /^when\b/, /^with\b/, or /^without\b/.]`
+- `Arachni__arachni__c1710d6: spec/arachni/http/request_spec.rb:1066  [Context description should match /^when\b/, /^with\b/, or /^without\b/.]`
+- `Arachni__arachni__c1710d6: spec/arachni/http/request_spec.rb:1026  [Context description should match /^when\b/, /^with\b/, or /^without\b/.]`
 - ... and 109 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Rails/InverseOf</strong> — 1,442 matches, 0 FP, 108 FN (93.0%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `AlchemyCMS__alchemy_cms__4c2023f: app/models/concerns/alchemy/relatable_resource.rb:13  [Specify an `:inverse_of` option.]`
-- `Freika__dawarich__3d1ae95: app/models/concerns/taggable.rb:7  [Specify an `:inverse_of` option.]`
-- `ManageIQ__manageiq__b530ec7: app/models/mixins/custom_actions_mixin.rb:6  [Specify an `:inverse_of` option.]`
-- ... and 105 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2590,22 +2449,6 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Rails/Delegate</strong> — 6,938 matches, 1 FP, 102 FN (98.5%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `antiwork__gumroad__782a69f: spec/support/stripe_payment_method_helper.rb:60  [Use `delegate` to define delegations.]`
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `AlchemyCMS__alchemy_cms__4c2023f: lib/alchemy/dev_support/live_reload_watcher.rb:3  [Use `delegate` to define delegations.]`
-- `antiwork__gumroad__782a69f: app/models/community.rb:16  [Use `delegate` to define delegations.]`
-- `asciidoctor__asciidoctor__33c50c7: lib/asciidoctor/timings.rb:66  [Use `delegate` to define delegations.]`
-- ... and 99 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
 <summary><strong>Style/StringLiterals</strong> — 2,077,440 matches, 0 FP, 103 FN (99.9%)</summary>
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -2614,25 +2457,6 @@ Every offense is compared by file path, line number, and cop name.
 - `ElMassimo__vite_ruby__60914d2: vite_ruby/lib/vite_ruby/commands.rb:33  [Prefer single-quoted strings when you don't need string interpolation or special symbols.]`
 - `alexch__rerun__36f2d23: lib/rerun/notification.rb:55  [Prefer single-quoted strings when you don't need string interpolation or special symbols.]`
 - ... and 100 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Rails/RedundantForeignKey</strong> — 214 matches, 51 FP, 50 FN (67.9%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/page.rb:105  [Redundant `foreign_key` -- it matches the default.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/page.rb:111  [Redundant `foreign_key` -- it matches the default.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: app/models/concerns/alchemy/relatable_resource.rb:13  [Redundant `foreign_key` -- it matches the default.]`
-- ... and 48 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/page.rb:108  [Specifying the default value for `foreign_key` is redundant.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: app/models/concerns/alchemy/relatable_resource.rb:15  [Specifying the default value for `foreign_key` is redundant.]`
-- `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/page.rb:114  [Specifying the default value for `foreign_key` is redundant.]`
-- ... and 47 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2657,9 +2481,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `jruby__jruby__0303464: spec/ruby/language/for_spec.rb:16  [Don't repeat examples within an example group. Repeated on line(s) 22.]`
-- `jruby__jruby__0303464: spec/ruby/language/defined_spec.rb:1297  [Don't repeat examples within an example group. Repeated on line(s) 1285, 1289, 1293.]`
-- `jruby__jruby__0303464: spec/ruby/language/variables_spec.rb:564  [Don't repeat examples within an example group. Repeated on line(s) 541.]`
+- `jruby__jruby__0303464: spec/ruby/core/io/open_spec.rb:40  [Don't repeat examples within an example group. Repeated on line(s) 53.]`
+- `jruby__jruby__0303464: spec/ruby/core/module/refine_spec.rb:134  [Don't repeat examples within an example group. Repeated on line(s) 143.]`
+- `jruby__jruby__0303464: spec/ruby/language/not_spec.rb:26  [Don't repeat examples within an example group. Repeated on line(s) 22.]`
 - ... and 55 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -2672,32 +2496,13 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Rails/TimeZone</strong> — 13,450 matches, 17 FP, 82 FN (99.2%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `ManageIQ__manageiq__b530ec7: spec/models/metric/statistic_spec.rb:11  [Use `Time.zone.now` instead of `Time.now`.]`
-- `jruby__jruby__0303464: spec/ruby/core/time/zone_spec.rb:82  [Use `Time.zone.now` instead of `Time.now`.]`
-- `jruby__jruby__0303464: spec/ruby/core/time/zone_spec.rb:74  [Use `Time.zone.now` instead of `Time.now`.]`
-- ... and 14 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `TracksApp__tracks__53cf4b4: app/models/recurring_todos/abstract_recurrence_pattern.rb:204  [Do not use `Time.local` without zone. Use one of `Time.zone.local`, `Time.current`, `Time.local.in_time_zone`, `Time.local.utc`, `Time.local.getlocal`, `Time.local.xmlschema`, `Time.local.iso8601`, `Time.local.jisx0301`, `Time.local.rfc3339`, `Time.local.httpdate`, `Time.local.to_i`, `Time.local.to_f` instead.]`
-- `bridgetownrb__bridgetown__c8618d7: bridgetown-core/lib/bridgetown-core/utils.rb:115  [Do not use `Time.localtime` without offset or zone.]`
-- `carrierwaveuploader__carrierwave__a015f02: spec/storage/file_spec.rb:58  [Do not use `String#to_time` without zone. Use `Time.zone.parse` instead.]`
-- ... and 79 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
 <summary><strong>Style/TrivialAccessors</strong> — 3,043 matches, 5 FP, 94 FN (96.8%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `activeagents__activeagent__63c19fd: test/features/parameterized_direct_test.rb:93  [Use `attr_reader` to define trivial reader methods.]`
 - `activeagents__activeagent__63c19fd: test/features/parameterized_direct_test.rb:198  [Use `attr_reader` to define trivial reader methods.]`
 - `activeagents__activeagent__63c19fd: test/features/parameterized_direct_test.rb:97  [Use `attr_reader` to define trivial reader methods.]`
+- `activeagents__activeagent__63c19fd: test/features/parameterized_direct_test.rb:93  [Use `attr_reader` to define trivial reader methods.]`
 - ... and 2 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -2734,7 +2539,7 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: app/controllers/alchemy/base_controller.rb:93  [Use `flash.now` before `render`.]`
-- `autolab__Autolab__674efe9: app/controllers/courses_controller.rb:277  [Use `flash.now` before `render`.]`
+- `autolab__Autolab__674efe9: app/controllers/assessments_controller.rb:449  [Use `flash.now` before `render`.]`
 - `autolab__Autolab__674efe9: app/controllers/courses_controller.rb:211  [Use `flash.now` before `render`.]`
 - ... and 94 more (see corpus-results.json for full list)
 
@@ -2746,8 +2551,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Apipie__apipie-rails__2692590: lib/apipie/method_description.rb:53  [Use `each_with_object` instead of `reduce`.]`
-- `Arachni__arachni__c1710d6: lib/arachni/http/request.rb:249  [Use `each_with_object` instead of `inject`.]`
 - `Arachni__arachni__c1710d6: lib/arachni/http/request.rb:255  [Use `each_with_object` instead of `inject`.]`
+- `Arachni__arachni__c1710d6: lib/arachni/http/request.rb:249  [Use `each_with_object` instead of `inject`.]`
 - ... and 93 more (see corpus-results.json for full list)
 
 </details>
@@ -2757,9 +2562,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
+- `Netflix-Skunkworks__Scumblr__66ed69a: lib/helpers/vulnerability_helpers.rb:380  [`each_with_object` expects at least 2 positional arguments, got 1.]`
 - `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/security/rails_analyzer.rb:415  [`each_with_object` expects at least 2 positional arguments, got 1.]`
-- `Netflix-Skunkworks__Scumblr__66ed69a: lib/helpers/vulnerability_helpers.rb:393  [`each_with_object` expects at least 2 positional arguments, got 1.]`
-- `Netflix-Skunkworks__Scumblr__66ed69a: lib/helpers/vulnerability_helpers.rb:399  [`each_with_object` expects at least 2 positional arguments, got 1.]`
+- `Netflix-Skunkworks__Scumblr__66ed69a: lib/helpers/vulnerability_helpers.rb:387  [`each_with_object` expects at least 2 positional arguments, got 1.]`
 - ... and 90 more (see corpus-results.json for full list)
 
 </details>
@@ -2788,27 +2593,10 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `asciidoctor__asciidoctor-pdf__dadceca: spec/converter_spec.rb:1485  [Unnecessary symbol conversion; use `:"pdf#{object_id}"` instead.]`
-- `asciidoctor__asciidoctor-pdf__dadceca: spec/converter_spec.rb:1305  [Unnecessary symbol conversion; use `:"pdf#{object_id}"` instead.]`
-- `asciidoctor__asciidoctor-pdf__dadceca: spec/abstract_spec.rb:262  [Unnecessary symbol conversion; use `:"pdf#{object_id}"` instead.]`
+- `asciidoctor__asciidoctor-pdf__dadceca: lib/asciidoctor/pdf/converter.rb:3300  [Unnecessary symbol conversion; use `:"cover_#{face}_image"` instead.]`
+- `asciidoctor__asciidoctor-pdf__dadceca: lib/asciidoctor/pdf/converter.rb:3469  [Unnecessary symbol conversion; use `:"#{periphery}_border_color"` instead.]`
+- `asciidoctor__asciidoctor-pdf__dadceca: spec/converter_spec.rb:1389  [Unnecessary symbol conversion; use `:"pdf#{object_id}"` instead.]`
 - ... and 89 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Rails/UnknownEnv</strong> — 123 matches, 2 FP, 90 FN (57.2%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `decidim__decidim__bc448c8: decidim-core/lib/decidim/core.rb:257  [Unknown environment `starts_with`.]`
-- `decidim__decidim__bc448c8: decidim-core/lib/decidim/core.rb:717  [Unknown environment `exclude`.]`
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `AlchemyCMS__alchemy_cms__4c2023f: app/components/alchemy/admin/update_check.rb:24  [Unknown environment `local`.]`
-- `TheOdinProject__theodinproject__a556fbc: lib/tasks/spec.rake:3  [Unknown environment `local`.]`
-- `antiwork__gumroad__782a69f: config/initializers/new_framework_defaults_7_1.rb:164  [Unknown environment `local`.]`
-- ... and 87 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2818,8 +2606,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `ManageIQ__manageiq__b530ec7: app/models/dialog_field_drop_down_list.rb:37  [Use `selectbox_options.intersect?(checked_value)` instead of `(selectbox_options & checked_value).present?`.]`
-- `ManageIQ__manageiq__b530ec7: app/models/chargeback/consumption_with_rollups.rb:215  [Use `resource_current_tag_names.intersect?([tag_name_filter])` instead of `(resource_current_tag_names & [tag_name_filter]).present?`.]`
 - `ManageIQ__manageiq__b530ec7: app/models/chargeback/rates_cache.rb:53  [Use `rate.assigned_tags.intersect?(metric_rollup_record_tags)` instead of `(rate.assigned_tags & metric_rollup_record_tags).present?`.]`
+- `ManageIQ__manageiq__b530ec7: app/models/chargeback_rate_detail.rb:174  [Use `cost_keys.to_set.intersect?(report_cols)` instead of `(cost_keys.to_set & report_cols).present?`.]`
 - ... and 89 more (see corpus-results.json for full list)
 
 </details>
@@ -2829,16 +2617,16 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `peritor__webistrano__a98ba6b: vendor/gems/net-ssh-2.0.15/lib/net/ssh/authentication/pageant.rb:118  [Trailing whitespace detected.]`
+- `peritor__webistrano__a98ba6b: vendor/gems/net-ssh-2.0.15/lib/net/ssh/authentication/pageant.rb:135  [Trailing whitespace detected.]`
+- `peritor__webistrano__a98ba6b: vendor/gems/net-ssh-2.0.15/lib/net/ssh/authentication/pageant.rb:20  [Trailing whitespace detected.]`
 - `peritor__webistrano__a98ba6b: vendor/gems/net-ssh-2.0.15/lib/net/ssh/authentication/pageant.rb:120  [Trailing whitespace detected.]`
-- `peritor__webistrano__a98ba6b: vendor/gems/net-ssh-2.0.15/lib/net/ssh/authentication/pageant.rb:25  [Trailing whitespace detected.]`
 - ... and 84 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `activemerchant__active_merchant__ca45b1b: lib/active_merchant/billing/gateways/sage.rb:168  [Trailing whitespace detected.]`
 - `activemerchant__active_merchant__ca45b1b: lib/active_merchant/billing/gateways/sage.rb:149  [Trailing whitespace detected.]`
 - `activemerchant__active_merchant__ca45b1b: lib/active_merchant/billing/gateways/sage.rb:155  [Trailing whitespace detected.]`
+- `activemerchant__active_merchant__ca45b1b: lib/active_merchant/billing/gateways/sage.rb:168  [Trailing whitespace detected.]`
 - ... and 1 more (see corpus-results.json for full list)
 
 </details>
@@ -2850,7 +2638,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `Freika__dawarich__3d1ae95: app/services/visits/create.rb:17  [Exit statement `return` is not allowed. Use `raise` (rollback) or `next` (commit).]`
 - `Shopify__shopify_app__6c1c2ec: lib/shopify_app/session/shop_session_storage.rb:25  [Exit statement `return` is not allowed. Use `raise` (rollback) or `next` (commit).]`
-- `antiwork__gumroad__782a69f: app/business/payments/payouts/processor/stripe/stripe_payout_processor.rb:405  [Exit statement `return` is not allowed. Use `raise` (rollback) or `next` (commit).]`
+- `antiwork__gumroad__782a69f: app/models/link.rb:1153  [Exit statement `return` is not allowed. Use `raise` (rollback) or `next` (commit).]`
 - ... and 88 more (see corpus-results.json for full list)
 
 </details>
@@ -2860,9 +2648,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `browsermedia__browsercms__0a7fb92: lib/cms/behaviors/soft_deleting.rb:61  [Use anonymous positional arguments forwarding (`*`).]`
 - `browsermedia__browsercms__0a7fb92: lib/cms/behaviors/soft_deleting.rb:60  [Use anonymous positional arguments forwarding (`*`).]`
-- `rest-client__rest-client__2c72a2e: lib/restclient/request.rb:160  [Use anonymous block arguments forwarding (`&`).]`
+- `browsermedia__browsercms__0a7fb92: lib/cms/behaviors/soft_deleting.rb:61  [Use anonymous positional arguments forwarding (`*`).]`
+- `rest-client__rest-client__2c72a2e: bin/restclient:67  [Use anonymous positional arguments forwarding (`*`).]`
 - ... and 7 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -2871,25 +2659,6 @@ Every offense is compared by file path, line number, and cop name.
 - `ManageIQ__manageiq__b530ec7: lib/generators/manageiq/plugin/plugin_generator.rb:231  [Use anonymous positional arguments forwarding (`*`).]`
 - `ManageIQ__manageiq__b530ec7: lib/generators/manageiq/plugin/plugin_generator.rb:229  [Use anonymous positional arguments forwarding (`*`).]`
 - ... and 78 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Style/GlobalVars</strong> — 9,426 matches, 68 FP, 23 FN (99.0%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `ManageIQ__manageiq__b530ec7: tools/vm_retirement.rb:69  [Do not introduce global variables.]`
-- `ManageIQ__manageiq__b530ec7: tools/vm_retirement.rb:88  [Do not introduce global variables.]`
-- `ManageIQ__manageiq__b530ec7: lib/tasks/evm_settings.rake:113  [Do not introduce global variables.]`
-- ... and 65 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `eventmachine__eventmachine__e732041: tests/test_attach.rb:35  [Do not introduce global variables.]`
-- `eventmachine__eventmachine__e732041: tests/test_pure.rb:132  [Do not introduce global variables.]`
-- `eventmachine__eventmachine__e732041: tests/test_processes.rb:80  [Do not introduce global variables.]`
-- ... and 20 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2922,25 +2691,6 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Style/StringLiteralsInInterpolation</strong> — 7,688 matches, 65 FP, 24 FN (98.8%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `AlchemyCMS__alchemy_cms__4c2023f: Rakefile:63  [Prefer single-quoted strings inside interpolations.]`
-- `ElMassimo__vite_ruby__60914d2: vite_ruby/lib/vite_ruby/commands.rb:33  [Prefer single-quoted strings inside interpolations.]`
-- `alexch__rerun__36f2d23: lib/rerun/notification.rb:55  [Prefer single-quoted strings inside interpolations.]`
-- ... and 62 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `ManageIQ__manageiq__b530ec7: lib/miq_ldap.rb:342  [Prefer single-quoted strings inside interpolations.]`
-- `ankane__blazer__c17d8ec: lib/blazer/data_source.rb:158  [Prefer single-quoted strings inside interpolations.]`
-- `chef__chef__e58e1a1: lib/chef/provider/registry_key.rb:84  [Prefer single-quoted strings inside interpolations.]`
-- ... and 21 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
 <summary><strong>Style/IfWithBooleanLiteralBranches</strong> — 161 matches, 48 FP, 37 FN (65.4%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
@@ -2965,15 +2715,15 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `andymeneely__squib__d052e1f: lib/squib/graphics/embedding_utils.rb:16  [Do not use semicolons to terminate expressions.]`
-- `antiwork__gumroad__782a69f: spec/requests/products/edit/edit_spec.rb:215  [Do not use semicolons to terminate expressions.]`
 - `antiwork__gumroad__782a69f: spec/requests/products/edit/edit_spec.rb:212  [Do not use semicolons to terminate expressions.]`
+- `antiwork__gumroad__782a69f: spec/requests/products/edit/edit_spec.rb:227  [Do not use semicolons to terminate expressions.]`
 - ... and 31 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `activemerchant__active_merchant__ca45b1b: lib/active_merchant/billing/gateways/skip_jack.rb:317  [Do not use semicolons to terminate expressions.]`
+- `celluloid__celluloid__0a307cf: lib/celluloid/supervision/constants.rb:69  [Do not use semicolons to terminate expressions.]`
 - `celluloid__celluloid__0a307cf: lib/celluloid/supervision/constants.rb:62  [Do not use semicolons to terminate expressions.]`
-- `celluloid__celluloid__0a307cf: lib/celluloid/supervision/container/behavior.rb:31  [Do not use semicolons to terminate expressions.]`
 - ... and 48 more (see corpus-results.json for full list)
 
 </details>
@@ -3000,29 +2750,10 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ManageIQ__manageiq__b530ec7: app/models/mixins/service_mixin.rb:77  [This loop will have at most one iteration.]`
 - `ManageIQ__manageiq__b530ec7: app/models/miq_request_workflow.rb:883  [This loop will have at most one iteration.]`
+- `ManageIQ__manageiq__b530ec7: app/models/mixins/service_mixin.rb:77  [This loop will have at most one iteration.]`
 - `fluent__fluentd__1327bed: lib/fluent/plugin/in_monitor_agent.rb:401  [This loop will have at most one iteration.]`
 - ... and 78 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Style/BlockDelimiters</strong> — 24,885 matches, 68 FP, 14 FN (99.6%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `Netflix__fast_jsonapi__68a5515: lib/fast_jsonapi/multi_to_json.rb:74  [Prefer `do...end` over `{...}` for multi-line blocks.]`
-- `bblimke__webmock__596d8a8: lib/webmock/request_stub.rb:66  [Prefer `do...end` over `{...}` for multi-line blocks.]`
-- `bloom-lang__bud__cbcc907: test/tc_lattice.rb:1713  [Prefer `do...end` over `{...}` for multi-line blocks.]`
-- ... and 65 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `automaticmode__active_workflow__d708f3b: app/models/agents/website_agent.rb:710  [Avoid using `{...}` for multi-line blocks.]`
-- `faye__faye-websocket-ruby__24101af: lib/faye/websocket/client.rb:17  [Avoid using `{...}` for multi-line blocks.]`
-- `fluent__fluentd__1327bed: lib/fluent/test/filter_test.rb:63  [Avoid using `{...}` for multi-line blocks.]`
-- ... and 11 more (see corpus-results.json for full list)
 
 </details>
 
@@ -3039,8 +2770,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `ManageIQ__manageiq__b530ec7: app/models/mixins/supports_feature_mixin.rb:68  [Useless `private` access modifier.]`
-- `antiwork__gumroad__782a69f: app/business/payments/utilities/stripe_url.rb:24  [Useless `private_class_method` access modifier.]`
-- `antiwork__gumroad__782a69f: app/business/payments/merchant_registration/implementations/stripe/stripe_merchant_account_manager.rb:325  [Useless `private_class_method` access modifier.]`
+- `antiwork__gumroad__782a69f: app/business/payments/charging/implementations/paypal/paypal_charge_processor.rb:585  [Useless `private_class_method` access modifier.]`
+- `antiwork__gumroad__782a69f: app/business/payments/charging/charge_processor.rb:254  [Useless `private_class_method` access modifier.]`
 - ... and 70 more (see corpus-results.json for full list)
 
 </details>
@@ -3080,8 +2811,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Freika__dawarich__3d1ae95: spec/services/areas/visits/create_spec.rb:86  [Do not use `let!` to setup objects not referenced in tests.]`
-- `Freika__dawarich__3d1ae95: spec/swagger/api/v1/stats_controller_spec.rb:60  [Do not use `let!` to setup objects not referenced in tests.]`
-- `Freika__dawarich__3d1ae95: spec/requests/family_workflows_spec.rb:140  [Do not use `let!` to setup objects not referenced in tests.]`
+- `Freika__dawarich__3d1ae95: spec/services/areas/visits/create_spec.rb:78  [Do not use `let!` to setup objects not referenced in tests.]`
+- `Freika__dawarich__3d1ae95: spec/swagger/api/v1/stats_controller_spec.rb:59  [Do not use `let!` to setup objects not referenced in tests.]`
 - ... and 74 more (see corpus-results.json for full list)
 
 </details>
@@ -3104,8 +2835,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: app/models/concerns/alchemy/relatable_resource.rb:13  [Specify a `:dependent` option.]`
+- `ManageIQ__manageiq__b530ec7: app/models/mixins/drift_state_mixin.rb:9  [Specify a `:dependent` option.]`
 - `ManageIQ__manageiq__b530ec7: app/models/mixins/authentication_mixin.rb:56  [Specify a `:dependent` option.]`
-- `ManageIQ__manageiq__b530ec7: app/models/mixins/has_many_orchestration_stack_mixin.rb:20  [Specify a `:dependent` option.]`
 - ... and 73 more (see corpus-results.json for full list)
 
 </details>
@@ -3115,8 +2846,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: lib/arachni/rpc/server/framework.rb:42  [`public` should not be inlined in method definitions.]`
-- `Arachni__arachni__c1710d6: spec/arachni/rpc/server/framework/distributor_spec.rb:16  [`private` should not be inlined in method definitions.]`
+- `Arachni__arachni__c1710d6: lib/arachni/rpc/server/framework.rb:65  [`private` should not be inlined in method definitions.]`
+- `Arachni__arachni__c1710d6: lib/arachni/rpc/server/framework/multi_instance.rb:28  [`private` should not be inlined in method definitions.]`
 - `Arachni__arachni__c1710d6: spec/arachni/rpc/server/framework/distributor_spec.rb:17  [`public` should not be inlined in method definitions.]`
 - ... and 68 more (see corpus-results.json for full list)
 
@@ -3135,14 +2866,21 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Style/AccessorGrouping</strong> — 6,588 matches, 67 FP, 0 FN (98.9%)</summary>
+<summary><strong>Rails/TimeZone</strong> — 13,473 matches, 7 FP, 59 FN (99.5%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `davetron5000__gli__043146e: lib/gli/command_line_token.rb:6  [Group together all `attr_reader` attributes.]`
-- `davetron5000__gli__043146e: lib/gli/command_line_token.rb:8  [Group together all `attr_reader` attributes.]`
-- `davetron5000__gli__043146e: lib/gli/command_line_token.rb:5  [Group together all `attr_reader` attributes.]`
-- ... and 64 more (see corpus-results.json for full list)
+- `ManageIQ__manageiq__b530ec7: spec/models/metric/statistic_spec.rb:11  [Use `Time.zone.now` instead of `Time.now`.]`
+- `mongomapper__mongomapper__a6a6f4d: spec/unit/extensions_spec.rb:309  [Use `Time.zone.local` instead of `Time.local`.]`
+- `mongomapper__mongomapper__a6a6f4d: spec/unit/extensions_spec.rb:335  [Use `Time.zone.now` instead of `Time.now`.]`
+- ... and 4 more (see corpus-results.json for full list)
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `TracksApp__tracks__53cf4b4: app/models/recurring_todos/abstract_recurrence_pattern.rb:204  [Do not use `Time.local` without zone. Use one of `Time.zone.local`, `Time.current`, `Time.local.in_time_zone`, `Time.local.utc`, `Time.local.getlocal`, `Time.local.xmlschema`, `Time.local.iso8601`, `Time.local.jisx0301`, `Time.local.rfc3339`, `Time.local.httpdate`, `Time.local.to_i`, `Time.local.to_f` instead.]`
+- `carrierwaveuploader__carrierwave__a015f02: spec/storage/file_spec.rb:58  [Do not use `String#to_time` without zone. Use `Time.zone.parse` instead.]`
+- `decidim__decidim__bc448c8: decidim-core/spec/system/internal_server_error_display_spec.rb:24  [Do not use `String#to_time` without zone. Use `Time.zone.parse` instead.]`
+- ... and 56 more (see corpus-results.json for full list)
 
 </details>
 
@@ -3159,8 +2897,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `TracksApp__tracks__53cf4b4: app/models/recurring_todos/weekly_recurrence_pattern.rb:3  [Remove unnecessary `initialize` method.]`
-- `TracksApp__tracks__53cf4b4: app/models/recurring_todos/yearly_recurrence_pattern.rb:3  [Remove unnecessary `initialize` method.]`
 - `TracksApp__tracks__53cf4b4: app/models/recurring_todos/daily_recurrence_pattern.rb:3  [Remove unnecessary `initialize` method.]`
+- `TracksApp__tracks__53cf4b4: app/models/recurring_todos/yearly_recurrence_pattern.rb:3  [Remove unnecessary `initialize` method.]`
 - ... and 22 more (see corpus-results.json for full list)
 
 </details>
@@ -3182,15 +2920,15 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `SciRuby__iruby__6ffd850: lib/iruby/display.rb:334  [Use `'text/plain'` directly instead of `format`.]`
-- `SciRuby__iruby__6ffd850: lib/iruby/display.rb:406  [Use `'image'` directly instead of `format`.]`
 - `SciRuby__iruby__6ffd850: lib/iruby/display.rb:323  [Use `'text/plain'` directly instead of `format`.]`
+- `SciRuby__iruby__6ffd850: lib/iruby/display.rb:406  [Use `'image'` directly instead of `format`.]`
+- `SciRuby__iruby__6ffd850: lib/iruby/display.rb:334  [Use `'text/plain'` directly instead of `format`.]`
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `forem__forem__72d7c44: lib/tasks/data_updates.rake:30  [Use `" Status     ID              Description                             "` directly instead of `format`.]`
 - `inspec__inspec__965502e: lib/plugins/inspec-plugin-manager-cli/lib/inspec-plugin-manager-cli/cli_command.rb:87  [Use `" Plugin Name                   Versions Available            Description         \n"` directly instead of `format`.]`
-- `jruby__jruby__0303464: spec/ruby/core/kernel/format_spec.rb:13  [Use `"hello"` directly instead of `format`.]`
+- `jruby__jruby__0303464: test/jruby/test_sprintf.rb:49  [Use `"解Šu"` directly instead of `sprintf`.]`
 - ... and 59 more (see corpus-results.json for full list)
 
 </details>
@@ -3201,14 +2939,14 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `dry-rb__dry-monads__20957eb: spec/unit/result_spec.rb:220  [Use `it` block parameter.]`
-- `dry-rb__dry-monads__20957eb: spec/integration/do_all_spec.rb:33  [Use `it` block parameter.]`
 - `dry-rb__dry-monads__20957eb: spec/unit/validated_spec.rb:128  [Use `it` block parameter.]`
+- `dry-rb__dry-monads__20957eb: spec/unit/result_spec.rb:221  [Use `it` block parameter.]`
 - ... and 18 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Eigenfocus__eigenfocus__0bf9c6c: app/models/issue_label.rb:17  [Use `it` block parameter.]`
-- `antiwork__gumroad__782a69f: app/models/refund_policy.rb:21  [Use `it` block parameter.]`
+- `antiwork__gumroad__782a69f: app/models/call.rb:11  [Use `it` block parameter.]`
 - `antiwork__gumroad__782a69f: app/models/call_availability.rb:8  [Use `it` block parameter.]`
 - ... and 40 more (see corpus-results.json for full list)
 
@@ -3219,9 +2957,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
+- `formtastic__formtastic__c5abcc5: spec/actions/button_action_spec.rb:46  [The second argument to describe should be the method being tested. '#instance' or '.class'.]`
 - `formtastic__formtastic__c5abcc5: spec/actions/link_action_spec.rb:56  [The second argument to describe should be the method being tested. '#instance' or '.class'.]`
-- `formtastic__formtastic__c5abcc5: spec/actions/link_action_spec.rb:75  [The second argument to describe should be the method being tested. '#instance' or '.class'.]`
-- `formtastic__formtastic__c5abcc5: spec/actions/button_action_spec.rb:23  [The second argument to describe should be the method being tested. '#instance' or '.class'.]`
+- `formtastic__formtastic__c5abcc5: spec/actions/button_action_spec.rb:4  [The second argument to describe should be the method being tested. '#instance' or '.class'.]`
 - ... and 60 more (see corpus-results.json for full list)
 
 </details>
@@ -3231,15 +2969,15 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `Hackplayers__evil-winrm__84a543c: evil-winrm.rb:1465  [Redundant self-assignment. `gsub!` modifies `assemblyautocomplete` in place.]`
 - `Hackplayers__evil-winrm__84a543c: evil-winrm.rb:1462  [Redundant self-assignment. `gsub!` modifies `autocomplete` in place.]`
+- `Hackplayers__evil-winrm__84a543c: evil-winrm.rb:1465  [Redundant self-assignment. `gsub!` modifies `assemblyautocomplete` in place.]`
 - `ManageIQ__manageiq__b530ec7: app/models/condition.rb:96  [Redundant self-assignment. `gsub!` modifies `expr` in place.]`
 - ... and 12 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ManageIQ__manageiq__b530ec7: app/models/miq_bulk_import.rb:31  [Redundant self assignment detected. Method `unshift` modifies its receiver in place.]`
 - `ManageIQ__manageiq__b530ec7: app/models/tag.rb:88  [Redundant self assignment detected. Method `delete_if` modifies its receiver in place.]`
+- `ManageIQ__manageiq__b530ec7: app/models/miq_bulk_import.rb:31  [Redundant self assignment detected. Method `unshift` modifies its receiver in place.]`
 - `ManageIQ__manageiq__b530ec7: tools/log_processing/perf_timings.rb:30  [Redundant self assignment detected. Method `unshift` modifies its receiver in place.]`
 - ... and 45 more (see corpus-results.json for full list)
 
@@ -3254,6 +2992,22 @@ Every offense is compared by file path, line number, and cop name.
 - `ankane__groupdate__520f223: Rakefile:8  [Include `:environment` task as a dependency for all Rake tasks.]`
 - `brianmario__mysql2__b009d7e: tasks/benchmarks.rake:8  [Include `:environment` task as a dependency for all Rake tasks.]`
 - ... and 59 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
+<summary><strong>Style/StringHashKeys</strong> — 240,633 matches, 60 FP, 1 FN (99.9%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `david942j__seccomp-tools__4445b20: lib/seccomp-tools/syscall.rb:73  [Prefer symbols instead of strings as hash keys.]`
+- `instacart__makara__a19b682: spec/active_record/connection_adapters/makara_abstract_adapter_spec.rb:51  [Prefer symbols instead of strings as hash keys.]`
+- `instacart__makara__a19b682: spec/active_record/connection_adapters/makara_abstract_adapter_spec.rb:96  [Prefer symbols instead of strings as hash keys.]`
+- ... and 57 more (see corpus-results.json for full list)
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `simplecov-ruby__simplecov__522dc7d: spec/simplecov_spec.rb:35  [Prefer symbols instead of strings as hash keys.]`
 
 </details>
 
@@ -3313,15 +3067,15 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `andymeneely__squib__d052e1f: lib/squib/args/coords.rb:40  [Space before keyword `end` is missing.]`
+- `camping__camping__f2479aa: lib/camping.rb:18  [Space before keyword `end` is missing.]`
 - `camping__camping__f2479aa: lib/camping.rb:81  [Space before keyword `end` is missing.]`
-- `camping__camping__f2479aa: lib/camping.rb:24  [Space before keyword `end` is missing.]`
 - ... and 13 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `NatLabRockies__api-umbrella__bdda392: test/processes/test_reloads.rb:60  [Space after keyword `if` is missing.]`
-- `NatLabRockies__api-umbrella__bdda392: test/proxy/test_request_header_lengths.rb:85  [Space after keyword `if` is missing.]`
-- `NatLabRockies__api-umbrella__bdda392: test/support/api_umbrella_test_helpers/admin_auth.rb:77  [Space after keyword `if` is missing.]`
+- `NatLabRockies__api-umbrella__bdda392: test/support/database_cleaner.rb:118  [Space after keyword `if` is missing.]`
+- `NatLabRockies__api-umbrella__bdda392: test/apis/v1/api_scopes/test_admin_permissions.rb:146  [Space after keyword `if` is missing.]`
+- `NatLabRockies__api-umbrella__bdda392: test/support/api_umbrella_test_helpers/dns.rb:71  [Space after keyword `if` is missing.]`
 - ... and 38 more (see corpus-results.json for full list)
 
 </details>
@@ -3335,60 +3089,10 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `chef__chef__e58e1a1: spec/functional/shell_spec.rb:114  [Interpolation in single quoted string detected. Use double quoted strings if you need interpolation.]`
 - `chef__chef__e58e1a1: spec/functional/shell_spec.rb:142  [Interpolation in single quoted string detected. Use double quoted strings if you need interpolation.]`
-- `haml__haml__0880837: test/haml/engine_test.rb:1655  [Interpolation in single quoted string detected. Use double quoted strings if you need interpolation.]`
+- `chef__chef__e58e1a1: spec/functional/shell_spec.rb:114  [Interpolation in single quoted string detected. Use double quoted strings if you need interpolation.]`
+- `haml__haml__0880837: test/haml/optimization_test.rb:50  [Interpolation in single quoted string detected. Use double quoted strings if you need interpolation.]`
 - ... and 53 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Style/MultilineIfModifier</strong> — 1,687 matches, 44 FP, 12 FN (96.7%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `ManageIQ__manageiq__b530ec7: app/models/miq_action.rb:248  [Favor a normal unless-statement over a modifier clause in a multiline statement.]`
-- `ManageIQ__manageiq__b530ec7: app/models/miq_provision/automate.rb:110  [Favor a normal if-statement over a modifier clause in a multiline statement.]`
-- `SciRuby__daru__6a97a7c: spec/vector_spec.rb:119  [Favor a normal if-statement over a modifier clause in a multiline statement.]`
-- ... and 41 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/command/repo/remove.rb:24  [Favor a normal unless-statement over a modifier clause in a multiline statement.]`
-- `CocoaPods__Xcodeproj__2cf6a22: lib/xcodeproj/project/object_attributes.rb:139  [Favor a normal unless-statement over a modifier clause in a multiline statement.]`
-- `CocoaPods__Xcodeproj__2cf6a22: lib/xcodeproj/scheme.rb:334  [Favor a normal unless-statement over a modifier clause in a multiline statement.]`
-- ... and 9 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Layout/LineEndStringConcatenationIndentation</strong> — 2,487 matches, 47 FP, 8 FN (97.8%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `JEG2__highline__0321f84: lib/highline/menu.rb:292  [Align parts of a string concatenated with backslash.]`
-- `Shopify__ruby-lsp__0d5d95f: lib/ruby_lsp/listeners/hover.rb:271  [Align parts of a string concatenated with backslash.]`
-- `Shopify__ruby-lsp__0d5d95f: lib/ruby_lsp/listeners/hover.rb:274  [Align parts of a string concatenated with backslash.]`
-- ... and 44 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `BetterErrors__better_errors__fde3b70: lib/better_errors/error_page.rb:152  [Align parts of a string concatenated with backslash.]`
-- `Freika__dawarich__3d1ae95: app/controllers/users/omniauth_callbacks_controller.rb:54  [Indent the first part of a string concatenated with backslash.]`
-- `forem__forem__72d7c44: app/services/ai/comment_helpfulness_assessor.rb:48  [Indent the first part of a string concatenated with backslash.]`
-- ... and 5 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Rails/ActiveRecordAliases</strong> — 594 matches, 0 FP, 55 FN (91.5%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `Netflix-Skunkworks__Scumblr__66ed69a: app/models/user.rb:42  [Use `update` instead of `update_attributes`.]`
-- `NoamB__sorcery__4aaf383: lib/sorcery/adapters/base_adapter.rb:26  [Use `update` instead of `update_attributes`.]`
-- `Sorcery__sorcery__883852e: lib/sorcery/adapters/mongoid_adapter.rb:19  [Use `update` instead of `update_attributes`.]`
-- ... and 52 more (see corpus-results.json for full list)
 
 </details>
 
@@ -3417,8 +3121,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/site/layout.rb:45  [Avoid the use of double negation (`!!`).]`
-- `ManageIQ__manageiq__b530ec7: app/models/snapshot.rb:59  [Avoid the use of double negation (`!!`).]`
 - `ManageIQ__manageiq__b530ec7: app/models/mixins/service_mixin.rb:135  [Avoid the use of double negation (`!!`).]`
+- `ManageIQ__manageiq__b530ec7: app/models/snapshot.rb:59  [Avoid the use of double negation (`!!`).]`
 - ... and 22 more (see corpus-results.json for full list)
 
 </details>
@@ -3452,8 +3156,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `ManageIQ__manageiq__b530ec7: app/models/miq_region.rb:234  [Use `find_by` instead of dynamic `find_by_region`.]`
-- `TracksApp__tracks__53cf4b4: app/models/todo.rb:360  [Use `find_by` instead of dynamic `find_by_description_and_user_id`.]`
 - `TracksApp__tracks__53cf4b4: app/models/project.rb:133  [Use `find_by` instead of dynamic `find_by_name_and_user_id`.]`
+- `TracksApp__tracks__53cf4b4: app/models/todo.rb:360  [Use `find_by` instead of dynamic `find_by_description_and_user_id`.]`
 - ... and 47 more (see corpus-results.json for full list)
 
 </details>
@@ -3475,9 +3179,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `antiwork__gumroad__782a69f: spec/shared_examples/merge_guest_cart_with_user_cart.rb:10  [This `let` statement uses `2` in its name. Please give it a meaningful name.]`
-- `antiwork__gumroad__782a69f: spec/shared_examples/with_sorting_and_pagination.rb:122  [This `let` statement uses `3` in its name. Please give it a meaningful name.]`
-- `antiwork__gumroad__782a69f: spec/shared_examples/with_workflow_form_context.rb:6  [This `let` statement uses `1` in its name. Please give it a meaningful name.]`
+- `antiwork__gumroad__782a69f: spec/shared_examples/with_workflow_form_context.rb:7  [This `let` statement uses `2` in its name. Please give it a meaningful name.]`
+- `antiwork__gumroad__782a69f: spec/shared_examples/with_sorting_and_pagination.rb:118  [This `let` statement uses `4` in its name. Please give it a meaningful name.]`
+- `antiwork__gumroad__782a69f: spec/shared_examples/merge_guest_cart_with_user_cart.rb:14  [This `let` statement uses `2` in its name. Please give it a meaningful name.]`
 - ... and 47 more (see corpus-results.json for full list)
 
 </details>
@@ -3508,7 +3212,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `RubyMoney__money-rails__3ec279c: lib/money-rails/active_record/migration_extensions/table_pg.rb:9  [Trailing underscore variable(s) in parallel assignment are unnecessary.]`
 - `jruby__jruby__0303464: lib/ruby/stdlib/socket.rb:1394  [Trailing underscore variable(s) in parallel assignment are unnecessary.]`
-- `opal__opal__07183b3: stdlib/racc/parser.rb:388  [Trailing underscore variable(s) in parallel assignment are unnecessary.]`
+- `opal__opal__07183b3: stdlib/racc/parser.rb:282  [Trailing underscore variable(s) in parallel assignment are unnecessary.]`
 - ... and 5 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -3548,9 +3252,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `cyberark__conjur__8031a2a: spec/app/domain/authentication/o_auth/discover_identity_provider_spec.rb:42  [Malformed directive comment detected. Cop names must be separated by commas. Comment in the directive must start with `--`.]`
+- `cyberark__conjur__8031a2a: spec/app/domain/authentication/authn-oidc/v2/oidc_client_spec.rb:198  [Malformed directive comment detected. Cop names must be separated by commas. Comment in the directive must start with `--`.]`
+- `cyberark__conjur__8031a2a: spec/app/domain/authentication/authn-oidc/v2/oidc_client_spec.rb:105  [Malformed directive comment detected. Cop names must be separated by commas. Comment in the directive must start with `--`.]`
 - `cyberark__conjur__8031a2a: spec/app/domain/authentication/authn-oidc/v2/oidc_client_spec.rb:163  [Malformed directive comment detected. Cop names must be separated by commas. Comment in the directive must start with `--`.]`
-- `cyberark__conjur__8031a2a: spec/app/domain/authentication/authn-oidc/v2/oidc_client_spec.rb:48  [Malformed directive comment detected. Cop names must be separated by commas. Comment in the directive must start with `--`.]`
 - ... and 43 more (see corpus-results.json for full list)
 
 </details>
@@ -3581,7 +3285,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `AaronLasseigne__active_interaction__97667c8: lib/active_interaction/filter/column.rb:13  [Do not define public methods within class << self.]`
 - `Shopify__liquid__d897899: lib/liquid/template.rb:23  [Do not define public methods within class << self.]`
-- `Shopify__shopify_app__6c1c2ec: lib/generators/shopify_app/user_model/user_model_generator.rb:81  [Do not define public methods within class << self.]`
+- `Shopify__shopify_app__6c1c2ec: lib/generators/shopify_app/shop_model/shop_model_generator.rb:79  [Do not define public methods within class << self.]`
 - ... and 30 more (see corpus-results.json for full list)
 
 </details>
@@ -3605,12 +3309,24 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
+<summary><strong>Style/MultilineIfModifier</strong> — 1,699 matches, 44 FP, 0 FN (97.4%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `ManageIQ__manageiq__b530ec7: app/models/miq_provision/automate.rb:110  [Favor a normal if-statement over a modifier clause in a multiline statement.]`
+- `ManageIQ__manageiq__b530ec7: app/models/miq_action.rb:248  [Favor a normal unless-statement over a modifier clause in a multiline statement.]`
+- `SciRuby__daru__6a97a7c: spec/vector_spec.rb:119  [Favor a normal if-statement over a modifier clause in a multiline statement.]`
+- ... and 41 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
 <summary><strong>Style/PercentQLiterals</strong> — 419 matches, 0 FP, 44 FN (90.4%)</summary>
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `JoshCheek__seeing_is_believing__cea723c: spec/seeing_is_believing_spec.rb:106  [Do not use `%Q` unless interpolation is needed. Use `%q`.]`
 - `JoshCheek__seeing_is_believing__cea723c: spec/seeing_is_believing_spec.rb:105  [Do not use `%Q` unless interpolation is needed. Use `%q`.]`
+- `JoshCheek__seeing_is_believing__cea723c: spec/seeing_is_believing_spec.rb:106  [Do not use `%Q` unless interpolation is needed. Use `%q`.]`
 - `capistrano__sshkit__76759c7: test/unit/test_command.rb:130  [Do not use `%Q` unless interpolation is needed. Use `%q`.]`
 - ... and 41 more (see corpus-results.json for full list)
 
@@ -3623,7 +3339,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `Freika__dawarich__3d1ae95: config/environments/development.rb:29  [Each item in a multi-line array must start on a separate line.]`
 - `Freika__dawarich__3d1ae95: config/environments/production.rb:76  [Each item in a multi-line array must start on a separate line.]`
-- `ManageIQ__manageiq__b530ec7: spec/tools/miq_config_sssd_ldap/cli_config_spec.rb:7  [Each item in a multi-line array must start on a separate line.]`
+- `ManageIQ__manageiq__b530ec7: spec/tools/miq_config_sssd_ldap/cli_config_spec.rb:8  [Each item in a multi-line array must start on a separate line.]`
 - ... and 40 more (see corpus-results.json for full list)
 
 </details>
@@ -3647,7 +3363,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `bloom-lang__bud__cbcc907: test/tc_temp.rb:53  [Prefer non-Yoda conditions.]`
 - `jruby__jruby__0303464: spec/mspec/tool/sync/sync-rubyspec.rb:257  [Prefer non-Yoda conditions.]`
-- `ruby__rbs__413dd2b: test/stdlib/Integer_test.rb:65  [Prefer non-Yoda conditions.]`
+- `ruby__rbs__413dd2b: test/stdlib/Integer_test.rb:57  [Prefer non-Yoda conditions.]`
 - ... and 5 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -3678,7 +3394,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `ElMassimo__vite_ruby__60914d2: vite_ruby/lib/vite_ruby/config.rb:136  [Useless `private` access modifier for constant scope.]`
 - `Lightricks__Kintsugi__0e4ead5: lib/kintsugi/merge.rb:92  [Useless `private` access modifier for constant scope.]`
-- `ManageIQ__manageiq__b530ec7: spec/models/ems_refresh/save_inventory_spec.rb:228  [Useless `private` access modifier for constant scope.]`
+- `ManageIQ__manageiq__b530ec7: lib/ansible/runner.rb:429  [Useless `private` access modifier for constant scope.]`
 - ... and 38 more (see corpus-results.json for full list)
 
 </details>
@@ -3688,8 +3404,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `alexreisner__geocoder__2d3be47: lib/geocoder/configuration_hash.rb:4  [Use `Hash#key?` instead of `Hash#has_key?`.]`
 - `alexreisner__geocoder__2d3be47: lib/geocoder/configuration_hash.rb:8  [Use `Hash#key?` instead of `Hash#has_key?`.]`
+- `alexreisner__geocoder__2d3be47: lib/geocoder/configuration_hash.rb:4  [Use `Hash#key?` instead of `Hash#has_key?`.]`
 - `binarylogic__settingslogic__0ae134b: lib/settingslogic.rb:117  [Use `Hash#key?` instead of `Hash#has_key?`.]`
 - ... and 38 more (see corpus-results.json for full list)
 
@@ -3721,7 +3437,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `JoshCheek__seeing_is_believing__cea723c: spec/hash_struct_spec.rb:330  [Add parentheses to nested method call `attrs.keys.map &:intern`.]`
 - `autolab__Autolab__674efe9: app/controllers/assessment/grading.rb:156  [Add parentheses to nested method call `CourseUserDatum.joins(:user).where(course: @assessment.course).map &:email`.]`
-- `jruby__jruby__0303464: spec/java_integration/reify/annos_spec.rb:106  [Add parentheses to nested method call `arry.map  &:value`.]`
+- `jruby__jruby__0303464: spec/java_integration/types/classgen_spec.rb:161  [Add parentheses to nested method call `arry.map  &:value`.]`
 - ... and 36 more (see corpus-results.json for full list)
 
 </details>
@@ -3732,8 +3448,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `chef__omnibus__e55f9bc: spec/unit/build_version_spec.rb:98  [Prefer `be_nil` over `be(nil)`.]`
-- `inspec__inspec__965502e: test/kitchen/policies/default/controls/security_identifier_spec.rb:31  [Prefer `be_nil` over `be(nil)`.]`
 - `inspec__inspec__965502e: test/kitchen/policies/default/controls/security_identifier_spec.rb:18  [Prefer `be_nil` over `be(nil)`.]`
+- `inspec__inspec__965502e: test/kitchen/policies/default/controls/service_spec.rb:110  [Prefer `be_nil` over `be(nil)`.]`
 - ... and 36 more (see corpus-results.json for full list)
 
 </details>
@@ -3744,8 +3460,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `forem__forem__72d7c44: spec/requests/notifications_spec.rb:46  [Add an empty line after `it`.]`
-- `kschiess__parslet__f61daf0: spec/parslet/parser_spec.rb:23  [Add an empty line after `it`.]`
-- `kschiess__parslet__f61daf0: spec/parslet/slice_spec.rb:33  [Add an empty line after `it`.]`
+- `kschiess__parslet__f61daf0: spec/acceptance/infix_parser_spec.rb:34  [Add an empty line after `it`.]`
+- `kschiess__parslet__f61daf0: spec/parslet/scope_spec.rb:10  [Add an empty line after `it`.]`
 - ... and 36 more (see corpus-results.json for full list)
 
 </details>
@@ -3767,8 +3483,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `antiwork__gumroad__782a69f: app/services/recommended_products_service.rb:28  [Use `empty?` instead of `length == 0`.]`
 - `antiwork__gumroad__782a69f: spec/services/rpush_fcm_app_service_spec.rb:19  [Use `!empty?` instead of `size > 0`.]`
+- `antiwork__gumroad__782a69f: app/services/recommended_products_service.rb:28  [Use `empty?` instead of `length == 0`.]`
 - `antiwork__gumroad__782a69f: spec/services/rpush_apns_app_service_spec.rb:43  [Use `!empty?` instead of `size > 0`.]`
 - ... and 33 more (see corpus-results.json for full list)
 
@@ -3787,8 +3503,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `antiwork__gumroad__782a69f: spec/support/checkout_helpers.rb:226  [Keep a blank line before and after `private`.]`
-- `jruby__jruby__0303464: spec/ruby/core/module/module_function_spec.rb:258  [Keep a blank line before and after `module_function`.]`
 - `jruby__jruby__0303464: spec/ruby/language/fixtures/def.rb:10  [Keep a blank line before and after `public`.]`
+- `jruby__jruby__0303464: test/jruby/test_proc_visibility.rb:33  [Keep a blank line before and after `public`.]`
 - ... and 27 more (see corpus-results.json for full list)
 
 </details>
@@ -3798,9 +3514,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ManageIQ__manageiq__b530ec7: spec/models/chargeback_vm_spec.rb:1456  [Use a constant class reference for verified doubles. String references are not verifying unless the class is loaded.]`
+- `ManageIQ__manageiq__b530ec7: spec/models/service_template_spec.rb:391  [Use a constant class reference for verified doubles. String references are not verifying unless the class is loaded.]`
+- `ManageIQ__manageiq__b530ec7: spec/models/vm/retirement_management_spec.rb:197  [Use a constant class reference for verified doubles. String references are not verifying unless the class is loaded.]`
 - `ManageIQ__manageiq__b530ec7: spec/models/service_template_spec.rb:301  [Use a constant class reference for verified doubles. String references are not verifying unless the class is loaded.]`
-- `ManageIQ__manageiq__b530ec7: spec/models/service_template_spec.rb:384  [Use a constant class reference for verified doubles. String references are not verifying unless the class is loaded.]`
 - ... and 31 more (see corpus-results.json for full list)
 
 </details>
@@ -3822,9 +3538,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `molybdenum-99__reality__0ac3b48: spec/reality/describers/wikipedia/simplifier_spec.rb:18  [Avoid implicit block expectations.]`
 - `molybdenum-99__reality__0ac3b48: spec/reality/describers/wikipedia/simplifier_spec.rb:33  [Avoid implicit block expectations.]`
-- `molybdenum-99__reality__0ac3b48: spec/reality/describers/wikipedia/simplifier_spec.rb:65  [Avoid implicit block expectations.]`
+- `molybdenum-99__reality__0ac3b48: spec/reality/describers/wikipedia/simplifier_spec.rb:18  [Avoid implicit block expectations.]`
+- `molybdenum-99__reality__0ac3b48: spec/reality/describers/wikipedia/simplifier_spec.rb:21  [Avoid implicit block expectations.]`
 - ... and 28 more (see corpus-results.json for full list)
 
 </details>
@@ -3843,7 +3559,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `Arachni__arachni__c1710d6: lib/arachni/http/cookie_jar.rb:139  [Replace `map { ... }.compact` with `reject`.]`
 - `Shopify__tapioca__ca6acae: lib/tapioca/commands/abstract_dsl.rb:288  [Replace `filter_map { ... }` with `reject`.]`
-- `ankane__ruby-polars__f274df0: lib/polars/functions/lazy.rb:794  [Replace `filter_map { ... }` with `select`.]`
+- `ankane__ruby-polars__f274df0: lib/polars/functions/lazy.rb:867  [Replace `filter_map { ... }` with `select`.]`
 - ... and 18 more (see corpus-results.json for full list)
 
 </details>
@@ -3853,14 +3569,31 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `rom-rb__rom__7cdb1a2: core/spec/unit/rom/commands/pre_and_post_processors_spec.rb:100  [Repeated context block body on line(s) [148]]`
 - `rom-rb__rom__7cdb1a2: core/spec/unit/rom/commands/pre_and_post_processors_spec.rb:148  [Repeated context block body on line(s) [100]]`
+- `rom-rb__rom__7cdb1a2: core/spec/unit/rom/commands/pre_and_post_processors_spec.rb:100  [Repeated context block body on line(s) [148]]`
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `inspec__inspec__965502e: test/kitchen/policies/default/controls/apt_spec.rb:3  [Repeated describe block body on line(s) [8, 13, 23]]`
-- `inspec__inspec__965502e: test/kitchen/policies/default/controls/group_spec.rb:18  [Repeated describe block body on line(s) [23]]`
-- `inspec__inspec__965502e: test/kitchen/policies/default/controls/service_spec.rb:60  [Repeated describe block body on line(s) [100]]`
+- `inspec__inspec__965502e: test/kitchen/policies/default/controls/user_spec.rb:89  [Repeated describe block body on line(s) [103]]`
+- `inspec__inspec__965502e: test/kitchen/policies/default/controls/user_spec.rb:103  [Repeated describe block body on line(s) [89]]`
+- `inspec__inspec__965502e: test/kitchen/policies/default/controls/apt_spec.rb:23  [Repeated describe block body on line(s) [3, 8, 13]]`
+- ... and 25 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
+<summary><strong>Rails/Delegate</strong> — 7,012 matches, 2 FP, 28 FN (99.5%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `antiwork__gumroad__782a69f: spec/support/stripe_payment_method_helper.rb:60  [Use `delegate` to define delegations.]`
+- `palkan__anyway_config__e171bf6: lib/anyway/tracing.rb:81  [Use `delegate` to define delegations.]`
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `asciidoctor__asciidoctor__33c50c7: lib/asciidoctor/timings.rb:66  [Use `delegate` to define delegations.]`
+- `lsegal__yard__eddd10c: lib/yard/handlers/base.rb:340  [Use `delegate` to define delegations.]`
+- `lsegal__yard__eddd10c: lib/yard/handlers/base.rb:343  [Use `delegate` to define delegations.]`
 - ... and 25 more (see corpus-results.json for full list)
 
 </details>
@@ -3883,14 +3616,14 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `rubyworks__facets__12326d4: work/sandbox/multiton2.rb:261  [Method `Multiton::ClassMethods::InstanceMutex#default` is defined at both repos/rubyworks__facets__12326d4/work/sandbox/multiton2.rb:118 and repos/rubyworks__facets__12326d4/work/sandbox/multiton2.rb:261.]`
-- `rubyworks__facets__12326d4: work/sandbox/multiton2.rb:253  [Method `Multiton::ClassMethods::InstanceMutex#initialized` is defined at both repos/rubyworks__facets__12326d4/work/sandbox/multiton2.rb:110 and repos/rubyworks__facets__12326d4/work/sandbox/multiton2.rb:253.]`
 - `rubyworks__facets__12326d4: work/sandbox/multiton2.rb:249  [Method `Multiton::ClassMethods::InstanceMutex#initialize` is defined at both repos/rubyworks__facets__12326d4/work/sandbox/multiton2.rb:106 and repos/rubyworks__facets__12326d4/work/sandbox/multiton2.rb:249.]`
+- `rubyworks__facets__12326d4: work/sandbox/multiton2.rb:253  [Method `Multiton::ClassMethods::InstanceMutex#initialized` is defined at both repos/rubyworks__facets__12326d4/work/sandbox/multiton2.rb:110 and repos/rubyworks__facets__12326d4/work/sandbox/multiton2.rb:253.]`
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `CanCanCommunity__cancancan__1100093: lib/cancan/model_adapters/strategies/base.rb:34  [Method `CanCan::ModelAdapters::Strategies::Base#quoted_table_name` is defined at both repos/CanCanCommunity__cancancan__1100093/lib/cancan/model_adapters/strategies/base.rb:7 and repos/CanCanCommunity__cancancan__1100093/lib/cancan/model_adapters/strategies/base.rb:34.]`
-- `CanCanCommunity__cancancan__1100093: lib/cancan/model_adapters/strategies/base.rb:17  [Method `CanCan::ModelAdapters::Strategies::Base#quoted_primary_key` is defined at both repos/CanCanCommunity__cancancan__1100093/lib/cancan/model_adapters/strategies/base.rb:7 and repos/CanCanCommunity__cancancan__1100093/lib/cancan/model_adapters/strategies/base.rb:17.]`
 - `CanCanCommunity__cancancan__1100093: lib/cancan/model_adapters/strategies/base.rb:30  [Method `CanCan::ModelAdapters::Strategies::Base#quoted_aliased_table_name` is defined at both repos/CanCanCommunity__cancancan__1100093/lib/cancan/model_adapters/strategies/base.rb:7 and repos/CanCanCommunity__cancancan__1100093/lib/cancan/model_adapters/strategies/base.rb:30.]`
+- `CanCanCommunity__cancancan__1100093: lib/cancan/model_adapters/strategies/base.rb:17  [Method `CanCan::ModelAdapters::Strategies::Base#quoted_primary_key` is defined at both repos/CanCanCommunity__cancancan__1100093/lib/cancan/model_adapters/strategies/base.rb:7 and repos/CanCanCommunity__cancancan__1100093/lib/cancan/model_adapters/strategies/base.rb:17.]`
+- `CanCanCommunity__cancancan__1100093: lib/cancan/model_adapters/strategies/base.rb:34  [Method `CanCan::ModelAdapters::Strategies::Base#quoted_table_name` is defined at both repos/CanCanCommunity__cancancan__1100093/lib/cancan/model_adapters/strategies/base.rb:7 and repos/CanCanCommunity__cancancan__1100093/lib/cancan/model_adapters/strategies/base.rb:34.]`
 - ... and 23 more (see corpus-results.json for full list)
 
 </details>
@@ -3956,7 +3689,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `activeadmin__activeadmin__c3de750: lib/active_admin/resource/naming.rb:50  [Remove the redundant double splat and braces, use keyword arguments directly.]`
 - `ankane__strong_migrations__4d22559: lib/strong_migrations/checker.rb:294  [Remove the redundant double splat and braces, use keyword arguments directly.]`
-- `danger__danger__20f1243: lib/danger/request_sources/gitlab.rb:213  [Remove the redundant double splat and braces, use keyword arguments directly.]`
+- `danger__danger__20f1243: lib/danger/request_sources/gitlab.rb:195  [Remove the redundant double splat and braces, use keyword arguments directly.]`
 - ... and 25 more (see corpus-results.json for full list)
 
 </details>
@@ -3966,9 +3699,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Shopify__pitchfork__c95f7a6: test/unit/test_tee_input.rb:48  [Prefer `to_s` over string interpolation.]`
 - `Shopify__pitchfork__c95f7a6: test/unit/test_stream_input.rb:101  [Prefer `to_s` over string interpolation.]`
 - `Shopify__pitchfork__c95f7a6: test/unit/test_socket_helper.rb:184  [Prefer `to_s` over string interpolation.]`
+- `Shopify__pitchfork__c95f7a6: test/unit/test_tee_input.rb:48  [Prefer `to_s` over string interpolation.]`
 - ... and 24 more (see corpus-results.json for full list)
 
 </details>
@@ -3980,7 +3713,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `ManageIQ__manageiq__b530ec7: app/models/mixins/relationship_mixin.rb:759  [Use `rfind` instead of `reverse.find`.]`
 - `bridgetownrb__bridgetown__c8618d7: bridgetown-core/lib/bridgetown-core/resource/transformer.rb:89  [Use `rfind` instead of `reverse.find`.]`
-- `dependabot__dependabot-core__0ed9632: bun/lib/dependabot/bun/constraint_helper.rb:340  [Use `rfind` instead of `reverse.find`.]`
+- `dependabot__dependabot-core__0ed9632: npm_and_yarn/lib/dependabot/npm_and_yarn/constraint_helper.rb:352  [Use `rfind` instead of `reverse.find`.]`
 - ... and 12 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -3993,12 +3726,28 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
+<summary><strong>Layout/AssignmentIndentation</strong> — 329 matches, 25 FP, 1 FN (92.6%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `bridgetownrb__bridgetown__c8618d7: bridgetown-core/lib/bridgetown-core/helpers.rb:292  [Indent the first line of the right-hand-side of a multi-line assignment.]`
+- `bridgetownrb__bridgetown__c8618d7: bridgetown-core/lib/bridgetown-core/component.rb:206  [Indent the first line of the right-hand-side of a multi-line assignment.]`
+- `discourse__discourse__9c8f125: app/jobs/regular/pull_hotlinked_images.rb:47  [Indent the first line of the right-hand-side of a multi-line assignment.]`
+- ... and 22 more (see corpus-results.json for full list)
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/project.rb:474  [Indent the first line of the right-hand-side of a multi-line assignment.]`
+
+</details>
+
+<details>
 <summary><strong>Lint/ReturnInVoidContext</strong> — 98 matches, 15 FP, 11 FN (79.0%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `gel-rb__gel__34b69dc: lib/gel/support/gem_platform.rb:166  [Do not return a value in `===`.]`
-- `jruby__jruby__0303464: spec/mspec/lib/mspec/runner/filters/profile.rb:42  [Do not return a value in `===`.]`
+- `jruby__jruby__0303464: spec/mspec/lib/mspec/runner/filters/profile.rb:43  [Do not return a value in `===`.]`
 - `jruby__jruby__0303464: spec/mspec/lib/mspec/runner/actions/tag.rb:40  [Do not return a value in `===`.]`
 - ... and 12 more (see corpus-results.json for full list)
 
@@ -4012,30 +3761,13 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Style/HashLikeCase</strong> — 121 matches, 24 FP, 2 FN (82.3%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `Freika__dawarich__3d1ae95: app/helpers/stats_helper.rb:200  [Consider replacing `case-when` with a hash lookup.]`
-- `Freika__dawarich__3d1ae95: app/helpers/stats_helper.rb:183  [Consider replacing `case-when` with a hash lookup.]`
-- `ManageIQ__manageiq__b530ec7: app/models/miq_schedule.rb:359  [Consider replacing `case-when` with a hash lookup.]`
-- ... and 21 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `backup__backup__86c9b07: lib/backup/notifier/flowdock.rb:81  [Consider replacing `case-when` with a hash lookup.]`
-- `danbooru__danbooru__fd45f0f: app/models/media_asset.rb:171  [Consider replacing `case-when` with a hash lookup.]`
-
-</details>
-
-<details>
 <summary><strong>Style/NumericLiteralPrefix</strong> — 4,595 matches, 13 FP, 13 FN (99.4%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `antiwork__gumroad__782a69f: spec/business/payments/charging/implementations/stripe/stripe_charge_processor_spec.rb:769  [Use 0o for octal literals.]`
+- `antiwork__gumroad__782a69f: spec/business/payments/charging/implementations/stripe/stripe_charge_processor_spec.rb:781  [Use 0o for octal literals.]`
 - `antiwork__gumroad__782a69f: spec/business/payments/charging/charge_processor_spec.rb:121  [Use 0o for octal literals.]`
-- `antiwork__gumroad__782a69f: spec/business/payments/charging/implementations/stripe/stripe_chargeable_credit_card_spec.rb:229  [Use 0o for octal literals.]`
+- `antiwork__gumroad__782a69f: spec/business/payments/charging/implementations/stripe/stripe_charge_processor_spec.rb:726  [Use 0o for octal literals.]`
 - ... and 10 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -4064,29 +3796,10 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ManageIQ__manageiq__b530ec7: app/models/orchestration_stack.rb:24  [Association `authentication_orchestration_stacks` is defined multiple times. Don't repeat associations.]`
-- `ManageIQ__manageiq__b530ec7: app/models/chargeback_rate_detail_currency.rb:4  [Association `chargeback_rate_detail` is defined multiple times. Don't repeat associations.]`
 - `ManageIQ__manageiq__b530ec7: app/models/currency.rb:2  [Association `chargeback_rate_detail` is defined multiple times. Don't repeat associations.]`
+- `ManageIQ__manageiq__b530ec7: app/models/chargeback_rate_detail_currency.rb:4  [Association `chargeback_rate_detail` is defined multiple times. Don't repeat associations.]`
+- `ManageIQ__manageiq__b530ec7: app/models/tenant.rb:29  [Association `service_templates` is defined multiple times. Don't repeat associations.]`
 - ... and 22 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Rails/RootPathnameMethods</strong> — 859 matches, 4 FP, 21 FN (97.1%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `ManageIQ__manageiq__b530ec7: lib/tasks/locale.rake:10  [`Rails.root` is a `Pathname`, so you can use `Rails.root.join(...).open` instead.]`
-- `forem__forem__72d7c44: spec/models/organization_spec.rb:276  [`Rails.root` is a `Pathname`, so you can use `Rails.root.join(...).open` instead.]`
-- `igorkasyanchuk__active_storage_validations__ec0ae6d: test/support/files.rb:154  [`Rails.root` is a `Pathname`, so you can use `Rails.root.join(...).open` instead.]`
-- ... and 1 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `AssetSync__asset_sync__aab9010: lib/asset_sync/config.rb:392  [`::Rails.public_path` is a `Pathname`, so you can use `::Rails.public_path.join(assets_prefix)`.]`
-- `SquareSquash__web__e73f280: app/controllers/application_controller.rb:147  [`Rails.public_path` is a `Pathname`, so you can use `Rails.public_path.join('400')`.]`
-- `SquareSquash__web__e73f280: app/controllers/application_controller.rb:139  [`Rails.public_path` is a `Pathname`, so you can use `Rails.public_path.join('404')`.]`
-- ... and 18 more (see corpus-results.json for full list)
 
 </details>
 
@@ -4095,9 +3808,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `chef__chef__e58e1a1: spec/unit/provider/service/windows_spec.rb:93  [Prefer a two-line class definition over `Class.new` for classes with no body.]`
 - `chef__chef__e58e1a1: spec/unit/win32/registry_spec.rb:37  [Prefer a two-line class definition over `Class.new` for classes with no body.]`
 - `chef__chef__e58e1a1: spec/unit/win32/registry_spec.rb:38  [Prefer a two-line class definition over `Class.new` for classes with no body.]`
+- `chef__chef__e58e1a1: spec/unit/provider/service/windows_spec.rb:93  [Prefer a two-line class definition over `Class.new` for classes with no body.]`
 - ... and 22 more (see corpus-results.json for full list)
 
 </details>
@@ -4115,7 +3828,19 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Style/FrozenStringLiteralComment</strong> — 123,583 matches, 10 FP, 14 FN (99.9%)</summary>
+<summary><strong>RSpec/LeakyConstantDeclaration</strong> — 5,675 matches, 0 FP, 23 FN (99.5%)</summary>
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `CocoaPods__CocoaPods__458dd19: spec/unit/installer/user_project_integrator_spec.rb:4  [Stub constant instead of declaring explicitly.]`
+- `CocoaPods__CocoaPods__458dd19: spec/unit/installer/user_project_integrator/target_integrator/xcconfig_integrator_spec.rb:4  [Stub constant instead of declaring explicitly.]`
+- `CocoaPods__CocoaPods__458dd19: spec/unit/xcode/linkage_analyzer_spec.rb:5  [Stub constant instead of declaring explicitly.]`
+- ... and 20 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
+<summary><strong>Style/FrozenStringLiteralComment</strong> — 123,584 matches, 10 FP, 13 FN (99.9%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
 
@@ -4126,41 +3851,10 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `browsermedia__browsercms__0a7fb92: bin/browsercms:1  [Missing frozen string literal comment.]`
 - `cyberark__conjur__8031a2a: db/migrate/202403071709433_is_role_allowed_to_up.rb:1  [Missing frozen string literal comment.]`
-- `estiens__world_cup_json__9a9320d: old/tasks/create_fixtures.rake:1  [Missing frozen string literal comment.]`
-- ... and 11 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>RSpec/LeakyConstantDeclaration</strong> — 5,675 matches, 0 FP, 23 FN (99.5%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `CocoaPods__CocoaPods__458dd19: spec/unit/generator/header_spec.rb:4  [Stub constant instead of declaring explicitly.]`
-- `CocoaPods__CocoaPods__458dd19: spec/unit/installer/analyzer/pod_variant_set_spec.rb:4  [Stub constant instead of declaring explicitly.]`
-- `CocoaPods__CocoaPods__458dd19: spec/unit/generator/copy_xcframeworks_script_spec.rb:4  [Stub constant instead of declaring explicitly.]`
-- ... and 20 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Style/OperatorMethodCall</strong> — 87 matches, 18 FP, 5 FN (79.0%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `flippercloud__flipper__8c4ee2f: spec/flipper/actor_spec.rb:37  [Redundant dot detected.]`
-- `flippercloud__flipper__8c4ee2f: spec/flipper/actor_spec.rb:43  [Redundant dot detected.]`
-- `flippercloud__flipper__8c4ee2f: spec/flipper/actor_spec.rb:31  [Redundant dot detected.]`
-- ... and 15 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `autolab__Autolab__674efe9: app/helpers/assessment_autograde_core.rb:78  [Redundant dot detected.]`
-- `hybridgroup__artoo__2f0446a: lib/artoo/utility.rb:46  [Redundant dot detected.]`
-- `jruby__jruby__0303464: spec/ruby/language/match_spec.rb:74  [Redundant dot detected.]`
-- ... and 2 more (see corpus-results.json for full list)
+- `estiens__world_cup_json__9a9320d: old/tasks/setup.rake:1  [Missing frozen string literal comment.]`
+- `estiens__world_cup_json__9a9320d: old/tasks/new_scraper.rake:1  [Missing frozen string literal comment.]`
+- ... and 10 more (see corpus-results.json for full list)
 
 </details>
 
@@ -4188,8 +3882,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `automaticmode__active_workflow__d708f3b: app/concerns/sortable_messages.rb:139  [Avoid `when` branches without a body.]`
-- `eventmachine__eventmachine__e732041: lib/em/protocols/postgres3.rb:233  [Avoid `when` branches without a body.]`
 - `eventmachine__eventmachine__e732041: lib/em/protocols/postgres3.rb:232  [Avoid `when` branches without a body.]`
+- `eventmachine__eventmachine__e732041: lib/em/protocols/postgres3.rb:233  [Avoid `when` branches without a body.]`
 - ... and 19 more (see corpus-results.json for full list)
 
 </details>
@@ -4206,7 +3900,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `ManageIQ__manageiq__b530ec7: app/models/classification.rb:368  [Use `ta[0..-2]` instead of `ta[0..(ta.length - 2)]`.]`
 - `Netflix-Skunkworks__Scumblr__66ed69a: app/models/result.rb:576  [Use `k[1..-2]` instead of `k[1..k.length-2]`.]`
-- `Netflix-Skunkworks__Scumblr__66ed69a: app/models/result.rb:588  [Use `k[1..-2]` instead of `k[1..k.length-2]`.]`
+- `Netflix-Skunkworks__Scumblr__66ed69a: app/models/result.rb:716  [Use `k[1..-2]` instead of `k[1..k.length-2]`.]`
 - ... and 17 more (see corpus-results.json for full list)
 
 </details>
@@ -4233,9 +3927,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `adzap__validates_timeliness__a36d6f7: spec/validates_timeliness/orm/active_record_spec.rb:143  [Example has too many expectations [2/1].]`
 - `adzap__validates_timeliness__a36d6f7: spec/validates_timeliness/orm/active_record_spec.rb:150  [Example has too many expectations [2/1].]`
-- `moneta-rb__moneta__6fdb9c7: spec/features/default_expires.rb:46  [Example has too many expectations [2/1].]`
+- `adzap__validates_timeliness__a36d6f7: spec/validates_timeliness/orm/active_record_spec.rb:143  [Example has too many expectations [2/1].]`
+- `moneta-rb__moneta__6fdb9c7: spec/features/default_expires.rb:61  [Example has too many expectations [2/1].]`
 - ... and 18 more (see corpus-results.json for full list)
 
 </details>
@@ -4245,9 +3939,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `RailsApps__rails_apps_composer__b4165ab: spec/rails_wizard/recipes/sanity_spec.rb:26  [Use `include` instead of `be_include`.]`
 - `RailsApps__rails_apps_composer__b4165ab: spec/rails_wizard/config_spec.rb:74  [Use `include` instead of `be_include`.]`
-- `RailsApps__rails_apps_composer__b4165ab: spec/rails_wizard/recipes_spec.rb:25  [Use `include` instead of `be_include`.]`
+- `RailsApps__rails_apps_composer__b4165ab: spec/rails_wizard/config_spec.rb:66  [Use `include` instead of `be_include`.]`
+- `RailsApps__rails_apps_composer__b4165ab: spec/rails_wizard/recipes_spec.rb:16  [Use `include` instead of `be_include`.]`
 - ... and 18 more (see corpus-results.json for full list)
 
 </details>
@@ -4257,9 +3951,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
+- `ManageIQ__manageiq__b530ec7: tools/db_printers/print_scsi.rb:4  [Use `find_each` instead of `each`.]`
 - `ManageIQ__manageiq__b530ec7: tools/fix_vm_relationships.rb:11  [Use `find_each` instead of `each`.]`
 - `ManageIQ__manageiq__b530ec7: tools/db_printers/print_network.rb:13  [Use `find_each` instead of `each`.]`
-- `ManageIQ__manageiq__b530ec7: tools/db_printers/print_scsi.rb:4  [Use `find_each` instead of `each`.]`
 - ... and 18 more (see corpus-results.json for full list)
 
 </details>
@@ -4270,15 +3964,15 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `digininja__CeWL__2f17ee1: cewl.rb:197  [Favor `until` over `while` for negative conditions.]`
-- `discourse__discourse__9c8f125: lib/tasks/admin.rake:90  [Favor `until` over `while` for negative conditions.]`
-- `discourse__discourse__9c8f125: lib/discourse_dev/config.rb:133  [Favor `until` over `while` for negative conditions.]`
+- `discourse__discourse__9c8f125: lib/tasks/admin.rake:80  [Favor `until` over `while` for negative conditions.]`
+- `discourse__discourse__9c8f125: lib/tasks/admin.rake:61  [Favor `until` over `while` for negative conditions.]`
 - ... and 6 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Netflix-Skunkworks__Scumblr__66ed69a: app/workers/task_runner.rb:53  [Favor `until` over `while` for negative conditions.]`
 - `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/async.rb:99  [Favor `until` over `while` for negative conditions.]`
 - `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/async_sidekiq.rb:96  [Favor `until` over `while` for negative conditions.]`
+- `Netflix-Skunkworks__Scumblr__66ed69a: app/workers/task_runner.rb:53  [Favor `until` over `while` for negative conditions.]`
 - ... and 8 more (see corpus-results.json for full list)
 
 </details>
@@ -4296,8 +3990,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `jruby__jruby__0303464: spec/ruby/core/kernel/shared/sprintf.rb:400  [Number of arguments (1) to `sprintf` doesn't match the number of fields (2).]`
-- `moneta-rb__moneta__6fdb9c7: script/benchmarks:516  [Number of arguments (2) to `String#%` doesn't match the number of fields (3).]`
 - `moneta-rb__moneta__6fdb9c7: script/benchmarks:506  [Number of arguments (2) to `String#%` doesn't match the number of fields (3).]`
+- `moneta-rb__moneta__6fdb9c7: script/benchmarks:526  [Number of arguments (2) to `String#%` doesn't match the number of fields (3).]`
 - ... and 3 more (see corpus-results.json for full list)
 
 </details>
@@ -4307,29 +4001,36 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `puppetlabs__puppet__e227c27: spec/unit/pops/parser/lexer2_spec.rb:594  [Remove the redundant heredoc delimiter quotes, use `<<-CODE` instead.]`
-- `puppetlabs__puppet__e227c27: spec/unit/pops/parser/lexer2_spec.rb:608  [Remove the redundant heredoc delimiter quotes, use `<<-CODE` instead.]`
+- `puppetlabs__puppet__e227c27: spec/unit/pops/parser/lexer2_spec.rb:601  [Remove the redundant heredoc delimiter quotes, use `<<-CODE` instead.]`
 - `puppetlabs__puppet__e227c27: spec/unit/pops/parser/lexer2_spec.rb:560  [Remove the redundant heredoc delimiter quotes, use `<<-CODE` instead.]`
+- `puppetlabs__puppet__e227c27: spec/unit/pops/parser/lexer2_spec.rb:594  [Remove the redundant heredoc delimiter quotes, use `<<-CODE` instead.]`
 - ... and 1 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
+- `asciidoctor__asciidoctor-pdf__dadceca: spec/title_page_spec.rb:676  [Remove the redundant heredoc delimiter quotes, use `<<~END` instead.]`
+- `asciidoctor__asciidoctor-pdf__dadceca: spec/page_spec.rb:955  [Remove the redundant heredoc delimiter quotes, use `<<~END` instead.]`
 - `asciidoctor__asciidoctor-pdf__dadceca: spec/title_page_spec.rb:639  [Remove the redundant heredoc delimiter quotes, use `<<~END` instead.]`
-- `asciidoctor__asciidoctor-pdf__dadceca: spec/list_spec.rb:2120  [Remove the redundant heredoc delimiter quotes, use `<<~END` instead.]`
-- `asciidoctor__asciidoctor-pdf__dadceca: spec/list_spec.rb:2139  [Remove the redundant heredoc delimiter quotes, use `<<~END` instead.]`
 - ... and 12 more (see corpus-results.json for full list)
 
 </details>
 
 <details>
-<summary><strong>Layout/EmptyLinesAroundAttributeAccessor</strong> — 1,530 matches, 0 FP, 18 FN (98.8%)</summary>
+<summary><strong>Layout/LineEndStringConcatenationIndentation</strong> — 2,491 matches, 14 FP, 4 FN (99.2%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `dependabot__dependabot-core__0ed9632: updater/lib/dependabot/updater/security_update_helpers.rb:184  [Align parts of a string concatenated with backslash.]`
+- `edavis10__redmine__2d6f552: app/models/issue.rb:137  [Align parts of a string concatenated with backslash.]`
+- `edavis10__redmine__2d6f552: app/models/issue.rb:142  [Align parts of a string concatenated with backslash.]`
+- ... and 11 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/installer/installation_options.rb:47  [Add an empty line after attribute accessor.]`
-- `NoamB__sorcery__4aaf383: lib/sorcery/controller/submodules/session_timeout.rb:11  [Add an empty line after attribute accessor.]`
-- `browsermedia__browsercms__0a7fb92: lib/cms/behaviors/connecting.rb:23  [Add an empty line after attribute accessor.]`
-- ... and 15 more (see corpus-results.json for full list)
+- `BetterErrors__better_errors__fde3b70: lib/better_errors/error_page.rb:152  [Align parts of a string concatenated with backslash.]`
+- `Shopify__identity_cache__4e9907d: lib/identity_cache/cached/attribute.rb:155  [Align parts of a string concatenated with backslash.]`
+- `thoughtbot__shoulda-matchers__f147e7b: lib/shoulda/matchers/active_record/association_matchers/required_matcher.rb:59  [Indent the first part of a string concatenated with backslash.]`
+- ... and 1 more (see corpus-results.json for full list)
 
 </details>
 
@@ -4338,9 +4039,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `jruby__jruby__0303464: spec/ruby/language/block_spec.rb:848  [Space before first block parameter detected.]`
-- `jruby__jruby__0303464: spec/ruby/language/block_spec.rb:816  [Space before first block parameter detected.]`
+- `jruby__jruby__0303464: spec/ruby/language/block_spec.rb:817  [Space before first block parameter detected.]`
 - `jruby__jruby__0303464: spec/ruby/language/block_spec.rb:827  [Space before first block parameter detected.]`
+- `jruby__jruby__0303464: spec/ruby/core/kernel/local_variables_spec.rb:41  [Space before first block parameter detected.]`
 - ... and 15 more (see corpus-results.json for full list)
 
 </details>
@@ -4350,8 +4051,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `ManageIQ__manageiq__b530ec7: app/models/miq_report/generator.rb:590  [Convert `if-elsif` to `case-when`.]`
 - `ManageIQ__manageiq__b530ec7: app/models/host.rb:1320  [Convert `if-elsif` to `case-when`.]`
+- `ManageIQ__manageiq__b530ec7: app/models/miq_report/generator.rb:590  [Convert `if-elsif` to `case-when`.]`
 - `coreinfrastructure__best-practices-badge__a3a2fb7: lib/tasks/default.rake:736  [Convert `if-elsif` to `case-when`.]`
 - ... and 9 more (see corpus-results.json for full list)
 
@@ -4371,7 +4072,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `devise__devise__5b008ed: test/devise_test.rb:11  [Replace class var @@warden_config_blocks with a class instance var.]`
 - `eventmachine__eventmachine__e732041: tests/test_ipv6.rb:44  [Replace class var @@remote_ip with a class instance var.]`
-- `jruby__jruby__0303464: spec/ruby/language/for_spec.rb:83  [Replace class var @@var with a class instance var.]`
+- `jruby__jruby__0303464: spec/ruby/language/fixtures/rescue_captures.rb:15  [Replace class var @@captured_error with a class instance var.]`
 - ... and 15 more (see corpus-results.json for full list)
 
 </details>
@@ -4383,7 +4084,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `ManageIQ__manageiq__b530ec7: app/models/miq_report/generator.rb:570  [Use `slice(*base_cols)` instead.]`
 - `danbooru__danbooru__fd45f0f: app/logical/danbooru_logger.rb:69  [Use `slice(*HEADERS)` instead.]`
-- `drhenner__ror_ecommerce__b7142f0: spec/controllers/admin/users_controller_spec.rb:32  [Use `slice('first_name', 'last_name', 'password')` instead.]`
+- `drhenner__ror_ecommerce__b7142f0: spec/controllers/myaccount/overviews_controller_spec.rb:32  [Use `slice('first_name', 'last_name', 'password')` instead.]`
 - ... and 15 more (see corpus-results.json for full list)
 
 </details>
@@ -4394,8 +4095,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Shopify__shipit-engine__ff8282b: test/helpers/hooks_helper.rb:28  [Avoid safe navigation chains longer than 2 calls.]`
-- `activemerchant__active_merchant__ca45b1b: test/unit/gateways/cecabank_rest_json_test.rb:373  [Avoid safe navigation chains longer than 2 calls.]`
 - `activemerchant__active_merchant__ca45b1b: lib/active_merchant/billing/gateways/cecabank/cecabank_json.rb:112  [Avoid safe navigation chains longer than 2 calls.]`
+- `activemerchant__active_merchant__ca45b1b: lib/active_merchant/billing/gateways/cecabank/cecabank_json.rb:105  [Avoid safe navigation chains longer than 2 calls.]`
 - ... and 15 more (see corpus-results.json for full list)
 
 </details>
@@ -4407,7 +4108,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `automaticmode__active_workflow__d708f3b: app/helpers/dot_helper.rb:4  [Pass array contents as separate arguments.]`
 - `gel-rb__gel__34b69dc: vendor/ruby-digest/lib/ruby_digest.rb:393  [Replace splat expansion with comma separated values.]`
-- `jruby__jruby__0303464: test/mri/logger/test_logdevice.rb:630  [Pass array contents as separate arguments.]`
+- `jruby__jruby__0303464: test/mri/logger/test_logdevice.rb:710  [Pass array contents as separate arguments.]`
 - ... and 14 more (see corpus-results.json for full list)
 
 </details>
@@ -4417,8 +4118,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Freika__dawarich__3d1ae95: spec/services/own_tracks/point_creator_spec.rb:25  [Calls to subject are memoized, this block is misleading]`
 - `Freika__dawarich__3d1ae95: spec/services/areas/visits/create_spec.rb:114  [Calls to subject are memoized, this block is misleading]`
+- `Freika__dawarich__3d1ae95: spec/services/own_tracks/point_creator_spec.rb:25  [Calls to subject are memoized, this block is misleading]`
 - `Freika__dawarich__3d1ae95: spec/services/overland/points_creator_spec.rb:28  [Calls to subject are memoized, this block is misleading]`
 - ... and 14 more (see corpus-results.json for full list)
 
@@ -4436,8 +4137,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `jruby__jruby__0303464: spec/ruby/library/socket/socket/getaddrinfo_spec.rb:28  [Do not hardcode IP addresses.]`
 - `jruby__jruby__0303464: spec/ruby/library/socket/socket/getaddrinfo_spec.rb:30  [Do not hardcode IP addresses.]`
+- `jruby__jruby__0303464: spec/ruby/library/socket/socket/getaddrinfo_spec.rb:28  [Do not hardcode IP addresses.]`
 - `natalie-lang__natalie__b507cff: spec/library/socket/socket/getaddrinfo_spec.rb:30  [Do not hardcode IP addresses.]`
 - ... and 2 more (see corpus-results.json for full list)
 
@@ -4449,8 +4150,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Shopify__ruby-lsp__0d5d95f: test/fixtures/minitest_spec_describe_with_classname.rb:1  [Spec path should end with `_spec.rb`.]`
-- `Shopify__ruby-lsp__0d5d95f: test/fixtures/minitest_spec_simple.rb:1  [Spec path should end with `_spec.rb`.]`
 - `Shopify__ruby-lsp__0d5d95f: test/fixtures/minitest_spec_nested.rb:1  [Spec path should end with `_spec.rb`.]`
+- `Shopify__ruby-lsp__0d5d95f: test/fixtures/minitest_spec_simple.rb:1  [Spec path should end with `_spec.rb`.]`
 - ... and 13 more (see corpus-results.json for full list)
 
 </details>
@@ -4493,13 +4194,13 @@ Every offense is compared by file path, line number, and cop name.
 
 - `ManageIQ__manageiq__b530ec7: lib/tasks/test_vmdb.rake:3  [Combine nested `defined?` calls.]`
 - `huginn__huginn__9328c1e: app/models/agents/google_calendar_publish_agent.rb:9  [Combine nested `defined?` calls.]`
-- `newrelic__newrelic-ruby-agent__e5684e4: test/agent_helper.rb:1027  [Combine nested `defined?` calls.]`
+- `newrelic__newrelic-ruby-agent__e5684e4: lib/new_relic/agent/configuration/default_source.rb:136  [Combine nested `defined?` calls.]`
 - ... and 3 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `BetterErrors__better_errors__fde3b70: lib/better_errors/middleware.rb:157  [Combine nested `defined?` calls.]`
 - `BetterErrors__better_errors__fde3b70: lib/better_errors/inspectable_value.rb:38  [Combine nested `defined?` calls.]`
+- `BetterErrors__better_errors__fde3b70: lib/better_errors/middleware.rb:157  [Combine nested `defined?` calls.]`
 - `alexreisner__geocoder__2d3be47: lib/geocoder/lookups/pc_miler.rb:3  [Combine nested `defined?` calls.]`
 - ... and 7 more (see corpus-results.json for full list)
 
@@ -4511,8 +4212,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Freika__dawarich__3d1ae95: app/services/visits/create.rb:28  [Duplicate branch body detected.]`
-- `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/security/curl_analyzer.rb:739  [Duplicate branch body detected.]`
 - `Netflix-Skunkworks__Scumblr__66ed69a: lib/helpers/vulnerability_helpers.rb:435  [Duplicate branch body detected.]`
+- `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/security/curl_analyzer.rb:739  [Duplicate branch body detected.]`
 - ... and 12 more (see corpus-results.json for full list)
 
 </details>
@@ -4522,8 +4223,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ClosureTree__closure_tree__e2bc781: lib/closure_tree/support.rb:72  [Use a string value for `class_name`.]`
 - `ClosureTree__closure_tree__e2bc781: lib/closure_tree/support.rb:71  [Use a string value for `class_name`.]`
+- `ClosureTree__closure_tree__e2bc781: lib/closure_tree/support.rb:72  [Use a string value for `class_name`.]`
 - `Shopify__identity_cache__4e9907d: test/schema_change_test.rb:122  [Use a string value for `class_name`.]`
 - ... and 12 more (see corpus-results.json for full list)
 
@@ -4534,15 +4235,15 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `rubocop__rubocop__b210a6e: lib/rubocop/cop/lint/missing_cop_enable_directive.rb:8  [RuboCop disable/enable directives are not permitted.]`
 - `rubocop__rubocop__b210a6e: lib/rubocop/cop/lint/missing_cop_enable_directive.rb:7  [RuboCop disable/enable directives are not permitted.]`
+- `rubocop__rubocop__b210a6e: lib/rubocop/cop/lint/missing_cop_enable_directive.rb:8  [RuboCop disable/enable directives are not permitted.]`
 - `rubocop__rubocop__b210a6e: lib/rubocop/cop/lint/cop_directive_syntax.rb:8  [RuboCop disable/enable directives are not permitted.]`
 - ... and 1 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
+- `rubocop__rubocop__b210a6e: lib/rubocop/cop/lint/cop_directive_syntax.rb:31  [RuboCop disable/enable directives are not permitted.]`
 - `rubocop__rubocop__b210a6e: lib/rubocop/cop/lint/cop_directive_syntax.rb:37  [RuboCop disable/enable directives are not permitted.]`
-- `rubocop__rubocop__b210a6e: lib/rubocop/cop/lint/cop_directive_syntax.rb:89  [RuboCop disable/enable directives are not permitted.]`
 - `rubocop__rubocop__b210a6e: lib/rubocop/cop/lint/cop_directive_syntax.rb:67  [RuboCop disable/enable directives are not permitted.]`
 - ... and 8 more (see corpus-results.json for full list)
 
@@ -4554,25 +4255,9 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `antiwork__gumroad__782a69f: app/services/balances_by_product_service.rb:155  [Do not return empty strings in string interpolation.]`
-- `asciidoctor__asciidoctor__33c50c7: test/syntax_highlighter_test.rb:1062  [Do not return empty strings in string interpolation.]`
 - `asciidoctor__asciidoctor__33c50c7: lib/asciidoctor/rx.rb:378  [Do not return empty strings in string interpolation.]`
+- `asciidoctor__asciidoctor__33c50c7: lib/asciidoctor/rx.rb:372  [Do not return empty strings in string interpolation.]`
 - ... and 12 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Layout/FirstArgumentIndentation</strong> — 8,080 matches, 1 FP, 13 FN (99.8%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `peritor__webistrano__a98ba6b: vendor/plugins/multiple_select/lib/multiple_select.rb:228  [Indent the first argument one step more than the start of the previous line.]`
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `Arachni__arachni__c1710d6: lib/arachni/rpc/server/base.rb:42  [Indent the first argument one step more than the start of the previous line.]`
-- `Arachni__arachni__c1710d6: lib/arachni/rpc/client/base.rb:41  [Indent the first argument one step more than the start of the previous line.]`
-- `antiwork__gumroad__782a69f: app/presenters/receipt_presenter/item_info.rb:83  [Indent the first argument one step more than the start of the previous line.]`
-- ... and 10 more (see corpus-results.json for full list)
 
 </details>
 
@@ -4621,7 +4306,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `gettalong__hexapdf__f1176c6: test/hexapdf/test_serializer.rb:101  [Prefer single-quoted symbols when you don't need string interpolation or special symbols.]`
 - `jruby__jruby__0303464: spec/ruby/core/symbol/inspect_spec.rb:30  [Prefer single-quoted symbols when you don't need string interpolation or special symbols.]`
-- `jruby__jruby__0303464: spec/java_integration/scala/operator_spec.rb:16  [Prefer single-quoted symbols when you don't need string interpolation or special symbols.]`
+- `jruby__jruby__0303464: spec/ruby/core/symbol/inspect_spec.rb:90  [Prefer single-quoted symbols when you don't need string interpolation or special symbols.]`
 - ... and 11 more (see corpus-results.json for full list)
 
 </details>
@@ -4632,8 +4317,8 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `dependabot__dependabot-core__0ed9632: uv/lib/dependabot/uv/file_updater/lock_file_updater.rb:552  [Use `any?` instead of `select.any?`.]`
+- `ubicloud__ubicloud__b181cb6: prog/test/upgrade_postgres_resource.rb:69  [Use `any?` instead of `filter.any?`.]`
 - `ubicloud__ubicloud__b181cb6: prog/victoria_metrics/victoria_metrics_server_nexus.rb:185  [Use `none?` instead of `select.empty?`.]`
-- `ubicloud__ubicloud__b181cb6: prog/test/upgrade_postgres_resource.rb:35  [Use `any?` instead of `filter.any?`.]`
 - ... and 2 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -4664,16 +4349,36 @@ Every offense is compared by file path, line number, and cop name.
             128,
             OpenSSL::Digest.new("SHA512")
           ).unpack("H*").first`.]`
-- `lian__bitcoin-ruby__f9b817c: spec/unit/bitcoin/secp256k1_spec.rb:124  [Use `unpack1('H*')` instead of `Bitcoin::Secp256k1.recover_compact(message, openssl_signature)
-            .unpack('H*')[0]`.]`
+- `lian__bitcoin-ruby__f9b817c: spec/unit/integrations/dogecoin_spec.rb:200  [Use `unpack1('V')` instead of `script.slice(
+      chain_merkle_root.length / 2, 4
+    ).unpack('V')[0]`.]`
 - ... and 5 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `chef__chef__e58e1a1: lib/chef/provider/user/dscl.rb:631  [Use `unpack1("H*")` instead of `unpack("H*").first`.]`
 - `chef__chef__e58e1a1: lib/chef/provider/user/mac.rb:504  [Use `unpack1("H*")` instead of `unpack("H*")[0]`.]`
+- `chef__chef__e58e1a1: lib/chef/provider/user/dscl.rb:631  [Use `unpack1("H*")` instead of `unpack("H*").first`.]`
 - `lian__bitcoin-ruby__f9b817c: spec/unit/integrations/dogecoin_spec.rb:202  [Use `unpack1('V')` instead of `unpack('V')[0]`.]`
 - ... and 3 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
+<summary><strong>Lint/RedundantCopEnableDirective</strong> — 34 matches, 4 FP, 9 FN (72.3%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `coreinfrastructure__best-practices-badge__a3a2fb7: app/controllers/project_stats_controller.rb:561  [Unnecessary enabling of Metrics/MethodLength.]`
+- `opal__opal__07183b3: lib/opal/regexp_transpiler.rb:186  [Unnecessary enabling of Lint/UnusedMethodArgument.]`
+- `rubocop__rubocop__b210a6e: lib/rubocop/cop/lint/redundant_cop_enable_directive.rb:134  [Unnecessary enabling of Lint/RedundantCopDisableDirective.]`
+- ... and 1 more (see corpus-results.json for full list)
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `graphiti-api__graphiti__9905371: lib/graphiti/stats/dsl.rb:52  [Unnecessary enabling of Style/MethodMissingSuper.]`
+- `graphiti-api__graphiti__9905371: lib/graphiti/filter_operators.rb:23  [Unnecessary enabling of Style/MethodMissingSuper.]`
+- `graphiti-api__graphiti__9905371: lib/graphiti/sideload/polymorphic_belongs_to.rb:13  [Unnecessary enabling of Style/MethodMissingSuper.]`
+- ... and 6 more (see corpus-results.json for full list)
 
 </details>
 
@@ -4683,7 +4388,7 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `antiwork__gumroad__782a69f: spec/business/payments/charging/charge_processor_spec.rb:317  [Do not use `expect` in `before` hook]`
-- `brynary__webrat__1263639: spec/public/matchers/have_tag_spec.rb:23  [Do not use `should_receive` in `before` hook]`
+- `brynary__webrat__1263639: spec/public/matchers/have_selector_spec.rb:118  [Do not use `should_receive` in `before` hook]`
 - `brynary__webrat__1263639: spec/public/matchers/have_xpath_spec.rb:114  [Do not use `should_receive` in `before` hook]`
 - ... and 10 more (see corpus-results.json for full list)
 
@@ -4741,8 +4446,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `interagent__pliny__b93794a: lib/template/spec/spec_support/auto_define_rack_app.rb:4  [Beware of using `config.before(:context)` as it may cause state to leak between tests. If you are using `rspec-rails`, and `use_transactional_fixtures` is enabled, then records created in `config.before(:context)` are not automatically rolled back.]`
-- `jruby__jruby__0303464: spec/mspec/spec/runner/context_spec.rb:652  [Beware of using `@state.before(:all)` as it may cause state to leak between tests. If you are using `rspec-rails`, and `use_transactional_fixtures` is enabled, then records created in `@state.before(:all)` are not automatically rolled back.]`
-- `jruby__jruby__0303464: spec/mspec/spec/runner/context_spec.rb:1000  [Beware of using `@shared.after(:all)` as it may cause state to leak between tests. If you are using `rspec-rails`, and `use_transactional_fixtures` is enabled, then records created in `@shared.after(:all)` are not automatically rolled back.]`
+- `jruby__jruby__0303464: spec/mspec/spec/runner/context_spec.rb:979  [Beware of using `@shared.before(:all)` as it may cause state to leak between tests. If you are using `rspec-rails`, and `use_transactional_fixtures` is enabled, then records created in `@shared.before(:all)` are not automatically rolled back.]`
+- `jruby__jruby__0303464: spec/mspec/spec/runner/context_spec.rb:143  [Beware of using `@state.after(:all)` as it may cause state to leak between tests. If you are using `rspec-rails`, and `use_transactional_fixtures` is enabled, then records created in `@state.after(:all)` are not automatically rolled back.]`
 - ... and 9 more (see corpus-results.json for full list)
 
 </details>
@@ -4752,9 +4457,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `chef__chef__e58e1a1: spec/unit/resource_spec.rb:1067  [Use `described_class` instead of `Chef::Resource`.]`
+- `chef__chef__e58e1a1: spec/unit/decorator_spec.rb:44  [Use `described_class` instead of `Chef::Decorator`.]`
 - `chef__chef__e58e1a1: spec/unit/decorator_spec.rb:28  [Use `described_class` instead of `Chef::Decorator`.]`
-- `chef__chef__e58e1a1: spec/unit/decorator_spec.rb:48  [Use `described_class` instead of `Chef::Decorator`.]`
+- `chef__chef__e58e1a1: spec/unit/resource_spec.rb:1025  [Use `described_class` instead of `Chef::Resource`.]`
 - ... and 9 more (see corpus-results.json for full list)
 
 </details>
@@ -4764,9 +4469,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `jruby__jruby__0303464: spec/mspec/spec/runner/context_spec.rb:917  [Prefer `it_behaves_like` over `it_should_behave_like` when including examples in a nested context.]`
-- `jruby__jruby__0303464: spec/mspec/spec/runner/context_spec.rb:985  [Prefer `it_behaves_like` over `it_should_behave_like` when including examples in a nested context.]`
-- `jruby__jruby__0303464: spec/mspec/spec/runner/context_spec.rb:964  [Prefer `it_behaves_like` over `it_should_behave_like` when including examples in a nested context.]`
+- `jruby__jruby__0303464: spec/mspec/spec/runner/context_spec.rb:944  [Prefer `it_behaves_like` over `it_should_behave_like` when including examples in a nested context.]`
+- `jruby__jruby__0303464: spec/mspec/spec/runner/context_spec.rb:978  [Prefer `it_behaves_like` over `it_should_behave_like` when including examples in a nested context.]`
+- `jruby__jruby__0303464: spec/mspec/spec/runner/context_spec.rb:951  [Prefer `it_behaves_like` over `it_should_behave_like` when including examples in a nested context.]`
 - ... and 9 more (see corpus-results.json for full list)
 
 </details>
@@ -4777,8 +4482,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Freika__dawarich__3d1ae95: app/services/users/import_data.rb:88  [Pass a block to `Rails.logger.debug`.]`
-- `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/async.rb:128  [Pass a block to `Rails.logger.debug`.]`
 - `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/async.rb:106  [Pass a block to `Rails.logger.debug`.]`
+- `Netflix-Skunkworks__Scumblr__66ed69a: lib/scumblr_tasks/async.rb:128  [Pass a block to `Rails.logger.debug`.]`
 - ... and 9 more (see corpus-results.json for full list)
 
 </details>
@@ -4789,8 +4494,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `SquareSquash__web__e73f280: app/controllers/bugs_controller.rb:95  [Use `pluck(:assigned_user_id)` instead of `select` with `map`.]`
-- `antiwork__gumroad__782a69f: app/sidekiq/delete_expired_product_cached_values_worker.rb:14  [Use `pluck(:product_id)` instead of `select` with `map`.]`
 - `antiwork__gumroad__782a69f: app/sidekiq/exports/sales/compile_chunks_worker.rb:17  [Use `pluck(:custom_fields)` instead of `select` with `map`.]`
+- `antiwork__gumroad__782a69f: app/sidekiq/delete_expired_product_cached_values_worker.rb:14  [Use `pluck(:product_id)` instead of `select` with `map`.]`
 - ... and 9 more (see corpus-results.json for full list)
 
 </details>
@@ -4800,34 +4505,17 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
+- `alexreisner__geocoder__2d3be47: lib/easting_northing.rb:73  [Prefer placing the expression on the left side of the operator.]`
 - `alexreisner__geocoder__2d3be47: lib/easting_northing.rb:64  [Prefer placing the expression on the left side of the operator.]`
 - `alexreisner__geocoder__2d3be47: lib/easting_northing.rb:78  [Prefer placing the expression on the left side of the operator.]`
-- `alexreisner__geocoder__2d3be47: lib/easting_northing.rb:58  [Prefer placing the expression on the left side of the operator.]`
 - ... and 1 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `airbnb__nerve__f28923b: lib/nerve/ring_buffer.rb:27  [Non-literal operand (`offset`) should be first.]`
 - `moneta-rb__moneta__6fdb9c7: lib/moneta/adapters/sequel/sqlite.rb:49  [Non-literal operand (`{ config.value_column => blob("0") }`) should be first.]`
-- `shioyama__mobility__f68470d: lib/mobility/backends/sequel/container.rb:111  [Non-literal operand (`super`) should be first.]`
+- `shioyama__mobility__f68470d: lib/mobility/plugins/sequel/query.rb:155  [Non-literal operand (`*predicates`) should be first.]`
 - ... and 5 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Lint/RedundantCopEnableDirective</strong> — 34 matches, 2 FP, 9 FN (75.5%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `coreinfrastructure__best-practices-badge__a3a2fb7: app/controllers/project_stats_controller.rb:561  [Unnecessary enabling of Metrics/MethodLength.]`
-- `opal__opal__07183b3: lib/opal/regexp_transpiler.rb:186  [Unnecessary enabling of Lint/UnusedMethodArgument.]`
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `graphiti-api__graphiti__9905371: lib/graphiti/sideload/polymorphic_belongs_to.rb:13  [Unnecessary enabling of Style/MethodMissingSuper.]`
-- `graphiti-api__graphiti__9905371: lib/graphiti/stats/dsl.rb:52  [Unnecessary enabling of Style/MethodMissingSuper.]`
-- `graphiti-api__graphiti__9905371: lib/graphiti/filter_operators.rb:23  [Unnecessary enabling of Style/MethodMissingSuper.]`
-- ... and 6 more (see corpus-results.json for full list)
 
 </details>
 
@@ -4864,9 +4552,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `pakyow__pakyow__aa3d80a: core/spec/unit/error_spec.rb:300  [Do not use `expect` in let]`
 - `pakyow__pakyow__aa3d80a: core/spec/unit/error_spec.rb:342  [Do not use `expect` in let]`
-- `shoes__shoes4__59b2821: shoes-core/spec/shoes/url_spec.rb:30  [Do not use `expect` in let]`
+- `pakyow__pakyow__aa3d80a: core/spec/unit/error_spec.rb:300  [Do not use `expect` in let]`
+- `shoes__shoes4__59b2821: shoes-core/spec/shoes/widget_spec.rb:68  [Do not use `expect` in let]`
 - ... and 8 more (see corpus-results.json for full list)
 
 </details>
@@ -4876,8 +4564,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Freika__dawarich__3d1ae95: spec/services/imports/secure_file_downloader_spec.rb:19  [Use `.and_yield`.]`
 - `Freika__dawarich__3d1ae95: spec/services/imports/secure_file_downloader_spec.rb:74  [Use `.and_yield`.]`
+- `Freika__dawarich__3d1ae95: spec/services/imports/secure_file_downloader_spec.rb:19  [Use `.and_yield`.]`
 - `Freika__dawarich__3d1ae95: spec/services/imports/secure_file_downloader_spec.rb:88  [Use `.and_yield`.]`
 - ... and 8 more (see corpus-results.json for full list)
 
@@ -4888,8 +4576,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `autolab__Autolab__674efe9: app/controllers/application_controller.rb:191  [Move locale texts to the locale files in the `config/locales` directory.]`
 - `autolab__Autolab__674efe9: app/controllers/application_controller.rb:253  [Move locale texts to the locale files in the `config/locales` directory.]`
+- `autolab__Autolab__674efe9: app/controllers/application_controller.rb:191  [Move locale texts to the locale files in the `config/locales` directory.]`
 - `autolab__Autolab__674efe9: app/controllers/courses_controller.rb:1400  [Move locale texts to the locale files in the `config/locales` directory.]`
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -4920,7 +4608,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `ruby-formatter__rufo__a90e654: spec/lib/rufo/formatter_source_specs/if.rb.spec:103  [Favor the ternary operator (`?:`) over single-line `if/then/else/end` constructs.]`
 - `ruby-formatter__rufo__a90e654: spec/lib/rufo/formatter_source_specs/if.rb.spec:106  [Favor the ternary operator (`?:`) over single-line `if/then/else/end` constructs.]`
-- `rubyworks__facets__12326d4: work/consider/standard/quaternion.rb:543  [Favor the ternary operator (`?:`) over single-line `if/then/else/end` constructs.]`
+- `rubyworks__facets__12326d4: work/consider/standard/quaternion.rb:288  [Favor the ternary operator (`?:`) over single-line `if/then/else/end` constructs.]`
 - ... and 8 more (see corpus-results.json for full list)
 
 </details>
@@ -4931,8 +4619,8 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `Shopify__ruby-lsp__0d5d95f: test/fixtures/if_elsif_else_empty.rb:2  [Literal `false` appeared as a condition.]`
-- `jruby__jruby__0303464: spec/ruby/language/if_spec.rb:121  [Literal `false` appeared as a condition.]`
 - `jruby__jruby__0303464: spec/ruby/language/if_spec.rb:108  [Literal `true` appeared as a condition.]`
+- `jruby__jruby__0303464: bench/compiler/bench_compilation.rb:73  [Literal `true` appeared as a condition.]`
 - ... and 7 more (see corpus-results.json for full list)
 
 </details>
@@ -4943,8 +4631,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `Shopify__packwerk__5b06827: test/unit/packwerk/package_test.rb:37  [Do not create a Hash with a mutable default value as the default value can accidentally be changed.]`
+- `jruby__jruby__0303464: spec/ruby/core/hash/new_spec.rb:44  [Do not create a Hash with a mutable default value as the default value can accidentally be changed.]`
 - `jruby__jruby__0303464: spec/ruby/core/hash/new_spec.rb:62  [Do not create a Hash with a mutable default value as the default value can accidentally be changed.]`
-- `jruby__jruby__0303464: spec/ruby/core/hash/new_spec.rb:39  [Do not create a Hash with a mutable default value as the default value can accidentally be changed.]`
 - ... and 7 more (see corpus-results.json for full list)
 
 </details>
@@ -4954,9 +4642,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `Arachni__arachni__c1710d6: spec/arachni/http/response_spec.rb:257  [Prefer `not_to` over `to_not`.]`
+- `Arachni__arachni__c1710d6: spec/arachni/http/request_spec.rb:380  [Prefer `not_to` over `to_not`.]`
 - `Arachni__arachni__c1710d6: spec/arachni/http/response_spec.rb:132  [Prefer `not_to` over `to_not`.]`
-- `Arachni__arachni__c1710d6: spec/arachni/http/response_spec.rb:190  [Prefer `not_to` over `to_not`.]`
+- `Arachni__arachni__c1710d6: spec/arachni/http/response_spec.rb:222  [Prefer `not_to` over `to_not`.]`
 - ... and 7 more (see corpus-results.json for full list)
 
 </details>
@@ -4980,7 +4668,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `ManageIQ__manageiq__b530ec7: tools/purge_archived_storages.rb:18  [Use `distinct` before `pluck`.]`
 - `ManageIQ__manageiq__b530ec7: spec/models/automation_request_spec.rb:262  [Use `distinct` before `pluck`.]`
-- `ankane__ahoy__7d9d62d: test/controller_test.rb:72  [Use `distinct` before `pluck`.]`
+- `ankane__ahoy__7d9d62d: test/controller_test.rb:102  [Use `distinct` before `pluck`.]`
 - ... and 7 more (see corpus-results.json for full list)
 
 </details>
@@ -5007,15 +4695,15 @@ Every offense is compared by file path, line number, and cop name.
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `publiclab__plots2__5e1d8c2: app/controllers/wiki_controller.rb:12  [Do not use `then` for multiline `when` statement.]`
-- `ruby__rdoc__c59a7a8: lib/rdoc/servlet.rb:126  [Do not use `then` for multiline `when` statement.]`
 - `ruby__rdoc__c59a7a8: lib/rdoc/parser/ripper_ruby.rb:537  [Do not use `then` for multiline `when` statement.]`
+- `ruby__rdoc__c59a7a8: lib/rdoc/servlet.rb:126  [Do not use `then` for multiline `when` statement.]`
 - ... and 1 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
+- `otwcode__otwarchive__412f04f: app/helpers/bookmarks_helper.rb:33  [Do not use `then` for multiline `when` statement.]`
 - `otwcode__otwarchive__412f04f: app/helpers/bookmarks_helper.rb:37  [Do not use `then` for multiline `when` statement.]`
 - `otwcode__otwarchive__412f04f: app/helpers/bookmarks_helper.rb:35  [Do not use `then` for multiline `when` statement.]`
-- `otwcode__otwarchive__412f04f: app/helpers/bookmarks_helper.rb:33  [Do not use `then` for multiline `when` statement.]`
 - ... and 3 more (see corpus-results.json for full list)
 
 </details>
@@ -5043,7 +4731,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `Eigenfocus__eigenfocus__0bf9c6c: spec/support/database_cleaner.rb:38  [Omit the default `:each` argument for RSpec hooks.]`
 - `defunkt__github-gem__8ef0c30: spec/spec_helper.rb:118  [Omit the default `:each` argument for RSpec hooks.]`
-- `defunkt__github-gem__8ef0c30: spec/spec_helper.rb:109  [Omit the default `:each` argument for RSpec hooks.]`
+- `defunkt__github-gem__8ef0c30: spec/spec_helper.rb:126  [Omit the default `:each` argument for RSpec hooks.]`
 - ... and 6 more (see corpus-results.json for full list)
 
 </details>
@@ -5055,7 +4743,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `edavis10__redmine__2d6f552: config/routes.rb:108  [Use `get` instead of `match` to define a route.]`
 - `redmine__redmine__a1a0959: config/routes.rb:117  [Use `get` instead of `match` to define a route.]`
-- `theforeman__foreman__7a2fc6c: config/routes.rb:235  [Use `get` instead of `match` to define a route.]`
+- `theforeman__foreman__7a2fc6c: config/routes/api/v2.rb:9  [Use `put` instead of `match` to define a route.]`
 - ... and 6 more (see corpus-results.json for full list)
 
 </details>
@@ -5065,9 +4753,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ManageIQ__manageiq__b530ec7: app/models/vm_or_template.rb:1057  [Prefer `Object#is_a?` over `Object#kind_of?`.]`
 - `ManageIQ__manageiq__b530ec7: app/models/mixins/assignment_mixin.rb:173  [Prefer `Object#is_a?` over `Object#kind_of?`.]`
-- `ManageIQ__manageiq__b530ec7: app/models/metric/ci_mixin/capture.rb:3  [Prefer `Object#is_a?` over `Object#kind_of?`.]`
+- `ManageIQ__manageiq__b530ec7: app/models/metric/ci_mixin/long_term_averages.rb:9  [Prefer `Object#is_a?` over `Object#kind_of?`.]`
+- `ManageIQ__manageiq__b530ec7: app/models/mixins/authentication_mixin.rb:229  [Prefer `Object#is_a?` over `Object#kind_of?`.]`
 - ... and 6 more (see corpus-results.json for full list)
 
 </details>
@@ -5078,33 +4766,9 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `jruby__jruby__0303464: spec/ruby/library/English/English_spec.rb:146  [Prefer `Regexp.last_match.pre_match` over `$PREMATCH`.]`
-- `jruby__jruby__0303464: spec/ruby/library/English/English_spec.rb:152  [Prefer `Regexp.last_match.post_match` over `$POSTMATCH`.]`
 - `jruby__jruby__0303464: spec/ruby/library/English/English_spec.rb:140  [Prefer `Regexp.last_match(0)` over `$MATCH`.]`
+- `jruby__jruby__0303464: spec/ruby/library/English/English_spec.rb:158  [Prefer `Regexp.last_match(-1)` over `$LAST_PAREN_MATCH`.]`
 - ... and 6 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Layout/SpaceInsidePercentLiteralDelimiters</strong> — 1,863 matches, 0 FP, 8 FN (99.5%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `coderwall__coderwall-legacy__08382e1: app/structs/github_old.rb:37  [Do not use spaces inside percent literal delimiters.]`
-- `jruby__jruby__0303464: spec/ruby/library/uri/fixtures/normalization.rb:48  [Do not use spaces inside percent literal delimiters.]`
-- `k1LoW__awspec__860b91f: lib/awspec/generator/spec/nat_gateway.rb:8  [Do not use spaces inside percent literal delimiters.]`
-- ... and 5 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Lint/DeprecatedOpenSSLConstant</strong> — 127 matches, 0 FP, 8 FN (94.0%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `Arachni__arachni__c1710d6: lib/arachni/support/crypto/rsa_aes_cbc.rb:46  [Use `OpenSSL::Cipher.new('aes-256-cbc')` instead of `OpenSSL::Cipher::Cipher.new( 'aes-256-cbc' )`.]`
-- `Arachni__arachni__c1710d6: lib/arachni/support/crypto/rsa_aes_cbc.rb:76  [Use `OpenSSL::Cipher.new('aes-256-cbc')` instead of `OpenSSL::Cipher::Cipher.new( 'aes-256-cbc' )`.]`
-- `NoamB__sorcery__4aaf383: spec/sorcery_crypto_providers_spec.rb:127  [Use `OpenSSL::Cipher.new("AES-256-ECB")` instead of `OpenSSL::Cipher::Cipher.new("AES-256-ECB")`.]`
-- ... and 5 more (see corpus-results.json for full list)
 
 </details>
 
@@ -5113,9 +4777,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `dependabot__dependabot-core__0ed9632: npm_and_yarn/lib/dependabot/npm_and_yarn/file_fetcher.rb:674  [Do not shadow rescued Exceptions.]`
-- `dependabot__dependabot-core__0ed9632: pre_commit/lib/dependabot/pre_commit/file_parser.rb:88  [Do not shadow rescued Exceptions.]`
+- `dependabot__dependabot-core__0ed9632: docker/lib/dependabot/docker/file_parser.rb:109  [Do not shadow rescued Exceptions.]`
 - `dependabot__dependabot-core__0ed9632: github_actions/lib/dependabot/github_actions/file_parser.rb:96  [Do not shadow rescued Exceptions.]`
+- `dependabot__dependabot-core__0ed9632: npm_and_yarn/lib/dependabot/npm_and_yarn/file_fetcher.rb:674  [Do not shadow rescued Exceptions.]`
 - ... and 2 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -5132,8 +4796,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `basecamp__fizzy__a02042b: script/import-sqlite-database.rb:1073  [Avoid memoizing `find_by` results with `||=`.]`
-- `basecamp__fizzy__a02042b: script/import-sqlite-database.rb:1046  [Avoid memoizing `find_by` results with `||=`.]`
 - `basecamp__fizzy__a02042b: script/import-sqlite-database.rb:1065  [Avoid memoizing `find_by` results with `||=`.]`
+- `basecamp__fizzy__a02042b: script/import-sqlite-database.rb:1046  [Avoid memoizing `find_by` results with `||=`.]`
 - ... and 5 more (see corpus-results.json for full list)
 
 </details>
@@ -5144,8 +4808,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `decidim__decidim__bc448c8: decidim-proposals/lib/tasks/proposals/upgrade/decidim_proposals_upgrade_tasks.rake:54  [Use `select` instead of `pluck` within `where` query method.]`
-- `decidim__decidim__bc448c8: decidim-proposals/lib/tasks/proposals/upgrade/decidim_proposals_upgrade_tasks.rake:46  [Use `select` instead of `pluck` within `where` query method.]`
 - `decidim__decidim__bc448c8: decidim-proposals/lib/tasks/proposals/upgrade/decidim_proposals_upgrade_tasks.rake:62  [Use `select` instead of `pluck` within `where` query method.]`
+- `decidim__decidim__bc448c8: decidim-proposals/lib/tasks/proposals/upgrade/decidim_proposals_upgrade_tasks.rake:46  [Use `select` instead of `pluck` within `where` query method.]`
 - ... and 5 more (see corpus-results.json for full list)
 
 </details>
@@ -5155,10 +4819,28 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `jruby__jruby__0303464: spec/ruby/core/float/round_spec.rb:90  [Use a mantissa >= 1 and < 10.]`
-- `jruby__jruby__0303464: spec/ruby/core/float/round_spec.rb:88  [Use a mantissa >= 1 and < 10.]`
+- `jruby__jruby__0303464: spec/ruby/core/float/round_spec.rb:82  [Use a mantissa >= 1 and < 10.]`
 - `jruby__jruby__0303464: spec/ruby/core/float/round_spec.rb:91  [Use a mantissa >= 1 and < 10.]`
+- `jruby__jruby__0303464: spec/ruby/core/float/round_spec.rb:90  [Use a mantissa >= 1 and < 10.]`
 - ... and 5 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
+<summary><strong>Style/OperatorMethodCall</strong> — 87 matches, 3 FP, 5 FN (91.5%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `jruby__jruby__0303464: spec/ruby/library/bigdecimal/shared/modulo.rb:32  [Redundant dot detected.]`
+- `ruby__rdoc__c59a7a8: test/rdoc/code_object/method_attr_test.rb:144  [Redundant dot detected.]`
+- `ruby__rdoc__c59a7a8: test/rdoc/rdoc_context_test.rb:642  [Redundant dot detected.]`
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `autolab__Autolab__674efe9: app/helpers/assessment_autograde_core.rb:78  [Redundant dot detected.]`
+- `hybridgroup__artoo__2f0446a: lib/artoo/utility.rb:46  [Redundant dot detected.]`
+- `jruby__jruby__0303464: spec/ruby/language/match_spec.rb:74  [Redundant dot detected.]`
+- ... and 2 more (see corpus-results.json for full list)
 
 </details>
 
@@ -5169,7 +4851,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `jruby__jruby__0303464: spec/ruby/core/string/fixtures/iso-8859-9-encoding.rb:5  [Avoid single-line method definitions.]`
 - `jruby__jruby__0303464: spec/ruby/core/string/fixtures/iso-8859-9-encoding.rb:6  [Avoid single-line method definitions.]`
-- `jruby__jruby__0303464: spec/ruby/core/string/fixtures/iso-8859-9-encoding.rb:4  [Avoid single-line method definitions.]`
+- `jruby__jruby__0303464: spec/ruby/core/string/fixtures/iso-8859-9-encoding.rb:7  [Avoid single-line method definitions.]`
 - ... and 5 more (see corpus-results.json for full list)
 
 </details>
@@ -5179,8 +4861,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `natalie-lang__natalie__b507cff: test/natalie/matchdata_test.rb:76  [Prefer `match` over `match[0..]`.]`
 - `natalie-lang__natalie__b507cff: test/natalie/matchdata_test.rb:70  [Prefer `match` over `match[0..]`.]`
+- `natalie-lang__natalie__b507cff: test/natalie/matchdata_test.rb:76  [Prefer `match` over `match[0..]`.]`
 - `net-ssh__net-ssh__65404e9: lib/net/ssh/transport/chacha20_poly1305_cipher.rb:79  [Prefer `data` over `data[0..]`.]`
 - ... and 1 more (see corpus-results.json for full list)
 
@@ -5198,9 +4880,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `jruby__jruby__0303464: bench/bench_string_conversions.rb:34  [Prefer `to_sym` over `intern`.]`
 - `jruby__jruby__0303464: bench/bench_string_conversions.rb:27  [Prefer `to_sym` over `intern`.]`
-- `rails__rails__d7c8ae6: actionpack/lib/action_dispatch/routing/mapper.rb:137  [Prefer `to_sym` over `intern`.]`
+- `jruby__jruby__0303464: bench/bench_string_conversions.rb:34  [Prefer `to_sym` over `intern`.]`
+- `rails__rails__d7c8ae6: actionpack/lib/action_dispatch/routing/mapper.rb:135  [Prefer `to_sym` over `intern`.]`
 - ... and 5 more (see corpus-results.json for full list)
 
 </details>
@@ -5223,8 +4905,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `ruby-concurrency__concurrent-ruby__30dc89e: spec/concurrent/channel/tick_spec.rb:3  [Avoid opening modules and defining specs within them.]`
-- `teamcapybara__capybara__b3325b1: lib/capybara/spec/spec_helper.rb:13  [Avoid opening modules and defining specs within them.]`
 - `teamcapybara__capybara__b3325b1: lib/capybara/spec/spec_helper.rb:12  [Avoid opening modules and defining specs within them.]`
+- `teamcapybara__capybara__b3325b1: lib/capybara/spec/spec_helper.rb:13  [Avoid opening modules and defining specs within them.]`
 - ... and 4 more (see corpus-results.json for full list)
 
 </details>
@@ -5234,9 +4916,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `nanoc__nanoc__c151308: nanoc-core/spec/nanoc/core/compilation_stages/compile_reps_spec.rb:21  [Focused spec found.]`
+- `nanoc__nanoc__c151308: nanoc-live/spec/nanoc/live/live_recompiler_spec.rb:105  [Focused spec found.]`
+- `nanoc__nanoc__c151308: nanoc-live/spec/nanoc/live/live_recompiler_spec.rb:14  [Focused spec found.]`
 - `nanoc__nanoc__c151308: nanoc-live/spec/nanoc/live/live_recompiler_spec.rb:40  [Focused spec found.]`
-- `nanoc__nanoc__c151308: nanoc-live/spec/nanoc/live/live_recompiler_spec.rb:151  [Focused spec found.]`
 - ... and 4 more (see corpus-results.json for full list)
 
 </details>
@@ -5258,8 +4940,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `castwide__solargraph__676da4c: spec/source_map/mapper_spec.rb:1010  [Don't repeat descriptions within an example group.]`
 - `castwide__solargraph__676da4c: spec/source_map/mapper_spec.rb:1572  [Don't repeat descriptions within an example group.]`
+- `castwide__solargraph__676da4c: spec/source_map/mapper_spec.rb:1010  [Don't repeat descriptions within an example group.]`
 - `puppetlabs__puppet__e227c27: spec/unit/pops/types/p_init_type_spec.rb:115  [Don't repeat descriptions within an example group.]`
 - ... and 4 more (see corpus-results.json for full list)
 
@@ -5270,8 +4952,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ManageIQ__manageiq__b530ec7: app/models/miq_search.rb:79  [Redundant `all` detected.]`
 - `ManageIQ__manageiq__b530ec7: app/models/patch.rb:25  [Redundant `all` detected.]`
+- `ManageIQ__manageiq__b530ec7: app/models/miq_search.rb:79  [Redundant `all` detected.]`
 - `catarse__catarse__0d73a61: app/models/subscription_monthly_report_for_project_owner.rb:39  [Redundant `all` detected.]`
 - ... and 4 more (see corpus-results.json for full list)
 
@@ -5282,9 +4964,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `opal__opal__07183b3: stdlib/nodejs/file.rb:168  [Use `%x` around command string.]`
-- `opal__opal__07183b3: opal/corelib/string.rb:1074  [Use `%x` around command string.]`
+- `opal__opal__07183b3: spec/opal/core/kernel/at_exit_spec.rb:8  [Use `%x` around command string.]`
 - `opal__opal__07183b3: stdlib/deno/file.rb:143  [Use `%x` around command string.]`
+- `opal__opal__07183b3: opal/corelib/string.rb:1074  [Use `%x` around command string.]`
 - ... and 4 more (see corpus-results.json for full list)
 
 </details>
@@ -5294,9 +4976,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `PGYER__fir-cli__a0b2d7d: test/publish_test.rb:32  [Replace with `Integer#even?`.]`
 - `PGYER__fir-cli__a0b2d7d: test/publish_test.rb:19  [Replace with `Integer#even?`.]`
-- `jruby__jruby__0303464: bench/shootout/moments.ruby:48  [Replace with `Integer#even?`.]`
+- `PGYER__fir-cli__a0b2d7d: test/publish_test.rb:32  [Replace with `Integer#even?`.]`
+- `jruby__jruby__0303464: bench/shootout/meteor.ruby:123  [Replace with `Integer#odd?`.]`
 - ... and 4 more (see corpus-results.json for full list)
 
 </details>
@@ -5308,7 +4990,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `fastlane__fastlane__737aae7: fastlane/lib/fastlane/actions/set_github_release.rb:41  [Use `return` instead of `return nil`.]`
 - `fastlane__fastlane__737aae7: fastlane/lib/fastlane/actions/create_pull_request.rb:30  [Use `return` instead of `return nil`.]`
-- `fastlane__fastlane__737aae7: fastlane/lib/fastlane/actions/get_github_release.rb:28  [Use `return` instead of `return nil`.]`
+- `fastlane__fastlane__737aae7: fastlane/lib/fastlane/actions/get_github_release.rb:24  [Use `return` instead of `return nil`.]`
 - ... and 2 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -5319,26 +5001,30 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
+<summary><strong>Style/StringLiteralsInInterpolation</strong> — 7,711 matches, 6 FP, 1 FN (99.9%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/command/init.rb:94  [Prefer single-quoted strings inside interpolations.]`
+- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/command/init.rb:83  [Prefer single-quoted strings inside interpolations.]`
+- `holman__boom__1d1f7d3: lib/boom/platform.rb:60  [Prefer single-quoted strings inside interpolations.]`
+- ... and 3 more (see corpus-results.json for full list)
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `basecamp__kamal__9c6252d: lib/kamal/secrets/adapters/passbolt.rb:50  [Prefer single-quoted strings inside interpolations.]`
+
+</details>
+
+<details>
 <summary><strong>Style/TopLevelMethodDefinition</strong> — 7,982 matches, 0 FP, 7 FN (99.9%)</summary>
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `discourse__discourse__9c8f125: spec/rails_helper.rb:193  [Do not define methods at the top-level.]`
 - `discourse__discourse__9c8f125: spec/rails_helper.rb:192  [Do not define methods at the top-level.]`
-- `onetimesecret__onetimesecret__eb85a76: try/features/custom_domain_dual_index_try.rb:368  [Do not define methods at the top-level.]`
+- `onetimesecret__onetimesecret__eb85a76: try/features/custom_domain_dual_index_try.rb:341  [Do not define methods at the top-level.]`
 - ... and 4 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Layout/EndAlignment</strong> — 5,185 matches, 0 FP, 6 FN (99.8%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `rage-rb__rage__bb94dde: lib/rage/controller/api.rb:505  [`end` at 505, 6 is not aligned with `if` at 500, 17.]`
-- `rage-rb__rage__bb94dde: lib/rage/cable/channel.rb:275  [`end` at 275, 6 is not aligned with `if` at 268, 22.]`
-- `rage-rb__rage__bb94dde: lib/rage/controller/api.rb:567  [`end` at 567, 4 is not aligned with `if` at 563, 12.]`
-- ... and 3 more (see corpus-results.json for full list)
 
 </details>
 
@@ -5347,9 +5033,21 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `jruby__jruby__0303464: spec/ruby/fixtures/constants.rb:157  [Constant `CS_CONST10` is already assigned in this namespace.]`
 - `jruby__jruby__0303464: spec/ruby/fixtures/constants.rb:159  [Constant `CS_CONST19` is already assigned in this namespace.]`
+- `jruby__jruby__0303464: spec/ruby/fixtures/constants.rb:157  [Constant `CS_CONST10` is already assigned in this namespace.]`
 - `natalie-lang__natalie__b507cff: spec/fixtures/constants.rb:159  [Constant `CS_CONST19` is already assigned in this namespace.]`
+- ... and 3 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
+<summary><strong>Style/BlockDelimiters</strong> — 24,899 matches, 6 FP, 0 FN (99.9%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `hashicorp__vagrant__92e8886: lib/vagrant/plugin/manager.rb:285  [Prefer `do...end` over `{...}` for multi-line blocks.]`
+- `junegunn__redis-stat__9af492f: lib/redis-stat/elasticsearch.rb:32  [Prefer `do...end` over `{...}` for multi-line blocks.]`
+- `pakyow__pakyow__aa3d80a: frameworks/routing/lib/pakyow/routing/framework.rb:39  [Prefer `do...end` over `{...}` for multi-line blocks.]`
 - ... and 3 more (see corpus-results.json for full list)
 
 </details>
@@ -5424,6 +5122,18 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
+<summary><strong>Layout/EmptyLinesAroundAttributeAccessor</strong> — 1,543 matches, 0 FP, 5 FN (99.6%)</summary>
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `CocoaPods__CocoaPods__458dd19: lib/cocoapods/installer/installation_options.rb:47  [Add an empty line after attribute accessor.]`
+- `camping__camping__f2479aa: lib/camping.rb:7  [Add an empty line after attribute accessor.]`
+- `camping__camping__f2479aa: lib/camping.rb:19  [Add an empty line after attribute accessor.]`
+- ... and 2 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
 <summary><strong>Layout/FirstMethodArgumentLineBreak</strong> — 70,583 matches, 0 FP, 5 FN (99.9%)</summary>
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -5431,18 +5141,6 @@ Every offense is compared by file path, line number, and cop name.
 - `opf__openproject__f5a451d: lib/api/v3/attachments/attachments_api.rb:63  [Add a line break before the first argument of a multi-line method argument list.]`
 - `opf__openproject__f5a451d: modules/bim/app/controllers/bim/bcf/api/v2_1/viewpoints/api.rb:73  [Add a line break before the first argument of a multi-line method argument list.]`
 - `truemail-rb__truemail__1ce5810: spec/truemail_spec.rb:103  [Add a line break before the first argument of a multi-line method argument list.]`
-- ... and 2 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Lint/DeprecatedClassMethods</strong> — 562 matches, 5 FP, 0 FN (99.1%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `jruby__jruby__0303464: spec/ruby/core/env/clone_spec.rb:6  [`ENV.clone` is deprecated in favor of `ENV.to_h`.]`
-- `jruby__jruby__0303464: spec/ruby/core/env/clone_spec.rb:12  [`ENV.clone` is deprecated in favor of `ENV.to_h`.]`
-- `natalie-lang__natalie__b507cff: spec/core/env/clone_spec.rb:6  [`ENV.clone` is deprecated in favor of `ENV.to_h`.]`
 - ... and 2 more (see corpus-results.json for full list)
 
 </details>
@@ -5464,9 +5162,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ruby-concurrency__concurrent-ruby__30dc89e: lib/concurrent-ruby-edge/concurrent/channel/tick.rb:25  [Call `super` to initialize state of the parent class.]`
 - `ruby-concurrency__concurrent-ruby__30dc89e: lib/concurrent-ruby/concurrent/maybe.rb:224  [Call `super` to initialize state of the parent class.]`
-- `ruby-concurrency__concurrent-ruby__30dc89e: lib/concurrent-ruby-edge/concurrent/edge/erlang_actor.rb:129  [Call `super` to initialize state of the parent class.]`
+- `ruby-concurrency__concurrent-ruby__30dc89e: lib/concurrent-ruby/concurrent/mvar.rb:54  [Call `super` to initialize state of the parent class.]`
+- `ruby-concurrency__concurrent-ruby__30dc89e: lib/concurrent-ruby-edge/concurrent/channel/tick.rb:25  [Call `super` to initialize state of the parent class.]`
 - ... and 2 more (see corpus-results.json for full list)
 
 </details>
@@ -5488,9 +5186,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
+- `chef__chef__e58e1a1: lib/chef/http.rb:350  [Ensure the accumulator `res_data` will be modified by `inject`.]`
 - `chef__chef__e58e1a1: lib/chef/http.rb:358  [Ensure the accumulator `res_data` will be modified by `inject`.]`
 - `chef__chef__e58e1a1: lib/chef/http.rb:342  [Ensure the accumulator `req_data` will be modified by `inject`.]`
-- `chef__chef__e58e1a1: lib/chef/http.rb:350  [Ensure the accumulator `res_data` will be modified by `inject`.]`
 - ... and 1 more (see corpus-results.json for full list)
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -5504,9 +5202,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `avo-hq__avo__c7b9fc8: spec/features/avo/search_has_many_scope_spec.rb:23  [Group all let/let! blocks in the example group together.]`
 - `avo-hq__avo__c7b9fc8: spec/features/avo/search_has_many_scope_spec.rb:43  [Group all let/let! blocks in the example group together.]`
 - `avo-hq__avo__c7b9fc8: spec/features/avo/search_has_many_scope_spec.rb:22  [Group all let/let! blocks in the example group together.]`
+- `avo-hq__avo__c7b9fc8: spec/features/avo/search_has_many_scope_spec.rb:44  [Group all let/let! blocks in the example group together.]`
 - ... and 2 more (see corpus-results.json for full list)
 
 </details>
@@ -5528,10 +5226,26 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `peritor__webistrano__a98ba6b: vendor/plugins/browser_filters/lib/link_prefetching_block.rb:29  [Prefer `:forbidden` over `403 Forbidden` to define HTTP status code.]`
 - `peritor__webistrano__a98ba6b: lib/authenticated_system.rb:72  [Prefer `:unauthorized` over `401 Unauthorized` to define HTTP status code.]`
-- `rails__rails__d7c8ae6: actionpack/test/controller/new_base/render_plain_test.rb:39  [Prefer `:not_found` over `404 Not Found` to define HTTP status code.]`
+- `peritor__webistrano__a98ba6b: vendor/plugins/browser_filters/lib/link_prefetching_block.rb:29  [Prefer `:forbidden` over `403 Forbidden` to define HTTP status code.]`
+- `rails__rails__d7c8ae6: actionpack/test/controller/new_base/render_html_test.rb:39  [Prefer `:not_found` over `404 Not Found` to define HTTP status code.]`
 - ... and 2 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
+<summary><strong>Rails/InverseOf</strong> — 1,549 matches, 4 FP, 1 FN (99.6%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/page/page_elements.rb:18  [Specify an `:inverse_of` option.]`
+- `AlchemyCMS__alchemy_cms__4c2023f: app/models/alchemy/page/page_elements.rb:19  [Specify an `:inverse_of` option.]`
+- `mastodon__mastodon__c1f398a: app/models/poll.rb:32  [Specify an `:inverse_of` option.]`
+- ... and 1 more (see corpus-results.json for full list)
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `loomio__loomio__ec49b69: app/models/concerns/reactable.rb:3  [Specify an `:inverse_of` option.]`
 
 </details>
 
@@ -5542,7 +5256,7 @@ Every offense is compared by file path, line number, and cop name.
 
 - `alphagov__whitehall__a640792: app/controllers/admin/home_page_list_controller.rb:5  [`create`, `update` are not explicitly defined on the module.]`
 - `autolab__Autolab__674efe9: app/controllers/application_controller.rb:18  [`action_no_auth` is not explicitly defined on the class.]`
-- `discourse__discourse__9c8f125: app/controllers/session_controller.rb:138  [`test_second_factor_restricted_route` is not explicitly defined on the class.]`
+- `discourse__discourse__9c8f125: app/controllers/session_controller.rb:106  [`become` is not explicitly defined on the class.]`
 - ... and 2 more (see corpus-results.json for full list)
 
 </details>
@@ -5553,21 +5267,21 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `avo-hq__avo__c7b9fc8: scripts/merge_coverage.rb:18  [Use `File.empty?(report_path)` instead.]`
+- `fluent__fluentd__1327bed: lib/fluent/plugin/buffer/file_chunk.rb:375  [Use `File.empty?(@path)` instead.]`
 - `fluent__fluentd__1327bed: lib/fluent/plugin/buffer/file_chunk.rb:331  [Use `File.empty?(@path)` instead.]`
-- `fluent__fluentd__1327bed: lib/fluent/plugin/buffer/file_single_chunk.rb:294  [Use `File.empty?(@path)` instead.]`
 - ... and 2 more (see corpus-results.json for full list)
 
 </details>
 
 <details>
-<summary><strong>Layout/SpaceAfterColon</strong> — 523 matches, 0 FP, 4 FN (99.2%)</summary>
+<summary><strong>Style/NegatedIf</strong> — 8,722 matches, 5 FP, 0 FN (99.9%)</summary>
 
-**False negatives** (RuboCop reports, nitrocop does not):
+**False positives** (nitrocop reports, RuboCop does not):
 
-- `fluent__fluentd__1327bed: test/plugin/test_in_monitor_agent.rb:148  [Space missing after colon.]`
-- `loomio__loomio__ec49b69: app/helpers/dev/ninties_movies_helper.rb:157  [Space missing after colon.]`
-- `publiclab__plots2__5e1d8c2: test/integration/login_flow_test.rb:152  [Space missing after colon.]`
-- ... and 1 more (see corpus-results.json for full list)
+- `bridgetownrb__bridgetown__c8618d7: bridgetown-core/lib/bridgetown-core/commands/thor_shim.rb:53  [Favor `unless` over `if` for negative conditions.]`
+- `danbooru__danbooru__fd45f0f: app/policies/comment_policy.rb:65  [Favor `unless` over `if` for negative conditions.]`
+- `danbooru__danbooru__fd45f0f: app/logical/note_sanitizer.rb:111  [Favor `unless` over `if` for negative conditions.]`
+- ... and 2 more (see corpus-results.json for full list)
 
 </details>
 
@@ -5576,9 +5290,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `jruby__jruby__0303464: spec/regression/GH-3060_spec.rb:5  [Identical expressions on both sides of the equality may indicate a flawed test.]`
 - `jruby__jruby__0303464: spec/regression/GH-7306_redundant_regexp_escape_spec.rb:7  [Identical expressions on both sides of the equality may indicate a flawed test.]`
 - `jruby__jruby__0303464: spec/java_integration/types/retrieval_spec.rb:118  [Identical expressions on both sides of the equality may indicate a flawed test.]`
+- `jruby__jruby__0303464: spec/java_integration/types/retrieval_spec.rb:104  [Identical expressions on both sides of the equality may indicate a flawed test.]`
 - ... and 1 more (see corpus-results.json for full list)
 
 </details>
@@ -5588,13 +5302,13 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `asciidoctor__asciidoctor-pdf__dadceca: spec/optimizer_spec.rb:269  [Avoid instance variables - use let, a method call, or a local variable (if possible).]`
 - `asciidoctor__asciidoctor-pdf__dadceca: spec/optimizer_spec.rb:246  [Avoid instance variables - use let, a method call, or a local variable (if possible).]`
+- `asciidoctor__asciidoctor-pdf__dadceca: spec/optimizer_spec.rb:269  [Avoid instance variables - use let, a method call, or a local variable (if possible).]`
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `travis-ci__dpl__8c6eabc: spec/dpl/providers/cloudformation_spec.rb:17  [Avoid instance variables - use let, a method call, or a local variable (if possible).]`
 - `travis-ci__dpl__8c6eabc: spec/dpl/providers/cloudformation_spec.rb:22  [Avoid instance variables - use let, a method call, or a local variable (if possible).]`
+- `travis-ci__dpl__8c6eabc: spec/dpl/providers/cloudformation_spec.rb:17  [Avoid instance variables - use let, a method call, or a local variable (if possible).]`
 
 </details>
 
@@ -5603,9 +5317,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `avo-hq__avo__c7b9fc8: spec/features/avo/search_has_many_scope_spec.rb:22  [Move `let` before the examples in the group.]`
+- `avo-hq__avo__c7b9fc8: spec/features/avo/search_has_many_scope_spec.rb:43  [Move `let` before the examples in the group.]`
 - `avo-hq__avo__c7b9fc8: spec/features/avo/search_has_many_scope_spec.rb:44  [Move `let` before the examples in the group.]`
-- `avo-hq__avo__c7b9fc8: spec/features/avo/search_has_many_scope_spec.rb:23  [Move `let` before the examples in the group.]`
+- `avo-hq__avo__c7b9fc8: spec/features/avo/search_has_many_scope_spec.rb:22  [Move `let` before the examples in the group.]`
 - ... and 1 more (see corpus-results.json for full list)
 
 </details>
@@ -5623,14 +5337,17 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Rails/SquishedSQLHeredocs</strong> — 3,469 matches, 4 FP, 0 FN (99.8%)</summary>
+<summary><strong>Rails/SquishedSQLHeredocs</strong> — 3,468 matches, 3 FP, 1 FN (99.8%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `activerecord-hackery__ransack__271cb42: spec/support/schema.rb:129  [Use `<<-SQL.squish` instead of `<<-SQL`.]`
-- `activerecord-hackery__ransack__271cb42: spec/support/schema.rb:183  [Use `<<-SQL.squish` instead of `<<-SQL`.]`
-- `activerecord-hackery__ransack__271cb42: spec/ransack/search_spec.rb:500  [Use `<<-SQL.squish` instead of `<<-SQL`.]`
-- ... and 1 more (see corpus-results.json for full list)
+- `catarse__catarse__0d73a61: db/migrate/20180208072500_project_visitors_per_day_view_without_materialized.rb:3  [Use `<<-SQL.squish` instead of `<<-SQL`.]`
+- `discourse__discourse__9c8f125: script/bulk_import/vbulletin.rb:286  [Use `<<-SQL.squish` instead of `<<-SQL`.]`
+- `forem__forem__72d7c44: app/models/article.rb:332  [Use `<<~SQL.squish` instead of `<<~SQL`.]`
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `blackcandy-org__blackcandy__7f9ec3a: db/migrate/20200915090637_use_hstore_for_settings.rb:11  [Use `<<-SQL.squish` instead of `<<-SQL`.]`
 
 </details>
 
@@ -5663,9 +5380,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
+- `moll__vim-node__ede0477: test/autoload/lib_test.rb:377  [Do not use `%W` unless interpolation is needed. If not, use `%w`.]`
 - `moll__vim-node__ede0477: test/autoload/lib_test.rb:370  [Do not use `%W` unless interpolation is needed. If not, use `%w`.]`
 - `moll__vim-node__ede0477: test/autoload/lib_test.rb:387  [Do not use `%W` unless interpolation is needed. If not, use `%w`.]`
-- `moll__vim-node__ede0477: test/autoload/lib_test.rb:377  [Do not use `%W` unless interpolation is needed. If not, use `%w`.]`
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
@@ -5713,30 +5430,13 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Layout/InitialIndentation</strong> — 31 matches, 2 FP, 1 FN (91.1%)</summary>
+<summary><strong>Layout/LineContinuationLeadingSpace</strong> — 1,183 matches, 3 FP, 0 FN (99.7%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `jruby__jruby__0303464: bench/shootout/sumcol.ruby-2.ruby:4  [Indentation of first line in file detected.]`
-- `peritor__webistrano__a98ba6b: vendor/gems/highline-1.5.1/lib/highline/question.rb:9  [Indentation of first line in file detected.]`
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `jruby__jruby__0303464: bench/shootout/sumcol.ruby-2.ruby:5  [Indentation of first line in file detected.]`
-
-</details>
-
-<details>
-<summary><strong>Layout/LeadingCommentSpace</strong> — 19,910 matches, 2 FP, 1 FN (99.9%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `ruby-formatter__rufo__a90e654: spec/lib/rufo/formatter_source_specs/retry.rb.spec:1  [Missing space after `#`.]`
-- `ruby-formatter__rufo__a90e654: spec/lib/rufo/formatter_source_specs/retry.rb.spec:5  [Missing space after `#`.]`
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `browsermedia__browsercms__0a7fb92: bin/browsercms:1  [Missing space after `#`.]`
+- `chefspec__chefspec__df9ca04: lib/chefspec/matchers/resource_matcher.rb:78  [Move leading spaces to the end of the previous line.]`
+- `chefspec__chefspec__df9ca04: lib/chefspec/matchers/resource_matcher.rb:77  [Move leading spaces to the end of the previous line.]`
+- `chefspec__chefspec__df9ca04: lib/chefspec/matchers/resource_matcher.rb:80  [Move leading spaces to the end of the previous line.]`
 
 </details>
 
@@ -5771,8 +5471,8 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `jruby__jruby__0303464: spec/ruby/language/regexp/repetition_spec.rb:33  [Replace redundant quantifiers `{1,}` and `?` with a single `*`.]`
-- `ruby-china__homeland__9f5dbde: lib/homeland/sanitize/topic_scrubber.rb:54  [Replace redundant quantifiers `{0,1}` and `?` with a single `?`.]`
 - `ruby-china__homeland__9f5dbde: lib/homeland/sanitize/topic_scrubber.rb:59  [Replace redundant quantifiers `{0,1}` and `?` with a single `?`.]`
+- `ruby-china__homeland__9f5dbde: lib/homeland/sanitize/topic_scrubber.rb:54  [Replace redundant quantifiers `{0,1}` and `?` with a single `?`.]`
 
 </details>
 
@@ -5814,9 +5514,9 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `solidus__solidus__b2b3f2e: admin/app/components/solidus_admin/stock_items/index/component.rb:141  [Avoid using numbered parameters for multi-line blocks.]`
 - `solidus__solidus__b2b3f2e: admin/app/components/solidus_admin/stock_locations/index/component.rb:107  [Avoid using numbered parameters for multi-line blocks.]`
 - `solidus__solidus__b2b3f2e: admin/app/components/solidus_admin/stock_locations/index/component.rb:116  [Avoid using numbered parameters for multi-line blocks.]`
+- `solidus__solidus__b2b3f2e: admin/app/components/solidus_admin/stock_items/index/component.rb:141  [Avoid using numbered parameters for multi-line blocks.]`
 
 </details>
 
@@ -5843,32 +5543,25 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Layout/HeredocArgumentClosingParenthesis</strong> — 75 matches, 0 FP, 2 FN (97.4%)</summary>
+<summary><strong>Layout/InitialIndentation</strong> — 31 matches, 1 FP, 1 FN (93.9%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `jruby__jruby__0303464: bench/shootout/sumcol.ruby-2.ruby:4  [Indentation of first line in file detected.]`
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ruby-formatter__rufo__a90e654: spec/lib/rufo/formatter_source_specs/heredoc.rb.spec:353  [Put the closing parenthesis for a method call with a HEREDOC parameter on the same line as the HEREDOC opening.]`
-- `ruby-formatter__rufo__a90e654: spec/lib/rufo/formatter_source_specs/heredoc.rb.spec:345  [Put the closing parenthesis for a method call with a HEREDOC parameter on the same line as the HEREDOC opening.]`
+- `jruby__jruby__0303464: bench/shootout/sumcol.ruby-2.ruby:5  [Indentation of first line in file detected.]`
 
 </details>
 
 <details>
-<summary><strong>Layout/LineContinuationLeadingSpace</strong> — 1,181 matches, 0 FP, 2 FN (99.8%)</summary>
+<summary><strong>Layout/LeadingCommentSpace</strong> — 19,911 matches, 2 FP, 0 FN (99.9%)</summary>
 
-**False negatives** (RuboCop reports, nitrocop does not):
+**False positives** (nitrocop reports, RuboCop does not):
 
-- `chefspec__chefspec__df9ca04: lib/chefspec/matchers/resource_matcher.rb:67  [Move leading spaces to the end of the previous line.]`
-- `rails__rails__d7c8ae6: actionpack/lib/action_dispatch/middleware/remote_ip.rb:156  [Move leading spaces to the end of the previous line.]`
-
-</details>
-
-<details>
-<summary><strong>Lint/DeprecatedConstants</strong> — 52 matches, 0 FP, 2 FN (96.2%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `opal__opal__07183b3: opal/corelib/kernel.rb:711  [Use `Random.new` instead of `::Random::DEFAULT`, deprecated since Ruby 3.0.]`
-- `opal__opal__07183b3: opal/corelib/kernel.rb:728  [Use `Random.new` instead of `::Random::DEFAULT`, deprecated since Ruby 3.0.]`
+- `ruby-formatter__rufo__a90e654: spec/lib/rufo/formatter_source_specs/retry.rb.spec:1  [Missing space after `#`.]`
+- `ruby-formatter__rufo__a90e654: spec/lib/rufo/formatter_source_specs/retry.rb.spec:5  [Missing space after `#`.]`
 
 </details>
 
@@ -5906,16 +5599,6 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Lint/NumericOperationWithConstantResult</strong> — 2 matches, 0 FP, 2 FN (50.0%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `jashkenas__ruby-processing__2d83318: test/vecmath_spec_test.rb:39  [Numeric operation with a constant result detected.]`
-- `jashkenas__ruby-processing__2d83318: test/vecmath_spec_test.rb:233  [Numeric operation with a constant result detected.]`
-
-</details>
-
-<details>
 <summary><strong>Lint/SafeNavigationWithEmpty</strong> — 3 matches, 0 FP, 2 FN (60.0%)</summary>
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -5926,22 +5609,12 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Lint/UselessDefined</strong> — 17 matches, 0 FP, 2 FN (89.4%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `jruby__jruby__0303464: spec/ruby/language/defined_spec.rb:1240  [Calling `defined?` with a string argument will always return a truthy value.]`
-- `natalie-lang__natalie__b507cff: spec/language/defined_spec.rb:1260  [Calling `defined?` with a string argument will always return a truthy value.]`
-
-</details>
-
-<details>
 <summary><strong>RSpec/ReceiveCounts</strong> — 215 matches, 0 FP, 2 FN (99.0%)</summary>
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `ruby-shoryuken__shoryuken__1ce025d: spec/lib/shoryuken/queue_spec.rb:268  [Use `.once` instead of `.exactly(1).times`.]`
 - `ruby-shoryuken__shoryuken__1ce025d: spec/lib/shoryuken/queue_spec.rb:253  [Use `.once` instead of `.exactly(1).times`.]`
+- `ruby-shoryuken__shoryuken__1ce025d: spec/lib/shoryuken/queue_spec.rb:268  [Use `.once` instead of `.exactly(1).times`.]`
 
 </details>
 
@@ -5950,8 +5623,18 @@ Every offense is compared by file path, line number, and cop name.
 
 **False positives** (nitrocop reports, RuboCop does not):
 
-- `ubicloud__ubicloud__b181cb6: spec/prog/vm/host_nexus_spec.rb:196  [Do not stub methods of the object under test.]`
 - `ubicloud__ubicloud__b181cb6: spec/prog/vm/host_nexus_spec.rb:173  [Do not stub methods of the object under test.]`
+- `ubicloud__ubicloud__b181cb6: spec/prog/vm/host_nexus_spec.rb:196  [Do not stub methods of the object under test.]`
+
+</details>
+
+<details>
+<summary><strong>Rails/Blank</strong> — 2,395 matches, 0 FP, 2 FN (99.9%)</summary>
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `ttscoff__mdless__3638f78: lib/mdless/array.rb:11  [Use `blank?` instead of `nil? || empty?`.]`
+- `ttscoff__mdless__3638f78: lib/mdless/array.rb:5  [Use `blank?` instead of `nil? || empty?`.]`
 
 </details>
 
@@ -5960,8 +5643,8 @@ Every offense is compared by file path, line number, and cop name.
 
 **False negatives** (RuboCop reports, nitrocop does not):
 
-- `rails__rails__d7c8ae6: activerecord/test/models/topic.rb:4  [Multiple scopes share this same expression.]`
 - `rails__rails__d7c8ae6: activerecord/test/models/topic.rb:19  [Multiple scopes share this same expression.]`
+- `rails__rails__d7c8ae6: activerecord/test/models/topic.rb:4  [Multiple scopes share this same expression.]`
 
 </details>
 
@@ -6105,47 +5788,11 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Lint/DuplicateRequire</strong> — 47 matches, 0 FP, 1 FN (97.9%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `ruby-formatter__rufo__a90e654: spec/lib/rufo/formatter_source_specs/align_comments.rb.spec:79  [Duplicate `require` detected.]`
-
-</details>
-
-<details>
-<summary><strong>Lint/RedundantTypeConversion</strong> — 85 matches, 0 FP, 1 FN (98.8%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `tumblr__jetpants__bcc2507: plugins/jetpants_collins/jetpants_collins.rb:110  [Redundant `to_s` detected.]`
-
-</details>
-
-<details>
 <summary><strong>Lint/RefinementImportMethods</strong> — 0 matches, 1 FP, 0 FN (0.0%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
 
 - `ruby-next__ruby-next__e273012: spec/core/refinement/fixtures/import.rb:39  [Use `import_methods` instead of `include` because it is deprecated in Ruby 3.1.]`
-
-</details>
-
-<details>
-<summary><strong>Lint/RequireParentheses</strong> — 7 matches, 0 FP, 1 FN (87.5%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `urbanadventurer__WhatWeb__c42e1b9: test/output_optimization_test.rb:54  [Use parentheses in the method call to avoid confusion about precedence.]`
-
-</details>
-
-<details>
-<summary><strong>Lint/UselessRescue</strong> — 50 matches, 0 FP, 1 FN (98.0%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `jruby__jruby__0303464: test/jruby/test_kernel.rb:305  [Useless `rescue` detected.]`
 
 </details>
 
@@ -6213,6 +5860,15 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
+<summary><strong>Rails/RedundantForeignKey</strong> — 264 matches, 1 FP, 0 FN (99.6%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `rails__rails__d7c8ae6: activerecord/test/models/post.rb:94  [Specifying the default value for `foreign_key` is redundant.]`
+
+</details>
+
+<details>
 <summary><strong>Rails/UnusedRenderContent</strong> — 42 matches, 0 FP, 1 FN (97.6%)</summary>
 
 **False negatives** (RuboCop reports, nitrocop does not):
@@ -6236,6 +5892,33 @@ Every offense is compared by file path, line number, and cop name.
 **False negatives** (RuboCop reports, nitrocop does not):
 
 - `ruboto__ruboto__a5d3ff7: rakelib/android_api_gen.rb:375  [Use `File.write`.]`
+
+</details>
+
+<details>
+<summary><strong>Style/GlobalVars</strong> — 9,448 matches, 0 FP, 1 FN (99.9%)</summary>
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `jruby__jruby__0303464: spec/ruby/language/fixtures/bytes_magic_comment.rb:2  [Do not introduce global variables.]`
+
+</details>
+
+<details>
+<summary><strong>Style/HashLikeCase</strong> — 122 matches, 0 FP, 1 FN (99.1%)</summary>
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `danbooru__danbooru__fd45f0f: app/models/media_asset.rb:171  [Consider replacing `case-when` with a hash lookup.]`
+
+</details>
+
+<details>
+<summary><strong>Style/HashTransformValues</strong> — 157 matches, 0 FP, 1 FN (99.3%)</summary>
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `yob__pdf-reader__83cbcb7: lib/pdf/reader/form_xobject.rb:50  [Prefer `transform_values` over `Hash[_.map {...}]`.]`
 
 </details>
 
@@ -6266,6 +5949,24 @@ Every offense is compared by file path, line number, and cop name.
 
 </details>
 
+<details>
+<summary><strong>Style/RedundantArgument</strong> — 1,238 matches, 1 FP, 0 FN (99.9%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `ruby-next__ruby-next__e273012: lib/ruby-next/core/string/split.rb:3  [Argument `" "` is redundant because it is implied by default.]`
+
+</details>
+
+<details>
+<summary><strong>Style/RedundantSelfAssignmentBranch</strong> — 292 matches, 1 FP, 0 FN (99.6%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `github-linguist__linguist__fbdd23b: samples/Ruby/sinatra.rb:1123  [Remove the self-assignment branch.]`
+
+</details>
+
 ## Per-Repo Results
 
 999 repos completed successfully, 1 had errors.
@@ -6278,637 +5979,634 @@ Every offense is compared by file path, line number, and cop name.
 | rtomayko__tilt__9e2dba1 | 87 | 81.9% | 3,541 | 10 | 769 |
 | noidontdig__gitdown__0fe1538 | 2 | 85.1% | 138 | 0 | 24 |
 | vccw-team__vccw__af17da6 | 8 | 85.9% | 515 | 8 | 76 |
-| asciidoctor__asciidoctor__33c50c7 | 103 | 86.0% | 21,753 | 93 | 3,432 |
-| RailsApps__rails_apps_composer__b4165ab | 68 | 86.2% | 2,339 | 1 | 373 |
-| twilio__twilio-ruby__42c76f5 | 727 | 87.2% | 193,661 | 350 | 27,893 |
+| asciidoctor__asciidoctor__33c50c7 | 103 | 86.1% | 21,770 | 88 | 3,415 |
+| RailsApps__rails_apps_composer__b4165ab | 68 | 86.2% | 2,340 | 1 | 372 |
+| twilio__twilio-ruby__42c76f5 | 727 | 87.2% | 193,662 | 350 | 27,892 |
 | piotrmurach__finite_machine__34229a2 | 93 | 87.4% | 4,613 | 19 | 646 |
-| haml__haml__0880837 | 106 | 88.1% | 5,853 | 93 | 694 |
-| k0kubun__hamlit__9677846 | 112 | 88.2% | 6,581 | 97 | 776 |
+| haml__haml__0880837 | 106 | 88.1% | 5,853 | 90 | 694 |
+| k0kubun__hamlit__9677846 | 112 | 88.3% | 6,581 | 94 | 776 |
 | ReactiveX__RxRuby__fb1c5cf | 182 | 88.4% | 6,126 | 34 | 764 |
-| sds__scss-lint__9099df2 | 195 | 88.6% | 7,553 | 85 | 884 |
-| slim-template__slim__d387587 | 82 | 89.3% | 3,339 | 319 | 81 |
+| sds__scss-lint__9099df2 | 195 | 88.6% | 7,553 | 84 | 884 |
+| slim-template__slim__d387587 | 82 | 89.3% | 3,340 | 319 | 80 |
 | noraj__haiti__6f6934b | 14 | 90.4% | 208 | 1 | 21 |
 | rails__solid_queue__2c4bbd3 | 160 | 91.1% | 4,794 | 14 | 454 |
 | rails__jbuilder__4869a93 | 33 | 91.3% | 1,181 | 0 | 112 |
-| Arachni__arachni__c1710d6 | 1,064 | 91.4% | 93,685 | 266 | 8,508 |
-| asciidoctor__asciidoctor-pdf__dadceca | 197 | 91.4% | 42,681 | 128 | 3,843 |
-| ruby-formatter__rufo__a90e654 | 158 | 91.4% | 9,887 | 72 | 847 |
+| Arachni__arachni__c1710d6 | 1,064 | 91.4% | 93,702 | 252 | 8,491 |
+| asciidoctor__asciidoctor-pdf__dadceca | 197 | 91.4% | 42,681 | 122 | 3,843 |
+| ruby-formatter__rufo__a90e654 | 158 | 91.5% | 9,892 | 72 | 842 |
 | lazaronixon__authentication-zero__b76b4f9 | 11 | 91.7% | 368 | 0 | 33 |
 | github__gemoji__0eca75d | 11 | 91.9% | 524 | 8 | 38 |
+| yippee-fun__phlex__8012266 | 92 | 91.9% | 10,630 | 41 | 889 |
 | vapor-community__awesome-vapor__d20ec57 | 2 | 92.0% | 23 | 0 | 2 |
 | lucasgomide__videos-pt.br-tecnologia__b78b514 | 2 | 92.1% | 59 | 1 | 4 |
 | igrigorik__bugspots__cf57488 | 8 | 92.2% | 119 | 0 | 10 |
-| activerecord-hackery__ransack__271cb42 | 63 | 92.2% | 5,517 | 56 | 406 |
-| samg__timetrap__edacc04 | 32 | 92.4% | 4,294 | 102 | 251 |
+| activerecord-hackery__ransack__271cb42 | 63 | 92.3% | 5,518 | 52 | 405 |
+| samg__timetrap__edacc04 | 32 | 92.4% | 4,295 | 102 | 250 |
 | jtrupiano__rack-rewrite__758860b | 12 | 92.4% | 689 | 2 | 54 |
 | jhund__filterrific__366faf0 | 20 | 92.5% | 679 | 3 | 52 |
-| leavez__cocoapods-binary__b22bd94 | 22 | 92.5% | 1,140 | 6 | 86 |
-| htty__htty__8db7a36 | 200 | 92.5% | 6,432 | 32 | 486 |
+| htty__htty__8db7a36 | 200 | 92.5% | 6,432 | 30 | 486 |
 | rails-api__rails-api__91c6c35 | 29 | 92.5% | 686 | 3 | 52 |
+| leavez__cocoapods-binary__b22bd94 | 22 | 92.6% | 1,140 | 5 | 86 |
 | rails__mission_control-jobs__be5fdd8 | 163 | 92.6% | 3,640 | 8 | 281 |
-| yippee-fun__phlex__8012266 | 92 | 92.7% | 10,723 | 42 | 796 |
 | moiristo__deep_cloneable__d80e1e6 | 16 | 92.8% | 963 | 31 | 43 |
 | envygeeks__jekyll-assets__056d2c8 | 110 | 92.8% | 3,318 | 90 | 164 |
 | rails__globalid__26544d2 | 30 | 92.8% | 1,099 | 12 | 72 |
-| k1LoW__awspec__860b91f | 620 | 92.9% | 7,684 | 10 | 573 |
-| somaticio__tensorflow.rb__e8723dd | 26 | 92.9% | 1,333 | 7 | 94 |
 | commander-rb__commander__98dee54 | 32 | 92.9% | 1,232 | 1 | 92 |
-| github-linguist__linguist__fbdd23b | 101 | 93.1% | 10,353 | 41 | 724 |
-| antirez__lamernews__d08bf6b | 12 | 93.1% | 4,069 | 9 | 290 |
+| k1LoW__awspec__860b91f | 620 | 93.0% | 7,690 | 10 | 567 |
+| github-linguist__linguist__fbdd23b | 101 | 93.1% | 10,354 | 40 | 723 |
+| somaticio__tensorflow.rb__e8723dd | 26 | 93.2% | 1,337 | 7 | 90 |
 | digininja__CeWL__2f17ee1 | 4 | 93.3% | 2,310 | 22 | 143 |
 | david942j__seccomp-tools__4445b20 | 65 | 93.3% | 2,170 | 12 | 142 |
-| gel-rb__gel__34b69dc | 143 | 93.4% | 8,506 | 40 | 561 |
+| antirez__lamernews__d08bf6b | 12 | 93.3% | 4,077 | 7 | 282 |
+| gel-rb__gel__34b69dc | 143 | 93.4% | 8,508 | 38 | 559 |
 | sinclairtarget__um__b56b729 | 18 | 93.5% | 331 | 0 | 23 |
 | activeadmin__inherited_resources__5701d33 | 52 | 93.5% | 3,554 | 9 | 237 |
 | nesquena__rabl__50ebc12 | 335 | 93.5% | 7,517 | 33 | 482 |
 | basecamp__geared_pagination__88ba029 | 63 | 93.5% | 760 | 1 | 51 |
 | scambra__devise_invitable__63bf69c | 64 | 93.5% | 1,345 | 5 | 87 |
-| basecamp__once-campfire__dde94b0 | 263 | 93.6% | 5,644 | 22 | 361 |
 | rack__rack-contrib__9235386 | 75 | 93.6% | 2,801 | 10 | 180 |
-| rubocop__rubocop-rspec__51dab28 | 288 | 93.6% | 3,865 | 25 | 237 |
+| basecamp__once-campfire__dde94b0 | 263 | 93.6% | 5,644 | 21 | 361 |
 | flant__loghouse__615e26f | 29 | 93.6% | 695 | 2 | 45 |
 | sprinkle-tool__sprinkle__883594d | 140 | 93.6% | 7,132 | 26 | 456 |
+| rubocop__rubocop-rspec__51dab28 | 288 | 93.6% | 3,865 | 23 | 237 |
 | rspec__rspec-rails__73756d4 | 183 | 93.7% | 7,377 | 36 | 458 |
 | lewagon__setup__674ae5a | 3 | 93.7% | 165 | 0 | 11 |
 | thoughtbot__parity__912eb1d | 19 | 93.7% | 947 | 46 | 17 |
-| faye__faye-websocket-ruby__24101af | 25 | 93.8% | 925 | 13 | 48 |
 | jfahrenkrug__WWDC-Downloader__87aa38f | 5 | 93.8% | 259 | 2 | 15 |
 | emberjs__ember-rails__3ff4532 | 72 | 93.9% | 1,557 | 13 | 88 |
+| faye__faye-websocket-ruby__24101af | 25 | 93.9% | 926 | 13 | 47 |
 | romainbutteaud__Kaffeine__9d50747 | 35 | 93.9% | 293 | 0 | 19 |
 | steelThread__redmon__7f567f7 | 17 | 93.9% | 804 | 39 | 13 |
 | tenderlove__asmrepl__cc88509 | 16 | 93.9% | 1,039 | 1 | 66 |
-| SciRuby__daru__6a97a7c | 109 | 93.9% | 25,410 | 202 | 1,424 |
 | tj__commander__d10fc03 | 31 | 93.9% | 1,093 | 1 | 69 |
-| coreinfrastructure__best-practices-badge__a3a2fb7 | 349 | 94.0% | 11,771 | 61 | 688 |
-| indirect__rails-footnotes__43ca634 | 46 | 94.1% | 1,480 | 3 | 89 |
+| SciRuby__daru__6a97a7c | 109 | 94.0% | 25,415 | 200 | 1,419 |
+| coreinfrastructure__best-practices-badge__a3a2fb7 | 349 | 94.0% | 11,775 | 60 | 684 |
 | balvig__spyke__f49174b | 44 | 94.1% | 1,482 | 1 | 91 |
 | lolcommits__lolcommits__33799a7 | 48 | 94.1% | 1,191 | 2 | 72 |
 | JoshCheek__seeing_is_believing__cea723c | 62 | 94.1% | 6,585 | 43 | 365 |
+| indirect__rails-footnotes__43ca634 | 46 | 94.2% | 1,480 | 2 | 89 |
 | gazay__gon__75dc0dc | 39 | 94.2% | 1,253 | 9 | 68 |
 | rails__rails-perftest__00adba5 | 27 | 94.2% | 685 | 0 | 42 |
-| thoughtbot__shoulda-matchers__f147e7b | 290 | 94.2% | 16,034 | 432 | 550 |
-| mojombo__god__92c06aa | 137 | 94.2% | 5,058 | 6 | 301 |
+| thoughtbot__shoulda-matchers__f147e7b | 290 | 94.2% | 16,034 | 431 | 550 |
 | devise__devise__5b008ed | 206 | 94.2% | 5,509 | 43 | 291 |
 | restforce__restforce__1f640b2 | 90 | 94.2% | 3,349 | 31 | 172 |
-| sudara__awesome-juce__9d9c4dd | 2 | 94.2% | 66 | 0 | 4 |
+| mojombo__god__92c06aa | 137 | 94.2% | 5,058 | 5 | 301 |
 | refinery__refinerycms__03edec5 | 293 | 94.3% | 9,429 | 58 | 502 |
-| basecamp__kamal__9c6252d | 168 | 94.4% | 13,589 | 48 | 757 |
-| louismullie__treat__f63495e | 161 | 94.4% | 9,271 | 86 | 462 |
-| basecamp__fizzy__a02042b | 832 | 94.4% | 20,969 | 87 | 1,149 |
+| basecamp__kamal__9c6252d | 168 | 94.4% | 13,588 | 45 | 758 |
 | technicalpickles__jeweler__2ab8630 | 110 | 94.4% | 2,315 | 8 | 128 |
+| basecamp__fizzy__a02042b | 832 | 94.4% | 20,979 | 87 | 1,139 |
 | basecamp__marginalia__226f932 | 8 | 94.4% | 684 | 1 | 39 |
+| louismullie__treat__f63495e | 161 | 94.4% | 9,274 | 83 | 459 |
 | rails__webpacker__a715e05 | 64 | 94.5% | 1,942 | 6 | 106 |
 | estiens__world_cup_json__9a9320d | 132 | 94.6% | 2,043 | 5 | 111 |
 | sunaku__tamzen-font__3255e82 | 2 | 94.6% | 229 | 7 | 6 |
-| ruby__rdoc__c59a7a8 | 211 | 94.6% | 50,371 | 340 | 2,497 |
-| peritor__webistrano__a98ba6b | 545 | 94.6% | 42,726 | 218 | 2,184 |
-| CocoaPods__CocoaPods__458dd19 | 438 | 94.6% | 27,046 | 132 | 1,382 |
+| ruby__rdoc__c59a7a8 | 211 | 94.6% | 50,371 | 326 | 2,497 |
+| peritor__webistrano__a98ba6b | 545 | 94.7% | 42,729 | 207 | 2,181 |
 | rails__propshaft__68bb8c5 | 57 | 94.7% | 1,753 | 2 | 96 |
 | amatsuda__active_decorator__1603621 | 40 | 94.7% | 842 | 1 | 46 |
-| be9__acl9__cbffc38 | 117 | 94.7% | 2,348 | 28 | 103 |
-| troessner__reek__577be39 | 249 | 94.7% | 7,110 | 72 | 324 |
 | livingstyleguide__livingstyleguide__fc9564f | 67 | 94.7% | 1,621 | 29 | 61 |
 | thoughtbot__hotwire-example-template__39b521a | 37 | 94.7% | 396 | 1 | 21 |
-| davetron5000__gli__043146e | 86 | 94.7% | 5,342 | 59 | 235 |
+| be9__acl9__cbffc38 | 117 | 94.7% | 2,349 | 28 | 102 |
+| troessner__reek__577be39 | 249 | 94.7% | 7,111 | 70 | 323 |
+| CocoaPods__CocoaPods__458dd19 | 438 | 94.7% | 27,068 | 131 | 1,360 |
+| davetron5000__gli__043146e | 86 | 94.8% | 5,343 | 55 | 234 |
 | sj26__mailcatcher__fbe811a | 19 | 94.8% | 1,054 | 3 | 54 |
 | maccman__monocle__793f00f | 52 | 94.9% | 1,678 | 12 | 78 |
-| ryanb__letter_opener__9038f25 | 12 | 94.9% | 577 | 1 | 30 |
-| topfunky__gruff__e98e42d | 86 | 94.9% | 2,772 | 91 | 57 |
 | mizzy__serverspec__a0acb13 | 204 | 94.9% | 4,161 | 1 | 220 |
 | amatsuda__database_rewinder__97c7f9d | 16 | 95.0% | 533 | 1 | 27 |
-| camping__camping__f2479aa | 71 | 95.0% | 6,463 | 30 | 309 |
 | andrewculver__koudoku__7bc4946 | 59 | 95.0% | 764 | 1 | 39 |
-| chriskite__anemone__72b699e | 36 | 95.0% | 1,930 | 16 | 85 |
 | gravityblast__web-app-theme__b7310fe | 40 | 95.0% | 481 | 2 | 23 |
-| rubychan__coderay__eabc13c | 133 | 95.0% | 10,606 | 136 | 413 |
+| camping__camping__f2479aa | 71 | 95.0% | 6,466 | 29 | 306 |
 | Hackplayers__evil-winrm__84a543c | 4 | 95.0% | 1,085 | 5 | 51 |
+| rubychan__coderay__eabc13c | 133 | 95.1% | 10,612 | 135 | 407 |
+| chriskite__anemone__72b699e | 36 | 95.1% | 1,930 | 13 | 85 |
 | deanpcmad__sidekiq-limit_fetch__1dbfd35 | 41 | 95.1% | 889 | 1 | 44 |
 | realm__jazzy__5ff7292 | 40 | 95.2% | 2,264 | 17 | 97 |
 | grosser__parallel__8d638d0 | 71 | 95.2% | 1,540 | 2 | 75 |
-| greasyfork-org__greasyfork__9f42777 | 839 | 95.2% | 14,443 | 86 | 632 |
+| ryanb__letter_opener__9038f25 | 12 | 95.2% | 579 | 1 | 28 |
 | ruby-i18n__i18n__b0fffb8 | 93 | 95.2% | 5,958 | 11 | 285 |
-| scinote-eln__scinote-web__8435988 | 1,682 | 95.2% | 53,174 | 495 | 2,148 |
+| greasyfork-org__greasyfork__9f42777 | 839 | 95.2% | 14,447 | 86 | 628 |
 | heartcombo__simple_form__91c4fe0 | 103 | 95.2% | 2,940 | 63 | 82 |
 | crowdint__rails3-jquery-autocomplete__567c1e7 | 94 | 95.3% | 1,683 | 8 | 75 |
-| gollum__gollum__d00fefc | 55 | 95.3% | 3,630 | 15 | 163 |
-| heartcombo__has_scope__fdd523f | 8 | 95.3% | 428 | 1 | 20 |
+| scinote-eln__scinote-web__8435988 | 1,682 | 95.3% | 53,190 | 475 | 2,132 |
 | petewarden__dstk__c3ff139 | 27 | 95.3% | 4,140 | 14 | 188 |
-| awesome-print__awesome_print__8a7ff0a | 73 | 95.3% | 2,504 | 3 | 119 |
-| sds__overcommit__11838c6 | 442 | 95.3% | 10,581 | 111 | 405 |
+| gollum__gollum__d00fefc | 55 | 95.3% | 3,630 | 14 | 163 |
+| igorkasyanchuk__active_storage_validations__ec0ae6d | 336 | 95.3% | 6,154 | 21 | 279 |
+| awesome-print__awesome_print__8a7ff0a | 73 | 95.3% | 2,505 | 3 | 118 |
+| sds__overcommit__11838c6 | 442 | 95.3% | 10,585 | 110 | 401 |
 | amoeba-rb__amoeba__6adbbc5 | 26 | 95.4% | 851 | 1 | 40 |
-| bullet-train-co__bullet_train__8179f90 | 371 | 95.4% | 6,512 | 10 | 303 |
+| bullet-train-co__bullet_train__8179f90 | 371 | 95.4% | 6,512 | 7 | 303 |
 | rtomayko__ronn__c12e25d | 16 | 95.4% | 1,178 | 6 | 50 |
 | gauntlt__gauntlt__a44c902 | 45 | 95.4% | 739 | 0 | 35 |
 | tmm1__stackprof__8d57d8e | 15 | 95.4% | 1,208 | 8 | 49 |
-| voormedia__rails-erd__7c66258 | 215 | 95.4% | 6,506 | 36 | 271 |
 | goshacmd__nsa_panel__3532b9b | 44 | 95.5% | 255 | 0 | 12 |
 | github__choosealicense.com__b4442b3 | 14 | 95.5% | 234 | 3 | 8 |
-| sup-heliotrope__sup__c398524 | 107 | 95.5% | 14,300 | 86 | 586 |
 | ankane__strong_migrations__4d22559 | 61 | 95.5% | 2,954 | 29 | 109 |
-| globalize__globalize__86fd1ba | 106 | 95.5% | 3,314 | 10 | 145 |
-| ndbroadbent__turbo-sprockets-rails3__17fc5c8 | 23 | 95.5% | 1,481 | 5 | 64 |
+| heartcombo__has_scope__fdd523f | 8 | 95.5% | 428 | 0 | 20 |
+| sup-heliotrope__sup__c398524 | 107 | 95.5% | 14,302 | 84 | 584 |
+| voormedia__rails-erd__7c66258 | 215 | 95.5% | 6,507 | 34 | 270 |
 | testdouble__suture__0d71fca | 88 | 95.5% | 3,637 | 126 | 43 |
+| globalize__globalize__86fd1ba | 106 | 95.5% | 3,315 | 10 | 144 |
 | zdennis__activerecord-import__d3d3f8a | 143 | 95.5% | 4,173 | 22 | 171 |
 | motor-admin__motor-admin__b98eea3 | 69 | 95.5% | 1,433 | 8 | 58 |
 | rouge-ruby__rouge__1a40dda | 557 | 95.6% | 39,003 | 81 | 1,708 |
-| djezzzl__database_consistency__858e0b4 | 345 | 95.6% | 4,367 | 16 | 184 |
 | mbleigh__seed-fu__34c054c | 24 | 95.6% | 635 | 1 | 28 |
 | binarylogic__settingslogic__0ae134b | 11 | 95.6% | 417 | 0 | 19 |
-| jenseng__hair_trigger__e1f1fc5 | 34 | 95.6% | 2,133 | 3 | 94 |
+| djezzzl__database_consistency__858e0b4 | 345 | 95.6% | 4,368 | 16 | 183 |
 | petergoldstein__dalli__623dac9 | 82 | 95.6% | 2,838 | 24 | 105 |
 | felipecsl__wombat__5fbf866 | 45 | 95.6% | 2,270 | 6 | 96 |
-| resque__resque-scheduler__786653e | 50 | 95.7% | 2,849 | 50 | 78 |
+| sudara__awesome-juce__9d9c4dd | 2 | 95.7% | 67 | 0 | 3 |
 | hack-different__apple-knowledge__adf924b | 60 | 95.7% | 1,189 | 3 | 50 |
+| resque__resque-scheduler__786653e | 50 | 95.7% | 2,850 | 50 | 77 |
 | seyhunak__twitter-bootstrap-rails__de5f917 | 30 | 95.7% | 1,533 | 14 | 54 |
 | berkshelf__berkshelf__0d57883 | 144 | 95.7% | 8,178 | 206 | 156 |
 | eddiezane__lunchy__dfe1b06 | 5 | 95.7% | 205 | 0 | 9 |
 | interagent__committee__479b757 | 132 | 95.7% | 4,712 | 8 | 199 |
 | shioyama__mobility__f68470d | 169 | 95.7% | 11,870 | 110 | 411 |
-| postalserver__postal__d532922 | 294 | 95.8% | 13,397 | 32 | 555 |
+| ndbroadbent__turbo-sprockets-rails3__17fc5c8 | 23 | 95.8% | 1,485 | 5 | 60 |
+| postalserver__postal__d532922 | 294 | 95.8% | 13,397 | 31 | 555 |
 | ConradIrwin__pry-rescue__21e41e7 | 45 | 95.8% | 1,122 | 2 | 47 |
-| kschiess__parslet__f61daf0 | 134 | 95.8% | 6,866 | 49 | 251 |
-| rubyworks__facets__12326d4 | 1,409 | 95.8% | 33,675 | 144 | 1,324 |
-| jashkenas__ruby-processing__2d83318 | 48 | 95.8% | 1,800 | 4 | 74 |
-| zombocom__derailed_benchmarks__e8b29db | 72 | 95.8% | 1,844 | 2 | 78 |
+| jenseng__hair_trigger__e1f1fc5 | 34 | 95.8% | 2,135 | 1 | 92 |
+| kschiess__parslet__f61daf0 | 134 | 95.8% | 6,867 | 49 | 250 |
+| rubyworks__facets__12326d4 | 1,409 | 95.8% | 33,677 | 138 | 1,322 |
 | HazAT__badge__a8a6c8c | 8 | 95.8% | 416 | 0 | 18 |
-| radiant__radiant__756bb49 | 416 | 95.8% | 20,194 | 46 | 824 |
 | jlong__serve__a073547 | 41 | 95.8% | 2,300 | 7 | 92 |
 | rails__jquery-rails__0342960 | 10 | 95.8% | 209 | 0 | 9 |
-| openSUSE__osem__44db914 | 633 | 95.9% | 16,554 | 50 | 656 |
+| radiant__radiant__756bb49 | 416 | 95.8% | 20,199 | 46 | 819 |
+| openSUSE__osem__44db914 | 633 | 95.9% | 16,556 | 50 | 654 |
+| zombocom__derailed_benchmarks__e8b29db | 72 | 95.9% | 1,844 | 0 | 78 |
 | attr-encrypted__attr_encrypted__e8c9e2f | 16 | 95.9% | 1,637 | 22 | 47 |
+| jashkenas__ruby-processing__2d83318 | 48 | 95.9% | 1,802 | 4 | 72 |
 | mongodb__mongoid__202c695 | 1,031 | 95.9% | 950 | 10 | 30 |
 | JacobEvelyn__friends__3915987 | 60 | 95.9% | 2,502 | 7 | 98 |
 | tybenz__vimdeck__2bd5828 | 7 | 95.9% | 405 | 0 | 17 |
 | padrino__padrino-framework__a079eae | 321 | 95.9% | 8,147 | 13 | 328 |
-| theforeman__foreman__7a2fc6c | 2,466 | 95.9% | 89,532 | 1,267 | 2,475 |
-| tumblr__jetpants__bcc2507 | 72 | 95.9% | 7,578 | 16 | 301 |
 | geekq__workflow__24212f4 | 23 | 96.0% | 793 | 5 | 28 |
 | kneath__kss__b079170 | 15 | 96.0% | 312 | 1 | 12 |
-| rails__rails__d7c8ae6 | 3,439 | 96.0% | 298,478 | 995 | 11,440 |
 | benbalter__word-to-markdown__c0bd560 | 16 | 96.0% | 193 | 0 | 8 |
 | brentd__xray-rails__3d5fe94 | 36 | 96.0% | 578 | 1 | 23 |
-| CocoaPods__Xcodeproj__2cf6a22 | 133 | 96.0% | 8,608 | 52 | 303 |
+| rails__rails__d7c8ae6 | 3,439 | 96.0% | 298,506 | 970 | 11,412 |
+| theforeman__foreman__7a2fc6c | 2,466 | 96.0% | 89,552 | 1,266 | 2,455 |
 | citation-style-language__styles__e2a8d84 | 5 | 96.0% | 341 | 1 | 13 |
 | public-activity__public_activity__d820088 | 57 | 96.0% | 831 | 6 | 28 |
+| tumblr__jetpants__bcc2507 | 72 | 96.0% | 7,584 | 16 | 295 |
 | heartcombo__mail_form__cac07b7 | 15 | 96.0% | 465 | 2 | 17 |
 | rails__solid_cache__4e7219c | 137 | 96.0% | 6,802 | 3 | 275 |
 | sinatra__sinatra__9e5c4ec | 162 | 96.0% | 9,874 | 41 | 362 |
-| rubber__rubber__8f68213 | 166 | 96.0% | 9,289 | 51 | 327 |
-| wearefine__fae__ae3bd67 | 481 | 96.0% | 9,923 | 69 | 335 |
-| pupilfirst__pupilfirst__001ec46 | 1,964 | 96.0% | 45,649 | 121 | 1,736 |
+| CocoaPods__Xcodeproj__2cf6a22 | 133 | 96.1% | 8,614 | 52 | 297 |
+| topfunky__gruff__e98e42d | 86 | 96.1% | 2,772 | 55 | 57 |
 | defunkt__gist__232b69c | 15 | 96.1% | 2,553 | 8 | 95 |
+| pupilfirst__pupilfirst__001ec46 | 1,964 | 96.1% | 45,653 | 110 | 1,732 |
+| wearefine__fae__ae3bd67 | 481 | 96.1% | 9,927 | 69 | 331 |
 | 24pullrequests__24pullrequests__381028d | 220 | 96.1% | 5,006 | 31 | 170 |
 | pluosi__app-host__703ed39 | 101 | 96.1% | 2,410 | 0 | 97 |
 | rails__importmap-rails__6fb2bd5 | 81 | 96.1% | 2,237 | 0 | 90 |
 | kilimchoi__engineering-blogs__50eab27 | 2 | 96.1% | 50 | 1 | 1 |
-| github__explore__67774fb | 7 | 96.1% | 629 | 2 | 23 |
+| rubber__rubber__8f68213 | 166 | 96.1% | 9,294 | 49 | 322 |
 | ytti__oxidized__98dcf85 | 282 | 96.1% | 9,106 | 19 | 343 |
-| activeadmin__arbre__1ac77ad | 56 | 96.1% | 1,538 | 4 | 57 |
-| loomio__loomio__ec49b69 | 1,690 | 96.2% | 37,593 | 83 | 1,395 |
-| pedrozath__coltrane__0d5c379 | 169 | 96.2% | 3,938 | 42 | 113 |
-| influitive__apartment__f266f73 | 123 | 96.2% | 3,237 | 21 | 106 |
-| igorkasyanchuk__active_storage_validations__ec0ae6d | 336 | 96.2% | 6,212 | 22 | 221 |
-| soutaro__steep__86f2b02 | 386 | 96.2% | 37,465 | 119 | 1,347 |
-| sporkrb__spork__224df49 | 51 | 96.2% | 2,070 | 8 | 73 |
+| loomio__loomio__ec49b69 | 1,690 | 96.2% | 37,588 | 82 | 1,400 |
 | piotrmurach__tty__93ab5fe | 40 | 96.2% | 1,693 | 26 | 40 |
-| consuldemocracy__consuldemocracy__9d2544d | 2,312 | 96.2% | 84,723 | 448 | 2,841 |
-| freeCodeCamp__devdocs__3987861 | 833 | 96.2% | 19,211 | 49 | 697 |
+| consuldemocracy__consuldemocracy__9d2544d | 2,312 | 96.2% | 84,727 | 450 | 2,837 |
 | iobridge__thingspeak__9d4b74d | 242 | 96.2% | 6,554 | 4 | 250 |
 | kaminari__kaminari__76511e3 | 50 | 96.2% | 1,649 | 2 | 62 |
-| rtomayko__rack-cache__07ff2f8 | 32 | 96.2% | 2,193 | 44 | 41 |
-| brandonhilkert__fucking_shell_scripts__cd1e795 | 19 | 96.2% | 389 | 2 | 13 |
-| drhenner__ror_ecommerce__b7142f0 | 532 | 96.2% | 19,581 | 84 | 670 |
-| Sorcery__sorcery__883852e | 132 | 96.3% | 3,654 | 7 | 133 |
+| pedrozath__coltrane__0d5c379 | 169 | 96.2% | 3,939 | 41 | 112 |
+| freeCodeCamp__devdocs__3987861 | 833 | 96.2% | 19,215 | 48 | 693 |
+| influitive__apartment__f266f73 | 123 | 96.2% | 3,237 | 19 | 106 |
+| activeadmin__arbre__1ac77ad | 56 | 96.3% | 1,539 | 3 | 56 |
 | hotwired__turbo-rails__435135b | 120 | 96.3% | 2,894 | 3 | 108 |
 | javan__whenever__9876f97 | 47 | 96.3% | 2,190 | 11 | 73 |
-| Netflix-Skunkworks__Scumblr__66ed69a | 194 | 96.3% | 11,493 | 41 | 399 |
 | apigy__selfstarter__740075f | 37 | 96.3% | 654 | 3 | 22 |
 | github__scientist__504a396 | 16 | 96.3% | 836 | 0 | 32 |
 | markdownlint__markdownlint__94bee47 | 63 | 96.3% | 916 | 10 | 25 |
+| rtomayko__rack-cache__07ff2f8 | 32 | 96.3% | 2,193 | 43 | 41 |
+| soutaro__steep__86f2b02 | 386 | 96.3% | 37,467 | 89 | 1,345 |
+| github__explore__67774fb | 7 | 96.3% | 629 | 1 | 23 |
 | rubyconfig__config__68f492b | 274 | 96.3% | 3,251 | 22 | 102 |
+| drhenner__ror_ecommerce__b7142f0 | 532 | 96.3% | 19,588 | 82 | 663 |
 | voicerepublic__vr-fidelity__02d074c | 48 | 96.3% | 735 | 0 | 28 |
 | cucumber__cucumber-rails__7ab76d5 | 38 | 96.3% | 422 | 0 | 16 |
 | tute__merit__f359a7a | 95 | 96.3% | 1,449 | 3 | 52 |
-| activescaffold__active_scaffold__dad63a1 | 268 | 96.3% | 8,660 | 55 | 271 |
+| Sorcery__sorcery__883852e | 132 | 96.3% | 3,656 | 7 | 131 |
+| sporkrb__spork__224df49 | 51 | 96.3% | 2,070 | 5 | 73 |
+| activescaffold__active_scaffold__dad63a1 | 268 | 96.3% | 8,660 | 54 | 271 |
 | fphilipe__premailer-rails__d9a2f29 | 84 | 96.3% | 1,068 | 0 | 40 |
 | igrigorik__decisiontree__e30c188 | 12 | 96.3% | 400 | 0 | 15 |
-| ruby__debug__bad4d38 | 113 | 96.3% | 15,287 | 115 | 458 |
-| autolab__Autolab__674efe9 | 458 | 96.3% | 18,658 | 129 | 569 |
-| publiclab__plots2__5e1d8c2 | 366 | 96.3% | 22,103 | 72 | 754 |
-| newrelic__newrelic-ruby-agent__e5684e4 | 1,290 | 96.4% | 60,043 | 202 | 2,040 |
+| newrelic__newrelic-ruby-agent__e5684e4 | 1,290 | 96.4% | 60,045 | 200 | 2,038 |
 | RailsApps__rails-stripe-membership-saas__cdcd1b8 | 54 | 96.4% | 754 | 5 | 23 |
 | SciRuby__sciruby__cd4ce30 | 9 | 96.4% | 296 | 1 | 10 |
-| lobsters__lobsters__fce8b85 | 494 | 96.4% | 19,927 | 212 | 528 |
 | manyfold3d__manyfold__9580ec9 | 726 | 96.4% | 21,665 | 123 | 683 |
 | agiledivider__vagrant-hostsupdater__c5cd30a | 13 | 96.4% | 405 | 1 | 14 |
-| lian__bitcoin-ruby__f9b817c | 70 | 96.4% | 10,079 | 120 | 254 |
-| square__cane__c8d6ce4 | 37 | 96.4% | 1,354 | 12 | 38 |
+| publiclab__plots2__5e1d8c2 | 366 | 96.4% | 22,109 | 72 | 748 |
 | ffi__ffi__9abfa3f | 128 | 96.4% | 10,947 | 36 | 368 |
-| docuseal__docuseal__33ca930 | 417 | 96.4% | 11,708 | 188 | 242 |
-| helpyio__helpy__26aff0e | 333 | 96.4% | 11,140 | 85 | 325 |
-| inukshuk__anystyle__c6f5fb2 | 88 | 96.4% | 2,446 | 13 | 77 |
-| sharetribe__sharetribe__c5b7b8f | 1,850 | 96.4% | 66,709 | 783 | 1,661 |
+| autolab__Autolab__674efe9 | 458 | 96.4% | 18,667 | 126 | 560 |
+| helpyio__helpy__26aff0e | 333 | 96.4% | 11,140 | 84 | 325 |
+| Netflix-Skunkworks__Scumblr__66ed69a | 194 | 96.4% | 11,511 | 41 | 381 |
+| lobsters__lobsters__fce8b85 | 494 | 96.4% | 19,931 | 207 | 524 |
 | itamae-kitchen__itamae__15f31a7 | 77 | 96.4% | 2,823 | 5 | 98 |
 | passbolt__passbolt_docker__ea15b6d | 8 | 96.4% | 738 | 14 | 13 |
+| ruby__debug__bad4d38 | 113 | 96.4% | 15,292 | 105 | 453 |
+| sharetribe__sharetribe__c5b7b8f | 1,850 | 96.4% | 66,711 | 778 | 1,659 |
 | xaviershay__enki__759aada | 135 | 96.4% | 4,572 | 64 | 103 |
 | adamcooke__staytus__3e20435 | 127 | 96.4% | 2,442 | 0 | 89 |
 | holman__boom__1d1f7d3 | 12 | 96.5% | 387 | 3 | 11 |
 | westonganger__spreadsheet_architect__a73c6ed | 51 | 96.5% | 1,682 | 3 | 58 |
+| docuseal__docuseal__33ca930 | 417 | 96.5% | 11,713 | 186 | 237 |
+| brandonhilkert__fucking_shell_scripts__cd1e795 | 19 | 96.5% | 389 | 1 | 13 |
+| inukshuk__anystyle__c6f5fb2 | 88 | 96.5% | 2,447 | 12 | 76 |
 | ricardochimal__taps__93bd272 | 29 | 96.5% | 2,115 | 11 | 65 |
 | rgrove__sanitize__b5f1201 | 28 | 96.5% | 1,960 | 35 | 35 |
 | wpscanteam__wpscan__43a3de0 | 287 | 96.5% | 5,466 | 5 | 188 |
 | AndyObtiva__glimmer__90326e6 | 56 | 96.6% | 4,379 | 2 | 152 |
 | IFTTT__polo__89e3935 | 33 | 96.6% | 712 | 1 | 24 |
-| platanus__activeadmin_addons__d56e1bb | 156 | 96.6% | 3,311 | 55 | 61 |
+| lian__bitcoin-ruby__f9b817c | 70 | 96.6% | 10,088 | 110 | 245 |
 | zombocom__wicked__2e7114d | 69 | 96.6% | 771 | 3 | 24 |
-| dradis__dradis-ce__87cf070 | 539 | 96.6% | 14,547 | 67 | 439 |
 | thoughtbot__appraisal__602cdd9 | 51 | 96.6% | 2,011 | 12 | 58 |
+| dradis__dradis-ce__87cf070 | 539 | 96.6% | 14,548 | 67 | 438 |
 | elastic__elasticsearch-rails__41f4291 | 154 | 96.6% | 7,674 | 58 | 208 |
+| platanus__activeadmin_addons__d56e1bb | 156 | 96.6% | 3,311 | 54 | 61 |
+| square__cane__c8d6ce4 | 37 | 96.6% | 1,354 | 9 | 38 |
 | Chris911__iStats__15813fe | 18 | 96.6% | 665 | 0 | 23 |
-| hackclub__hcb__651ab54 | 2,264 | 96.6% | 50,628 | 84 | 1,670 |
-| rails__sprockets__35c34e6 | 131 | 96.6% | 9,781 | 37 | 302 |
-| voicerepublic__vr-streambox__028fa61 | 12 | 96.6% | 722 | 1 | 24 |
+| hackclub__hcb__651ab54 | 2,264 | 96.6% | 50,628 | 82 | 1,670 |
 | ankane__pretender__f18ca04 | 15 | 96.6% | 203 | 0 | 7 |
 | binarylogic__searchlogic__074c933 | 48 | 96.6% | 3,018 | 3 | 101 |
-| mongomapper__mongomapper__a6a6f4d | 210 | 96.6% | 22,326 | 252 | 519 |
-| zed-0xff__zsteg__b75b578 | 47 | 96.6% | 2,431 | 10 | 74 |
+| mongomapper__mongomapper__a6a6f4d | 210 | 96.6% | 22,327 | 252 | 518 |
+| rails__sprockets__35c34e6 | 131 | 96.6% | 9,781 | 34 | 302 |
 | strzibny__invoice_printer__fc268b5 | 40 | 96.6% | 1,220 | 3 | 39 |
 | ClosureTree__closure_tree__e2bc781 | 99 | 96.6% | 2,428 | 28 | 55 |
-| toy__image_optim__df3fa75 | 78 | 96.6% | 3,747 | 43 | 85 |
-| fluent__fluentd__1327bed | 456 | 96.7% | 61,113 | 311 | 1,770 |
-| gimite__google-drive-ruby__55b996b | 22 | 96.7% | 938 | 14 | 18 |
+| gimite__google-drive-ruby__55b996b | 22 | 96.7% | 939 | 15 | 17 |
 | pry__pry-rails__d8d0c6d | 37 | 96.7% | 795 | 2 | 25 |
-| waiting-for-dev__devise-jwt__fc0230f | 89 | 96.7% | 1,001 | 0 | 34 |
 | FortAwesome__font-awesome-sass__54e0103 | 8 | 96.7% | 59 | 0 | 2 |
 | brotandgames__ciao__63a79aa | 84 | 96.7% | 1,328 | 2 | 43 |
 | eliotsykes__real-world-rails__c5e6e6e | 18 | 96.7% | 474 | 2 | 14 |
-| rack__rack__75c5745 | 106 | 96.7% | 17,707 | 111 | 487 |
+| zed-0xff__zsteg__b75b578 | 47 | 96.7% | 2,433 | 10 | 72 |
+| rack__rack__75c5745 | 106 | 96.7% | 17,709 | 111 | 485 |
 | tmm1__rbtrace__5ff3682 | 15 | 96.7% | 1,072 | 18 | 18 |
-| middleman__middleman__9596448 | 263 | 96.7% | 5,441 | 42 | 140 |
+| fluent__fluentd__1327bed | 456 | 96.7% | 61,144 | 300 | 1,739 |
 | kanwei__algorithms__feaa5d5 | 43 | 96.7% | 2,460 | 11 | 71 |
 | rails__jsbundling-rails__7d5afa9 | 28 | 96.7% | 780 | 0 | 26 |
 | charkost__prosopite__891000f | 11 | 96.7% | 723 | 6 | 18 |
-| rubygems_org__rubygems_org__dd5c605 | 1,265 | 96.8% | 41,508 | 442 | 928 |
+| middleman__middleman__9596448 | 263 | 96.7% | 5,441 | 41 | 140 |
+| voicerepublic__vr-streambox__028fa61 | 12 | 96.7% | 722 | 0 | 24 |
+| toy__image_optim__df3fa75 | 78 | 96.7% | 3,750 | 42 | 82 |
 | stefansundin__rssbox__9f189f2 | 37 | 96.8% | 2,844 | 2 | 92 |
-| pat__thinking-sphinx__3ebecea | 325 | 96.8% | 15,300 | 145 | 359 |
+| waiting-for-dev__devise-jwt__fc0230f | 89 | 96.8% | 1,002 | 0 | 33 |
 | jsonapi-serializer__jsonapi-serializer__f40de01 | 33 | 96.8% | 579 | 1 | 18 |
-| resque__resque__9fc870e | 78 | 96.8% | 5,159 | 18 | 151 |
+| rubygems_org__rubygems_org__dd5c605 | 1,265 | 96.8% | 41,520 | 442 | 916 |
 | aaronpk__webmention.io__8215632 | 32 | 96.8% | 2,607 | 9 | 76 |
 | bigbluebutton__greenlight__4d67cd7 | 253 | 96.8% | 7,101 | 12 | 219 |
+| pat__thinking-sphinx__3ebecea | 325 | 96.8% | 15,300 | 139 | 359 |
+| resque__resque__9fc870e | 78 | 96.8% | 5,159 | 17 | 151 |
 | ActsAsParanoid__acts_as_paranoid__050702d | 24 | 96.8% | 2,247 | 8 | 65 |
 | delano__redis-dump__edc6aac | 12 | 96.8% | 803 | 1 | 25 |
 | natew__obtvse__1542856 | 41 | 96.8% | 496 | 1 | 15 |
 | cesarferreira__dryrun__3cdd6e8 | 18 | 96.8% | 467 | 4 | 11 |
 | imathis__octopress__5717a50 | 22 | 96.8% | 1,121 | 2 | 34 |
 | uken__fluent-plugin-elasticsearch__b892496 | 31 | 96.8% | 10,860 | 113 | 236 |
-| composite-primary-keys__composite_primary_keys__ec2e404 | 121 | 96.8% | 3,438 | 16 | 94 |
 | jeromegn__DocumentUp__36ff103 | 49 | 96.8% | 624 | 3 | 17 |
-| NoamB__sorcery__4aaf383 | 115 | 96.9% | 4,923 | 7 | 150 |
 | laserlemon__figaro__a2d7dcb | 36 | 96.9% | 1,128 | 13 | 23 |
-| ging__social_stream__a77380f | 467 | 96.9% | 17,535 | 72 | 487 |
+| pglombardo__PasswordPusher__6ad930c | 320 | 96.9% | 15,301 | 88 | 401 |
 | moneta-rb__moneta__6fdb9c7 | 344 | 96.9% | 8,219 | 54 | 208 |
-| puma__puma__a1b5b5e | 220 | 96.9% | 15,568 | 119 | 377 |
-| ruboto__ruboto__a5d3ff7 | 117 | 96.9% | 6,156 | 20 | 176 |
+| puma__puma__a1b5b5e | 220 | 96.9% | 15,569 | 120 | 376 |
 | mina-deploy__mina__dc9deda | 62 | 96.9% | 788 | 3 | 22 |
+| ging__social_stream__a77380f | 467 | 96.9% | 17,537 | 70 | 485 |
+| ruboto__ruboto__a5d3ff7 | 117 | 96.9% | 6,157 | 20 | 175 |
 | excon__excon__6cbfda8 | 125 | 96.9% | 5,546 | 45 | 130 |
 | plentz__lol_dba__58e51ae | 60 | 96.9% | 730 | 0 | 23 |
-| prawnpdf__prawn__1442068 | 201 | 96.9% | 5,827 | 66 | 117 |
+| composite-primary-keys__composite_primary_keys__ec2e404 | 121 | 96.9% | 3,439 | 15 | 93 |
 | activeagents__activeagent__63c19fd | 319 | 96.9% | 16,848 | 101 | 426 |
-| owen2345__camaleon-cms__acc1dfa | 289 | 96.9% | 6,985 | 71 | 148 |
-| chloerei__writings__cc51d5f | 154 | 96.9% | 2,867 | 3 | 86 |
-| coderwall__coderwall-legacy__08382e1 | 615 | 96.9% | 17,108 | 64 | 467 |
 | DefactoSoftware__Hours__d695140 | 198 | 96.9% | 4,005 | 7 | 117 |
 | galetahub__ckeditor__f6f8e2b | 118 | 96.9% | 1,097 | 5 | 29 |
+| NoamB__sorcery__4aaf383 | 115 | 97.0% | 4,928 | 7 | 145 |
 | Shopify__semian__568d073 | 96 | 97.0% | 5,660 | 10 | 165 |
 | amatsuda__jb__6a8791e | 57 | 97.0% | 388 | 0 | 12 |
 | amatsuda__traceroute__182f68f | 10 | 97.0% | 454 | 2 | 12 |
 | hybridgroup__artoo__2f0446a | 96 | 97.0% | 2,523 | 3 | 75 |
-| inspec__inspec__965502e | 1,108 | 97.0% | 55,229 | 242 | 1,457 |
-| pglombardo__PasswordPusher__6ad930c | 320 | 97.0% | 15,319 | 88 | 383 |
-| mileszs__wicked_pdf__bce498d | 32 | 97.0% | 979 | 4 | 26 |
-| oldmoe__litestack__e598e1b | 89 | 97.0% | 5,539 | 37 | 133 |
+| coderwall__coderwall-legacy__08382e1 | 615 | 97.0% | 17,113 | 62 | 462 |
+| inspec__inspec__965502e | 1,108 | 97.0% | 55,234 | 240 | 1,452 |
 | brendon__ranked-model__c2c5f33 | 28 | 97.0% | 2,946 | 5 | 85 |
-| macournoyer__thin__84a5188 | 114 | 97.0% | 6,159 | 19 | 169 |
-| pickhardt__betty__f95c4e3 | 42 | 97.0% | 2,662 | 7 | 74 |
+| oldmoe__litestack__e598e1b | 89 | 97.0% | 5,540 | 37 | 132 |
 | venmo__synx__e22f20a | 17 | 97.0% | 724 | 0 | 22 |
+| macournoyer__thin__84a5188 | 114 | 97.0% | 6,161 | 19 | 167 |
 | powder-rb__powder__25e8b6d | 6 | 97.0% | 661 | 0 | 20 |
-| ruby-concurrency__concurrent-ruby__30dc89e | 350 | 97.0% | 23,814 | 40 | 680 |
-| vcr__vcr__9a66a8a | 88 | 97.0% | 6,840 | 45 | 162 |
-| danchoi__vmail__924edc2 | 33 | 97.0% | 1,992 | 8 | 52 |
 | gocardless__statesman__2cfe66d | 45 | 97.0% | 2,884 | 51 | 36 |
-| Mange__roadie__9f65a98 | 63 | 97.0% | 2,835 | 4 | 81 |
+| vcr__vcr__9a66a8a | 88 | 97.0% | 6,840 | 44 | 162 |
 | Shopify__pitchfork__c95f7a6 | 92 | 97.0% | 6,256 | 90 | 98 |
 | contribsys__einhorn__9c17d44 | 48 | 97.0% | 2,501 | 14 | 61 |
 | email-spec__email-spec__8135463 | 84 | 97.0% | 2,602 | 4 | 74 |
+| prawnpdf__prawn__1442068 | 201 | 97.0% | 5,830 | 61 | 114 |
 | prontolabs__pronto__16f6776 | 94 | 97.0% | 2,731 | 6 | 76 |
-| rails__activeresource__34f6fcd | 87 | 97.0% | 7,414 | 2 | 221 |
 | davydovanton__sidekiq-statistic__f27c854 | 39 | 97.0% | 769 | 3 | 20 |
-| maccman__abba__2a9ba0d | 10 | 97.0% | 301 | 0 | 9 |
 | palkan__isolator__1ffb396 | 90 | 97.0% | 2,041 | 34 | 27 |
 | tobi__clarity__7ad9a19 | 22 | 97.0% | 802 | 3 | 21 |
+| rails__activeresource__34f6fcd | 87 | 97.1% | 7,416 | 2 | 219 |
 | rails__kredis__a6643a0 | 58 | 97.1% | 2,145 | 5 | 59 |
 | trailblazer__trailblazer__4d49a16 | 7 | 97.1% | 134 | 0 | 4 |
 | randym__axlsx__8e7b4b3 | 289 | 97.1% | 16,043 | 8 | 469 |
+| ruby-concurrency__concurrent-ruby__30dc89e | 350 | 97.1% | 23,827 | 40 | 667 |
 | xcpretty__xcpretty__33d1f0a | 45 | 97.1% | 2,896 | 6 | 80 |
+| Mange__roadie__9f65a98 | 63 | 97.1% | 2,836 | 4 | 80 |
 | cucumber__aruba__653b02d | 169 | 97.1% | 4,115 | 33 | 89 |
 | documentcloud__jammit__dc866f1 | 29 | 97.1% | 1,353 | 5 | 35 |
 | matthuhiggins__foreigner__0496762 | 30 | 97.1% | 608 | 0 | 18 |
-| ruby-china__homeland__9f5dbde | 416 | 97.1% | 10,103 | 11 | 288 |
+| owen2345__camaleon-cms__acc1dfa | 289 | 97.1% | 6,996 | 70 | 137 |
 | aanand__deadweight__e3b84c4 | 14 | 97.1% | 373 | 2 | 9 |
-| shoes__shoes4__59b2821 | 557 | 97.1% | 17,949 | 181 | 349 |
-| magnusvk__counter_culture__e409bb6 | 74 | 97.1% | 4,864 | 34 | 109 |
+| ruby-china__homeland__9f5dbde | 416 | 97.1% | 10,104 | 11 | 287 |
 | prat0318__json_resume__d2aa8d2 | 17 | 97.1% | 442 | 0 | 13 |
+| shoes__shoes4__59b2821 | 557 | 97.1% | 17,949 | 179 | 349 |
 | shrinerb__shrine__2f922c6 | 151 | 97.1% | 11,006 | 19 | 304 |
 | Studiosity__grover__9ea62b4 | 31 | 97.1% | 2,693 | 4 | 75 |
-| samg__diffy__72dc29f | 12 | 97.1% | 855 | 6 | 19 |
 | tryzealot__zealot__80029ea | 328 | 97.1% | 8,332 | 46 | 198 |
-| ifmeorg__ifme__4145f80 | 425 | 97.1% | 12,565 | 45 | 321 |
+| danchoi__vmail__924edc2 | 33 | 97.1% | 1,994 | 8 | 50 |
 | brunofacca__active-record-query-trace__134620a | 14 | 97.1% | 345 | 0 | 10 |
-| jordansissel__fpm__5b1fe9a | 63 | 97.1% | 11,594 | 29 | 307 |
+| ifmeorg__ifme__4145f80 | 425 | 97.1% | 12,567 | 45 | 319 |
 | norman__friendly_id__cf4b81c | 51 | 97.1% | 2,378 | 2 | 67 |
 | ruby-next__ruby-next__e273012 | 282 | 97.1% | 9,803 | 63 | 221 |
-| voltrb__volt__f942b92 | 389 | 97.1% | 11,938 | 30 | 316 |
-| yujinakayama__transpec__ba82297 | 133 | 97.1% | 6,106 | 23 | 154 |
+| chloerei__writings__cc51d5f | 154 | 97.1% | 2,873 | 3 | 80 |
 | fastlane__boarding__97384cc | 33 | 97.1% | 347 | 0 | 10 |
 | octobox__octobox__495bcfc | 247 | 97.1% | 5,163 | 8 | 141 |
-| opal__opal__07183b3 | 844 | 97.1% | 45,750 | 131 | 1,191 |
+| pickhardt__betty__f95c4e3 | 42 | 97.1% | 2,664 | 5 | 72 |
 | wvanbergen__request-log-analyzer__b83865d | 116 | 97.1% | 5,752 | 24 | 142 |
+| yujinakayama__transpec__ba82297 | 133 | 97.1% | 6,106 | 22 | 154 |
+| jordansissel__fpm__5b1fe9a | 63 | 97.2% | 11,595 | 27 | 306 |
 | copiousfreetime__launchy__531d9d5 | 31 | 97.2% | 1,084 | 2 | 29 |
 | dblock__fui__d23bd66 | 16 | 97.2% | 488 | 0 | 14 |
 | MiniProfiler__rack-mini-profiler__92610ca | 84 | 97.2% | 5,147 | 12 | 135 |
+| magnusvk__counter_culture__e409bb6 | 74 | 97.2% | 4,866 | 32 | 107 |
+| mileszs__wicked_pdf__bce498d | 32 | 97.2% | 981 | 4 | 24 |
+| voltrb__volt__f942b92 | 389 | 97.2% | 11,941 | 28 | 313 |
+| avo-hq__avo__c7b9fc8 | 845 | 97.2% | 25,989 | 321 | 417 |
 | bootstrap-ruby__bootstrap_form__fdf05c5 | 140 | 97.2% | 2,991 | 24 | 61 |
+| opal__opal__07183b3 | 844 | 97.2% | 45,760 | 119 | 1,181 |
 | RolifyCommunity__rolify__3d5234d | 67 | 97.2% | 5,674 | 3 | 158 |
 | aanand__git-up__64de741 | 6 | 97.2% | 282 | 1 | 7 |
-| avo-hq__avo__c7b9fc8 | 845 | 97.2% | 25,992 | 323 | 414 |
-| defunkt__github-gem__8ef0c30 | 39 | 97.2% | 3,629 | 7 | 96 |
 | mkhairi__materialize-sass__9069a66 | 7 | 97.2% | 212 | 0 | 6 |
 | DatabaseCleaner__database_cleaner__f50ccb2 | 36 | 97.2% | 1,309 | 4 | 33 |
-| kostya__eye__c118b80 | 213 | 97.2% | 18,019 | 71 | 438 |
-| openfoodfoundation__openfoodnetwork__c13785f | 2,029 | 97.2% | 106,018 | 1,602 | 1,394 |
+| openfoodfoundation__openfoodnetwork__c13785f | 2,029 | 97.2% | 106,021 | 1,597 | 1,391 |
 | freshshell__fresh__977057b | 4 | 97.2% | 1,494 | 13 | 29 |
 | igrigorik__em-synchrony__99aa05b | 61 | 97.2% | 3,420 | 7 | 89 |
-| danlucraft__redcar__ff1a671 | 508 | 97.2% | 29,851 | 85 | 751 |
+| kostya__eye__c118b80 | 213 | 97.2% | 18,022 | 71 | 435 |
 | geokit__geokit-rails__e3a9f6e | 68 | 97.2% | 1,390 | 3 | 36 |
-| ruby__rake__c1c6e81 | 100 | 97.2% | 8,845 | 28 | 220 |
-| ttscoff__mdless__3638f78 | 22 | 97.2% | 3,386 | 14 | 81 |
 | zipmark__rspec_api_documentation__0c9692a | 141 | 97.2% | 5,078 | 12 | 130 |
+| blackcandy-org__blackcandy__7f9ec3a | 235 | 97.2% | 4,371 | 3 | 119 |
 | chrismccord__render_sync__81cc3ce | 82 | 97.2% | 1,826 | 22 | 29 |
-| eventmachine__eventmachine__e732041 | 132 | 97.2% | 10,521 | 24 | 270 |
+| danlucraft__redcar__ff1a671 | 508 | 97.2% | 29,852 | 82 | 750 |
 | gma__nesta__c94a643 | 84 | 97.2% | 1,755 | 3 | 46 |
+| ruby__rake__c1c6e81 | 100 | 97.2% | 8,846 | 28 | 219 |
 | codetriage__CodeTriage__f0a7268 | 273 | 97.2% | 4,926 | 9 | 128 |
+| defunkt__github-gem__8ef0c30 | 39 | 97.2% | 3,630 | 6 | 95 |
 | devise-two-factor__devise-two-factor__8262ce0 | 22 | 97.2% | 396 | 4 | 7 |
 | github__markup__2b0e7f2 | 13 | 97.2% | 503 | 2 | 12 |
 | motor-admin__motor-admin-rails__711b6fe | 209 | 97.2% | 3,735 | 25 | 79 |
 | mustache__mustache__9fefaab | 53 | 97.2% | 2,196 | 8 | 53 |
-| onetimesecret__onetimesecret__eb85a76 | 1,082 | 97.2% | 71,515 | 973 | 1,014 |
+| onetimesecret__onetimesecret__eb85a76 | 1,082 | 97.2% | 71,515 | 972 | 1,014 |
 | procore-oss__blueprinter__fef297b | 57 | 97.2% | 2,233 | 15 | 47 |
-| JEG2__highline__0321f84 | 67 | 97.3% | 3,892 | 51 | 57 |
-| blackcandy-org__blackcandy__7f9ec3a | 235 | 97.3% | 4,372 | 3 | 118 |
 | endoflife-date__endoflife.date__a0d0676 | 11 | 97.3% | 1,226 | 1 | 33 |
 | Docverter__docverter__7d6fd32 | 16 | 97.3% | 363 | 1 | 9 |
 | janlelis__irbtools__7c73bff | 20 | 97.3% | 616 | 2 | 15 |
-| Shopify__roast__9c72794 | 182 | 97.3% | 6,068 | 5 | 162 |
-| FontCustom__fontcustom__86d7f8d | 24 | 97.3% | 2,127 | 32 | 26 |
-| aasm__aasm__726a578 | 247 | 97.3% | 11,424 | 117 | 193 |
+| JEG2__highline__0321f84 | 67 | 97.3% | 3,892 | 50 | 57 |
+| Shopify__roast__9c72794 | 182 | 97.3% | 6,069 | 5 | 161 |
+| eventmachine__eventmachine__e732041 | 132 | 97.3% | 10,527 | 24 | 264 |
 | ambethia__recaptcha__f68fe96 | 56 | 97.3% | 1,068 | 1 | 28 |
-| ruby__rbs__413dd2b | 373 | 97.3% | 61,661 | 139 | 1,525 |
-| sporkmonger__addressable__3875874 | 32 | 97.3% | 19,043 | 39 | 475 |
-| catarse__catarse__0d73a61 | 1,470 | 97.3% | 26,570 | 90 | 623 |
-| dmayer__idb__0383554 | 80 | 97.4% | 5,749 | 7 | 146 |
+| samg__diffy__72dc29f | 12 | 97.3% | 856 | 5 | 18 |
+| FontCustom__fontcustom__86d7f8d | 24 | 97.3% | 2,128 | 32 | 25 |
+| catarse__catarse__0d73a61 | 1,470 | 97.3% | 26,572 | 91 | 621 |
+| aasm__aasm__726a578 | 247 | 97.4% | 11,429 | 117 | 188 |
 | k0kubun__md2key__5666e5d | 22 | 97.4% | 263 | 1 | 6 |
+| ruby__rbs__413dd2b | 373 | 97.4% | 61,670 | 127 | 1,516 |
 | excid3__noticed__ddab2d1 | 123 | 97.4% | 2,144 | 3 | 54 |
-| openjournals__joss__c3cc59f | 192 | 97.4% | 9,032 | 38 | 202 |
 | postmodern__spidr__657b9db | 51 | 97.4% | 3,181 | 5 | 79 |
-| AssetSync__asset_sync__aab9010 | 34 | 97.4% | 3,380 | 30 | 59 |
 | CombineCommunity__rxswift-to-combine-cheatsheet__f8a2a08 | 2 | 97.4% | 76 | 0 | 2 |
 | EugenMayer__docker-sync__4eab6de | 74 | 97.4% | 2,655 | 2 | 68 |
 | collectiveidea__audited__dbf8432 | 61 | 97.4% | 3,152 | 6 | 77 |
+| openjournals__joss__c3cc59f | 192 | 97.4% | 9,033 | 37 | 201 |
+| sporkmonger__addressable__3875874 | 32 | 97.4% | 19,048 | 32 | 470 |
 | SciRuby__iruby__6ffd850 | 67 | 97.4% | 2,782 | 12 | 61 |
-| saberma__shopqi__33b78f1 | 489 | 97.4% | 25,371 | 83 | 582 |
+| dmayer__idb__0383554 | 80 | 97.4% | 5,751 | 7 | 144 |
+| saberma__shopqi__33b78f1 | 489 | 97.4% | 25,371 | 82 | 582 |
 | brooklynDev__airborne__5c08eeb | 41 | 97.4% | 841 | 0 | 22 |
 | kmuto__review__031f3a6 | 161 | 97.4% | 18,702 | 45 | 443 |
 | locomotivecms__engine__87c6636 | 486 | 97.4% | 15,219 | 66 | 331 |
-| tenex__rails-assets__0fa06c6 | 137 | 97.4% | 3,843 | 21 | 79 |
+| AssetSync__asset_sync__aab9010 | 34 | 97.4% | 3,381 | 30 | 58 |
 | redis-store__redis-store__7b6c2df | 29 | 97.4% | 1,197 | 1 | 30 |
-| slack-notifier__slack-notifier__e9aace7 | 31 | 97.4% | 1,042 | 3 | 24 |
 | elcuervo__airplay__468f8cc | 40 | 97.4% | 1,045 | 12 | 15 |
-| ruby-amqp__hutch__a05fc29 | 64 | 97.4% | 2,400 | 9 | 53 |
 | Shopify__maintenance_tasks__58e544a | 132 | 97.4% | 3,463 | 10 | 79 |
-| dry-rb__dry-monads__20957eb | 70 | 97.4% | 5,408 | 39 | 100 |
-| sparklemotion__mechanize__cf7b0a3 | 147 | 97.4% | 9,888 | 26 | 228 |
-| TracksApp__tracks__53cf4b4 | 286 | 97.5% | 15,057 | 57 | 329 |
 | bashly-framework__bashly__52160e2 | 124 | 97.5% | 3,481 | 50 | 39 |
-| chef__chef__e58e1a1 | 2,334 | 97.5% | 222,419 | 2,137 | 3,565 |
-| gettalong__hexapdf__f1176c6 | 496 | 97.5% | 29,023 | 141 | 602 |
+| chef__chef__e58e1a1 | 2,334 | 97.5% | 222,423 | 2,129 | 3,561 |
+| TracksApp__tracks__53cf4b4 | 286 | 97.5% | 15,058 | 56 | 328 |
 | snibox__snibox__c756dff | 90 | 97.5% | 940 | 1 | 23 |
-| danmayer__coverband__31ee959 | 167 | 97.5% | 6,767 | 34 | 138 |
 | discourse__message_bus__bd437e3 | 58 | 97.5% | 3,592 | 6 | 85 |
 | gregnavis__active_record_doctor__f3bdcec | 58 | 97.5% | 2,763 | 44 | 26 |
-| rmosolgo__graphql-ruby__a2cbf25 | 726 | 97.5% | 64,617 | 186 | 1,457 |
+| rmosolgo__graphql-ruby__a2cbf25 | 726 | 97.5% | 64,618 | 182 | 1,456 |
+| ruby-amqp__hutch__a05fc29 | 64 | 97.5% | 2,400 | 8 | 53 |
 | travis-ci__travis.rb__d298045 | 156 | 97.5% | 4,063 | 18 | 85 |
 | cypriss__mutations__475d011 | 43 | 97.5% | 2,646 | 4 | 63 |
+| danmayer__coverband__31ee959 | 167 | 97.5% | 6,767 | 33 | 138 |
 | jquery-ui-rails__jquery-ui-rails__7ca2fdb | 33 | 97.5% | 316 | 0 | 8 |
-| neo4jrb__activegraph__c586343 | 260 | 97.5% | 15,002 | 77 | 302 |
 | piotrmurach__tty-prompt__2c2c44e | 147 | 97.5% | 6,596 | 96 | 71 |
-| mastodon__mastodon__c1f398a | 2,558 | 97.5% | 59,651 | 105 | 1,394 |
 | mattheworiordan__capybara-screenshot__35b3136 | 53 | 97.5% | 2,189 | 2 | 53 |
-| postrank-labs__goliath__70f7493 | 145 | 97.5% | 6,030 | 29 | 122 |
+| mastodon__mastodon__c1f398a | 2,558 | 97.5% | 59,657 | 107 | 1,388 |
+| gettalong__hexapdf__f1176c6 | 496 | 97.5% | 29,030 | 131 | 595 |
 | peek__peek__d6c1374 | 42 | 97.5% | 361 | 0 | 9 |
 | rubysherpas__forem__fb37858 | 186 | 97.5% | 4,776 | 15 | 104 |
-| Netflix__fast_jsonapi__68a5515 | 47 | 97.5% | 2,545 | 4 | 59 |
+| neo4jrb__activegraph__c586343 | 260 | 97.5% | 15,005 | 74 | 299 |
+| postrank-labs__goliath__70f7493 | 145 | 97.5% | 6,031 | 29 | 121 |
+| dry-rb__dry-monads__20957eb | 70 | 97.5% | 5,413 | 39 | 95 |
 | jruby__warbler__0231112 | 118 | 97.5% | 3,886 | 6 | 90 |
 | factory_bot__factory_bot__8a64d29 | 155 | 97.5% | 7,551 | 27 | 159 |
 | mislav__will_paginate__50017c3 | 55 | 97.5% | 2,471 | 7 | 54 |
-| radar__by_star__e122270 | 43 | 97.5% | 2,754 | 1 | 67 |
 | hashrocket__decent_exposure__1d64ef2 | 21 | 97.6% | 980 | 1 | 23 |
 | interagent__pliny__b93794a | 117 | 97.6% | 4,111 | 16 | 85 |
 | jaimeiniesta__metainspector__d5b60b1 | 35 | 97.6% | 2,164 | 9 | 44 |
 | twitter__twurl__c256756 | 28 | 97.6% | 1,510 | 4 | 33 |
 | lassebunk__gretel__3e104cf | 48 | 97.6% | 899 | 1 | 21 |
-| rubysolo__dentaku__7136a2c | 122 | 97.6% | 4,678 | 7 | 107 |
-| bridgetownrb__bridgetown__c8618d7 | 391 | 97.6% | 16,262 | 60 | 333 |
-| sidekiq__sidekiq__b166b7b | 181 | 97.6% | 11,672 | 32 | 250 |
+| Netflix__fast_jsonapi__68a5515 | 47 | 97.6% | 2,545 | 3 | 59 |
+| radar__by_star__e122270 | 43 | 97.6% | 2,754 | 0 | 67 |
+| sparklemotion__mechanize__cf7b0a3 | 147 | 97.6% | 9,891 | 16 | 225 |
+| tenex__rails-assets__0fa06c6 | 137 | 97.6% | 3,846 | 17 | 76 |
 | SamSaffron__memory_profiler__d1c0395 | 27 | 97.6% | 748 | 0 | 18 |
 | drapergem__draper__5ac6f55 | 146 | 97.6% | 4,372 | 4 | 101 |
+| slack-notifier__slack-notifier__e9aace7 | 31 | 97.6% | 1,043 | 2 | 23 |
 | CanineHQ__canine__df55ff3 | 739 | 97.6% | 16,861 | 68 | 336 |
 | DamirSvrtan__fasterer__5c113a9 | 105 | 97.6% | 1,509 | 6 | 30 |
+| rubysolo__dentaku__7136a2c | 122 | 97.6% | 4,678 | 5 | 107 |
+| ttscoff__mdless__3638f78 | 22 | 97.6% | 3,392 | 6 | 75 |
 | ankane__pgslice__44ecdd8 | 18 | 97.6% | 756 | 4 | 14 |
-| trailblazer__cells__716700c | 39 | 97.6% | 1,093 | 13 | 13 |
 | collectiveidea__interactor__c0e0079 | 15 | 97.6% | 1,689 | 0 | 40 |
-| pry__pry__8446a01 | 229 | 97.6% | 15,413 | 91 | 274 |
-| teamcapybara__capybara__b3325b1 | 258 | 97.6% | 13,743 | 108 | 218 |
+| teamcapybara__capybara__b3325b1 | 258 | 97.6% | 13,743 | 107 | 218 |
+| bridgetownrb__bridgetown__c8618d7 | 391 | 97.6% | 16,269 | 58 | 326 |
 | flyerhzm__bullet__d01d0ae | 113 | 97.6% | 6,061 | 5 | 138 |
 | zombocom__rack-timeout__69a26a7 | 17 | 97.6% | 677 | 1 | 15 |
-| avdi__naught__2a79341 | 49 | 97.7% | 1,488 | 0 | 35 |
-| httprb__http__7a32573 | 93 | 97.7% | 5,620 | 14 | 118 |
+| pry__pry__8446a01 | 229 | 97.7% | 15,414 | 89 | 273 |
+| sidekiq__sidekiq__b166b7b | 181 | 97.7% | 11,680 | 32 | 242 |
 | rswag__rswag__0a5a049 | 101 | 97.7% | 2,050 | 9 | 39 |
 | ankane__ahoy__7d9d62d | 71 | 97.7% | 1,930 | 5 | 40 |
-| bloom-lang__bud__cbcc907 | 78 | 97.7% | 12,130 | 27 | 256 |
 | minimagick__minimagick__ddcbfe9 | 19 | 97.7% | 1,418 | 6 | 27 |
 | mlandauer__cuttlefish__884d690 | 393 | 97.7% | 7,989 | 13 | 173 |
 | tj__terminal-table__f43fe05 | 28 | 97.7% | 1,973 | 3 | 43 |
-| adzap__validates_timeliness__a36d6f7 | 41 | 97.7% | 1,852 | 2 | 41 |
+| bloom-lang__bud__cbcc907 | 78 | 97.7% | 12,130 | 25 | 256 |
+| httprb__http__7a32573 | 93 | 97.7% | 5,622 | 14 | 116 |
 | upserve__docker-api__7e19faf | 34 | 97.7% | 3,320 | 13 | 64 |
+| maccman__abba__2a9ba0d | 10 | 97.7% | 303 | 0 | 7 |
 | thoughtbot__gitsh__7b890ea | 195 | 97.7% | 6,171 | 30 | 112 |
-| phusion__juvia__1b945e0 | 76 | 97.7% | 2,185 | 10 | 40 |
-| ruby-git__ruby-git__2eecb07 | 312 | 97.7% | 10,321 | 28 | 208 |
-| zdavatz__spreadsheet__ba840cb | 58 | 97.7% | 6,526 | 41 | 108 |
+| avdi__naught__2a79341 | 49 | 97.7% | 1,489 | 0 | 34 |
+| phusion__juvia__1b945e0 | 76 | 97.7% | 2,186 | 11 | 39 |
+| trailblazer__cells__716700c | 39 | 97.7% | 1,094 | 13 | 12 |
 | mbleigh__acts-as-taggable-on__380c0bc | 75 | 97.7% | 4,086 | 28 | 65 |
-| ttscoff__doing__274a8fd | 200 | 97.7% | 8,955 | 99 | 105 |
-| cgriego__active_attr__c6ea1e7 | 92 | 97.7% | 3,532 | 5 | 75 |
+| adzap__validates_timeliness__a36d6f7 | 41 | 97.7% | 1,852 | 1 | 41 |
 | lynndylanhurley__devise_token_auth__bcdc3a5 | 162 | 97.7% | 4,905 | 4 | 107 |
 | moll__vim-node__ede0477 | 7 | 97.7% | 1,938 | 3 | 41 |
 | Shopify__krane__278ce51 | 141 | 97.7% | 10,451 | 92 | 144 |
 | chef__omnibus__e55f9bc | 156 | 97.7% | 17,575 | 242 | 155 |
-| antiwork__gumroad__782a69f | 4,554 | 97.8% | 359,118 | 1,540 | 6,536 |
-| browsermedia__browsercms__0a7fb92 | 445 | 97.8% | 19,692 | 39 | 402 |
+| antiwork__gumroad__782a69f | 4,554 | 97.8% | 359,118 | 1,537 | 6,536 |
 | heapsource__active_model_otp__d41713e | 25 | 97.8% | 489 | 2 | 9 |
+| ruby-git__ruby-git__2eecb07 | 312 | 97.8% | 10,325 | 28 | 204 |
+| cgriego__active_attr__c6ea1e7 | 92 | 97.8% | 3,533 | 5 | 74 |
 | chrisk__fakeweb__2b08c1f | 43 | 97.8% | 4,739 | 11 | 95 |
 | rest-client__rest-client__2c72a2e | 40 | 97.8% | 5,226 | 12 | 105 |
+| zdavatz__spreadsheet__ba840cb | 58 | 97.8% | 6,526 | 38 | 108 |
 | airbrake__airbrake__73af58d | 98 | 97.8% | 3,196 | 9 | 62 |
 | thiagopradi__octopus__1c0abed | 112 | 97.8% | 5,121 | 34 | 80 |
+| ttscoff__doing__274a8fd | 200 | 97.8% | 8,958 | 97 | 102 |
 | busyloop__lolcat__f4cca56 | 8 | 97.8% | 271 | 0 | 6 |
-| feedbin__feedbin__6396029 | 1,020 | 97.8% | 26,079 | 89 | 489 |
+| feedbin__feedbin__6396029 | 1,020 | 97.8% | 26,080 | 89 | 488 |
 | stripe-ruby-mock__stripe-ruby-mock__5e9ecf2 | 136 | 97.8% | 13,634 | 38 | 263 |
 | desktoppr__wbench__f1d1171 | 27 | 97.8% | 408 | 0 | 9 |
-| documentcloud__cloud-crowd__a66172e | 52 | 97.8% | 2,268 | 3 | 47 |
-| molybdenum-99__reality__0ac3b48 | 268 | 97.8% | 7,483 | 18 | 147 |
 | rsl__stringex__85bc93e | 56 | 97.8% | 4,441 | 67 | 31 |
 | AaronLasseigne__active_interaction__97667c8 | 98 | 97.8% | 3,059 | 17 | 50 |
 | Shopify__job-iteration__fa83405 | 47 | 97.8% | 2,193 | 5 | 43 |
-| cucumber__cucumber-ruby__613c675 | 379 | 97.8% | 6,794 | 10 | 139 |
 | ddnexus__pagy__cc86a07 | 193 | 97.8% | 3,649 | 11 | 69 |
 | igrigorik__em-websocket__3c9e395 | 49 | 97.8% | 2,414 | 6 | 47 |
 | interagent__prmd__5f463e0 | 67 | 97.8% | 2,056 | 6 | 39 |
 | mikker__passwordless__e926d5a | 82 | 97.8% | 1,276 | 3 | 25 |
 | simplecov-ruby__simplecov__522dc7d | 209 | 97.8% | 4,789 | 31 | 74 |
-| markevans__dragonfly__ddede20 | 113 | 97.8% | 8,760 | 10 | 181 |
-| rubocop__rubocop__b210a6e | 1,680 | 97.8% | 44,549 | 175 | 799 |
-| tomgi__git_stats__89f771e | 52 | 97.8% | 1,647 | 7 | 29 |
+| browsermedia__browsercms__0a7fb92 | 445 | 97.8% | 19,703 | 39 | 391 |
+| rubocop__rubocop__b210a6e | 1,680 | 97.8% | 44,550 | 173 | 798 |
 | binarylogic__authlogic__9b8cfe8 | 107 | 97.8% | 3,500 | 22 | 54 |
 | capistrano__rails__8814aef | 11 | 97.8% | 92 | 0 | 2 |
+| markevans__dragonfly__ddede20 | 113 | 97.8% | 8,761 | 10 | 180 |
 | rubysec__ruby-advisory-db__ff594be | 9 | 97.8% | 552 | 1 | 11 |
-| glebm__i18n-tasks__b1fb50a | 167 | 97.8% | 7,917 | 86 | 85 |
-| reidmorrison__semantic_logger__bae745b | 126 | 97.8% | 5,517 | 18 | 101 |
+| cucumber__cucumber-ruby__613c675 | 379 | 97.8% | 6,795 | 9 | 138 |
 | stringer-rss__stringer__3ea8c5a | 237 | 97.8% | 4,036 | 9 | 78 |
 | ctran__annotate_models__5d01c41 | 31 | 97.8% | 3,669 | 15 | 64 |
-| davidcelis__recommendable__6b96bda | 77 | 97.8% | 1,722 | 1 | 36 |
 | bibendi__dip__b127ce8 | 58 | 97.9% | 2,242 | 34 | 14 |
+| molybdenum-99__reality__0ac3b48 | 268 | 97.9% | 7,487 | 17 | 143 |
+| reidmorrison__semantic_logger__bae745b | 126 | 97.9% | 5,517 | 17 | 101 |
 | typhoeus__typhoeus__2c83401 | 88 | 97.9% | 3,976 | 2 | 83 |
-| websocket-rails__websocket-rails__0ee9e97 | 83 | 97.9% | 4,256 | 2 | 89 |
-| rails-sqlserver__activerecord-sqlserver-adapter__fe2d440 | 155 | 97.9% | 7,927 | 16 | 153 |
 | RefugeRestrooms__refugerestrooms__1c8ecbd | 127 | 97.9% | 1,742 | 4 | 33 |
-| backup__backup__86c9b07 | 205 | 97.9% | 25,654 | 157 | 386 |
+| glebm__i18n-tasks__b1fb50a | 167 | 97.9% | 7,917 | 83 | 85 |
 | ilyakatz__data-migrate__5865ad5 | 54 | 97.9% | 1,939 | 4 | 37 |
-| sparklemotion__sqlite3-ruby__3412e31 | 42 | 97.9% | 3,926 | 12 | 71 |
-| thuss__standalone-migrations__a087c87 | 25 | 97.9% | 993 | 1 | 20 |
+| rails-sqlserver__activerecord-sqlserver-adapter__fe2d440 | 155 | 97.9% | 7,927 | 15 | 153 |
+| tomgi__git_stats__89f771e | 52 | 97.9% | 1,648 | 7 | 28 |
+| websocket-rails__websocket-rails__0ee9e97 | 83 | 97.9% | 4,256 | 1 | 89 |
 | Eric-Guo__wechat__84e1e9c | 66 | 97.9% | 4,873 | 4 | 99 |
-| rom-rb__rom__7cdb1a2 | 403 | 97.9% | 8,762 | 34 | 151 |
-| thredded__thredded__ce0b1e5 | 331 | 97.9% | 6,910 | 15 | 131 |
-| premailer__premailer__36b8cec | 23 | 97.9% | 1,713 | 5 | 31 |
+| backup__backup__86c9b07 | 205 | 97.9% | 25,655 | 157 | 385 |
 | Eigenfocus__eigenfocus__0bf9c6c | 219 | 97.9% | 5,462 | 12 | 102 |
+| davidcelis__recommendable__6b96bda | 77 | 97.9% | 1,722 | 0 | 36 |
 | pluginaweek__state_machine__8a3ba81 | 189 | 97.9% | 29,391 | 108 | 506 |
+| sparklemotion__sqlite3-ruby__3412e31 | 42 | 97.9% | 3,926 | 11 | 71 |
 | brynary__webrat__1263639 | 185 | 97.9% | 7,273 | 42 | 109 |
-| danbooru__danbooru__fd45f0f | 1,662 | 97.9% | 68,175 | 52 | 1,367 |
 | eliotsykes__rspec-rails-examples__f6ba3d6 | 88 | 97.9% | 1,875 | 4 | 35 |
-| forem__forem__72d7c44 | 3,390 | 97.9% | 126,419 | 506 | 2,122 |
-| guard__listen__2fa1a74 | 71 | 97.9% | 3,854 | 13 | 67 |
-| dergachev__screengif__3037bd7 | 8 | 97.9% | 388 | 0 | 8 |
+| forem__forem__72d7c44 | 3,390 | 97.9% | 126,424 | 503 | 2,117 |
 | paper-trail-gem__paper_trail__0c511ed | 215 | 97.9% | 5,898 | 12 | 110 |
 | Shopify__cli-ui__fc757aa | 57 | 97.9% | 2,431 | 9 | 41 |
+| danbooru__danbooru__fd45f0f | 1,662 | 97.9% | 68,187 | 48 | 1,355 |
 | huacnlee__rails-settings-cached__5bac334 | 60 | 97.9% | 926 | 1 | 18 |
-| karafka__karafka__4fc191e | 2,442 | 97.9% | 57,024 | 73 | 1,102 |
-| otwcode__otwarchive__412f04f | 1,041 | 97.9% | 72,763 | 239 | 1,259 |
+| thredded__thredded__ce0b1e5 | 331 | 97.9% | 6,912 | 13 | 129 |
 | gonzalo-bulnes__simple_token_authentication__f1cba4e | 65 | 97.9% | 3,615 | 1 | 73 |
+| karafka__karafka__4fc191e | 2,442 | 97.9% | 57,027 | 69 | 1,099 |
 | liftoffcli__liftoff__76566a6 | 45 | 97.9% | 1,171 | 0 | 24 |
-| lsegal__yard__eddd10c | 400 | 97.9% | 28,788 | 75 | 513 |
-| que-rb__que__caa8b25 | 79 | 97.9% | 7,078 | 21 | 124 |
+| otwcode__otwarchive__412f04f | 1,041 | 97.9% | 72,767 | 236 | 1,255 |
 | mame__optcarrot__9c88f5f | 49 | 98.0% | 4,431 | 11 | 79 |
 | thbar__kiba__af7af19 | 31 | 98.0% | 689 | 5 | 9 |
-| Apipie__apipie-rails__2692590 | 180 | 98.0% | 9,007 | 16 | 166 |
-| jruby__jruby__0303464 | 6,529 | 98.0% | 400,311 | 946 | 7,175 |
+| guard__listen__2fa1a74 | 71 | 98.0% | 3,855 | 12 | 66 |
 | junegunn__redis-stat__9af492f | 12 | 98.0% | 1,183 | 7 | 17 |
-| Parallels__vagrant-parallels__dda5c93 | 83 | 98.0% | 2,627 | 21 | 32 |
+| lsegal__yard__eddd10c | 400 | 98.0% | 28,793 | 75 | 508 |
 | carmen-ruby__carmen__fc444d8 | 23 | 98.0% | 794 | 4 | 12 |
-| daddyz__phonelib__2f06e53 | 57 | 98.0% | 2,981 | 2 | 58 |
+| que-rb__que__caa8b25 | 79 | 98.0% | 7,080 | 21 | 122 |
 | railsadminteam__rails_admin__d8e0809 | 464 | 98.0% | 16,866 | 63 | 276 |
+| Apipie__apipie-rails__2692590 | 180 | 98.0% | 9,008 | 16 | 165 |
 | ErwinM__acts_as_tenant__e235e06 | 87 | 98.0% | 1,846 | 4 | 33 |
-| heroku__heroku-buildpack-ruby__c952f02 | 85 | 98.0% | 4,843 | 15 | 82 |
+| jruby__jruby__0303464 | 6,529 | 98.0% | 400,331 | 886 | 7,155 |
 | salsify__goldiloader__df2cba4 | 30 | 98.0% | 1,195 | 3 | 21 |
 | andymeneely__squib__d052e1f | 214 | 98.0% | 7,563 | 21 | 130 |
-| bblimke__webmock__596d8a8 | 133 | 98.0% | 14,677 | 57 | 235 |
 | cantino__ruby-readability__9006759 | 13 | 98.0% | 1,255 | 7 | 18 |
-| hashicorp__vagrant__92e8886 | 1,460 | 98.0% | 84,960 | 521 | 1,171 |
 | jordansissel__pleaserun__fddb772 | 34 | 98.0% | 1,851 | 6 | 31 |
 | rroblak__seed_dump__b79848d | 27 | 98.0% | 2,609 | 3 | 49 |
-| Freika__dawarich__3d1ae95 | 905 | 98.0% | 32,337 | 215 | 426 |
 | Sutto__rocket_pants__bddc27a | 52 | 98.0% | 3,222 | 1 | 63 |
 | coinbase__terraform-landscape__1558b8f | 17 | 98.0% | 352 | 3 | 4 |
-| edavis10__redmine__2d6f552 | 1,006 | 98.0% | 105,055 | 182 | 1,905 |
-| net-ssh__net-ssh__65404e9 | 184 | 98.0% | 11,603 | 43 | 187 |
-| puppetlabs__puppet__e227c27 | 2,177 | 98.0% | 251,373 | 717 | 4,262 |
-| activemerchant__active_merchant__ca45b1b | 825 | 98.0% | 109,797 | 155 | 2,017 |
-| jnicklas__turnip__5eb4a21 | 44 | 98.0% | 1,264 | 3 | 22 |
+| daddyz__phonelib__2f06e53 | 57 | 98.0% | 2,982 | 2 | 57 |
+| heroku__heroku-buildpack-ruby__c952f02 | 85 | 98.0% | 4,844 | 15 | 81 |
+| premailer__premailer__36b8cec | 23 | 98.0% | 1,715 | 5 | 29 |
+| bblimke__webmock__596d8a8 | 133 | 98.0% | 14,679 | 56 | 233 |
+| hashicorp__vagrant__92e8886 | 1,460 | 98.0% | 84,971 | 513 | 1,160 |
+| net-ssh__net-ssh__65404e9 | 184 | 98.0% | 11,603 | 42 | 187 |
 | tcocca__acts_as_follower__c5ac7b9 | 42 | 98.0% | 709 | 0 | 14 |
 | tilo__smarter_csv__42a5415 | 77 | 98.0% | 3,849 | 25 | 51 |
-| yjacquin__fast-mcp__7ec08b9 | 83 | 98.0% | 3,037 | 17 | 43 |
+| Freika__dawarich__3d1ae95 | 905 | 98.0% | 32,340 | 212 | 423 |
+| activemerchant__active_merchant__ca45b1b | 825 | 98.0% | 109,804 | 148 | 2,010 |
 | ankane__lockbox__20b332c | 45 | 98.0% | 4,070 | 0 | 80 |
+| edavis10__redmine__2d6f552 | 1,006 | 98.0% | 105,077 | 179 | 1,883 |
 | good_job__good_job__438d139 | 267 | 98.0% | 9,722 | 15 | 176 |
 | gottfrois__dashing-rails__e3b4809 | 56 | 98.0% | 560 | 0 | 11 |
 | grosser__parallel_tests__cf7a876 | 91 | 98.0% | 4,798 | 9 | 85 |
+| puppetlabs__puppet__e227c27 | 2,177 | 98.0% | 251,387 | 693 | 4,248 |
 | Lightricks__Kintsugi__0e4ead5 | 18 | 98.0% | 2,147 | 3 | 39 |
 | capistrano__sshkit__76759c7 | 72 | 98.0% | 2,768 | 7 | 47 |
 | chatwoot__chatwoot__1345f67 | 2,262 | 98.0% | 64,053 | 359 | 891 |
-| dry-rb__dry-types__9e8f4d6 | 106 | 98.0% | 6,467 | 12 | 114 |
 | nov__fb_graph__5ee1c6c | 348 | 98.0% | 12,027 | 39 | 196 |
 | standardrb__standard__c886a57 | 107 | 98.0% | 3,025 | 11 | 48 |
 | textacular__textacular__5c79439 | 64 | 98.0% | 1,278 | 0 | 25 |
-| TheOdinProject__theodinproject__a556fbc | 542 | 98.0% | 7,572 | 12 | 135 |
+| Parallels__vagrant-parallels__dda5c93 | 83 | 98.0% | 2,628 | 20 | 31 |
 | rpush__rpush__a5ea408 | 301 | 98.0% | 8,137 | 23 | 135 |
-| trogdoro__xiki__be9b5eb | 425 | 98.0% | 52,520 | 198 | 822 |
-| activeadmin__activeadmin__c3de750 | 383 | 98.1% | 16,786 | 27 | 297 |
+| yjacquin__fast-mcp__7ec08b9 | 83 | 98.0% | 3,038 | 17 | 42 |
+| TheOdinProject__theodinproject__a556fbc | 542 | 98.1% | 7,573 | 12 | 134 |
+| documentcloud__cloud-crowd__a66172e | 52 | 98.1% | 2,274 | 3 | 41 |
 | jmettraux__rufus-scheduler__4a73a05 | 41 | 98.1% | 5,277 | 25 | 77 |
 | tmuxinator__tmuxinator__4c836b8 | 31 | 98.1% | 4,149 | 43 | 37 |
 | CanCanCommunity__cancancan__1100093 | 73 | 98.1% | 5,143 | 6 | 93 |
-| alphagov__whitehall__a640792 | 1,834 | 98.1% | 66,611 | 546 | 735 |
-| heartcombo__responders__06b647e | 22 | 98.1% | 1,408 | 5 | 22 |
+| activeadmin__activeadmin__c3de750 | 383 | 98.1% | 16,786 | 26 | 297 |
 | scelis__twine__9163696 | 38 | 98.1% | 2,702 | 7 | 45 |
 | PGYER__fir-cli__a0b2d7d | 50 | 98.1% | 1,307 | 5 | 20 |
-| automaticmode__active_workflow__d708f3b | 265 | 98.1% | 14,569 | 37 | 242 |
-| discourse__discourse__9c8f125 | 5,913 | 98.1% | 401,322 | 811 | 6,874 |
+| alphagov__whitehall__a640792 | 1,834 | 98.1% | 66,618 | 546 | 728 |
+| automaticmode__active_workflow__d708f3b | 265 | 98.1% | 14,570 | 37 | 241 |
 | dryruby__rack-throttle__f70857d | 31 | 98.1% | 787 | 0 | 15 |
-| librariesio__libraries.io__1e2d6bf | 743 | 98.1% | 22,765 | 56 | 380 |
-| opf__openproject__f5a451d | 9,286 | 98.1% | 382,989 | 1,260 | 6,043 |
-| redmine__redmine__a1a0959 | 1,115 | 98.1% | 110,554 | 214 | 1,896 |
-| mikel__mail__d1d65b3 | 203 | 98.1% | 71,133 | 31 | 1,322 |
-| ElMassimo__vite_ruby__60914d2 | 209 | 98.1% | 4,169 | 32 | 47 |
+| librariesio__libraries.io__1e2d6bf | 743 | 98.1% | 22,766 | 56 | 379 |
+| thuss__standalone-migrations__a087c87 | 25 | 98.1% | 995 | 1 | 18 |
+| jnicklas__turnip__5eb4a21 | 44 | 98.1% | 1,265 | 3 | 21 |
+| mikel__mail__d1d65b3 | 203 | 98.1% | 71,134 | 28 | 1,321 |
+| opf__openproject__f5a451d | 9,286 | 98.1% | 382,996 | 1,255 | 6,036 |
 | collectiveidea__json_spec__9acb719 | 31 | 98.1% | 1,003 | 0 | 19 |
-| mrkamel__search_cop__796de61 | 40 | 98.1% | 2,217 | 0 | 42 |
+| discourse__discourse__9c8f125 | 5,913 | 98.1% | 401,355 | 755 | 6,841 |
+| redmine__redmine__a1a0959 | 1,115 | 98.1% | 110,573 | 211 | 1,877 |
 | pay-rails__pay__9560b83 | 267 | 98.1% | 7,467 | 6 | 134 |
-| ankane__dexter__bc8d090 | 33 | 98.1% | 1,231 | 1 | 22 |
-| dkhamsing__awesome_bot__9cc99fd | 25 | 98.1% | 1,601 | 3 | 27 |
+| rom-rb__rom__7cdb1a2 | 403 | 98.1% | 8,782 | 34 | 131 |
+| ElMassimo__vite_ruby__60914d2 | 209 | 98.1% | 4,169 | 31 | 47 |
 | fog__fog__f3e5cea | 979 | 98.1% | 37,300 | 50 | 648 |
 | kamui__retriable__65ffa55 | 14 | 98.1% | 481 | 3 | 6 |
 | geokit__geokit__3e0a811 | 69 | 98.1% | 3,013 | 7 | 49 |
 | Shopify__shipit-engine__ff8282b | 440 | 98.1% | 10,155 | 17 | 171 |
 | brianmario__mysql2__b009d7e | 36 | 98.1% | 4,052 | 3 | 72 |
+| heartcombo__responders__06b647e | 22 | 98.1% | 1,408 | 4 | 22 |
 | keepcosmos__terjira__1d53a3d | 54 | 98.1% | 1,565 | 2 | 27 |
-| natalie-lang__natalie__b507cff | 3,587 | 98.1% | 208,145 | 465 | 3,387 |
 | toptal__chewy__fde2fdc | 215 | 98.1% | 12,519 | 79 | 153 |
-| layervault__psd.rb__d8c1136 | 146 | 98.1% | 3,318 | 5 | 56 |
-| orta__cocoapods-keys__af842e0 | 25 | 98.1% | 868 | 2 | 14 |
-| rubymotion-community__BubbleWrap__afdc89e | 167 | 98.1% | 8,174 | 20 | 130 |
-| graphiti-api__graphiti__9905371 | 173 | 98.2% | 24,500 | 79 | 368 |
-| weppos__whois__b3375df | 51 | 98.2% | 1,910 | 6 | 29 |
+| trogdoro__xiki__be9b5eb | 425 | 98.1% | 52,546 | 176 | 796 |
+| rubymotion-community__BubbleWrap__afdc89e | 167 | 98.2% | 8,175 | 20 | 129 |
+| graphiti-api__graphiti__9905371 | 173 | 98.2% | 24,501 | 79 | 367 |
 | kzk__unicorn-worker-killer__b66eac7 | 5 | 98.2% | 110 | 0 | 2 |
+| natalie-lang__natalie__b507cff | 3,587 | 98.2% | 208,169 | 430 | 3,363 |
+| pact-foundation__pact-ruby__9f6e706 | 344 | 98.2% | 14,222 | 19 | 239 |
 | reenhanced__gitreflow__f23f6a3 | 47 | 98.2% | 6,255 | 17 | 97 |
 | BetterErrors__better_errors__fde3b70 | 59 | 98.2% | 2,708 | 7 | 42 |
+| dkhamsing__awesome_bot__9cc99fd | 25 | 98.2% | 1,601 | 2 | 27 |
 | fxn__zeitwerk__5f2528a | 78 | 98.2% | 4,089 | 1 | 73 |
-| pact-foundation__pact-ruby__9f6e706 | 344 | 98.2% | 14,223 | 19 | 238 |
+| mrkamel__search_cop__796de61 | 40 | 98.2% | 2,219 | 0 | 40 |
 | vdaubry__github-awards__a0ac22a | 133 | 98.2% | 3,541 | 4 | 60 |
+| dergachev__screengif__3037bd7 | 8 | 98.2% | 389 | 0 | 7 |
 | gjtorikian__html-proofer__9b0d406 | 49 | 98.2% | 2,895 | 6 | 46 |
 | jfelchner__ruby-progressbar__bafa278 | 66 | 98.2% | 3,675 | 8 | 58 |
 | mdp__rotp__bad1a35 | 20 | 98.2% | 724 | 0 | 13 |
+| ankane__dexter__bc8d090 | 33 | 98.2% | 1,232 | 1 | 21 |
+| dry-rb__dry-types__9e8f4d6 | 106 | 98.2% | 6,476 | 11 | 105 |
 | kkuchta__css-only-chat__b5a2e38 | 3 | 98.2% | 112 | 0 | 2 |
 | nickjj__docker-rails-example__f1aaba3 | 44 | 98.2% | 280 | 0 | 5 |
 | railsbridge__docs__80901fb | 38 | 98.2% | 1,789 | 6 | 26 |
@@ -6917,216 +6615,219 @@ Every offense is compared by file path, line number, and cop name.
 | devopsgroup-io__vagrant-hostmanager__fe00b37 | 17 | 98.2% | 393 | 3 | 4 |
 | hamstergem__hamster__804571a | 378 | 98.2% | 17,796 | 15 | 301 |
 | jackdempsey__acts_as_commentable__9a728d9 | 15 | 98.2% | 508 | 0 | 9 |
+| layervault__psd.rb__d8c1136 | 146 | 98.2% | 3,320 | 5 | 54 |
 | ruby__did_you_mean__74d3054 | 52 | 98.2% | 1,352 | 8 | 16 |
+| weppos__whois__b3375df | 51 | 98.2% | 1,910 | 5 | 29 |
 | TrestleAdmin__trestle__bd7443b | 376 | 98.2% | 9,996 | 57 | 120 |
 | ai__autoprefixer-rails__01f8d15 | 25 | 98.2% | 510 | 1 | 8 |
 | rails__thor__6a680f2 | 94 | 98.2% | 10,259 | 50 | 131 |
-| athityakumar__colorls__f066e32 | 22 | 98.2% | 909 | 4 | 12 |
 | fxn__tkn__79e9c9c | 3 | 98.2% | 228 | 0 | 4 |
 | icalendar__icalendar__0aa950a | 66 | 98.2% | 2,972 | 4 | 48 |
-| zendesk__ruby-kafka__2007df7 | 192 | 98.2% | 10,001 | 21 | 152 |
 | crmne__ruby_llm__4135c03 | 216 | 98.3% | 7,061 | 34 | 88 |
+| orta__cocoapods-keys__af842e0 | 25 | 98.3% | 869 | 2 | 13 |
 | claudiob__bh__34e6f00 | 45 | 98.3% | 1,401 | 1 | 23 |
 | jalkoby__squasher__5d58b85 | 21 | 98.3% | 702 | 0 | 12 |
 | logstash-plugins__logstash-patterns-core__f01f3f3 | 26 | 98.3% | 10,356 | 92 | 85 |
-| Shopify__tapioca__ca6acae | 227 | 98.3% | 12,764 | 124 | 94 |
-| pakyow__pakyow__aa3d80a | 1,291 | 98.3% | 71,185 | 150 | 1,060 |
+| zendesk__ruby-kafka__2007df7 | 192 | 98.3% | 10,002 | 20 | 151 |
 | thoughtbot__suspenders__57e647a | 20 | 98.3% | 470 | 2 | 6 |
 | BuffaloWill__oxml_xxe__2773627 | 6 | 98.3% | 944 | 1 | 15 |
 | Shopify__shopify_app__6c1c2ec | 170 | 98.3% | 6,488 | 11 | 99 |
-| ddollar__foreman__f65ddba | 50 | 98.3% | 2,711 | 9 | 37 |
-| jekyll__jekyll__d0cf179 | 190 | 98.3% | 12,874 | 39 | 179 |
 | rails__sass-rails__551251b | 9 | 98.3% | 59 | 0 | 1 |
-| dwilkie__carrierwave_direct__2ebcda2 | 44 | 98.3% | 3,203 | 0 | 54 |
+| Shopify__tapioca__ca6acae | 227 | 98.3% | 12,765 | 122 | 93 |
 | fat_free_crm__fat_free_crm__0d18cf4 | 505 | 98.3% | 20,439 | 46 | 297 |
 | libvips__ruby-vips__da93d6c | 87 | 98.3% | 4,053 | 2 | 66 |
 | notahat__machinist__dba78a4 | 22 | 98.3% | 711 | 5 | 7 |
 | rack__rack-test__b769228 | 21 | 98.3% | 1,544 | 4 | 22 |
 | thoughtbot__shoulda__9d2b2e2 | 20 | 98.3% | 415 | 0 | 7 |
-| fdietz__team_dashboard__76eacf4 | 109 | 98.3% | 2,924 | 2 | 47 |
 | ruby-amqp__bunny__665a811 | 162 | 98.3% | 9,917 | 38 | 128 |
 | trailblazer__reform__94b0916 | 58 | 98.3% | 2,932 | 10 | 39 |
+| ddollar__foreman__f65ddba | 50 | 98.3% | 2,711 | 8 | 37 |
 | michelson__lazy_high_charts__54f4b6d | 51 | 98.3% | 1,444 | 0 | 24 |
-| rubysherpas__paranoia__a950fe4 | 8 | 98.3% | 1,809 | 5 | 25 |
-| ankane__blazer__c17d8ec | 96 | 98.3% | 4,055 | 19 | 48 |
-| mailboxer__mailboxer__3e14885 | 85 | 98.3% | 4,662 | 3 | 74 |
+| jekyll__jekyll__d0cf179 | 190 | 98.3% | 12,877 | 37 | 176 |
 | thoughtbot__high_voltage__7e8e621 | 41 | 98.3% | 728 | 1 | 11 |
 | SlatherOrg__slather__4dba032 | 38 | 98.3% | 4,033 | 1 | 65 |
 | adomokos__light-service__31fac1d | 104 | 98.3% | 3,828 | 1 | 62 |
-| celluloid__celluloid__0a307cf | 154 | 98.3% | 5,971 | 9 | 89 |
 | charlotte-ruby__impressionist__b13ac93 | 94 | 98.3% | 4,697 | 3 | 74 |
-| fastlane__fastlane__737aae7 | 1,302 | 98.3% | 116,959 | 139 | 1,782 |
-| huginn__huginn__9328c1e | 451 | 98.3% | 33,913 | 68 | 490 |
+| fastlane__fastlane__737aae7 | 1,302 | 98.3% | 116,963 | 136 | 1,778 |
+| huginn__huginn__9328c1e | 451 | 98.3% | 33,914 | 67 | 489 |
+| pakyow__pakyow__aa3d80a | 1,291 | 98.3% | 71,198 | 123 | 1,047 |
 | ruby__ruby.wasm__24fbf24 | 82 | 98.3% | 3,769 | 7 | 55 |
 | savonrb__savon__0a8a8c7 | 52 | 98.3% | 4,556 | 5 | 70 |
 | fnando__i18n-js__f8fb0dc | 49 | 98.3% | 1,590 | 9 | 17 |
 | grodowski__undercover__5854502 | 43 | 98.3% | 1,783 | 4 | 25 |
-| octopress__octopress__af04836 | 30 | 98.3% | 1,224 | 2 | 18 |
 | rubysec__bundler-audit__f8b06eb | 46 | 98.3% | 2,631 | 6 | 37 |
 | simi__omniauth-facebook__823a58c | 15 | 98.3% | 368 | 0 | 6 |
+| celluloid__celluloid__0a307cf | 154 | 98.4% | 5,971 | 8 | 89 |
 | okuramasafumi__alba__9aeec1b | 62 | 98.4% | 2,723 | 3 | 41 |
-| palkan__anyway_config__e171bf6 | 105 | 98.4% | 4,023 | 17 | 48 |
+| fdietz__team_dashboard__76eacf4 | 109 | 98.4% | 2,926 | 2 | 45 |
 | jhawthorn__vernier__3c09515 | 60 | 98.4% | 3,114 | 5 | 45 |
 | mperham__connection_pool__f364582 | 13 | 98.4% | 992 | 2 | 14 |
-| pivotal__LicenseFinder__00b04cb | 297 | 98.4% | 10,957 | 20 | 157 |
-| ubicloud__ubicloud__b181cb6 | 1,343 | 98.4% | 120,642 | 342 | 1,606 |
-| ankane__torch.rb__a40c8ba | 224 | 98.4% | 6,875 | 19 | 91 |
-| diaspora__diaspora__49f3442 | 914 | 98.4% | 50,735 | 121 | 693 |
-| jondot__sneakers__9780692 | 59 | 98.4% | 3,251 | 13 | 39 |
+| pivotal__LicenseFinder__00b04cb | 297 | 98.4% | 10,957 | 19 | 157 |
+| ubicloud__ubicloud__b181cb6 | 1,343 | 98.4% | 120,648 | 340 | 1,600 |
+| Shopify__identity_cache__4e9907d | 96 | 98.4% | 4,935 | 15 | 64 |
+| ankane__blazer__c17d8ec | 96 | 98.4% | 4,057 | 19 | 46 |
+| diaspora__diaspora__49f3442 | 914 | 98.4% | 50,736 | 121 | 692 |
+| rubysherpas__paranoia__a950fe4 | 8 | 98.4% | 1,809 | 4 | 25 |
 | trailblazer__roar__365b28b | 43 | 98.4% | 1,933 | 8 | 23 |
 | chrisseaton__rhizome__afaa60c | 85 | 98.4% | 6,037 | 10 | 86 |
 | ixti__sidekiq-throttled__c799ca3 | 51 | 98.4% | 3,082 | 20 | 29 |
 | jamis__bulk_insert__ab5db08 | 48 | 98.4% | 879 | 0 | 14 |
+| palkan__anyway_config__e171bf6 | 105 | 98.4% | 4,025 | 18 | 46 |
 | piotrmurach__github__02ec883 | 496 | 98.4% | 19,800 | 18 | 296 |
 | rails__tailwindcss-rails__c26776e | 29 | 98.4% | 694 | 0 | 11 |
 | test-prof__test-prof__46eec36 | 243 | 98.4% | 10,039 | 45 | 115 |
-| zammad__zammad__81bf998 | 5,125 | 98.4% | 196,044 | 590 | 2,535 |
-| Shopify__identity_cache__4e9907d | 96 | 98.4% | 4,936 | 15 | 63 |
+| zammad__zammad__81bf998 | 5,125 | 98.4% | 196,045 | 590 | 2,534 |
 | licensee__licensed__bc2a28c | 113 | 98.4% | 7,722 | 29 | 93 |
 | projectblacklight__blacklight__3d56c1b | 386 | 98.4% | 13,005 | 42 | 164 |
 | yorickpeterse__oga__9236482 | 317 | 98.4% | 13,464 | 55 | 157 |
+| ankane__torch.rb__a40c8ba | 224 | 98.4% | 6,876 | 18 | 90 |
 | codebrew__backbone-rails__231090b | 46 | 98.4% | 699 | 1 | 10 |
-| nats-io__nats.rb__f0e9b67 | 87 | 98.4% | 8,833 | 16 | 123 |
 | rails__spring__0242d4d | 48 | 98.4% | 2,865 | 5 | 40 |
 | Casecommons__pg_search__fc45445 | 45 | 98.4% | 4,049 | 50 | 13 |
 | comfy__active_link_to__0726773 | 11 | 98.4% | 321 | 0 | 5 |
+| dwilkie__carrierwave_direct__2ebcda2 | 44 | 98.4% | 3,207 | 0 | 50 |
 | jeremycole__innodb_ruby__7ad09f9 | 121 | 98.4% | 7,356 | 7 | 108 |
 | lostisland__faraday__c6988a8 | 75 | 98.4% | 3,817 | 10 | 49 |
-| nathansobo__treetop__0750a3a | 95 | 98.4% | 6,672 | 14 | 89 |
-| roo-rb__roo__20d424f | 94 | 98.4% | 5,150 | 7 | 73 |
 | thoughtbot__clearance__49df86f | 116 | 98.4% | 3,425 | 15 | 38 |
-| webmachine__webmachine-ruby__06f7822 | 91 | 98.4% | 4,134 | 11 | 53 |
 | welaika__wordmove__4927925 | 64 | 98.4% | 2,396 | 14 | 23 |
-| SteveLTN__https-portal__f666dc9 | 22 | 98.4% | 715 | 2 | 9 |
-| trulia__hologram__f24f0d9 | 47 | 98.4% | 1,833 | 6 | 22 |
+| athityakumar__colorls__f066e32 | 22 | 98.4% | 911 | 4 | 10 |
+| nats-io__nats.rb__f0e9b67 | 87 | 98.4% | 8,833 | 12 | 123 |
+| webmachine__webmachine-ruby__06f7822 | 91 | 98.4% | 4,134 | 10 | 53 |
 | capistrano__capistrano__dfe3133 | 109 | 98.5% | 5,142 | 2 | 76 |
 | guard__guard-rspec__1cf25c7 | 41 | 98.5% | 2,506 | 6 | 32 |
-| travis-ci__dpl__8c6eabc | 161 | 98.5% | 5,074 | 13 | 64 |
 | evanphx__benchmark-ips__41f80d2 | 22 | 98.5% | 994 | 2 | 13 |
 | geminabox__geminabox__97499d5 | 64 | 98.5% | 2,326 | 6 | 29 |
-| hashie__hashie__3988742 | 111 | 98.5% | 4,715 | 7 | 64 |
 | jwt__ruby-jwt__1a1d877 | 93 | 98.5% | 3,980 | 3 | 57 |
 | steveklabnik__request_store__ded0d62 | 10 | 98.5% | 265 | 0 | 4 |
 | brianmario__charlock_holmes__758b2f3 | 14 | 98.5% | 536 | 0 | 8 |
 | castwide__solargraph__676da4c | 367 | 98.5% | 18,756 | 61 | 220 |
 | formtastic__formtastic__c5abcc5 | 154 | 98.5% | 13,704 | 16 | 189 |
+| nathansobo__treetop__0750a3a | 95 | 98.5% | 6,673 | 12 | 88 |
+| roo-rb__roo__20d424f | 94 | 98.5% | 5,152 | 6 | 71 |
 | CocoaPods__cocoapods-deintegrate__2e378b8 | 16 | 98.5% | 202 | 1 | 2 |
+| chefspec__chefspec__df9ca04 | 683 | 98.5% | 6,368 | 18 | 77 |
 | comfy__comfortable-mexican-sofa__8f7e425 | 197 | 98.5% | 9,587 | 76 | 67 |
 | seosgithub__BooJS__726d112 | 15 | 98.5% | 943 | 0 | 14 |
-| solidus__solidus__b2b3f2e | 2,094 | 98.5% | 79,085 | 290 | 889 |
+| solidus__solidus__b2b3f2e | 2,094 | 98.5% | 79,087 | 288 | 887 |
 | bkeepers__dotenv__34156bf | 35 | 98.5% | 1,900 | 9 | 19 |
 | brendon__acts_as_list__c105e17 | 35 | 98.5% | 2,769 | 5 | 36 |
-| chefspec__chefspec__df9ca04 | 683 | 98.5% | 6,367 | 16 | 78 |
-| test-kitchen__test-kitchen__d9ff21a | 126 | 98.5% | 13,720 | 93 | 110 |
-| AlchemyCMS__alchemy_cms__4c2023f | 714 | 98.5% | 38,233 | 241 | 321 |
+| mailboxer__mailboxer__3e14885 | 85 | 98.5% | 4,670 | 3 | 66 |
+| travis-ci__dpl__8c6eabc | 161 | 98.5% | 5,075 | 12 | 63 |
+| trulia__hologram__f24f0d9 | 47 | 98.5% | 1,834 | 6 | 21 |
+| hashie__hashie__3988742 | 111 | 98.5% | 4,717 | 7 | 62 |
+| octopress__octopress__af04836 | 30 | 98.5% | 1,225 | 1 | 17 |
 | rubygems__gemstash__a7fed7a | 105 | 98.5% | 6,745 | 33 | 66 |
+| test-kitchen__test-kitchen__d9ff21a | 126 | 98.5% | 13,721 | 92 | 109 |
 | excid3__simple_calendar__24fc28e | 55 | 98.5% | 685 | 0 | 10 |
 | janko__image_processing__3b870f2 | 16 | 98.5% | 1,168 | 5 | 12 |
 | omniauth__omniauth__20ac5e0 | 26 | 98.5% | 1,996 | 7 | 22 |
 | remi__teamocil__9ceecf5 | 36 | 98.5% | 689 | 4 | 6 |
+| AlchemyCMS__alchemy_cms__4c2023f | 714 | 98.5% | 38,239 | 239 | 315 |
 | amro__gibbon__fde22e6 | 16 | 98.5% | 552 | 0 | 8 |
-| nathanvda__cocoon__b3f4e6d | 39 | 98.5% | 1,449 | 1 | 20 |
 | peterhellberg__hashids.rb__6f12f64 | 5 | 98.5% | 622 | 1 | 8 |
 | alexrudall__ruby-openai__6c834c2 | 57 | 98.5% | 2,933 | 4 | 38 |
-| cyberark__conjur__8031a2a | 938 | 98.5% | 51,533 | 147 | 593 |
 | RichardLitt__awesome-conferences__7d94c39 | 2 | 98.5% | 70 | 0 | 1 |
-| Shopify__ruby-lsp__0d5d95f | 387 | 98.5% | 22,228 | 55 | 261 |
-| hanami__hanami__6a762cb | 218 | 98.5% | 13,221 | 10 | 179 |
+| cyberark__conjur__8031a2a | 938 | 98.5% | 51,538 | 145 | 588 |
+| hanami__hanami__6a762cb | 218 | 98.5% | 13,221 | 9 | 179 |
 | lukes__ISO-3166-Countries-with-Regional-Codes__145f1ad | 2 | 98.6% | 141 | 0 | 2 |
 | wardencommunity__warden__810e520 | 41 | 98.6% | 3,544 | 6 | 44 |
-| alexreisner__geocoder__2d3be47 | 251 | 98.6% | 11,592 | 19 | 144 |
-| presidentbeef__brakeman__c1d7ccc | 781 | 98.6% | 53,130 | 67 | 678 |
-| railsware__js-routes__b6b7d4a | 40 | 98.6% | 2,844 | 4 | 36 |
-| ruby-shoryuken__shoryuken__1ce025d | 165 | 98.6% | 6,767 | 13 | 82 |
+| Shopify__ruby-lsp__0d5d95f | 387 | 98.6% | 22,229 | 53 | 260 |
 | trusche__httplog__fd49a1f | 38 | 98.6% | 1,067 | 1 | 14 |
+| SteveLTN__https-portal__f666dc9 | 22 | 98.6% | 715 | 1 | 9 |
 | active-hash__active_hash__192dfb1 | 34 | 98.6% | 4,933 | 15 | 54 |
 | noahd1__oink__f933f3f | 41 | 98.6% | 1,655 | 6 | 17 |
-| getsentry__sentry-ruby__faa2853 | 328 | 98.6% | 25,800 | 74 | 284 |
+| ruby-shoryuken__shoryuken__1ce025d | 165 | 98.6% | 6,767 | 12 | 82 |
+| alexreisner__geocoder__2d3be47 | 251 | 98.6% | 11,594 | 19 | 142 |
+| getsentry__sentry-ruby__faa2853 | 328 | 98.6% | 25,802 | 74 | 282 |
 | iain__http_accept_language__74a6a24 | 15 | 98.6% | 362 | 1 | 4 |
 | jfirebaugh__konacha__cc2a061 | 40 | 98.6% | 1,522 | 2 | 19 |
-| rubyzip__rubyzip__db67423 | 118 | 98.6% | 4,328 | 29 | 31 |
 | vagrant-libvirt__vagrant-libvirt__a94ce0d | 134 | 98.6% | 11,817 | 18 | 146 |
-| ManageIQ__manageiq__b530ec7 | 2,222 | 98.6% | 199,466 | 993 | 1,747 |
 | discourse__onebox__a40aabd | 135 | 98.6% | 4,429 | 17 | 44 |
-| igrigorik__em-http-request__ce363a7 | 51 | 98.6% | 3,854 | 3 | 50 |
 | inertiajs__inertia-rails__a23caca | 138 | 98.6% | 4,217 | 28 | 30 |
-| parruda__swarm__5179529 | 488 | 98.6% | 47,489 | 261 | 392 |
+| presidentbeef__brakeman__c1d7ccc | 781 | 98.6% | 53,138 | 59 | 670 |
+| railsware__js-routes__b6b7d4a | 40 | 98.6% | 2,845 | 4 | 35 |
 | sidekiq-scheduler__sidekiq-scheduler__ca3d405 | 43 | 98.6% | 2,325 | 2 | 30 |
 | jnunemaker__httparty__a04b653 | 79 | 98.6% | 7,348 | 6 | 94 |
+| parruda__swarm__5179529 | 488 | 98.6% | 47,490 | 257 | 391 |
 | ruby-oauth__oauth2__5354d13 | 162 | 98.6% | 6,511 | 22 | 67 |
+| ManageIQ__manageiq__b530ec7 | 2,222 | 98.6% | 199,487 | 973 | 1,726 |
 | asmuth__recommendify__15ad976 | 25 | 98.6% | 1,478 | 6 | 14 |
-| igrigorik__http-2__3150890 | 42 | 98.6% | 4,345 | 3 | 56 |
-| mongodb__mongo-ruby-driver__c06cc5d | 1,031 | 98.6% | 4,202 | 7 | 50 |
+| igrigorik__em-http-request__ce363a7 | 51 | 98.6% | 3,855 | 3 | 49 |
+| jondot__sneakers__9780692 | 59 | 98.6% | 3,255 | 9 | 35 |
 | ridgepole__ridgepole__80578b2 | 193 | 98.6% | 6,057 | 39 | 43 |
-| github__secure_headers__f224144 | 48 | 98.6% | 4,479 | 6 | 54 |
-| rails__bootsnap__7b04583 | 46 | 98.6% | 2,762 | 7 | 30 |
 | shadabahmed__logstasher__0fdc1b9 | 32 | 98.6% | 1,639 | 1 | 21 |
 | airbnb__synapse__89e05f0 | 53 | 98.6% | 9,125 | 22 | 100 |
 | flyerhzm__rails_best_practices__2ef4088 | 161 | 98.6% | 3,759 | 4 | 46 |
+| igrigorik__http-2__3150890 | 42 | 98.6% | 4,346 | 3 | 55 |
+| mongodb__mongo-ruby-driver__c06cc5d | 1,031 | 98.6% | 4,202 | 6 | 50 |
 | vifreefly__kimuraframework__6f4fd43 | 40 | 98.6% | 1,050 | 3 | 11 |
 | xcpretty__xcode-install__388de63 | 28 | 98.6% | 904 | 2 | 10 |
 | makandra__active_type__55eaa1d | 57 | 98.6% | 4,401 | 4 | 54 |
 | palkan__logidze__3f07fcb | 121 | 98.6% | 4,389 | 17 | 41 |
 | amazing-print__amazing_print__1b687bf | 74 | 98.7% | 2,356 | 6 | 25 |
 | fetlife__rollout__5ba5fc6 | 11 | 98.7% | 685 | 0 | 9 |
+| nathanvda__cocoon__b3f4e6d | 39 | 98.7% | 1,451 | 1 | 18 |
 | nikolalsvk__render_async__c2ac631 | 14 | 98.7% | 383 | 4 | 1 |
+| rails__bootsnap__7b04583 | 46 | 98.7% | 2,763 | 7 | 29 |
 | remi__her__b59a05a | 59 | 98.7% | 5,054 | 29 | 37 |
-| danger__danger__20f1243 | 233 | 98.7% | 14,832 | 25 | 167 |
+| danger__danger__20f1243 | 233 | 98.7% | 14,832 | 24 | 167 |
 | janko__down__b307721 | 21 | 98.7% | 2,707 | 4 | 31 |
-| SAML-Toolkits__ruby-saml__2970ad9 | 43 | 98.7% | 6,953 | 5 | 84 |
 | nateware__redis-objects__898852a | 33 | 98.7% | 6,163 | 12 | 67 |
+| github__secure_headers__f224144 | 48 | 98.7% | 4,480 | 4 | 53 |
 | wvanbergen__chunky_png__7a1faf6 | 54 | 98.7% | 4,798 | 22 | 39 |
 | Shopify__graphql-batch__bcf1b9c | 26 | 98.7% | 1,030 | 2 | 11 |
 | rossta__montrose__8bb4aaa | 100 | 98.7% | 5,013 | 15 | 48 |
 | ruby-prof__ruby-prof__5275114 | 79 | 98.7% | 6,481 | 3 | 79 |
 | RubyMoney__money__48f0591 | 47 | 98.7% | 5,341 | 6 | 61 |
-| alexch__rerun__36f2d23 | 22 | 98.7% | 1,444 | 7 | 11 |
-| openstreetmap__openstreetmap-website__bfa9379 | 913 | 98.7% | 49,744 | 149 | 473 |
+| openstreetmap__openstreetmap-website__bfa9379 | 913 | 98.7% | 49,744 | 148 | 473 |
 | rack__rack-attack__e938879 | 82 | 98.7% | 2,404 | 2 | 28 |
+| rubyzip__rubyzip__db67423 | 118 | 98.7% | 4,328 | 23 | 31 |
 | thekompanee__fuubar__aa00f67 | 7 | 98.7% | 239 | 0 | 3 |
 | leejarvis__slop__131616d | 18 | 98.7% | 805 | 1 | 9 |
 | arches__table_print__591affe | 27 | 98.7% | 2,204 | 1 | 26 |
-| instacart__makara__a19b682 | 66 | 98.7% | 2,431 | 7 | 23 |
 | roberdam__Xaddress__65ed326 | 6 | 98.7% | 2,681 | 2 | 31 |
 | stelligent__cfn_nag__8b5f03d | 439 | 98.7% | 10,430 | 16 | 112 |
-| ankane__pghero__c114015 | 65 | 98.7% | 2,793 | 1 | 33 |
 | elastic__elasticsearch-ruby__2dbf051 | 1,012 | 98.7% | 19,630 | 131 | 108 |
 | rharriso__bower-rails__537f7ea | 15 | 98.7% | 1,065 | 1 | 12 |
 | sidekiq-cron__sidekiq-cron__196b9b7 | 25 | 98.8% | 2,390 | 1 | 28 |
-| state-machines__state_machines__06da141 | 501 | 98.8% | 10,610 | 18 | 110 |
-| travisjeffery__timecop__d695c6f | 23 | 98.8% | 2,232 | 2 | 25 |
 | devopsgroup-io__vagrant-digitalocean__7e3418d | 28 | 98.8% | 750 | 0 | 9 |
 | rgeo__activerecord-postgis-adapter__ed2e3d5 | 52 | 98.8% | 1,420 | 2 | 15 |
 | rubocop__rubocop-rails__e7d48bd | 312 | 98.8% | 5,272 | 28 | 35 |
 | solnic__virtus__fce56bd | 107 | 98.8% | 3,416 | 9 | 32 |
+| state-machines__state_machines__06da141 | 501 | 98.8% | 10,610 | 17 | 110 |
 | strongself__Generamba__615354c | 61 | 98.8% | 1,831 | 3 | 19 |
+| SAML-Toolkits__ruby-saml__2970ad9 | 43 | 98.8% | 6,957 | 3 | 80 |
 | errbit__errbit__2c8101f | 229 | 98.8% | 8,903 | 22 | 84 |
-| flippercloud__flipper__8c4ee2f | 412 | 98.8% | 18,466 | 20 | 200 |
 | igorkasyanchuk__rails_performance__632a0d7 | 152 | 98.8% | 3,023 | 5 | 31 |
+| instacart__makara__a19b682 | 66 | 98.8% | 2,431 | 6 | 23 |
 | stefankroes__ancestry__1db607d | 45 | 98.8% | 2,681 | 3 | 29 |
-| yob__pdf-reader__83cbcb7 | 138 | 98.8% | 14,062 | 18 | 149 |
 | GeorgeKaraszi__ActiveRecordExtended__fe0e094 | 68 | 98.8% | 2,460 | 6 | 23 |
-| Shopify__liquid__d897899 | 153 | 98.8% | 8,368 | 22 | 77 |
+| alexch__rerun__36f2d23 | 22 | 98.8% | 1,444 | 6 | 11 |
+| ankane__pghero__c114015 | 65 | 98.8% | 2,794 | 1 | 32 |
+| flippercloud__flipper__8c4ee2f | 412 | 98.8% | 18,466 | 17 | 200 |
 | rgeo__rgeo__01f49e7 | 161 | 98.8% | 7,398 | 22 | 65 |
-| ankane__searchkick__1009d03 | 104 | 98.8% | 9,322 | 12 | 97 |
+| yob__pdf-reader__83cbcb7 | 138 | 98.8% | 14,063 | 18 | 148 |
+| Shopify__liquid__d897899 | 153 | 98.8% | 8,368 | 21 | 77 |
 | doorkeeper__doorkeeper__b305358 | 260 | 98.8% | 13,366 | 24 | 132 |
 | fakefs__fakefs__034fa55 | 47 | 98.8% | 6,154 | 14 | 58 |
 | jgorset__facebook-messenger__10d4534 | 71 | 98.8% | 2,058 | 5 | 19 |
+| travisjeffery__timecop__d695c6f | 23 | 98.8% | 2,232 | 1 | 25 |
 | whitesmith__rubycritic__0bd2f52 | 137 | 98.8% | 1,885 | 2 | 20 |
+| ankane__searchkick__1009d03 | 104 | 98.8% | 9,323 | 12 | 96 |
 | Vimjas__vim-python-pep8-indent__60ba5e1 | 5 | 98.8% | 699 | 2 | 6 |
-| ankane__ruby-polars__f274df0 | 142 | 98.8% | 22,294 | 55 | 200 |
 | deivid-rodriguez__pry-byebug__5459d85 | 47 | 98.8% | 696 | 1 | 7 |
 | matthewrudy__memoist__3ce2b0d | 8 | 98.8% | 434 | 4 | 1 |
 | puppetlabs__r10k__340f7a8 | 305 | 98.8% | 15,474 | 18 | 159 |
-| rubyonjets__jets__4cf2c1f | 299 | 98.8% | 6,952 | 25 | 55 |
+| ankane__ruby-polars__f274df0 | 142 | 98.8% | 22,295 | 55 | 199 |
 | carrierwaveuploader__carrierwave__a015f02 | 106 | 98.8% | 13,822 | 31 | 126 |
 | imathis__fancy-buttons__93113c1 | 7 | 98.8% | 88 | 0 | 1 |
 | oleander__git-fame-rb__571d92f | 27 | 98.8% | 525 | 2 | 4 |
+| rubyonjets__jets__4cf2c1f | 299 | 98.8% | 6,952 | 24 | 55 |
 | airbnb__nerve__f28923b | 39 | 98.8% | 2,561 | 0 | 29 |
 | gjtorikian__html-pipeline__c99d76d | 40 | 98.8% | 1,705 | 9 | 10 |
 | ledermann__rails-settings__14d3688 | 26 | 98.8% | 897 | 2 | 8 |
-| palkan__action_policy__8290d28 | 120 | 98.8% | 4,853 | 16 | 38 |
 | senchalabs__jsduck__febef55 | 296 | 98.9% | 17,305 | 16 | 176 |
+| palkan__action_policy__8290d28 | 120 | 98.9% | 4,854 | 16 | 37 |
 | rodjek__puppet-lint__9608bd0 | 104 | 98.9% | 6,857 | 22 | 53 |
 | haml__haml-rails__6c7c8ca | 16 | 98.9% | 367 | 0 | 4 |
 | ankane__neighbor__63c83d5 | 66 | 98.9% | 2,319 | 0 | 25 |
@@ -7136,25 +6837,23 @@ Every offense is compared by file path, line number, and cop name.
 | QueueClassic__queue_classic__97f5217 | 27 | 98.9% | 935 | 0 | 10 |
 | collectiveidea__awesome_nested_set__2196184 | 35 | 98.9% | 3,763 | 0 | 40 |
 | tweetstream__tweetstream__cae45e7 | 22 | 98.9% | 1,593 | 3 | 14 |
-| rage-rb__rage__bb94dde | 275 | 98.9% | 26,676 | 56 | 226 |
 | svenfuchs__rails-i18n__3a803c9 | 184 | 98.9% | 1,898 | 0 | 20 |
 | ViewComponent__view_component__b698f18 | 347 | 98.9% | 6,597 | 8 | 61 |
-| iberianpig__fusuma__2c12139 | 80 | 98.9% | 4,492 | 18 | 29 |
 | teoljungberg__fx__2356360 | 67 | 98.9% | 2,016 | 0 | 21 |
-| ankane__groupdate__520f223 | 40 | 98.9% | 2,319 | 5 | 19 |
 | arsduo__koala__47d0520 | 45 | 98.9% | 6,743 | 9 | 61 |
 | red-data-tools__YouPlot__3398504 | 21 | 98.9% | 686 | 3 | 4 |
 | DavyJonesLocker__client_side_validations__071980a | 74 | 98.9% | 2,161 | 16 | 6 |
 | guard__guard__a40b5cc | 107 | 98.9% | 6,508 | 8 | 58 |
-| decidim__decidim__bc448c8 | 6,748 | 99.0% | 228,482 | 258 | 2,043 |
-| deivid-rodriguez__byebug__a102dcd | 198 | 99.0% | 4,492 | 31 | 14 |
 | dry-rb__dry-validation__4a16523 | 75 | 99.0% | 2,398 | 3 | 21 |
-| egonSchiele__contracts.ruby__a8a88fc | 43 | 99.0% | 3,334 | 10 | 23 |
-| joeyates__imap-backup__fd5ed98 | 200 | 99.0% | 13,211 | 28 | 101 |
+| rage-rb__rage__bb94dde | 275 | 99.0% | 26,690 | 56 | 212 |
+| decidim__decidim__bc448c8 | 6,748 | 99.0% | 228,491 | 249 | 2,034 |
+| egonSchiele__contracts.ruby__a8a88fc | 43 | 99.0% | 3,334 | 9 | 23 |
+| joeyates__imap-backup__fd5ed98 | 200 | 99.0% | 13,211 | 27 | 101 |
 | integrallis__stripe_event__ba9b124 | 61 | 99.0% | 730 | 0 | 7 |
 | patterns-ai-core__langchainrb__fca4056 | 253 | 99.0% | 13,160 | 27 | 99 |
-| SquareSquash__web__e73f280 | 267 | 99.0% | 21,426 | 20 | 182 |
 | alan-ai__alan-sdk-flutter__da0a22d | 5 | 99.0% | 106 | 0 | 1 |
+| ankane__groupdate__520f223 | 40 | 99.0% | 2,320 | 4 | 18 |
+| SquareSquash__web__e73f280 | 267 | 99.0% | 21,428 | 20 | 180 |
 | mhenrixon__sidekiq-unique-jobs__f67f346 | 378 | 99.0% | 11,968 | 22 | 90 |
 | sdsykes__fastimage__a992939 | 26 | 99.0% | 1,495 | 6 | 8 |
 | whomwah__rqrcode__aa77177 | 26 | 99.1% | 1,103 | 0 | 10 |
@@ -7162,83 +6861,85 @@ Every offense is compared by file path, line number, and cop name.
 | midori-rb__midori.rb__a431868 | 44 | 99.1% | 1,116 | 2 | 8 |
 | stimulusreflex__stimulus_reflex__2a797d4 | 76 | 99.1% | 3,901 | 3 | 32 |
 | voxpupuli__json-schema__b718bc4 | 120 | 99.1% | 4,900 | 3 | 41 |
+| iberianpig__fusuma__2c12139 | 80 | 99.1% | 4,492 | 10 | 29 |
 | RubyMoney__money-rails__3ec279c | 72 | 99.1% | 2,552 | 4 | 18 |
 | pawurb__rails-pg-extras__674c01f | 25 | 99.1% | 578 | 1 | 4 |
 | pdfkit__pdfkit__762b366 | 19 | 99.1% | 1,850 | 3 | 13 |
-| ankane__pgsync__db602da | 27 | 99.1% | 1,638 | 2 | 12 |
 | fazibear__colorize__a252d8a | 13 | 99.1% | 826 | 4 | 3 |
-| ninoseki__mihari__fcce37c | 257 | 99.1% | 5,745 | 17 | 32 |
 | ankane__mailkick__27a04ea | 35 | 99.1% | 713 | 0 | 6 |
 | markets__invisible_captcha__939f9ed | 45 | 99.1% | 602 | 0 | 5 |
+| ninoseki__mihari__fcce37c | 257 | 99.1% | 5,745 | 16 | 32 |
 | shakacode__react_on_rails__a1daa59 | 463 | 99.1% | 25,179 | 43 | 166 |
 | garybernhardt__selecta__46bfad2 | 12 | 99.1% | 4,478 | 4 | 33 |
 | jhawthorn__discard__f7dd775 | 10 | 99.1% | 619 | 0 | 5 |
 | licensee__licensee__3994f93 | 88 | 99.1% | 2,696 | 8 | 14 |
-| Shopify__packwerk__5b06827 | 149 | 99.2% | 4,495 | 10 | 26 |
 | ryanto__acts_as_votable__5ac261b | 43 | 99.2% | 1,491 | 0 | 12 |
+| Shopify__packwerk__5b06827 | 149 | 99.2% | 4,495 | 9 | 26 |
 | ankane__ahoy_email__6fcb86f | 60 | 99.2% | 1,279 | 1 | 9 |
 | jeremyw__stamp__c840492 | 26 | 99.2% | 511 | 0 | 4 |
 | nicolasblanco__rails_param__0920644 | 61 | 99.2% | 2,703 | 5 | 16 |
 | petems__tugboat__db1785c | 91 | 99.2% | 4,252 | 7 | 26 |
 | slack-ruby__slack-ruby-client__dd04a47 | 370 | 99.2% | 11,734 | 2 | 90 |
 | fnando__browser__dd88933 | 155 | 99.2% | 3,227 | 11 | 14 |
-| shayonj__pg_easy_replicate__d725ab2 | 27 | 99.2% | 3,096 | 3 | 21 |
 | brandonhilkert__sucker_punch__98fefa2 | 21 | 99.2% | 786 | 1 | 5 |
 | fastruby__fast-ruby__2342b8a | 70 | 99.2% | 1,306 | 4 | 6 |
 | leonid-shevtsov__headless__836889a | 9 | 99.2% | 793 | 2 | 4 |
 | mojombo__chronic__416d504 | 67 | 99.2% | 5,809 | 3 | 41 |
 | bokmann__business_time__0a9f421 | 42 | 99.2% | 2,652 | 0 | 20 |
 | bogdan__datagrid__a390e4f | 87 | 99.2% | 5,514 | 6 | 35 |
-| nanoc__nanoc__c151308 | 672 | 99.2% | 24,738 | 47 | 137 |
-| dependabot__dependabot-core__0ed9632 | 1,727 | 99.2% | 216,814 | 570 | 1,005 |
+| nanoc__nanoc__c151308 | 672 | 99.2% | 24,738 | 46 | 137 |
 | rubycdp__ferrum__3606d54 | 93 | 99.2% | 6,726 | 8 | 41 |
 | technicalpickles__homesick__ee4388b | 13 | 99.2% | 1,230 | 1 | 8 |
+| dependabot__dependabot-core__0ed9632 | 1,727 | 99.2% | 216,815 | 560 | 1,004 |
 | exAspArk__batch-loader__525a630 | 22 | 99.2% | 690 | 0 | 5 |
 | hartator__wayback-machine-downloader__653b94b | 9 | 99.2% | 554 | 0 | 4 |
-| urbanadventurer__WhatWeb__c42e1b9 | 1,913 | 99.2% | 82,416 | 93 | 496 |
+| shayonj__pg_easy_replicate__d725ab2 | 27 | 99.2% | 3,096 | 1 | 21 |
+| urbanadventurer__WhatWeb__c42e1b9 | 1,913 | 99.2% | 82,418 | 93 | 494 |
 | countries__countries__f4711e2 | 41 | 99.3% | 2,270 | 0 | 16 |
+| deivid-rodriguez__byebug__a102dcd | 198 | 99.3% | 4,492 | 17 | 14 |
 | jasonlong__geo_pattern__d276abf | 90 | 99.3% | 2,159 | 11 | 4 |
 | lineofflight__frankfurter__32e6e79 | 39 | 99.3% | 1,011 | 1 | 6 |
-| redis__redis-rb__59bb945 | 137 | 99.3% | 8,562 | 7 | 50 |
 | streamio__streamio-ffmpeg__aca5bab | 17 | 99.3% | 2,082 | 0 | 14 |
 | feedjira__feedjira__e7b8b96 | 70 | 99.3% | 2,587 | 5 | 12 |
 | octokit__octokit.rb__6d02a4b | 163 | 99.3% | 9,062 | 3 | 57 |
 | varvet__pundit__d53c841 | 68 | 99.3% | 1,661 | 2 | 9 |
 | enriclluelles__route_translator__032e96f | 62 | 99.3% | 1,376 | 1 | 8 |
-| github-changelog-generator__github-changelog-generator__df6622d | 35 | 99.3% | 3,398 | 5 | 17 |
-| madeintandem__jsonb_accessor__5f2e705 | 19 | 99.3% | 1,998 | 3 | 10 |
+| redis__redis-rb__59bb945 | 137 | 99.3% | 8,563 | 7 | 49 |
 | sevenwire__forgery__a5c8f94 | 53 | 99.3% | 2,010 | 5 | 8 |
 | sferik__t-ruby__d203767 | 33 | 99.3% | 9,755 | 21 | 42 |
 | james2m__seedbank__f67e9e9 | 43 | 99.3% | 473 | 0 | 3 |
 | flavorjones__loofah__e6f4751 | 37 | 99.3% | 3,632 | 5 | 18 |
-| watir__watir__8a2632b | 231 | 99.3% | 11,583 | 14 | 56 |
+| github-changelog-generator__github-changelog-generator__df6622d | 35 | 99.3% | 3,399 | 5 | 16 |
+| madeintandem__jsonb_accessor__5f2e705 | 19 | 99.4% | 1,998 | 2 | 10 |
 | rubycdp__cuprite__bc06cc0 | 22 | 99.4% | 3,316 | 1 | 19 |
+| watir__watir__8a2632b | 231 | 99.4% | 11,583 | 13 | 56 |
 | basecamp__name_of_person__bab0a44 | 12 | 99.4% | 169 | 0 | 1 |
 | codeplant__simple-navigation__3d92d9c | 65 | 99.4% | 2,399 | 3 | 11 |
 | weppos__breadcrumbs_on_rails__8c8cfbd | 24 | 99.4% | 698 | 0 | 4 |
 | ice-cube-ruby__ice_cube__32ff145 | 94 | 99.4% | 11,912 | 6 | 60 |
 | DmitryTsepelev__store_model__4225d07 | 80 | 99.4% | 4,225 | 2 | 21 |
+| ankane__pgsync__db602da | 27 | 99.4% | 1,643 | 2 | 7 |
 | faker__faker__a3624a8 | 562 | 99.4% | 10,999 | 16 | 44 |
 | Envek__after_commit_everywhere__4df8efa | 18 | 99.4% | 923 | 0 | 5 |
 | thoughtbot__factory_bot_rails__2428e31 | 43 | 99.4% | 975 | 1 | 4 |
 | krisleech__wisper__4569343 | 31 | 99.4% | 1,192 | 1 | 5 |
 | roidrage__lograge__27066cd | 50 | 99.4% | 785 | 0 | 4 |
 | atipugin__telegram-bot-ruby__736ed62 | 311 | 99.5% | 2,625 | 1 | 12 |
-| yabeda-rb__yabeda__aa6598a | 45 | 99.5% | 1,792 | 0 | 9 |
-| yoshoku__rumale__769c8aa | 433 | 99.5% | 14,007 | 20 | 50 |
+| yoshoku__rumale__769c8aa | 433 | 99.5% | 14,007 | 19 | 50 |
 | freerange__mocha__50844e9 | 230 | 99.5% | 6,627 | 7 | 25 |
 | ryanb__ruby-warrior__a062c16 | 111 | 99.5% | 3,656 | 0 | 18 |
 | kpumuk__meta-tags__1d16a4c | 52 | 99.5% | 2,534 | 2 | 10 |
-| stripe__stripe-ruby__707d703 | 1,131 | 99.5% | 50,468 | 46 | 197 |
+| stripe__stripe-ruby__707d703 | 1,131 | 99.5% | 50,472 | 45 | 193 |
 | chaps-io__gush__d5180ba | 31 | 99.5% | 2,166 | 0 | 10 |
-| ffaker__ffaker__2161dfd | 411 | 99.5% | 7,662 | 14 | 21 |
 | jekyll__jekyll-seo-tag__96e86da | 19 | 99.5% | 2,604 | 0 | 12 |
+| yabeda-rb__yabeda__aa6598a | 45 | 99.5% | 1,793 | 0 | 8 |
 | zquestz__omniauth-google-oauth2__5559071 | 12 | 99.5% | 1,117 | 0 | 5 |
 | ruby-grape__grape-swagger__018faba | 150 | 99.5% | 6,697 | 2 | 27 |
+| ffaker__ffaker__2161dfd | 411 | 99.5% | 7,663 | 13 | 20 |
 | multi_json__multi_json__c5fa9fc | 121 | 99.5% | 5,810 | 6 | 18 |
-| NatLabRockies__api-umbrella__bdda392 | 395 | 99.5% | 50,572 | 35 | 170 |
 | dannnylo__rtesseract__1f51d6f | 21 | 99.6% | 265 | 0 | 1 |
 | elixir-editors__vim-elixir__6dff291 | 57 | 99.6% | 1,341 | 0 | 5 |
+| NatLabRockies__api-umbrella__bdda392 | 395 | 99.6% | 50,586 | 26 | 156 |
 | timdorr__tesla-api__c90d995 | 12 | 99.6% | 1,120 | 1 | 3 |
 | RubyCrypto__rbnacl__5204e97 | 74 | 99.6% | 2,621 | 0 | 9 |
 | maid__maid__ee7fd79 | 40 | 99.6% | 1,759 | 1 | 5 |
@@ -7282,7 +6983,7 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary>Perfect cops (454 cops with 100% match rate)</summary>
+<summary>Perfect cops (471 cops with 100% match rate)</summary>
 
 | Cop | Matches |
 |-----|--------:|
@@ -7336,6 +7037,7 @@ Every offense is compared by file path, line number, and cop name.
 | Layout/EmptyLinesAroundMethodBody | 6,903 |
 | RSpec/PredicateMatcher | 6,824 |
 | Lint/AmbiguousRegexpLiteral | 6,802 |
+| Style/AccessorGrouping | 6,588 |
 | Layout/EmptyLineAfterMagicComment | 6,563 |
 | RSpec/IncludeExamples | 6,321 |
 | Style/RescueStandardError | 6,230 |
@@ -7346,6 +7048,7 @@ Every offense is compared by file path, line number, and cop name.
 | Style/FormatString | 5,521 |
 | FactoryBot/ConsistentParenthesesStyle | 5,476 |
 | Lint/ConstantDefinitionInBlock | 5,276 |
+| Layout/EndAlignment | 5,191 |
 | Performance/RegexpMatch | 5,090 |
 | Style/ExpandPathArguments | 5,055 |
 | Naming/PredicatePrefix | 4,955 |
@@ -7395,6 +7098,7 @@ Every offense is compared by file path, line number, and cop name.
 | RSpec/EmptyLineAfterSubject | 2,033 |
 | Style/SoleNestedConditional | 1,966 |
 | Lint/RedundantRequireStatement | 1,964 |
+| Layout/SpaceInsidePercentLiteralDelimiters | 1,871 |
 | Layout/AccessModifierIndentation | 1,850 |
 | Naming/MemoizedInstanceVariableName | 1,809 |
 | Rails/OutputSafety | 1,783 |
@@ -7463,14 +7167,17 @@ Every offense is compared by file path, line number, and cop name.
 | RSpec/HooksBeforeExamples | 730 |
 | Performance/ArraySemiInfiniteRangeSlice | 716 |
 | Layout/LeadingEmptyLines | 662 |
+| Rails/ActiveRecordAliases | 649 |
 | RSpec/MessageChain | 641 |
 | Rails/WhereExists | 621 |
+| Style/EmptyCaseCondition | 608 |
 | RSpec/SubjectDeclaration | 601 |
 | RSpecRails/NegationBeValid | 592 |
 | Layout/EmptyComment | 568 |
 | Style/ClassEqualityComparison | 564 |
 | Style/ObjectThen | 564 |
 | Style/WhileUntilModifier | 564 |
+| Lint/DeprecatedClassMethods | 562 |
 | Style/WhenThen | 555 |
 | RSpec/Be | 554 |
 | Performance/RedundantMatch | 549 |
@@ -7478,6 +7185,7 @@ Every offense is compared by file path, line number, and cop name.
 | Lint/UselessMethodDefinition | 540 |
 | Layout/EmptyLinesAroundExceptionHandlingKeywords | 537 |
 | Lint/ScriptPermission | 531 |
+| Layout/SpaceAfterColon | 527 |
 | Style/MixinUsage | 522 |
 | Naming/BinaryOperatorParameterName | 515 |
 | Style/DefWithParentheses | 509 |
@@ -7546,6 +7254,7 @@ Every offense is compared by file path, line number, and cop name.
 | Lint/EmptyFile | 216 |
 | Style/RedundantArrayConstructor | 216 |
 | Metrics/CollectionLiteralLength | 215 |
+| Rails/UnknownEnv | 213 |
 | RSpec/VariableName | 210 |
 | Performance/IoReadlines | 208 |
 | Rails/HasAndBelongsToMany | 203 |
@@ -7581,6 +7290,7 @@ Every offense is compared by file path, line number, and cop name.
 | RSpec/ContainExactly | 138 |
 | Style/EmptyLambdaParameter | 138 |
 | Performance/DeletePrefix | 137 |
+| Lint/DeprecatedOpenSSLConstant | 135 |
 | Lint/MissingCopEnableDirective | 134 |
 | Style/YAMLFileRead | 127 |
 | FactoryBot/FactoryNameStyle | 126 |
@@ -7599,11 +7309,13 @@ Every offense is compared by file path, line number, and cop name.
 | Lint/EmptyConditionalBody | 88 |
 | Lint/StructNewOverride | 88 |
 | RSpec/BeEmpty | 88 |
+| Lint/RedundantTypeConversion | 86 |
 | Style/RedundantConditional | 85 |
 | Lint/UselessDefaultValueArgument | 82 |
 | Performance/DeleteSuffix | 82 |
 | Style/EndlessMethod | 79 |
 | Performance/AncestorsInclude | 78 |
+| Layout/HeredocArgumentClosingParenthesis | 77 |
 | Style/SendWithLiteralMethodName | 77 |
 | Style/RandomWithOffset | 76 |
 | Lint/HashCompareByIdentity | 75 |
@@ -7624,14 +7336,17 @@ Every offense is compared by file path, line number, and cop name.
 | RSpec/SingleArgumentMessageChain | 57 |
 | Lint/ErbNewArguments | 56 |
 | Rails/RedundantReceiverInWithOptions | 55 |
+| Lint/DeprecatedConstants | 54 |
 | Performance/ConcurrentMonotonicTime | 54 |
 | Lint/ElseLayout | 53 |
 | Rails/EnumHash | 53 |
 | Lint/UriRegexp | 51 |
+| Lint/UselessRescue | 51 |
 | Lint/LiteralAssignmentInCondition | 50 |
 | Performance/Squeeze | 50 |
 | Rails/EnvironmentComparison | 49 |
 | Rails/LinkToBlank | 49 |
+| Lint/DuplicateRequire | 48 |
 | RSpec/MissingExpectationTargetMethod | 48 |
 | Performance/CaseWhenSplat | 47 |
 | Style/NestedModifier | 47 |
@@ -7674,6 +7389,7 @@ Every offense is compared by file path, line number, and cop name.
 | Gemspec/AttributeAssignment | 20 |
 | Style/ArrayIntersectWithSingleElement | 20 |
 | Lint/EmptyInPattern | 19 |
+| Lint/UselessDefined | 19 |
 | Layout/ConditionPosition | 17 |
 | Lint/EmptyInterpolation | 17 |
 | Performance/StringBytesize | 17 |
@@ -7701,6 +7417,7 @@ Every offense is compared by file path, line number, and cop name.
 | RSpec/EmptyOutput | 9 |
 | Rails/MailerName | 9 |
 | Lint/RedundantWithIndex | 8 |
+| Lint/RequireParentheses | 8 |
 | Rails/RelativeDateConstant | 8 |
 | Lint/AmbiguousAssignment | 7 |
 | Lint/UselessNumericOperation | 7 |
@@ -7715,6 +7432,7 @@ Every offense is compared by file path, line number, and cop name.
 | Style/BeginBlock | 5 |
 | Style/DataInheritance | 5 |
 | Lint/CircularArgumentReference | 4 |
+| Lint/NumericOperationWithConstantResult | 4 |
 | Lint/UnescapedBracketInRegexp | 4 |
 | RSpec/IsExpectedSpecify | 4 |
 | RSpec/RepeatedIncludeExample | 4 |
