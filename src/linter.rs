@@ -180,8 +180,10 @@ pub fn run_linter(
     let base_configs = config.precompute_cop_configs(registry);
     let has_dir_overrides = config.has_dir_overrides();
 
-    // Result cache: enabled by default, disable with --cache false or autocorrect
+    // Result cache: enabled by default, disable with --no-cache, --cache false,
+    // or autocorrect.
     let cache_enabled = args.cache == "true"
+        && !args.no_cache
         && args.stdin.is_none()
         && args.autocorrect_mode() == crate::cli::AutocorrectMode::Off;
     let cache_enabled = cache_enabled && !has_dir_overrides;
@@ -192,7 +194,9 @@ pub fn run_linter(
         }
         c
     } else {
-        if args.debug && args.cache != "true" {
+        if args.debug && args.no_cache {
+            eprintln!("debug: result cache disabled (--no-cache)");
+        } else if args.debug && args.cache != "true" {
             eprintln!("debug: result cache disabled (--cache false)");
         } else if args.debug && has_dir_overrides {
             eprintln!("debug: result cache disabled (directory-specific configs)");

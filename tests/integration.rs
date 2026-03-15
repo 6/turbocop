@@ -3847,6 +3847,48 @@ fn cache_produces_same_results_as_uncached() {
 }
 
 #[test]
+fn no_cache_flag_disables_result_cache_writes() {
+    let dir = temp_dir("no_cache_disables_result_cache");
+    write_file(&dir, "trailing.rb", b"x = 1 \n");
+
+    let cache_dir = dir.join("cache");
+    fs::create_dir_all(&cache_dir).unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
+        .env("NITROCOP_CACHE_DIR", &cache_dir)
+        .args([
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            "--format",
+            "json",
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute nitrocop");
+
+    assert!(
+        output.status.code().is_some_and(|code| code != 3),
+        "nitrocop should not crash:\nstdout={}\nstderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let cache_files: Vec<_> = fs::read_dir(&cache_dir)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .collect();
+    assert!(
+        cache_files.is_empty(),
+        "--no-cache should not create result cache files, found: {:?}",
+        cache_files
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn cache_invalidated_by_file_change() {
     let dir = temp_dir("cache_file_change");
     let file = write_file(&dir, "test.rb", b"x = 1 \n");

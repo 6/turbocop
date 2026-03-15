@@ -21,9 +21,9 @@
     "rc_files": 121
   },
   "ruby-formatter__rufo__a90e654": {
-    "fn": 855,
-    "fp": 72,
-    "matches": 9892,
+    "fn": 884,
+    "fp": 66,
+    "matches": 9863,
     "nc_files": 150,
     "rc_files": 158
   }

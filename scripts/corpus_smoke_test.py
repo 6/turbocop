@@ -94,7 +94,7 @@ def run_nitrocop(binary: str, repo_dir: str) -> dict:
     env["BUNDLE_GEMFILE"] = os.path.join(ROOT, "bench", "corpus", "Gemfile")
     env["BUNDLE_PATH"] = os.path.join(ROOT, "bench", "corpus", "vendor", "bundle")
     result = subprocess.run(
-        [binary, "--preview", "--format", "json", "--no-cache",
+        [binary, "--preview", "--format", "json", "--no-cache", "--cache", "false",
          "--config", BASELINE_CONFIG, repo_dir],
         capture_output=True, text=True, env=env, timeout=300,
     )

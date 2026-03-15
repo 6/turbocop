@@ -88,7 +88,7 @@ pub struct Args {
     #[arg(long)]
     pub init: bool,
 
-    /// Skip lockfile requirement (use bundler directly for gem resolution)
+    /// Bypass the lockfile and disable result-cache reads/writes
     #[arg(long)]
     pub no_cache: bool,
 
