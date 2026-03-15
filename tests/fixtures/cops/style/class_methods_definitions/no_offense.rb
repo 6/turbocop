@@ -116,3 +116,52 @@ class K
     end
   end
 end
+
+# private :method_name after def marks method as non-public
+class L
+  class << self
+    def my_class_method
+      :original_return_value
+    end
+    private :my_class_method
+  end
+end
+
+# protected :method_name after def marks method as non-public
+class M
+  class << self
+    def my_class_method
+      :value
+    end
+    protected :my_class_method
+  end
+end
+
+# Multiple methods all made private via symbol args
+class N
+  class << self
+    def foo
+      1
+    end
+
+    def bar
+      2
+    end
+
+    private :foo, :bar
+  end
+end
+
+# Mix of public def and private :name — not all public
+class O
+  class << self
+    def visible
+      42
+    end
+
+    def hidden
+      1
+    end
+    private :hidden
+  end
+end
