@@ -5,6 +5,14 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-15)
+///
+/// Corpus oracle reported FP=0, FN=1.
+///
+/// FN=1: numbered `proc{...}` arguments were being treated like ordinary
+/// lambda/proc block builders and skipped, but RuboCop only exempts plain
+/// `block`/`Proc.new` forms. Numbered proc blocks still count as ambiguous
+/// block arguments and must be flagged.
 pub struct AmbiguousBlockAssociation;
 
 impl Cop for AmbiguousBlockAssociation {
@@ -76,7 +84,8 @@ impl Cop for AmbiguousBlockAssociation {
         // Check the last argument - it should be a CallNode with a block
         let last_arg = args.iter().last().unwrap();
 
-        // Skip lambda/proc/Proc.new — these are block builders, not ambiguous
+        // Skip plain lambda/proc/Proc.new block builders, but not numbered
+        // proc blocks (`proc { _1 }`), which RuboCop still treats as ambiguous.
         if is_lambda_or_proc(&last_arg) {
             return;
         }
@@ -89,10 +98,9 @@ impl Cop for AmbiguousBlockAssociation {
         // The inner call must have a real block (do...end or { }),
         // not just a block argument (&method). In Prism, block() returns
         // both BlockNode and BlockArgumentNode. We only care about BlockNode.
-        let has_real_block = match inner_call.block() {
-            Some(block) => block.as_block_node().is_some(),
-            None => false,
-        };
+        let has_real_block = inner_call
+            .block()
+            .is_some_and(|block| block.as_block_argument_node().is_none());
         if !has_real_block {
             return;
         }
@@ -157,8 +165,15 @@ fn is_lambda_or_proc(node: &ruby_prism::Node<'_>) -> bool {
     }
 
     if let Some(call) = node.as_call_node() {
-        // Must have a block
-        if call.block().is_none() {
+        // Must have a plain block; numbered proc blocks should not be exempt.
+        let Some(block_node) = call.block().and_then(|block| block.as_block_node()) else {
+            return false;
+        };
+
+        if block_node
+            .parameters()
+            .is_some_and(|params| params.as_numbered_parameters_node().is_some())
+        {
             return false;
         }
 
