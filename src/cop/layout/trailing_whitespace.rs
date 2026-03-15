@@ -89,9 +89,9 @@ use crate::parse::source::SourceFile;
 ///   line, missing mid-file trailing whitespace.
 /// - File encoding issues: possible if the file can't be read or has
 ///   unusual encoding that prevents line splitting.
-/// These 4 FNs (0.005% of 73,562 total offenses) are likely file-level
-/// artifacts rather than cop logic bugs. Deferring until corpus repos
-/// can be cloned for direct investigation.
+///   These 4 FNs (0.005% of 73,562 total offenses) are likely file-level
+///   artifacts rather than cop logic bugs. Deferring until corpus repos
+///   can be cloned for direct investigation.
 pub struct TrailingWhitespace;
 
 fn strip_line_ending_carriage_return(line: &[u8]) -> &[u8] {
