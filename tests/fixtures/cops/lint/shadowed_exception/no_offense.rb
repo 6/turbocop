@@ -37,3 +37,12 @@ begin
 rescue LoadError, StandardError
   handle_error
 end
+
+# Net::ProtocolError with Net::HTTPBadResponse — not in RuboCop's known hierarchy
+begin
+  something
+rescue SocketError, Timeout::Error, Errno::EINVAL, Errno::ECONNRESET,
+       EOFError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError,
+       Net::ProtocolError, RestClient::ResourceNotFound => e
+  handle_error(e)
+end

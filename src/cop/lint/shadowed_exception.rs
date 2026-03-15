@@ -3,13 +3,45 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Lint/ShadowedException — detects rescue clauses where a more specific exception
+/// is shadowed by a less specific ancestor in the same or earlier rescue clause.
+///
+/// ## Investigation findings (corpus: 1 FP, 34 FN)
+///
+/// RuboCop uses Ruby's live class hierarchy via `Kernel.const_get` and the `<=>`
+/// operator on exception classes. It does NOT have a hardcoded tree — it resolves
+/// classes at runtime. This means the set of known relationships depends on which
+/// gems are loaded in the RuboCop process.
+///
+/// **FP root cause:** Our hierarchy included `Net::ProtocolError` as parent of
+/// `Net::HTTPBadResponse`/`Net::HTTPHeaderSyntaxError`, but RuboCop's runtime
+/// environment doesn't necessarily have these net/http classes loaded, so it
+/// doesn't detect this relationship. Removed these entries.
+///
+/// **FN root causes:** Missing many stdlib/gem exception hierarchies that Ruby's
+/// runtime knows about:
+/// - `Timeout::Error < StandardError` (and `Net::OpenTimeout`/`Net::ReadTimeout` < `Timeout::Error`)
+/// - `SystemCallError < StandardError` (and all `Errno::*` < `SystemCallError`)
+/// - `OpenSSL::PKey::PKeyError` > `RSAError`/`DSAError`/`ECError`
+/// - `Zlib::Error` > `Zlib::GzipFile::Error`
+/// - `Date::Error < ArgumentError`
+/// - `Psych::SyntaxError` < `RuntimeError` (via `Psych::Exception` in Ruby 3.1+)
+/// - `Gem::LoadError` > `Gem::MissingSpecError` > `Gem::MissingSpecVersionError`
+/// - `Net::HTTPError` > `Net::HTTPServerException`
+/// - `IO::EWOULDBLOCKWaitReadable` < `Errno::EAGAIN`
+/// - `IPAddr::InvalidAddressError` < `ArgumentError` (in addition to `IPAddr::Error`)
 pub struct ShadowedException;
 
-// Known Ruby exception hierarchy (simplified)
-// Known Ruby exception hierarchy.
+// Known Ruby exception hierarchy — matches relationships that RuboCop's runtime
+// can resolve via `Kernel.const_get` and `<=>` on exception classes.
+//
+// Each entry (parent, children) means parent is an ancestor of each child.
+// `is_ancestor_of` does transitive lookup, so we only need direct parent-child.
+//
 // LoadError, NotImplementedError and SyntaxError are subclasses of ScriptError
 // (NOT StandardError). This matters for Lint/ShadowedException correctness.
 const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
+    // Core Ruby hierarchy: Exception is root
     (
         "Exception",
         &[
@@ -20,33 +52,9 @@ const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
             "SystemExit",
             "SystemStackError",
             "NoMemoryError",
-            "RuntimeError",
-            "NameError",
-            "TypeError",
-            "ArgumentError",
-            "RangeError",
-            "IOError",
-            "EOFError",
-            "RegexpError",
-            "ZeroDivisionError",
-            "ThreadError",
-            "Errno::ENOENT",
-            "Errno::EACCES",
-            "LoadError",
-            "NotImplementedError",
-            "NoMethodError",
-            "StopIteration",
-            "IndexError",
-            "KeyError",
-            "Math::DomainError",
-            "Encoding::UndefinedConversionError",
-            "Encoding::InvalidByteSequenceError",
-            "Encoding::ConverterNotFoundError",
-            "Fiber::SchedulerError",
-            "Interrupt",
-            "SyntaxError",
         ],
     ),
+    // StandardError subtree
     (
         "StandardError",
         &[
@@ -60,36 +68,58 @@ const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
             "RegexpError",
             "ZeroDivisionError",
             "ThreadError",
-            "Errno::ENOENT",
-            "Errno::EACCES",
-            "NoMethodError",
+            "SystemCallError",
+            "Timeout::Error",
+            "SocketError",
             "StopIteration",
             "IndexError",
-            "KeyError",
         ],
     ),
     (
         "ScriptError",
         &["LoadError", "NotImplementedError", "SyntaxError"],
     ),
+    ("SignalException", &["Interrupt"]),
+    // StandardError deeper subtrees
+    ("RuntimeError", &["Psych::SyntaxError"]),
     ("NameError", &["NoMethodError"]),
+    (
+        "ArgumentError",
+        &["Date::Error", "IPAddr::InvalidAddressError"],
+    ),
     ("RangeError", &["FloatDomainError"]),
     ("IOError", &["EOFError"]),
     ("IndexError", &["KeyError", "StopIteration"]),
-    ("SignalException", &["Interrupt"]),
-    // Standard library exception hierarchies
-    ("IPAddr::Error", &["IPAddr::InvalidAddressError"]),
     (
-        "Net::ProtocolError",
+        "SystemCallError",
         &[
-            "Net::HTTPBadResponse",
-            "Net::HTTPHeaderSyntaxError",
-            "Net::FTPPermError",
-            "Net::FTPTempError",
-            "Net::FTPProtoError",
-            "Net::FTPReplyError",
+            "Errno::ENOENT",
+            "Errno::EACCES",
+            "Errno::EINVAL",
+            "Errno::ECONNRESET",
+            "Errno::ECONNREFUSED",
+            "Errno::EPIPE",
+            "Errno::EAGAIN",
+            "Errno::EWOULDBLOCK",
+            "Errno::EINTR",
         ],
     ),
+    ("Errno::EAGAIN", &["IO::EWOULDBLOCKWaitReadable"]),
+    ("Timeout::Error", &["Net::OpenTimeout", "Net::ReadTimeout"]),
+    ("SocketError", &["Socket::ResolutionError"]),
+    // Standard library exception hierarchies
+    ("IPAddr::Error", &["IPAddr::InvalidAddressError"]),
+    ("Net::HTTPError", &["Net::HTTPServerException"]),
+    (
+        "OpenSSL::PKey::PKeyError",
+        &[
+            "OpenSSL::PKey::RSAError",
+            "OpenSSL::PKey::DSAError",
+            "OpenSSL::PKey::ECError",
+        ],
+    ),
+    ("Zlib::Error", &["Zlib::GzipFile::Error"]),
+    ("Psych::SyntaxError", &["Psych::BadAlias"]),
     (
         "Gem::Exception",
         &[
@@ -100,15 +130,32 @@ const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
             "Gem::CommandLineError",
         ],
     ),
+    ("Gem::LoadError", &["Gem::MissingSpecError"]),
+    ("Gem::MissingSpecError", &["Gem::MissingSpecVersionError"]),
 ];
 
 fn is_ancestor_of(ancestor: &str, descendant: &str) -> bool {
     if ancestor == descendant {
         return false;
     }
+    is_ancestor_of_recursive(ancestor, descendant, 0)
+}
+
+fn is_ancestor_of_recursive(ancestor: &str, descendant: &str, depth: usize) -> bool {
+    if depth > 10 {
+        return false; // prevent infinite recursion
+    }
     for &(parent, children) in EXCEPTION_HIERARCHY {
-        if parent == ancestor && children.contains(&descendant) {
-            return true;
+        if parent == ancestor {
+            if children.contains(&descendant) {
+                return true;
+            }
+            // Check transitively: ancestor -> child -> ... -> descendant
+            for &child in children {
+                if is_ancestor_of_recursive(child, descendant, depth + 1) {
+                    return true;
+                }
+            }
         }
     }
     false
