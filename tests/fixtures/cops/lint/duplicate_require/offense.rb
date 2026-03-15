@@ -11,3 +11,8 @@ require_relative 'foo'
 require 'net/http'
 require 'net/http'
 ^^^^^^^^^^^^^^^^^^ Lint/DuplicateRequire: Duplicate `require` detected.
+
+feature = 'json'
+require feature
+require feature
+^^^^^^^^^^^^^^^ Lint/DuplicateRequire: Duplicate `require` detected.

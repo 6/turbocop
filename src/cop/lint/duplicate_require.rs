@@ -5,7 +5,7 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
-/// ## Corpus investigation (2026-03-08, updated 2026-03-11)
+/// ## Corpus investigation (2026-03-08, updated 2026-03-15)
 ///
 /// Corpus oracle reported FP=2, FN=1.
 ///
@@ -25,6 +25,14 @@ use ruby_prism::Visit;
 /// during AST walk), matching RuboCop's `@required[node.parent]` behavior.
 /// Each parent node gets its own `HashSet`, so wrapped requires with different
 /// parents don't conflict.
+///
+/// Fix (2026-03-15): accept non-string first arguments such as `require x`.
+/// RuboCop keys on `node.first_argument`, not just string literals, so repeated
+/// local-variable reads inside rufo `.rb.spec` fixture files are duplicates.
+/// Static strings still normalize to their unescaped value so `'foo'` and
+/// `"foo"` collide like RuboCop; all other argument node types key on their
+/// exact source slice with a distinct discriminator so `require 'foo'` and
+/// `require foo` remain different.
 pub struct DuplicateRequire;
 
 impl Cop for DuplicateRequire {
@@ -59,8 +67,14 @@ impl Cop for DuplicateRequire {
     }
 }
 
-/// Key: (method_name, argument_string). Value: set of seen keys per parent node.
-type RequireKey = (Vec<u8>, Vec<u8>);
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum RequireArgKey {
+    String(Vec<u8>),
+    Source(Vec<u8>),
+}
+
+/// Key: (method_name, normalized first-argument key). Value: set of seen keys per parent node.
+type RequireKey = (Vec<u8>, RequireArgKey);
 
 struct RequireVisitor<'a, 'src> {
     cop: &'a DuplicateRequire,
@@ -73,6 +87,20 @@ struct RequireVisitor<'a, 'src> {
 }
 
 impl RequireVisitor<'_, '_> {
+    fn require_argument_key(&self, node: ruby_prism::Node<'_>) -> Option<RequireArgKey> {
+        if let Some(string) = node.as_string_node() {
+            return Some(RequireArgKey::String(string.unescaped().to_vec()));
+        }
+
+        let loc = node.location();
+        Some(RequireArgKey::Source(
+            self.source
+                .as_bytes()
+                .get(loc.start_offset()..loc.end_offset())?
+                .to_vec(),
+        ))
+    }
+
     fn check_require_call(&mut self, node: &ruby_prism::CallNode<'_>) {
         let method_name = node.name().as_slice();
 
@@ -102,8 +130,8 @@ impl RequireVisitor<'_, '_> {
             let arg_list = args.arguments();
             if arg_list.len() == 1 {
                 if let Some(first) = arg_list.iter().next() {
-                    if let Some(s) = first.as_string_node() {
-                        let key = (method_name.to_vec(), s.unescaped().to_vec());
+                    if let Some(arg_key) = self.require_argument_key(first) {
+                        let key = (method_name.to_vec(), arg_key);
                         let loc = node.location();
                         let parent_set =
                             self.required.entry(self.current_parent_offset).or_default();
