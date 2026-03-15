@@ -205,3 +205,15 @@ describe SomeClass do
     expect(1 + 2).to eq(3)
   end
 end
+
+# File-level variable reassigned at group scope before any example — file-level value is dead
+# RuboCop's VariableForce tracks that the group-level reassignment shadows the file-level one.
+user = create(:user)
+
+describe SomeClass do
+  user = create(:other_user)
+
+  it 'works' do
+    use(user)
+  end
+end
