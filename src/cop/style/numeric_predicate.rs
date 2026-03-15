@@ -3,6 +3,15 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/NumericPredicate: checks for comparison operators used to test numbers
+/// as zero, positive, or negative, suggesting predicate methods instead.
+///
+/// FP fix: safe navigation calls (`&.>`, `&.<`, `&.==`) must be skipped because
+/// RuboCop's NodePattern only matches `send` nodes, not `csend`.
+///
+/// FN fix: hex (0x00), binary (0b0000), and octal (0o0) integer literals were not
+/// recognized as zero because the source text was parsed with `str::parse::<i64>()`
+/// which doesn't handle Ruby's numeric prefixes. Now uses `i64::from_str_radix`.
 pub struct NumericPredicate;
 
 impl NumericPredicate {
@@ -10,7 +19,32 @@ impl NumericPredicate {
         if let Some(int_node) = node.as_integer_node() {
             let src = int_node.location().as_slice();
             if let Ok(s) = std::str::from_utf8(src) {
-                return s.parse::<i64>().ok();
+                // Strip underscores (Ruby allows 1_000_000)
+                let cleaned = s.replace('_', "");
+                // Handle hex, binary, octal prefixes
+                if let Some(hex) = cleaned
+                    .strip_prefix("0x")
+                    .or_else(|| cleaned.strip_prefix("0X"))
+                {
+                    return i64::from_str_radix(hex, 16).ok();
+                }
+                if let Some(bin) = cleaned
+                    .strip_prefix("0b")
+                    .or_else(|| cleaned.strip_prefix("0B"))
+                {
+                    return i64::from_str_radix(bin, 2).ok();
+                }
+                if let Some(oct) = cleaned
+                    .strip_prefix("0o")
+                    .or_else(|| cleaned.strip_prefix("0O"))
+                {
+                    return i64::from_str_radix(oct, 8).ok();
+                }
+                // Handle negative sign
+                if let Some(rest) = cleaned.strip_prefix('-') {
+                    return rest.parse::<i64>().ok().map(|v| -v);
+                }
+                return cleaned.parse::<i64>().ok();
             }
         }
         None
@@ -18,6 +52,68 @@ impl NumericPredicate {
 
     fn is_global_var(node: &ruby_prism::Node<'_>) -> bool {
         node.as_global_variable_read_node().is_some()
+    }
+
+    /// Matches RuboCop's `parenthesized_source`: wraps the receiver in parens
+    /// when it's a binary operation (operator method where the expression starts
+    /// before the selector, e.g. `cmd >> 4`, `r_val[0]`).
+    fn parenthesized_source(node: &ruby_prism::Node<'_>) -> String {
+        let src = std::str::from_utf8(node.location().as_slice()).unwrap_or("x");
+        if Self::requires_parentheses(node) {
+            format!("({})", src)
+        } else {
+            src.to_string()
+        }
+    }
+
+    fn requires_parentheses(node: &ruby_prism::Node<'_>) -> bool {
+        if let Some(call) = node.as_call_node() {
+            let method = call.name();
+            let method_bytes = method.as_slice();
+            // Check if this is an operator method
+            let is_operator = matches!(
+                method_bytes,
+                b"|" | b"^"
+                    | b"&"
+                    | b"<=>"
+                    | b"=="
+                    | b"==="
+                    | b"=~"
+                    | b">"
+                    | b">="
+                    | b"<"
+                    | b"<="
+                    | b"<<"
+                    | b">>"
+                    | b"+"
+                    | b"-"
+                    | b"*"
+                    | b"/"
+                    | b"%"
+                    | b"**"
+                    | b"[]"
+                    | b"[]="
+            );
+            if !is_operator {
+                return false;
+            }
+            // Binary operation: expression start differs from message (selector) start
+            if let Some(msg_loc) = call.message_loc() {
+                let expr_start = node.location().start_offset();
+                let msg_start = msg_loc.start_offset();
+                if expr_start == msg_start {
+                    return false; // unary operation
+                }
+                // Check if already parenthesized (opening_loc present means `foo.(bar)`)
+                // For our purposes, check if the source is wrapped in parens
+                let src = node.location().as_slice();
+                if src.first() == Some(&b'(') && src.last() == Some(&b')') {
+                    return false;
+                }
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -57,6 +153,12 @@ impl Cop for NumericPredicate {
                 return;
             }
 
+            // Skip safe navigation calls (x&.>(0), x&.==(0)) — RuboCop only
+            // matches `send` nodes, not `csend` (safe navigation).
+            if call.call_operator_loc().is_some() {
+                return;
+            }
+
             if let Some(args) = call.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if arg_list.len() != 1 {
@@ -66,8 +168,7 @@ impl Cop for NumericPredicate {
                 if let Some(receiver) = call.receiver() {
                     // x == 0, x > 0, x < 0
                     if Self::int_value(&arg_list[0]) == Some(0) && !Self::is_global_var(&receiver) {
-                        let recv_src =
-                            std::str::from_utf8(receiver.location().as_slice()).unwrap_or("x");
+                        let recv_src = Self::parenthesized_source(&receiver);
                         let replacement = match method_bytes {
                             b"==" => format!("{}.zero?", recv_src),
                             b">" => format!("{}.positive?", recv_src),
@@ -87,8 +188,7 @@ impl Cop for NumericPredicate {
 
                     // 0 == x, 0 > x, 0 < x (inverted)
                     if Self::int_value(&receiver) == Some(0) && !Self::is_global_var(&arg_list[0]) {
-                        let arg_src =
-                            std::str::from_utf8(arg_list[0].location().as_slice()).unwrap_or("x");
+                        let arg_src = Self::parenthesized_source(&arg_list[0]);
                         let replacement = match method_bytes {
                             b"==" => format!("{}.zero?", arg_src),
                             b">" => format!("{}.negative?", arg_src), // 0 > x means x is negative
