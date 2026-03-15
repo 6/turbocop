@@ -21,14 +21,16 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Corpus investigation (2026-03-15)
 ///
-/// Corpus oracle reported FP=0, FN=6 (all from rage-rb). The FN pattern is
-/// `variable = if cond` where `end` aligns with the line start (variable)
-/// instead of the `if` keyword. The cop correctly flags these patterns in
-/// keyword style with the default config (verified by inline tests). The 6
-/// FNs are likely caused by config resolution: rage-rb may have
-/// `EnforcedStyleAlignWith: variable` which makes nitrocop accept the
-/// alignment, while RuboCop may resolve a different style. This is a config
-/// resolution difference, not a cop logic bug.
+/// Corpus oracle reported FP=0, FN=6 (all from rage-rb). Root cause was NOT
+/// in this cop's logic but in `DisabledRanges::from_comments` in
+/// `src/parse/directives.rs`: `# rubocop:enable all` only closed a disable
+/// for the literal string "all", not individual per-cop disables
+/// (`Layout/EndAlignment` etc.) that were opened by `# rubocop:disable`.
+/// The rage-rb files had `# rubocop:disable Layout/EndAlignment` (line 10)
+/// and `# rubocop:enable all` (line 170), but the enable didn't close the
+/// per-cop disable, so all subsequent offenses were incorrectly suppressed.
+/// Fixed in `directives.rs`: `enable all` now drains all open disables;
+/// department enables now close both the department and its individual cops.
 pub struct EndAlignment;
 
 /// Check if a specific operator (like `<<`) appears on the same line before `keyword_offset`.

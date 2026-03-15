@@ -618,6 +618,48 @@ mod tests {
     }
 
     #[test]
+    fn enable_all_after_heredoc_with_interpolation() {
+        // Reproduce the exact pattern from rage-rb: disable individual cops,
+        // then use heredoc with #{if...end} interpolation, then enable all.
+        let src = concat!(
+            "class Foo\n",
+            "  class << self\n",
+            "    # rubocop:disable Layout/IndentationWidth, Layout/EndAlignment\n", // line 3
+            "    def foo(action)\n",
+            "      class_eval <<~RUBY, __FILE__, __LINE__ + 1\n",
+            "        def run_#{action}\n", // line 6 - interpolation
+            "          #{if true\n",       // line 7 - if inside interpolation
+            "            <<~RUBY\n",       // line 8 - nested heredoc
+            "              hello\n",
+            "            RUBY\n", // line 10
+            "          end}\n",   // line 11
+            "        end\n",
+            "      RUBY\n", // line 13
+            "    end\n",
+            "    # rubocop:enable all\n", // line 15
+            "  end\n",
+            "\n",
+            "  def render\n", // line 18
+            "    y = if true\n",
+            "      2\n",
+            "    end\n", // line 21 - should be flagged
+            "  end\n",
+            "end\n",
+        );
+        let dr = disabled_ranges(src);
+        // Line 7 should be disabled
+        assert!(
+            dr.is_disabled("Layout/EndAlignment", 7),
+            "Layout/EndAlignment should be disabled at line 7"
+        );
+        // Line 21 (after enable all) should NOT be disabled
+        assert!(
+            !dr.is_disabled("Layout/EndAlignment", 21),
+            "Layout/EndAlignment should NOT be disabled at line 21 (after enable all)"
+        );
+    }
+
+    #[test]
     fn enable_all_closes_individual_cop_disables_exact_format() {
         // Exact format from rage-rb corpus file
         let src = "    # rubocop:disable Layout/IndentationWidth, Layout/EndAlignment, Layout/HeredocIndentation\n\
