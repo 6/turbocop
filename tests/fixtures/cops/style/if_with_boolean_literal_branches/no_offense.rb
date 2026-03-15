@@ -35,3 +35,17 @@ app ? true : false
 
 # Ternary with non-boolean method (no ? suffix)
 foo.do_something ? true : false
+
+# Regex match operators are not boolean (=~ returns MatchData or nil)
+result =~ /^running/ ? true : false
+text =~ /pattern/ ? true : false
+line !~ /^#/ ? true : false
+str =~ /mingw|win32|cygwin/ ? true : false
+if text =~ /^\s*$/
+  true
+else
+  false
+end
+
+# Spaceship operator does not return boolean
+foo <=> bar ? true : false
