@@ -7,6 +7,25 @@ use crate::parse::source::SourceFile;
 
 /// Checks for `# rubocop:enable` comments that can be removed because
 /// the cop was not previously disabled.
+///
+/// ## Investigation findings (2026-03-14)
+///
+/// Root causes of false positives:
+/// 1. The cop's inline directive parser (`parse_all_directives`) did not strip
+///    trailing free-text comments after cop names (e.g.,
+///    `# rubocop:disable Foo/Bar # reason` would insert `"Foo/Bar # reason"`
+///    into the disabled set instead of `"Foo/Bar"`). Fixed by stopping cop list
+///    parsing at ` #` (standalone hash starting a trailing comment) and stripping
+///    text after spaces within each cop name token.
+/// 2. Trailing non-identifier characters on cop names (e.g., `Foo/Bar.` or
+///    `Foo/Bar?`) were not stripped, causing mismatches between disable and
+///    enable entries. Fixed by applying `trim_end_matches` to strip trailing
+///    punctuation, matching the behavior in `src/parse/directives.rs`.
+/// 3. Some remaining FPs relate to RuboCop's config-aware behavior: when a cop
+///    is `Enabled: false` in the project's config, RuboCop treats `# rubocop:enable`
+///    as re-enabling a config-disabled cop (not redundant). Our cop lacks access
+///    to per-cop config state and cannot replicate this. These FPs are config
+///    resolution issues, not cop logic bugs.
 pub struct RedundantCopEnableDirective;
 
 impl Cop for RedundantCopEnableDirective {
@@ -182,9 +201,27 @@ fn parse_all_directives(line: &str) -> Vec<(&str, Vec<String>, usize)> {
             None => cops_str,
         };
 
+        // Also stop at a standalone `#` that starts a trailing comment
+        // (e.g., `# rubocop:disable Foo/Bar # reason here`)
+        let cops_str = match cops_str.find(" #") {
+            Some(idx) => &cops_str[..idx],
+            None => cops_str,
+        };
+
         let cops: Vec<String> = cops_str
             .split(',')
-            .map(|s| s.trim().to_string())
+            .map(|s| {
+                let s = s.trim();
+                // Strip trailing text after a space (free-text comments).
+                // Cop names are: "all", "Department", or "Department/CopName".
+                let s = match s.find(' ') {
+                    Some(idx) => &s[..idx],
+                    None => s,
+                };
+                // Strip trailing non-identifier chars (e.g., trailing `.` or `?`).
+                s.trim_end_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '/')
+                    .to_string()
+            })
             .filter(|s| !s.is_empty())
             .collect();
 

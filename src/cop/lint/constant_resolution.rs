@@ -6,6 +6,14 @@ use crate::parse::source::SourceFile;
 
 /// Checks that certain constants are fully qualified.
 /// Disabled by default; useful for gems to avoid conflicts.
+///
+/// ## Investigation notes
+/// - FP fix: `ConstantPathWriteNode` targets (e.g., `Foo::Bar = Class.new`)
+///   must suppress the parent `ConstantReadNode`. In RuboCop's AST, the parent
+///   of the `const` node is a `casgn` node, and `casgn.defined_module` returns
+///   truthy, causing the constant to be skipped. In Prism, we handle this by
+///   marking the `ConstantPathWriteNode`'s target range as a definition name
+///   range, similar to class/module definition names.
 pub struct ConstantResolution;
 
 impl Cop for ConstantResolution {
@@ -169,6 +177,20 @@ impl<'pr> Visit<'pr> for ConstantResolutionVisitor<'_, '_> {
         // unqualified root constant (like Foo in Foo::Bar — as_constant_path_node
         // parent holds a ConstantReadNode that should still be checked).
         ruby_prism::visit_constant_path_node(self, node);
+    }
+
+    fn visit_constant_path_write_node(&mut self, node: &ruby_prism::ConstantPathWriteNode<'pr>) {
+        // ConstantPathWriteNode (e.g., `Foo::Bar = Class.new`) — the target's
+        // parent constant (`Foo`) should not be flagged. In RuboCop's AST, the
+        // parent `casgn` node's `defined_module` returns truthy, which causes
+        // the constant to be skipped. We match this by marking the entire target
+        // ConstantPathNode range as a definition name range.
+        let target = node.target();
+        let loc = target.location();
+        self.def_name_ranges
+            .push(loc.start_offset()..loc.end_offset());
+        ruby_prism::visit_constant_path_write_node(self, node);
+        self.def_name_ranges.pop();
     }
 }
 

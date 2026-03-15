@@ -35,3 +35,26 @@ puts code
 # Inline disable/enable after code with # in a string
 foo('#') # rubocop:disable Style/StringLiterals
 bar('#') # rubocop:enable Style/StringLiterals
+
+# Disable with trailing comment after cop name (not using -- separator)
+# rubocop:disable Rails/FindEach # .each returns an array, .find_each returns nil
+records.each do |record|
+  process(record)
+end
+# rubocop:enable Rails/FindEach
+
+# Enable with trailing punctuation on cop name
+# rubocop:disable Metrics/MethodLength
+def long_method
+  x = 1
+end
+# rubocop:enable Metrics/MethodLength.
+
+# Disable/enable for custom cop not in registry
+# rubocop:disable Development/NoEvalCop
+class_eval <<-RUBY
+  def marshal_dump
+    [@line, @col]
+  end
+RUBY
+# rubocop:enable Development/NoEvalCop
