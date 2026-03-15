@@ -8,3 +8,6 @@ day_is? 'tuesday' || true
 
 wd.include? 'tuesday' && true
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/RequireParentheses: Use parentheses in the method call to avoid confusion about precedence.
+
+puts has_sync && has_buffer ? "updated" : "missing"
+^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/RequireParentheses: Use parentheses in the method call to avoid confusion about precedence.

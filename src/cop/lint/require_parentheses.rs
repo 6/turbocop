@@ -3,7 +3,26 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-15)
+///
+/// Corpus oracle reported FP=0, FN=1.
+///
+/// FN fix:
+/// - RuboCop also flags calls without parentheses when the first argument is a
+///   ternary whose condition uses `&&` or `||` (for example
+///   `puts ready && synced ? "ok" : "missing"`). The initial implementation
+///   only handled predicate methods with boolean operator arguments and missed
+///   the ternary-first-argument path entirely.
 pub struct RequireParentheses;
+
+fn is_ternary(if_node: &ruby_prism::IfNode<'_>) -> bool {
+    if_node.if_keyword_loc().is_none()
+}
+
+fn is_assignment_method(call: &ruby_prism::CallNode<'_>) -> bool {
+    let name = call.name().as_slice();
+    name.ends_with(b"=") && name != b"=="
+}
 
 impl Cop for RequireParentheses {
     fn name(&self) -> &'static str {
@@ -32,13 +51,6 @@ impl Cop for RequireParentheses {
             None => return,
         };
 
-        // Must be a predicate method (name ends with ?)
-        let name = call.name();
-        if !name.as_slice().ends_with(b"?") {
-            return;
-        }
-
-        // Must have arguments
         let args = match call.arguments() {
             Some(a) => a,
             None => return,
@@ -49,25 +61,51 @@ impl Cop for RequireParentheses {
             return;
         }
 
-        // Check if any argument is an AndNode or OrNode (but not `and`/`or` keywords,
-        // which have lower precedence and wouldn't end up inside the args)
+        if let Some(first_arg) = args.arguments().iter().next() {
+            if let Some(ternary) = first_arg.as_if_node() {
+                let condition = ternary.predicate();
+                if is_ternary(&ternary)
+                    && !is_assignment_method(&call)
+                    && call.name().as_slice() != b"[]"
+                    && (condition.as_and_node().is_some() || condition.as_or_node().is_some())
+                {
+                    let loc = call.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use parentheses in the method call to avoid confusion about precedence."
+                            .to_string(),
+                    ));
+                    return;
+                }
+            }
+        }
+
+        let name = call.name();
+        if !name.as_slice().ends_with(b"?") {
+            return;
+        }
+
         let has_boolean_arg = args
             .arguments()
             .iter()
             .any(|arg| arg.as_and_node().is_some() || arg.as_or_node().is_some());
 
-        if !has_boolean_arg {
-            return;
+        if has_boolean_arg {
+            let loc = call.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            diagnostics.push(
+                self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use parentheses in the method call to avoid confusion about precedence."
+                        .to_string(),
+                ),
+            );
         }
-
-        let loc = call.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
-            "Use parentheses in the method call to avoid confusion about precedence.".to_string(),
-        ));
     }
 }
 
