@@ -44,7 +44,42 @@ use crate::parse::source::SourceFile;
 ///    `REPLACE(flair_url, 'fas fa-', ''), ' fa-', '-')` → phantom `--`.
 ///    nitrocop's byte scanner handled quotes correctly but this diverged from RuboCop.
 ///    Fix: match RuboCop's behavior — require 1+ char inside quotes to strip.
+///
+/// ## Investigation (2026-03-15, round 2)
+///
+/// **FP root cause (3 FP, 3 repos: catarse, discourse, forem):**
+/// The byte scanner in `contains_sql_comments` allowed quote matching to cross
+/// newline boundaries. RuboCop's regex `('.+?')` uses `.` which does NOT match
+/// `\n` in Ruby (unless `/m` flag is set). The scanner's `position(|&c| c == quote)`
+/// would find a closing quote on a LATER line, consuming all bytes in between -
+/// including real `--` comments. This caused the scanner to miss actual SQL
+/// comments, returning `false` instead of `true`, which led to false offense reports.
+///
+/// **FN root cause (1 FN, blackcandy):**
+/// Same cross-line quote bug, opposite effect. The heredoc contained
+/// `regexp_replace(s.value, '^--- |\n$', '', 'g')` repeated across multiple lines.
+/// Cross-line quote matching consumed a `'` from one line and matched it with a
+/// `'` on a later line, leaving `---` (from inside `'^--- |\n$'`) exposed in the
+/// stripped output. The scanner then incorrectly detected `--` and skipped the
+/// heredoc, causing a false negative.
+///
+/// Fix: Stop quote/bracket matching at newline boundaries in `contains_sql_comments`,
+/// matching RuboCop's regex behavior where `.` excludes `\n`.
 pub struct SquishedSQLHeredocs;
+
+/// Find the first occurrence of `target` byte in `slice`, stopping at newline.
+/// Returns the offset within `slice` if found on the same line, `None` otherwise.
+fn find_closing_same_line(slice: &[u8], target: u8) -> Option<usize> {
+    for (offset, &ch) in slice.iter().enumerate() {
+        if ch == b'\n' {
+            return None;
+        }
+        if ch == target {
+            return Some(offset);
+        }
+    }
+    None
+}
 
 /// Check if heredoc content contains SQL single-line comments (`--`).
 ///
@@ -57,6 +92,12 @@ pub struct SquishedSQLHeredocs;
 /// characters from adjacent sections can become adjacent after removal,
 /// potentially forming phantom `--`. We replicate this by building a stripped
 /// string and then checking for `--`, matching RuboCop's behavior exactly.
+///
+/// **Critical:** RuboCop's regex `.+?` does NOT match newlines (Ruby's `.`
+/// excludes `\n` unless `/m` flag is set). Quote matches must therefore be
+/// constrained to a single line. Without this constraint, a `'` on one line
+/// can match a `'` on a distant line, swallowing `--` comments (causing FPs)
+/// or creating phantom `--` from `'---'` patterns across lines (causing FNs).
 fn contains_sql_comments(source: &SourceFile, content_start: usize, content_end: usize) -> bool {
     let bytes = source.as_bytes();
     if content_start >= content_end || content_end > bytes.len() {
@@ -70,21 +111,22 @@ fn contains_sql_comments(source: &SourceFile, content_start: usize, content_end:
     let mut i = 0;
     while i < content.len() {
         let b = content[i];
-        // Try to match single-quoted: '.+?' (lazy, 1+ char inside)
+        // Try to match single-quoted or double-quoted: '.+?' or ".+?" (lazy, 1+ char inside)
+        // Must NOT cross newlines (RuboCop's `.` doesn't match `\n` without /m)
         if (b == b'\'' || b == b'"') && i + 2 < content.len() {
             let quote = b;
-            // Find the closing quote (lazy match: first occurrence after 1+ char)
-            // .+? means at least one char, then the earliest closing quote
-            if let Some(close_offset) = content[i + 2..].iter().position(|&c| c == quote) {
+            // Find the closing quote on the same line (lazy match: first occurrence
+            // after 1+ char, stopping at newline)
+            if let Some(offset) = find_closing_same_line(&content[i + 2..], quote) {
                 // Skip the entire match: opening quote + content + closing quote
-                i = i + 2 + close_offset + 1;
+                i = i + 2 + offset + 1;
                 continue;
             }
         }
-        // Try to match bracket identifier: [.+?] (lazy, 1+ char inside)
+        // Try to match bracket identifier: [.+?] (lazy, 1+ char inside, same-line only)
         if b == b'[' && i + 2 < content.len() {
-            if let Some(close_offset) = content[i + 2..].iter().position(|&c| c == b']') {
-                i = i + 2 + close_offset + 1;
+            if let Some(offset) = find_closing_same_line(&content[i + 2..], b']') {
+                i = i + 2 + offset + 1;
                 continue;
             }
         }

@@ -75,3 +75,41 @@ DB.exec(<<~SQL)
     UPDATE groups SET flair_icon = REPLACE(REPLACE(flair_url, 'fas fa-', ''), ' fa-', '-')
     WHERE flair_url LIKE 'fa%'
   SQL
+
+# Cross-line quote matching must not swallow -- comments on later lines
+# (quotes on one line must not match quotes on the next line)
+execute <<-SQL
+  SELECT CASE
+    WHEN label ~ '^/projects/(\d+)($|/.*)'
+    THEN regexp_replace(label, '^/projects/(\d+)($|/.*)', '\3')
+    ELSE NULL::text
+  END
+  -- this is a SQL comment
+  FROM records
+SQL
+
+# Inline -- comment after quoted SQL identifiers on prior lines
+mysql_query(<<-SQL).to_a
+  SELECT id, title
+  FROM records
+  GROUP BY replace(replace(title, ':', ''), '&', '')
+  HAVING count(title) > 1
+  -- deduplicate by appending suffix
+  ORDER BY id
+SQL
+
+# SQL with ::regconfig cast and -- comment deeper in heredoc
+<<~SQL
+  UPDATE items SET document :=
+    setweight(to_tsvector('simple'::regconfig, coalesce(name, '')), 'A') ||
+    setweight(to_tsvector('simple'::regconfig,
+      coalesce(
+        array_to_string(
+          -- extract only the relevant attribute
+          regexp_match(cached_data, 'name: (.*)$', 'n'),
+          ' '
+        ),
+        ''
+      )
+    ), 'D');
+SQL
