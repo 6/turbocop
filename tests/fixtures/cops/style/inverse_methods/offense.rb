@@ -22,3 +22,7 @@ end
 ^^^^^^^^^ Style/InverseMethods: Use `==` instead of inverting `!=`.
 !(x !~ /pattern/)
 ^^^^^^^^^^^^^^^^^^ Style/InverseMethods: Use `=~` instead of inverting `!~`.
+not foo.any?
+^^^^^^^^^^^^ Style/InverseMethods: Use `none?` instead of inverting `any?`.
+foo&.select { |e| !e }
+^^^^^^^^^^^^^^^^^^^^^^^ Style/InverseMethods: Use `reject` instead of inverting `select`.

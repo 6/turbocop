@@ -4,6 +4,18 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
 
+/// Corpus investigation (FP=159, FN=125):
+/// - **FP root cause 1 (132 FPs)**: Double negation `!!` patterns like `!!(x =~ /pattern/)`
+///   were flagged as "use `!~`". RuboCop's `negated?` check detects when the `!` node's parent
+///   is also a `!` (double negation for boolean coercion) and skips. Fixed by scanning source
+///   bytes before the `!` operator's message_loc to detect a preceding `!`.
+/// - **FP root cause 2**: Safe navigation `!foo&.any?` was flagged. RuboCop skips when the
+///   inner method uses `&.` with incompatible methods (any?, none?, comparison operators)
+///   because `nil.none?` etc. don't exist. Fixed by checking `call_operator_loc()` for `&.`.
+/// - **FN root cause**: 125 FNs are mostly `select`/`reject` block patterns. Without corpus
+///   file access, exact patterns couldn't be reproduced. The block detection logic appears
+///   correct for standard patterns — likely caused by config resolution edge cases or unusual
+///   Ruby syntax patterns in specific repos.
 pub struct InverseMethods;
 
 impl InverseMethods {
@@ -113,9 +125,7 @@ impl InverseMethods {
             let op = source.byte_slice(op_loc.start_offset(), op_loc.end_offset(), "");
             if op == "&." {
                 let method = inner_call.name().as_slice();
-                return Self::SAFE_NAVIGATION_INCOMPATIBLE
-                    .iter()
-                    .any(|m| *m == method);
+                return Self::SAFE_NAVIGATION_INCOMPATIBLE.contains(&method);
             }
         }
         false
