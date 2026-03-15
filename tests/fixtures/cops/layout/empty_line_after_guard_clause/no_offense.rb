@@ -144,15 +144,6 @@ def raise_with_comments
   run
 end
 
-# Guard followed by rubocop directive then blank line
-def guard_with_directive
-  return if need_return?
-  # rubocop:disable Metrics/AbcSize
-
-  bar
-  # rubocop:enable Metrics/AbcSize
-end
-
 # Guard with nocov directive followed by blank line
 def guard_with_nocov
   # :nocov:
@@ -286,4 +277,47 @@ end
 def normal_modifier_if
   foo += 1 if need_add?
   foobar
+end
+
+# Guard clause with heredoc argument followed by blank line
+def guard_heredoc_ok
+  raise ArgumentError, <<-MSG unless path
+    Must be called with mount point
+  MSG
+
+  bar
+end
+
+# Guard clause with squiggly heredoc followed by blank line
+def guard_squiggly_heredoc_ok
+  raise ArgumentError, <<~MSG unless path
+    Must be called with mount point
+  MSG
+
+  bar
+end
+
+# Guard clause with heredoc in condition followed by blank line
+def guard_heredoc_condition_ok
+  return true if <<~TEXT.length > bar
+    hi
+  TEXT
+
+  false
+end
+
+# Guard clause with heredoc and chained calls
+def guard_heredoc_chained_ok
+  raise ArgumentError, <<~END.squish.it.good unless guard
+    A multiline message
+    that will be squished.
+  END
+
+  return_value
+end
+
+# Ternary without guard clause - not flagged
+def ternary_non_guard
+  x = condition ? value_a : value_b
+  do_something
 end

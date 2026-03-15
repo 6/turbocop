@@ -72,7 +72,54 @@ end
 def guard_then_rubocop_enable
   # rubocop:disable Department/Cop
   return if condition
-
   # rubocop:enable Department/Cop
+
   bar
+end
+
+# Guard followed by rubocop:disable directive (not an allowed directive)
+def guard_with_disable_directive
+  return if need_return?
+
+  # rubocop:disable Metrics/AbcSize
+
+  bar
+  # rubocop:enable Metrics/AbcSize
+end
+
+# Guard clause followed by regular comment then blank line then code (FP fix)
+# RuboCop checks the immediate next line, not the first code line
+def guard_comment_then_blank
+  return if condition
+
+  # This is a regular comment
+
+  bar
+end
+
+# Guard clause with heredoc argument (FN fix)
+def guard_with_heredoc
+  raise ArgumentError, <<-MSG unless path
+    Must be called with mount point
+  MSG
+
+  bar
+end
+
+# Guard clause with squiggly heredoc
+def guard_with_squiggly_heredoc
+  raise ArgumentError, <<~MSG unless path
+    Must be called with mount point
+  MSG
+
+  bar
+end
+
+# Ternary guard clause
+def ternary_guard
+  puts 'some action happens here'
+rescue => e
+  a_check ? raise(e) : other_thing
+
+  true
 end

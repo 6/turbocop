@@ -6,33 +6,25 @@ use crate::parse::source::SourceFile;
 
 /// Enforces empty line after guard clause.
 ///
-/// ## Corpus conformance investigation (2026-03-11)
+/// ## Corpus conformance investigation (2026-03-11, updated 2026-03-15)
 ///
 /// **Root causes of FN (nitrocop misses offenses RuboCop catches):**
-/// - `and`/`or` guard clauses: `render :foo and return if cond` parses as an
-///   AndNode wrapping a ReturnNode. The `is_guard_stmt` check was not recognizing
-///   AndNode/OrNode as guard statements. Fixed by recursing into the `right` child
+/// - `and`/`or` guard clauses: Fixed by recursing into the `right` child
 ///   of and/or nodes, matching RuboCop's `operator_keyword?` → `rhs` handling.
 /// - Heredoc guard clauses: `raise "msg", <<-MSG unless cond` has the heredoc
-///   body after the if node's location. Nitrocop doesn't adjust for heredoc lines,
-///   so it checks the heredoc body as the "next line" instead of after the heredoc
-///   end marker. Not yet fixed (complex heredoc tracking needed).
+///   body after the if node's location. Fixed by walking the guard's AST to find
+///   heredoc arguments and using the heredoc end marker line as the effective end.
 /// - Ternary guard clauses: `a ? raise(e) : b` is an IfNode with no if_keyword.
-///   Nitrocop skips ternaries. Rare in practice.
+///   Fixed by detecting ternary if nodes where either branch is a guard statement.
 ///
 /// **Root causes of FP (nitrocop flags things RuboCop doesn't):**
-/// - Comment-then-blank pattern: `guard; # comment; blank; code` — nitrocop's
-///   `find_next_code_line` skips comments and finds the blank line, reporting no
-///   offense. But RuboCop checks only the immediate next line. If a regular comment
-///   (not a directive) follows the guard without a blank line first, RuboCop flags.
-///   Not yet fixed (structural change needed, risk of regressions).
-/// - Heredoc interference: when a guard has heredoc arguments, nitrocop may check
-///   the wrong "next line" (the heredoc body instead of after the heredoc end).
-///   Not yet fixed.
+/// - Comment-then-blank pattern: `guard; # comment; blank; code` — fixed by
+///   matching RuboCop's behavior: check the immediate next line for blank/directive
+///   instead of skipping all comments to find the first code line.
+/// - Heredoc interference: Fixed via heredoc end line detection.
 ///
-/// **Remaining gaps:** Heredoc handling is the largest remaining gap affecting both
-/// FP and FN counts. The comment-skipping behavior in `find_next_code_line` causes
-/// FPs when guards are followed by regular comments then blank lines.
+/// **Remaining gaps:** Some edge cases with heredocs inside conditions
+/// (e.g., `return true if <<~TEXT.length > bar`) may still differ.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -68,40 +60,62 @@ impl Cop for EmptyLineAfterGuardClause {
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Extract body statements, the overall location, and whether it's block form.
-        // We handle both modifier and block-form if/unless.
-        let (body_stmts, loc, end_keyword_loc) = if let Some(if_node) = node.as_if_node() {
-            // Skip elsif nodes
-            if let Some(kw) = if_node.if_keyword_loc() {
-                if kw.as_slice() == b"elsif" {
+        // We handle both modifier and block-form if/unless, plus ternaries.
+        let (body_stmts, loc, end_keyword_loc, is_ternary) =
+            if let Some(if_node) = node.as_if_node() {
+                // Skip elsif nodes
+                if let Some(kw) = if_node.if_keyword_loc() {
+                    if kw.as_slice() == b"elsif" {
+                        return;
+                    }
+                }
+                // Ternary: no if_keyword_loc, has else branch
+                if if_node.if_keyword_loc().is_none() {
+                    // Ternary guard: check if either branch contains a guard
+                    if if_node.subsequent().is_some() {
+                        // Has else branch — check if the if-branch is a guard
+                        if let Some(stmts) = if_node.statements() {
+                            let body: Vec<_> = stmts.body().iter().collect();
+                            if body.len() == 1 && is_guard_stmt(&body[0]) {
+                                // Ternary with guard in if-branch
+                                return self.check_ternary_guard(
+                                    source,
+                                    &if_node.location(),
+                                    diagnostics,
+                                    &mut corrections,
+                                );
+                            }
+                        }
+                    }
                     return;
                 }
-            }
-            // Skip ternaries
-            if if_node.if_keyword_loc().is_none() {
+                // Skip if/else or if/elsif forms — only simple if/unless (no else branch)
+                if if_node.subsequent().is_some() {
+                    return;
+                }
+                match if_node.statements() {
+                    Some(s) => (s, if_node.location(), if_node.end_keyword_loc(), false),
+                    None => return,
+                }
+            } else if let Some(unless_node) = node.as_unless_node() {
+                // Skip unless/else forms
+                if unless_node.else_clause().is_some() {
+                    return;
+                }
+                match unless_node.statements() {
+                    Some(s) => (
+                        s,
+                        unless_node.location(),
+                        unless_node.end_keyword_loc(),
+                        false,
+                    ),
+                    None => return,
+                }
+            } else {
                 return;
-            }
-            // Skip if/else or if/elsif forms — only simple if/unless (no else branch)
-            if if_node.subsequent().is_some() {
-                return;
-            }
-            match if_node.statements() {
-                Some(s) => (s, if_node.location(), if_node.end_keyword_loc()),
-                None => return,
-            }
-        } else if let Some(unless_node) = node.as_unless_node() {
-            // Skip unless/else forms
-            if unless_node.else_clause().is_some() {
-                return;
-            }
-            match unless_node.statements() {
-                Some(s) => (s, unless_node.location(), unless_node.end_keyword_loc()),
-                None => return,
-            }
-        } else {
-            return;
-        };
+            };
 
-        let is_modifier = end_keyword_loc.is_none();
+        let is_modifier = end_keyword_loc.is_none() && !is_ternary;
 
         let stmts: Vec<_> = body_stmts.body().iter().collect();
         if stmts.is_empty() {
@@ -143,58 +157,120 @@ impl Cop for EmptyLineAfterGuardClause {
         } else {
             loc.end_offset().saturating_sub(1)
         };
-        // For the offense location, use the start of `end` keyword (block form)
-        // or end of the if expression (modifier form).
-        let offense_offset = if let Some(ref end_kw) = end_keyword_loc {
+
+        let (if_end_line, end_col) = source.offset_to_line_col(effective_end_offset);
+
+        // Check for heredoc arguments — if present, the "end line" is after the
+        // heredoc closing delimiter, not after the if node's source range.
+        let heredoc_end_line = if is_modifier {
+            find_heredoc_end_line(source, node)
+        } else {
+            None
+        };
+        let effective_end_line = heredoc_end_line.unwrap_or(if_end_line);
+
+        // For the offense location:
+        // - Heredoc: start of heredoc end marker content (first non-whitespace on that line)
+        // - Block form: start of `end` keyword
+        // - Modifier form: start of the if expression
+        let offense_offset = if let Some(h_line) = heredoc_end_line {
+            // Find the first non-whitespace char on the heredoc end marker line
+            let heredoc_line_content = lines[h_line.saturating_sub(1)];
+            let indent = heredoc_line_content
+                .iter()
+                .position(|&b| b != b' ' && b != b'\t')
+                .unwrap_or(0);
+            source
+                .line_col_to_offset(h_line, indent)
+                .unwrap_or(loc.start_offset())
+        } else if let Some(ref end_kw) = end_keyword_loc {
             end_kw.start_offset()
         } else {
             loc.start_offset()
         };
-        let (if_end_line, end_col) = source.offset_to_line_col(effective_end_offset);
 
         // Check if the guard clause is embedded inside a larger expression on the
         // same line (e.g. `arr.each { |x| return x if cond }`). If there is
         // non-comment code after the if node on the same line, skip.
-        if let Some(cur_line) = lines.get(if_end_line.saturating_sub(1)) {
-            let after_pos = end_col + 1;
-            if after_pos < cur_line.len() {
-                let rest = &cur_line[after_pos..];
-                if let Some(idx) = rest.iter().position(|&b| b != b' ' && b != b'\t') {
-                    if rest[idx] != b'#' {
-                        return;
+        // Only check this for non-heredoc guards (heredoc guards span multiple lines).
+        if heredoc_end_line.is_none() {
+            if let Some(cur_line) = lines.get(if_end_line.saturating_sub(1)) {
+                let after_pos = end_col + 1;
+                if after_pos < cur_line.len() {
+                    let rest = &cur_line[after_pos..];
+                    if let Some(idx) = rest.iter().position(|&b| b != b' ' && b != b'\t') {
+                        if rest[idx] != b'#' {
+                            return;
+                        }
                     }
                 }
             }
         }
 
         // Check if next line exists
-        if if_end_line >= lines.len() {
+        if effective_end_line >= lines.len() {
             return;
         }
 
-        // Find the next meaningful code line, skipping comment lines.
-        // A blank line means the guard is properly followed by whitespace (no offense).
-        if let Some(code_content) = find_next_code_line(&lines, if_end_line) {
+        // Match RuboCop's logic: check the IMMEDIATE next line after the guard.
+        // RuboCop does not skip comments — it checks:
+        // 1. Is the next line blank? → no offense
+        // 2. Is the next line an allowed directive comment, and the line after that
+        //    is blank? → no offense
+        // 3. Is the next sibling a guard clause or scope-closing keyword? → no offense
+        // 4. Otherwise → offense
+
+        let next_line = lines[effective_end_line]; // 0-indexed: effective_end_line is 1-indexed line number
+
+        // Step 1: immediate next line is blank → no offense
+        if util::is_blank_line(next_line) {
+            return;
+        }
+
+        // Step 2: directive/nocov comment followed by blank → no offense
+        if is_allowed_directive_comment(next_line)
+            && (effective_end_line + 1 >= lines.len()
+                || util::is_blank_line(lines[effective_end_line + 1]))
+        {
+            return;
+        }
+
+        // Step 3: Check the next non-comment code line for scope-close or guard.
+        // This skips comments (which RuboCop ignores at AST level) to find the
+        // actual next sibling statement.
+        //
+        // If `find_next_code_line` returns None, it either hit a blank line after
+        // comments, or reached EOF after comments. In both cases:
+        // - If the guard is followed only by comments → end of scope → no offense
+        //   (but only if the comments lead to a scope-close like `end`)
+        // - If comments → blank → code → it IS an offense (no blank immediately after guard)
+        if let Some(code_content) = find_next_code_line(&lines, effective_end_line) {
             if is_scope_close_or_clause_keyword(code_content) {
                 return;
             }
             if is_guard_line(code_content) {
                 return;
             }
-            if is_multiline_guard_block(code_content, &lines, if_end_line) {
+            if is_multiline_guard_block(code_content, &lines, effective_end_line) {
                 return;
             }
         } else {
-            // No more code lines (only comments/blanks until EOF)
-            return;
-        }
-
-        // Check for rubocop directive or nocov comments followed by blank line
-        let next_line = lines[if_end_line];
-        if is_rubocop_directive_or_nocov(next_line)
-            && (if_end_line + 1 >= lines.len() || util::is_blank_line(lines[if_end_line + 1]))
-        {
-            return;
+            // find_next_code_line returned None — either hit a blank line (after
+            // skipping comments) or reached EOF. Since the immediate next line was
+            // NOT blank (checked in step 1), we have comments before the blank/EOF.
+            // Check if a scope-closing keyword follows the blank line.
+            if let Some(code_after_blank) =
+                find_first_code_line_anywhere(&lines, effective_end_line)
+            {
+                if is_scope_close_or_clause_keyword(code_after_blank) {
+                    return;
+                }
+            } else {
+                // Only comments/blanks until EOF — guard is effectively last stmt
+                return;
+            }
+            // If there's code after the blank that's not a scope-close, fall through
+            // to flag the offense (guard → comment → blank → code without blank after guard).
         }
 
         let (line, col) = source.offset_to_line_col(offense_offset);
@@ -205,8 +281,14 @@ impl Cop for EmptyLineAfterGuardClause {
             "Add empty line after guard clause.".to_string(),
         );
         if let Some(ref mut corr) = corrections {
-            // Insert blank line after the guard clause's last line
-            if let Some(offset) = source.line_col_to_offset(if_end_line + 1, 0) {
+            // Insert blank line after the guard clause's last line.
+            // If a directive comment follows, insert after the directive line.
+            let insert_after_line = if is_allowed_directive_comment(next_line) {
+                effective_end_line + 1
+            } else {
+                effective_end_line
+            };
+            if let Some(offset) = source.line_col_to_offset(insert_after_line + 1, 0) {
                 corr.push(crate::correction::Correction {
                     start: offset,
                     end: offset,
@@ -219,6 +301,145 @@ impl Cop for EmptyLineAfterGuardClause {
         }
         diagnostics.push(diag);
     }
+}
+
+impl EmptyLineAfterGuardClause {
+    /// Handle ternary guard clauses like `a ? raise(e) : other_thing`.
+    /// RuboCop treats the entire ternary as a guard clause if one branch
+    /// contains a guard statement (raise, return, etc.).
+    fn check_ternary_guard(
+        &self,
+        source: &SourceFile,
+        loc: &ruby_prism::Location<'_>,
+        diagnostics: &mut Vec<Diagnostic>,
+        corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        let lines: Vec<&[u8]> = source.lines().collect();
+        let (end_line, end_col) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+
+        // Check for embedded expression on same line
+        if let Some(cur_line) = lines.get(end_line.saturating_sub(1)) {
+            let after_pos = end_col + 1;
+            if after_pos < cur_line.len() {
+                let rest = &cur_line[after_pos..];
+                if let Some(idx) = rest.iter().position(|&b| b != b' ' && b != b'\t') {
+                    if rest[idx] != b'#' {
+                        return;
+                    }
+                }
+            }
+        }
+
+        if end_line >= lines.len() {
+            return;
+        }
+
+        let next_line = lines[end_line];
+        if util::is_blank_line(next_line) {
+            return;
+        }
+
+        if is_allowed_directive_comment(next_line)
+            && (end_line + 1 >= lines.len() || util::is_blank_line(lines[end_line + 1]))
+        {
+            return;
+        }
+
+        if let Some(code_content) = find_next_code_line(&lines, end_line) {
+            if is_scope_close_or_clause_keyword(code_content) {
+                return;
+            }
+        } else {
+            return;
+        }
+
+        let (line, col) = source.offset_to_line_col(loc.start_offset());
+        let mut diag = self.diagnostic(
+            source,
+            line,
+            col,
+            "Add empty line after guard clause.".to_string(),
+        );
+        if let Some(corr) = corrections {
+            if let Some(offset) = source.line_col_to_offset(end_line + 1, 0) {
+                corr.push(crate::correction::Correction {
+                    start: offset,
+                    end: offset,
+                    replacement: "\n".to_string(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+        }
+        diagnostics.push(diag);
+    }
+}
+
+/// Find the line number of the heredoc end marker if the guard clause
+/// contains a heredoc argument. Returns None if no heredoc is found.
+/// The returned line number is 1-indexed.
+fn find_heredoc_end_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<usize> {
+    use ruby_prism::Visit;
+
+    struct HeredocEndFinder<'a> {
+        source: &'a SourceFile,
+        max_end_line: Option<usize>,
+    }
+
+    impl<'pr> Visit<'pr> for HeredocEndFinder<'_> {
+        fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+            if let Some(opening) = node.opening_loc() {
+                let bytes = &self.source.as_bytes()[opening.start_offset()..opening.end_offset()];
+                if bytes.starts_with(b"<<") {
+                    if let Some(closing) = node.closing_loc() {
+                        let end_off = closing
+                            .end_offset()
+                            .saturating_sub(1)
+                            .max(closing.start_offset());
+                        let (end_line, _) = self.source.offset_to_line_col(end_off);
+                        self.max_end_line = Some(
+                            self.max_end_line
+                                .map_or(end_line, |prev| prev.max(end_line)),
+                        );
+                    }
+                    return;
+                }
+            }
+            ruby_prism::visit_string_node(self, node);
+        }
+
+        fn visit_interpolated_string_node(
+            &mut self,
+            node: &ruby_prism::InterpolatedStringNode<'pr>,
+        ) {
+            if let Some(opening) = node.opening_loc() {
+                let bytes = &self.source.as_bytes()[opening.start_offset()..opening.end_offset()];
+                if bytes.starts_with(b"<<") {
+                    if let Some(closing) = node.closing_loc() {
+                        let end_off = closing
+                            .end_offset()
+                            .saturating_sub(1)
+                            .max(closing.start_offset());
+                        let (end_line, _) = self.source.offset_to_line_col(end_off);
+                        self.max_end_line = Some(
+                            self.max_end_line
+                                .map_or(end_line, |prev| prev.max(end_line)),
+                        );
+                    }
+                    return;
+                }
+            }
+            ruby_prism::visit_interpolated_string_node(self, node);
+        }
+    }
+
+    let mut finder = HeredocEndFinder {
+        source,
+        max_end_line: None,
+    };
+    finder.visit(node);
+    finder.max_end_line
 }
 
 fn is_guard_stmt(node: &ruby_prism::Node<'_>) -> bool {
@@ -244,6 +465,24 @@ fn is_guard_stmt(node: &ruby_prism::Node<'_>) -> bool {
         return is_guard_stmt(&or_node.right());
     }
     false
+}
+
+/// Find the first non-blank, non-comment line starting from `start_idx` (0-indexed),
+/// looking across blank lines (unlike `find_next_code_line` which stops at blanks).
+fn find_first_code_line_anywhere<'a>(lines: &[&'a [u8]], start_idx: usize) -> Option<&'a [u8]> {
+    for line in &lines[start_idx..] {
+        if util::is_blank_line(line) {
+            continue;
+        }
+        if let Some(start) = line.iter().position(|&b| b != b' ' && b != b'\t') {
+            let content = &line[start..];
+            if content.starts_with(b"#") {
+                continue;
+            }
+            return Some(content);
+        }
+    }
+    None
 }
 
 /// Find the next non-blank, non-comment line starting from `start_idx` (0-indexed).
@@ -408,13 +647,27 @@ fn is_ident_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
-fn is_rubocop_directive_or_nocov(line: &[u8]) -> bool {
-    let Some(start) = line.iter().position(|&b| b != b' ' && b != b'\t') else {
+/// Check if a line is an "allowed directive comment" per RuboCop's definition.
+/// This includes `rubocop:enable` directives and `:nocov:` comments, but NOT
+/// `rubocop:disable` directives. RuboCop treats `rubocop:enable` specially
+/// because it pairs with a preceding `rubocop:disable` that wraps the guard,
+/// so the blank line should go after the `enable` comment, not between the
+/// guard and the `enable`.
+fn is_allowed_directive_comment(line: &[u8]) -> bool {
+    let Some(trimmed) = trim_to_comment_content(line) else {
         return false;
     };
+    // rubocop:enable is allowed (but NOT rubocop:disable)
+    trimmed.starts_with(b"rubocop:enable") || trimmed.starts_with(b":nocov:")
+}
+
+/// Extract the content after `#` from a comment line, trimming whitespace.
+/// Returns None if the line is not a comment.
+fn trim_to_comment_content(line: &[u8]) -> Option<&[u8]> {
+    let start = line.iter().position(|&b| b != b' ' && b != b'\t')?;
     let content = &line[start..];
     if !content.starts_with(b"#") {
-        return false;
+        return None;
     }
     let after_hash = &content[1..];
     let trimmed = after_hash
@@ -422,9 +675,7 @@ fn is_rubocop_directive_or_nocov(line: &[u8]) -> bool {
         .position(|&b| b != b' ')
         .map(|i| &after_hash[i..])
         .unwrap_or(b"");
-    trimmed.starts_with(b"rubocop:disable")
-        || trimmed.starts_with(b"rubocop:enable")
-        || trimmed.starts_with(b":nocov:")
+    Some(trimmed)
 }
 
 #[cfg(test)]
@@ -487,6 +738,19 @@ mod tests {
             diags.len(),
             1,
             "Expected 1 offense for guard then rubocop:disable, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn ternary_guard_detected() {
+        let source = b"def foo\n  puts 'some action happens here'\nrescue => e\n  a_check ? raise(e) : other_thing\n  true\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for ternary guard, got {}: {:?}",
             diags.len(),
             diags
         );
