@@ -13,6 +13,15 @@ use crate::parse::source::SourceFile;
 /// the dot would produce invalid syntax.
 ///
 /// Fix: Added constant-receiver check and invalid-argument-type check to match RuboCop behavior.
+///
+/// Investigation (2026-03-15): 18 remaining FPs from parenthesized operator calls nested
+/// inside other method calls, e.g. `expect(one.==(two))`. RuboCop's
+/// `method_call_with_parenthesized_arg?` skips when the operator call is parenthesized AND
+/// its parent is another send node. Without parent pointers in Prism, we detect this by
+/// checking what follows the closing paren: `)` or `,` means the call is nested inside
+/// another call's argument list.
+///
+/// Fix: Extended the post-closing-paren check to also skip when followed by `)` or `,`.
 pub struct OperatorMethodCall;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
@@ -100,17 +109,18 @@ impl Cop for OperatorMethodCall {
             return;
         }
 
-        // Skip `foo.-(bar).baz` pattern: if the call is parenthesized and
-        // the result is chained (used as receiver of another call), converting
-        // would change semantics. RuboCop's `method_call_with_parenthesized_arg?`.
+        // Skip `foo.-(bar).baz` pattern and `expect(foo.==(bar))` pattern:
+        // RuboCop's `method_call_with_parenthesized_arg?` skips when:
+        // 1. The operator call is parenthesized AND chained (used as receiver), OR
+        // 2. The operator call is parenthesized AND nested inside another method call's arguments
+        // Without parent pointers, we detect these by checking what follows the closing paren:
+        // - `.` or `&.` → chaining (case 1)
+        // - `)` or `,` → nested inside another call's argument list (case 2)
         if call.opening_loc().is_some() {
-            // The call has parentheses; check if it's chained by looking at
-            // source after the closing paren — if there's a dot/method, skip.
             if let Some(close) = call.closing_loc() {
                 let end_off = close.start_offset() + close.as_slice().len();
                 let src = source.as_bytes();
-                // Check if there's a dot immediately after the closing paren
-                // (possibly with whitespace/newlines)
+                // Skip whitespace after closing paren
                 let mut pos = end_off;
                 while pos < src.len()
                     && (src[pos] == b' '
@@ -120,11 +130,16 @@ impl Cop for OperatorMethodCall {
                 {
                     pos += 1;
                 }
-                if pos < src.len()
-                    && (src[pos] == b'.'
-                        || (pos + 1 < src.len() && src[pos] == b'&' && src[pos + 1] == b'.'))
-                {
-                    return;
+                if pos < src.len() {
+                    let ch = src[pos];
+                    // Dot/safe-nav → chaining: `foo.-(bar).baz`
+                    if ch == b'.' || (pos + 1 < src.len() && ch == b'&' && src[pos + 1] == b'.') {
+                        return;
+                    }
+                    // Closing paren or comma → nested in another call: `expect(foo.==(bar))`
+                    if ch == b')' || ch == b',' {
+                        return;
+                    }
                 }
             }
         }

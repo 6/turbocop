@@ -17,6 +17,14 @@ Foo.-(baz)
 Array.&(other)
 Hash.== other
 
+# Parenthesized operator call nested inside another method call
+# RuboCop skips when the operator call is parenthesized and its parent is a send node
+expect(one.==(two)).to eq(true)
+expect([one].==([two])).to eq(true)
+assert(a.+(b))
+foo(x.-(y))
+bar(x.*(y), z)
+
 # Splat, block_pass, kwsplat arguments — removing dot would be invalid syntax
 foo.+(*args)
 foo.-(**kwargs)
