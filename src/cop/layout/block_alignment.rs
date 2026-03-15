@@ -733,4 +733,80 @@ mod tests {
             diags
         );
     }
+
+    // FP fix: string concatenation with + across lines (RSpec-style descriptions)
+    #[test]
+    fn no_offense_plus_continuation() {
+        // it "something " + "else" do ... end
+        let source = b"it \"should convert \" +\n    \"correctly\" do\n  run_test\nend\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "Plus continuation: end at col 0 matches chain root. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_plus_continuation_describe() {
+        // describe with + continuation spanning 3 lines
+        let source = b"describe User, \"when created \" +\n    \"with issues\" do\n  it \"works\" do\n    true\n  end\nend\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "Describe + continuation: end at col 0 matches describe. Got: {:?}",
+            diags
+        );
+    }
+
+    // FN fix: end aligns with RHS of assignment instead of LHS
+    #[test]
+    fn offense_end_aligns_with_rhs() {
+        // answer = prompt.select do ... end — end should align with answer, not prompt
+        let source =
+            b"answer = prompt.select do |menu|\n           menu.choice \"A\"\n         end\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "end at col 9 aligns with prompt (RHS) not answer (LHS). Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_assignment_end_aligns_with_lhs() {
+        // answer = prompt.select do ... end — end at col 0 aligns with answer (LHS)
+        let source = b"answer = prompt.select do |menu|\n  menu.choice \"A\"\nend\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "end at col 0 matches answer (LHS). Got: {:?}",
+            diags
+        );
+    }
+
+    // Ensure hash value blocks still work (not regressed by assignment fix)
+    #[test]
+    fn no_offense_hash_value_block() {
+        let source = b"def generate\n  {\n    data: items.map do |item|\n            item.to_s\n          end,\n  }\nend\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "Hash value: end aligns with items.map. Got: {:?}",
+            diags
+        );
+    }
+
+    // Block inside parentheses (like expect(...))
+    #[test]
+    fn no_offense_block_in_parens() {
+        let source = b"expect(arr.all? do |o|\n         o.valid?\n       end)\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "Block in parens: end at col 7 matches arr.all?. Got: {:?}",
+            diags
+        );
+    }
 }
