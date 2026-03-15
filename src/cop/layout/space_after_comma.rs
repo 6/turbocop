@@ -37,6 +37,18 @@ use crate::parse::source::SourceFile;
 ///   Nitrocop was not reading the sibling cop's config. Fixed by injecting
 ///   `__SpaceInsideHashBracesStyle` from the config layer (same pattern as
 ///   `MaxLineLength` injection) and skipping comma-before-`}` when `no_space`.
+///
+/// ## Corpus investigation (2026-03-14, FP=200 remaining)
+///
+/// All ~200 FPs were commas inside string literals nested within heredoc
+/// interpolation. Example: `<<~SQL\n  WHERE id IN (#{ids.join(",")})\nSQL`
+/// The comma inside `","` is a string literal within `#{}` inside a heredoc.
+/// The `is_heredoc_interpolation()` check correctly identified these offsets as
+/// being within heredoc interpolation, but didn't account for nested string
+/// literals inside that interpolation. Fixed by adding
+/// `heredoc_interpolation_non_code_ranges` to CodeMap which tracks string/regex/
+/// symbol literal ranges that are nested within heredoc interpolation blocks,
+/// and checking `!is_non_code_in_heredoc_interpolation(i)` in the skip logic.
 pub struct SpaceAfterComma;
 
 impl Cop for SpaceAfterComma {
