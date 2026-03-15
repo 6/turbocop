@@ -33,3 +33,10 @@ describe SomeService do
     end
   end
 end
+
+# String first argument with method-like second arg — no offense
+RSpec.describe "MyService", ".call" do
+end
+
+RSpec.describe "MyService", "#process" do
+end

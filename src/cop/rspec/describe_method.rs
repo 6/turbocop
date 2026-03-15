@@ -15,6 +15,11 @@ use crate::parse::source::SourceFile;
 /// `dstr` (InterpolatedStringNode). The `method_name?` helper also handles dstr by checking
 /// if the first segment starts with `#` or `.`. Added InterpolatedStringNode handling to
 /// match this behavior and eliminate 64 FNs.
+///
+/// RuboCop's pattern uses `_first_argument` (wildcard) for the first arg to `describe`,
+/// meaning it checks the second argument regardless of the first argument's type (constant,
+/// string, method call, etc.). Previously we required the first argument to be a constant,
+/// causing 63 FNs on `describe "StringName", "non-method"` and similar patterns.
 pub struct DescribeMethod;
 
 impl Cop for DescribeMethod {
@@ -144,15 +149,8 @@ impl DescribeMethod {
 
         let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
 
-        // Need at least 2 args: a class and a string description
+        // Need at least 2 args: any first argument and a string description
         if arg_list.len() < 2 {
-            return true;
-        }
-
-        // First argument should be a class/constant
-        if arg_list[0].as_constant_read_node().is_none()
-            && arg_list[0].as_constant_path_node().is_none()
-        {
             return true;
         }
 
