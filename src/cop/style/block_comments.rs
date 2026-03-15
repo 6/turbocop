@@ -14,6 +14,12 @@ use crate::parse::source::SourceFile;
 /// markers. RuboCop stops parsing at `__END__`, so block comments in the
 /// data section are not flagged. Fixed by using `is_not_string()` which
 /// covers heredocs, string literals, and `__END__` data sections.
+///
+/// Final 2 FPs from `=begin` appearing inside an outer `=begin`...`=end`
+/// block (e.g., `louismullie/treat` `spec/workers/agnostic.rb`). Ruby does
+/// not support nested block comments — a `=begin` inside a block comment is
+/// just comment text, not a new block comment. Fixed by tracking when we are
+/// inside a block comment and skipping inner `=begin` markers.
 pub struct BlockComments;
 
 impl Cop for BlockComments {
@@ -30,7 +36,15 @@ impl Cop for BlockComments {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        let mut inside_block_comment = false;
         for (i, line) in source.lines().enumerate() {
+            if inside_block_comment {
+                // =end must be at the start of a line to close a block comment
+                if line.starts_with(b"=end") && (line.len() == 4 || line[4].is_ascii_whitespace()) {
+                    inside_block_comment = false;
+                }
+                continue;
+            }
             // =begin must be at the start of a line
             if line.starts_with(b"=begin") && (line.len() == 6 || line[6].is_ascii_whitespace()) {
                 // Skip =begin inside heredocs (e.g., test files for rdoc/yard)
@@ -41,6 +55,7 @@ impl Cop for BlockComments {
                         continue;
                     }
                 }
+                inside_block_comment = true;
                 diagnostics.push(self.diagnostic(
                     source,
                     i + 1,
