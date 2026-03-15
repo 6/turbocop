@@ -1457,10 +1457,18 @@ pub fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
                 || trimmed.starts_with(b"private\n")
                 || trimmed.starts_with(b"private\r")
                 || trimmed.starts_with(b"private #")
+                || (trimmed.starts_with(b"private ")
+                    && trimmed[b"private ".len()..]
+                        .iter()
+                        .all(|&b| b == b' ' || b == b'\t'))
                 || trimmed == b"protected"
                 || trimmed.starts_with(b"protected\n")
                 || trimmed.starts_with(b"protected\r")
                 || trimmed.starts_with(b"protected #")
+                || (trimmed.starts_with(b"protected ")
+                    && trimmed[b"protected ".len()..]
+                        .iter()
+                        .all(|&b| b == b' ' || b == b'\t'))
             {
                 in_private = true;
             } else if trimmed == b"public"

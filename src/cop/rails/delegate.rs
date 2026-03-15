@@ -40,6 +40,30 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: Added forward scan from the def line that checks if any subsequent line in the
 /// same scope contains `module_function` (including `module_function :name` symbol forms).
+///
+/// ## Investigation (2026-03-15): FP=12
+///
+/// **FP root cause 1**: `is_in_module_function_scope` backward scan stopped at `class `
+/// boundaries. When a class was nested inside a module that declared `module_function`
+/// (e.g., `module Open4; module_function :open4; class SpawnError; def exitstatus`),
+/// the backward scan would hit `class SpawnError` and break before reaching
+/// `module_function :open4`. RuboCop's `module_function_declared?` checks ALL ancestors.
+///
+/// Fix: Changed backward scan to expand the search depth when crossing class boundaries,
+/// so `module_function` at the outer module level is still found.
+///
+/// **FP root cause 2**: Endless methods (`def foo() = expr`) were flagged. RuboCop's
+/// NodePattern matches `(def _method_name _args (send ...))` which in Parser gem doesn't
+/// match endless defs. In Prism, endless defs have `equal_loc().is_some()`.
+///
+/// Fix: Skip defs with `equal_loc().is_some()` (endless method syntax).
+///
+/// **FP root cause 3**: `is_private_or_protected` (in util.rs) didn't match `private `
+/// with a trailing space on its own line. The check compared against exact bytes
+/// `b"private"` and specific continuations (`\n`, `\r`, ` #`) but not trailing spaces.
+///
+/// Fix: Added `starts_with(b"private ")` match that validates the remainder is
+/// only whitespace (to avoid matching `private :method_name` or `private def foo`).
 pub struct Delegate;
 
 impl Cop for Delegate {
@@ -110,6 +134,11 @@ impl Cop for Delegate {
         } else {
             Vec::new()
         };
+
+        // Skip endless methods (def foo() = expr) — RuboCop's NodePattern doesn't match them
+        if def_node.equal_loc().is_some() {
+            return;
+        }
 
         // Body must be a single call expression
         let body = match def_node.body() {
@@ -392,8 +421,13 @@ fn is_in_module_function_scope(source: &SourceFile, def_offset: usize) -> bool {
             || trimmed.starts_with(b"module_function#")
     }
 
-    // Scan backwards from the def line looking for `module_function` at the same
-    // or lower indentation within the same module scope.
+    // Scan backwards from the def line looking for `module_function`.
+    // RuboCop's `module_function_declared?` checks ALL ancestors, so we must look
+    // through class boundaries (a class nested inside a module can still have
+    // module_function declared at the outer module level). We only stop at `module `
+    // boundaries since module_function scope is module-level. When we cross a class
+    // boundary, we expand the search to the outer indentation level.
+    let mut current_col = def_col;
     for line in lines[..def_line].iter().rev() {
         let indent = line
             .iter()
@@ -401,13 +435,19 @@ fn is_in_module_function_scope(source: &SourceFile, def_offset: usize) -> bool {
             .count();
         let trimmed: Vec<u8> = line[indent..].to_vec();
 
-        if indent <= def_col && is_module_function_line(&trimmed) {
+        if indent <= current_col && is_module_function_line(&trimmed) {
             return true;
         }
 
-        // Stop at module/class boundary at lower indentation
-        if indent < def_col && (trimmed.starts_with(b"module ") || trimmed.starts_with(b"class ")) {
+        // Stop at module boundary at lower indentation (crossed into outer module scope)
+        if indent < current_col && trimmed.starts_with(b"module ") {
             break;
+        }
+
+        // When hitting a class boundary at lower indentation, expand search to the
+        // outer indentation so we can find module_function declared at the module level.
+        if indent < current_col && trimmed.starts_with(b"class ") {
+            current_col = indent;
         }
     }
 

@@ -124,3 +124,27 @@ module SecurityUtils
 
   module_function :secure_compare
 end
+
+# module_function in ancestor module — class nested inside module
+# RuboCop's module_function_declared? checks ALL ancestors, not just immediate scope
+module Open4
+  module_function :open4
+  class SpawnError < StandardError
+    def exitstatus
+      @status.exitstatus
+    end
+  end
+end
+
+# Endless method (def foo() = expr) — not flagged by RuboCop
+class Foo
+  def clear() = value.clear
+end
+
+# Private with trailing space — `private ` (with trailing space) on its own line
+class Bar
+  private
+  def size
+    @range.size
+  end
+end
