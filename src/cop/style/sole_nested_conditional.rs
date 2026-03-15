@@ -33,6 +33,28 @@ fn collect_assigned_variables(node: &ruby_prism::Node<'_>, names: &mut Vec<Vec<u
                 collect_assigned_variables(&arg, names);
             }
         }
+    } else if let Some(mw) = node.as_multi_write_node() {
+        // Multi-write destructuring: (a, b = expr) assigns to local variable targets
+        for target in mw.lefts().iter() {
+            if let Some(lt) = target.as_local_variable_target_node() {
+                names.push(lt.name().as_slice().to_vec());
+            }
+        }
+        // Also check the rest target if present
+        if let Some(rest) = mw.rest() {
+            if let Some(splat) = rest.as_splat_node() {
+                if let Some(expr) = splat.expression() {
+                    if let Some(lt) = expr.as_local_variable_target_node() {
+                        names.push(lt.name().as_slice().to_vec());
+                    }
+                }
+            }
+        }
+        for target in mw.rights().iter() {
+            if let Some(lt) = target.as_local_variable_target_node() {
+                names.push(lt.name().as_slice().to_vec());
+            }
+        }
     }
 }
 
@@ -49,8 +71,15 @@ fn collect_assigned_variables(node: &ruby_prism::Node<'_>, names: &mut Vec<Vec<u
 /// Second attempt (2026-03-14): targeted fix — added `CallNode` descent to
 /// `collect_assigned_variables` so patterns like `(locale = foo) != bar` are
 /// recognized. This fixes the refinery/refinerycms FP without the broad visitor
-/// that caused the previous FN regression. The rdoc example (multi-write
-/// destructuring) is not a real FP per RuboCop behavior, so left unfixed.
+/// that caused the previous FN regression.
+///
+/// Third attempt (2026-03-15): added `MultiWriteNode` handling to
+/// `collect_assigned_variables` for destructuring patterns like
+/// `(call_seq, = directives['call-seq'])`. The rdoc FP at
+/// `lib/rdoc/parser/prism_ruby.rb:659` uses this pattern — the outer condition
+/// assigns `call_seq` via multi-write and the inner modifier `if call_seq` reads
+/// it. RuboCop's `assigned_variables` catches this via `.descendants.select(&:assignment?)`
+/// which traverses all node types. FP=0, FN=0.
 pub struct SoleNestedConditional;
 
 /// Check if the inner branch's condition references a variable assigned in the outer condition.
