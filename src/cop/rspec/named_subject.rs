@@ -26,28 +26,25 @@ use ruby_prism::Visit;
 ///
 /// ## Corpus investigation (FN=90, 2026-03-15)
 ///
-/// FN=90 investigated. Primary root cause is **config resolution**: projects such as
-/// `rmosolgo__graphql-ruby` (23 FNs in `spec/graphql/language/lexer_examples.rb`)
-/// place `subject.tokenize("...")` usages inside `shared_examples` blocks. RuboCop
-/// flags these when the project sets `IgnoreSharedExamples: false` in its
-/// `.rubocop.yml`. Nitrocop reads `IgnoreSharedExamples` from config (defaults to
-/// `true`, matching rubocop-rspec vendor default), but if config resolution does not
-/// fully resolve the project's `.rubocop.yml` override, nitrocop keeps the default
-/// `true` and skips shared example groups — producing FNs.
+/// Two code bugs found and fixed:
 ///
-/// The core detection logic was verified to be correct:
-/// - `subject.method()` where `subject` is a receiver: the visitor calls
-///   `ruby_prism::visit_call_node(self, node)` which recurses into receivers, so the
-///   inner `subject` CallNode is reached and flagged when `in_example_or_hook` is
-///   true. This was confirmed by all 11 unit tests passing.
-/// - Subject inside nested blocks within examples is correctly flagged.
-/// - The `IgnoreSharedExamples: false` path was confirmed to work via the
-///   `ignore_shared_examples_false_flags_shared_groups` unit test.
+/// 1. **`def subject.method_name` pattern**: `visit_def_node` was returning early
+///    without visiting the DefNode's receiver. In `def subject.foo(...)`, the
+///    `subject` is a CallNode that is the receiver of the DefNode. RuboCop's
+///    `def_node_search :subject_usage, '$(send nil? :subject)'` finds it because
+///    it searches all descendants. Fix: visit DefNode's receiver.
 ///
-/// The remaining ~67 FNs in other repos (e.g., `opf__openproject`, 13 FNs) are also
-/// attributed to config resolution differences rather than cop logic bugs. No code
-/// logic bug was identified. Fix requires reliable config resolution for the
-/// `IgnoreSharedExamples` key from project-level `.rubocop.yml` files.
+/// 2. **`it` blocks inside helper method definitions**: Ruby metaprogramming patterns
+///    like `def self.it_should_have(key) ... it "..." do subject.send(key) end end`
+///    define example blocks inside method bodies. Since `visit_def_node` returned
+///    early, these `it` blocks (and their `subject` references) were never visited.
+///    Fix: visit DefNode's body too. The `in_example_or_hook` guard ensures bare
+///    `subject` calls directly in method bodies (not inside examples) are still
+///    correctly ignored.
+///
+/// The remaining FNs are from **config resolution**: projects set
+/// `IgnoreSharedExamples: false` in `.rubocop.yml` but nitrocop defaults to `true`
+/// when config resolution doesn't fully resolve the override.
 pub struct NamedSubject;
 
 /// EnforcedStyle:
@@ -269,9 +266,24 @@ impl<'pr> Visit<'pr> for BareSubjectFinder<'_> {
         ruby_prism::visit_call_node(self, node);
     }
 
-    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {
-        // Don't descend into method definitions — `subject` in a def is a
-        // method call, not a test subject reference.
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        // Visit the receiver of `def subject.method_name(...)` — the `subject`
+        // there IS a test subject reference (RuboCop's `(send nil? :subject)`
+        // matches it). But do NOT descend into the method body for bare
+        // `subject` calls (those are regular method calls, not test subject
+        // references).
+        //
+        // However, we DO descend into the body because Ruby metaprogramming
+        // patterns define `it`/`before`/`after` blocks inside helper methods
+        // (e.g., `def self.it_should_have_view(key, val) ... it "..." do
+        // subject.send(key) end ... end`). The `in_example_or_hook` flag
+        // ensures only `subject` inside proper example/hook blocks is flagged.
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+        }
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
     }
 }
 
