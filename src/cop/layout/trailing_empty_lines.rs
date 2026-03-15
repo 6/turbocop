@@ -43,6 +43,19 @@ use crate::parse::source::SourceFile;
 ///
 /// Also fixed message format: RuboCop reports "N trailing blank lines
 /// detected." (with count) when N > 1, not the generic singular message.
+///
+/// ## Corpus investigation (2026-03-15)
+///
+/// FP=2, FN=1. No example locations available from corpus oracle.
+/// Compared nitrocop vs vendor RuboCop source. Found one concrete
+/// difference: `trailing_whitespace_info` only matched `[ \t\r\n]` as
+/// whitespace, but RuboCop's `/\s*\Z/` regex also matches `\x0b`
+/// (vertical tab) and `\x0c` (form feed). Files with these rare chars
+/// in trailing whitespace would compute different `newline_count` values,
+/// causing FP (nitrocop stops scanning at the char, sees fewer trailing
+/// newlines than RuboCop, may report "Final newline missing" when RuboCop
+/// reports "Trailing blank line") or FN (nitrocop undercounts blank lines).
+/// Fixed by adding `\x0b` and `\x0c` to the whitespace match set.
 pub struct TrailingEmptyLines;
 
 /// Check if the source contains `__END__` (with optional leading whitespace).
@@ -60,7 +73,7 @@ fn trailing_whitespace_info(bytes: &[u8]) -> (usize, usize) {
     let mut ws_len = 0;
     let mut newline_count = 0;
     for &b in bytes.iter().rev() {
-        if matches!(b, b' ' | b'\t' | b'\r' | b'\n') {
+        if matches!(b, b' ' | b'\t' | b'\r' | b'\n' | b'\x0b' | b'\x0c') {
             ws_len += 1;
             if b == b'\n' {
                 newline_count += 1;
@@ -358,6 +371,43 @@ mod tests {
         TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].message, "2 trailing blank lines detected.");
+    }
+
+    #[test]
+    fn form_feed_between_newlines_counts_as_trailing_blank() {
+        // File "x = 1\n\x0c\n" — RuboCop's \s*\Z counts \x0c as whitespace,
+        // so trailing ws = "\n\x0c\n", newline_count = 2, blank_lines = 1.
+        let source = SourceFile::from_bytes("test.rb", b"x = 1\n\x0c\n".to_vec());
+        let mut diags = Vec::new();
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert_eq!(
+            diags.len(),
+            1,
+            "form feed between newlines should count as trailing blank"
+        );
+        assert!(
+            diags[0].message.contains("railing blank line"),
+            "got: {}",
+            diags[0].message
+        );
+    }
+
+    #[test]
+    fn vertical_tab_between_newlines_counts_as_trailing_blank() {
+        // File "x = 1\n\x0b\n" — RuboCop's \s counts \x0b as whitespace
+        let source = SourceFile::from_bytes("test.rb", b"x = 1\n\x0b\n".to_vec());
+        let mut diags = Vec::new();
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert_eq!(
+            diags.len(),
+            1,
+            "vertical tab between newlines should count as trailing blank"
+        );
+        assert!(
+            diags[0].message.contains("railing blank line"),
+            "got: {}",
+            diags[0].message
+        );
     }
 
     #[test]
