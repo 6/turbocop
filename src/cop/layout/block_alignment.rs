@@ -328,8 +328,15 @@ fn skip_assignment_backward(bytes: &[u8], line_start: usize, pos: usize) -> usiz
         if op_start > line_start {
             let prev = bytes[op_start - 1];
             match prev {
-                b'+' | b'-' | b'*' | b'/' | b'%' | b'^' => {
+                b'+' | b'-' | b'/' | b'%' | b'^' => {
                     op_start -= 1;
+                }
+                b'*' => {
+                    // Could be *= or **=
+                    op_start -= 1;
+                    if op_start > line_start && bytes[op_start - 1] == b'*' {
+                        op_start -= 1; // **=
+                    }
                 }
                 b'|' if op_start >= 2 + line_start && bytes[op_start - 2] == b'|' => {
                     op_start -= 2;
@@ -341,9 +348,6 @@ fn skip_assignment_backward(bytes: &[u8], line_start: usize, pos: usize) -> usiz
                     op_start -= 2;
                 }
                 b'>' if op_start >= 2 + line_start && bytes[op_start - 2] == b'>' => {
-                    op_start -= 2;
-                }
-                b'*' if op_start >= 2 + line_start && bytes[op_start - 2] == b'*' => {
                     op_start -= 2;
                 }
                 // Bare `=` — but reject `==`, `!=`, `<=`, `>=`
