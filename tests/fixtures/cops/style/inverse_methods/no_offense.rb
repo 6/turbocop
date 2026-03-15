@@ -18,3 +18,10 @@ items.select do |x|
   next if x.zero?
   x != 1
 end
+# Double negation !! — not an inversion, converts to boolean
+!!(line =~ /pattern/)
+!!(x == true)
+!!(foo.any?)
+# Safe navigation &. with incompatible methods — can't invert
+!foo&.any?
+!foo&.none?

@@ -14,3 +14,11 @@ items.select! { |x| !x.empty? }
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/InverseMethods: Use `reject!` instead of inverting `select!`.
 items.reject! { |k, v| v != :a }
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/InverseMethods: Use `select!` instead of inverting `reject!`.
+items.reject do |x|
+^^^^^^^^^^^^^^^^^^ Style/InverseMethods: Use `select` instead of inverting `reject`.
+  !x.nil?
+end
+!(x != y)
+^^^^^^^^^ Style/InverseMethods: Use `==` instead of inverting `!=`.
+!(x !~ /pattern/)
+^^^^^^^^^^^^^^^^^^ Style/InverseMethods: Use `=~` instead of inverting `!~`.

@@ -74,6 +74,53 @@ impl InverseMethods {
         map
     }
 
+    /// Check if this `!` call is the inner part of a double negation `!!`.
+    /// Returns true if the byte immediately preceding the `!` operator in source is also `!`,
+    /// indicating a `!!expr` pattern used for boolean coercion (not true inversion).
+    fn is_double_negation(call: &ruby_prism::CallNode<'_>, source: &SourceFile) -> bool {
+        // Use message_loc to find the exact position of the `!` operator
+        if let Some(msg_loc) = call.message_loc() {
+            let bang_start = msg_loc.start_offset();
+            if bang_start > 0 {
+                let bytes = source.as_bytes();
+                // Scan backwards past whitespace to find preceding character
+                let mut pos = bang_start - 1;
+                while pos > 0 && (bytes[pos] == b' ' || bytes[pos] == b'\t') {
+                    pos -= 1;
+                }
+                if bytes[pos] == b'!' {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Methods that are incompatible with safe navigation (`&.`).
+    /// `any?` and `none?` return booleans; `nil&.any?` would raise NoMethodError.
+    /// Comparison operators also can't be used with `&.` in this context.
+    const SAFE_NAVIGATION_INCOMPATIBLE: &'static [&'static [u8]] =
+        &[b"any?", b"none?", b"<", b">", b"<=", b">="];
+
+    /// Check if the inner call uses safe navigation (`&.`) with a method that is
+    /// incompatible with inversion. E.g., `!foo&.any?` can't become `foo&.none?`
+    /// because `nil.none?` doesn't exist.
+    fn is_safe_navigation_incompatible(
+        inner_call: &ruby_prism::CallNode<'_>,
+        source: &SourceFile,
+    ) -> bool {
+        if let Some(op_loc) = inner_call.call_operator_loc() {
+            let op = source.byte_slice(op_loc.start_offset(), op_loc.end_offset(), "");
+            if op == "&." {
+                let method = inner_call.name().as_slice();
+                return Self::SAFE_NAVIGATION_INCOMPATIBLE
+                    .iter()
+                    .any(|m| *m == method);
+            }
+        }
+        false
+    }
+
     /// Check if the last expression of a block body is a negation.
     /// Returns true for: !expr, expr != ..., expr !~ ...
     fn last_expr_is_negated(block: &ruby_prism::BlockNode<'_>) -> bool {
@@ -158,6 +205,11 @@ impl Cop for InverseMethods {
 
         // Pattern 1: !receiver.method — the call is `!` with the inner being a method call
         if method_bytes == b"!" {
+            // Skip double negation `!!expr` — used for boolean coercion, not inversion
+            if Self::is_double_negation(&call, source) {
+                return;
+            }
+
             let receiver = match call.receiver() {
                 Some(r) => r,
                 None => return,
@@ -188,6 +240,11 @@ impl Cop for InverseMethods {
             };
 
             let inner_method = inner_call.name().as_slice();
+
+            // Skip safe navigation with incompatible methods (e.g., !foo&.any?)
+            if Self::is_safe_navigation_incompatible(&inner_call, source) {
+                return;
+            }
 
             // Check InverseMethods (predicate methods: !foo.any? -> foo.none?)
             let inverse_methods = InverseMethods::build_inverse_map(config);
