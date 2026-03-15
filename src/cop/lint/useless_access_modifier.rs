@@ -3,6 +3,22 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Lint/UselessAccessModifier — checks for redundant access modifiers.
+///
+/// ## Investigation findings
+///
+/// FP root causes (16 FPs):
+/// - `has_method_definition_in_subtree` only recursed into `if`/`unless` nodes, missing
+///   `define_method` calls inside `.each` blocks, `begin..end` blocks, and other containers.
+///   RuboCop's `check_child_nodes` recurses into ALL non-scope, non-defs child nodes.
+///
+/// Fixes applied:
+/// - Rewrote `has_method_definition_in_subtree` to recursively traverse all relevant
+///   container types (blocks, begin, call arguments, parentheses, else clauses) while
+///   stopping at scope boundaries (class, module, sclass, class_eval/instance_eval blocks,
+///   Class/Module/Struct.new blocks).
+/// - Added `is_new_scope` helper matching RuboCop's `start_of_new_scope?`.
+/// - Added `visit_singleton_class_node` to handle `class << self` scopes.
 pub struct UselessAccessModifier;
 
 impl Cop for UselessAccessModifier {
@@ -77,7 +93,7 @@ fn is_method_definition(node: &ruby_prism::Node<'_>) -> bool {
         }
         return false;
     }
-    // attr_reader/writer/accessor
+    // attr_reader/writer/accessor or define_method as a bare call
     if let Some(call) = node.as_call_node() {
         if call.receiver().is_none() {
             let name = call.name().as_slice();
@@ -111,32 +127,183 @@ fn is_method_creating_call(
     false
 }
 
-fn has_method_definition_in_subtree(node: &ruby_prism::Node<'_>) -> bool {
-    if is_method_definition(node) {
+/// Check if a node is a new scope boundary where access modifier tracking resets.
+/// Matches RuboCop's `start_of_new_scope?`: class, module, sclass, class_eval/instance_eval blocks,
+/// and Class/Module/Struct.new blocks.
+fn is_new_scope(node: &ruby_prism::Node<'_>) -> bool {
+    if node.as_class_node().is_some()
+        || node.as_module_node().is_some()
+        || node.as_singleton_class_node().is_some()
+    {
         return true;
     }
+    // class_eval/instance_eval blocks and Class/Module/Struct.new blocks
+    if let Some(call) = node.as_call_node() {
+        if call.block().is_some() {
+            let name = call.name().as_slice();
+            if name == b"class_eval" || name == b"instance_eval" {
+                return true;
+            }
+            // Class.new, Module.new, Struct.new, ::Class.new, etc.
+            if name == b"new" {
+                if let Some(recv) = call.receiver() {
+                    if is_class_constructor_receiver(&recv) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a receiver node is Class, Module, Struct, or their ::prefixed variants.
+fn is_class_constructor_receiver(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(const_read) = node.as_constant_read_node() {
+        let name = const_read.name().as_slice();
+        return name == b"Class" || name == b"Module" || name == b"Struct" || name == b"Data";
+    }
+    if let Some(const_path) = node.as_constant_path_node() {
+        // ::Class, ::Module, ::Struct, ::Data
+        if const_path.parent().is_none() {
+            if let Some(name_node) = const_path.name() {
+                let name = name_node.as_slice();
+                return name == b"Class"
+                    || name == b"Module"
+                    || name == b"Struct"
+                    || name == b"Data";
+            }
+        }
+    }
+    false
+}
+
+/// Recursively check if a node or any of its descendants contain a method definition.
+/// Mirrors RuboCop's `check_child_nodes` recursion logic:
+/// - Stop at new scopes (class, module, sclass, eval blocks)
+/// - Skip `defs` (singleton method defs) entirely
+/// - Recurse into all other child nodes (blocks, if/unless, begin, etc.)
+fn has_method_definition_in_subtree(
+    node: &ruby_prism::Node<'_>,
+    method_creating_methods: &[String],
+) -> bool {
+    if is_method_definition(node) || is_method_creating_call(node, method_creating_methods) {
+        return true;
+    }
+    // Don't recurse into singleton method defs (def self.foo) — they are skipped entirely
+    if node.as_def_node().is_some() {
+        return false;
+    }
+    // Don't recurse into new scopes
+    if is_new_scope(node) {
+        return false;
+    }
+    // Recurse into child nodes of known container types.
+    // ruby_prism::Node doesn't have a generic child_nodes() method,
+    // so we handle each container type that can appear in a class/module body.
+    recurse_children(node, method_creating_methods)
+}
+
+/// Recurse into children of known container types looking for method definitions.
+fn recurse_children(node: &ruby_prism::Node<'_>, method_creating_methods: &[String]) -> bool {
+    // StatementsNode — body of begin blocks, etc.
+    if let Some(stmts) = node.as_statements_node() {
+        for child in stmts.body().iter() {
+            if has_method_definition_in_subtree(&child, method_creating_methods) {
+                return true;
+            }
+        }
+        return false;
+    }
+    // CallNode — may have arguments and a block
+    if let Some(call) = node.as_call_node() {
+        // Check arguments (e.g., `helper_method def foo; end`)
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                if has_method_definition_in_subtree(&arg, method_creating_methods) {
+                    return true;
+                }
+            }
+        }
+        // Check block body (e.g., `[1,2].each do |i| define_method(...) end`)
+        if let Some(block) = call.block() {
+            if has_method_definition_in_subtree(&block, method_creating_methods) {
+                return true;
+            }
+        }
+        return false;
+    }
+    // BlockNode — body of a block
+    if let Some(block) = node.as_block_node() {
+        if let Some(body) = block.body() {
+            if has_method_definition_in_subtree(&body, method_creating_methods) {
+                return true;
+            }
+        }
+        return false;
+    }
+    // IfNode
     if let Some(if_node) = node.as_if_node() {
         if let Some(stmts) = if_node.statements() {
             for stmt in stmts.body().iter() {
-                if has_method_definition_in_subtree(&stmt) {
+                if has_method_definition_in_subtree(&stmt, method_creating_methods) {
                     return true;
                 }
             }
         }
         if let Some(subsequent) = if_node.subsequent() {
-            if has_method_definition_in_subtree(&subsequent) {
+            if has_method_definition_in_subtree(&subsequent, method_creating_methods) {
                 return true;
             }
         }
+        return false;
     }
+    // UnlessNode
     if let Some(unless_node) = node.as_unless_node() {
         if let Some(stmts) = unless_node.statements() {
             for stmt in stmts.body().iter() {
-                if has_method_definition_in_subtree(&stmt) {
+                if has_method_definition_in_subtree(&stmt, method_creating_methods) {
                     return true;
                 }
             }
         }
+        if let Some(else_clause) = unless_node.else_clause() {
+            if has_method_definition_in_subtree(&else_clause.as_node(), method_creating_methods) {
+                return true;
+            }
+        }
+        return false;
+    }
+    // ElseNode
+    if let Some(else_node) = node.as_else_node() {
+        if let Some(stmts) = else_node.statements() {
+            for stmt in stmts.body().iter() {
+                if has_method_definition_in_subtree(&stmt, method_creating_methods) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    // BeginNode (explicit begin..end)
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            for stmt in stmts.body().iter() {
+                if has_method_definition_in_subtree(&stmt, method_creating_methods) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    // ParenthesesNode
+    if let Some(paren) = node.as_parentheses_node() {
+        if let Some(body) = paren.body() {
+            if has_method_definition_in_subtree(&body, method_creating_methods) {
+                return true;
+            }
+        }
+        return false;
     }
     false
 }
@@ -184,9 +351,7 @@ fn check_scope(
             }
         }
 
-        if has_method_definition_in_subtree(stmt)
-            || is_method_creating_call(stmt, method_creating_methods)
-        {
+        if has_method_definition_in_subtree(stmt, method_creating_methods) {
             unused_modifier = None;
         }
     }
@@ -239,6 +404,21 @@ impl<'pr> Visit<'pr> for UselessAccessVisitor<'_, '_> {
             }
         }
         ruby_prism::visit_module_node(self, node);
+    }
+
+    fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
+        if let Some(body) = node.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                check_scope(
+                    self.cop,
+                    self.source,
+                    &mut self.diagnostics,
+                    &stmts,
+                    &self.method_creating_methods,
+                );
+            }
+        }
+        ruby_prism::visit_singleton_class_node(self, node);
     }
 }
 
