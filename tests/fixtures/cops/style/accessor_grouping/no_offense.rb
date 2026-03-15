@@ -83,3 +83,27 @@ class SorbetAnnotated
   sig { returns(Integer) }
   attr_reader :three
 end
+
+# Accessors with RBS::Inline annotations are not groupable
+class WithRBSAnnotations
+  attr_accessor :label #: String
+  attr_accessor :points #: Array[Float | Integer]
+  attr_accessor :color #: String
+end
+
+# RBS::Inline annotations with blank lines between accessors
+class WithRBSSpaced
+  attr_reader :reader #: Reader
+
+  attr_reader :writer #: Writer
+
+  attr_reader :current_dir #: Pathname
+end
+
+# Mixed: one accessor with RBS annotation, others without - no grouping
+# because the previous sibling has an inline #: comment
+class WithRBSMixed
+  attr_reader :one #: String
+
+  attr_reader :two, :three
+end

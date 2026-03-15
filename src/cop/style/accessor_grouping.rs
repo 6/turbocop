@@ -38,6 +38,17 @@ use crate::parse::source::SourceFile;
 /// - Accessors separated by `def` blocks or other code were not grouped.
 ///
 /// Fix: rewrote to match RuboCop's sibling-based `groupable_sibling_accessors` approach.
+///
+/// ## Investigation findings (2026-03-15, inline RBS annotations)
+///
+/// 67 FPs from accessors with inline RBS::Inline `#:` type comments (e.g.,
+/// `attr_accessor :label #: String`). RuboCop's `groupable_accessor?` checks if
+/// the previous sibling expression has an inline `#:` comment on the same line.
+/// If it does, the current accessor is NOT groupable, because grouping would
+/// lose per-attribute type annotations.
+///
+/// Fix: added `has_inline_rbs_comment()` check in `is_groupable_accessor()` to
+/// detect `#:` on the previous sibling's source line and return false (not groupable).
 pub struct AccessorGrouping;
 
 const ACCESSOR_METHODS: &[&str] = &["attr_reader", "attr_writer", "attr_accessor", "attr"];
@@ -258,6 +269,7 @@ fn previous_line_is_comment(source: &SourceFile, start_offset: usize) -> bool {
 /// 3. Previous is NOT a send type (def, class, constant, etc.) -> groupable
 /// 4. Previous IS a send: groupable only if it's an accessor, access modifier, OR there's
 ///    a blank line gap (> 1 line between them)
+/// 5. Previous expression has an inline RBS `#:` annotation comment -> NOT groupable
 fn is_groupable_accessor(
     source: &SourceFile,
     stmt_list: &[ruby_prism::Node<'_>],
@@ -285,6 +297,12 @@ fn is_groupable_accessor(
             return curr_start_line - prev_end_line > 1;
         }
 
+        // RuboCop: accessors with RBS::Inline `#:` annotations on the previous expression
+        // are not groupable. Check if the previous sibling's source line contains `#:`.
+        if has_inline_rbs_comment(source, prev.location().start_offset()) {
+            return false;
+        }
+
         // Previous is an accessor — groupable
         if ACCESSOR_METHODS.contains(&prev_name) && prev_call.receiver().is_none() {
             return true;
@@ -308,6 +326,32 @@ fn is_groupable_accessor(
     // Previous is not a send type (def, class, constant assignment, begin, etc.)
     // Per RuboCop: `return true unless previous_expression.send_type?` -> groupable
     true
+}
+
+/// Check if the source line containing the node at `start_offset` has an inline
+/// RBS::Inline annotation comment (`#:` syntax). RuboCop checks
+/// `processed_source.comments.any? { |c| same_line?(c, prev) && c.text.start_with?('#:') }`.
+fn has_inline_rbs_comment(source: &SourceFile, start_offset: usize) -> bool {
+    let (line, _) = source.offset_to_line_col(start_offset);
+    // line is 1-based; get the 0-based index
+    let line_idx = line - 1;
+    for (i, source_line) in source.lines().enumerate() {
+        if i == line_idx {
+            // Look for `#:` in the line (not at the start — it's an inline comment)
+            // We need to find a `#` that's followed by `:` and is a comment, not inside a string.
+            // Simple heuristic: find `#:` after the code portion. Since these are accessor
+            // declarations, the pattern is `attr_reader :foo #: Type`.
+            if let Some(pos) = source_line.windows(2).position(|w| w == b"#:") {
+                // Make sure it's not at the start (that would be a regular comment, not inline)
+                // and that it's preceded by whitespace (i.e., it's a trailing comment)
+                if pos > 0 {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
