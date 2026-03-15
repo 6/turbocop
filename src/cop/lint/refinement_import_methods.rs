@@ -21,6 +21,17 @@ use crate::parse::source::SourceFile;
 /// so `include`/`prepend` inside `refine` must be ignored when the project
 /// targets Ruby 3.0 or below.
 /// FN=0: no missing detections were reported for this cop in the corpus run.
+///
+/// ## Corpus investigation (2026-03-15)
+///
+/// The remaining FP=1 was not path-filter noise. RuboCop 1.84.2 only flags
+/// `include`/`prepend` when it is the sole body node of the `refine` block.
+/// If the refine body is a multi-statement `begin`, e.g. `include B` followed
+/// by `def foo`, RuboCop does not descend and emits no offense.
+///
+/// Fix:
+/// - Match RuboCop's current behavior by only checking a direct call body or a
+///   `StatementsNode` with exactly one statement.
 pub struct RefinementImportMethods;
 
 impl Cop for RefinementImportMethods {
@@ -94,30 +105,39 @@ impl<'pr> Visit<'pr> for RefineVisitor<'_, '_> {
 
 impl RefineVisitor<'_, '_> {
     fn check_refine_body(&mut self, body: &ruby_prism::Node<'_>) {
-        // Body is typically a StatementsNode containing the block's statements
-        if let Some(stmts) = body.as_statements_node() {
-            for stmt in stmts.body().iter() {
-                if let Some(call) = stmt.as_call_node() {
-                    let name = call.name().as_slice();
-                    if (name == b"include" || name == b"prepend") && call.receiver().is_none() {
-                        let msg_loc = call.message_loc().unwrap_or(call.location());
-                        let (line, column) = self.source.offset_to_line_col(msg_loc.start_offset());
-                        let method_str = if name == b"include" {
-                            "include"
-                        } else {
-                            "prepend"
-                        };
-                        self.diagnostics.push(self.cop.diagnostic(
-                            self.source,
-                            line,
-                            column,
-                            format!(
-                                "Use `import_methods` instead of `{}` because it is deprecated in Ruby 3.1.",
-                                method_str
-                            ),
-                        ));
-                    }
-                }
+        let maybe_call = if let Some(call) = body.as_call_node() {
+            Some(call)
+        } else if let Some(stmts) = body.as_statements_node() {
+            let mut iter = stmts.body().iter();
+            let first = iter.next();
+            if iter.next().is_none() {
+                first.and_then(|stmt| stmt.as_call_node())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(call) = maybe_call {
+            let name = call.name().as_slice();
+            if (name == b"include" || name == b"prepend") && call.receiver().is_none() {
+                let msg_loc = call.message_loc().unwrap_or(call.location());
+                let (line, column) = self.source.offset_to_line_col(msg_loc.start_offset());
+                let method_str = if name == b"include" {
+                    "include"
+                } else {
+                    "prepend"
+                };
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    format!(
+                        "Use `import_methods` instead of `{}` because it is deprecated in Ruby 3.1.",
+                        method_str
+                    ),
+                ));
             }
         }
     }

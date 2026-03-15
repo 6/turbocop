@@ -19,3 +19,14 @@ end
 refine String do
   proc { include SomeModule }.call
 end
+
+# RuboCop only flags direct include/prepend statements when they are the sole body node
+module Wrapper
+  refine String do
+    include SomeModule
+
+    def trim
+      strip
+    end
+  end
+end
