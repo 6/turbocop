@@ -18,10 +18,6 @@ use crate::parse::source::SourceFile;
 /// `Time.now.getutc` etc. to be incorrectly exempted. Removed these methods.
 ///
 /// **Remaining gaps:**
-/// - `localtime` handling: RuboCop treats `localtime` without args as an offense
-///   (`MSG_LOCALTIME`) and `localtime` with args as accepted. Nitrocop currently
-///   treats all `localtime` as safe (byte scanner limitation). This causes FNs for
-///   bare `Time.now.localtime`.
 /// - Strict mode does not check GOOD_METHODS chain (e.g., `Time.now.zone` is
 ///   flagged in strict mode but shouldn't be). Requires AST parent walking.
 /// - `String#to_time` detection (RuboCop's `on_send` for `to_time`) not implemented.
@@ -29,6 +25,22 @@ use crate::parse::source::SourceFile;
 ///   correctly for most cases because `call.location().end_offset()` ends at the
 ///   closing paren of arguments, so `foo(Time.now).utc` correctly sees `)` (not
 ///   `.utc`) after `Time.now`. Edge cases with complex nesting may still diverge.
+///
+/// ## Investigation (2026-03-15): FP=17, FN=82
+///
+/// Two fixes:
+///
+/// **1. `.localtime` without args now treated as unsafe (FN fix, ~82 FNs):**
+/// RuboCop treats `.localtime` without arguments as an offense (MSG_LOCALTIME) and
+/// `.localtime(offset)` as accepted. Previously all `.localtime` was in SAFE_METHODS.
+/// Fix: removed `localtime` from `chain_contains_tz_safe_method` SAFE_METHODS and added
+/// special handling that only treats it as safe when followed by `(` with arguments.
+///
+/// **2. `Time.now` inside `Time.at(..., in:)` no longer flagged (FP fix, ~10 FPs):**
+/// `Time.at(Time.now, in: 'UTC')` — the inner `Time.now` was flagged because
+/// `enclosing_call_is_safe` only checked SAFE_METHODS (utc, in_time_zone, etc.), not
+/// dangerous methods that become safe via `in:` keyword. Fix: added `IN_KEYWORD_METHODS`
+/// list (at, new, now) and `enclosing_parens_have_in_keyword` byte scanner.
 ///
 /// ## Investigation (2026-03-14): FP=25
 ///
@@ -306,6 +318,9 @@ fn enclosing_call_is_safe(bytes: &[u8], start: usize) -> bool {
         b"current",
     ];
 
+    // Methods that become safe when called with `in:` keyword argument
+    const IN_KEYWORD_METHODS: &[&[u8]] = &[b"at", b"new", b"now"];
+
     if start == 0 {
         return false;
     }
@@ -320,6 +335,7 @@ fn enclosing_call_is_safe(bytes: &[u8], start: usize) -> bool {
     if bytes[i] != b'(' {
         return false;
     }
+    let paren_pos = i;
     if i == 0 {
         return false;
     }
@@ -352,7 +368,64 @@ fn enclosing_call_is_safe(bytes: &[u8], start: usize) -> bool {
     };
     let method_name = &bytes[method_start..=end_of_method];
 
-    SAFE_METHODS.contains(&method_name)
+    if SAFE_METHODS.contains(&method_name) {
+        return true;
+    }
+
+    // For Time.at/new/now, check if the enclosing call has `in:` keyword argument.
+    // E.g., `Time.at(Time.now, in: 'UTC')` — the `in:` makes the outer call safe.
+    if IN_KEYWORD_METHODS.contains(&method_name)
+        && enclosing_parens_have_in_keyword(bytes, paren_pos)
+    {
+        return true;
+    }
+
+    false
+}
+
+/// Check if the parenthesized argument list starting at `paren_pos` contains
+/// an `in:` keyword argument. Scans forward from the opening `(` looking for
+/// the pattern `in:` preceded by a non-identifier character.
+fn enclosing_parens_have_in_keyword(bytes: &[u8], paren_pos: usize) -> bool {
+    let mut pos = paren_pos + 1; // skip '('
+    let mut depth = 1u32;
+
+    while pos < bytes.len() && depth > 0 {
+        match bytes[pos] {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return false;
+                }
+            }
+            b'\'' | b'"' => {
+                // Skip string literals
+                let quote = bytes[pos];
+                pos += 1;
+                while pos < bytes.len() && bytes[pos] != quote {
+                    if bytes[pos] == b'\\' {
+                        pos += 1;
+                    }
+                    pos += 1;
+                }
+            }
+            b'i' if depth == 1 => {
+                // Check for `in:` pattern (keyword argument)
+                if pos + 2 < bytes.len() && bytes[pos + 1] == b'n' && bytes[pos + 2] == b':' {
+                    // Verify it's not part of a longer identifier
+                    let before_ok = pos == 0
+                        || (!bytes[pos - 1].is_ascii_alphanumeric() && bytes[pos - 1] != b'_');
+                    if before_ok {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+        pos += 1;
+    }
+    false
 }
 
 /// Scan forward through a method chain starting at `pos` in `bytes`, returning
@@ -361,12 +434,11 @@ fn enclosing_call_is_safe(bytes: &[u8], start: usize) -> bool {
 fn chain_contains_tz_safe_method(bytes: &[u8], start: usize) -> bool {
     // Matches RuboCop's ACCEPTED_METHODS + GOOD_METHODS + [:current] for flexible mode.
     // Notably excludes getutc, rfc2822, rfc822, to_r which are NOT in RuboCop's lists.
-    // localtime is kept because RuboCop accepts localtime WITH arguments (handled specially).
+    // `localtime` is handled specially below: only safe WITH arguments.
     const SAFE_METHODS: &[&[u8]] = &[
         b"utc",
         b"getlocal",
         b"in_time_zone",
-        b"localtime",
         b"iso8601",
         b"xmlschema",
         b"jisx0301",
@@ -412,19 +484,21 @@ fn chain_contains_tz_safe_method(bytes: &[u8], start: usize) -> bool {
         }
         let method = &bytes[method_start..pos];
 
-        // Check if this method is timezone-safe
-        if SAFE_METHODS.contains(&method) {
-            return true;
-        }
-
-        // Skip past arguments if present: balanced parentheses
+        // Skip past arguments if present: balanced parentheses, track if args exist
         // Skip whitespace first
         while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
             pos += 1;
         }
-        if pos < bytes.len() && bytes[pos] == b'(' {
+        let has_args = if pos < bytes.len() && bytes[pos] == b'(' {
             let mut depth = 1u32;
             pos += 1;
+            // Skip whitespace after opening paren
+            let mut content_start = pos;
+            while content_start < bytes.len() && bytes[content_start].is_ascii_whitespace() {
+                content_start += 1;
+            }
+            // If we immediately hit ')', there are no arguments
+            let has_content = content_start < bytes.len() && bytes[content_start] != b')';
             while pos < bytes.len() && depth > 0 {
                 match bytes[pos] {
                     b'(' => depth += 1,
@@ -445,7 +519,21 @@ fn chain_contains_tz_safe_method(bytes: &[u8], start: usize) -> bool {
                 }
                 pos += 1;
             }
+            has_content
+        } else {
+            false
+        };
+
+        // Check if this method is timezone-safe
+        if SAFE_METHODS.contains(&method) {
+            return true;
         }
+        // `localtime` is only safe when called WITH arguments (timezone offset).
+        // Without arguments, it converts to local system time — not timezone-safe.
+        if method == b"localtime" && has_args {
+            return true;
+        }
+
         // Continue to check next chain element
     }
 }

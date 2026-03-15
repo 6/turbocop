@@ -40,3 +40,12 @@ Time.parse("#{val} +05:00")
 # Time.now/local inside arguments of a safe method (RuboCop parent-chain walk)
 Time.utc(Time.now.year - 1, 7, 1, 0, 0, 0)
 Time.utc(Time.now.year, 1, 1)
+
+# Time.now inside Time.at(..., in:) — parent provides timezone context
+Time.at(Time.now, in: 'UTC')
+Time.at(Time.now, in: 'Z')
+Time.at(Time.now, in: '-00:00')
+
+# .localtime WITH arguments is safe
+Time.now.localtime("+09:00")
+Time.at(time).localtime("+05:30")
