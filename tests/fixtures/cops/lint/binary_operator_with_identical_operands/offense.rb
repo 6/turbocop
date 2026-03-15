@@ -12,3 +12,6 @@ y >= y
 
 -0.0 <=> 0.0
 ^^^^^^^^^^^^ Lint/BinaryOperatorWithIdenticalOperands: Binary operator `<=>` has identical operands.
+
+1.<(1, 2)
+^^^^^^^^^ Lint/BinaryOperatorWithIdenticalOperands: Binary operator `<` has identical operands.

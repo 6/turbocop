@@ -15,6 +15,12 @@ use crate::parse::source::SourceFile;
 /// with different surface syntax, including `:ruby == :"ruby"` and
 /// `-0.0 <=> 0.0`. RuboCop compares operand nodes semantically, so nitrocop
 /// needs a small amount of literal normalization instead of byte-for-byte text.
+///
+/// ## Corpus investigation update (2026-03-15)
+///
+/// Corpus oracle reported the remaining FN=1 on malformed operator sends such
+/// as `1.<(1, 2)`. RuboCop still compares the receiver against the first
+/// argument for these nodes, even when extra arguments make the call invalid.
 pub struct BinaryOperatorWithIdenticalOperands;
 
 impl Cop for BinaryOperatorWithIdenticalOperands {
@@ -94,7 +100,7 @@ impl Cop for BinaryOperatorWithIdenticalOperands {
         };
 
         let args = arguments.arguments();
-        if args.len() != 1 {
+        if args.is_empty() {
             return;
         }
 
