@@ -45,10 +45,22 @@ use crate::parse::source::SourceFile;
 ///     after the call's end_offset on the same line (e.g., `attr_accessor :x unless cond`),
 ///     the call is part of a larger expression and should be skipped. (~2 FPs: travis, spreadsheet)
 ///
-/// **Remaining gap:** 3 FNs — 2 from camping (minified Ruby, mid-line attr calls) and 1 from
+/// **Remaining gap (pre-fix-5):** 3 FNs — 2 from camping (minified Ruby, mid-line attr calls) and 1 from
 /// CocoaPods (`attr_accessor name` followed by `alias_method ... if boolean` where the `if`
 /// modifier makes RuboCop treat it as non-allowed, but nitrocop's line-based check sees
 /// `alias_method` and allows it).
+///
+/// **Fix 5 (2026-03-15):** 18 FNs across 12 repos caused by comment lookahead incorrectly
+/// suppressing offense when a blank line appeared after comments. The pattern:
+///   `attr_accessor :foo` / `# YARD comment` / blank line / `def bar`
+/// RuboCop uses AST `right_sibling` which completely ignores comments — the right sibling
+/// of the attr is `def bar`, which is not an allowed successor, so it flags. Nitrocop's
+/// comment lookahead was returning "no offense" upon hitting a blank line after comments.
+/// Fix: changed blank-line handling in comment lookahead from `return` (suppress) to
+/// `continue` (skip), so the loop scans past comments AND blank lines to find the actual
+/// code line and checks whether it's an allowed successor (attr, alias, allowed method,
+/// block boundary). Added EOF guard: if no code line is found after comments, no offense
+/// (matches RuboCop's nil right_sibling for last-in-body attrs).
 pub struct EmptyLinesAroundAttributeAccessor;
 
 const ATTRIBUTE_METHODS: &[&[u8]] = &[b"attr_reader", b"attr_writer", b"attr_accessor", b"attr"];
@@ -170,9 +182,11 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
             return;
         }
 
-        // If next line is a comment, look past comments to see if the next code line
-        // is another attribute accessor, an allowed method, alias, a block boundary,
-        // or if there's a blank line after the comments (no offense needed).
+        // If next line is a comment, look past comments (and blank lines) to find
+        // the next code line. If it's another attribute accessor, an allowed method,
+        // alias, or a block boundary, no offense. Otherwise offense — RuboCop uses
+        // AST right_sibling which skips comments entirely; a blank line after comments
+        // does NOT suppress the offense.
         // This allows YARD-style documented accessors:
         //   attr_reader :value
         //   # @return [Exception, nil]
@@ -186,6 +200,7 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                     .collect()
             });
             let mut idx = last_line + 1;
+            let mut found_code = false;
             while idx < lines.len() {
                 let line_trimmed: Vec<u8> = lines[idx]
                     .iter()
@@ -193,12 +208,15 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                     .skip_while(|&b| b == b' ' || b == b'\t')
                     .collect();
                 if is_blank_or_whitespace_line(lines[idx]) {
-                    return; // blank line after comments means no offense
+                    idx += 1;
+                    continue; // skip blank lines — they don't suppress offense
                 }
                 if line_trimmed.starts_with(b"#") {
                     idx += 1;
                     continue; // skip comments
                 }
+                // Found a code line — check if it's an allowed successor
+                found_code = true;
                 if is_attr_method_line(&line_trimmed) {
                     return;
                 }
@@ -220,6 +238,11 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                     }
                 }
                 break;
+            }
+            // If no code line was found after comments (EOF or only blank lines),
+            // no right sibling exists — no offense (matches RuboCop's nil right_sibling).
+            if !found_code {
+                return;
             }
         }
 
