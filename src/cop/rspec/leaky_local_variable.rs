@@ -336,11 +336,20 @@ fn check_var_used_in_describe_blocks(node: &ruby_prism::Node<'_>, var_name: &[u8
         };
 
         if is_eg {
-            // Found a describe block - check if the variable is used in its example scopes
+            // Found a describe block - check if the variable is used in its example scopes.
+            // Use the reassign-aware version so that a group-level unconditional reassignment
+            // of the variable before any example reference suppresses the file-level offense
+            // (the file-level value is dead with respect to this group's examples).
             if let Some(blk) = call.block() {
                 if let Some(bn) = blk.as_block_node() {
                     if let Some(body) = bn.body() {
                         if let Some(stmts) = body.as_statements_node() {
+                            // If the variable is unconditionally reassigned at the group's
+                            // top-level scope before any example scope reference, the
+                            // file-level value never reaches any example — skip this group.
+                            if var_reassigned_before_example_ref_in_stmts(&stmts, var_name) {
+                                return false;
+                            }
                             for s in stmts.body().iter() {
                                 if check_var_used_in_example_scopes(&s, var_name) {
                                     return true;
@@ -1974,9 +1983,15 @@ end
             1,
             "Expected 1 offense (group-level only), got {}: {:?}",
             diags.len(),
-            diags.iter().map(|d| format!("{}:{}", d.location.line, d.location.column)).collect::<Vec<_>>()
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
         );
         // The offense should be at line 4 (group-level assignment), not line 1 (file-level)
-        assert_eq!(diags[0].location.line, 4, "Offense should be on group-level assignment (line 4)");
+        assert_eq!(
+            diags[0].location.line, 4,
+            "Offense should be on group-level assignment (line 4)"
+        );
     }
 }

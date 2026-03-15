@@ -206,9 +206,8 @@ describe SomeClass do
   end
 end
 
-# File-level variable reassigned at group scope before any example — file-level value is dead.
-# The variable is referenced only in the group-level expression (not inside an example scope).
-# So no offense for the file-level assignment.
+# File-level variable referenced only at group level (not in example scope).
+# No offense for the file-level assignment.
 payload = build(:payload)
 
 describe SomeClass do
@@ -216,5 +215,16 @@ describe SomeClass do
 
   it 'works' do
     expect(1).to eq(1)
+  end
+end
+
+# File-level variable NOT referenced in any example scope — no offense.
+status = :inactive
+
+describe OtherClass do
+  status  # referenced at group level only, not inside any example scope
+
+  it 'does something' do
+    expect(true).to eq(true)
   end
 end
