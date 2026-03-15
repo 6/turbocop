@@ -86,7 +86,9 @@ module Formatters
   end
 end
 
-# private :method_name after def — makes the method private
+# private :method_name after def — makes the method private (single symbol only)
+# RuboCop's pattern (send nil? VISIBILITY_SCOPES (sym %method_name)) only matches
+# when there's exactly one symbol argument
 def status
   record.status
 end

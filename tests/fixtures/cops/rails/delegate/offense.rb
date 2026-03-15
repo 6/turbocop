@@ -78,3 +78,17 @@ def class_name
 ^^^ Rails/Delegate: Use `delegate` to define delegations.
   self.class.name
 end
+
+# private :method_name with MULTIPLE symbols — RuboCop's pattern only matches single-symbol
+# private calls, so private :[]=, :set_element doesn't make []= private for this cop
+def []=(i, v)
+^^^ Rails/Delegate: Use `delegate` to define delegations.
+  @elements[i]= v
+end
+private :[]=, :set_element, :set_component
+
+# MF declaration in a nested scope should NOT suppress offense at outer level
+def check_for_pending_migrations
+^^^ Rails/Delegate: Use `delegate` to define delegations.
+  Tasks.check_for_pending_migrations
+end
