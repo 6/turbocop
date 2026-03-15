@@ -66,3 +66,9 @@ class WithNestedDef
     end
   end
 end
+
+class WithCaseEquality
+  def ===(other)
+    return false unless other.is_a?(String)
+  end
+end

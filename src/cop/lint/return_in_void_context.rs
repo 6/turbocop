@@ -14,14 +14,28 @@ use ruby_prism::Visit;
 /// `define_singleton_method` blocks.
 ///
 /// FN root cause: the cop only checked `initialize` methods, but RuboCop also flags
-/// `return value` inside setter methods (names ending in `=`, e.g. `foo=`). Also,
-/// the cop only checked instance methods but RuboCop skips class-level methods
-/// (`def self.initialize`).
+/// `return value` inside setter methods (names ending in `=`, e.g. `foo=`).
+/// RuboCop skips class-level `initialize` (`def self.initialize`) but still flags
+/// class-level setters like `def self.foo=(...)` and `def self.[]=(...)`.
 ///
 /// RuboCop's `SCOPE_CHANGING_METHODS` are: `lambda`, `define_method`,
 /// `define_singleton_method`. In Prism, `lambda { }` and `lambda do...end` both
 /// produce `LambdaNode`, so we stop recursion there. For `define_method` and
 /// `define_singleton_method`, we intercept `visit_call_node` and skip the block body.
+///
+/// ## Corpus investigation (2026-03-15)
+///
+/// Corpus oracle reported FP=15, FN=11.
+///
+/// FP=15: `===` methods were being treated as setters because the old heuristic
+/// matched any method name ending in `=` that was not in a short operator allowlist.
+/// Ruby's comparison operators (`==`, `===`, `!=`, `<=`, `>=`, `<=>`, `=~`) are
+/// not void-context methods and must be excluded.
+///
+/// FN=11: `[]=` methods were incorrectly excluded from void-context detection,
+/// and all class methods were skipped wholesale. RuboCop treats indexed
+/// assignment methods as void-context just like regular setters, and it only
+/// exempts class-level `initialize`, not class-level setters.
 pub struct ReturnInVoidContext;
 
 impl Cop for ReturnInVoidContext {
@@ -52,28 +66,22 @@ impl Cop for ReturnInVoidContext {
     }
 }
 
-/// Returns true if `name` is a void context method: `initialize` or a setter (`foo=`).
-/// Excludes operator methods like `==`, `!=`, `<=`, `>=`, `<=>`, `[]=`.
+/// Returns true if `name` is a void context method: `initialize`, a setter
+/// (`foo=`), or indexed assignment (`[]=`). Excludes comparison/match operators
+/// that happen to end in `=`.
 fn is_void_method(name: &[u8]) -> bool {
     if name == b"initialize" {
         return true;
     }
-    // Setter methods end with `=` but exclude operators
-    if name.ends_with(b"=") && name.len() >= 2 {
-        let prefix = &name[..name.len() - 1];
-        // Exclude ==, !=, <=, >=, <=>, []=
-        if prefix == b"="
-            || prefix == b"!"
-            || prefix == b"<"
-            || prefix == b">"
-            || prefix == b"<=>"
-            || prefix == b"[]"
-        {
-            return false;
-        }
+    if name == b"[]=" {
         return true;
     }
-    false
+
+    name.ends_with(b"=")
+        && !matches!(
+            name,
+            b"==" | b"===" | b"!=" | b"<=" | b">=" | b"<=>" | b"=~"
+        )
 }
 
 /// Format the method name for the diagnostic message.
@@ -91,8 +99,9 @@ impl<'pr> Visit<'pr> for VoidContextVisitor<'_, '_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         let name = node.name().as_slice();
 
-        // Skip class methods (def self.initialize / def self.foo=)
-        if node.receiver().is_some() {
+        // RuboCop only exempts class-level `initialize`. Class-level setters like
+        // `def self.foo=(...)` and `def self.[]=(...)` are still void-context methods.
+        if node.receiver().is_some() && name == b"initialize" {
             ruby_prism::visit_def_node(self, node);
             return;
         }

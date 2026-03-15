@@ -45,3 +45,24 @@ class WithProc
     end
   end
 end
+
+class WithIndexWriter
+  def []=(key, value)
+    return value
+    ^^^^^^^^^^^^ Lint/ReturnInVoidContext: Do not return a value in `[]=`.
+  end
+end
+
+class WithClassSetter
+  def self.mode=(value)
+    return value
+    ^^^^^^^^^^^^ Lint/ReturnInVoidContext: Do not return a value in `mode=`.
+  end
+end
+
+class WithClassIndexWriter
+  def self.[]=(key, value)
+    return value
+    ^^^^^^^^^^^^ Lint/ReturnInVoidContext: Do not return a value in `[]=`.
+  end
+end
