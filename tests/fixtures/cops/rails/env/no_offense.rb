@@ -10,3 +10,7 @@ Rails.environment
 ENV['RAILS_ENV']
 ENV['RACK_ENV']
 ENV['HOME']
+"production".include?(Rails.env)
+items.include?(Rails.env)
+items.exclude?(Rails.env)
+Rails.env.between?("a", "z")

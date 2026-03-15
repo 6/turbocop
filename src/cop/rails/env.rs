@@ -16,6 +16,13 @@ use ruby_prism::Visit;
 /// 2. Checks if the parent is a predicate method call (method name ends with `?`)
 /// 3. Has an ALLOWED_LIST of string-utility predicates that should NOT be flagged
 /// 4. Does NOT flag bare `Rails.env` (only when an env-checking predicate is called on it)
+///
+/// **FN fix (2026-03-15):** The vendor cop checks if the *parent* AST node of `Rails.env`
+/// is a predicate, regardless of whether `Rails.env` is the receiver or an argument.
+/// This means patterns like `%w[test development].member?(Rails.env)` and
+/// `@envs.any?(Rails.env)` are also flagged, because the parent of the `env` send
+/// is the predicate call `member?`/`any?`. The previous implementation only checked
+/// `Rails.env` as the receiver of a predicate (e.g., `Rails.env.production?`).
 pub struct Env;
 
 /// Methods ending in `?` that are allowed on `Rails.env` (string utility methods,
@@ -76,34 +83,61 @@ struct EnvVisitor<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
-impl<'a, 'pr> Visit<'pr> for EnvVisitor<'a> {
+impl EnvVisitor<'_> {
+    /// Check if a node is a `Rails.env` or `::Rails.env` call.
+    fn is_rails_env_call(&self, node: &ruby_prism::Node<'_>) -> bool {
+        if let Some(call) = node.as_call_node() {
+            if call.name().as_slice() == b"env" {
+                if let Some(recv) = call.receiver() {
+                    return util::constant_name(&recv) == Some(b"Rails");
+                }
+            }
+        }
+        false
+    }
+
+    /// Report an offense for a `Rails.env` usage within a predicate call.
+    /// The `predicate_node` is the outer predicate call; `env_node` is the `Rails.env` call.
+    fn report_offense(&mut self, predicate_node: &ruby_prism::CallNode<'_>) {
+        let start = predicate_node.location().start_offset();
+        let (line, column) = self.source.offset_to_line_col(start);
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Use Feature Flags or config instead of `Rails.env`.".to_string(),
+        ));
+    }
+}
+
+impl<'pr> Visit<'pr> for EnvVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let method_name = node.name().as_slice();
 
-        // We're looking for a predicate method call (ends with '?') whose receiver
-        // is `Rails.env`.
-        if method_name.ends_with(b"?") {
+        // We're looking for a predicate method call (ends with '?') where
+        // `Rails.env` appears as either the receiver or an argument.
+        // This matches the vendor cop which hooks `on_send(:env)` and checks
+        // if the parent AST node is a predicate call.
+        if method_name.ends_with(b"?") && !ALLOWED_PREDICATES.contains(&method_name) {
+            // Case 1: Rails.env is the receiver of the predicate
+            // e.g., Rails.env.production?
             if let Some(recv) = node.receiver() {
-                if let Some(env_call) = recv.as_call_node() {
-                    if env_call.name().as_slice() == b"env" {
-                        if let Some(rails_recv) = env_call.receiver() {
-                            if util::constant_name(&rails_recv) == Some(b"Rails") {
-                                // Check the predicate is not in the allowed list
-                                if !ALLOWED_PREDICATES.contains(&method_name) {
-                                    let start = rails_recv.location().start_offset();
-                                    let (line, column) = self.source.offset_to_line_col(start);
-                                    self.diagnostics.push(
-                                        self.cop.diagnostic(
-                                            self.source,
-                                            line,
-                                            column,
-                                            "Use Feature Flags or config instead of `Rails.env`."
-                                                .to_string(),
-                                        ),
-                                    );
-                                }
-                            }
-                        }
+                if self.is_rails_env_call(&recv) {
+                    self.report_offense(node);
+                    // Don't fall through to argument check
+                    ruby_prism::visit_call_node(self, node);
+                    return;
+                }
+            }
+
+            // Case 2: Rails.env is an argument to the predicate
+            // e.g., %w[test development].member?(Rails.env)
+            //       @envs.any?(Rails.env)
+            if let Some(args) = node.arguments() {
+                for arg in args.arguments().iter() {
+                    if self.is_rails_env_call(&arg) {
+                        self.report_offense(node);
+                        break;
                     }
                 }
             }
