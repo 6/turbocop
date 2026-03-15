@@ -34,3 +34,12 @@ RSpec.describe User do
   it 'does something' do
   end
 end
+
+# include inside class nested within if block (class resets if context)
+if some_condition
+  class Child
+    include Serializable
+
+    attr_reader :data
+  end
+end

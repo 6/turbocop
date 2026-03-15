@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::util::is_blank_line;
+use crate::cop::util::is_blank_or_whitespace_line;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -12,7 +12,7 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Investigation findings (2026-03-11)
 ///
-/// **Root cause of 493 FPs:** nitrocop was firing on include/extend/prepend
+/// **Root cause of 493 FPs (2026-03-11):** nitrocop was firing on include/extend/prepend
 /// inside `if`/`unless` bodies. RuboCop's `next_line_node` method returns nil
 /// when `node.parent.if_type?`, which blanket-skips all includes inside
 /// conditional branches. nitrocop had no equivalent check.
@@ -25,6 +25,20 @@ use crate::parse::source::SourceFile;
 /// (`include Baz if condition`) — nitrocop's line-based check already
 /// handles this because `is_module_inclusion_line` matches lines starting
 /// with `include`/`extend`/`prepend` regardless of trailing modifiers.
+///
+/// ## Investigation findings (2026-03-14)
+///
+/// **FP root cause (447):** `is_blank_or_whitespace_line()` only matches truly empty lines,
+/// not whitespace-only lines. RuboCop's `blank?` considers whitespace-only
+/// lines as blank. Many real-world files have trailing spaces/tabs on
+/// "empty" lines after includes. Fix: use `is_blank_or_whitespace_line()`.
+///
+/// **FN root cause (181):** `in_if_body` flag was not reset when entering
+/// class/module/singleton class bodies. RuboCop only checks if the include's
+/// DIRECT parent is `if_type?`. When `include` is inside a class nested in
+/// an `if` block, the parent is the class body (begin/StatementsNode), not
+/// the `if` node. Fix: reset `in_if_body` in class/module/singleton class
+/// visitors, same as `in_block_or_send` was already reset.
 pub struct EmptyLinesAfterModuleInclusion;
 
 const MODULE_INCLUSION_METHODS: &[&[u8]] = &[b"include", b"extend", b"prepend"];
@@ -135,7 +149,7 @@ impl InclusionVisitor<'_> {
         let next_line = lines[last_line]; // next line (0-indexed)
 
         // If next line is blank, no offense
-        if is_blank_line(next_line) {
+        if is_blank_or_whitespace_line(next_line) {
             return;
         }
 
@@ -173,7 +187,7 @@ impl InclusionVisitor<'_> {
                     .copied()
                     .skip_while(|&b| b == b' ' || b == b'\t')
                     .collect();
-                if is_blank_line(lines[idx]) || line_trimmed.starts_with(b"#") {
+                if is_blank_or_whitespace_line(lines[idx]) || line_trimmed.starts_with(b"#") {
                     idx += 1;
                     continue;
                 }
@@ -192,7 +206,7 @@ impl InclusionVisitor<'_> {
             // Check the line after the enable directive
             if last_line + 1 < lines.len() {
                 let line_after = lines[last_line + 1];
-                if is_blank_line(line_after) {
+                if is_blank_or_whitespace_line(line_after) {
                     return;
                 }
             } else {
@@ -305,12 +319,15 @@ impl<'pr> Visit<'pr> for InclusionVisitor<'_> {
     // Class and module bodies reset the block context — include/extend/prepend
     // at the class/module body level SHOULD be flagged.
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
-        let was = self.in_block_or_send;
+        let was_block = self.in_block_or_send;
+        let was_if = self.in_if_body;
         self.in_block_or_send = false;
+        self.in_if_body = false;
         if let Some(body) = node.body() {
             self.visit(&body);
         }
-        self.in_block_or_send = was;
+        self.in_block_or_send = was_block;
+        self.in_if_body = was_if;
         // Visit superclass expression
         if let Some(sup) = node.superclass() {
             self.visit(&sup);
@@ -318,21 +335,27 @@ impl<'pr> Visit<'pr> for InclusionVisitor<'_> {
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        let was = self.in_block_or_send;
+        let was_block = self.in_block_or_send;
+        let was_if = self.in_if_body;
         self.in_block_or_send = false;
+        self.in_if_body = false;
         if let Some(body) = node.body() {
             self.visit(&body);
         }
-        self.in_block_or_send = was;
+        self.in_block_or_send = was_block;
+        self.in_if_body = was_if;
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
-        let was = self.in_block_or_send;
+        let was_block = self.in_block_or_send;
+        let was_if = self.in_if_body;
         self.in_block_or_send = false;
+        self.in_if_body = false;
         if let Some(body) = node.body() {
             self.visit(&body);
         }
-        self.in_block_or_send = was;
+        self.in_block_or_send = was_block;
+        self.in_if_body = was_if;
     }
 
     // If/unless bodies: RuboCop's `next_line_node` returns nil when
