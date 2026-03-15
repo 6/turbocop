@@ -70,9 +70,30 @@ use ruby_prism::Visit;
 ///   NOT `case`/`when`. Fixed by removing `visit_case_node` and `visit_case_match_node`
 ///   overrides that incremented `if_depth`.
 ///
-/// Remaining items not implemented (likely not significant for corpus):
-/// - `delegate :foo, to: :bar` (ActiveSupport) — only active when
-///   ActiveSupportExtensionsEnabled is true, which is off by default in corpus baseline.
+/// ### Round 5 (FP=1, FN=26)
+/// Root causes of FP:
+/// - `alias_method "foo", "bar"` with string args was treated the same as
+///   `alias_method :foo, :bar` with symbol args. RuboCop's `alias_method?` pattern
+///   is `(send nil? :alias_method (sym $_name) (sym $_original_name))` — it only
+///   matches symbol arguments. Fixed by using `extract_symbol_only` instead of
+///   `extract_symbol_or_string` in `process_alias_method`.
+///
+/// Root causes of FN:
+/// - `delegate :method, to: :target` (ActiveSupport) was not tracked. Many corpus
+///   repos have `ActiveSupportExtensionsEnabled: true` via rubocop-rails. Fixed by
+///   implementing `process_delegate` that reads the `ActiveSupportExtensionsEnabled`
+///   config flag, matching RuboCop's `delegate_method?` pattern. Handles `prefix: true`
+///   and `prefix: :name` options.
+/// - `class << A::B` (ConstantPathNode) in singleton class expression was not handled.
+///   Only `ConstantReadNode` was matched. Fixed by adding `as_constant_path_node()`
+///   check in `visit_singleton_class_node`.
+///
+/// Remaining FN not addressed (edge cases, ~7 total):
+/// - `def VCR.version` at top level in Rake tasks (inside DSL blocks)
+/// - `def FakeModel.method` inside test describe blocks (plain_block_depth > 0)
+/// - `def response.body` inside `class << @reflex.controller.response`
+/// - One-liner singleton classes (`class << Object.new; def m; end; end`)
+/// - Some repos with `attr_accessor` + `delegate` combinations
 pub struct DuplicateMethods;
 
 impl Cop for DuplicateMethods {
@@ -89,10 +110,11 @@ impl Cop for DuplicateMethods {
         source: &SourceFile,
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        let active_support = config.get_bool("ActiveSupportExtensionsEnabled", false);
         let mut visitor = DupMethodVisitor {
             cop: self,
             source,
@@ -106,6 +128,7 @@ impl Cop for DuplicateMethods {
             rescue_forgiven: Vec::new(),
             ensure_forgiven: Vec::new(),
             rescue_ensure_type_stack: Vec::new(),
+            active_support_extensions: active_support,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -146,6 +169,8 @@ struct DupMethodVisitor<'a, 'src> {
     /// Which scope type the current rescue/ensure ancestors belong to.
     /// Used to decide which forgiven set to check.
     rescue_ensure_type_stack: Vec<RescueEnsureType>,
+    /// Whether ActiveSupport extensions are enabled (for `delegate` tracking).
+    active_support_extensions: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -374,6 +399,9 @@ impl DupMethodVisitor<'_, '_> {
             "def_delegators" | "def_instance_delegators" => {
                 self.process_def_delegators(node, &arg_list);
             }
+            "delegate" if self.active_support_extensions => {
+                self.process_delegate(node, &arg_list);
+            }
             _ => {}
         }
     }
@@ -386,11 +414,14 @@ impl DupMethodVisitor<'_, '_> {
         if args.len() < 2 {
             return;
         }
-        let new_name = match extract_symbol_or_string(&args[0]) {
+        // RuboCop's alias_method? pattern is:
+        //   (send nil? :alias_method (sym $_name) (sym $_original_name))
+        // It only matches symbol arguments, not string arguments.
+        let new_name = match extract_symbol_only(&args[0]) {
             Some(n) => n,
             None => return,
         };
-        let orig_name = match extract_symbol_or_string(&args[1]) {
+        let orig_name = match extract_symbol_only(&args[1]) {
             Some(n) => n,
             None => return,
         };
@@ -515,6 +546,95 @@ impl DupMethodVisitor<'_, '_> {
             }
         }
     }
+
+    /// Process `delegate :method1, :method2, to: :target` (ActiveSupport).
+    /// RuboCop's delegate_method? pattern:
+    ///   (send nil? :delegate ({sym str} $_)+ (hash <(pair (sym :to) {sym str}) ...>))
+    /// The last arg must be a hash containing a `:to` key. All preceding args
+    /// that are symbols or strings are method names being defined.
+    /// Also handles `prefix: true` or `prefix: :name` which prepends `target_` or `name_`.
+    fn process_delegate(&mut self, node: &ruby_prism::CallNode<'_>, args: &[ruby_prism::Node<'_>]) {
+        if args.is_empty() {
+            return;
+        }
+
+        // Last arg must be a keyword hash (e.g., `to: :target`)
+        let last_arg = &args[args.len() - 1];
+        let hash_node = match last_arg.as_keyword_hash_node() {
+            Some(h) => h,
+            None => return,
+        };
+
+        // Single scan: extract `:to` target and `:prefix` value
+        let mut to_target: Option<String> = None;
+        let mut prefix_is_true = false;
+        let mut explicit_prefix: Option<String> = None;
+        for element in hash_node.elements().iter() {
+            if let Some(assoc) = element.as_assoc_node() {
+                if let Some(key_sym) = assoc.key().as_symbol_node() {
+                    let key_name = std::str::from_utf8(key_sym.unescaped()).unwrap_or("");
+                    match key_name {
+                        "to" => {
+                            to_target = extract_symbol_or_string(&assoc.value());
+                        }
+                        "prefix" => {
+                            let val = assoc.value();
+                            if val.as_true_node().is_some() {
+                                prefix_is_true = true;
+                            } else {
+                                explicit_prefix = extract_symbol_or_string(&val);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // Must have a `:to` key
+        if to_target.is_none() {
+            return;
+        }
+
+        // Determine the effective prefix
+        let name_prefix = if let Some(ep) = explicit_prefix {
+            Some(ep)
+        } else if prefix_is_true {
+            to_target
+        } else {
+            None
+        };
+
+        let is_singleton = self.in_singleton_scope();
+        let (def_line, _) = self
+            .source
+            .offset_to_line_col(node.location().start_offset());
+        let offset = node.location().start_offset();
+
+        // All args before the hash are method names
+        for arg in &args[..args.len() - 1] {
+            if let Some(name) = extract_symbol_or_string(arg) {
+                let effective_name = if let Some(ref prefix) = name_prefix {
+                    format!("{prefix}_{name}")
+                } else {
+                    name
+                };
+                self.found_method(&effective_name, is_singleton, def_line, offset);
+            }
+        }
+    }
+}
+
+/// Extract a symbol value from a node (not strings).
+fn extract_symbol_only(node: &ruby_prism::Node<'_>) -> Option<String> {
+    if let Some(sym) = node.as_symbol_node() {
+        return Some(
+            std::str::from_utf8(sym.unescaped())
+                .unwrap_or("")
+                .to_string(),
+        );
+    }
+    None
 }
 
 /// Extract a symbol or string value from a node.
@@ -639,11 +759,13 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
                 self.scope_stack.pop();
             }
         } else {
-            // `class << SomeConst` or `class << expr`
+            // `class << SomeConst` or `class << A::B` or `class << expr`
             let scope_name = if let Some(const_read) = expr.as_constant_read_node() {
                 std::str::from_utf8(const_read.name().as_slice())
                     .unwrap_or("")
                     .to_string()
+            } else if let Some(const_path) = expr.as_constant_path_node() {
+                constant_path_name(&const_path)
             } else if let Some(call) = expr.as_call_node() {
                 std::str::from_utf8(call.name().as_slice())
                     .unwrap_or("")
@@ -860,7 +982,7 @@ mod tests {
     use super::*;
     crate::cop_fixture_tests!(DuplicateMethods, "cops/lint/duplicate_methods");
 
-    use crate::testutil::run_cop_full;
+    use crate::testutil::{run_cop_full, run_cop_full_with_config};
 
     fn count_offenses(source: &[u8]) -> usize {
         run_cop_full(&DuplicateMethods, source).len()
@@ -1070,5 +1192,114 @@ mod tests {
         // def A.foo and def self.foo inside class A should be same
         let n = count_offenses(b"class A\n  def A.foo; 1; end\n  def self.foo; 2; end\nend\n");
         assert_eq!(n, 1, "def A.foo and def self.foo should be same");
+    }
+
+    #[test]
+    fn test_alias_method_string_args_not_tracked() {
+        // RuboCop's alias_method? pattern only matches symbol args, not strings.
+        // alias_method "foo", "bar" after alias_method :foo, :bar should NOT be an offense.
+        let n = count_offenses(
+            b"class Foo\n  alias_method :process, :other\n  alias_method \"process\", \"other\"\nend\n",
+        );
+        assert_eq!(n, 0, "alias_method with string args should not be tracked");
+    }
+
+    fn count_offenses_with_active_support(source: &[u8]) -> usize {
+        let mut config = CopConfig::default();
+        config
+            .options
+            .insert("ActiveSupportExtensionsEnabled".to_string(), true.into());
+        run_cop_full_with_config(&DuplicateMethods, source, config).len()
+    }
+
+    #[test]
+    fn test_delegate_with_active_support() {
+        // delegate :method, to: :target followed by def method should be an offense
+        // when ActiveSupportExtensionsEnabled is true
+        let n = count_offenses_with_active_support(
+            b"class Foo\n  delegate :process, to: :target\n  def process; end\nend\n",
+        );
+        assert_eq!(n, 1, "delegate + def should be offense with ActiveSupport");
+    }
+
+    #[test]
+    fn test_delegate_without_active_support() {
+        // delegate should NOT be tracked without ActiveSupportExtensionsEnabled
+        let n = count_offenses(
+            b"class Foo\n  delegate :process, to: :target\n  def process; end\nend\n",
+        );
+        assert_eq!(n, 0, "delegate should not be tracked without ActiveSupport");
+    }
+
+    #[test]
+    fn test_delegate_duplicate_in_same_call() {
+        // delegate :foo, :foo, to: :bar — same method listed twice
+        let n = count_offenses_with_active_support(
+            b"class Foo\n  delegate :bar, :bar, to: :target\nend\n",
+        );
+        assert_eq!(n, 1, "duplicate symbol in same delegate call");
+    }
+
+    #[test]
+    fn test_delegate_multiple_calls_same_method() {
+        // Two separate delegate calls defining the same method
+        let n = count_offenses_with_active_support(
+            b"class Foo\n  delegate :bar, to: :target1\n  delegate :bar, to: :target2\nend\n",
+        );
+        assert_eq!(n, 1, "same method in two delegate calls");
+    }
+
+    #[test]
+    fn test_delegate_with_prefix_true() {
+        // delegate :name, to: :target, prefix: true => defines target_name
+        let n = count_offenses_with_active_support(
+            b"class Foo\n  delegate :name, to: :target, prefix: true\n  def target_name; end\nend\n",
+        );
+        assert_eq!(n, 1, "delegate with prefix: true should prepend target_");
+    }
+
+    #[test]
+    fn test_delegate_with_prefix_symbol() {
+        // delegate :name, to: :target, prefix: :custom => defines custom_name
+        let n = count_offenses_with_active_support(
+            b"class Foo\n  delegate :name, to: :target, prefix: :custom\n  def custom_name; end\nend\n",
+        );
+        assert_eq!(n, 1, "delegate with prefix: :custom should prepend custom_");
+    }
+
+    #[test]
+    fn test_delegate_inside_condition() {
+        // delegate inside if/unless should be ignored
+        let n = count_offenses_with_active_support(
+            b"class Foo\n  def process; end\n  if cond\n    delegate :process, to: :bar\n  end\nend\n",
+        );
+        assert_eq!(n, 0, "delegate inside condition should be ignored");
+    }
+
+    #[test]
+    fn test_delegate_no_to_key() {
+        // delegate without :to key should be ignored
+        let n = count_offenses_with_active_support(
+            b"class Foo\n  delegate :process\n  def process; end\nend\n",
+        );
+        assert_eq!(n, 0, "delegate without :to should be ignored");
+    }
+
+    #[test]
+    fn test_sclass_constant_path() {
+        // class << A::B should recognize A::B as scope name
+        let n = count_offenses(
+            b"class << Multiton::ClassMethods\n  def extended; 1; end\n  def extended; 2; end\nend\n",
+        );
+        assert_eq!(n, 1, "class << A::B should detect duplicates");
+    }
+
+    #[test]
+    fn test_sclass_constant_path_reopened() {
+        // Reopened class << A::B should share the same scope
+        let n = count_offenses(
+            b"class << Multiton::ClassMethods\n  def extended; 1; end\nend\nclass << Multiton::ClassMethods\n  def extended; 2; end\nend\n",
+        );
+        assert_eq!(n, 1, "reopened class << A::B should detect dups");
     }
 }

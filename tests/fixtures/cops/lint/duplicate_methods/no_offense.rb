@@ -251,6 +251,19 @@ class Parser
   end
 end
 
+# alias_method with string args after alias_method with symbol args
+# RuboCop's alias_method? pattern only matches symbol arguments, not strings
+class AliasMethodStrings
+  alias_method :process, :other
+  alias_method "process", "other"
+end
+
+# delegate with ActiveSupportExtensionsEnabled — different methods, no conflict
+class WithDelegateNoConflict
+  delegate :name, to: :target
+  def status; end
+end
+
 # def_delegators with non-symbol/string first arg should be ignored
 class WithConstDelegators
   extend Forwardable
