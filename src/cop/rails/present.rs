@@ -43,6 +43,17 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: Added argument count check in `check_not_blank` and `check_unless_blank`. If the `blank?`
 /// call has any arguments, skip flagging to match RuboCop's NodePattern behavior.
+///
+/// ## Investigation (2026-03-15): FP=14, FN=14
+///
+/// **Root cause:** Location mismatch for modifier `unless`. For `x unless y.blank?`, nitrocop
+/// was reporting at the start of the entire expression (`x`), while RuboCop reports at the
+/// `unless` keyword. For multiline lambdas like `-> { ... } unless x.blank?`, this caused
+/// FP at the lambda's start line and FN at the `unless` keyword line.
+///
+/// Fix: Use `unless_node.keyword_loc()` instead of `node.location()` so the offense is always
+/// reported at the `unless` keyword. Also updated message to include the actual receiver and
+/// predicate source text (matching RuboCop's dynamic message format).
 pub struct Present;
 
 impl Cop for Present {
@@ -178,13 +189,28 @@ impl Present {
             return None;
         }
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        // RuboCop reports offense at the `unless` keyword for modifier form,
+        // or from the start of the block form. Using keyword_loc() covers both:
+        // for modifier `x unless y.blank?`, this is the `unless` keyword (not `x`).
+        let kw_loc = unless_node.keyword_loc();
+        let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+        // Build message like RuboCop: `Use `if <recv>.present?` instead of `unless <recv>.blank?`.`
+        let bytes = source.as_bytes();
+        let prefer = if let Some(recv) = pred_call.receiver() {
+            let recv_src = &bytes[recv.location().start_offset()..recv.location().end_offset()];
+            format!("{}.present?", std::str::from_utf8(recv_src).unwrap_or(""))
+        } else {
+            "present?".to_string()
+        };
+        // `current` = source from `unless` keyword to end of blank? predicate
+        let current_end = predicate.location().end_offset();
+        let current_src = &bytes[kw_loc.start_offset()..current_end];
+        let current = std::str::from_utf8(current_src).unwrap_or("unless blank?");
         Some(self.diagnostic(
             source,
             line,
             column,
-            "Use `if present?` instead of `unless blank?`.".to_string(),
+            format!("Use `if {prefer}` instead of `{current}`."),
         ))
     }
 
