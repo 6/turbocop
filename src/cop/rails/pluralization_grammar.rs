@@ -3,6 +3,23 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Rails/PluralizationGrammar — checks that numeric literals use grammatically
+/// correct ActiveSupport duration/byte methods (singular for 1/-1, plural otherwise).
+///
+/// ## Investigation (2026-03-15)
+///
+/// **Root cause of 40 FNs:** All false negatives were fractional float literals
+/// (e.g., `0.1.second`, `0.5.hour`, `1.5.day`) with singular method names.
+/// The old implementation discarded non-integer floats (where `f != f.trunc()`),
+/// so these expressions were never checked. RuboCop treats ALL float literals
+/// as valid receivers — `0.1` is not singular (abs != 1), so it requires the
+/// plural form (`0.1.seconds`).
+///
+/// **Fix:** Accept all float values, not just whole-number floats. The singularity
+/// check is `f.abs() == 1.0`, matching RuboCop's `number.abs == 1` behavior.
+/// Non-integer floats like 0.1, 0.5, 1.5 are always plural.
+///
+/// **FP: 0, FN: 0 after fix.**
 pub struct PluralizationGrammar;
 
 const SINGULAR_TO_PLURAL: &[(&[u8], &str)] = &[
@@ -100,36 +117,31 @@ impl Cop for PluralizationGrammar {
             None => return,
         };
 
-        let number = if let Some(int_node) = receiver.as_integer_node() {
-            // Extract the integer value from source
+        // RuboCop accepts any int or float literal as a receiver.
+        // Singular means abs(value) == 1 (e.g., 1, -1, 1.0, -1.0).
+        // All other numeric values (including fractional floats like 0.1, 1.5)
+        // are considered plural.
+        let (is_singular_number, number_text) = if let Some(int_node) = receiver.as_integer_node() {
             let loc = int_node.location();
             let text = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
             let text_str = std::str::from_utf8(text).unwrap_or("0");
-            // Remove underscores for parsing
             let clean: String = text_str.chars().filter(|c| *c != '_').collect();
-            clean.parse::<i64>().ok()
+            match clean.parse::<i64>() {
+                Ok(n) => (n.abs() == 1, text_str.to_string()),
+                Err(_) => return,
+            }
         } else if let Some(float_node) = receiver.as_float_node() {
             let loc = float_node.location();
             let text = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
             let text_str = std::str::from_utf8(text).unwrap_or("0");
             let clean: String = text_str.chars().filter(|c| *c != '_').collect();
-            // Only treat as integer if the float is a whole number (e.g. 1.0, -1.0)
-            // Fractional values like 1.5 are not singular or plural in the integer sense
-            clean.parse::<f64>().ok().and_then(
-                |f| {
-                    if f == f.trunc() { Some(f as i64) } else { None }
-                },
-            )
+            match clean.parse::<f64>() {
+                Ok(f) => (f.abs() == 1.0, text_str.to_string()),
+                Err(_) => return,
+            }
         } else {
             return;
         };
-
-        let number = match number {
-            Some(n) => n,
-            None => return,
-        };
-
-        let is_singular_number = number.abs() == 1;
         let is_plural_method = is_plural(method_name);
 
         // Offense: singular number with plural method, or plural number with singular method
@@ -151,7 +163,7 @@ impl Cop for PluralizationGrammar {
             source,
             line,
             column,
-            format!("Prefer `{number}.{correct}`."),
+            format!("Prefer `{number_text}.{correct}`."),
         ));
     }
 }
