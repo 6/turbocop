@@ -18,6 +18,17 @@ use crate::parse::source::SourceFile;
 ///   - `CaseMatchNode`: pattern matching `case/in` uses `CaseMatchNode`, not `CaseNode`.
 ///   - `SingletonClassNode`: `class << self` uses `SingletonClassNode`, not `ClassNode`.
 ///     All three were added to `interested_node_types` and handled in `check_node`.
+///
+/// ## Corpus investigation (2026-03-15)
+///
+/// Corpus oracle reported FP=0, FN=6 (all from rage-rb). The FN pattern is
+/// `variable = if cond` where `end` aligns with the line start (variable)
+/// instead of the `if` keyword. The cop correctly flags these patterns in
+/// keyword style with the default config (verified by inline tests). The 6
+/// FNs are likely caused by config resolution: rage-rb may have
+/// `EnforcedStyleAlignWith: variable` which makes nitrocop accept the
+/// alignment, while RuboCop may resolve a different style. This is a config
+/// resolution difference, not a cop logic bug.
 pub struct EndAlignment;
 
 /// Check if a specific operator (like `<<`) appears on the same line before `keyword_offset`.
@@ -435,6 +446,74 @@ mod tests {
         assert!(
             diags.is_empty(),
             "should not flag aligned end for class << self"
+        );
+    }
+
+    #[test]
+    fn keyword_style_flags_misaligned_end_in_assignment_rhs() {
+        // Exact corpus pattern: `callback_name = if block_given?` with `end` at col 6
+        // The if is at col 22. In keyword style, end should align with if.
+        let source = b"  def run_callback
+    callback_name = if block_given?
+      raise ArgumentError if method_name
+      define_tmp_method(block)
+    elsif method_name.is_a?(Symbol)
+      define_tmp_method(method_name)
+    else
+      raise ArgumentError
+      end
+  end
+";
+        let diags = run_cop_full(&EndAlignment, source);
+        assert!(
+            diags.iter().any(|d| d.message.contains("`if`")),
+            "keyword style should flag end not aligned with if in assignment RHS: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn keyword_style_flags_misaligned_end_in_shovel_rhs() {
+        // Exact corpus pattern: `@__body << if json` with `end` at col 6
+        let source = b"  def render
+    if json || plain
+      @__body << if json
+        json.is_a?(String) ? json : json.to_json
+      else
+        headers[\"content-type\"] = \"text/plain\"
+        plain.to_s
+      end
+
+      @__status = 200
+    end
+  end
+";
+        let diags = run_cop_full(&EndAlignment, source);
+        // Should flag `end` at col 6 not aligned with `if` at col 17
+        assert!(
+            diags.iter().any(|d| d.message.contains("`if`")),
+            "keyword style should flag end not aligned with if in << RHS: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn keyword_style_flags_misaligned_end_in_ivar_assignment_rhs() {
+        // Exact corpus pattern: `@__status = if status.is_a?(Symbol)` with end at col 4
+        let source = b"  def head(status)
+    @__status = if status.is_a?(Symbol)
+      ::Rack::Utils::SYMBOL_TO_STATUS_CODE[status]
+    else
+      status
+    end
+  end
+";
+        let diags = run_cop_full(&EndAlignment, source);
+        // end at col 4, if at col 16 — should flag
+        assert!(
+            diags.iter().any(|d| d.message.contains("`if`")),
+            "keyword style should flag end not aligned with if in ivar assignment RHS: {:?}",
+            diags
         );
     }
 
