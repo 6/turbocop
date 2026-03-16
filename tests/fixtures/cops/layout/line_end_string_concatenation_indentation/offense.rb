@@ -75,3 +75,24 @@ def show_message
            ^^^^^^^^^^^^^^^ Layout/LineEndStringConcatenationIndentation: Indent the first part of a string concatenated with backslash.
          end
 end
+
+# In parenthesized expression (Parser :begin, always-indented), aligned dstr should be indented
+def build_message
+  result << (
+    'fail validation if '\
+    ":#{name} is unset; "\
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineEndStringConcatenationIndentation: Indent the first part of a string concatenated with backslash.
+    'should have been defined'
+  )
+end
+
+# In explicit begin...end (Parser :kwbegin, NOT always-indented), aligned check
+def cache_key_prefix
+  @prefix ||= begin
+    indicator = unique ? "" : "s"
+    "attr#{indicator}" \
+      ":#{model_name}" \
+      ^^^^^^^^^^^^^^^^^^^^^ Layout/LineEndStringConcatenationIndentation: Align parts of a string concatenated with backslash.
+      ":#{attribute}"
+  end
+end

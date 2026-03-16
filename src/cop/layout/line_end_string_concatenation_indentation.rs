@@ -30,6 +30,24 @@ use ruby_prism::Visit;
 /// to detect whether `visit_branch_node_enter` was called. If it was, restore
 /// `nearest_parent_type` from the saved value (the pushed entry). If not,
 /// keep the inherited value. This correctly handles both cases.
+///
+/// ## Investigation findings (2026-03-15, round 2)
+///
+/// **Remaining 14 FPs:** Strings inside `case`/`when`/`rescue` branches
+/// inherited the enclosing scope's always-indented parent type (e.g., `Def`)
+/// instead of being treated as non-always-indented. In RuboCop/Parser,
+/// `:when`, `:case`, `:resbody` are NOT in `PARENT_TYPES_FOR_INDENTED`.
+/// For multi-statement bodies, Parser wraps in `:begin` (always-indented).
+///
+/// **Remaining 4 FNs:** (1) `ParenthesesNode` maps to Parser `:begin`
+/// (always-indented) but was not handled. (2) Explicit `begin...end` maps
+/// to Parser `:kwbegin` (NOT always-indented) but was treated like implicit
+/// begin.
+///
+/// **Fix:** Added visitor overrides for `CaseNode`, `WhenNode`, `RescueNode`
+/// (set `Other`), `ParenthesesNode` (set `Begin`), and distinguished explicit
+/// vs implicit `BeginNode`. Multi-statement `StatementsNode` bodies set
+/// `Begin` to match Parser's `:begin` wrapper behavior.
 pub struct LineEndStringConcatenationIndentation;
 
 impl Cop for LineEndStringConcatenationIndentation {
@@ -89,7 +107,14 @@ enum ParentType {
     Begin,
     Def,
     If,
+    /// Non-always-indented scope where multi-statement bodies get promoted
+    /// to Begin (e.g., when, case, rescue in Parser wrap multi-statement
+    /// bodies in `:begin`).
     Other,
+    /// Explicit `begin...end` (Parser `:kwbegin`) — NOT always-indented,
+    /// and multi-statement bodies are NOT promoted to Begin (kwbegin holds
+    /// children directly, no `:begin` wrapper).
+    ExplicitBegin,
 }
 
 impl ConcatVisitor<'_> {
@@ -256,39 +281,94 @@ impl<'pr> Visit<'pr> for ConcatVisitor<'_> {
 
     // --- "Always indented" parent types ---
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        let saved_depth = self.expected_stack_depth;
         self.nearest_parent_type = ParentType::Def;
         self.expected_stack_depth = self.saved_parent_types.len();
         ruby_prism::visit_def_node(self, node);
+        self.expected_stack_depth = saved_depth;
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        let saved_depth = self.expected_stack_depth;
         self.nearest_parent_type = ParentType::Block;
         self.expected_stack_depth = self.saved_parent_types.len();
         ruby_prism::visit_block_node(self, node);
+        self.expected_stack_depth = saved_depth;
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        let saved_depth = self.expected_stack_depth;
         self.nearest_parent_type = ParentType::Block;
         self.expected_stack_depth = self.saved_parent_types.len();
         ruby_prism::visit_lambda_node(self, node);
+        self.expected_stack_depth = saved_depth;
     }
 
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
-        self.nearest_parent_type = ParentType::Begin;
+        let saved_depth = self.expected_stack_depth;
+        // Explicit `begin...end` is Parser `:kwbegin` — NOT always-indented,
+        // and multi-statement bodies stay non-always-indented.
+        // Implicit begin (def body with rescue, no begin keyword) keeps the
+        // enclosing scope's parent type (e.g., Def).
+        if node.begin_keyword_loc().is_some() {
+            self.nearest_parent_type = ParentType::ExplicitBegin;
+        }
         self.expected_stack_depth = self.saved_parent_types.len();
         ruby_prism::visit_begin_node(self, node);
+        self.expected_stack_depth = saved_depth;
     }
 
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        let saved_depth = self.expected_stack_depth;
         self.nearest_parent_type = ParentType::If;
         self.expected_stack_depth = self.saved_parent_types.len();
         ruby_prism::visit_if_node(self, node);
+        self.expected_stack_depth = saved_depth;
     }
 
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        let saved_depth = self.expected_stack_depth;
         self.nearest_parent_type = ParentType::If;
         self.expected_stack_depth = self.saved_parent_types.len();
         ruby_prism::visit_unless_node(self, node);
+        self.expected_stack_depth = saved_depth;
+    }
+
+    // --- Non-always-indented parent types ---
+    // In Parser, `:when`, `:case`, `:resbody` are NOT in
+    // PARENT_TYPES_FOR_INDENTED. Multi-statement bodies get `:begin` wrapper
+    // (handled by visit_statements_node below).
+    fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
+        let saved_depth = self.expected_stack_depth;
+        self.nearest_parent_type = ParentType::Other;
+        self.expected_stack_depth = self.saved_parent_types.len();
+        ruby_prism::visit_case_node(self, node);
+        self.expected_stack_depth = saved_depth;
+    }
+
+    fn visit_when_node(&mut self, node: &ruby_prism::WhenNode<'pr>) {
+        let saved_depth = self.expected_stack_depth;
+        self.nearest_parent_type = ParentType::Other;
+        self.expected_stack_depth = self.saved_parent_types.len();
+        ruby_prism::visit_when_node(self, node);
+        self.expected_stack_depth = saved_depth;
+    }
+
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        let saved_depth = self.expected_stack_depth;
+        self.nearest_parent_type = ParentType::Other;
+        self.expected_stack_depth = self.saved_parent_types.len();
+        ruby_prism::visit_rescue_node(self, node);
+        self.expected_stack_depth = saved_depth;
+    }
+
+    // ParenthesesNode maps to Parser `:begin` — always-indented.
+    fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'pr>) {
+        let saved_depth = self.expected_stack_depth;
+        self.nearest_parent_type = ParentType::Begin;
+        self.expected_stack_depth = self.saved_parent_types.len();
+        ruby_prism::visit_parentheses_node(self, node);
+        self.expected_stack_depth = saved_depth;
     }
 
     // --- Pass-through nodes ---
@@ -301,7 +381,13 @@ impl<'pr> Visit<'pr> for ConcatVisitor<'_> {
                 self.nearest_parent_type = saved;
             }
         }
-        // else: not called, nearest_parent_type already correct
+        // In Parser, multi-statement bodies are wrapped in `:begin` (which IS
+        // always-indented). Emulate this: if the StatementsNode has 2+
+        // children and the current parent type is NOT already always-indented,
+        // promote to Begin.
+        if node.body().len() > 1 && matches!(self.nearest_parent_type, ParentType::Other) {
+            self.nearest_parent_type = ParentType::Begin;
+        }
         ruby_prism::visit_statements_node(self, node);
     }
 

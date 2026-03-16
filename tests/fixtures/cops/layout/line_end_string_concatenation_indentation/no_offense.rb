@@ -145,3 +145,67 @@ def render_message
     end
   msg
 end
+
+# Aligned dstr inside case/when branch (when is NOT always-indented parent)
+def check_visibility
+  case role
+  when 'default'
+    user_ids = 'test'
+    "(private = false " \
+      "OR author = user " \
+      "OR assigned_to IN (ids))"
+  when 'own'
+    "(author = user OR " \
+    "assigned_to IN (ids))"
+  end
+end
+
+# Aligned dstr inside else of case (case else is NOT always-indented parent)
+def bracket_message
+  case style
+  when :first_column
+    'Indent the right bracket the same as the first position ' \
+    'after the preceding left parenthesis.'
+  else
+    'Indent the right bracket the same as the start of the line ' \
+    'where the left bracket is.'
+  end
+end
+
+# Aligned dstr inside else of if within a def body
+def enqueue_message
+  if success
+    "Enqueued all jobs"
+  else
+    "Failed enqueuing jobs " \
+      "to adapter"
+  end
+end
+
+# Aligned dstr inside rescue clause (rescue is NOT always-indented parent)
+def inspect_value
+  obj.inspect
+rescue StandardError
+  "<span class='error'>(Object too large. " \
+  "Adjust the maximum size.)</span>"
+end
+
+# Indented dstr inside else of if (if is always-indented parent)
+# Multi-statement if body with block, single-statement else body
+def update_message(items, version, adapter)
+  if items.any?
+    messages = items.map do |dep|
+      "  #{dep['explanation']}"
+    end.join("\n")
+
+    pluralized =
+      items.count > 1 ? "dependencies" : "dependency"
+
+    "The latest possible version that can be installed is " \
+      "#{version} because of the following " \
+      "conflicting #{pluralized}:\n\n#{messages}"
+  else
+    "The latest possible version of #{adapter} that can " \
+      "be installed is #{version}"
+  end
+end
