@@ -32,14 +32,42 @@ use crate::parse::source::SourceFile;
 /// leading-slash and multi-slash exclusions for both File.join and Rails.root.join,
 /// extension-after-join detection in dstr, colon guard for dstr, non-send guard for dstr,
 /// and multi-arg slash detection in arguments style.
+///
+/// ## Investigation findings (2026-03-16)
+///
+/// **FP root cause**: `is_rails_root` and `File.join` receiver check used
+/// `util::constant_name()` which only compares the last segment of a constant path.
+/// `SomeModule::Rails.root` and `SomeModule::File.join(...)` were incorrectly matched
+/// as `Rails.root` and `File.join`. RuboCop's pattern `(const {nil? cbase} :Rails)`
+/// requires the constant to be top-level (bare or `::` prefixed). Added
+/// `is_top_level_constant()` guard to both checks.
+///
+/// **FN root cause**: Extension-after-Rails.root in dstr (`"#{Rails.root}.png"`) was
+/// guarded by `is_rails_root_join()`, only detecting `"#{Rails.root.join(...)}.ext"`.
+/// RuboCop's `check_for_extension_after_rails_root_join_in_dstr` does NOT require the
+/// inner expression to be `.join()` — it checks extension for any dstr containing
+/// Rails.root. Removed the `is_rails_root_join` guard.
 pub struct FilePath;
 
-/// Check if a node is `Rails.root` or `::Rails.root`.
+/// Check if a constant node is top-level (bare `Foo` or `::Foo`), not namespaced (`A::Foo`).
+/// Matches RuboCop's `(const {nil? cbase} :Name)` pattern.
+fn is_top_level_constant(node: &ruby_prism::Node<'_>) -> bool {
+    if node.as_constant_read_node().is_some() {
+        return true; // bare constant like `Rails` or `File`
+    }
+    if let Some(cp) = node.as_constant_path_node() {
+        return cp.parent().is_none(); // `::Rails` or `::File` (cbase)
+    }
+    false
+}
+
+/// Check if a node is `Rails.root` or `::Rails.root` (not `SomeModule::Rails.root`).
 fn is_rails_root(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
         if call.name().as_slice() == b"root" {
             if let Some(recv) = call.receiver() {
-                return util::constant_name(&recv) == Some(b"Rails");
+                return util::constant_name(&recv) == Some(b"Rails")
+                    && is_top_level_constant(&recv);
             }
         }
     }
@@ -164,8 +192,8 @@ impl Cop for FilePath {
             None => return,
         };
 
-        if util::constant_name(&recv) == Some(b"File") {
-            // Pattern 1: File.join(Rails.root, ...) — receiver is File constant
+        if util::constant_name(&recv) == Some(b"File") && is_top_level_constant(&recv) {
+            // Pattern 1: File.join(Rails.root, ...) — receiver is File or ::File constant
             self.check_file_join(source, node, &call, style, diagnostics);
             return;
         }
@@ -218,16 +246,16 @@ impl FilePath {
         let body: Vec<_> = stmts.body().iter().collect();
         let inner_expr = &body[0];
 
-        // Check for extension after Rails.root.join: "#{Rails.root.join(...)}.png"
-        if is_rails_root_join(inner_expr) {
-            if let Some(next_part) = parts.get(rails_root_index + 1) {
-                if is_extension_node(source, next_part) {
-                    let loc = istr.as_node().location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    let msg = self.build_message(style, false);
-                    diagnostics.push(self.diagnostic(source, line, column, msg));
-                    return;
-                }
+        // Check for extension after Rails.root or Rails.root.join:
+        // "#{Rails.root}.png" or "#{Rails.root.join(...)}.png"
+        // RuboCop checks extension regardless of whether inner expr is .join or bare .root
+        if let Some(next_part) = parts.get(rails_root_index + 1) {
+            if is_extension_node(source, next_part) {
+                let loc = istr.as_node().location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                let msg = self.build_message(style, false);
+                diagnostics.push(self.diagnostic(source, line, column, msg));
+                return;
             }
         }
 
@@ -513,6 +541,40 @@ mod tests {
         assert!(
             !diags.is_empty(),
             "should flag File.join with array argument containing Rails.root"
+        );
+    }
+
+    #[test]
+    fn namespaced_rails_root_no_offense() {
+        use crate::testutil::assert_cop_no_offenses_full;
+        // SomeModule::Rails.root is NOT the same as Rails.root
+        assert_cop_no_offenses_full(&FilePath, b"SomeModule::Rails.root.join('app', 'models')\n");
+    }
+
+    #[test]
+    fn namespaced_file_join_no_offense() {
+        use crate::testutil::assert_cop_no_offenses_full;
+        // SomeModule::File.join should not be treated as File.join
+        assert_cop_no_offenses_full(
+            &FilePath,
+            b"SomeModule::File.join(Rails.root, 'app', 'models')\n",
+        );
+    }
+
+    #[test]
+    fn dstr_namespaced_rails_root_no_offense() {
+        use crate::testutil::assert_cop_no_offenses_full;
+        assert_cop_no_offenses_full(&FilePath, b"\"#{SomeModule::Rails.root}/path\"\n");
+    }
+
+    #[test]
+    fn dstr_extension_after_bare_rails_root() {
+        use crate::testutil::run_cop_full;
+        // "#{Rails.root}.png" should be flagged (extension after bare Rails.root)
+        let diags = run_cop_full(&FilePath, b"\"#{Rails.root}.png\"\n");
+        assert!(
+            !diags.is_empty(),
+            "should flag extension after bare Rails.root in dstr"
         );
     }
 }

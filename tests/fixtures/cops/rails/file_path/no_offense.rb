@@ -18,3 +18,6 @@ File.join(Rails.root, "public//", "assets")
 "#{Rails.root}. a message"
 join(Rails.root, path)
 Rails.root.join("tmp", "data", index/3, "data.csv")
+SomeModule::Rails.root.join("app", "models")
+SomeModule::File.join(Rails.root, "app", "models")
+"#{SomeModule::Rails.root}/path"
