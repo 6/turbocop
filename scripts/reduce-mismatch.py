@@ -12,9 +12,11 @@ Usage:
 """
 
 import argparse
+import atexit
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -23,6 +25,23 @@ from pathlib import Path
 # Allow importing from the same directory
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rubocop_cache import cached_rubocop_run
+
+# Run in own process group so we can kill all children on exit
+try:
+    os.setpgrp()
+except OSError:
+    pass  # May fail if already a process group leader
+
+
+def _cleanup_children():
+    """Kill all processes in our process group on exit."""
+    try:
+        os.killpg(os.getpgrp(), signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        pass
+
+
+atexit.register(_cleanup_children)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
@@ -33,6 +52,18 @@ OUTPUT_DIR = Path("/tmp/nitrocop-reduce")
 # Counters for stats
 _predicate_calls = 0
 _predicate_cache: dict[tuple[str, str, str, bool, str], bool] = {}
+_deadline: float = float("inf")
+
+
+class TimeoutError(Exception):
+    """Raised when the total reduction timeout is exceeded."""
+    pass
+
+
+def _check_deadline():
+    """Raise TimeoutError if the deadline has passed."""
+    if time.time() > _deadline:
+        raise TimeoutError("Total reduction timeout exceeded")
 
 
 def corpus_env() -> dict[str, str]:
@@ -44,15 +75,23 @@ def corpus_env() -> dict[str, str]:
 
 
 class RubocopRunner:
-    """Run RuboCop with optional server mode to amortize startup cost."""
+    """Run RuboCop without server mode to avoid contention with other processes.
+
+    The reducer runs many RuboCop invocations during bisection. Using --server
+    mode caused hangs when multiple agents/worktrees shared the same RuboCop
+    server — requests would block waiting for the server lock, causing the
+    reducer to appear stalled for 50+ minutes. Using --no-server avoids this
+    at the cost of ~1s extra startup per invocation (mitigated by the result
+    cache in rubocop_cache.py).
+    """
 
     def __init__(self):
         self.env = corpus_env()
-        self._server_enabled: bool | None = None
 
     def _base_cmd(self, cop: str, filepath: str) -> list[str]:
         return [
             "bundle", "exec", "rubocop",
+            "--no-server",
             "--only", cop,
             "--format", "json",
             "--config", str(BASELINE_CONFIG),
@@ -60,26 +99,9 @@ class RubocopRunner:
             filepath,
         ]
 
-    def _ensure_server_mode(self):
-        if self._server_enabled is not None:
-            return
-
-        cmd = ["bundle", "exec", "rubocop", "--start-server"]
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, env=self.env,
-            )
-            self._server_enabled = result.returncode == 0
-        except subprocess.TimeoutExpired:
-            self._server_enabled = False
-
     def run(self, cop: str, filepath: str) -> set[int]:
         """Run RuboCop on a single file, returning offense line numbers."""
-        self._ensure_server_mode()
-
         cmd = self._base_cmd(cop, filepath)
-        if self._server_enabled:
-            cmd.insert(3, "--server")
 
         # Read file content for cache key
         try:
@@ -93,7 +115,7 @@ class RubocopRunner:
             cop_name=cop,
             config_path=str(BASELINE_CONFIG),
             env=self.env,
-            timeout=30,
+            timeout=60,
         )
 
         if data is None:
@@ -168,6 +190,8 @@ def is_interesting(
     skip_rubocop: optimization for FP — if original had 0 rubocop offenses,
     any subset will too, so we only need to check nitrocop.
     """
+    _check_deadline()
+
     cache_key = None
     if candidate_text is not None:
         digest = hashlib.blake2b(candidate_text.encode(), digest_size=16).hexdigest()
@@ -328,6 +352,8 @@ def main():
                         help="Mismatch type to preserve (default: fp)")
     parser.add_argument("--verbose", action="store_true",
                         help="Print each reduction step")
+    parser.add_argument("--timeout", type=int, default=600,
+                        help="Total timeout in seconds (default: 600 = 10 min)")
     args = parser.parse_args()
 
     # Parse filepath:line
@@ -407,19 +433,28 @@ def main():
     print(file=sys.stderr)
     start_time = time.time()
 
-    # Phase 1: block deletion
-    print("Phase 1: block deletion...", file=sys.stderr)
-    lines = reduce_blocks(
-        lines, args.cop, tmp_path, args.type, rubocop_runner, skip_rubocop, args.verbose,
-    )
-    print(f"Phase 1 done: {original_count} → {len(lines)} lines", file=sys.stderr)
+    global _deadline
+    _deadline = start_time + args.timeout
+    timed_out = False
 
-    # Phase 2: line deletion
-    print("Phase 2: line deletion...", file=sys.stderr)
-    lines = reduce_lines(
-        lines, args.cop, tmp_path, args.type, rubocop_runner, skip_rubocop, args.verbose,
-    )
-    print(f"Phase 2 done: {len(lines)} lines", file=sys.stderr)
+    try:
+        # Phase 1: block deletion
+        print("Phase 1: block deletion...", file=sys.stderr)
+        lines = reduce_blocks(
+            lines, args.cop, tmp_path, args.type, rubocop_runner, skip_rubocop, args.verbose,
+        )
+        print(f"Phase 1 done: {original_count} → {len(lines)} lines", file=sys.stderr)
+
+        # Phase 2: line deletion
+        print("Phase 2: line deletion...", file=sys.stderr)
+        lines = reduce_lines(
+            lines, args.cop, tmp_path, args.type, rubocop_runner, skip_rubocop, args.verbose,
+        )
+        print(f"Phase 2 done: {len(lines)} lines", file=sys.stderr)
+    except TimeoutError:
+        timed_out = True
+        print(f"\nTimeout after {args.timeout}s — writing best result so far "
+              f"({len(lines)} lines)", file=sys.stderr)
 
     elapsed = time.time() - start_time
 
@@ -432,8 +467,9 @@ def main():
     write_candidate(lines, tmp_path)
 
     print()
+    status = " (TIMED OUT — partial result)" if timed_out else ""
     print(f"Reduced {original_count} lines → {len(lines)} lines "
-          f"({_predicate_calls} checks, {elapsed:.1f}s)")
+          f"({_predicate_calls} checks, {elapsed:.1f}s){status}")
     print(f"Wrote: {output_path}")
     print()
     print("--- Reduced file ---")
