@@ -11,15 +11,24 @@ use crate::parse::source::SourceFile;
 /// Layout/IndentationWidth checks that each body is indented by the configured
 /// number of spaces (default 2) relative to its parent keyword/block.
 ///
-/// ## Corpus investigation findings (2026-03-09):
-/// - 164 FP, 47,114 FN (57.8% match rate)
-/// - FPs largely caused by missing `starts_with_access_modifier?` skip (RuboCop
-///   skips indentation check when body begins with `private`/`protected`/`public`/
-///   `module_function`). Biggest source: phlex repo (64 FPs), bin/bundle binstubs.
-/// - FPs also from missing "body not first on line" check (RuboCop's `skip_check?`
-///   skips when body node column != first non-space char on its line).
-/// - FNs are massive (47k) and mainly from the cop being at preview tier, not from
-///   logic bugs. The cop correctly detects offenses when enabled.
+/// ## Corpus investigation (2026-03-15)
+///
+/// Cached corpus oracle reported FP=58, FN=46,990.
+///
+/// 2026-03-09:
+/// - Fixed FP sources from RuboCop's `skip_check?`: bodies that start with bare
+///   access modifiers and bodies that are not the first non-whitespace token on
+///   their line.
+///
+/// 2026-03-15:
+/// - Remaining large FN volume came from class/module/sclass bodies only checking
+///   the first child. RuboCop's `check_members` walks class/module members, checks
+///   access modifier indentation, and honors
+///   `Layout/IndentationConsistency: indented_internal_methods`.
+/// - This port now mirrors that member walk for class/module/sclass bodies and for
+///   block bodies that use `indented_internal_methods`, and it reads the sibling
+///   `Layout/IndentationConsistency` / `Layout/AccessModifierIndentation` styles
+///   through config injection.
 pub struct IndentationWidth;
 
 /// Access modifier method names that RuboCop treats as bare access modifiers.
@@ -27,19 +36,38 @@ pub struct IndentationWidth;
 /// indentation width check for that body.
 const ACCESS_MODIFIERS: &[&[u8]] = &[b"private", b"protected", b"public", b"module_function"];
 
-/// Check if a node is a bare access modifier call (e.g., `private` with no args,
-/// or `private :method_name`). Matches RuboCop's `access_modifier?` / `bare_access_modifier?`.
+/// Check if a node is a bare access modifier call (for example `private` with no
+/// receiver, args, or block). Matches RuboCop's `bare_access_modifier?`.
 fn is_access_modifier_call(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
-        // Must be a method call with no explicit receiver (bare call)
-        if call.receiver().is_some() {
+        if call.receiver().is_some() || call.block().is_some() {
             return false;
+        }
+        if let Some(args) = call.arguments() {
+            if args.arguments().iter().next().is_some() {
+                return false;
+            }
         }
         let name = call.name().as_slice();
         ACCESS_MODIFIERS.contains(&name)
     } else {
         false
     }
+}
+
+fn body_members(body: ruby_prism::Node<'_>) -> Vec<ruby_prism::Node<'_>> {
+    if let Some(stmts) = body.as_statements_node() {
+        stmts.body().iter().collect()
+    } else {
+        vec![body]
+    }
+}
+
+fn body_contains_access_modifier(body: Option<ruby_prism::Node<'_>>) -> bool {
+    body.map(body_members)
+        .unwrap_or_default()
+        .iter()
+        .any(is_access_modifier_call)
 }
 
 /// Check if a StatementsNode's first child is a bare access modifier.
@@ -74,7 +102,218 @@ fn body_not_first_on_line(source: &SourceFile, body_col: usize, body_offset: usi
     body_col != first_col
 }
 
+struct MemberStyles<'a> {
+    access_modifier: &'a str,
+    consistency: &'a str,
+}
+
 impl IndentationWidth {
+    fn indentation_message(
+        &self,
+        width: usize,
+        actual_indent: isize,
+        style_name: Option<&str>,
+    ) -> String {
+        match style_name {
+            Some(style_name) => {
+                format!(
+                    "Use {} (not {}) spaces for {} indentation.",
+                    width, actual_indent, style_name
+                )
+            }
+            None => format!(
+                "Use {} (not {}) spaces for indentation.",
+                width, actual_indent
+            ),
+        }
+    }
+
+    fn check_member_indentation(
+        &self,
+        source: &SourceFile,
+        base_offset: usize,
+        base_col: usize,
+        member: &ruby_prism::Node<'_>,
+        width: usize,
+        style_name: Option<&str>,
+    ) -> Option<Diagnostic> {
+        let (base_line, _) = source.offset_to_line_col(base_offset);
+        let loc = member.location();
+        let (member_line, member_col) = source.offset_to_line_col(loc.start_offset());
+
+        if member_line == base_line {
+            return None;
+        }
+
+        if body_not_first_on_line(source, member_col, loc.start_offset()) {
+            return None;
+        }
+
+        let expected = expected_indent_for_body(base_col, width);
+        if member_col == expected {
+            return None;
+        }
+
+        let actual_indent = member_col as isize - base_col as isize;
+        Some(self.diagnostic(
+            source,
+            member_line,
+            member_col,
+            self.indentation_message(width, actual_indent, style_name),
+        ))
+    }
+
+    fn check_class_like_members(
+        &self,
+        source: &SourceFile,
+        base_offset: usize,
+        base_col: usize,
+        body: Option<ruby_prism::Node<'_>>,
+        width: usize,
+        styles: MemberStyles<'_>,
+    ) -> Vec<Diagnostic> {
+        let body = match body {
+            Some(body) => body,
+            None => return Vec::new(),
+        };
+
+        let members = body_members(body);
+        if members.is_empty() {
+            return Vec::new();
+        }
+
+        let (base_line, _) = source.offset_to_line_col(base_offset);
+        let first = &members[0];
+        let (first_line, _) = source.offset_to_line_col(first.location().start_offset());
+        if first_line == base_line {
+            return Vec::new();
+        }
+
+        let mut diagnostics = Vec::new();
+
+        if styles.consistency == "indented_internal_methods" {
+            if is_access_modifier_call(first) {
+                if styles.access_modifier != "outdent" {
+                    if let Some(diagnostic) = self.check_member_indentation(
+                        source,
+                        base_offset,
+                        base_col,
+                        first,
+                        width,
+                        None,
+                    ) {
+                        diagnostics.push(diagnostic);
+                    }
+                }
+            } else if let Some(diagnostic) =
+                self.check_member_indentation(source, base_offset, base_col, first, width, None)
+            {
+                diagnostics.push(diagnostic);
+            }
+
+            let mut previous_modifier: Option<&ruby_prism::Node<'_>> = None;
+            for member in &members {
+                if is_access_modifier_call(member) {
+                    previous_modifier = Some(member);
+                    continue;
+                }
+
+                if let Some(modifier) = previous_modifier.take() {
+                    let modifier_loc = modifier.location();
+                    let (_, modifier_col) = source.offset_to_line_col(modifier_loc.start_offset());
+                    if let Some(diagnostic) = self.check_member_indentation(
+                        source,
+                        modifier_loc.start_offset(),
+                        modifier_col,
+                        member,
+                        width,
+                        Some("indented_internal_methods"),
+                    ) {
+                        diagnostics.push(diagnostic);
+                    }
+                }
+            }
+
+            return diagnostics;
+        }
+
+        if is_access_modifier_call(first) && styles.access_modifier != "outdent" {
+            if let Some(diagnostic) =
+                self.check_member_indentation(source, base_offset, base_col, first, width, None)
+            {
+                diagnostics.push(diagnostic);
+            }
+        }
+
+        for member in &members {
+            if is_access_modifier_call(member) {
+                continue;
+            }
+
+            if let Some(diagnostic) =
+                self.check_member_indentation(source, base_offset, base_col, member, width, None)
+            {
+                diagnostics.push(diagnostic);
+            }
+        }
+
+        diagnostics
+    }
+
+    fn check_block_internal_method_members(
+        &self,
+        source: &SourceFile,
+        end_offset: usize,
+        end_col: usize,
+        body: Option<ruby_prism::Node<'_>>,
+        width: usize,
+        access_modifier_style: &str,
+    ) -> Vec<Diagnostic> {
+        let body = match body {
+            Some(body) => body,
+            None => return Vec::new(),
+        };
+
+        let members = body_members(body);
+        if members.is_empty() {
+            return Vec::new();
+        }
+
+        let mut diagnostics = Vec::new();
+        if is_access_modifier_call(&members[0]) && access_modifier_style != "outdent" {
+            if let Some(diagnostic) =
+                self.check_member_indentation(source, end_offset, end_col, &members[0], width, None)
+            {
+                diagnostics.push(diagnostic);
+            }
+        }
+
+        let mut previous_modifier: Option<&ruby_prism::Node<'_>> = None;
+        for member in &members {
+            if is_access_modifier_call(member) {
+                previous_modifier = Some(member);
+                continue;
+            }
+
+            if let Some(modifier) = previous_modifier.take() {
+                let modifier_loc = modifier.location();
+                let (_, modifier_col) = source.offset_to_line_col(modifier_loc.start_offset());
+                if let Some(diagnostic) = self.check_member_indentation(
+                    source,
+                    modifier_loc.start_offset(),
+                    modifier_col,
+                    member,
+                    width,
+                    Some("indented_internal_methods"),
+                ) {
+                    diagnostics.push(diagnostic);
+                }
+            }
+        }
+
+        diagnostics
+    }
+
     /// Check body indentation.
     /// `keyword_offset` is used to determine which line the keyword is on (for same-line skip).
     /// `base_col` is the column that expected indentation is relative to.
@@ -320,6 +559,8 @@ impl Cop for IndentationWidth {
     ) {
         let width = config.get_usize("Width", 2);
         let align_style = config.get_str("EnforcedStyleAlignWith", "start_of_line");
+        let consistency_style = config.get_str("IndentationConsistencyStyle", "normal");
+        let access_modifier_style = config.get_str("AccessModifierIndentationStyle", "indent");
         let allowed_patterns = config
             .get_string_array("AllowedPatterns")
             .unwrap_or_default();
@@ -380,12 +621,16 @@ impl Cop for IndentationWidth {
         if let Some(class_node) = node.as_class_node() {
             let kw_offset = class_node.class_keyword_loc().start_offset();
             let (_, kw_col) = source.offset_to_line_col(kw_offset);
-            diagnostics.extend(self.check_body_indentation(
+            diagnostics.extend(self.check_class_like_members(
                 source,
                 kw_offset,
                 kw_col,
                 class_node.body(),
                 width,
+                MemberStyles {
+                    access_modifier: access_modifier_style,
+                    consistency: consistency_style,
+                },
             ));
             return;
         }
@@ -393,12 +638,16 @@ impl Cop for IndentationWidth {
         if let Some(sclass_node) = node.as_singleton_class_node() {
             let kw_offset = sclass_node.class_keyword_loc().start_offset();
             let (_, kw_col) = source.offset_to_line_col(kw_offset);
-            diagnostics.extend(self.check_body_indentation(
+            diagnostics.extend(self.check_class_like_members(
                 source,
                 kw_offset,
                 kw_col,
                 sclass_node.body(),
                 width,
+                MemberStyles {
+                    access_modifier: access_modifier_style,
+                    consistency: consistency_style,
+                },
             ));
             return;
         }
@@ -406,12 +655,16 @@ impl Cop for IndentationWidth {
         if let Some(module_node) = node.as_module_node() {
             let kw_offset = module_node.module_keyword_loc().start_offset();
             let (_, kw_col) = source.offset_to_line_col(kw_offset);
-            diagnostics.extend(self.check_body_indentation(
+            diagnostics.extend(self.check_class_like_members(
                 source,
                 kw_offset,
                 kw_col,
                 module_node.body(),
                 width,
+                MemberStyles {
+                    access_modifier: access_modifier_style,
+                    consistency: consistency_style,
+                },
             ));
             return;
         }
@@ -589,6 +842,18 @@ impl Cop for IndentationWidth {
                         block.body(),
                         width,
                     ));
+                    if consistency_style == "indented_internal_methods"
+                        && body_contains_access_modifier(block.body())
+                    {
+                        diagnostics.extend(self.check_block_internal_method_members(
+                            source,
+                            closing_offset,
+                            closing_col,
+                            block.body(),
+                            width,
+                            access_modifier_style,
+                        ));
+                    }
                     return;
                 }
             }
@@ -898,6 +1163,46 @@ mod tests {
             diags.is_empty(),
             "variable style << context should not flag body: {:?}",
             diags
+        );
+    }
+
+    #[test]
+    fn indented_internal_methods_flags_method_after_private_in_class_body() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IndentationConsistencyStyle".into(),
+                serde_yml::Value::String("indented_internal_methods".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"class Test\n  private\n  def helper\n  end\nend\n";
+        let diags = run_cop_full_with_config(&IndentationWidth, source, config);
+        assert_eq!(diags.len(), 1, "expected one offense, got: {:?}", diags);
+        assert_eq!(
+            diags[0].message,
+            "Use 2 (not 0) spaces for indented_internal_methods indentation."
+        );
+    }
+
+    #[test]
+    fn indented_internal_methods_flags_method_after_private_in_block_body() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IndentationConsistencyStyle".into(),
+                serde_yml::Value::String("indented_internal_methods".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"concern :Authenticatable do\n  private\n  def helper\n  end\nend\n";
+        let diags = run_cop_full_with_config(&IndentationWidth, source, config);
+        assert_eq!(diags.len(), 1, "expected one offense, got: {:?}", diags);
+        assert_eq!(
+            diags[0].message,
+            "Use 2 (not 0) spaces for indented_internal_methods indentation."
         );
     }
 }

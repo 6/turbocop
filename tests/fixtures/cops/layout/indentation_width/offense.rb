@@ -144,6 +144,29 @@ class << self
     end
 end
 
+# Class/module bodies should check every member, not only the first one
+module Outer
+    class Inner
+    ^^^^ Layout/IndentationWidth: Use 2 (not 4) spaces for indentation.
+        def one
+        ^^^^ Layout/IndentationWidth: Use 2 (not 4) spaces for indentation.
+        end
+
+        def two
+        ^^^^ Layout/IndentationWidth: Use 2 (not 4) spaces for indentation.
+        end
+    end
+end
+
+# Class bodies still check access modifier indentation
+class AccessControlled
+    private
+    ^^^^^^ Layout/IndentationWidth: Use 2 (not 4) spaces for indentation.
+
+  def helper
+  end
+end
+
 # else in begin/rescue with wrong indentation
 begin
   do_something

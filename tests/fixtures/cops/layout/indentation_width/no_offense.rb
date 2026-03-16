@@ -238,9 +238,9 @@ m = Module.new do
   end
 end
 
-# Class body starting with access modifier
+# Class body starting with access modifier still accepts correctly aligned modifiers
 class Foo
-    private
+  private
 
   def bar
     baz

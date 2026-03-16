@@ -2224,9 +2224,7 @@ impl ResolvedConfig {
                 .entry("ArgumentAlignmentStyle".to_string())
                 .or_insert_with(|| Value::String(aa_style.to_string()));
         }
-        // Inject Layout/EndAlignment.EnforcedStyleAlignWith into Layout/ElseAlignment
-        // and Layout/IndentationWidth (mirrors RuboCop's CheckAssignment mixin which
-        // reads `config.for_cop('Layout/EndAlignment')['EnforcedStyleAlignWith']`)
+        // Inject sibling Layout cop styles that other cops consult at runtime.
         if name == "Layout/ElseAlignment" || name == "Layout/IndentationWidth" {
             let end_config = self.cop_configs.get("Layout/EndAlignment");
             let end_style = end_config
@@ -2237,6 +2235,27 @@ impl ResolvedConfig {
                 .options
                 .entry("EndAlignmentStyle".to_string())
                 .or_insert_with(|| Value::String(end_style.to_string()));
+        }
+        if name == "Layout/IndentationWidth" {
+            let consistency_config = self.cop_configs.get("Layout/IndentationConsistency");
+            let consistency_style = consistency_config
+                .and_then(|cc| cc.options.get("EnforcedStyle"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("normal");
+            config
+                .options
+                .entry("IndentationConsistencyStyle".to_string())
+                .or_insert_with(|| Value::String(consistency_style.to_string()));
+
+            let access_modifier_config = self.cop_configs.get("Layout/AccessModifierIndentation");
+            let access_modifier_style = access_modifier_config
+                .and_then(|cc| cc.options.get("EnforcedStyle"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("indent");
+            config
+                .options
+                .entry("AccessModifierIndentationStyle".to_string())
+                .or_insert_with(|| Value::String(access_modifier_style.to_string()));
         }
         // Inject Layout/SpaceInsideHashLiteralBraces EnforcedStyle for Layout/SpaceAfterComma
         // (mirrors RuboCop's `space_forbidden_before_rcurly?` which reads the sibling cop's style)
