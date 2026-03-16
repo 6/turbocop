@@ -9,9 +9,9 @@ foo { }
 ^ Lint/EmptyBlock: Empty block detected.
 
 Context.create_table(:users) do |t|
+^ Lint/EmptyBlock: Empty block detected.
   t.timestamps null: false
 end.define_model do
-    ^^^^^^^^^^^^ Lint/EmptyBlock: Empty block detected.
 end
 
 super(name, extensions: extensions, block: block, **kwargs) {}

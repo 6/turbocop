@@ -9,15 +9,19 @@ use crate::parse::source::SourceFile;
 ///
 /// Previous fixes closed the large `Proc.new {}` false-positive cluster by
 /// matching RuboCop's `lambda_or_proc?` handling for `Proc.new` and
-/// `::Proc.new`.
+/// `::Proc.new`. Also added `SuperNode` handling for `super(...) {}`.
 ///
-/// Remaining corpus oracle mismatches were:
-/// - FP=1: chained calls like `create_table ... end.define_model do end` were
-///   reported at the start of the receiver chain because diagnostics used the
-///   enclosing call span instead of the empty block span. RuboCop anchors the
-///   offense on the empty trailing block itself.
-/// - FN=1: `super(... ) {}` was ignored because the cop only visited `CallNode`
-///   blocks. Prism stores block-taking `super` sends on `SuperNode`.
+/// ## Corpus investigation (2026-03-16)
+///
+/// Fixed 15 FP / 13 FN from chained block location mismatch. For code like
+/// `create_table(...) do...end.define_model do end`, nitrocop was reporting at
+/// the `define_model` message location instead of at the block expression start.
+/// RuboCop's `on_block` receives the outer BlockNode whose expression starts at
+/// the full receiver chain (`Context.create_table`). Fix: always use
+/// `call_node.location().start_offset()` (which includes the receiver) instead
+/// of `message_loc()` for chained calls. All 28 mismatches (concentrated in
+/// gregnavis/active_record_doctor) were paired FP+FN from this single location
+/// bug.
 pub struct EmptyBlock;
 
 /// Check if a comment is a rubocop:disable directive for a specific cop.
@@ -156,18 +160,7 @@ impl Cop for EmptyBlock {
         }
 
         let diagnostic_offset = if let Some(call_node) = call_node.as_ref() {
-            if call_node.receiver().is_some_and(|receiver| {
-                receiver
-                    .as_call_node()
-                    .is_some_and(|call| call.block().is_some())
-            }) {
-                call_node
-                    .message_loc()
-                    .map(|loc| loc.start_offset())
-                    .unwrap_or_else(|| call_node.location().start_offset())
-            } else {
-                call_node.location().start_offset()
-            }
+            call_node.location().start_offset()
         } else if let Some(super_node) = super_node {
             super_node.location().start_offset()
         } else {
