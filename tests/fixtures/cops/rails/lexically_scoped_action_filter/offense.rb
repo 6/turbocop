@@ -73,3 +73,11 @@ module FooMixin
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/LexicallyScopedActionFilter: `foo` is not explicitly defined on the module.
   end
 end
+
+class ConditionalFilterController < ApplicationController
+  before_action(:authenticate, only: %i[update cancel]) unless foo
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/LexicallyScopedActionFilter: `update`, `cancel` are not explicitly defined on the class.
+
+  def index
+  end
+end

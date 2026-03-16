@@ -43,6 +43,13 @@ use crate::parse::source::SourceFile;
 ///   NodePattern `(send nil? {filters} _ (hash (pair (sym {:only :except}) $_)))`
 ///   requires exactly ONE non-hash positional arg. Fixed by counting non-hash
 ///   args and skipping if not exactly 1.
+///
+/// **Fixes applied (round 4): FN=5**
+/// - Filter calls wrapped in modifier conditionals (`before_action(:auth,
+///   only: :x) unless cond`) were not found because `collect_filter_calls_recursive`
+///   only checked direct `CallNode` children, missing calls inside `IfNode` and
+///   `UnlessNode` wrappers. Fixed by extracting `collect_filter_call_from_node`
+///   that also descends into conditional node bodies.
 pub struct LexicallyScopedActionFilter;
 
 /// (call_start_offset, only_action_names, except_action_names)
@@ -193,24 +200,50 @@ fn collect_filter_calls_recursive(
     results: &mut Vec<FilterCallInfo>,
 ) {
     for stmt_node in stmts.body().iter() {
-        if let Some(call) = stmt_node.as_call_node() {
-            let is_filter = FILTER_METHODS.iter().any(|&m| is_dsl_call(&call, m));
-            if is_filter {
-                let offset = call.location().start_offset();
-                let only_names = extract_action_names_from_call(&call, b"only");
-                let except_names = extract_action_names_from_call(&call, b"except");
-                if !only_names.is_empty() || !except_names.is_empty() {
-                    results.push((offset, only_names, except_names));
-                }
-            } else {
-                // Check inside block bodies (e.g., `included do ... end`)
-                if let Some(block) = call.block() {
-                    if let Some(block_node) = block.as_block_node() {
-                        if let Some(body) = block_node.body() {
-                            if let Some(inner_stmts) = body.as_statements_node() {
-                                collect_filter_calls_recursive(&inner_stmts, results);
-                            }
-                        }
+        collect_filter_call_from_node(&stmt_node, results);
+    }
+}
+
+/// Check a single node for filter calls, recursing into blocks and conditionals.
+/// Handles: direct CallNode, CallNode inside IfNode/UnlessNode (modifier conditionals),
+/// and block bodies (e.g., `included do ... end`).
+fn collect_filter_call_from_node(node: &ruby_prism::Node<'_>, results: &mut Vec<FilterCallInfo>) {
+    if let Some(call) = node.as_call_node() {
+        check_call_for_filter(&call, results);
+    } else if let Some(if_node) = node.as_if_node() {
+        // Modifier `if`: `before_action(:auth, only: :x) if condition`
+        if let Some(body) = if_node.statements() {
+            for child in body.body().iter() {
+                collect_filter_call_from_node(&child, results);
+            }
+        }
+    } else if let Some(unless_node) = node.as_unless_node() {
+        // Modifier `unless`: `before_action(:auth, only: :x) unless condition`
+        if let Some(body) = unless_node.statements() {
+            for child in body.body().iter() {
+                collect_filter_call_from_node(&child, results);
+            }
+        }
+    }
+}
+
+/// Check if a CallNode is a filter call; if not, recurse into its block body.
+fn check_call_for_filter(call: &ruby_prism::CallNode<'_>, results: &mut Vec<FilterCallInfo>) {
+    let is_filter = FILTER_METHODS.iter().any(|&m| is_dsl_call(call, m));
+    if is_filter {
+        let offset = call.location().start_offset();
+        let only_names = extract_action_names_from_call(call, b"only");
+        let except_names = extract_action_names_from_call(call, b"except");
+        if !only_names.is_empty() || !except_names.is_empty() {
+            results.push((offset, only_names, except_names));
+        }
+    } else {
+        // Check inside block bodies (e.g., `included do ... end`)
+        if let Some(block) = call.block() {
+            if let Some(block_node) = block.as_block_node() {
+                if let Some(body) = block_node.body() {
+                    if let Some(inner_stmts) = body.as_statements_node() {
+                        collect_filter_calls_recursive(&inner_stmts, results);
                     }
                 }
             }
