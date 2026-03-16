@@ -19,3 +19,10 @@ class Order < ApplicationRecord
   scope :newest, -> { order(created_at: :desc) }
   ^^^^^ Rails/DuplicateScope: Multiple scopes share this same expression.
 end
+
+class Item < ApplicationRecord
+  scope :base, -> { all }
+  ^^^^^ Rails/DuplicateScope: Multiple scopes share this same expression.
+  scope :default_scope, lambda { all }
+  ^^^^^ Rails/DuplicateScope: Multiple scopes share this same expression.
+end

@@ -73,16 +73,29 @@ impl Cop for DuplicateScope {
     }
 }
 
-/// Extract the source bytes of the scope body expression (everything after the
-/// first argument, i.e., the scope name). Returns None if the call doesn't have
-/// at least two arguments.
+/// Extract a normalised key for the scope body expression so that `-> { all }`
+/// and `lambda { all }` are treated as duplicates (matching RuboCop behaviour).
+///
+/// For lambda expressions (`LambdaNode` from `->` syntax, or `CallNode` named
+/// `lambda` from the `lambda` keyword), we extract the block body source and
+/// parameter source and combine them into a canonical form.  For everything
+/// else we fall back to the raw source of the arguments after the scope name.
 fn extract_scope_body_source<'a>(call: &ruby_prism::CallNode<'a>) -> Option<Vec<u8>> {
     let args = call.arguments()?;
     let arg_list: Vec<_> = args.arguments().iter().collect();
     if arg_list.len() < 2 {
         return None;
     }
-    // Body is everything from the second argument to the end of the last argument
+
+    // If there is exactly one body argument (the lambda/proc expression),
+    // try to normalise lambda syntax.
+    if arg_list.len() == 2 {
+        if let Some(key) = normalise_lambda_body(&arg_list[1]) {
+            return Some(key);
+        }
+    }
+
+    // Fallback: raw source of everything after the scope name.
     let start = arg_list[1].location().start_offset();
     let end = arg_list.last().unwrap().location().end_offset();
     Some(
@@ -90,6 +103,50 @@ fn extract_scope_body_source<'a>(call: &ruby_prism::CallNode<'a>) -> Option<Vec<
             [start - call.location().start_offset()..end - call.location().start_offset()]
             .to_vec(),
     )
+}
+
+/// Try to extract a canonical `(params, body)` key from a lambda expression,
+/// regardless of whether it was written as `-> { }` or `lambda { }`.
+fn normalise_lambda_body(node: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
+    // `-> { body }` parses as a LambdaNode
+    if let Some(lambda) = node.as_lambda_node() {
+        let params = lambda
+            .parameters()
+            .map(|p| p.location().as_slice())
+            .unwrap_or(b"");
+        let body = lambda
+            .body()
+            .map(|b| b.location().as_slice())
+            .unwrap_or(b"");
+        let mut key = Vec::with_capacity(b"lambda:".len() + params.len() + 1 + body.len());
+        key.extend_from_slice(b"lambda:");
+        key.extend_from_slice(params);
+        key.push(b':');
+        key.extend_from_slice(body);
+        return Some(key);
+    }
+
+    // `lambda { body }` parses as a CallNode with name `lambda` and an
+    // attached block.
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"lambda" {
+            if let Some(block) = call.block().and_then(|b| b.as_block_node()) {
+                let params = block
+                    .parameters()
+                    .map(|p| p.location().as_slice())
+                    .unwrap_or(b"");
+                let body = block.body().map(|b| b.location().as_slice()).unwrap_or(b"");
+                let mut key = Vec::with_capacity(b"lambda:".len() + params.len() + 1 + body.len());
+                key.extend_from_slice(b"lambda:");
+                key.extend_from_slice(params);
+                key.push(b':');
+                key.extend_from_slice(body);
+                return Some(key);
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
