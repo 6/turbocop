@@ -20,3 +20,13 @@ x = ::Rails.env.staging?
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/Env: Use Feature Flags or config instead of `Rails.env`.
 @envs.any?(Rails.env)
 ^^^^^^^^^^^^^^^^^^^^^ Rails/Env: Use Feature Flags or config instead of `Rails.env`.
+env = Rails.env.to_s if defined?(Rails.env)
+                        ^^^^^^^^^^^^^^^^^^^ Rails/Env: Use Feature Flags or config instead of `Rails.env`.
+@default_env = Rails.env if defined? Rails.env
+                            ^^^^^^^^^^^^^^^^^^ Rails/Env: Use Feature Flags or config instead of `Rails.env`.
+@rails_env = defined?(::Rails.env) ? Rails.env.to_s : 'shards'
+             ^^^^^^^^^^^^^^^^^^^^^ Rails/Env: Use Feature Flags or config instead of `Rails.env`.
+if defined?(Rails.env)
+   ^^^^^^^^^^^^^^^^^^^ Rails/Env: Use Feature Flags or config instead of `Rails.env`.
+  Rails.env
+end

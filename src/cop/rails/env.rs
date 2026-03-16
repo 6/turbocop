@@ -23,6 +23,12 @@ use ruby_prism::Visit;
 /// `@envs.any?(Rails.env)` are also flagged, because the parent of the `env` send
 /// is the predicate call `member?`/`any?`. The previous implementation only checked
 /// `Rails.env` as the receiver of a predicate (e.g., `Rails.env.production?`).
+///
+/// **FN fix (2026-03-16):** `defined?(Rails.env)` was not being flagged. In RuboCop's
+/// AST, `defined?` responds to `predicate_method?` (name ends with `?`), so the vendor
+/// cop flags it. In Prism, `defined?` is a `DefinedNode` (keyword), not a `CallNode`,
+/// so the `visit_call_node` handler never sees it. Added `visit_defined_node` to handle
+/// this case. All 13 corpus FNs were `defined?(Rails.env)` patterns.
 pub struct Env;
 
 /// Methods ending in `?` that are allowed on `Rails.env` (string utility methods,
@@ -145,6 +151,29 @@ impl<'pr> Visit<'pr> for EnvVisitor<'_> {
 
         // Continue visiting child nodes
         ruby_prism::visit_call_node(self, node);
+    }
+
+    fn visit_defined_node(&mut self, node: &ruby_prism::DefinedNode<'pr>) {
+        // Case 3: Rails.env inside `defined?()` — `defined?` is a keyword
+        // (DefinedNode in Prism), not a method call, but RuboCop's AST treats it
+        // as a predicate (name ends with `?`). The vendor cop flags
+        // `defined?(Rails.env)` because the parent of the `env` send node is the
+        // `defined?` node, which responds to `predicate_method?`.
+        // e.g., `if defined?(Rails.env)`, `defined? Rails.env`
+        let value = node.value();
+        if self.is_rails_env_call(&value) {
+            let start = node.location().start_offset();
+            let (line, column) = self.source.offset_to_line_col(start);
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Use Feature Flags or config instead of `Rails.env`.".to_string(),
+            ));
+        }
+
+        // Continue visiting child nodes
+        ruby_prism::visit_defined_node(self, node);
     }
 }
 
