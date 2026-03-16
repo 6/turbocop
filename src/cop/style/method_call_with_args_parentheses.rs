@@ -8,19 +8,40 @@ use crate::parse::source::SourceFile;
 ///
 /// Corpus oracle reported FP=59, FN=54,201.
 ///
-/// FN=54,201: Root cause was missing `YieldNode` handling. RuboCop aliases
-/// `on_yield` to `on_send` for this cop, so `yield arg` (without parens) is
-/// flagged in require_parentheses mode and `yield(arg)` (with parens) is
-/// flagged in omit_parentheses mode. Added `visit_yield_node` with
-/// `check_require_parentheses_yield` and `check_omit_parentheses_yield`.
-/// Reduces FN by ~13,200 (remaining FN is mostly file-drop noise from repos
-/// like jruby where RuboCop parser crashes cause file drops).
+/// ### FP=59→0 (fixed)
+/// Root cause: `visit_lambda_node` pushed `Scope::Other`, breaking macro scope
+/// inheritance. RuboCop's `macro?` returns true for calls inside lambdas in
+/// class/module bodies. Fixed by using `wrapper_child_scope()` for lambdas.
 ///
-/// FP=59: Root cause was `visit_lambda_node` pushing `Scope::Other`, breaking
-/// macro scope inheritance. RuboCop's `macro?` returns true for calls inside
-/// lambdas that are in class/module bodies. Fixed by using
-/// `wrapper_child_scope()` for lambdas (same as blocks), so macro scope
-/// propagates through lambdas.
+/// ### FN=54,201→9,647 (44,554 fixed, ~9.6k remaining)
+///
+/// Fix 1 — YieldNode handling (commit 785468fe, ~13.2k FN fixed):
+/// RuboCop aliases `on_yield` to `on_send`. Added `visit_yield_node` with
+/// `check_require_parentheses_yield` and `check_omit_parentheses_yield`.
+///
+/// Fix 2 — Rescue/ensure scope propagation (~12k FN fixed):
+/// `visit_begin_node` incorrectly propagated macro scope into rescue/ensure
+/// bodies. RuboCop's `in_macro_scope?` does NOT list `rescue`/`ensure` as
+/// wrappers. Fixed by manually visiting BeginNode children with `Scope::Other`
+/// when rescue/ensure is present.
+///
+/// Fix 3 — Case/when/while/until/for scope (~12k FN fixed):
+/// These nodes are not wrappers in `in_macro_scope?` but nitrocop let
+/// `ClassLike` scope leak through. Added scope-breaking visitors.
+///
+/// Fix 4 — Non-wrapper parent detection (~7k FN fixed):
+/// RuboCop's `in_macro_scope?` checks the DIRECT parent node type. Calls
+/// nested inside another call's arguments, assignments, arrays, etc. are NOT
+/// in macro scope even if the surrounding block/class is. Implemented via
+/// `scope_parent_baseline` tracking: each scope push records the parent_stack
+/// depth, and `nested_in_non_wrapper()` checks if parent_stack grew since.
+/// Also fixed block visitation: blocks don't push `ParentKind::Call` since in
+/// Parser AST blocks WRAP the send (the block is the parent, not the send).
+///
+/// Remaining ~9.6k FN: likely from additional non-wrapper node types not yet
+/// tracked on parent_stack, or subtle differences in how Prism vs Parser
+/// represent certain AST structures. These need further investigation with
+/// concrete corpus examples.
 pub struct MethodCallWithArgsParentheses;
 
 fn is_operator(name: &[u8]) -> bool {
@@ -207,6 +228,7 @@ impl Cop for MethodCallWithArgsParentheses {
             allow_camel,
             allow_interp,
             scope_stack: vec![Scope::Root],
+            scope_parent_baseline: vec![0],
             parent_stack: vec![],
             in_interpolation: false,
             in_endless_def: false,
@@ -231,6 +253,9 @@ struct ParenVisitor<'a> {
     allow_camel: bool,
     allow_interp: bool,
     scope_stack: Vec<Scope>,
+    /// Records parent_stack.len() at each scope push, so we can tell whether
+    /// a parent_stack entry belongs to the CURRENT scope or an outer one.
+    scope_parent_baseline: Vec<usize>,
     parent_stack: Vec<ParentKind>,
     in_interpolation: bool,
     in_endless_def: bool,
@@ -241,12 +266,33 @@ impl ParenVisitor<'_> {
         *self.scope_stack.last().unwrap_or(&Scope::Other)
     }
 
+    fn push_scope(&mut self, scope: Scope) {
+        self.scope_stack.push(scope);
+        self.scope_parent_baseline.push(self.parent_stack.len());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scope_stack.pop();
+        self.scope_parent_baseline.pop();
+    }
+
     fn immediate_parent(&self) -> Option<ParentKind> {
         self.parent_stack.last().copied()
     }
 
     fn is_macro_scope(&self) -> bool {
         self.current_scope().is_macro_scope()
+    }
+
+    /// Check if the call is nested inside a non-wrapper parent within the
+    /// current scope. RuboCop's `in_macro_scope?` checks the DIRECT parent
+    /// node type — only wrappers (begin, block, if) and class-like nodes
+    /// propagate macro scope. Any other parent (send, assignment, array, etc.)
+    /// breaks it. We detect this by checking whether parent_stack has grown
+    /// since the current scope was entered.
+    fn nested_in_non_wrapper(&self) -> bool {
+        let baseline = self.scope_parent_baseline.last().copied().unwrap_or(0);
+        self.parent_stack.len() > baseline
     }
 
     /// Derive child scope for wrapper nodes (begin, block, if branches)
@@ -294,8 +340,12 @@ impl ParenVisitor<'_> {
         }
 
         // IgnoreMacros: skip macro calls (receiverless + in macro scope)
-        // unless they are in IncludedMacros or IncludedMacroPatterns
-        if is_receiverless && self.ignore_macros && self.is_macro_scope() {
+        // unless they are in IncludedMacros or IncludedMacroPatterns.
+        if is_receiverless
+            && self.ignore_macros
+            && self.is_macro_scope()
+            && !self.nested_in_non_wrapper()
+        {
             let in_included = self
                 .included_macros
                 .is_some_and(|macros| macros.iter().any(|m| m == name_str));
@@ -650,8 +700,8 @@ impl ParenVisitor<'_> {
             }
         }
 
-        // IgnoreMacros: yield is always receiverless, check macro scope
-        if self.ignore_macros && self.is_macro_scope() {
+        // IgnoreMacros: yield is always receiverless, check macro scope.
+        if self.ignore_macros && self.is_macro_scope() && !self.nested_in_non_wrapper() {
             let in_included = self
                 .included_macros
                 .is_some_and(|macros| macros.iter().any(|m| m == "yield"));
@@ -929,22 +979,23 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             if let Some(block_node) = block.as_block_node() {
                 if is_class_constructor(node) {
                     // Class.new/Module.new/Struct.new/Data.define blocks are class-like scope
-                    self.parent_stack.push(ParentKind::Call);
-                    self.scope_stack.push(Scope::ClassLike);
+                    self.push_scope(Scope::ClassLike);
                     if let Some(params) = block_node.parameters() {
                         self.visit(&params);
                     }
                     if let Some(body) = block_node.body() {
                         self.visit(&body);
                     }
-                    self.scope_stack.pop();
-                    self.parent_stack.pop();
+                    self.pop_scope();
                 } else {
-                    self.parent_stack.push(ParentKind::Call);
+                    // In Parser AST, blocks WRAP the send — the block node is the
+                    // parent of the body, not the send. Don't push ParentKind::Call
+                    // here — the block body should NOT see the outer call as its
+                    // parent. visit_block_node handles scope for the body.
                     self.visit(&block);
-                    self.parent_stack.pop();
                 }
             } else {
+                // BlockArgumentNode (&block) — this IS a call argument
                 self.parent_stack.push(ParentKind::Call);
                 self.visit(&block);
                 self.parent_stack.pop();
@@ -970,27 +1021,27 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             }
         }
 
-        self.scope_stack.push(Scope::ClassLike);
+        self.push_scope(Scope::ClassLike);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
-        self.scope_stack.pop();
+        self.pop_scope();
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        self.scope_stack.push(Scope::ClassLike);
+        self.push_scope(Scope::ClassLike);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
-        self.scope_stack.pop();
+        self.pop_scope();
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
-        self.scope_stack.push(Scope::ClassLike);
+        self.push_scope(Scope::ClassLike);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
-        self.scope_stack.pop();
+        self.pop_scope();
     }
 
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
@@ -1000,7 +1051,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             self.in_endless_def = true;
         }
 
-        self.scope_stack.push(Scope::MethodDef);
+        self.push_scope(Scope::MethodDef);
         // Visit parameters
         if let Some(params) = node.parameters() {
             self.visit_parameters_node(&params);
@@ -1008,20 +1059,20 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         if let Some(body) = node.body() {
             self.visit(&body);
         }
-        self.scope_stack.pop();
+        self.pop_scope();
         self.in_endless_def = prev_endless;
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let child_scope = self.wrapper_child_scope();
-        self.scope_stack.push(child_scope);
+        self.push_scope(child_scope);
         if let Some(params) = node.parameters() {
             self.visit(&params);
         }
         if let Some(body) = node.body() {
             self.visit(&body);
         }
-        self.scope_stack.pop();
+        self.pop_scope();
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
@@ -1029,11 +1080,11 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         // lambda is ultimately in a macro scope (class/module body, top level).
         // Use wrapper_child_scope() to preserve the parent's macro scope.
         let child_scope = self.wrapper_child_scope();
-        self.scope_stack.push(child_scope);
+        self.push_scope(child_scope);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
-        self.scope_stack.pop();
+        self.pop_scope();
     }
 
     fn visit_yield_node(&mut self, node: &ruby_prism::YieldNode<'pr>) {
@@ -1054,11 +1105,36 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
-        let child_scope = self.wrapper_child_scope();
-        self.scope_stack.push(child_scope);
-        // Delegate to default visitor for all children
-        ruby_prism::visit_begin_node(self, node);
-        self.scope_stack.pop();
+        let has_rescue_or_ensure = node.rescue_clause().is_some() || node.ensure_clause().is_some();
+
+        if has_rescue_or_ensure {
+            // In Parser AST, `begin; foo; rescue; bar; end` produces:
+            //   (kwbegin (rescue (send nil :foo) (resbody nil nil (send nil :bar)) nil))
+            // The `rescue` node sits between `kwbegin` and all children.
+            // RuboCop's `in_macro_scope?` does NOT list `rescue` or `ensure` as
+            // wrappers, so nothing inside a begin-with-rescue gets macro scope.
+            self.push_scope(Scope::Other);
+            if let Some(stmts) = node.statements() {
+                self.visit_statements_node(&stmts);
+            }
+            if let Some(rescue_clause) = node.rescue_clause() {
+                self.visit_rescue_node(&rescue_clause);
+            }
+            if let Some(else_clause) = node.else_clause() {
+                self.visit_else_node(&else_clause);
+            }
+            if let Some(ensure_clause) = node.ensure_clause() {
+                self.visit_ensure_node(&ensure_clause);
+            }
+            self.pop_scope();
+        } else {
+            // Pure `begin...end` (no rescue/ensure) — `kwbegin` is a wrapper
+            // in RuboCop's `in_macro_scope?`, so propagate macro scope.
+            let child_scope = self.wrapper_child_scope();
+            self.push_scope(child_scope);
+            ruby_prism::visit_begin_node(self, node);
+            self.pop_scope();
+        }
     }
 
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
@@ -1078,7 +1154,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         let child_scope = self.wrapper_child_scope();
 
         if let Some(stmts) = node.statements() {
-            self.scope_stack.push(child_scope);
+            self.push_scope(child_scope);
             if is_ternary {
                 self.parent_stack.push(ParentKind::Ternary);
             }
@@ -1086,10 +1162,10 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             if is_ternary {
                 self.parent_stack.pop();
             }
-            self.scope_stack.pop();
+            self.pop_scope();
         }
         if let Some(subsequent) = node.subsequent() {
-            self.scope_stack.push(child_scope);
+            self.push_scope(child_scope);
             if is_ternary {
                 self.parent_stack.push(ParentKind::Ternary);
             }
@@ -1097,7 +1173,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             if is_ternary {
                 self.parent_stack.pop();
             }
-            self.scope_stack.pop();
+            self.pop_scope();
         }
     }
 
@@ -1107,14 +1183,14 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         let child_scope = self.wrapper_child_scope();
 
         if let Some(stmts) = node.statements() {
-            self.scope_stack.push(child_scope);
+            self.push_scope(child_scope);
             self.visit_statements_node(&stmts);
-            self.scope_stack.pop();
+            self.pop_scope();
         }
         if let Some(consequent) = node.else_clause() {
-            self.scope_stack.push(child_scope);
+            self.push_scope(child_scope);
             self.visit_else_node(&consequent);
-            self.scope_stack.pop();
+            self.pop_scope();
         }
     }
 
@@ -1212,6 +1288,14 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         self.visit(&node.pattern());
     }
 
+    fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
+        // `case`/`when` are NOT wrappers in RuboCop's in_macro_scope?.
+        // Push Other to prevent class-like scope from leaking through.
+        self.push_scope(Scope::Other);
+        ruby_prism::visit_case_node(self, node);
+        self.pop_scope();
+    }
+
     fn visit_when_node(&mut self, node: &ruby_prism::WhenNode<'pr>) {
         self.parent_stack.push(ParentKind::When);
         for cond in node.conditions().iter() {
@@ -1296,21 +1380,32 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        // `while`/`until`/`for` are NOT wrappers in RuboCop's in_macro_scope?.
+        self.push_scope(Scope::Other);
         self.parent_stack.push(ParentKind::Conditional);
         self.visit(&node.predicate());
         self.parent_stack.pop();
         if let Some(stmts) = node.statements() {
             self.visit_statements_node(&stmts);
         }
+        self.pop_scope();
     }
 
     fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        self.push_scope(Scope::Other);
         self.parent_stack.push(ParentKind::Conditional);
         self.visit(&node.predicate());
         self.parent_stack.pop();
         if let Some(stmts) = node.statements() {
             self.visit_statements_node(&stmts);
         }
+        self.pop_scope();
+    }
+
+    fn visit_for_node(&mut self, node: &ruby_prism::ForNode<'pr>) {
+        self.push_scope(Scope::Other);
+        ruby_prism::visit_for_node(self, node);
+        self.pop_scope();
     }
 }
 

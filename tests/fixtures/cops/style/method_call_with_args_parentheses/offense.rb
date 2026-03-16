@@ -29,6 +29,54 @@ custom_fields
   .include? attribute
 # nitrocop-expect: 22:0 Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
 
+# Receiverless call nested as argument to another call in class body
+# is NOT a macro (parent in AST is send, not a wrapper)
+class MyClass
+  foo bar :baz
+      ^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Receiverless calls inside case/when in class body are NOT macros
+# (case/when are not wrappers in RuboCop's in_macro_scope?)
+class MyClass
+  case type
+  when :foo
+    test a, b
+    ^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  end
+end
+
+# Receiverless calls inside while/until in class body are NOT macros
+class MyClass
+  while running
+    process_item a
+    ^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  end
+end
+
+# Receiverless calls inside rescue in class body are NOT macros
+# (rescue is not a wrapper in RuboCop's in_macro_scope?)
+class MyClass
+  begin
+    test a, b
+    ^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  rescue
+    handle_error a
+    ^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  end
+end
+
+# Receiverless calls inside ensure in class body are NOT macros
+class MyClass
+  begin
+    test a, b
+    ^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  ensure
+    cleanup a
+    ^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  end
+end
+
 # yield with args and no parens in method body
 def each_item
   yield element
