@@ -12,3 +12,13 @@ data.each_with_object({}) { |el, acc| acc[el.key] = el }
 
 Hash[fields.map { |f| [f.name, f] }]
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/IndexBy: Use `index_by` instead of `Hash[map { ... }]`.
+
+# Numbered parameters (_1) — Ruby 2.7+
+x.map { [_1.to_sym, _1] }.to_h
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/IndexBy: Use `index_by` instead of `map { ... }.to_h`.
+
+x.to_h { [_1.to_sym, _1] }
+^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/IndexBy: Use `index_by` instead of `to_h { ... }`.
+
+Hash[x.map { [_1.to_sym, _1] }]
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/IndexBy: Use `index_by` instead of `Hash[map { ... }]`.

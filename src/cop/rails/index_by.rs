@@ -7,6 +7,21 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Rails/IndexBy: detect `map { ... }.to_h`, `to_h { ... }`, `each_with_object({})`, and
+/// `Hash[map { ... }]` patterns that should use `index_by`.
+///
+/// ## Investigation notes (2026-03)
+///
+/// The original implementation only handled regular block parameters (`|el|`).
+/// RuboCop's vendor implementation also handles:
+/// - Ruby 2.7+ numbered parameters (`_1`): `(numblock ...)` → Prism `BlockNode` with
+///   `NumberedParametersNode` as parameters, body uses `LocalVariableReadNode` named `_1`.
+/// - Ruby 3.4+ `it` implicit parameter: `(itblock ...)` → Prism `BlockNode` with
+///   `ItParametersNode` as parameters, body uses `LocalVariableReadNode` named `it`.
+///
+/// Added `is_index_by_block_numbered` and `is_index_by_block_it` helpers to cover these cases.
+/// The `each_with_object` pattern only applies to explicit two-argument blocks (no numblock/itblock
+/// support needed since you can't destructure two params as numbered params).
 pub struct IndexBy;
 
 /// Check if the block body is an array literal `[key_expr, block_param]`
@@ -75,6 +90,109 @@ fn is_index_by_block(block_node: &ruby_prism::BlockNode<'_>) -> bool {
         }
     }
     true
+}
+
+/// Check if the block uses numbered parameters (`_1`) and matches `{ [key_expr, _1] }`
+/// where `key_expr` is not `_1` itself.
+fn is_index_by_block_numbered(block_node: &ruby_prism::BlockNode<'_>) -> bool {
+    // Must have numbered parameters
+    let params = match block_node.parameters() {
+        Some(p) => p,
+        None => return false,
+    };
+    let numbered = match params.as_numbered_parameters_node() {
+        Some(n) => n,
+        None => return false,
+    };
+    // Only _1 is used (not _2, _3, ...)
+    if numbered.maximum() != 1 {
+        return false;
+    }
+
+    // Get block body
+    let body = match block_node.body() {
+        Some(b) => b,
+        None => return false,
+    };
+    let stmts = match body.as_statements_node() {
+        Some(s) => s,
+        None => return false,
+    };
+    let body_nodes: Vec<_> = stmts.body().iter().collect();
+    if body_nodes.len() != 1 {
+        return false;
+    }
+
+    // Body must be an array literal with exactly 2 elements
+    let array = match body_nodes[0].as_array_node() {
+        Some(a) => a,
+        None => return false,
+    };
+    let elements: Vec<_> = array.elements().iter().collect();
+    if elements.len() != 2 {
+        return false;
+    }
+
+    // Second element must be `_1` (LocalVariableReadNode named `_1`)
+    let second = match elements[1].as_local_variable_read_node() {
+        Some(lv) => lv,
+        None => return false,
+    };
+    if second.name().as_slice() != b"_1" {
+        return false;
+    }
+    // First element must not be `_1` itself (that would be identity, not index_by)
+    if let Some(first_lvar) = elements[0].as_local_variable_read_node() {
+        if first_lvar.name().as_slice() == b"_1" {
+            return false;
+        }
+    }
+    true
+}
+
+/// Check if the block uses the `it` implicit parameter (Ruby 3.4+) and matches `{ [key_expr, it] }`
+/// where `key_expr` is anything (including `it`-derived expressions).
+fn is_index_by_block_it(block_node: &ruby_prism::BlockNode<'_>) -> bool {
+    // Must have `it` parameters
+    let params = match block_node.parameters() {
+        Some(p) => p,
+        None => return false,
+    };
+    if params.as_it_parameters_node().is_none() {
+        return false;
+    }
+
+    // Get block body
+    let body = match block_node.body() {
+        Some(b) => b,
+        None => return false,
+    };
+    let stmts = match body.as_statements_node() {
+        Some(s) => s,
+        None => return false,
+    };
+    let body_nodes: Vec<_> = stmts.body().iter().collect();
+    if body_nodes.len() != 1 {
+        return false;
+    }
+
+    // Body must be an array literal with exactly 2 elements
+    let array = match body_nodes[0].as_array_node() {
+        Some(a) => a,
+        None => return false,
+    };
+    let elements: Vec<_> = array.elements().iter().collect();
+    if elements.len() != 2 {
+        return false;
+    }
+
+    // Second element must be `it` (LocalVariableReadNode named `it`)
+    let second = match elements[1].as_local_variable_read_node() {
+        Some(lv) => lv,
+        None => return false,
+    };
+    second.name().as_slice() == b"it"
+    // Note: RuboCop allows `[y.to_sym, it]` — any key is fine as long as value is `it`
 }
 
 /// Check if the block is `each_with_object({}) { |el, memo| memo[key] = el }`
@@ -226,14 +344,17 @@ impl Cop for IndexBy {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Pattern 1: items.map { |e| [key, e] }.to_h
+        // Pattern 1: items.map { |e| [key, e] }.to_h  (also: numbered/it params)
         if let Some(chain) = util::as_method_chain(node) {
             if chain.outer_method == b"to_h"
                 && (chain.inner_method == b"map" || chain.inner_method == b"collect")
             {
                 if let Some(block) = chain.inner_call.block() {
                     if let Some(block_node) = block.as_block_node() {
-                        if is_index_by_block(&block_node) {
+                        if is_index_by_block(&block_node)
+                            || is_index_by_block_numbered(&block_node)
+                            || is_index_by_block_it(&block_node)
+                        {
                             let loc = node.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
                             diagnostics.push(self.diagnostic(
@@ -253,11 +374,14 @@ impl Cop for IndexBy {
             None => return,
         };
 
-        // Pattern 2: items.to_h { |e| [key, e] }
+        // Pattern 2: items.to_h { |e| [key, e] }  (also: numbered/it params)
         if call.name().as_slice() == b"to_h" {
             if let Some(block) = call.block() {
                 if let Some(block_node) = block.as_block_node() {
-                    if is_index_by_block(&block_node) {
+                    if is_index_by_block(&block_node)
+                        || is_index_by_block_numbered(&block_node)
+                        || is_index_by_block_it(&block_node)
+                    {
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
                         diagnostics.push(self.diagnostic(
@@ -289,7 +413,7 @@ impl Cop for IndexBy {
             }
         }
 
-        // Pattern 4: Hash[items.map { |e| [key, e] }]
+        // Pattern 4: Hash[items.map { |e| [key, e] }]  (also: numbered/it params)
         if call.name().as_slice() == b"[]" {
             if let Some(recv) = call.receiver() {
                 if util::constant_name(&recv) == Some(b"Hash") {
@@ -301,7 +425,10 @@ impl Cop for IndexBy {
                                 if name == b"map" || name == b"collect" {
                                     if let Some(block) = inner_call.block() {
                                         if let Some(block_node) = block.as_block_node() {
-                                            if is_index_by_block(&block_node) {
+                                            if is_index_by_block(&block_node)
+                                                || is_index_by_block_numbered(&block_node)
+                                                || is_index_by_block_it(&block_node)
+                                            {
                                                 let loc = node.location();
                                                 let (line, column) =
                                                     source.offset_to_line_col(loc.start_offset());
