@@ -158,3 +158,21 @@ array.each { }
 # Short lambda call — not void
 lambda.(a)
 top
+
+# Operator method definitions are NOT void context (unlike setter methods)
+# is_void_def must not match ==, ===, !=, <=>
+def ==(other)
+  @value == other.value
+end
+
+def ===(obj)
+  @filter === obj
+end
+
+def !=(other)
+  @value != other.value
+end
+
+def <=>(other)
+  @value <=> other.value
+end

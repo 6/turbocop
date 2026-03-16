@@ -56,6 +56,15 @@ use ruby_prism::Visit;
 /// Fixes applied: conditional unwrapping via `check_conditional_body`, nonmutating
 /// method detection via `check_nonmutating` with full method list matching RuboCop's
 /// `NONMUTATING_METHODS_WITH_BANG_VERSION` and `METHODS_REPLACEABLE_BY_EACH`.
+///
+/// ## Investigation findings (2026-03-16)
+///
+/// **FP: `is_void_def` matched operator methods** — `is_void_def` used
+/// `name.ends_with(b"=")` which incorrectly matched `==`, `===`, and `!=` as
+/// setter methods. RuboCop uses `assignment_method?` which matches
+/// `/^[a-z_]\w*=$/` — only proper setter names (e.g., `name=`) where the char
+/// before `=` is alphanumeric or underscore. Fixed to check that the char before
+/// the trailing `=` is a word character, excluding operator methods.
 pub struct Void;
 
 impl Cop for Void {
@@ -258,9 +267,21 @@ fn is_each_method(call: &ruby_prism::CallNode<'_>) -> bool {
 }
 
 /// Check if a def node is a void context (initialize or setter method).
+/// RuboCop uses `assignment_method?` which matches `/^[a-z_]\w*=$/`.
+/// This must NOT match operator methods like `==`, `===`, `!=`, `<=>`.
 fn is_void_def(node: &ruby_prism::DefNode<'_>) -> bool {
     let name = node.name().as_slice();
-    name == b"initialize" || name.ends_with(b"=")
+    if name == b"initialize" {
+        return true;
+    }
+    // Setter method: must end in '=' but NOT be an operator like ==, ===, !=
+    // The char before '=' must be alphanumeric or underscore (i.e., a word char)
+    if name.len() >= 2 && name[name.len() - 1] == b'=' {
+        let before_eq = name[name.len() - 2];
+        before_eq.is_ascii_alphanumeric() || before_eq == b'_'
+    } else {
+        false
+    }
 }
 
 /// Check if a node is a void expression EXCLUDING operators.
