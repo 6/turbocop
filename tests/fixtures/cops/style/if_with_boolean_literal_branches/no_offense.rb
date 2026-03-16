@@ -49,3 +49,38 @@ end
 
 # Spaceship operator does not return boolean
 foo <=> bar ? true : false
+
+# Multiple elsif with boolean literal branches - should NOT be flagged
+if foo
+  true
+elsif bar > baz
+  true
+elsif qux > quux
+  true
+else
+  false
+end
+
+# Multi-elsif chain (2 elsifs) with predicate methods
+if !current_version_array.any?
+  false
+elsif !new_version_array.any?
+  true
+elsif have_any_matching_version?
+  true
+else
+  false
+end
+
+# Multi-elsif chain (3 elsifs)
+if template_name.blank?
+  false
+elsif template_options.empty?
+  true
+elsif template_options[:only] && template_options[:only].include?(action_name.to_sym)
+  true
+elsif template_options[:except] && !template_options[:except].include?(action_name.to_sym)
+  true
+else
+  false
+end

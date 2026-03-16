@@ -26,6 +26,21 @@ use crate::parse::source::SourceFile;
 /// - Removed `=~`, `!~`, `<=>` from comparison operators to match RuboCop's definition
 /// - Added `elsif` detection with appropriate message
 /// - Added `StatementsNode` unwrapping in `condition_returns_boolean` for parenthesized exprs
+///
+/// ## Investigation findings (2026-03-16)
+///
+/// **FP root cause (31 FPs):** Multi-elsif chains (2+ elsif branches) were incorrectly
+/// flagging the LAST elsif. The previous guard only skipped elsifs followed by another
+/// elsif, but the last elsif (followed by `else`) slipped through. RuboCop's
+/// `multiple_elsif?` checks the PARENT node — if the parent is also an elsif, skip it.
+/// Since nitrocop lacks parent pointers, the fix processes elsifs from the parent `if`
+/// node: count total elsifs in the chain, only flag if exactly 1 elsif exists.
+///
+/// **Fix applied:**
+/// - Skip all elsif nodes in `check_node` (return early)
+/// - From the parent `if` node, walk the subsequent chain to count elsifs
+/// - Only check the single elsif for boolean literal branches when elsif_count == 1
+/// - Extracted `check_elsif_node` helper method for the elsif-specific logic
 pub struct IfWithBooleanLiteralBranches;
 
 impl Cop for IfWithBooleanLiteralBranches {
@@ -59,40 +74,55 @@ impl Cop for IfWithBooleanLiteralBranches {
     ) {
         let allowed_methods = config.get_string_array("AllowedMethods");
 
-        // Check `if` nodes (including ternary and elsif)
+        // Check `if` nodes (including ternary, but NOT elsif — elsifs are
+        // handled by walking the subsequent chain from the parent `if` node)
         if let Some(if_node) = node.as_if_node() {
             // Detect ternary: no if_keyword_loc means it's a ternary
             let is_ternary = if_node.if_keyword_loc().is_none();
-            let is_elsif;
 
             if !is_ternary {
                 let kw_text = if_node.if_keyword_loc().unwrap().as_slice();
-                is_elsif = kw_text == b"elsif";
-                // Must be `if` or `elsif`, not something else
-                if kw_text != b"if" && !is_elsif {
+                // Skip elsif nodes — they are processed from the parent `if`
+                if kw_text == b"elsif" {
                     return;
                 }
-            } else {
-                is_elsif = false;
+                // Must be `if`
+                if kw_text != b"if" {
+                    return;
+                }
             }
 
-            // For elsif: check multiple_elsif? guard - skip if this elsif's
-            // subsequent is another IfNode (elsif) that itself also has an
-            // elsif subsequent (i.e., there are 2+ elsif branches in the chain).
-            // RuboCop: skip if node.parent is an if that is also elsif.
-            // We approximate: skip an elsif if its subsequent is another elsif.
-            // This handles the "two or more elsifs" case from RuboCop docs.
-            if is_elsif {
-                // Check if there's a "sibling" elsif: if this elsif's subsequent
-                // is another IfNode (elsif), we skip this one (multiple elsif chain).
-                if let Some(subsequent) = if_node.subsequent() {
-                    if subsequent.as_if_node().is_some() {
-                        return; // Another elsif follows - skip (multiple elsif)
+            // For non-elsif `if` nodes: also check the elsif chain for flaggable elsifs.
+            // Count total elsif branches to implement RuboCop's multiple_elsif? guard:
+            // only flag a single elsif (not 2+ elsifs in the chain).
+            if !is_ternary {
+                let mut elsif_count = 0;
+                let mut cursor = if_node.subsequent();
+                while let Some(ref sub) = cursor {
+                    if let Some(elsif_if) = sub.as_if_node() {
+                        elsif_count += 1;
+                        cursor = elsif_if.subsequent();
+                    } else {
+                        break;
+                    }
+                }
+
+                // If exactly 1 elsif, check if it has boolean literal branches
+                if elsif_count == 1 {
+                    if let Some(sub) = if_node.subsequent() {
+                        if let Some(elsif_node) = sub.as_if_node() {
+                            self.check_elsif_node(
+                                source,
+                                &elsif_node,
+                                &allowed_methods,
+                                diagnostics,
+                            );
+                        }
                     }
                 }
             }
 
-            // Need both branches (if body and else)
+            // Check the if/else or ternary branches themselves
             let if_body = match if_node.statements() {
                 Some(s) => s,
                 None => return,
@@ -115,15 +145,12 @@ impl Cop for IfWithBooleanLiteralBranches {
             if let (Some(if_val), Some(else_val)) = (if_bool, else_bool) {
                 // Both branches are boolean literals
                 if (if_val && !else_val) || (!if_val && else_val) {
-                    // For elsif: the condition of the elsif must return boolean
-                    // For if/ternary: same check
                     if !condition_returns_boolean(&if_node.predicate(), &allowed_methods) {
                         return;
                     }
 
                     if is_ternary {
                         // For ternary, point at the `?`
-                        // Find the ? position - it's after the predicate
                         let pred_end = if_node.predicate().location().start_offset()
                             + if_node.predicate().location().as_slice().len();
                         let src = source.as_bytes();
@@ -141,19 +168,6 @@ impl Cop for IfWithBooleanLiteralBranches {
                                     .to_string(),
                             ),
                         );
-                        return;
-                    }
-
-                    if is_elsif {
-                        let if_kw_loc = if_node.if_keyword_loc().unwrap();
-                        let (line, column) = source.offset_to_line_col(if_kw_loc.start_offset());
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            "Use `else` instead of redundant `elsif` with boolean literal branches."
-                                .to_string(),
-                        ));
                         return;
                     }
 
@@ -204,6 +218,57 @@ impl Cop for IfWithBooleanLiteralBranches {
                         "Remove redundant `unless` with boolean literal branches.".to_string(),
                     ));
                 }
+            }
+        }
+    }
+}
+
+impl IfWithBooleanLiteralBranches {
+    /// Check an elsif node for boolean literal branches and emit a diagnostic if found.
+    /// Called only when there is exactly 1 elsif in the chain (not multiple).
+    fn check_elsif_node(
+        &self,
+        source: &SourceFile,
+        elsif_node: &ruby_prism::IfNode<'_>,
+        allowed_methods: &Option<Vec<String>>,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // Need both branches: elsif body and else
+        let elsif_body = match elsif_node.statements() {
+            Some(s) => s,
+            None => return,
+        };
+        let else_clause = match elsif_node.subsequent() {
+            Some(s) => s,
+            None => return,
+        };
+
+        // Must be a simple else (not another elsif)
+        let else_node = match else_clause.as_else_node() {
+            Some(e) => e,
+            None => return,
+        };
+
+        let elsif_bool = single_boolean_value(&elsif_body);
+        let else_bool = single_boolean_value_from_else(&else_node);
+
+        if let (Some(ev), Some(elv)) = (elsif_bool, else_bool) {
+            if (ev && !elv) || (!ev && elv) {
+                if !condition_returns_boolean(&elsif_node.predicate(), allowed_methods) {
+                    return;
+                }
+
+                let if_kw_loc = elsif_node.if_keyword_loc().unwrap();
+                let (line, column) = source.offset_to_line_col(if_kw_loc.start_offset());
+                diagnostics.push(
+                    self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use `else` instead of redundant `elsif` with boolean literal branches."
+                            .to_string(),
+                    ),
+                );
             }
         }
     }
