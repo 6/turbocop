@@ -54,3 +54,27 @@ User.all.find_by!(name: name)
      ^^^ Rails/RedundantActiveRecordAllMethod: Redundant `all` detected.
 User.all().order(:created_at)
      ^^^^^ Rails/RedundantActiveRecordAllMethod: Redundant `all` detected.
+class Record < ApplicationRecord
+  def self.active
+    all.where(active: true)
+    ^^^ Rails/RedundantActiveRecordAllMethod: Redundant `all` detected.
+  end
+end
+class Record < ::ApplicationRecord
+  def self.recent
+    all.order(:created_at)
+    ^^^ Rails/RedundantActiveRecordAllMethod: Redundant `all` detected.
+  end
+end
+class Record < ActiveRecord::Base
+  def self.names
+    all.pluck(:name)
+    ^^^ Rails/RedundantActiveRecordAllMethod: Redundant `all` detected.
+  end
+end
+class Record < ::ActiveRecord::Base
+  def self.ids_list
+    all.ids
+    ^^^ Rails/RedundantActiveRecordAllMethod: Redundant `all` detected.
+  end
+end

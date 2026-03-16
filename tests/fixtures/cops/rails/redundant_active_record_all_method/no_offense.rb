@@ -28,3 +28,13 @@ all.order(:name)
 all.first
 all.find_by(name: name)
 all.includes(:articles)
+class User
+  def do_something
+    all.where(id: ids)
+  end
+end
+class User < Foo
+  def do_something
+    all.where(id: ids)
+  end
+end
