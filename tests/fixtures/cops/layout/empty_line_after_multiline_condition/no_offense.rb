@@ -113,3 +113,47 @@ end
 # Ternary if — no offense even if condition is multiline (rare but possible)
 x = (a &&
   b) ? 1 : 2
+
+# Block if with whitespace-only line after multiline condition (treated as blank)
+if helpers_data['x'] &&
+   helpers_data['y'] &&
+   helpers_data['z']
+
+  puts "found"
+end
+
+# elsif with case expression as predicate — case is inherently multiline
+if x
+  foo
+elsif case states.last
+      when :initial, :media
+        scan(/foo/)
+      end
+  bar
+end
+
+# Modifier if with only comment after (no right sibling in AST)
+def m
+  true if depth >= 3 &&
+          caller.first.label == name
+          # TODO: incomplete
+end
+
+# Modifier unless inside when block — when is not a right sibling
+case parent
+when Step
+  return render_403 unless can_read_module?(protocol) ||
+                           can_read_repository?(protocol)
+when Result
+  return render_403 unless can_read_result?(parent)
+end
+
+# elsif with bare case expression (no subject)
+if x
+  foo
+elsif case
+      when match = scan(/foo/)
+        bar
+      end
+  baz
+end
