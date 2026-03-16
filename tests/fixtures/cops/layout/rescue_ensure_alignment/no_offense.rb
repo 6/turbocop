@@ -30,3 +30,12 @@ rescue IPAddr::Error
 ensure
   cleanup
 end
+
+# Single-line begin/rescue (modifier-like)
+begin; do_something; rescue LoadError; end
+
+# Single-line begin/rescue in assignment
+result = begin; compute; rescue; nil; end
+
+# Single-line begin/rescue inside block
+items.each { begin; process; rescue; nil; end }

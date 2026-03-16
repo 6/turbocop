@@ -3,6 +3,25 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Checks alignment of rescue/ensure keywords with their matching begin/def.
+///
+/// ## FP investigation (2026-03-16)
+/// 128 FPs caused by two bugs:
+/// 1. Tab indentation: The assignment-detection heuristic counted only spaces
+///    for line indent, but compared against byte-offset column. Tab-indented
+///    code had indent=0 (no spaces) vs begin_col>0 (tabs), triggering the
+///    assignment path which set align_col=0, causing false misalignment reports.
+///    Fix: Count both spaces and tabs as leading whitespace.
+/// 2. Same-line begin/rescue: `begin; something; rescue; nil; end` on a single
+///    line was flagged because no same-line check existed. RuboCop skips these
+///    via `same_line?`. Fix: Skip when rescue/ensure is on the same line as begin.
+///
+/// ## Remaining FN gaps (42)
+/// Rescue/ensure inside class, module, singleton class, and block bodies are
+/// not yet detected. Prism wraps these in implicit BeginNodes (begin_keyword_loc
+/// is None), which the cop currently skips. Also, the def handler uses
+/// `body.as_rescue_node()` but Prism wraps def bodies with rescue in a
+/// BeginNode, not a bare RescueNode.
 pub struct RescueEnsureAlignment;
 
 impl Cop for RescueEnsureAlignment {
@@ -39,25 +58,29 @@ impl Cop for RescueEnsureAlignment {
                 while line_start > 0 && bytes[line_start - 1] != b'\n' {
                     line_start -= 1;
                 }
+                // Count leading whitespace (both spaces and tabs) to find
+                // the column of the first non-whitespace character on this line.
                 let mut indent = 0;
-                while line_start + indent < bytes.len() && bytes[line_start + indent] == b' ' {
+                while line_start + indent < bytes.len()
+                    && (bytes[line_start + indent] == b' ' || bytes[line_start + indent] == b'\t')
+                {
                     indent += 1;
                 }
-                // If begin is NOT at the start of the line, the line likely has
-                // an assignment (e.g., `x = begin`). Use the line's indent.
+                // If begin is NOT at the start of the line (i.e., something
+                // precedes it like `x = begin`), use the line's indent.
                 if indent != begin_col {
                     indent
                 } else {
                     begin_col
                 }
             };
-            let _ = begin_line;
 
             if let Some(rescue_node) = begin_node.rescue_clause() {
                 let rescue_kw_loc = rescue_node.keyword_loc();
                 let (rescue_line, rescue_col) =
                     source.offset_to_line_col(rescue_kw_loc.start_offset());
-                if rescue_col != align_col {
+                // Skip if rescue is on the same line as begin (single-line form)
+                if rescue_line != begin_line && rescue_col != align_col {
                     diagnostics.push(self.diagnostic(
                         source,
                         rescue_line,
@@ -71,7 +94,8 @@ impl Cop for RescueEnsureAlignment {
                 let ensure_kw_loc = ensure_node.ensure_keyword_loc();
                 let (ensure_line, ensure_col) =
                     source.offset_to_line_col(ensure_kw_loc.start_offset());
-                if ensure_col != align_col {
+                // Skip if ensure is on the same line as begin (single-line form)
+                if ensure_line != begin_line && ensure_col != align_col {
                     diagnostics.push(self.diagnostic(
                         source,
                         ensure_line,
@@ -116,5 +140,24 @@ mod tests {
         let source = b"begin\n  foo\nend\n";
         let diags = run_cop_full(&RescueEnsureAlignment, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn same_line_begin_rescue_no_offense() {
+        // Single-line begin/rescue should not fire
+        let src = b"begin; do_something; rescue LoadError; end\n";
+        let diags = run_cop_full(&RescueEnsureAlignment, src);
+        assert!(diags.is_empty(), "same-line begin/rescue should not fire");
+    }
+
+    #[test]
+    fn tab_indented_begin_rescue_no_offense() {
+        // Tab-indented begin/rescue correctly aligned should not fire
+        let src = b"\tbegin\n\t\tdo_something\n\trescue\n\t\thandle\n\tend\n";
+        let diags = run_cop_full(&RescueEnsureAlignment, src);
+        assert!(
+            diags.is_empty(),
+            "tab-indented aligned begin/rescue should not fire"
+        );
     }
 }
