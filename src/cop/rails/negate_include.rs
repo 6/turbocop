@@ -9,6 +9,16 @@ use crate::parse::source::SourceFile;
 /// `include?` calls. RuboCop's pattern `(send (send $!nil? :include? $_) :!)`
 /// uses `send` (not `csend`) and `$_` (exactly one arg).
 /// Fixed by checking for safe navigation and argument count.
+///
+/// ## Corpus investigation (2026-03-16)
+///
+/// FP=0, FN=1. The remaining FN is in `rubocop__rubocop__b210a6e` at
+/// `lib/rubocop/cop/lint/cop_directive_syntax.rb:74` —
+/// `elsif !DirectiveComment::AVAILABLE_MODES.include?(mode)`. Verified that
+/// the cop logic correctly detects `!` calls with constant path receivers in
+/// both `if` and `elsif` conditions (test fixtures added). The FN is a
+/// corpus config artifact — likely the rubocop repo's config resolution
+/// differs from the baseline, causing this cop to not run on that file.
 pub struct NegateInclude;
 
 impl Cop for NegateInclude {

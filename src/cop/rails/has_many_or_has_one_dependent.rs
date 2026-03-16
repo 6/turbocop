@@ -35,6 +35,18 @@ use ruby_prism::Visit;
 /// 6. **Missing receiver support** -- `base.has_many :foo` (calls with a receiver)
 ///    inside modules should also be checked. Fixed by not requiring receiver to
 ///    be absent for association detection.
+///
+/// ## Corpus investigation (2026-03-16)
+///
+/// FP=0, FN=1. The remaining FN is in `nesquena__rabl__50ebc12` at
+/// `fixtures/ashared/models/user.rb:2` — `has_many :phone_numbers` inside
+/// `class User < ActiveRecord::Base`. The cop logic correctly detects this
+/// pattern (identical structure already covered in test fixtures). The FN is
+/// caused by the file path `fixtures/ashared/models/user.rb` not matching
+/// the default `Include: ['**/app/models/**/*.rb']` pattern in the vendor
+/// config. RuboCop reports this offense, suggesting either the rabl repo has
+/// a custom config broadening the Include pattern or RuboCop's glob matching
+/// differs subtly from nitrocop's. This is a config artifact, not a cop bug.
 pub struct HasManyOrHasOneDependent;
 
 impl Cop for HasManyOrHasOneDependent {
