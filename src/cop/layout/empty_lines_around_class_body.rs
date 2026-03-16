@@ -1,9 +1,15 @@
-use crate::cop::node_type::CLASS_NODE;
+use crate::cop::node_type::{CLASS_NODE, SINGLETON_CLASS_NODE};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Investigation: 431 FN across 106 repos were caused by missing
+/// `SingletonClassNode` handling. The dominant pattern is `class << self`
+/// blocks with empty lines at beginning/end. RuboCop handles this via
+/// `on_sclass` in addition to `on_class`. Fixed by adding
+/// `SINGLETON_CLASS_NODE` to `interested_node_types` and extracting
+/// keyword/end offsets from `SingletonClassNode`.
 pub struct EmptyLinesAroundClassBody;
 
 impl Cop for EmptyLinesAroundClassBody {
@@ -12,7 +18,7 @@ impl Cop for EmptyLinesAroundClassBody {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CLASS_NODE]
+        &[CLASS_NODE, SINGLETON_CLASS_NODE]
     }
 
     fn supports_autocorrect(&self) -> bool {
@@ -29,13 +35,19 @@ impl Cop for EmptyLinesAroundClassBody {
         corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "no_empty_lines");
-        let class_node = match node.as_class_node() {
-            Some(c) => c,
-            None => return,
+        let (kw_offset, end_offset) = if let Some(class_node) = node.as_class_node() {
+            (
+                class_node.class_keyword_loc().start_offset(),
+                class_node.end_keyword_loc().start_offset(),
+            )
+        } else if let Some(sclass_node) = node.as_singleton_class_node() {
+            (
+                sclass_node.class_keyword_loc().start_offset(),
+                sclass_node.end_keyword_loc().start_offset(),
+            )
+        } else {
+            return;
         };
-
-        let kw_offset = class_node.class_keyword_loc().start_offset();
-        let end_offset = class_node.end_keyword_loc().start_offset();
 
         match style {
             "empty_lines" => {
