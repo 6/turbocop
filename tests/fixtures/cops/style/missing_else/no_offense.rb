@@ -22,9 +22,13 @@ return x if condition
 x = 42 if flag
 puts "hello" if verbose
 
-# if/elsif without else — RuboCop treats elsif as having an else clause
-if x > 1
-  bar
-elsif x < 0
-  baz
+# unless without else — not flagged when Style/UnlessElse is enabled (default)
+unless cond
+  foo
+end
+
+# case..in pattern matching — never flagged
+case pattern
+in a
+  foo
 end

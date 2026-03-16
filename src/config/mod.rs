@@ -2270,6 +2270,29 @@ impl ResolvedConfig {
                 .entry("__SpaceInsideHashBracesStyle".to_string())
                 .or_insert_with(|| Value::String(braces_style.to_string()));
         }
+        // Inject cross-cop config for Style/MissingElse:
+        // - Style/UnlessElse.Enabled → UnlessElseEnabled (controls whether unless is flagged)
+        // - Style/EmptyElse.EnforcedStyle → EmptyElseStyle (controls message wording)
+        if name == "Style/MissingElse" {
+            let unless_else_config = self.cop_configs.get("Style/UnlessElse");
+            let unless_else_enabled = unless_else_config
+                .map(|cc| !matches!(cc.enabled, crate::cop::EnabledState::False))
+                .unwrap_or(true);
+            config
+                .options
+                .entry("UnlessElseEnabled".to_string())
+                .or_insert_with(|| Value::Bool(unless_else_enabled));
+
+            let empty_else_config = self.cop_configs.get("Style/EmptyElse");
+            let empty_else_style = empty_else_config
+                .and_then(|cc| cc.options.get("EnforcedStyle"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("both");
+            config
+                .options
+                .entry("EmptyElseStyle".to_string())
+                .or_insert_with(|| Value::String(empty_else_style.to_string()));
+        }
         // Inject Style/StringLiterals EnforcedStyle for Style/QuotedSymbols
         // (mirrors RuboCop's `config.for_cop('Style/StringLiterals')` lookup)
         if name == "Style/QuotedSymbols" {
