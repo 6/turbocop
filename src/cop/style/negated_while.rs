@@ -23,6 +23,9 @@ use crate::parse::source::SourceFile;
 /// - FNs: `until !condition` was not handled at all (cop only checked WhileNode)
 /// - FPs: `!!condition` double negation was not excluded
 /// - FPs: safe-navigation chains `&.!` were not excluded
+/// - FPs: `begin...end while !cond` (do-while loops) were flagged but RuboCop
+///   skips these entirely. Fixed by checking `is_begin_modifier()` on both
+///   WhileNode and UntilNode, consistent with other cops (e.g. Lint/Loop).
 pub struct NegatedWhile;
 
 /// Unwrap parentheses from a node, returning the inner expression.
@@ -87,6 +90,10 @@ impl Cop for NegatedWhile {
     ) {
         // Handle WhileNode: `while !cond` -> suggest `until`
         if let Some(while_node) = node.as_while_node() {
+            // Skip begin...end while loops (do-while); RuboCop does not flag these
+            if while_node.is_begin_modifier() {
+                return;
+            }
             let predicate = while_node.predicate();
             let unwrapped = unwrap_parentheses(predicate);
             if is_single_negation(&unwrapped) {
@@ -103,6 +110,10 @@ impl Cop for NegatedWhile {
 
         // Handle UntilNode: `until !cond` -> suggest `while`
         if let Some(until_node) = node.as_until_node() {
+            // Skip begin...end until loops (do-until); RuboCop does not flag these
+            if until_node.is_begin_modifier() {
+                return;
+            }
             let predicate = until_node.predicate();
             let unwrapped = unwrap_parentheses(predicate);
             if is_single_negation(&unwrapped) {
