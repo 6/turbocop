@@ -65,6 +65,43 @@ use ruby_prism::Visit;
 /// `/^[a-z_]\w*=$/` — only proper setter names (e.g., `name=`) where the char
 /// before `=` is alphanumeric or underscore. Fixed to check that the char before
 /// the trailing `=` is a word character, excluding operator methods.
+///
+/// ## Investigation findings (2026-03-16, round 2)
+///
+/// Root causes of remaining FPs (273) and FNs (688):
+///
+/// **FP/FN: operator offense reported at wrong location** — nitrocop reported
+/// void operators at the whole expression start, while RuboCop reports at the
+/// operator selector position (e.g., `==` in `a.should == value`). For multiline
+/// expressions, this caused line mismatches (FP at expression start, FN at
+/// operator position). Fixed by using `call.message_loc()` for operator offset.
+///
+/// **FP: single-expression void def bodies** — RuboCop has no `on_def` callback;
+/// void context for initialize/setter bodies is handled via `on_begin` which only
+/// fires for multi-statement (begin node) bodies. Single-expression def bodies
+/// were incorrectly flagged. Fixed by skipping `check_statements` when
+/// `body_stmts.len() == 1`.
+///
+/// **FP: singleton method defs matched as void** — `def self.initialize` and
+/// `def self.foo=` were treated as void context, but RuboCop's `void_context?`
+/// returns false for `defs` (singleton method) nodes. Fixed by checking
+/// `node.receiver().is_some()`.
+///
+/// **FP: single-expression for loop bodies** — RuboCop has no `on_for` callback.
+/// Single-expression for bodies were incorrectly flagged. Fixed similarly to defs.
+///
+/// **FP: single-expression ensure body operators** — RuboCop's `check_ensure`
+/// calls `check_expression` (no `check_void_op`) for single-expression ensure
+/// bodies. Operators in single-expression ensure bodies were incorrectly flagged.
+/// Fixed with `check_void_expression_no_op` for ensure single-expression case.
+///
+/// **FN: interpolated strings not detected** — RuboCop considers `dstr`
+/// (interpolated strings) as literals via `node.literal?`. Added
+/// `InterpolatedStringNode`, `InterpolatedSymbolNode`, and
+/// `InterpolatedRegularExpressionNode` detection.
+///
+/// Remaining gaps (19 FP, 441 FN): mostly location mismatches for complex
+/// multiline patterns and missing operator detection in deeply nested contexts.
 pub struct Void;
 
 impl Cop for Void {
@@ -153,9 +190,22 @@ struct VoidVisitor<'a, 'src> {
 
 impl VoidVisitor<'_, '_> {
     fn check_void_expression(&mut self, stmt: &ruby_prism::Node<'_>) {
-        if is_void_expression(stmt, self.in_each_block) {
+        // Check non-operator void expressions (report at expression start)
+        if is_void_non_operator(stmt) {
             let loc = stmt.location();
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Void value expression detected.".to_string(),
+            ));
+            return;
+        }
+        // Check void operators separately (report at operator/selector position)
+        // RuboCop reports operators at node.loc.selector (the operator name)
+        if let Some(op_offset) = void_operator_name_offset(stmt, self.in_each_block) {
+            let (line, column) = self.source.offset_to_line_col(op_offset);
             self.diagnostics.push(self.cop.diagnostic(
                 self.source,
                 line,
@@ -171,6 +221,27 @@ impl VoidVisitor<'_, '_> {
         self.check_conditional_body(stmt);
 
         // CheckForMethodsWithNoSideEffects: detect nonmutating methods in void context
+        if self.check_methods {
+            self.check_nonmutating(stmt);
+        }
+    }
+
+    /// Check a single expression in void context for non-operator void expressions only.
+    /// Used for single-expression ensure bodies (matches RuboCop's check_expression
+    /// which does NOT call check_void_op).
+    fn check_void_expression_no_op(&mut self, stmt: &ruby_prism::Node<'_>) {
+        if is_void_non_operator(stmt) {
+            let loc = stmt.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Void value expression detected.".to_string(),
+            ));
+            return;
+        }
+        self.check_conditional_body(stmt);
         if self.check_methods {
             self.check_nonmutating(stmt);
         }
@@ -269,7 +340,14 @@ fn is_each_method(call: &ruby_prism::CallNode<'_>) -> bool {
 /// Check if a def node is a void context (initialize or setter method).
 /// RuboCop uses `assignment_method?` which matches `/^[a-z_]\w*=$/`.
 /// This must NOT match operator methods like `==`, `===`, `!=`, `<=>`.
+/// Only instance methods (no receiver) are void context — `def self.initialize`
+/// and `def self.foo=` are NOT void (they are `defs` nodes in Parser gem where
+/// `void_context?` returns false).
 fn is_void_def(node: &ruby_prism::DefNode<'_>) -> bool {
+    // Singleton methods (def self.foo) are NOT void context
+    if node.receiver().is_some() {
+        return false;
+    }
     let name = node.name().as_slice();
     if name == b"initialize" {
         return true;
@@ -310,6 +388,10 @@ fn is_void_non_operator(node: &ruby_prism::Node<'_>) -> bool {
         // Containers
         || is_entirely_literal_container(node)
         || node.as_regular_expression_node().is_some()
+        // Interpolated strings/symbols/regexps are literals in RuboCop (dstr/dsym in LITERALS)
+        || node.as_interpolated_string_node().is_some()
+        || node.as_interpolated_symbol_node().is_some()
+        || node.as_interpolated_regular_expression_node().is_some()
         // Keywords
         || node.as_source_file_node().is_some()
         || node.as_source_line_node().is_some()
@@ -320,45 +402,6 @@ fn is_void_non_operator(node: &ruby_prism::Node<'_>) -> bool {
         || is_void_lambda_or_proc(node)
         // Literal.freeze
         || is_literal_freeze(node)
-}
-
-fn is_void_expression(node: &ruby_prism::Node<'_>, in_each_block: bool) -> bool {
-    // Simple literals
-    node.as_integer_node().is_some()
-        || node.as_float_node().is_some()
-        || node.as_string_node().is_some()
-        || node.as_symbol_node().is_some()
-        || node.as_self_node().is_some()
-        || node.as_nil_node().is_some()
-        || node.as_true_node().is_some()
-        || node.as_false_node().is_some()
-        || node.as_rational_node().is_some()
-        || node.as_imaginary_node().is_some()
-        // Variable reads
-        || node.as_local_variable_read_node().is_some()
-        || node.as_instance_variable_read_node().is_some()
-        || node.as_class_variable_read_node().is_some()
-        || node.as_global_variable_read_node().is_some()
-        // Constants
-        || node.as_constant_read_node().is_some()
-        || node.as_constant_path_node().is_some()
-        // Containers — only when ALL elements are literals (matches RuboCop's entirely_literal?)
-        // Note: ranges are excluded (RuboCop's check_literal skips range_type?)
-        || is_entirely_literal_container(node)
-        || node.as_regular_expression_node().is_some()
-        // Note: interpolated strings/symbols/regexps are NOT void (interpolation may have side effects)
-        // Keywords
-        || node.as_source_file_node().is_some()
-        || node.as_source_line_node().is_some()
-        || node.as_source_encoding_node().is_some()
-        // defined?
-        || node.as_defined_node().is_some()
-        // Lambda/proc in void context
-        || is_void_lambda_or_proc(node)
-        // Literal.freeze
-        || is_literal_freeze(node)
-        // Operators (binary/unary) via CallNode — exempted in each blocks
-        || is_void_operator(node, in_each_block)
 }
 
 /// Check if a node is a lambda literal `-> { }` that is NOT called.
@@ -448,18 +491,21 @@ fn is_entirely_literal(node: &ruby_prism::Node<'_>) -> bool {
         || is_literal_freeze(node)
 }
 
-fn is_void_operator(node: &ruby_prism::Node<'_>, in_each_block: bool) -> bool {
+/// Return the byte offset of the operator name if the node is a void operator.
+/// RuboCop reports void operators at `node.loc.selector` (the operator name position).
+/// Returns `None` if the node is not a void operator.
+fn void_operator_name_offset(node: &ruby_prism::Node<'_>, in_each_block: bool) -> Option<usize> {
     // Unwrap parentheses nodes to find the inner operator
     if let Some(parens) = node.as_parentheses_node() {
         if let Some(body) = parens.body() {
             if let Some(stmts) = body.as_statements_node() {
                 let stmts_vec: Vec<_> = stmts.body().iter().collect();
                 if stmts_vec.len() == 1 {
-                    return is_void_operator(&stmts_vec[0], in_each_block);
+                    return void_operator_name_offset(&stmts_vec[0], in_each_block);
                 }
             }
         }
-        return false;
+        return None;
     }
 
     if let Some(call) = node.as_call_node() {
@@ -486,24 +532,28 @@ fn is_void_operator(node: &ruby_prism::Node<'_>, in_each_block: bool) -> bool {
         );
 
         if !is_operator {
-            return false;
+            return None;
         }
 
         // Exempt operators inside `each` blocks (enumerator filter pattern)
         if in_each_block {
-            return false;
+            return None;
         }
 
         // Binary operators called with dot notation and no arguments are NOT void
         // e.g., `a.+` is not flagged, but `a.+(b)` is
         let is_unary = matches!(name, b"!" | b"~" | b"-@" | b"+@");
         if !is_unary && call.call_operator_loc().is_some() && call.arguments().is_none() {
-            return false;
+            return None;
         }
 
-        true
+        // Return the offset of the message/selector (operator name)
+        Some(
+            call.message_loc()
+                .map_or_else(|| call.location().start_offset(), |loc| loc.start_offset()),
+        )
     } else {
-        false
+        None
     }
 }
 
@@ -521,12 +571,17 @@ impl<'pr> Visit<'pr> for VoidVisitor<'_, '_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         if is_void_def(node) {
             // In void context methods (initialize, setters), ALL expressions
-            // including the last are void.
+            // including the last are void — but ONLY for multi-statement bodies.
+            // RuboCop has no `on_def` callback for void checking; it relies on
+            // `on_begin` which only fires for multi-statement (begin node) bodies.
+            // Single-expression def bodies are NOT checked.
             if let Some(body) = node.body() {
                 if let Some(stmts) = body.as_statements_node() {
                     let body_stmts: Vec<_> = stmts.body().iter().collect();
-                    // Check all including last (void context)
-                    self.check_statements(&body_stmts, true);
+                    if body_stmts.len() > 1 {
+                        // Multi-statement: check all including last (void context)
+                        self.check_statements(&body_stmts, true);
+                    }
                     // Visit children but don't re-check via visit_statements_node
                     // We need to visit into child nodes for nested blocks, etc.
                     for stmt in &body_stmts {
@@ -534,8 +589,7 @@ impl<'pr> Visit<'pr> for VoidVisitor<'_, '_> {
                     }
                     return;
                 }
-                // Single expression body (no StatementsNode wrapper) — check it
-                self.check_void_expression(&body);
+                // Single expression body (non-StatementsNode) — skip
                 self.visit(&body);
                 return;
             }
@@ -589,10 +643,15 @@ impl<'pr> Visit<'pr> for VoidVisitor<'_, '_> {
     }
 
     fn visit_for_node(&mut self, node: &ruby_prism::ForNode<'pr>) {
-        // For loops are void context — check all expressions including last
+        // For loops are void context — check all expressions including last,
+        // but ONLY for multi-statement bodies. RuboCop has no `on_for` callback;
+        // it relies on `on_begin` which only fires for multi-statement bodies.
+        // Single-expression for loop bodies are NOT checked.
         if let Some(stmts) = node.statements() {
             let body: Vec<_> = stmts.body().iter().collect();
-            self.check_statements(&body, true);
+            if body.len() > 1 {
+                self.check_statements(&body, true);
+            }
             for stmt in &body {
                 self.visit(stmt);
             }
@@ -602,10 +661,19 @@ impl<'pr> Visit<'pr> for VoidVisitor<'_, '_> {
     }
 
     fn visit_ensure_node(&mut self, node: &ruby_prism::EnsureNode<'pr>) {
-        // Ensure bodies are void context — check all expressions including last
+        // Ensure bodies are void context.
+        // RuboCop's on_ensure/check_ensure handles single-expression ensure bodies
+        // with check_expression (no operator check). Multi-expression bodies
+        // go through on_begin → check_begin (operators + expressions).
         if let Some(stmts) = node.statements() {
             let body: Vec<_> = stmts.body().iter().collect();
-            self.check_statements(&body, true);
+            if body.len() > 1 {
+                // Multi-expression: check all including operators (void context)
+                self.check_statements(&body, true);
+            } else if body.len() == 1 {
+                // Single expression: check only non-operators (matches RuboCop)
+                self.check_void_expression_no_op(&body[0]);
+            }
             for stmt in &body {
                 self.visit(stmt);
             }
@@ -664,6 +732,21 @@ mod tests {
             source,
             config_with_check_methods(),
         );
+    }
+
+    #[test]
+    fn test_void_operator_reported_at_operator_position() {
+        // Operators reported at operator selector position (matching RuboCop)
+        let source = b"c = foo\nc.bar.should == true\n             ^^ Lint/Void: Void value expression detected.\nc.bar.should == false\n             ^^ Lint/Void: Void value expression detected.\nc\n";
+        crate::testutil::assert_cop_offenses_full(&Void, source);
+    }
+
+    #[test]
+    fn test_multiline_operator_reported_at_operator_position() {
+        // Multiline expression: a.foo(args).\n  should == value
+        // RuboCop reports at the == selector position on the continuation line
+        let source = b"c = foo\na.foo(\n  bar\n).should == true\n         ^^ Lint/Void: Void value expression detected.\na.other\nc\n";
+        crate::testutil::assert_cop_offenses_full(&Void, source);
     }
 
     #[test]

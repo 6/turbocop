@@ -45,10 +45,10 @@ def void_operators
   a = 1
   b = 2
   a + b
-  ^^^^^ Lint/Void: Void value expression detected.
+    ^ Lint/Void: Void value expression detected.
   flag = true
   !flag
-  ^^^^^ Lint/Void: Void value expression detected.
+  ^ Lint/Void: Void value expression detected.
   "done"
 end
 
@@ -63,7 +63,7 @@ end
 def void_operator_triple_equals
   a = Object.new
   a === "test"
-  ^^^^^^^^^^^^ Lint/Void: Void value expression detected.
+    ^^^ Lint/Void: Void value expression detected.
   "done"
 end
 
@@ -215,4 +215,20 @@ def void_ternary
   condition ? CONST : nil
               ^^^^^ Lint/Void: Void value expression detected.
   top
+end
+
+# Interpolated strings are void literals (RuboCop considers dstr as literal)
+def void_interpolated_string
+  "#{1+1} #{1+1} #{1+1}"
+  ^^^^^^^^^^^^^^^^^^^^^^^ Lint/Void: Void value expression detected.
+  do_something
+end
+
+# Multiline operator — report at operator position, not expression start
+def void_multiline_operator
+  a.foo(
+    bar
+  ).should == true
+           ^^ Lint/Void: Void value expression detected.
+  something_else
 end

@@ -90,12 +90,6 @@ def range_usage
   "done"
 end
 
-# Interpolated strings may have side effects
-def interpolated
-  "#{expensive_computation}"
-  "done"
-end
-
 # Void operators exempted inside each blocks (enumerator filter pattern)
 enumerator_as_filter.each do |item|
   item == 42
@@ -175,4 +169,61 @@ end
 
 def <=>(other)
   @value <=> other.value
+end
+
+# Single-expression initialize body — RuboCop has no on_def callback,
+# so single-expression bodies in void defs are not checked.
+def initialize
+  @name
+end
+
+def initialize
+  'foo'
+end
+
+# Single-expression setter body — same as initialize
+def foo=(value)
+  nil
+end
+
+def mail=(*args)
+  nil
+end
+
+def bar=(rhs)
+  true
+end
+
+# Singleton methods (def self.foo) are NOT void context
+def self.initialize(**opts)
+  transformer = allocate
+  transformer
+end
+
+def self.foo=(value)
+  nil
+end
+
+# Single-expression for loop body — RuboCop has no on_for callback,
+# so single-expression for loop bodies are not checked.
+for element in data
+  element == nil
+end
+
+for number in [*1..100]
+  number
+end
+
+for i in (0..10)
+  1
+end
+
+# Single-expression ensure body with operator — RuboCop's check_ensure
+# only calls check_expression (no check_void_op), so operators are not flagged
+def with_ensure
+  something
+rescue
+  fallback
+ensure
+  $!.should == nil
 end
