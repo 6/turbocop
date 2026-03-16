@@ -29,6 +29,14 @@ use crate::parse::source::SourceFile;
 ///   block bodies that use `indented_internal_methods`, and it reads the sibling
 ///   `Layout/IndentationConsistency` / `Layout/AccessModifierIndentation` styles
 ///   through config injection.
+///
+/// 2026-03-16:
+/// - Fixed 159 FPs on tab-indented code (47 from phlex alone). When tabs are used,
+///   each tab counts as 1 character width, so a line indented with N+1 tabs relative
+///   to N tabs has a "width" of 1, triggering "Use 2 (not 1) spaces for indentation."
+///   RuboCop explicitly skips tab-indented lines in Layout/IndentationWidth — tab
+///   indentation is handled by Layout/IndentationStyle instead. Added
+///   `line_uses_tab_indentation()` check to all three indentation check methods.
 pub struct IndentationWidth;
 
 /// Access modifier method names that RuboCop treats as bare access modifiers.
@@ -79,6 +87,27 @@ fn starts_with_access_modifier(stmts: &ruby_prism::StatementsNode<'_>) -> bool {
     } else {
         false
     }
+}
+
+/// Check if the line at the given byte offset uses tab indentation.
+/// RuboCop's `Layout/IndentationWidth` skips tab-indented lines — tab indentation
+/// is handled by `Layout/IndentationStyle` instead. Without this check, each tab
+/// counts as 1 character, causing false "Use 2 (not 1) spaces" offenses.
+fn line_uses_tab_indentation(source: &SourceFile, body_offset: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut line_start = body_offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+    // Check if any leading whitespace character is a tab
+    let mut pos = line_start;
+    while pos < bytes.len() && (bytes[pos] == b' ' || bytes[pos] == b'\t') {
+        if bytes[pos] == b'\t' {
+            return true;
+        }
+        pos += 1;
+    }
+    false
 }
 
 /// Check if the body node is not the first non-whitespace character on its line.
@@ -146,6 +175,11 @@ impl IndentationWidth {
         }
 
         if body_not_first_on_line(source, member_col, loc.start_offset()) {
+            return None;
+        }
+
+        // Skip tab-indented lines (handled by Layout/IndentationStyle)
+        if line_uses_tab_indentation(source, loc.start_offset()) {
             return None;
         }
 
@@ -365,6 +399,11 @@ impl IndentationWidth {
             return Vec::new();
         }
 
+        // Skip tab-indented lines (handled by Layout/IndentationStyle)
+        if line_uses_tab_indentation(source, loc.start_offset()) {
+            return Vec::new();
+        }
+
         if child_col != expected {
             let actual_indent = child_col as isize - base_col as isize;
             return vec![self.diagnostic(
@@ -417,6 +456,11 @@ impl IndentationWidth {
 
         // Skip if body is not the first non-whitespace char on its line
         if body_not_first_on_line(source, child_col, loc.start_offset()) {
+            return Vec::new();
+        }
+
+        // Skip tab-indented lines (handled by Layout/IndentationStyle)
+        if line_uses_tab_indentation(source, loc.start_offset()) {
             return Vec::new();
         }
 
