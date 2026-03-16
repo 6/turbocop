@@ -223,3 +223,88 @@ foo_method_with_long_name(
   (variable_one_long_name + variable_two_long_name + variable_three_long_name +
    variable_four_long_name + variable_five_long_name + variable_six_long_name + variable_seven_long_name)
 )
+
+# Assignment with multiline %q{} string inside a method body
+# The %q{} string contains newlines so safe_to_split? should return false.
+# Previously missed because UnsafeRangeCollector did not recurse into DefNode.
+def test_it
+  source = %q{
+p id="test"
+}
+
+  assert_html '<p>x</p>', source
+end
+
+# Assignment with multiline %Q{} string inside a class/method
+class TestClass
+  def test_method
+    template = %Q{
+<div>#{name}</div>
+}
+    render template
+  end
+end
+
+# Multiline regex assignment inside a method body
+def parse
+  pattern = /
+    \A
+    (?<key>.+)
+    \z
+  /x
+  input.match(pattern)
+end
+
+# Multiline %w array assignment inside a method
+def allowed_names
+  names = %w[
+    alpha
+    beta
+    gamma
+  ]
+  names.freeze
+end
+
+# Assignment with if on RHS inside a nested class/method
+class Config
+  def resolve
+    @prefix = if @prefix
+                "#{@prefix}[#{name}]"
+              else
+                name
+              end
+  end
+
+  def lookup
+    value =
+      if key.present?
+        store[key]
+      else
+        default
+      end
+    value
+  end
+
+  def status_code
+    @code =
+      if code.is_a?(Symbol)
+        begin
+          lookup(code)
+        rescue ArgumentError
+          nil
+        end
+      else
+        code
+      end
+  end
+end
+
+# Assignment with case on RHS inside a method
+def kind
+  result = case input
+           when :a then 1
+           when :b then 2
+           else 0
+           end
+  result
+end

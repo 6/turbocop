@@ -59,3 +59,23 @@ foo(
 ^^^^ Layout/RedundantLineBreak: Redundant line break detected.
   bar(1, 2)
 )
+
+@count +=
+^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+  items.size
+
+@@total +=
+^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+  items.size
+
+$counter +=
+^^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+  items.size
+
+@cache ||=
+^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+  compute_value
+
+@flag &&=
+^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+  check_flag

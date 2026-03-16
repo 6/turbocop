@@ -30,9 +30,10 @@ use crate::parse::source::SourceFile;
 /// ## Remaining gaps (FNs)
 /// - No walk-up through `AndNode`/`OrNode` (binary operators) — standalone multiline
 ///   `&&`/`||` expressions without assignment are not checked.
-/// - Missing some write node visitors (e.g., `InstanceVariableOperatorWriteNode`).
 /// - `contains_single_line_block` always fires (not conditional on SingleLineBlockChain
 ///   being enabled), causing FNs for single-line block patterns.
+/// - No walk-up through convertible blocks (`method { ... }.chain`) — the block is not
+///   merged with its send_node for length calculation.
 ///
 /// ## Fixes applied (2026-03-09)
 /// - Phase 2 now checks block and unsafe ranges before reporting backslash continuations.
@@ -40,6 +41,19 @@ use crate::parse::source::SourceFile;
 /// - Fixed `too_long` method chain dot check to match RuboCop's `(?=(&)?\.\w)` regex.
 /// - Split block range tracking into multiline-only (`contains_multiline_block`)
 ///   for more accurate InspectBlocks handling.
+///
+/// ## Fixes applied (2026-03-16)
+/// - **Critical FP fix**: `UnsafeRangeCollector` now recurses into all node types
+///   (DefNode, IfNode, CaseNode, etc.). Previously it stopped recursing when it hit
+///   these nodes, so multiline strings/regexps/arrays nested inside methods or
+///   conditionals were never collected as unsafe ranges. This caused ~thousands of FPs
+///   in repos like slim-template (315 FPs from multiline %q{} strings inside def bodies).
+/// - Added `RegularExpressionNode` and `InterpolatedRegularExpressionNode` to unsafe ranges
+///   (multiline `/x` regexps should not be collapsed).
+/// - Added multiline `%w`/`%W`/`%i`/`%I` array literals to unsafe ranges.
+/// - Added all missing operator/or/and write node visitors for instance variables,
+///   class variables, global variables, constants, and constant paths (e.g.,
+///   `@count += items.size`, `@@total += n`, `$var ||= compute`).
 pub struct RedundantLineBreak;
 
 impl Cop for RedundantLineBreak {
@@ -139,32 +153,43 @@ impl<'pr> Visit<'pr> for UnsafeRangeCollector {
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
         let loc = node.location();
         self.ranges.push((loc.start_offset(), loc.end_offset()));
-        // Don't recurse — the whole if node is unsafe
+        // Recurse into children so nested unsafe constructs (strings, regexps,
+        // inner ifs) inside the if body are also collected. The if itself is
+        // unsafe for its parent, but children may need their own unsafe ranges
+        // for inner assignments.
+        ruby_prism::visit_if_node(self, node);
     }
 
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
         let loc = node.location();
         self.ranges.push((loc.start_offset(), loc.end_offset()));
+        ruby_prism::visit_unless_node(self, node);
     }
 
     fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
         let loc = node.location();
         self.ranges.push((loc.start_offset(), loc.end_offset()));
+        ruby_prism::visit_case_node(self, node);
     }
 
     fn visit_case_match_node(&mut self, node: &ruby_prism::CaseMatchNode<'pr>) {
         let loc = node.location();
         self.ranges.push((loc.start_offset(), loc.end_offset()));
+        ruby_prism::visit_case_match_node(self, node);
     }
 
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
         let loc = node.location();
         self.ranges.push((loc.start_offset(), loc.end_offset()));
+        ruby_prism::visit_begin_node(self, node);
     }
 
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         let loc = node.location();
         self.ranges.push((loc.start_offset(), loc.end_offset()));
+        // Must recurse: inner assignments need to see unsafe ranges from
+        // strings, ifs, etc. nested inside this def body.
+        ruby_prism::visit_def_node(self, node);
     }
 
     fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
@@ -195,6 +220,8 @@ impl<'pr> Visit<'pr> for UnsafeRangeCollector {
             let loc = node.location();
             self.ranges.push((loc.start_offset(), loc.end_offset()));
         }
+        // Recurse into children for nested unsafe constructs
+        ruby_prism::visit_interpolated_string_node(self, node);
     }
 
     fn visit_symbol_node(&mut self, node: &ruby_prism::SymbolNode<'pr>) {
@@ -211,6 +238,48 @@ impl<'pr> Visit<'pr> for UnsafeRangeCollector {
             let loc = node.location();
             self.ranges.push((loc.start_offset(), loc.end_offset()));
         }
+    }
+
+    /// Multiline regular expressions — RuboCop doesn't list `:regexp` in
+    /// `safe_to_split?` but collapsing a multiline `/x` regex changes semantics.
+    /// Prism uses `RegularExpressionNode` for non-interpolated and
+    /// `InterpolatedRegularExpressionNode` for interpolated regexps.
+    fn visit_regular_expression_node(&mut self, node: &ruby_prism::RegularExpressionNode<'pr>) {
+        let content = node.location().as_slice();
+        if content.contains(&b'\n') {
+            let loc = node.location();
+            self.ranges.push((loc.start_offset(), loc.end_offset()));
+        }
+    }
+
+    fn visit_interpolated_regular_expression_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedRegularExpressionNode<'pr>,
+    ) {
+        let content = node.location().as_slice();
+        if content.contains(&b'\n') {
+            let loc = node.location();
+            self.ranges.push((loc.start_offset(), loc.end_offset()));
+        }
+        ruby_prism::visit_interpolated_regular_expression_node(self, node);
+    }
+
+    /// Multiline `%w[]`, `%i[]`, and other array literals.
+    fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
+        // Only mark as unsafe if it's a `%w`/`%W`/`%i`/`%I` literal (which has
+        // an opening delimiter) and is multiline. Regular `[...]` arrays are
+        // fine to split.
+        if let Some(open) = node.opening_loc() {
+            let open_slice = open.as_slice();
+            if open_slice.starts_with(b"%") {
+                let content = node.location().as_slice();
+                if content.contains(&b'\n') {
+                    let loc = node.location();
+                    self.ranges.push((loc.start_offset(), loc.end_offset()));
+                }
+            }
+        }
+        ruby_prism::visit_array_node(self, node);
     }
 
     /// Multiline parenthesized groups `(...)` — maps to `:begin` in Parser AST.
@@ -547,6 +616,135 @@ impl<'pr> Visit<'pr> for RedundantLineBreakVisitor<'_> {
         let loc = node.location();
         self.check_assignment(loc.start_offset(), loc.end_offset());
         ruby_prism::visit_local_variable_and_write_node(self, node);
+    }
+
+    fn visit_instance_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOperatorWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_instance_variable_operator_write_node(self, node);
+    }
+
+    fn visit_instance_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_instance_variable_or_write_node(self, node);
+    }
+
+    fn visit_instance_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableAndWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_instance_variable_and_write_node(self, node);
+    }
+
+    fn visit_class_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOperatorWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_class_variable_operator_write_node(self, node);
+    }
+
+    fn visit_class_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOrWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_class_variable_or_write_node(self, node);
+    }
+
+    fn visit_class_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableAndWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_class_variable_and_write_node(self, node);
+    }
+
+    fn visit_global_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOperatorWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_global_variable_operator_write_node(self, node);
+    }
+
+    fn visit_global_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOrWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_global_variable_or_write_node(self, node);
+    }
+
+    fn visit_global_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableAndWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_global_variable_and_write_node(self, node);
+    }
+
+    fn visit_constant_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantOperatorWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_constant_operator_write_node(self, node);
+    }
+
+    fn visit_constant_or_write_node(&mut self, node: &ruby_prism::ConstantOrWriteNode<'pr>) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_constant_or_write_node(self, node);
+    }
+
+    fn visit_constant_and_write_node(&mut self, node: &ruby_prism::ConstantAndWriteNode<'pr>) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_constant_and_write_node(self, node);
+    }
+
+    fn visit_constant_path_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOperatorWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_constant_path_operator_write_node(self, node);
+    }
+
+    fn visit_constant_path_or_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOrWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_constant_path_or_write_node(self, node);
+    }
+
+    fn visit_constant_path_and_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathAndWriteNode<'pr>,
+    ) {
+        let loc = node.location();
+        self.check_assignment(loc.start_offset(), loc.end_offset());
+        ruby_prism::visit_constant_path_and_write_node(self, node);
     }
 }
 
