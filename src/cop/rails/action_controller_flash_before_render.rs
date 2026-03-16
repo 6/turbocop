@@ -100,7 +100,7 @@ impl FlashVisitor<'_> {
                 }
             }
 
-            // Also check inside rescue/if blocks
+            // Also check inside rescue/if/block bodies
             if let Some(rescue_node) = stmt.as_begin_node() {
                 if let Some(body) = rescue_node.statements() {
                     let inner: Vec<_> = body.body().iter().collect();
@@ -112,6 +112,25 @@ impl FlashVisitor<'_> {
             }
             if let Some(if_node) = stmt.as_if_node() {
                 self.check_if_node(&if_node);
+            }
+
+            // Recurse into block bodies (e.g., respond_to do |format| ... end)
+            if let Some(call_node) = stmt.as_call_node() {
+                if let Some(block) = call_node.block() {
+                    self.check_block_body(&block);
+                }
+            }
+        }
+    }
+
+    fn check_block_body(&mut self, block: &ruby_prism::Node<'_>) {
+        // Handle BlockNode (do...end or { })
+        if let Some(block_node) = block.as_block_node() {
+            if let Some(body) = block_node.body() {
+                if let Some(stmts) = body.as_statements_node() {
+                    let body_nodes: Vec<_> = stmts.body().iter().collect();
+                    self.check_statements(&body_nodes);
+                }
             }
         }
     }
