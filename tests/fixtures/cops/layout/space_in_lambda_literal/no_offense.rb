@@ -11,3 +11,7 @@ g = -> () { puts "hello" }
 h = -> () do
   puts "world"
 end
+# Non-parenthesized params with no space are fine
+i = ->x { x + 1 }
+j = ->x, y { x + y }
+k = ->*args { args }
