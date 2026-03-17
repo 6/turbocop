@@ -28,6 +28,15 @@ use crate::parse::source::SourceFile;
 ///    (begin_keyword_loc is None). Fix: Add handlers for all these node types.
 /// 3. Rescue chains: Only the first rescue clause was checked; subsequent()
 ///    rescues in the chain were missed. Fix: Walk the full rescue chain.
+///
+/// ## FP investigation (2026-03-17)
+/// 78 FPs caused by `private def` / `protected def` modifier alignment:
+/// When a method is defined with a visibility modifier (`private def foo`),
+/// RuboCop aligns rescue/ensure with the modifier (line start), not with `def`.
+/// The cop was using `def_kw_loc` which points to `def`, ignoring the preceding
+/// modifier. Fix: Compute line indent for the def line; if indent != def_col,
+/// something precedes `def` (a modifier), so use indent as align_col instead.
+/// Same pattern already used for BeginNode assignment alignment.
 pub struct RescueEnsureAlignment;
 
 impl RescueEnsureAlignment {
@@ -148,6 +157,24 @@ impl Cop for RescueEnsureAlignment {
             let def_kw_loc = def_node.def_keyword_loc();
             let (def_line, def_col) = source.offset_to_line_col(def_kw_loc.start_offset());
 
+            // When def is preceded by a visibility modifier on the same line
+            // (e.g., `private def foo`), RuboCop aligns rescue/ensure with
+            // the modifier (line start), not with the `def` keyword.
+            let align_col = {
+                let bytes = source.as_bytes();
+                let mut line_start = def_kw_loc.start_offset();
+                while line_start > 0 && bytes[line_start - 1] != b'\n' {
+                    line_start -= 1;
+                }
+                let mut indent = 0;
+                while line_start + indent < bytes.len()
+                    && (bytes[line_start + indent] == b' ' || bytes[line_start + indent] == b'\t')
+                {
+                    indent += 1;
+                }
+                if indent != def_col { indent } else { def_col }
+            };
+
             if let Some(body) = def_node.body() {
                 if let Some(begin_node) = body.as_begin_node() {
                     // Only handle implicit BeginNode (no begin keyword).
@@ -156,7 +183,7 @@ impl Cop for RescueEnsureAlignment {
                         self.check_implicit_begin(
                             source,
                             &begin_node,
-                            def_col,
+                            align_col,
                             def_line,
                             "def",
                             diagnostics,
@@ -167,7 +194,7 @@ impl Cop for RescueEnsureAlignment {
                     let rescue_kw_loc = rescue_node.keyword_loc();
                     let (rescue_line, rescue_col) =
                         source.offset_to_line_col(rescue_kw_loc.start_offset());
-                    if rescue_line != def_line && rescue_col != def_col {
+                    if rescue_line != def_line && rescue_col != align_col {
                         diagnostics.push(self.diagnostic(
                             source,
                             rescue_line,
@@ -180,7 +207,7 @@ impl Cop for RescueEnsureAlignment {
                     while let Some(sub) = rescue_opt {
                         let kw_loc = sub.keyword_loc();
                         let (line, col) = source.offset_to_line_col(kw_loc.start_offset());
-                        if line != def_line && col != def_col {
+                        if line != def_line && col != align_col {
                             diagnostics.push(self.diagnostic(
                                 source,
                                 line,
@@ -370,5 +397,39 @@ mod tests {
         let src = b"begin\n  call\nrescue Timeout\n  retry\n  rescue\nend\n";
         let diags = run_cop_full(&RescueEnsureAlignment, src);
         assert_eq!(diags.len(), 1, "should flag misaligned subsequent rescue");
+    }
+
+    #[test]
+    fn private_def_rescue_aligned_no_offense() {
+        // rescue aligned with `private` (line start), not `def`
+        let src = b"private def fetch\n  work\nrescue\n  handle\nend\n";
+        let diags = run_cop_full(&RescueEnsureAlignment, src);
+        assert!(
+            diags.is_empty(),
+            "rescue aligned with private modifier should not fire"
+        );
+    }
+
+    #[test]
+    fn private_def_ensure_aligned_no_offense() {
+        // ensure aligned with `private` (line start), not `def`
+        let src = b"private def process\n  work\nensure\n  cleanup\nend\n";
+        let diags = run_cop_full(&RescueEnsureAlignment, src);
+        assert!(
+            diags.is_empty(),
+            "ensure aligned with private modifier should not fire"
+        );
+    }
+
+    #[test]
+    fn private_def_rescue_misaligned() {
+        // rescue aligned with `def` instead of `private` — should be flagged
+        let src = b"private def fetch\n  work\n        rescue\n  handle\nend\n";
+        let diags = run_cop_full(&RescueEnsureAlignment, src);
+        assert_eq!(
+            diags.len(),
+            1,
+            "rescue misaligned with private def should fire"
+        );
     }
 }

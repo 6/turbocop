@@ -90,3 +90,35 @@ records.map do |rec|
 ensure
   rec.unlock
 end
+
+# private def with rescue aligned to modifier (line start)
+private def fetch_data
+  do_work
+rescue StandardError
+  handle_error
+end
+
+# private def with ensure aligned to modifier (line start)
+private def process
+  compute
+ensure
+  cleanup
+end
+
+# protected def with rescue aligned to modifier (line start)
+protected def transform
+  compute
+rescue
+  handle
+end
+
+# Nested private def with rescue aligned to modifier
+module MyModule
+  class MyClass
+    private def risky_operation
+      perform
+    rescue StandardError => e
+      log(e)
+    end
+  end
+end
