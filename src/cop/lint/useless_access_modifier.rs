@@ -187,12 +187,10 @@ fn is_new_scope(node: &ruby_prism::Node<'_>, context_creating_methods: &[String]
                 }
             }
             // ContextCreatingMethods (e.g., class_methods from rubocop-rails)
-            if !context_creating_methods.is_empty() {
-                if call.receiver().is_none() {
-                    let name_str = std::str::from_utf8(name).unwrap_or("");
-                    if context_creating_methods.iter().any(|m| m == name_str) {
-                        return true;
-                    }
+            if !context_creating_methods.is_empty() && call.receiver().is_none() {
+                let name_str = std::str::from_utf8(name).unwrap_or("");
+                if context_creating_methods.iter().any(|m| m == name_str) {
+                    return true;
                 }
             }
         }
@@ -236,6 +234,7 @@ fn is_singleton_method_def(node: &ruby_prism::Node<'_>) -> bool {
 /// - New scopes are processed independently (don't propagate state)
 /// - `defs` nodes (singleton method defs) are skipped entirely
 /// - All other nodes are recursed into, propagating state
+#[allow(clippy::too_many_arguments)]
 fn check_child_nodes<'pr>(
     cop: &UselessAccessModifier,
     source: &SourceFile,

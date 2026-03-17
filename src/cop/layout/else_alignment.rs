@@ -20,7 +20,7 @@ use crate::parse::source::SourceFile;
 /// - case/in (pattern matching): else aligns with last `in` keyword
 /// - begin/rescue/else: else aligns with `begin` keyword
 /// - def/rescue/else: else aligns with `def` keyword
-/// 1 FP from minified Ruby single-line modifier if/else (unfixable).
+///   1 FP from minified Ruby single-line modifier if/else (unfixable).
 pub struct ElseAlignment;
 
 impl ElseAlignment {
