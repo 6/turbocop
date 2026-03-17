@@ -17,10 +17,10 @@
   },
   "multi_json__multi_json__c5fa9fc": {
     "fn": 16,
-    "fp": 57,
+    "fp": 1,
     "matches": 5812,
     "nc_files": 121,
-    "rate": 98.8,
+    "rate": 99.7,
     "rc_files": 121
   },
   "rubocop__rubocop-rspec__51dab28": {
