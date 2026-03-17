@@ -1,4 +1,4 @@
-use crate::cop::node_type::BLOCK_NODE;
+use crate::cop::node_type::{BLOCK_NODE, LAMBDA_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -10,6 +10,10 @@ use crate::parse::source::SourceFile;
 ///   before `{`, causing false positives when tab characters were used for visual
 ///   alignment (e.g., `method_call\t\t\t{ block }`). RuboCop treats any whitespace
 ///   as satisfying the "space" requirement. Fixed by also accepting `b'\t'`.
+/// - **Lambda literal FNs (647 FNs):** The cop only handled `BlockNode` but not
+///   `LambdaNode`. In Prism, `-> { }` parses as a `LambdaNode`, not a `BlockNode`.
+///   RuboCop's `on_block` also handles lambdas via `on_numblock`/`on_itblock` aliases,
+///   since in Parser AST lambdas are block nodes. Fixed by also handling `LambdaNode`.
 pub struct SpaceBeforeBlockBraces;
 
 impl Cop for SpaceBeforeBlockBraces {
@@ -18,7 +22,7 @@ impl Cop for SpaceBeforeBlockBraces {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE]
+        &[BLOCK_NODE, LAMBDA_NODE]
     }
 
     fn supports_autocorrect(&self) -> bool {
@@ -36,13 +40,15 @@ impl Cop for SpaceBeforeBlockBraces {
     ) {
         let style = config.get_str("EnforcedStyle", "space");
         let empty_style = config.get_str("EnforcedStyleForEmptyBraces", "space");
-        let block = match node.as_block_node() {
-            Some(b) => b,
-            None => return,
-        };
 
-        let opening = block.opening_loc();
-        let closing = block.closing_loc();
+        // Extract opening/closing from either BlockNode or LambdaNode
+        let (opening, closing) = if let Some(block) = node.as_block_node() {
+            (block.opening_loc(), block.closing_loc())
+        } else if let Some(lambda) = node.as_lambda_node() {
+            (lambda.opening_loc(), lambda.closing_loc())
+        } else {
+            return;
+        };
 
         // Only check { blocks, not do...end
         if opening.as_slice() != b"{" {

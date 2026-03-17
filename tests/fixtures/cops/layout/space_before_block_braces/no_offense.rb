@@ -7,3 +7,7 @@ end
 x = {a: 1}
 config.filter_sensitive_data('<SECRET>') 							{ ENV['SECRET'] }
 items.each	{ |x| puts x }
+-> { puts "hello" }
+->(x) { x * 2 }
+->() { 1 + 2 }
+expect(-> { raise "boom" }).to raise_error
