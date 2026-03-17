@@ -234,6 +234,8 @@
     "Lint/UnexpectedBlockArity": "stable",
     "Lint/UnifiedInteger": "stable",
     "Lint/UnmodifiedReduceAccumulator": "stable",
+    "Lint/UnreachableLoop": "stable",
+    "Lint/UnusedBlockArgument": "stable",
     "Lint/UnusedMethodArgument": "stable",
     "Lint/UriEscapeUnescape": "stable",
     "Lint/UriRegexp": "stable",
