@@ -146,16 +146,20 @@ findings. Do NOT expect teammates to web-search for specific repo files.
 
 ### Phase 2: Dispatch (you do this)
 
-1. Create a team:
+1. Create a team with a **unique name** that includes the target:
    ```
-   TeamCreate(team_name="fix-department", description="Bring <gem-name> to 100% conformance")
+   TeamCreate(team_name="fix-<gem-or-department>", description="Bring <gem-name> to 100% conformance")
    ```
+   For example: `fix-layout`, `fix-rubocop-performance`, `fix-naming`.
+   **Do NOT use the generic name `fix-department`** — multiple agents running
+   `/fix-department` simultaneously will collide on the same team namespace,
+   causing teammates to be overwritten and messages to be misrouted.
 
 2. Create tasks for each cop fix.
 
 3. Spawn one teammate per cop using the Agent tool. **Critical settings:**
    - `subagent_type: "general-purpose"` — needs full edit/bash access
-   - `team_name: "fix-department"`
+   - `team_name: "fix-<gem-or-department>"` — must match the name from step 1
    - `mode: "bypassPermissions"` — teammates need to run cargo test etc.
    - **macOS and Linux devcontainers:** add `isolation: "worktree"` so each teammate gets its own git worktree
    - **Ephemeral cloud VMs (not devcontainers):** do NOT use `isolation: "worktree"` — teammates commit directly
