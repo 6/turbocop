@@ -42,3 +42,23 @@ def bar; return(1); end
                 ^^ Layout/SpaceAroundKeyword: Space before keyword `do` is missing.
 x = a==[]?self[m.to_s]:super
                        ^^^^^ Layout/SpaceAroundKeyword: Space before keyword `super` is missing.
+# Comment ending with period.
+case(ENV.fetch("DIST"))
+^^^^ Layout/SpaceAroundKeyword: Space after keyword `case` is missing.
+when "redhat"
+  puts "ok"
+end
+# Sure modified files get preserved on uninstall.
+if(os[:family] == "redhat")
+^^ Layout/SpaceAroundKeyword: Space after keyword `if` is missing.
+  puts "ok"
+end
+# Return them...
+if(list = items.select(&:valid?)).any?
+^^ Layout/SpaceAroundKeyword: Space after keyword `if` is missing.
+  list.first
+end
+message = <<~EOS
+  Actual response code: #{response.code if(response)}
+                                        ^^ Layout/SpaceAroundKeyword: Space after keyword `if` is missing.
+EOS

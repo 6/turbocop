@@ -188,3 +188,8 @@ module Prawn
     end
   end
 end
+
+# Method call across newlines — `.` on previous line IS a method call, not a comment period
+result = Arel::Nodes::Case.new.
+  when(transition_table[:id].eq(most_recent_id)).
+  then(db_true)

@@ -27,3 +27,19 @@ f.chop! until f[-1] != "/"
 def bar; return (1); end
 [1].each { |x|-> do end.call }
 x = a==[]?self[m.to_s]: super
+# Comment ending with period.
+case (ENV.fetch("DIST"))
+when "redhat"
+  puts "ok"
+end
+# Sure modified files get preserved on uninstall.
+if (os[:family] == "redhat")
+  puts "ok"
+end
+# Return them...
+if (list = items.select(&:valid?)).any?
+  list.first
+end
+message = <<~EOS
+  Actual response code: #{response.code if (response)}
+EOS

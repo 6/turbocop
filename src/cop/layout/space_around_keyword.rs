@@ -62,12 +62,15 @@ use crate::parse::source::SourceFile;
 ///   only checked for `::` prefix. Fixed by also rejecting `:` when immediately
 ///   preceded by `)`, `]`, or `}` (expression-ending delimiters that never
 ///   precede symbol literals). Fixes 2 camping FN.
-/// - Remaining FN (~34): `if(`, `case(`, `elsif(`, `return(` patterns across
-///   8 repos (26 in api-umbrella). Cop correctly detects these in unit tests.
-///   Root cause is external to cop logic — likely AllCops.Exclude `build/**/*`
-///   path matching differences between nitrocop and RuboCop in the corpus
-///   pipeline, or file-discovery divergence. Not a cop code bug.
 /// - Also fixed: offense.rb annotation column for `->do` (was off by 1).
+///
+/// **Round 6 (FP=0, FN=0):**
+/// - FN: All 34 remaining FN (across 7 repos) caused by `is_method_call`
+///   crossing newlines into comments. The function skips whitespace (including
+///   newlines) to find the preceding token, and would match `.` at the end of
+///   a comment sentence (e.g., `# some explanation.` on the previous line).
+///   Fixed by passing `code_map` to `is_method_call` and requiring the `.` or
+///   `::` to be in code (not inside a comment/string).
 pub struct SpaceAroundKeyword;
 
 /// Keywords that accept `(` immediately after them (no space required).
@@ -265,12 +268,15 @@ impl Cop for SpaceAroundKeyword {
                 if is_word_before(bytes, i) {
                     continue;
                 }
-                if !code_map.is_code(i) {
+                if !code_map.is_code(i)
+                    && !(code_map.is_heredoc_interpolation(i)
+                        && !code_map.is_non_code_in_heredoc_interpolation(i))
+                {
                     continue;
                 }
 
                 // Check if preceded by `.` or `&.` — that makes it a method call, not a keyword
-                if is_method_call(bytes, i) {
+                if is_method_call(bytes, i, code_map) {
                     continue;
                 }
 
@@ -379,7 +385,9 @@ impl Cop for SpaceAroundKeyword {
 }
 
 /// Check if the keyword at position `i` is a method call (preceded by `.`, `&.`, or `::`).
-fn is_method_call(bytes: &[u8], i: usize) -> bool {
+/// The `code_map` is used to verify that the preceding `.` or `::` is actual code,
+/// not inside a comment (e.g., a sentence ending with a period on the previous line).
+fn is_method_call(bytes: &[u8], i: usize, code_map: &CodeMap) -> bool {
     if i == 0 {
         return false;
     }
@@ -390,12 +398,13 @@ fn is_method_call(bytes: &[u8], i: usize) -> bool {
         j -= 1;
     }
     if bytes[j] == b'.' {
-        // Could be `&.` or just `.`
-        return true;
+        // Only treat as method call if the `.` is in code (not inside a comment).
+        // Comments ending with `.` (sentence periods) would otherwise cause FN.
+        return code_map.is_code(j);
     }
     // `Foo::rescue`, `Bar::next` — constant path method calls
     if bytes[j] == b':' && j > 0 && bytes[j - 1] == b':' {
-        return true;
+        return code_map.is_code(j);
     }
     false
 }
