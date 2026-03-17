@@ -11,11 +11,21 @@ use crate::parse::source::SourceFile;
 ///
 /// Corpus oracle reported FP=0, FN=21208.
 ///
-/// FN=21208: The cop was only checking `create_table` without `comment`. It was
-/// missing `add_column`, column type methods inside `create_table` blocks
+/// FN=21208 (original): The cop was only checking `create_table` without `comment`.
+/// It was missing `add_column`, column type methods inside `create_table` blocks
 /// (`t.string`, `t.integer`, `t.column`, `t.references`, etc.), and did not
 /// treat `comment: nil` or `comment: ''` as missing. Implemented full coverage
 /// matching RuboCop's behavior.
+///
+/// FN=21208 (still 0% after logic fix): The cop had `default_include` set to
+/// `["db/migrate/**/*.rb"]` but RuboCop's SchemaComment has NO Include restriction
+/// — it runs on ALL files. This caused three failures:
+/// 1. Missed `db/schema.rb` (4,383 FN) — not under `db/migrate/`
+/// 2. Missed test/spec/lib files (1,455 FN) — `create_table`/`add_column` in tests
+/// 3. Missed ALL migrate files in corpus mode (15,621 FN) — corpus paths have a
+///    `vendor/corpus/repo_id/` prefix, so the non-globbed `db/migrate/**/*.rb`
+///    pattern never matched.
+/// Fix: removed `default_include` override. Commit 2026-03-17.
 pub struct SchemaComment;
 
 const TABLE_MSG: &str = "New database table without `comment`.";
@@ -129,10 +139,6 @@ impl Cop for SchemaComment {
         Severity::Convention
     }
 
-    fn default_include(&self) -> &'static [&'static str] {
-        &["db/migrate/**/*.rb"]
-    }
-
     fn interested_node_types(&self) -> &'static [u8] {
         &[CALL_NODE]
     }
@@ -154,7 +160,7 @@ impl Cop for SchemaComment {
         let name = call.name().as_slice();
 
         match name {
-            b"create_table" => {
+            b"create_table" if call.receiver().is_none() => {
                 if !has_valid_comment(&call) {
                     // Table without comment — only report table-level offense
                     let loc = node.location();
