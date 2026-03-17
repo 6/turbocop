@@ -186,3 +186,50 @@ module WithPrivateInUnrecognizedBlock
     end
   end
 end
+
+# FP fix: module_function followed by inline access modifier (public def)
+# `public def configure_maps` is a method definition decorated with an inline
+# access modifier — module_function is not useless because it changed visibility.
+module GeocoderHelpers
+  def fill_in_geocoding(attribute, options = {})
+    fill_in attribute, **options
+  end
+
+  module_function
+
+  public def configure_maps
+    Decidim.maps = { provider: :test }
+  end
+end
+
+# FP fix: private followed by method decorator with def (memoize def)
+# `memoize def entity` is a method definition — private is not useless.
+class WithMemoizeDef
+  def respond_to_missing?(name, *)
+    entity.respond_to?(name)
+  end
+
+  private
+
+  memoize def entity
+    load
+  end
+end
+
+# Inline access modifier with private def
+class WithInlinePrivateDef
+  protected
+
+  private def secret_method
+    42
+  end
+end
+
+# Decorator followed by def in various patterns
+class WithDecoratorDef
+  private
+
+  override def some_method
+    super
+  end
+end

@@ -44,6 +44,11 @@ use ruby_prism::Visit;
 /// - Added `in_call_children` flag to `check_child_nodes` to disable access modifier
 ///   detection when recursing into CallNode receiver/arguments (matching `in_macro_scope?`).
 /// - Added `check_body` to replicate Parser's begin-only scope check for multi-statement bodies.
+/// - Expanded `is_method_definition` to recognize inline access modifiers (`public def foo`,
+///   `private def foo`) and method decorators (`memoize def foo`, `override def foo`) as
+///   method definitions. In Prism, these are CallNodes with a DefNode argument. RuboCop handles
+///   this by recursing into child nodes of the send node, finding the inner `def`. We handle it
+///   by checking CallNode arguments for DefNode in `is_method_definition`.
 pub struct UselessAccessModifier;
 
 impl Cop for UselessAccessModifier {
@@ -150,6 +155,18 @@ fn is_method_definition(node: &ruby_prism::Node<'_>) -> bool {
                 || name == b"define_method"
             {
                 return true;
+            }
+            // Inline access modifiers (`public def foo`, `private def foo`, `protected def foo`)
+            // and method decorators (`memoize def foo`, `override def foo`) — any call with a
+            // non-singleton def argument counts as a method definition.
+            if let Some(args) = call.arguments() {
+                for arg in args.arguments().iter() {
+                    if let Some(def_node) = arg.as_def_node() {
+                        if def_node.receiver().is_none() {
+                            return true;
+                        }
+                    }
+                }
             }
         }
     }
