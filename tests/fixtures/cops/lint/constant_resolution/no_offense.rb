@@ -16,9 +16,15 @@ class Baz < ::ActiveRecord::Base; end
 class AddButtonComponent < ApplicationComponent; end
 class ShowPageHeaderComponent < ApplicationComponent; end
 class MyModel < ActiveRecord; end
-# Path-qualified constant assignments (ConstantPathWriteNode targets)
-# are already qualified — the parent constant should not be flagged.
-# RuboCop's `node.parent&.defined_module` returns truthy for casgn nodes.
-Config::Setting = 42
-Namespace::SubConst = "value"
-Parent::Child = [1, 2, 3]
+# Single-statement class/module body: constant is the sole body expression,
+# so in RuboCop AST the constant is a direct child of the class node and
+# `node.parent.defined_module` returns truthy — skipped.
+class RaisesNameError
+  FooBarBaz
+end
+class CrossSiteDepender
+  CrossSiteDependency
+end
+module SingleBody
+  SomeConst
+end

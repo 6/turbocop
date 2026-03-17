@@ -8,12 +8,16 @@ use crate::parse::source::SourceFile;
 /// Disabled by default; useful for gems to avoid conflicts.
 ///
 /// ## Investigation notes
-/// - FP fix: `ConstantPathWriteNode` targets (e.g., `Foo::Bar = Class.new`)
-///   must suppress the parent `ConstantReadNode`. In RuboCop's AST, the parent
-///   of the `const` node is a `casgn` node, and `casgn.defined_module` returns
-///   truthy, causing the constant to be skipped. In Prism, we handle this by
-///   marking the `ConstantPathWriteNode`'s target range as a definition name
-///   range, similar to class/module definition names.
+/// - FN fix: `ConstantPathWriteNode` targets (e.g., `Foo::Bar = 42`) should NOT
+///   suppress the root constant. RuboCop's `defined_module` only returns truthy
+///   for `casgn` nodes where the RHS is `Class.new` or `Module.new`, not plain
+///   assignments. So `Foo` in `Foo::Bar = 42` IS flagged by RuboCop.
+/// - FP fix: In RuboCop's Parser AST, a single-statement class/module body makes
+///   that statement a direct child of the class/module node. `defined_module`
+///   returns truthy for the class node, so a bare constant as the sole body
+///   expression (e.g., `class Foo; Bar; end`) is skipped by RuboCop.
+/// - `ConstantWriteNode` with `Class.new`/`Module.new` RHS matches RuboCop's
+///   `defined_module` for `casgn` — the target constant is a definition name.
 pub struct ConstantResolution;
 
 impl Cop for ConstantResolution {
@@ -86,6 +90,28 @@ impl ConstantResolutionVisitor<'_, '_> {
     fn pop_def_name_range(&mut self) {
         self.def_name_ranges.pop();
     }
+
+    /// In RuboCop's Parser AST, a class/module body with a single statement
+    /// has that statement as a direct child of the class/module node (no
+    /// wrapping `begin` node). This means `node.parent.defined_module` returns
+    /// truthy for that sole statement. We match this by marking a sole
+    /// ConstantReadNode body as a def name range.
+    fn mark_sole_body_constant(&mut self, body: Option<ruby_prism::Node<'_>>) -> bool {
+        if let Some(body_node) = body {
+            if let Some(stmts) = body_node.as_statements_node() {
+                let body_stmts: Vec<_> = stmts.body().iter().collect();
+                if body_stmts.len() == 1 {
+                    if let Some(const_read) = body_stmts[0].as_constant_read_node() {
+                        let loc = const_read.location();
+                        self.def_name_ranges
+                            .push(loc.start_offset()..loc.end_offset());
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
 }
 
 impl<'pr> Visit<'pr> for ConstantResolutionVisitor<'_, '_> {
@@ -115,8 +141,17 @@ impl<'pr> Visit<'pr> for ConstantResolutionVisitor<'_, '_> {
             self.push_def_name_range(&sup);
         }
 
+        // In RuboCop's Parser AST, a single-statement class body makes the
+        // statement a direct child of the class node (no wrapping `begin`).
+        // So `node.parent.defined_module` returns truthy for that statement.
+        // We match this by marking the sole body constant as a def name.
+        let sole_body_marked = self.mark_sole_body_constant(node.body());
+
         ruby_prism::visit_class_node(self, node);
 
+        if sole_body_marked {
+            self.pop_def_name_range();
+        }
         if is_simple_super {
             self.pop_def_name_range();
         }
@@ -131,7 +166,14 @@ impl<'pr> Visit<'pr> for ConstantResolutionVisitor<'_, '_> {
         if is_simple {
             self.push_def_name_range(&cp);
         }
+
+        let sole_body_marked = self.mark_sole_body_constant(node.body());
+
         ruby_prism::visit_module_node(self, node);
+
+        if sole_body_marked {
+            self.pop_def_name_range();
+        }
         if is_simple {
             self.pop_def_name_range();
         }
@@ -179,19 +221,12 @@ impl<'pr> Visit<'pr> for ConstantResolutionVisitor<'_, '_> {
         ruby_prism::visit_constant_path_node(self, node);
     }
 
-    fn visit_constant_path_write_node(&mut self, node: &ruby_prism::ConstantPathWriteNode<'pr>) {
-        // ConstantPathWriteNode (e.g., `Foo::Bar = Class.new`) — the target's
-        // parent constant (`Foo`) should not be flagged. In RuboCop's AST, the
-        // parent `casgn` node's `defined_module` returns truthy, which causes
-        // the constant to be skipped. We match this by marking the entire target
-        // ConstantPathNode range as a definition name range.
-        let target = node.target();
-        let loc = target.location();
-        self.def_name_ranges
-            .push(loc.start_offset()..loc.end_offset());
-        ruby_prism::visit_constant_path_write_node(self, node);
-        self.def_name_ranges.pop();
-    }
+    // No visit_constant_path_write_node override needed.
+    // RuboCop's `defined_module` only returns truthy for `casgn` nodes where the
+    // RHS is `Class.new` or `Module.new`. For plain assignments like `Foo::Bar = 42`,
+    // `defined_module` returns nil, so the root constant `Foo` IS flagged.
+    // The default visitor walks into the target ConstantPathNode and correctly
+    // visits the root ConstantReadNode.
 }
 
 #[cfg(test)]
@@ -225,6 +260,34 @@ mod tests {
         let config = config_with_only(vec![]);
         let diags = run_cop_full_with_config(&ConstantResolution, b"Foo\nBar\n", config);
         assert_eq!(diags.len(), 2);
+    }
+
+    #[test]
+    fn constant_path_write_flags_root() {
+        // `Config::Setting = 42` — the root `Config` should be flagged.
+        let diags = crate::testutil::run_cop_full(&ConstantResolution, b"Config::Setting = 42\n");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for Config, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn constant_path_write_after_class() {
+        // Ensure ConstantPathWriteNode works after class definitions
+        let source = b"class MyService < Base::Service\nend\nConfig::Setting = 42\n";
+        let diags = crate::testutil::run_cop_full(&ConstantResolution, source);
+        // Should flag: Base (root of Base::Service) and Config (root of Config::Setting)
+        assert_eq!(diags.len(), 2, "Expected 2 offenses, got: {:?}", diags);
+    }
+
+    #[test]
+    fn single_statement_class_body_suppressed() {
+        // `class Foo; Bar; end` — Bar is the sole body statement, suppressed.
+        let diags = crate::testutil::run_cop_full(&ConstantResolution, b"class Foo\n  Bar\nend\n");
+        assert_eq!(diags.len(), 0, "Expected 0 offenses, got: {:?}", diags);
     }
 
     #[test]
