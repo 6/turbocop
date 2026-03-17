@@ -31,10 +31,11 @@ more documentation
 =end
 x = 1
 
-# Blank lines after the last code line are not checked by RuboCop,
-# which uses token-based gap detection and stops after the last token.
+# Single blank line between code and comment is fine.
 puts "last code"
 
+# This single blank line above is not an offense.
 
-# This trailing comment section has consecutive blank lines above,
-# but RuboCop does not flag them because they're after the last token.
+# Blank lines after the LAST token (including comments) are not checked.
+# This comment is the last token line in the file.
+puts "done"

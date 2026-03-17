@@ -38,6 +38,20 @@ use crate::parse::source::SourceFile;
 /// Fix: use the Program node's end offset to find the last code line, and only
 /// check blank lines within the code range. Comment-only files (empty Program
 /// node where start == end) get early return.
+///
+/// ## Corpus investigation (2026-03-17)
+///
+/// FN=228 remained across 37 repos (127 from rubyworks/facets). Root cause:
+/// RuboCop's `processed_source.tokens` includes `:tCOMMENT` tokens, so comment
+/// lines are token-bearing. The previous fix used only `program_loc.end_offset()`
+/// (last AST node line) as the cutoff, which missed blank lines between code
+/// and trailing comments. For example, `end\n\n\n# comment` has blank lines
+/// between the last code line and the comment line — RuboCop flags them because
+/// the comment is a token line, but nitrocop skipped them.
+/// Fix: compute `last_token_line` as `max(last_code_line, last_comment_line)`,
+/// using `parse_result.comments()` to find comment lines. Comment-only files
+/// now also get checked (they have comment tokens). The early return only triggers
+/// when there are zero tokens of any kind (no code AND no comments).
 pub struct EmptyLines;
 
 impl Cop for EmptyLines {
@@ -58,23 +72,44 @@ impl Cop for EmptyLines {
         diagnostics: &mut Vec<Diagnostic>,
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // RuboCop uses token-based gap detection: it only checks gaps between
-        // consecutive token-bearing lines. Comment-only files (no tokens) get
-        // early return, and blank lines after the last token are never checked.
-        // We replicate this by using the Program node's location to find the
-        // last line with code (AST nodes). Blank lines after that are skipped.
+        // RuboCop uses token-based gap detection: it collects line numbers from
+        // ALL tokens (including comments), then checks gaps between consecutive
+        // token-bearing lines. Files with no tokens at all get early return,
+        // and blank lines after the last token line are never checked.
+        //
+        // In the Parser gem, `processed_source.tokens` includes `:tCOMMENT`
+        // tokens for comments. So comment lines ARE token-bearing lines.
+        // We replicate this by finding the last token line as the max of the
+        // last code line (from the Program node) and the last comment line.
         let program_node = parse_result.node();
         let program_loc = program_node.location();
 
-        // Comment-only files: the Program node has start == end (no code).
-        // RuboCop returns early when tokens are empty.
-        if program_loc.start_offset() == program_loc.end_offset() {
-            return;
+        let has_code = program_loc.start_offset() != program_loc.end_offset();
+
+        // Find the last code line (1-indexed), or 0 if no code.
+        let last_code_line = if has_code {
+            let (line, _) = source.offset_to_line_col(program_loc.end_offset().saturating_sub(1));
+            line
+        } else {
+            0
+        };
+
+        // Find the last comment line (1-indexed), or 0 if no comments.
+        let mut last_comment_line: usize = 0;
+        for comment in parse_result.comments() {
+            let loc = comment.location();
+            let (line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+            if line > last_comment_line {
+                last_comment_line = line;
+            }
         }
 
-        // Find the last line that has code (1-indexed).
-        let (last_code_line, _) =
-            source.offset_to_line_col(program_loc.end_offset().saturating_sub(1));
+        // The last token line is the max of code and comment lines.
+        // If both are 0, there are no tokens at all — early return.
+        let last_token_line = last_code_line.max(last_comment_line);
+        if last_token_line == 0 {
+            return;
+        }
 
         let max = config.get_usize("Max", 1);
 
@@ -95,10 +130,10 @@ impl Cop for EmptyLines {
                 if i + 1 >= total_lines {
                     break;
                 }
-                // Skip blank lines after the last code line. RuboCop only
+                // Skip blank lines after the last token line. RuboCop only
                 // checks between consecutive token-bearing lines and never
                 // checks past the last token.
-                if current_line > last_code_line {
+                if current_line > last_token_line {
                     byte_offset += line_len;
                     consecutive_blanks = 0;
                     continue;
@@ -218,15 +253,14 @@ mod tests {
     }
 
     #[test]
-    fn skip_blanks_in_comment_only_file() {
-        // RuboCop returns early when processed_source.tokens is empty.
-        // A file with only comments has no tokens.
+    fn fire_blanks_in_comment_only_file() {
+        // RuboCop's processed_source.tokens includes :tCOMMENT tokens,
+        // so comment-only files ARE checked for consecutive blank lines.
         let source = b"# frozen_string_literal: true\n\n\n# Another comment\n";
         let diags = run_cop_full(&EmptyLines, source);
         assert!(
-            diags.is_empty(),
-            "Should not fire on comment-only file: {:?}",
-            diags
+            !diags.is_empty(),
+            "Should fire on consecutive blank lines in comment-only file"
         );
     }
 
@@ -243,15 +277,14 @@ mod tests {
     }
 
     #[test]
-    fn skip_blanks_after_last_code() {
-        // RuboCop only checks between consecutive token-bearing lines.
-        // After the last token, gaps are never checked.
+    fn fire_blanks_between_code_and_comment() {
+        // RuboCop's tokens include comments, so blank lines between
+        // code and a trailing comment are checked.
         let source = b"x = 1\n\n\n# trailing comment\n";
         let diags = run_cop_full(&EmptyLines, source);
         assert!(
-            diags.is_empty(),
-            "RuboCop doesn't check after last token: {:?}",
-            diags
+            !diags.is_empty(),
+            "Should fire on consecutive blank lines between code and comment"
         );
     }
 
