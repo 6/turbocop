@@ -3,3 +3,6 @@
 ['foo', 'bar']
 [:foo, :bar]
 ['foo', %w[bar baz]]
+%w[%s_changed? %s_previously_changed?]
+%i[% %i %I %q %Q %r %s %w %W %x]
+%w[1%+ 2]
