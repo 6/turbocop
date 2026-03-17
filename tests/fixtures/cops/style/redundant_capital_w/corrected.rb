@@ -3,3 +3,5 @@
 %w[foo bar]
 
 %w(one two three)
+
+%w()

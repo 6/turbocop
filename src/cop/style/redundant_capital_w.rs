@@ -3,6 +3,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03):
+/// - FP=3: all in vim-node repo, `%W[#@dir/...]` uses `#@var` instance variable
+///   interpolation which the cop didn't recognize (only checked for `#{`).
+///   Fixed by also detecting `#@` (ivar/cvar) and `#$` (global) interpolation.
+/// - FN=1: in rufo repo, `%W()` (empty array, 4 bytes) was skipped by the
+///   `src_bytes.len() > 4` guard. Fixed by treating short arrays as no-interpolation.
 pub struct RedundantCapitalW;
 
 impl Cop for RedundantCapitalW {
@@ -41,12 +47,20 @@ impl Cop for RedundantCapitalW {
         }
 
         // Check if any element contains interpolation or special escape sequences
-        if src_bytes.len() > 4 {
-            let content = &src_bytes[3..src_bytes.len().saturating_sub(1)];
-            let has_interpolation = content.windows(2).any(|w| w == b"#{");
-            let has_escape = content.contains(&b'\\');
+        {
+            let needs_capital_w = if src_bytes.len() > 4 {
+                let content = &src_bytes[3..src_bytes.len().saturating_sub(1)];
+                // Check for all Ruby interpolation forms: #{expr}, #@ivar, #@@cvar, #$gvar
+                let has_interpolation = content
+                    .windows(2)
+                    .any(|w| w[0] == b'#' && (w[1] == b'{' || w[1] == b'@' || w[1] == b'$'));
+                let has_escape = content.contains(&b'\\');
+                has_interpolation || has_escape
+            } else {
+                false
+            };
 
-            if !has_interpolation && !has_escape {
+            if !needs_capital_w {
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let mut diag = self.diagnostic(
                     source,

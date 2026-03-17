@@ -6,3 +6,6 @@
 
 %W(one two three)
 ^^^^^^^^^^^^^^^^^ Style/RedundantCapitalW: Do not use `%W` unless interpolation is needed. If not, use `%w`.
+
+%W()
+^^^^ Style/RedundantCapitalW: Do not use `%W` unless interpolation is needed. If not, use `%w`.
