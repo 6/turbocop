@@ -15,7 +15,7 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 **Features**
 
 - **910 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
-- **98.4% conformance** against RuboCop across [**1,000 open-source repos**](docs/corpus.md)
+- **98.6% conformance** against RuboCop across [**1,000 open-source repos**](docs/corpus.md)
 - **Autocorrect** (`-a`/`-A`) is partial — work in progress
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
@@ -56,34 +56,34 @@ nitrocop supports 910 cops from 6 RuboCop gems.
 
 Compared with RuboCop on [**1,000 open-source repos**](docs/corpus.md) (229k Ruby files).
 
-98.4% of compared issue reports matched (11.6M of 11.8M). 593 of 910 cops matched exactly; 317 differed.
+98.6% of compared issue reports matched (11.6M of 11.8M). 592 of 910 cops matched exactly; 318 differed.
 
 **[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (588 cops)
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
 | Layout | 100 | 66 | 34 | 66.0% |
-| Lint | 148 | 106 | 42 | 71.6% |
-| Style | 287 | 112 | 175 | 39.0% |
-| Metrics | 10 | 10 | 0 | ✓ 100.0% |
-| Naming | 19 | 19 | 0 | ✓ 100.0% |
+| Lint | 148 | 105 | 43 | 70.9% |
+| Style | 287 | 114 | 173 | 39.7% |
+| Metrics | 10 | 9 | 1 | 90.0% |
+| Naming | 19 | 18 | 1 | 94.7% |
 | Security | 6 | 6 | 0 | ✓ 100.0% |
 | Bundler | 7 | 7 | 0 | ✓ 100.0% |
 | Gemspec | 10 | 10 | 0 | ✓ 100.0% |
 | Migration | 1 | 1 | 0 | ✓ 100.0% |
-| **Total** | **588** | **337** | **251** | **57.3%** |
+| **Total** | **588** | **336** | **252** | **57.1%** |
 
 **[rubocop-rails](https://github.com/rubocop/rubocop-rails)** `2.34.3` (138 cops)
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| Rails | 138 | 114 | 24 | 82.6% |
+| Rails | 138 | 115 | 23 | 83.3% |
 
 **[rubocop-performance](https://github.com/rubocop/rubocop-performance)** `1.26.1` (52 cops)
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| Performance | 52 | 52 | 0 | ✓ 100.0% |
+| Performance | 52 | 51 | 1 | 98.0% |
 
 **[rubocop-rspec](https://github.com/rubocop/rubocop-rspec)** `3.9.0` (113 cops)
 
