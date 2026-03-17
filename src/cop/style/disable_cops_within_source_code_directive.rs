@@ -27,13 +27,24 @@ use crate::parse::source::SourceFile;
 /// a regex matching RuboCop's flexible spacing. Also fixed per-cop offense
 /// emission with `AllowedCops`: RuboCop emits one offense per comment joining
 /// all disallowed cop names, not one offense per disallowed cop.
+///
+/// ## Investigation notes (2026-03-17)
+///
+/// 5 remaining FPs: The directive regex was not anchored, so it matched
+/// directive-like text embedded inside YARD documentation comments (e.g.,
+/// `# Checks that \`# rubocop:enable ...\` and \`# rubocop:disable ...\``).
+/// Prism's comment bytes always start with `#`, so anchoring the regex with
+/// `^` ensures only actual directives at the start of the comment are matched.
+/// All 5 FPs were from rubocop's own source (YARD docs) and a shoryuken spec.
 pub struct DisableCopsWithinSourceCodeDirective;
 
 /// Regex matching rubocop directive comments with flexible whitespace,
 /// mirroring RuboCop's `DirectiveComment::DIRECTIVE_COMMENT_REGEXP`.
+/// Anchored to `^` since Prism comment bytes always start with `#`,
+/// preventing matches against directive-like text embedded in prose.
 /// Captures: (1) mode (disable/enable/todo), (2) cop list.
 static DIRECTIVE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"#\s*rubocop\s*:\s*(disable|enable|todo)\s+(.+)").unwrap());
+    LazyLock::new(|| Regex::new(r"^#\s*rubocop\s*:\s*(disable|enable|todo)\s+(.+)").unwrap());
 
 impl Cop for DisableCopsWithinSourceCodeDirective {
     fn name(&self) -> &'static str {
