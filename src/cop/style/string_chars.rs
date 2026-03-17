@@ -3,6 +3,15 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-17)
+///
+/// FP=2: `str.split(//u)` — regex with Unicode flag was treated same as `//`.
+/// RuboCop's `(regexp (regopt))` only matches empty regex with no options.
+/// Fix: check that closing_loc is exactly "/" (no trailing flags).
+///
+/// FN=2: `split(//)` without explicit receiver (implicit self) was not detected.
+/// RuboCop's matcher works with or without receiver.
+/// Fix: removed the `receiver().is_none()` early return.
 pub struct StringChars;
 
 impl Cop for StringChars {
@@ -33,10 +42,8 @@ impl Cop for StringChars {
             return;
         }
 
-        // Must have a receiver
-        if call.receiver().is_none() {
-            return;
-        }
+        // Note: receiver can be None (implicit self) — RuboCop flags both
+        // `string.split(//)` and `split(//)`.
 
         // Must have exactly one argument
         let args = match call.arguments() {
@@ -55,10 +62,12 @@ impl Cop for StringChars {
             .as_string_node()
             .is_some_and(|s| s.unescaped().is_empty());
 
-        // Check for split(//)
+        // Check for split(//) — but NOT split(//u) or other flagged regexes.
+        // In Parser gem, `//u` has a `regopt` child with options, so RuboCop's
+        // `(regexp (regopt))` matcher only matches bare `//` (empty options).
         let is_empty_regexp = arg
             .as_regular_expression_node()
-            .is_some_and(|r| r.unescaped().is_empty());
+            .is_some_and(|r| r.unescaped().is_empty() && r.closing_loc().as_slice() == b"/");
 
         if !is_empty_string && !is_empty_regexp {
             return;
