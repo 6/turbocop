@@ -3,6 +3,24 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Detects `sort.first`, `sort.last`, `sort_by {...}.first`, etc. and suggests
+/// `min`/`max`/`min_by`/`max_by` instead.
+///
+/// ## Investigation notes
+///
+/// Historical FP/FN root causes (21 FP, 38 FN):
+/// 1. **Offense location offset** -- nitrocop reported the offense at the outer
+///    accessor call node (`.first`/`.last`/`[]`) start, which includes the entire
+///    receiver chain. RuboCop reports starting at the `sort`/`sort_by` method name.
+///    Fixed by using the sort call's `message_loc()` for the offense position.
+/// 2. **`sort` with block not detected** -- `is_sort_call` required `block().is_none()`
+///    for `sort`, rejecting `sort { |a, b| ... }.first`. RuboCop detects this pattern.
+///    Fixed by allowing `sort` with a block (but still requiring no positional arguments).
+/// 3. **`sort_by` without block or arguments** -- `sort_by` with no block returns an
+///    Enumerator, not a sorted array. RuboCop does not flag `sort_by.first`.
+///    Fixed by requiring `sort_by` to have a block or arguments.
+/// 4. **Message format for `[]`** -- reported `sort...[]` instead of `sort...[0]` or
+///    `sort...[-1]`. Fixed by including the index argument in the accessor display.
 pub struct RedundantSort;
 
 impl RedundantSort {
@@ -16,14 +34,16 @@ impl RedundantSort {
         None
     }
 
-    /// Check if a call is to sort or sort_by (with no args for sort, with/without args for sort_by)
+    /// Check if a call is to sort or sort_by.
+    /// - `sort`: requires no positional arguments (block is allowed for comparator)
+    /// - `sort_by`: requires a block or arguments (bare `sort_by` returns Enumerator)
     fn is_sort_call(call: &ruby_prism::CallNode<'_>) -> Option<&'static str> {
         let name = call.name();
         let name_bytes = name.as_slice();
-        if name_bytes == b"sort" && call.arguments().is_none() && call.block().is_none() {
+        if name_bytes == b"sort" && call.arguments().is_none() {
             return Some("sort");
         }
-        if name_bytes == b"sort_by" {
+        if name_bytes == b"sort_by" && (call.block().is_some() || call.arguments().is_some()) {
             return Some("sort_by");
         }
         None
@@ -61,17 +81,17 @@ impl Cop for RedundantSort {
             return;
         }
 
-        // Determine if accessing first or last element
-        let is_first = if method_bytes == b"first" {
+        // Determine if accessing first or last element, and build accessor display string
+        let (is_first, accessor_display) = if method_bytes == b"first" {
             if call.arguments().is_some() {
                 return;
             }
-            true
+            (true, "first".to_string())
         } else if method_bytes == b"last" {
             if call.arguments().is_some() {
                 return;
             }
-            false
+            (false, "last".to_string())
         } else {
             // [], at, slice -- check argument
             if let Some(args) = call.arguments() {
@@ -79,9 +99,24 @@ impl Cop for RedundantSort {
                 if arg_list.len() != 1 {
                     return;
                 }
+                let method_str = std::str::from_utf8(method_bytes).unwrap_or("[]");
                 match Self::int_value(&arg_list[0]) {
-                    Some(0) => true,
-                    Some(-1) => false,
+                    Some(0) => {
+                        let display = if method_bytes == b"[]" {
+                            "[0]".to_string()
+                        } else {
+                            format!("{}(0)", method_str)
+                        };
+                        (true, display)
+                    }
+                    Some(-1) => {
+                        let display = if method_bytes == b"[]" {
+                            "[-1]".to_string()
+                        } else {
+                            format!("{}(-1)", method_str)
+                        };
+                        (false, display)
+                    }
                     _ => return,
                 }
             } else {
@@ -95,13 +130,14 @@ impl Cop for RedundantSort {
             None => return,
         };
 
-        let sorter = if let Some(sort_call) = receiver.as_call_node() {
-            match Self::is_sort_call(&sort_call) {
-                Some(s) => s,
-                None => return,
-            }
-        } else {
-            return;
+        let sort_call = match receiver.as_call_node() {
+            Some(c) => c,
+            None => return,
+        };
+
+        let sorter = match Self::is_sort_call(&sort_call) {
+            Some(s) => s,
+            None => return,
         };
 
         let suggestion = if is_first {
@@ -112,8 +148,9 @@ impl Cop for RedundantSort {
             "max_by"
         };
 
-        let accessor_src = std::str::from_utf8(method_bytes).unwrap_or("");
-        let loc = node.location();
+        // Use the sort/sort_by call's message_loc for the offense position
+        // (RuboCop highlights from the sort method name through the accessor)
+        let loc = sort_call.message_loc().unwrap_or(sort_call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
@@ -121,7 +158,7 @@ impl Cop for RedundantSort {
             column,
             format!(
                 "Use `{}` instead of `{}...{}`.",
-                suggestion, sorter, accessor_src
+                suggestion, sorter, accessor_display
             ),
         ));
     }
