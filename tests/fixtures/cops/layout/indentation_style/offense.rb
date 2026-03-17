@@ -18,3 +18,9 @@ end
 	Hebrew (Windows)	Windows-1255
 ^ Layout/IndentationStyle: Tab detected in indentation.
 =end
+
+# Heredoc closing tag with tab indentation should be flagged
+execute <<-SQL
+	SELECT * FROM users
+	SQL
+^ Layout/IndentationStyle: Tab detected in indentation.
