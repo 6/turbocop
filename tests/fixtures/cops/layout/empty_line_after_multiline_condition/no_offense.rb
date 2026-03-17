@@ -334,3 +334,15 @@ when :any
 else
   return true if has_permission?(access)
 end
+
+# Modifier if inside block — enclosing scope closes on same line as condition (minified)
+module Helpers;def R c,*g;p,h=
+/\(.+?\)/,g.grep(Hash);g-=h;raise "bad route" if !u=c.urls.find{|x|break x if
+x.scan(p).size==g.size&&x.inject(x){|x,a|x.sub p,a}};h.any?? u : u
+end;def run(p) p end
+
+# Modifier if with }; closing enclosing scope on condition line (minified)
+constants.map{|c|k=const_get(c);
+k.meta_def(:urls){[f(k,p)]} if (!k
+.respond_to?(:urls) || mu==true)};end end
+X=Controllers

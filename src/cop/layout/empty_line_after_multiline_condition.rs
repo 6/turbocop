@@ -85,10 +85,15 @@ use ruby_prism::Visit;
 ///   right sibling. If enclosing scope is `when` or `rescue` handler → no
 ///   right sibling for `else`/`rescue`.
 ///
-/// **Remaining FP (2 in camping, unfixable):**
-/// - Both FPs are in `camping__camping__f2479aa` — heavily minified Ruby with
-///   semicolons and code crammed on single lines. These are edge cases where
-///   text-based heuristics cannot accurately determine scope boundaries.
+/// **FP root causes (round 5, 2 FP → 0 FP):**
+/// - Both FPs in `camping__camping` were caused by minified/compressed Ruby code
+///   where scope-closing tokens (`}`, `end;`) appear on the same line as the
+///   condition end, after the condition. The line-based `has_right_sibling`
+///   heuristic only checked subsequent lines, missing scope closers on the
+///   condition-end line itself.
+/// - Fixed by checking the tail of the condition-end line (bytes after the
+///   condition end offset) for `}` or `end` at a word boundary. Also added
+///   `end;` and `};` recognition to the line-based scope-closer check.
 pub struct EmptyLineAfterMultilineCondition;
 
 impl Cop for EmptyLineAfterMultilineCondition {
@@ -163,7 +168,12 @@ impl Cop for EmptyLineAfterMultilineCondition {
                 let (pred_end_line, _) = source.offset_to_line_col(pred_end);
                 let (stmt_start_line, _) =
                     source.offset_to_line_col(if_node.location().start_offset());
-                if has_right_sibling(source, stmt_start_line, pred_end_line) {
+                if has_right_sibling(
+                    source,
+                    stmt_start_line,
+                    pred_end_line,
+                    predicate.location().end_offset(),
+                ) {
                     diagnostics.extend(self.check_multiline_condition(source, &predicate));
                 }
             } else {
@@ -186,7 +196,12 @@ impl Cop for EmptyLineAfterMultilineCondition {
                 let (pred_end_line, _) = source.offset_to_line_col(pred_end);
                 let (stmt_start_line, _) =
                     source.offset_to_line_col(unless_node.location().start_offset());
-                if has_right_sibling(source, stmt_start_line, pred_end_line) {
+                if has_right_sibling(
+                    source,
+                    stmt_start_line,
+                    pred_end_line,
+                    predicate.location().end_offset(),
+                ) {
                     diagnostics.extend(self.check_multiline_condition(source, &predicate));
                 }
             } else {
@@ -212,7 +227,12 @@ impl Cop for EmptyLineAfterMultilineCondition {
                 let (pred_end_line, _) = source.offset_to_line_col(pred_end);
                 let (stmt_start_line, _) =
                     source.offset_to_line_col(while_node.location().start_offset());
-                if has_right_sibling(source, stmt_start_line, pred_end_line) {
+                if has_right_sibling(
+                    source,
+                    stmt_start_line,
+                    pred_end_line,
+                    predicate.location().end_offset(),
+                ) {
                     diagnostics.extend(self.check_multiline_condition(source, &predicate));
                 }
             } else {
@@ -236,7 +256,12 @@ impl Cop for EmptyLineAfterMultilineCondition {
                 let (pred_end_line, _) = source.offset_to_line_col(pred_end);
                 let (stmt_start_line, _) =
                     source.offset_to_line_col(until_node.location().start_offset());
-                if has_right_sibling(source, stmt_start_line, pred_end_line) {
+                if has_right_sibling(
+                    source,
+                    stmt_start_line,
+                    pred_end_line,
+                    predicate.location().end_offset(),
+                ) {
                     diagnostics.extend(self.check_multiline_condition(source, &predicate));
                 }
             } else {
@@ -306,8 +331,28 @@ fn has_right_sibling(
     source: &SourceFile,
     statement_start_line: usize,
     condition_end_line: usize,
+    condition_end_offset: usize,
 ) -> bool {
     let lines: Vec<&[u8]> = source.lines().collect();
+
+    // Check the remainder of the condition-end line after the condition end offset.
+    // In minified/compressed code (e.g., camping), the enclosing scope may close
+    // on the same line as the condition via `}`, `};`, `end;`, etc. If the tail
+    // of the condition line contains a scope-closing token, the modifier has no
+    // right sibling within its scope.
+    if condition_end_line >= 1 && condition_end_line <= lines.len() {
+        let cond_line = lines[condition_end_line - 1];
+        if let Some(line_start_offset) = source.line_col_to_offset(condition_end_line, 0) {
+            let col_in_line = condition_end_offset.saturating_sub(line_start_offset);
+            if col_in_line < cond_line.len() {
+                let tail = &cond_line[col_in_line..];
+                if tail_has_scope_closer(tail) {
+                    return false;
+                }
+            }
+        }
+    }
+
     // Look at lines after the condition end
     for line in lines.iter().skip(condition_end_line) {
         if is_blank_or_whitespace_line(line) {
@@ -321,13 +366,7 @@ fn has_right_sibling(
                 continue;
             }
             // `end` and `}` close the parent scope — no right sibling
-            if rest == b"end"
-                || rest.starts_with(b"end ")
-                || rest.starts_with(b"end\t")
-                || rest.starts_with(b"end.")
-                || rest.starts_with(b"end)")
-                || rest == b"}"
-            {
+            if is_line_scope_closer(rest) {
                 return false;
             }
             // `when` is a case-branch boundary — the modifier's parent is
@@ -346,6 +385,37 @@ fn has_right_sibling(
                 );
             }
             // All other lines are right siblings → fire
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if a line starts with `end` or `}` (scope closers).
+fn is_line_scope_closer(rest: &[u8]) -> bool {
+    rest == b"end"
+        || rest.starts_with(b"end ")
+        || rest.starts_with(b"end\t")
+        || rest.starts_with(b"end.")
+        || rest.starts_with(b"end)")
+        || rest.starts_with(b"end;")
+        || rest == b"}"
+        || rest.starts_with(b"};")
+}
+
+/// Check if the tail of a line (after the condition end) contains a scope-closing
+/// token (`}` or `end`). This handles minified code where the enclosing scope
+/// closes on the same line as the condition.
+fn tail_has_scope_closer(tail: &[u8]) -> bool {
+    for (i, &b) in tail.iter().enumerate() {
+        if b == b'}' {
+            return true;
+        }
+        // Check for `end` keyword at a word boundary
+        if tail[i..].starts_with(b"end")
+            && (i == 0 || !tail[i - 1].is_ascii_alphanumeric() && tail[i - 1] != b'_')
+            && (i + 3 >= tail.len() || !tail[i + 3].is_ascii_alphanumeric() && tail[i + 3] != b'_')
+        {
             return true;
         }
     }
@@ -723,6 +793,33 @@ mod tests {
         assert!(
             diags.is_empty(),
             "Should not fire on modifier while with single-line block condition at end: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn fp_camping_modifier_if_in_block_closing_same_line() {
+        // Camping FP 1: modifier if inside find block, condition spans lines,
+        // next line starts with `end;def` (minified). The `end;` is not recognized
+        // as a scope closer by has_right_sibling.
+        let source = b"module Helpers;def R c,*g;p,h=\n/\\(.+?\\)/,g.grep(Hash);g-=h;raise\"bad route\"if !u=c.urls.find{|x|break x if\nx.scan(p).size==g.size&&x.inject(x){|x,a|x.sub p,a}};h.any?? u : u\nend;def run(p) p end\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterMultilineCondition, source);
+        assert!(
+            diags.is_empty(),
+            "Should not fire on camping-style minified modifier if: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn fp_camping_modifier_if_closing_brace_on_condition_line() {
+        // Camping FP 2: modifier if where condition ends on same line as };end end
+        // with more content on following lines
+        let source = b"constants.map{|c|k=const_get(c);\nk.meta_def(:urls){[f(k,p)]} if (!k\n.respond_to?(:urls) || mu==true)};end end\nX=Controllers\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterMultilineCondition, source);
+        assert!(
+            diags.is_empty(),
+            "Should not fire on modifier if with }};end on condition line: {:?}",
             diags
         );
     }
