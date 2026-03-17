@@ -7,27 +7,46 @@ use crate::parse::source::SourceFile;
 /// Style/MultipleComparison: Avoid comparing a variable with multiple items
 /// in a conditional, use `Array#include?` instead.
 ///
-/// Corpus investigation: 70 FPs, 8 FNs.
+/// Corpus investigation (round 2): 16 FPs, 32 FNs.
 ///
-/// FPs: The original `check_node` approach visited every OrNode independently.
-/// For left-associative chains like `a == "x" || a == "y" || a.end_with?("z")`,
-/// which parse as `((a == "x" || a == "y") || a.end_with?("z"))`, the inner
-/// OrNode `a == "x" || a == "y"` fired with count=2 even though it's part of
-/// a larger mixed chain. The outermost OrNode correctly returned None (due to
-/// the non-`==` branch), but the inner sub-node still fired independently.
+/// FP root cause: The cop flagged comparisons where the "value" side was a
+/// local variable (e.g., `exit_status == 0 || exit_status == still_active`).
+/// RuboCop treats `lvar == lvar` as a `simple_double_comparison` and skips
+/// it entirely — it only counts comparisons where the value is NOT an lvar.
 ///
-/// Fix: Switched to `check_source` with a visitor that tracks parent context.
-/// The visitor only processes ROOT OrNodes (OrNodes whose parent is not an
-/// OrNode). This matches RuboCop's `root_of_or_node` approach which walks up
-/// the parent chain to find the root before processing.
+/// FN root cause 1: The `inside_or` flag was set globally when entering a
+/// root OrNode, which prevented detection of independent OrNode groups
+/// nested inside `&&` expressions (e.g., `(rotation == 0 || rotation == 180)`
+/// inside a larger `&& ||` chain).
+///
+/// FN root cause 2: The variable/value identification was reversed for cases
+/// like `it[:from][:x] == outer_left_x`. The call node should be the
+/// "variable" and the lvar should be the "value", matching RuboCop's
+/// `simple_comparison_lhs/rhs` patterns: `(send {lvar call} :== $_)`.
+///
+/// Fixes:
+/// - Skip `lvar == lvar` comparisons (simple_double_comparison).
+/// - Match RuboCop's variable/value identification: `{lvar, call}` is the
+///   variable, everything else is the value. AllowMethodComparison only
+///   applies when the VALUE is a call.
+/// - After processing a root OrNode, manually flatten its || chain and
+///   visit non-Or leaf children for independent nested OrNodes, instead of
+///   using `inside_or` flag which incorrectly blocked OrNodes inside `&&`.
 pub struct MultipleComparison;
+
+/// Result of analyzing a single `==` comparison.
+enum ComparisonResult {
+    /// A valid comparison: variable source bytes and whether it counts.
+    /// count=0 means skipped (e.g., AllowMethodComparison), count=1 means counted.
+    Valid { var_src: Vec<u8>, count: usize },
+    /// Both sides are local variables — skip but don't break chain.
+    DoubleVar,
+}
 
 impl MultipleComparison {
     /// Recursively collect == comparisons joined by ||, returning the variable
     /// being compared if consistent, along with the comparison count.
-    /// Handles OrNode (||) and CallNode (==).
-    /// When AllowMethodComparison is true, comparisons where the value is a
-    /// method call are skipped (returning count 0) but don't break the chain.
+    /// Matches RuboCop's `find_offending_var` logic.
     fn collect_comparisons<'a>(
         node: &'a ruby_prism::Node<'a>,
         allow_method: bool,
@@ -72,33 +91,90 @@ impl MultipleComparison {
                 }
                 let rhs = &rhs_list[0];
 
-                let lhs_src = lhs.location().as_slice();
-                let rhs_src = rhs.location().as_slice();
-
-                // Determine which side is the variable (lvar or method call)
-                // and which is the value.
-                let (var_src, value_is_call) = if lhs.as_local_variable_read_node().is_some() {
-                    (lhs_src, rhs.as_call_node().is_some())
-                } else if rhs.as_local_variable_read_node().is_some() {
-                    (rhs_src, lhs.as_call_node().is_some())
-                } else if lhs.as_call_node().is_some() && rhs.as_call_node().is_none() {
-                    (lhs_src, false)
-                } else if rhs.as_call_node().is_some() && lhs.as_call_node().is_none() {
-                    (rhs_src, false)
-                } else if lhs.as_call_node().is_some() && rhs.as_call_node().is_some() {
-                    (lhs_src, true)
-                } else {
-                    return None;
+                let result = Self::classify_comparison(&lhs, rhs, allow_method)?;
+                return match result {
+                    ComparisonResult::Valid { var_src, count } => Some((var_src, count)),
+                    // simple_double_comparison: both sides are lvars — skip but keep chain alive
+                    // Return a dummy variable with count 0 so the chain continues
+                    ComparisonResult::DoubleVar => Some((lhs.location().as_slice().to_vec(), 0)),
                 };
-
-                if allow_method && value_is_call {
-                    return Some((var_src.to_vec(), 0));
-                }
-
-                return Some((var_src.to_vec(), 1));
             }
         }
         None
+    }
+
+    /// Classify a `==` comparison, matching RuboCop's `simple_comparison_lhs/rhs`
+    /// and `simple_double_comparison?` patterns.
+    ///
+    /// RuboCop patterns:
+    /// - `simple_double_comparison?`: `(send lvar :== lvar)` → skip
+    /// - `simple_comparison_lhs`: `(send {lvar call} :== $_)` → var=lhs, value=rhs
+    /// - `simple_comparison_rhs`: `(send $_ :== {lvar call})` → var=rhs, value=lhs
+    fn classify_comparison<'a>(
+        lhs: &'a ruby_prism::Node<'a>,
+        rhs: &'a ruby_prism::Node<'a>,
+        allow_method: bool,
+    ) -> Option<ComparisonResult> {
+        let lhs_is_lvar = lhs.as_local_variable_read_node().is_some();
+        let rhs_is_lvar = rhs.as_local_variable_read_node().is_some();
+        let lhs_is_call = lhs.as_call_node().is_some();
+        let rhs_is_call = rhs.as_call_node().is_some();
+
+        // simple_double_comparison: both sides are lvars
+        if lhs_is_lvar && rhs_is_lvar {
+            return Some(ComparisonResult::DoubleVar);
+        }
+
+        // Try simple_comparison_lhs: (send {lvar call} :== $_)
+        // The variable is the {lvar, call} side, value is the other side
+        if lhs_is_lvar || lhs_is_call {
+            let var_src = lhs.location().as_slice().to_vec();
+            let value_is_call = rhs_is_call;
+
+            // When AllowMethodComparison is false and variable is a call, RuboCop skips
+            if lhs_is_call && !allow_method {
+                return None;
+            }
+
+            if allow_method && value_is_call {
+                return Some(ComparisonResult::Valid { var_src, count: 0 });
+            }
+            return Some(ComparisonResult::Valid { var_src, count: 1 });
+        }
+
+        // Try simple_comparison_rhs: (send $_ :== {lvar call})
+        if rhs_is_lvar || rhs_is_call {
+            let var_src = rhs.location().as_slice().to_vec();
+            let value_is_call = lhs_is_call;
+
+            if rhs_is_call && !allow_method {
+                return None;
+            }
+
+            if allow_method && value_is_call {
+                return Some(ComparisonResult::Valid { var_src, count: 0 });
+            }
+            return Some(ComparisonResult::Valid { var_src, count: 1 });
+        }
+
+        // Neither side is an lvar or call — not a matchable comparison
+        None
+    }
+
+    /// Recursively visit non-OrNode leaf nodes from an || chain.
+    /// This flattens the chain and visits each leaf with the given visitor.
+    fn visit_or_leaves<'a>(
+        node: &ruby_prism::Node<'a>,
+        visitor: &mut MultipleComparisonVisitor<'a>,
+    ) {
+        if let Some(or_node) = node.as_or_node() {
+            let lhs = or_node.left();
+            let rhs = or_node.right();
+            Self::visit_or_leaves(&lhs, visitor);
+            Self::visit_or_leaves(&rhs, visitor);
+        } else {
+            visitor.visit(node);
+        }
     }
 }
 
@@ -125,7 +201,6 @@ impl Cop for MultipleComparison {
             allow_method,
             threshold,
             diagnostics: Vec::new(),
-            inside_or: false,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -138,58 +213,78 @@ struct MultipleComparisonVisitor<'a> {
     allow_method: bool,
     threshold: usize,
     diagnostics: Vec<Diagnostic>,
-    /// True when we are inside a parent OrNode — child OrNodes should not fire.
-    inside_or: bool,
+}
+
+impl MultipleComparisonVisitor<'_> {
+    /// Check if the lhs and rhs of an OrNode form a chain of only `==` comparisons.
+    /// Matches RuboCop's `nested_comparison?` check.
+    fn nested_comparison_or<'a>(
+        lhs: &'a ruby_prism::Node<'a>,
+        rhs: &'a ruby_prism::Node<'a>,
+    ) -> bool {
+        Self::is_comparison(lhs) && Self::is_comparison(rhs)
+    }
+
+    fn is_comparison<'a>(node: &'a ruby_prism::Node<'a>) -> bool {
+        if let Some(or_node) = node.as_or_node() {
+            let lhs = or_node.left();
+            let rhs = or_node.right();
+            Self::is_comparison(&lhs) && Self::is_comparison(&rhs)
+        } else if let Some(call) = node.as_call_node() {
+            call.name().as_slice() == b"=="
+        } else {
+            false
+        }
+    }
 }
 
 impl<'a> Visit<'a> for MultipleComparisonVisitor<'a> {
     fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'a>) {
-        if self.inside_or {
-            // We're inside a parent OrNode — this is a sub-node of a || chain.
-            // Don't process it independently, but recurse for nested independent chains.
-            ruby_prism::visit_or_node(self, node);
+        let lhs = node.left();
+        let rhs = node.right();
+
+        // Check if this is an || chain consisting entirely of == comparisons.
+        if Self::nested_comparison_or(&lhs, &rhs) {
+            // Process the full chain
+            let lhs_result = MultipleComparison::collect_comparisons(&lhs, self.allow_method);
+            let rhs_result = MultipleComparison::collect_comparisons(&rhs, self.allow_method);
+
+            let result = match (lhs_result, rhs_result) {
+                (Some((lhs_var, lhs_count)), Some((rhs_var, rhs_count))) => {
+                    if lhs_var == rhs_var {
+                        Some(lhs_count + rhs_count)
+                    } else if lhs_count == 0 {
+                        Some(rhs_count)
+                    } else if rhs_count == 0 {
+                        Some(lhs_count)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+
+            if let Some(count) = result {
+                if count >= self.threshold {
+                    let loc = node.location();
+                    let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                    self.diagnostics.push(self.cop.diagnostic(
+                        self.source,
+                        line,
+                        column,
+                        "Avoid comparing a variable with multiple items in a conditional, use `Array#include?` instead.".to_string(),
+                    ));
+                }
+            }
+
+            // Don't recurse: all leaves are == comparisons with no nested OrNodes.
             return;
         }
 
-        // This is a root OrNode (not nested inside another ||).
-        // Process the full chain by collecting comparisons from left and right children.
-        let lhs = node.left();
-        let rhs = node.right();
-        let lhs_result = MultipleComparison::collect_comparisons(&lhs, self.allow_method);
-        let rhs_result = MultipleComparison::collect_comparisons(&rhs, self.allow_method);
-
-        let result = match (lhs_result, rhs_result) {
-            (Some((lhs_var, lhs_count)), Some((rhs_var, rhs_count))) => {
-                if lhs_var == rhs_var {
-                    Some(lhs_count + rhs_count)
-                } else if lhs_count == 0 {
-                    Some(rhs_count)
-                } else if rhs_count == 0 {
-                    Some(lhs_count)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
-        if let Some(count) = result {
-            if count >= self.threshold {
-                let loc = node.location();
-                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                self.diagnostics.push(self.cop.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    "Avoid comparing a variable with multiple items in a conditional, use `Array#include?` instead.".to_string(),
-                ));
-            }
-        }
-
-        // Recurse into children with inside_or=true so nested OrNodes don't fire
-        self.inside_or = true;
-        ruby_prism::visit_or_node(self, node);
-        self.inside_or = false;
+        // This OrNode chain contains non-== branches (mixed chain).
+        // Don't flag it, but recurse into children to find independent OrNode groups.
+        MultipleComparison::visit_or_leaves(&lhs, self);
+        MultipleComparison::visit_or_leaves(&rhs, self);
     }
 }
 

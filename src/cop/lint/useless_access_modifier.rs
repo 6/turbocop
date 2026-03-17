@@ -7,39 +7,29 @@ use ruby_prism::Visit;
 ///
 /// ## Investigation findings
 ///
-/// FP root causes (16 → 8 → 6 FPs):
-/// - `has_method_definition_in_subtree` only recursed into `if`/`unless` nodes, missing
-///   `define_method` calls inside `.each` blocks, `begin..end` blocks, and other containers.
-///   RuboCop's `check_child_nodes` recurses into ALL non-scope, non-defs child nodes.
-/// - `recurse_children` did not handle `LambdaNode` (`-> { def foo; end }`) or recurse
-///   into `CallNode` receivers (e.g., `-> { def foo; end }.call`), causing FPs when
-///   `private` preceded a lambda/proc containing a `def`.
-/// - `recurse_children` did not handle `CaseNode`/`WhenNode`, missing method defs inside
-///   case branches (e.g., `case RUBY_ENGINE; when "ruby"; def foo; end; end`).
-/// - `private_class_method` with arguments (e.g., `private_class_method def self.foo`)
-///   was not recognized as resetting access modifier tracking. In RuboCop, this causes
-///   `check_send_node` to return nil, clearing the `unused` marker.
-///
-/// FN root causes (73 → 50 FNs):
-/// - `private_class_method` without arguments was not detected at all. RuboCop always
-///   flags bare `private_class_method` as useless (it doesn't affect subsequent `def self.`).
-/// - Top-level access modifiers (outside class/module) were not detected. RuboCop's
-///   `on_begin` handler flags any bare access modifier at top level as useless.
-/// - `module_function` was not recognized as an access modifier. RuboCop's
-///   `bare_access_modifier?` includes `module_function`.
+/// FP root causes (16 → 8 → 6 → 4 FPs):
+/// - Original `check_scope` only handled top-level statements, while RuboCop's
+///   `check_child_nodes` recursively propagates `(cur_vis, unused)` through all
+///   non-scope child nodes. This caused FPs when access modifiers inside conditional
+///   branches (e.g., `protected unless $TESTING`) changed visibility state, and FNs
+///   when visibility leaked out of blocks.
+/// - `class_eval`/`instance_eval` blocks inside `def` methods were incorrectly treated
+///   as scopes. RuboCop's `macro?` / `in_macro_scope?` check means `private` inside
+///   such blocks is not recognized as an access modifier.
+/// - `ContextCreatingMethods` config was read but not used. Methods like `class_methods`
+///   (from rubocop-rails plugin) must be treated as scope boundaries.
 ///
 /// Fixes applied:
-/// - Rewrote `has_method_definition_in_subtree` to recursively traverse all relevant
-///   container types (blocks, begin, call arguments, parentheses, else clauses) while
-///   stopping at scope boundaries (class, module, sclass, class_eval/instance_eval blocks,
-///   Class/Module/Struct.new blocks).
+/// - Rewrote `check_scope` to use recursive `check_child_nodes` matching RuboCop's
+///   architecture: propagates `(cur_vis, unused_modifier)` through all non-scope
+///   child nodes, stopping at scope boundaries and `defs` nodes.
+/// - Added `in_def` tracking to the visitor to skip `class_eval`/`instance_eval` blocks
+///   nested inside method definitions (matching RuboCop's `macro?` gate).
+/// - Implemented `ContextCreatingMethods` config: blocks calling configured methods
+///   are treated as scope boundaries (e.g., `class_methods` from rubocop-rails).
 /// - Added `is_new_scope` helper matching RuboCop's `start_of_new_scope?`.
 /// - Added `visit_singleton_class_node` to handle `class << self` scopes.
-/// - Added `LambdaNode` handling in `recurse_children`.
-/// - Added `CallNode` receiver recursion in `recurse_children`.
-/// - Added `is_bare_private_class_method` detection in `check_scope`.
-/// - Added `CaseNode`/`WhenNode` handling in `recurse_children`.
-/// - Added `private_class_method` with args resetting `unused_modifier` in `check_scope`.
+/// - Added `is_bare_private_class_method` detection.
 /// - Added `visit_program_node` for top-level access modifier detection.
 /// - Added `module_function` to `AccessKind` and `get_access_modifier`.
 pub struct UselessAccessModifier;
@@ -62,7 +52,9 @@ impl Cop for UselessAccessModifier {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let _context_creating = config.get_string_array("ContextCreatingMethods");
+        let context_creating = config
+            .get_string_array("ContextCreatingMethods")
+            .unwrap_or_default();
         let method_creating = config
             .get_string_array("MethodCreatingMethods")
             .unwrap_or_default();
@@ -71,6 +63,8 @@ impl Cop for UselessAccessModifier {
             source,
             diagnostics: Vec::new(),
             method_creating_methods: method_creating,
+            context_creating_methods: context_creating,
+            in_def: false,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -115,6 +109,13 @@ fn is_bare_private_class_method(call: &ruby_prism::CallNode<'_>) -> bool {
     call.receiver().is_none()
         && call.arguments().is_none()
         && call.name().as_slice() == b"private_class_method"
+}
+
+/// Check if a call node is an access modifier or bare/args private_class_method.
+/// Matches RuboCop's `access_modifier?` method.
+fn is_access_modifier_or_private_class_method(call: &ruby_prism::CallNode<'_>) -> bool {
+    get_access_modifier(call).is_some()
+        || (call.receiver().is_none() && call.name().as_slice() == b"private_class_method")
 }
 
 fn is_method_definition(node: &ruby_prism::Node<'_>) -> bool {
@@ -162,8 +163,8 @@ fn is_method_creating_call(
 
 /// Check if a node is a new scope boundary where access modifier tracking resets.
 /// Matches RuboCop's `start_of_new_scope?`: class, module, sclass, class_eval/instance_eval blocks,
-/// and Class/Module/Struct.new blocks.
-fn is_new_scope(node: &ruby_prism::Node<'_>) -> bool {
+/// Class/Module/Struct.new blocks, and ContextCreatingMethods blocks.
+fn is_new_scope(node: &ruby_prism::Node<'_>, context_creating_methods: &[String]) -> bool {
     if node.as_class_node().is_some()
         || node.as_module_node().is_some()
         || node.as_singleton_class_node().is_some()
@@ -181,6 +182,15 @@ fn is_new_scope(node: &ruby_prism::Node<'_>) -> bool {
             if name == b"new" {
                 if let Some(recv) = call.receiver() {
                     if is_class_constructor_receiver(&recv) {
+                        return true;
+                    }
+                }
+            }
+            // ContextCreatingMethods (e.g., class_methods from rubocop-rails)
+            if !context_creating_methods.is_empty() {
+                if call.receiver().is_none() {
+                    let name_str = std::str::from_utf8(name).unwrap_or("");
+                    if context_creating_methods.iter().any(|m| m == name_str) {
                         return true;
                     }
                 }
@@ -211,174 +221,217 @@ fn is_class_constructor_receiver(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
-/// Recursively check if a node or any of its descendants contain a method definition.
-/// Mirrors RuboCop's `check_child_nodes` recursion logic:
-/// - Stop at new scopes (class, module, sclass, eval blocks)
-/// - Skip `defs` (singleton method defs) entirely
-/// - Recurse into all other child nodes (blocks, if/unless, begin, etc.)
-fn has_method_definition_in_subtree(
-    node: &ruby_prism::Node<'_>,
-    method_creating_methods: &[String],
-) -> bool {
-    if is_method_definition(node) || is_method_creating_call(node, method_creating_methods) {
-        return true;
+/// Check if a node is a singleton method def (def self.foo).
+fn is_singleton_method_def(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(def_node) = node.as_def_node() {
+        return def_node.receiver().is_some();
     }
-    // Don't recurse into singleton method defs (def self.foo) — they are skipped entirely
-    if node.as_def_node().is_some() {
-        return false;
-    }
-    // Don't recurse into new scopes
-    if is_new_scope(node) {
-        return false;
-    }
-    // Recurse into child nodes of known container types.
-    // ruby_prism::Node doesn't have a generic child_nodes() method,
-    // so we handle each container type that can appear in a class/module body.
-    recurse_children(node, method_creating_methods)
+    false
 }
 
-/// Recurse into children of known container types looking for method definitions.
-fn recurse_children(node: &ruby_prism::Node<'_>, method_creating_methods: &[String]) -> bool {
-    // StatementsNode — body of begin blocks, etc.
-    if let Some(stmts) = node.as_statements_node() {
-        for child in stmts.body().iter() {
-            if has_method_definition_in_subtree(&child, method_creating_methods) {
-                return true;
-            }
-        }
-        return false;
-    }
-    // CallNode — may have receiver, arguments, and a block
-    if let Some(call) = node.as_call_node() {
-        // Check receiver (e.g., `-> { def foo; end }.call`)
-        if let Some(recv) = call.receiver() {
-            if has_method_definition_in_subtree(&recv, method_creating_methods) {
-                return true;
-            }
-        }
-        // Check arguments (e.g., `helper_method def foo; end`)
-        if let Some(args) = call.arguments() {
-            for arg in args.arguments().iter() {
-                if has_method_definition_in_subtree(&arg, method_creating_methods) {
-                    return true;
+/// Recursively process child nodes, propagating `(cur_vis, unused_modifier)` state.
+/// Matches RuboCop's `check_child_nodes` method:
+/// - Access modifiers update `cur_vis` and `unused_modifier`
+/// - Method definitions clear `unused_modifier`
+/// - New scopes are processed independently (don't propagate state)
+/// - `defs` nodes (singleton method defs) are skipped entirely
+/// - All other nodes are recursed into, propagating state
+fn check_child_nodes<'pr>(
+    cop: &UselessAccessModifier,
+    source: &SourceFile,
+    diagnostics: &mut Vec<Diagnostic>,
+    node: &ruby_prism::Node<'pr>,
+    mut cur_vis: AccessKind,
+    mut unused_modifier: Option<(usize, AccessKind)>,
+    method_creating_methods: &[String],
+    context_creating_methods: &[String],
+) -> (AccessKind, Option<(usize, AccessKind)>) {
+    let children = collect_child_nodes(node);
+
+    for child in &children {
+        if let Some(call) = child.as_call_node() {
+            if is_access_modifier_or_private_class_method(&call) {
+                // Standalone private_class_method (no args) is always useless
+                if is_bare_private_class_method(&call) {
+                    let loc = call.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(cop.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Useless `private_class_method` access modifier.".to_string(),
+                    ));
+                    continue;
+                }
+
+                // private_class_method with arguments: in RuboCop, check_send_node
+                // returns nil, which resets tracking state.
+                if call.arguments().is_some() && call.name().as_slice() == b"private_class_method" {
+                    unused_modifier = None;
+                    continue;
+                }
+
+                if let Some(modifier_kind) = get_access_modifier(&call) {
+                    if modifier_kind == cur_vis {
+                        // Repeated modifier - always useless
+                        let loc = call.location();
+                        let (line, column) = source.offset_to_line_col(loc.start_offset());
+                        diagnostics.push(cop.diagnostic(
+                            source,
+                            line,
+                            column,
+                            format!("Useless `{}` access modifier.", cur_vis.as_str()),
+                        ));
+                    } else {
+                        // New modifier - flag previous if unused
+                        if let Some((offset, old_vis)) = unused_modifier {
+                            let (line, column) = source.offset_to_line_col(offset);
+                            diagnostics.push(cop.diagnostic(
+                                source,
+                                line,
+                                column,
+                                format!("Useless `{}` access modifier.", old_vis.as_str()),
+                            ));
+                        }
+                        cur_vis = modifier_kind;
+                        unused_modifier = Some((call.location().start_offset(), modifier_kind));
+                    }
+                    continue;
                 }
             }
         }
-        // Check block body (e.g., `[1,2].each do |i| define_method(...) end`)
-        if let Some(block) = call.block() {
-            if has_method_definition_in_subtree(&block, method_creating_methods) {
-                return true;
-            }
+
+        // Method definition clears the unused modifier
+        if is_method_definition(child) || is_method_creating_call(child, method_creating_methods) {
+            unused_modifier = None;
+            continue;
         }
-        return false;
+
+        // New scopes are checked independently — they don't propagate state
+        if is_new_scope(child, context_creating_methods) {
+            continue;
+        }
+
+        // Skip singleton method defs entirely (def self.foo)
+        if is_singleton_method_def(child) {
+            continue;
+        }
+
+        // For everything else, recurse and propagate state
+        let result = check_child_nodes(
+            cop,
+            source,
+            diagnostics,
+            child,
+            cur_vis,
+            unused_modifier,
+            method_creating_methods,
+            context_creating_methods,
+        );
+        cur_vis = result.0;
+        unused_modifier = result.1;
+    }
+
+    (cur_vis, unused_modifier)
+}
+
+/// Collect direct child nodes from a Prism node.
+/// Since ruby_prism::Node doesn't have a generic child_nodes() method,
+/// we handle each container type explicitly.
+fn collect_child_nodes<'pr>(node: &ruby_prism::Node<'pr>) -> Vec<ruby_prism::Node<'pr>> {
+    // StatementsNode — body of class/module/begin blocks
+    if let Some(stmts) = node.as_statements_node() {
+        return stmts.body().iter().collect();
     }
     // BlockNode — body of a block
     if let Some(block) = node.as_block_node() {
         if let Some(body) = block.body() {
-            if has_method_definition_in_subtree(&body, method_creating_methods) {
-                return true;
-            }
+            return collect_child_nodes(&body);
         }
-        return false;
+        return Vec::new();
     }
     // IfNode
     if let Some(if_node) = node.as_if_node() {
+        let mut children = Vec::new();
+        // Don't include the condition — only the branches
         if let Some(stmts) = if_node.statements() {
-            for stmt in stmts.body().iter() {
-                if has_method_definition_in_subtree(&stmt, method_creating_methods) {
-                    return true;
-                }
-            }
+            children.extend(stmts.body().iter());
         }
         if let Some(subsequent) = if_node.subsequent() {
-            if has_method_definition_in_subtree(&subsequent, method_creating_methods) {
-                return true;
-            }
+            children.push(subsequent);
         }
-        return false;
+        return children;
     }
     // UnlessNode
     if let Some(unless_node) = node.as_unless_node() {
+        let mut children = Vec::new();
         if let Some(stmts) = unless_node.statements() {
-            for stmt in stmts.body().iter() {
-                if has_method_definition_in_subtree(&stmt, method_creating_methods) {
-                    return true;
-                }
-            }
+            children.extend(stmts.body().iter());
         }
         if let Some(else_clause) = unless_node.else_clause() {
-            if has_method_definition_in_subtree(&else_clause.as_node(), method_creating_methods) {
-                return true;
-            }
+            children.push(else_clause.as_node());
         }
-        return false;
+        return children;
     }
     // ElseNode
     if let Some(else_node) = node.as_else_node() {
         if let Some(stmts) = else_node.statements() {
-            for stmt in stmts.body().iter() {
-                if has_method_definition_in_subtree(&stmt, method_creating_methods) {
-                    return true;
-                }
-            }
+            return stmts.body().iter().collect();
         }
-        return false;
+        return Vec::new();
     }
     // BeginNode (explicit begin..end)
     if let Some(begin_node) = node.as_begin_node() {
         if let Some(stmts) = begin_node.statements() {
-            for stmt in stmts.body().iter() {
-                if has_method_definition_in_subtree(&stmt, method_creating_methods) {
-                    return true;
-                }
-            }
+            return stmts.body().iter().collect();
         }
-        return false;
+        return Vec::new();
+    }
+    // CallNode — may have receiver, arguments, and a block
+    if let Some(call) = node.as_call_node() {
+        let mut children = Vec::new();
+        if let Some(recv) = call.receiver() {
+            children.push(recv);
+        }
+        if let Some(args) = call.arguments() {
+            children.extend(args.arguments().iter());
+        }
+        if let Some(block) = call.block() {
+            children.push(block);
+        }
+        return children;
     }
     // ParenthesesNode
     if let Some(paren) = node.as_parentheses_node() {
         if let Some(body) = paren.body() {
-            if has_method_definition_in_subtree(&body, method_creating_methods) {
-                return true;
-            }
+            return vec![body];
         }
-        return false;
+        return Vec::new();
     }
-    // LambdaNode — `-> { def foo; end }` or `proc { def foo; end }`
+    // LambdaNode
     if let Some(lambda) = node.as_lambda_node() {
         if let Some(body) = lambda.body() {
-            if has_method_definition_in_subtree(&body, method_creating_methods) {
-                return true;
-            }
+            return vec![body];
         }
-        return false;
+        return Vec::new();
     }
-    // CaseNode — `case expr; when ...; def foo; end; end`
+    // CaseNode
     if let Some(case_node) = node.as_case_node() {
-        for condition in case_node.conditions().iter() {
-            if has_method_definition_in_subtree(&condition, method_creating_methods) {
-                return true;
-            }
-        }
+        let mut children: Vec<ruby_prism::Node<'pr>> = Vec::new();
+        children.extend(case_node.conditions().iter());
         if let Some(else_clause) = case_node.else_clause() {
-            if has_method_definition_in_subtree(&else_clause.as_node(), method_creating_methods) {
-                return true;
-            }
+            children.push(else_clause.as_node());
         }
-        return false;
+        return children;
     }
-    // WhenNode — body of a when clause
+    // WhenNode
     if let Some(when_node) = node.as_when_node() {
         if let Some(stmts) = when_node.statements() {
-            for stmt in stmts.body().iter() {
-                if has_method_definition_in_subtree(&stmt, method_creating_methods) {
-                    return true;
-                }
-            }
+            return stmts.body().iter().collect();
         }
-        return false;
+        return Vec::new();
     }
-    false
+    Vec::new()
 }
 
 fn check_scope(
@@ -387,70 +440,19 @@ fn check_scope(
     diagnostics: &mut Vec<Diagnostic>,
     stmts: &ruby_prism::StatementsNode<'_>,
     method_creating_methods: &[String],
+    context_creating_methods: &[String],
 ) {
-    let body: Vec<_> = stmts.body().iter().collect();
-
-    let mut current_vis = AccessKind::Public;
-    let mut unused_modifier: Option<(usize, AccessKind)> = None;
-
-    for stmt in &body {
-        if let Some(call) = stmt.as_call_node() {
-            // Standalone private_class_method (no args) is always useless
-            if is_bare_private_class_method(&call) {
-                let loc = call.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(cop.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Useless `private_class_method` access modifier.".to_string(),
-                ));
-                continue;
-            }
-
-            // private_class_method with arguments resets tracking
-            // (matches RuboCop where check_send_node returns nil for this case)
-            if call.receiver().is_none()
-                && call.arguments().is_some()
-                && call.name().as_slice() == b"private_class_method"
-            {
-                unused_modifier = None;
-                continue;
-            }
-
-            if let Some(modifier_kind) = get_access_modifier(&call) {
-                if modifier_kind == current_vis {
-                    // Repeated modifier - always useless
-                    let loc = call.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(cop.diagnostic(
-                        source,
-                        line,
-                        column,
-                        format!("Useless `{}` access modifier.", current_vis.as_str()),
-                    ));
-                } else {
-                    // New modifier - flag previous if unused
-                    if let Some((offset, old_vis)) = unused_modifier {
-                        let (line, column) = source.offset_to_line_col(offset);
-                        diagnostics.push(cop.diagnostic(
-                            source,
-                            line,
-                            column,
-                            format!("Useless `{}` access modifier.", old_vis.as_str()),
-                        ));
-                    }
-                    current_vis = modifier_kind;
-                    unused_modifier = Some((call.location().start_offset(), modifier_kind));
-                }
-                continue;
-            }
-        }
-
-        if has_method_definition_in_subtree(stmt, method_creating_methods) {
-            unused_modifier = None;
-        }
-    }
+    let stmts_node = stmts.as_node();
+    let (_, unused_modifier) = check_child_nodes(
+        cop,
+        source,
+        diagnostics,
+        &stmts_node,
+        AccessKind::Public,
+        None,
+        method_creating_methods,
+        context_creating_methods,
+    );
 
     // If the last modifier was never followed by a method definition
     if let Some((offset, vis)) = unused_modifier {
@@ -469,6 +471,12 @@ struct UselessAccessVisitor<'a, 'src> {
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
     method_creating_methods: Vec<String>,
+    context_creating_methods: Vec<String>,
+    /// Track whether we are inside a def/defs node.
+    /// class_eval/instance_eval blocks inside defs should not be treated as scopes
+    /// because RuboCop's `macro?` check means access modifiers inside them are not
+    /// recognized as bare access modifiers.
+    in_def: bool,
 }
 
 /// Check if a call node is a bare access modifier (including module_function and
@@ -480,7 +488,6 @@ fn is_access_modifier_call(call: &ruby_prism::CallNode<'_>) -> bool {
 impl<'pr> Visit<'pr> for UselessAccessVisitor<'_, '_> {
     fn visit_program_node(&mut self, node: &ruby_prism::ProgramNode<'pr>) {
         // Top-level access modifiers are always useless (RuboCop's on_begin handler).
-        // At top level, access modifiers have no effect on method visibility.
         let stmts = node.statements();
         for stmt in stmts.body().iter() {
             if let Some(call) = stmt.as_call_node() {
@@ -513,6 +520,7 @@ impl<'pr> Visit<'pr> for UselessAccessVisitor<'_, '_> {
                     &mut self.diagnostics,
                     &stmts,
                     &self.method_creating_methods,
+                    &self.context_creating_methods,
                 );
             }
         }
@@ -528,6 +536,7 @@ impl<'pr> Visit<'pr> for UselessAccessVisitor<'_, '_> {
                     &mut self.diagnostics,
                     &stmts,
                     &self.method_creating_methods,
+                    &self.context_creating_methods,
                 );
             }
         }
@@ -543,38 +552,50 @@ impl<'pr> Visit<'pr> for UselessAccessVisitor<'_, '_> {
                     &mut self.diagnostics,
                     &stmts,
                     &self.method_creating_methods,
+                    &self.context_creating_methods,
                 );
             }
         }
         ruby_prism::visit_singleton_class_node(self, node);
     }
 
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        let was_in_def = self.in_def;
+        self.in_def = true;
+        ruby_prism::visit_def_node(self, node);
+        self.in_def = was_in_def;
+    }
+
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         // Handle eval blocks (class_eval, instance_eval) and constructor blocks
         // (Class.new, Module.new, Struct.new, Data.define) as scopes.
-        // Matches RuboCop's on_block handler for eval_call? and included_block?.
-        if let Some(block_node) = node.block() {
-            if let Some(block) = block_node.as_block_node() {
-                let name = node.name().as_slice();
-                let is_eval_scope = if name == b"class_eval" || name == b"instance_eval" {
-                    true
-                } else if name == b"new" || name == b"define" {
-                    node.receiver()
-                        .as_ref()
-                        .is_some_and(|r| is_class_constructor_receiver(r))
-                } else {
-                    false
-                };
-                if is_eval_scope {
-                    if let Some(body) = block.body() {
-                        if let Some(stmts) = body.as_statements_node() {
-                            check_scope(
-                                self.cop,
-                                self.source,
-                                &mut self.diagnostics,
-                                &stmts,
-                                &self.method_creating_methods,
-                            );
+        // Skip if we're inside a def method — RuboCop's macro? check means
+        // access modifiers inside class_eval blocks in defs are not recognized.
+        if !self.in_def {
+            if let Some(block_node) = node.block() {
+                if let Some(block) = block_node.as_block_node() {
+                    let name = node.name().as_slice();
+                    let is_eval_scope = if name == b"class_eval" || name == b"instance_eval" {
+                        true
+                    } else if name == b"new" || name == b"define" {
+                        node.receiver()
+                            .as_ref()
+                            .is_some_and(|r| is_class_constructor_receiver(r))
+                    } else {
+                        false
+                    };
+                    if is_eval_scope {
+                        if let Some(body) = block.body() {
+                            if let Some(stmts) = body.as_statements_node() {
+                                check_scope(
+                                    self.cop,
+                                    self.source,
+                                    &mut self.diagnostics,
+                                    &stmts,
+                                    &self.method_creating_methods,
+                                    &self.context_creating_methods,
+                                );
+                            }
                         }
                     }
                 }

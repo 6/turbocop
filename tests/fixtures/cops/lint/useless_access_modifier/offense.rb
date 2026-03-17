@@ -78,3 +78,49 @@ Class.new do
   private
   ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.
 end
+
+# FN fix: private repeated due to visibility leaking from conditional branch
+# RuboCop's check_child_nodes recurses into if/else, propagating cur_vis
+class WithVisibilityFromConditional
+  if some_condition
+    private
+
+    def secret_method
+    end
+  end
+
+  private
+  ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.
+
+  def another_method
+  end
+end
+
+# FN fix: private before class definition + method def, where visibility
+# leaked from inside a block making it a repeated modifier
+class WithBlockVisibilityLeak
+  some_dsl :items do
+    property :title
+
+    private
+
+    def populate_item!
+      Item.new
+    end
+  end
+
+  property :artist do
+    property :name
+  end
+
+  private
+  ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.
+
+  class Helper < Base
+    attr_accessor :args
+  end
+
+  def create_item(input)
+    Helper.new
+  end
+end

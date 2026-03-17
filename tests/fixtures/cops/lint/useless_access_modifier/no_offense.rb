@@ -107,3 +107,45 @@ class WithCaseContainingDefs
     end
   end
 end
+
+# FP fix: private inside class_eval block that is inside a def method
+# RuboCop's macro? check means private is not recognized as access modifier here
+module WithClassEvalInsideDef
+  def self.define_class_methods(target)
+    target.class_eval do
+      define_singleton_method :update_data do |data|
+        process(data)
+      end
+
+      private
+
+      define_singleton_method :secret_data do
+        fetch_secret
+      end
+    end
+  end
+end
+
+# FP fix: public after conditional access modifier (protected unless $TESTING)
+# visibility is changed by the conditional branch, so public is meaningful
+class WithConditionalAccessModifier
+  protected unless $TESTING
+
+  SOME_CONSTANT = 42
+
+  def some_method
+    SOME_CONSTANT
+  end
+
+  attr_reader :name
+  if $TESTING then
+    attr_writer :name
+    attr_accessor :data, :flags
+  end
+
+  public
+
+  def initialize(name)
+    @name = name
+  end
+end
