@@ -90,11 +90,25 @@ impl DisabledRanges {
                 continue;
             };
 
+            let (line, col) = source.offset_to_line_col(loc.start_offset());
+
+            // Determine if inline: check if there's non-whitespace before the comment
+            let is_inline = if line >= 1 && line <= lines.len() {
+                let line_bytes = lines[line - 1];
+                let before_comment = &line_bytes[..col.min(line_bytes.len())];
+                before_comment.iter().any(|b| !b.is_ascii_whitespace())
+            } else {
+                false
+            };
+
             // Reject YARD doc nested comments like `#   # rubocop:disable all`
             // where Prism reports the entire line as one comment token.
             // The text before the directive match is only `#` + whitespace.
+            // Only reject on standalone comment lines — inline comments with
+            // double-# (e.g., `rescue Exception # # rubocop:disable Cop`) are
+            // legitimate directives.
             let match_start = caps.get(0).unwrap().start();
-            if match_start > 0 {
+            if match_start > 0 && !is_inline {
                 let prefix = &comment_str[..match_start];
                 if prefix.bytes().all(|b| b == b'#' || b == b' ' || b == b'\t') {
                     continue;
@@ -110,17 +124,6 @@ impl DisabledRanges {
             let cop_list = match cop_list_raw.find("--") {
                 Some(idx) => &cop_list_raw[..idx],
                 None => cop_list_raw,
-            };
-
-            let (line, col) = source.offset_to_line_col(loc.start_offset());
-
-            // Determine if inline: check if there's non-whitespace before the comment
-            let is_inline = if line >= 1 && line <= lines.len() {
-                let line_bytes = lines[line - 1];
-                let before_comment = &line_bytes[..col.min(line_bytes.len())];
-                before_comment.iter().any(|b| !b.is_ascii_whitespace())
-            } else {
-                false
             };
 
             let cop_names: Vec<&str> = cop_list
@@ -978,6 +981,19 @@ mod tests {
         assert!(
             dr.is_disabled("Performance/ArraySemiInfiniteRangeSlice", 1),
             "directive after descriptive comment should be recognized"
+        );
+    }
+
+    #[test]
+    fn inline_double_hash_directive() {
+        // `rescue Exception # # rubocop:disable Lint/RescueException`
+        // The double-# pattern is legitimate when inline (code before the comment).
+        // This must NOT be rejected as a YARD doc nested comment.
+        let src = "begin\n  do_something\nrescue Exception # # rubocop:disable Lint/RescueException\n  handle_error\nend\n";
+        let dr = disabled_ranges(src);
+        assert!(
+            dr.is_disabled("Lint/RescueException", 3),
+            "inline double-# directive should be recognized, not rejected as YARD doc"
         );
     }
 

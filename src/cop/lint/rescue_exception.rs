@@ -3,6 +3,10 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation: FP=1 was caused by the directive parser rejecting
+/// `# # rubocop:disable Lint/RescueException` as a YARD doc nested comment.
+/// The double-# pattern is legitimate when inline (code before the comment).
+/// Fixed in the directive parser by skipping the YARD rejection for inline comments.
 pub struct RescueException;
 
 impl Cop for RescueException {
