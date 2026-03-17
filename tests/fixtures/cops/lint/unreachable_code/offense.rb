@@ -119,3 +119,25 @@ def test_exit_bang
   cleanup
   ^^^^^^^ Lint/UnreachableCode: Unreachable code detected.
 end
+
+# multiple unreachable statements: RuboCop flags each one (each_cons behavior)
+def test_multiple_unreachable
+  loop do
+    break
+    break
+    ^^^^^ Lint/UnreachableCode: Unreachable code detected.
+    break
+    ^^^^^ Lint/UnreachableCode: Unreachable code detected.
+  end
+end
+
+# code inside begin..ensure body after return is still unreachable
+def test_unreachable_inside_begin_ensure
+  begin
+    return :value
+    cleanup
+    ^^^^^^^ Lint/UnreachableCode: Unreachable code detected.
+  ensure
+    finalize
+  end
+end

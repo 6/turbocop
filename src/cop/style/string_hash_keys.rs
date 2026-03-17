@@ -54,6 +54,18 @@ use ruby_prism::Visit;
 ///
 /// Fix: Check `std::str::from_utf8(str_node.unescaped())` and skip keys
 /// where the unescaped content is not valid UTF-8.
+///
+/// ## Investigation findings (2026-03-17)
+///
+/// Root cause of 28 FPs: Multi-line regular string literals used as hash
+/// keys. In the Parser gem, strings spanning multiple source lines are
+/// parsed as `dstr` (dynamic string) nodes, even without interpolation.
+/// RuboCop's `(pair (str _) _)` matcher only matches `str` nodes, so
+/// multi-line string keys are automatically skipped. In Prism, multi-line
+/// strings without interpolation are still `StringNode`.
+///
+/// Fix: Compare start_line and end_line of the string node's location.
+/// Skip `StringNode` keys where end_line > start_line.
 pub struct StringHashKeys;
 
 impl Cop for StringHashKeys {
@@ -193,6 +205,17 @@ impl StringHashKeysVisitor<'_> {
                         .opening_loc()
                         .is_some_and(|o| o.as_slice().starts_with(b"<<"))
                     {
+                        continue;
+                    }
+                    // Skip multi-line string keys — in Parser gem, strings
+                    // spanning multiple source lines are `dstr` (not `str`),
+                    // so RuboCop's `(pair (str _) _)` matcher skips them.
+                    let str_loc = str_node.location();
+                    let (start_line, _) = self.source.offset_to_line_col(str_loc.start_offset());
+                    let (end_line, _) = self
+                        .source
+                        .offset_to_line_col(str_loc.end_offset().saturating_sub(1));
+                    if end_line > start_line {
                         continue;
                     }
                     // Skip strings with invalid encoding — RuboCop checks

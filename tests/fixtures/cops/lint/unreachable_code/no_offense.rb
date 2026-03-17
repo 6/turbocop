@@ -111,3 +111,40 @@ def test_begin_rescue_in_case
   end
   nil
 end
+
+# begin..ensure..end is NOT flow-breaking (RuboCop does not flag code after it)
+def test_begin_ensure_return
+  begin
+    return :value
+  ensure
+    cleanup
+  end
+  next_line
+end
+
+# begin..ensure..end with nested begin..ensure..end
+def test_nested_begin_ensure
+  begin
+    begin
+      return :inner
+    ensure
+      inner_cleanup
+    end
+    after_inner
+  ensure
+    outer_cleanup
+  end
+  after_outer
+end
+
+# begin..rescue..ensure..end is also not flow-breaking
+def test_begin_rescue_ensure
+  begin
+    raise "error"
+  rescue => e
+    handle(e)
+  ensure
+    cleanup
+  end
+  next_line
+end

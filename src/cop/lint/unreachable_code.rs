@@ -41,6 +41,27 @@ use ruby_prism::Visit;
 ///
 /// FN=28: Mostly `break 1`/`next 1` at top level in spec files (ruby-formatter/rufo).
 /// Not addressed in this pass.
+///
+/// ## Investigation (2026-03-17, third pass)
+///
+/// FP=19: `begin..ensure..end` blocks were treated as flow-breaking because
+/// `flow_expression()` only checked for `rescue_clause` but not `ensure_clause`.
+/// A `begin..ensure..end` block is not flow-breaking for the same conservative
+/// reason as `begin..rescue..end`: RuboCop does not recurse into begin blocks
+/// with ensure clauses to determine flow. Fixed by also returning false from
+/// `flow_expression()` when the `BeginNode` has an `ensure_clause()`.
+///
+/// FN=26: Changed from flagging only the first unreachable statement to using
+/// `each_cons(2)` style matching RuboCop's `on_begin`: for each consecutive
+/// pair of statements, if the first is flow-breaking, flag the second. This
+/// means multiple consecutive flow commands (e.g., `break; break; break`) each
+/// get flagged individually.
+///
+/// Remaining FP=4: method redefinition awareness. RuboCop tracks `def abort`,
+/// `def raise`, etc. in `@redefined` and doesn't treat those calls as
+/// flow-breaking if redefined in scope (e.g., Spork's `def abort` and
+/// EventMachine's `def abort(reason)`). Also tracks `instance_eval` context
+/// to suppress warnings inside `instance_eval` blocks. Not yet implemented.
 pub struct UnreachableCode;
 
 impl Cop for UnreachableCode {
@@ -157,10 +178,11 @@ fn flow_expression(node: &ruby_prism::Node<'_>) -> bool {
     }
 
     // begin..end (explicit)
-    // A begin..rescue..end is NOT flow-breaking because the rescue clause
-    // provides an alternate execution path that may not break flow.
+    // A begin..rescue..end or begin..ensure..end is NOT flow-breaking because
+    // rescue provides an alternate path and RuboCop conservatively treats begin
+    // blocks with ensure as non-flow-breaking.
     if let Some(begin_node) = node.as_begin_node() {
-        if begin_node.rescue_clause().is_some() {
+        if begin_node.rescue_clause().is_some() || begin_node.ensure_clause().is_some() {
             return false;
         }
         if let Some(stmts) = begin_node.statements() {
@@ -283,11 +305,12 @@ fn check_case_match_flow(node: &ruby_prism::CaseMatchNode<'_>) -> bool {
 impl<'pr> Visit<'pr> for UnreachableVisitor<'_, '_> {
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
         let body: Vec<_> = node.body().iter().collect();
-        let mut flow_broken = false;
 
-        for stmt in &body {
-            if flow_broken {
-                let loc = stmt.location();
+        // Match RuboCop's each_cons(2) approach: for each consecutive pair,
+        // if the first expression is flow-breaking, flag the second.
+        for pair in body.windows(2) {
+            if flow_expression(&pair[0]) {
+                let loc = pair[1].location();
                 let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                 self.diagnostics.push(self.cop.diagnostic(
                     self.source,
@@ -295,10 +318,6 @@ impl<'pr> Visit<'pr> for UnreachableVisitor<'_, '_> {
                     column,
                     "Unreachable code detected.".to_string(),
                 ));
-                break; // Only flag the first unreachable statement
-            }
-            if flow_expression(stmt) {
-                flow_broken = true;
             }
         }
 

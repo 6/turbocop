@@ -44,3 +44,14 @@ h = { "\x80" => 1 }
 h = { "\xC0" => 2 }
 h = { "\xFF" => 3 }
 h = { "\251" => 4 }
+
+# Multi-line string keys (Parser gem treats as dstr, not str; RuboCop skips)
+h = { "first line
+second line" => 1 }
+h = { %(UPDATE
+  dogs
+SET
+  name = 'fido') => false }
+h = { 'multi
+line
+key' => :value }
