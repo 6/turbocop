@@ -157,3 +157,22 @@ elsif link["href"].to_s =~ /unsubscribe/i && !options[:unsubscribe_links]
 else
   false
 end
+
+# Safe navigation calls (&.) may return nil, not boolean — should not be flagged
+password&.match?(RULES[name]) ? true : false
+@endpoint&.smtp_client&.secure_socket? ? true : false
+foo&.bar? ? true : false
+obj&.present? ? true : false
+if foo&.active?
+  true
+else
+  false
+end
+
+# Calls with blocks are `block` nodes in Parser, not `send` — not boolean-returning
+if items.any? { |item| item.valid? }
+  false
+else
+  true
+end
+records.all? { |r| r.persisted? } ? true : false

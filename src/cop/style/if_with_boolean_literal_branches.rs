@@ -58,6 +58,22 @@ use crate::parse::source::SourceFile;
 /// - Changed `!` handler in `condition_returns_boolean` to only match `!!` (double
 ///   negation): checks that the receiver of the `!` call is also a `!` call.
 /// - Remaining FPs (if any) are likely config/rubocop_todo.yml issues in target repos.
+///
+/// ## Investigation findings (2026-03-17, round 2)
+///
+/// **FP root cause (3 FPs):** Two distinct issues:
+/// 1. Safe navigation calls (`&.`) were treated as boolean-returning. RuboCop's
+///    `assume_boolean_value?` requires `condition.send_type?` which excludes `csend`
+///    (safe navigation). `&.method?` can return `nil` when receiver is nil.
+///    FPs: `password&.match?(RULES[name])`, `@endpoint&.smtp_client&.secure_socket?`.
+/// 2. Calls with blocks (e.g., `items.any? { |i| ... }`) are `block` nodes in
+///    Parser AST, not `send` nodes. RuboCop's `condition.send_type?` returns false
+///    for blocks. Prism attaches blocks to `CallNode`, so our check matched.
+///    FP: `ast_selection.directives.any? { |dir_node| ... }` in graphql-ruby.
+///
+/// **Fixes applied:**
+/// - Check `call.call_operator_loc()` for `&.` and skip safe navigation calls
+/// - Check `call.block().is_some()` and skip calls with blocks
 pub struct IfWithBooleanLiteralBranches;
 
 impl Cop for IfWithBooleanLiteralBranches {
@@ -322,6 +338,20 @@ fn condition_returns_boolean(
 ) -> bool {
     // Check for call node (comparison or predicate)
     if let Some(call) = node.as_call_node() {
+        // Safe navigation (&.) may return nil, not boolean.
+        // RuboCop's assume_boolean_value? requires condition.send_type? which excludes csend.
+        if let Some(op) = call.call_operator_loc() {
+            if op.as_slice() == b"&." {
+                return false;
+            }
+        }
+
+        // Calls with blocks (e.g., `foo.any? { ... }`) are `block` nodes in Parser AST,
+        // not `send` nodes. RuboCop's `condition.send_type?` returns false for blocks.
+        if call.block().is_some() {
+            return false;
+        }
+
         let method_name = call.name();
         let method_bytes = method_name.as_slice();
 
