@@ -58,3 +58,33 @@ data.each do |value|
     value.process
   end
 end
+
+# Blocks inside def methods should still detect unused args
+def process_items
+  items.each do |item|
+                 ^^^^ Lint/UnusedBlockArgument: Unused block argument - `item`.
+    puts "processing"
+  end
+end
+
+# Block inside class > def
+class Worker
+  def run
+    tasks.each do |task|
+                   ^^^^ Lint/UnusedBlockArgument: Unused block argument - `task`.
+      puts "running"
+    end
+  end
+end
+
+# Nested module > class > def > block
+module Services
+  class Processor
+    def call
+      records.map do |record|
+                      ^^^^^^ Lint/UnusedBlockArgument: Unused block argument - `record`.
+        "done"
+      end
+    end
+  end
+end

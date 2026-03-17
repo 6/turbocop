@@ -71,3 +71,33 @@ end
 records.each do |record|
   record &&= nil
 end
+
+# def on block arg receiver counts as a use (singleton method definition)
+Object.new.tap do |o|
+  def o.to_str
+    "hello"
+  end
+end
+
+# Block arg used inside def as receiver
+described_class.create(site).tap do |c|
+  def c.request_url_once(url)
+    Net::HTTPResponse.new('1.1', '200', 'okay')
+  end
+end
+
+# Block inside def method with param used
+def process
+  items.each do |item|
+    puts item
+  end
+end
+
+# Block inside class > def with param used
+class Worker
+  def run
+    tasks.each do |task|
+      task.execute
+    end
+  end
+end

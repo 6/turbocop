@@ -114,10 +114,32 @@ impl<'pr> Visit<'pr> for BlockVisitor<'_, '_> {
         }
     }
 
-    // Don't recurse into def/class/module (they create new scopes)
-    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
-    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
-    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+    // Recurse into def/class/module: BlockVisitor needs to find blocks
+    // at all nesting levels. The scope boundary for variable references
+    // is handled by VarRefFinder, not here.
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+    }
+
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+    }
+
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+    }
+
+    fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+    }
 }
 
 impl BlockVisitor<'_, '_> {
@@ -402,8 +424,19 @@ impl<'pr> Visit<'pr> for VarRefFinder {
         self.visit_nested_block_or_lambda(node.parameters(), node.body());
     }
 
-    // Don't recurse into nested def/class/module (they create new scopes)
-    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
+    // Don't recurse into nested def/class/module (they create new scopes).
+    // But for def nodes, check the receiver — `def o.method` uses `o`.
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            if let Some(lv) = receiver.as_local_variable_read_node() {
+                let name = lv.name().as_slice();
+                if !self.shadowed.iter().any(|s| s.as_slice() == name) {
+                    self.names.push(name.to_vec());
+                }
+            }
+        }
+        // Don't recurse into the def body — it's a different scope
+    }
     fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
     fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
 }
