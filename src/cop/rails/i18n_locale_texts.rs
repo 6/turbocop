@@ -7,10 +7,9 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Investigation (2026-03-15, updated 2026-03-16)
 ///
-/// **FP root cause (3 FPs, fixed 2026-03-15):** All from `flash[:error] = "string"` in the
-/// Autolab repo where `flash` is a local variable. RuboCop's pattern only matches
-/// `(send nil? :flash)` (method call), NOT `(lvar :flash)`. Fixed by removing local variable
-/// `flash` handling from `is_flash_receiver`.
+/// **FP root cause (prior, fixed 2026-03-15):** Local variable `flash` was being matched.
+/// RuboCop's pattern only matches `(send nil? :flash)` (method call), NOT `(lvar :flash)`.
+/// Fixed by removing local variable `flash` handling from `is_flash_receiver`.
 ///
 /// **FN root cause (8 FNs, fixed 2026-03-15):** Recursive AST search was missing several
 /// nesting patterns. Fixed by implementing `find_pairs_recursive`.
@@ -20,18 +19,39 @@ use crate::parse::source::SourceFile;
 /// `AssocSplatNode` -> `ParenthesesNode` -> `StatementsNode` -> `IfNode` -> `ElseNode` ->
 /// `HashNode`. Extended `find_pairs_recursive` to handle `AssocSplatNode`, `IfNode`,
 /// `ElseNode`, `ParenthesesNode`, and `StatementsNode`.
+///
+/// **FP root cause (3 FPs, fixed 2026-03-18):** Multi-line string literals in `flash[:error]`
+/// assignments. The Parser gem (used by RuboCop) parses multi-line string literals without
+/// interpolation as `dstr` (dynamic string) nodes, so RuboCop's `$str` NodePattern does not
+/// match them. Prism correctly parses them as `StringNode`. Fixed by checking whether the
+/// string node spans multiple source lines and excluding multi-line strings.
 pub struct I18nLocaleTexts;
 
 const MSG: &str = "Move locale texts to the locale files in the `config/locales` directory.";
 
-/// Check if a node is a plain string literal (not a symbol, not interpolated).
-fn is_string_literal(node: &ruby_prism::Node<'_>) -> bool {
-    node.as_string_node().is_some()
+/// Check if a node is a plain, single-line string literal (not a symbol, not interpolated).
+///
+/// Multi-line string literals are excluded because the Parser gem (used by RuboCop) parses
+/// them as `dstr` (dynamic string) nodes even without interpolation, so RuboCop's `$str`
+/// NodePattern does not match them. Prism correctly parses them as `StringNode`, but we
+/// need to match RuboCop's behavior for corpus conformance.
+fn is_string_literal(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(s) = node.as_string_node() {
+        let loc = s.location();
+        // Exclude multi-line strings: Parser gem treats them as `dstr`, not `str`
+        let start_line = source.offset_to_line_col(loc.start_offset()).0;
+        let end_line = source
+            .offset_to_line_col(loc.end_offset().saturating_sub(1))
+            .0;
+        return start_line == end_line;
+    }
+    false
 }
 
 /// Recursively search a node's subtree for `(pair (sym :key) str)` patterns.
 /// Mirrors RuboCop's `def_node_search` which walks the entire AST subtree.
 fn find_pairs_recursive<'a>(
+    source: &SourceFile,
     node: &ruby_prism::Node<'a>,
     key: &[u8],
     results: &mut Vec<ruby_prism::Node<'a>>,
@@ -39,20 +59,20 @@ fn find_pairs_recursive<'a>(
     // Check if this node is an assoc (pair) with matching key and string value
     if let Some(assoc) = node.as_assoc_node() {
         if let Some(sym) = assoc.key().as_symbol_node() {
-            if sym.unescaped() == key && is_string_literal(&assoc.value()) {
+            if sym.unescaped() == key && is_string_literal(source, &assoc.value()) {
                 results.push(assoc.value());
                 return; // Don't recurse further into this pair
             }
         }
         // Recurse into assoc value (could contain nested hashes)
-        find_pairs_recursive(&assoc.value(), key, results);
+        find_pairs_recursive(source, &assoc.value(), key, results);
         return;
     }
 
     // KeywordHashNode: recurse into elements
     if let Some(kw) = node.as_keyword_hash_node() {
         for elem in kw.elements().iter() {
-            find_pairs_recursive(&elem, key, results);
+            find_pairs_recursive(source, &elem, key, results);
         }
         return;
     }
@@ -60,7 +80,7 @@ fn find_pairs_recursive<'a>(
     // HashNode: recurse into elements
     if let Some(hash) = node.as_hash_node() {
         for elem in hash.elements().iter() {
-            find_pairs_recursive(&elem, key, results);
+            find_pairs_recursive(source, &elem, key, results);
         }
         return;
     }
@@ -68,11 +88,11 @@ fn find_pairs_recursive<'a>(
     // CallNode: recurse into receiver and arguments
     if let Some(call) = node.as_call_node() {
         if let Some(recv) = call.receiver() {
-            find_pairs_recursive(&recv, key, results);
+            find_pairs_recursive(source, &recv, key, results);
         }
         if let Some(args) = call.arguments() {
             for arg in args.arguments().iter() {
-                find_pairs_recursive(&arg, key, results);
+                find_pairs_recursive(source, &arg, key, results);
             }
         }
         return;
@@ -81,7 +101,7 @@ fn find_pairs_recursive<'a>(
     // ArgumentsNode: recurse into each argument
     if let Some(args) = node.as_arguments_node() {
         for arg in args.arguments().iter() {
-            find_pairs_recursive(&arg, key, results);
+            find_pairs_recursive(source, &arg, key, results);
         }
         return;
     }
@@ -89,7 +109,7 @@ fn find_pairs_recursive<'a>(
     // AssocSplatNode (**expr): recurse into the splatted expression
     if let Some(splat) = node.as_assoc_splat_node() {
         if let Some(value) = splat.value() {
-            find_pairs_recursive(&value, key, results);
+            find_pairs_recursive(source, &value, key, results);
         }
         return;
     }
@@ -98,11 +118,11 @@ fn find_pairs_recursive<'a>(
     if let Some(if_node) = node.as_if_node() {
         if let Some(stmts) = if_node.statements() {
             for stmt in stmts.body().iter() {
-                find_pairs_recursive(&stmt, key, results);
+                find_pairs_recursive(source, &stmt, key, results);
             }
         }
         if let Some(subsequent) = if_node.subsequent() {
-            find_pairs_recursive(&subsequent, key, results);
+            find_pairs_recursive(source, &subsequent, key, results);
         }
         return;
     }
@@ -111,7 +131,7 @@ fn find_pairs_recursive<'a>(
     if let Some(else_node) = node.as_else_node() {
         if let Some(stmts) = else_node.statements() {
             for stmt in stmts.body().iter() {
-                find_pairs_recursive(&stmt, key, results);
+                find_pairs_recursive(source, &stmt, key, results);
             }
         }
         return;
@@ -120,7 +140,7 @@ fn find_pairs_recursive<'a>(
     // ParenthesesNode: recurse into body
     if let Some(parens) = node.as_parentheses_node() {
         if let Some(body) = parens.body() {
-            find_pairs_recursive(&body, key, results);
+            find_pairs_recursive(source, &body, key, results);
         }
         return;
     }
@@ -128,7 +148,7 @@ fn find_pairs_recursive<'a>(
     // StatementsNode: recurse into each statement
     if let Some(stmts) = node.as_statements_node() {
         for stmt in stmts.body().iter() {
-            find_pairs_recursive(&stmt, key, results);
+            find_pairs_recursive(source, &stmt, key, results);
         }
     }
 }
@@ -166,7 +186,7 @@ impl Cop for I18nLocaleTexts {
             b"validates" => {
                 // Recursively search for (pair (sym :message) str) anywhere in args
                 let mut results = Vec::new();
-                find_pairs_recursive(node, b"message", &mut results);
+                find_pairs_recursive(source, node, b"message", &mut results);
                 for val in results {
                     let loc = val.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -178,7 +198,7 @@ impl Cop for I18nLocaleTexts {
                 // Recursively search for (pair (sym :notice/:alert) str) anywhere in args
                 for key in &[b"notice" as &[u8], b"alert"] {
                     let mut results = Vec::new();
-                    find_pairs_recursive(node, key, &mut results);
+                    find_pairs_recursive(source, node, key, &mut results);
                     for val in results {
                         let loc = val.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -190,7 +210,7 @@ impl Cop for I18nLocaleTexts {
             b"mail" => {
                 // Recursively search for (pair (sym :subject) str) anywhere in args
                 let mut results = Vec::new();
-                find_pairs_recursive(node, b"subject", &mut results);
+                find_pairs_recursive(source, node, b"subject", &mut results);
                 for val in results {
                     let loc = val.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -209,7 +229,7 @@ impl Cop for I18nLocaleTexts {
                     // The last argument is the assigned value
                     if let Some(args) = call.arguments() {
                         let arg_list: Vec<_> = args.arguments().iter().collect();
-                        if arg_list.len() == 2 && is_string_literal(&arg_list[1]) {
+                        if arg_list.len() == 2 && is_string_literal(source, &arg_list[1]) {
                             let loc = arg_list[1].location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
                             diagnostics.push(self.diagnostic(
