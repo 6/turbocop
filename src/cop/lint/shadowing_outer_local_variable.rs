@@ -72,6 +72,56 @@ use ruby_prism::Visit;
 ///
 /// Remaining FN (18): Most require `variable_used_in_declaration_of_outer?` or
 /// deeper VariableForce tracking that nitrocop doesn't implement.
+///
+/// ## Investigation attempt (2026-03-18, incomplete — code reverted, findings preserved)
+///
+/// An agent attempted to fix the remaining FP=4, FN=19. The code changes were
+/// incomplete (tests failed) and were reverted, but the investigation uncovered
+/// 4 specific suppression patterns RuboCop uses. A future fix should implement:
+///
+/// 1. **Else-branch suppression**: When the block is in an else/elsif branch
+///    and the outer variable is under the same conditional node, suppress the
+///    offense. RuboCop's `variable_node == outer.else_branch` check. Only
+///    applies when the block is NOT in an assignment RHS.
+///
+/// 2. **Single-statement condition-body suppression**: When the outer variable
+///    was declared in a condition (e.g., `if item = page.menu_item`) and the
+///    block is the sole statement in the then-body (e.g., `item.tap { |item| }`),
+///    suppress because `variable_node == outer_local_variable_node`.
+///
+/// 3. **Assignment RHS tracking**: Need an `in_assignment_rhs` flag. Blocks in
+///    assignment RHS (e.g., `item = items.detect { |item| }`) should NOT be
+///    suppressed by else-branch logic — they are real shadowing offenses.
+///
+/// 4. **`is_condition_var` flag on VarInfo**: Distinguish variables declared in
+///    conditions (is_body=false) vs bodies (is_body=true) for adjacent-elsif
+///    suppression. Body-assigned vars in if-branches DO shadow block params in
+///    elsif-branches (matching RuboCop where `find_conditional_node_from_ascendant`
+///    on body vars finds a `begin` wrapper that prevents the match).
+///
+/// FP test patterns (for no_offense.rb when code is ready):
+/// ```ruby
+/// # elsif condition block, outer var in previous elsif body
+/// *before, list = node.children; elsif TEMPLATES.any? { |list| list === node }
+/// # Both var and block in same else branch
+/// value = block.call(lib); Thread.new(value) { |value| value }
+/// # Outer var in if-condition, block sole statement in then-body
+/// if item = page.menu_item; item.tap { |item| item.parent_id = nil }
+/// # Nested block in else branch shadowing outer block param
+/// structure.each do |k, v|; (else branch) v[2].each do |k, txt|
+/// ```
+///
+/// FN test patterns (for offense.rb when code is ready):
+/// ```ruby
+/// # var in if-then multi-stmt, block in elsif multi-stmt
+/// prev = blocks.prev.first; blocks.prev.each do |prev|
+/// # var in when body, block in different when body
+/// times = compute_hours; times_by_tp.each do |tp, times|
+/// # block in assignment RHS in elsif — should flag
+/// elsif item = items.detect { |item| item.name == "foo" }
+/// # block in assignment RHS in else — should flag
+/// caller_locations.find { |loc| loc.path && File.exist?(loc.path) }
+/// ```
 pub struct ShadowingOuterLocalVariable;
 
 impl Cop for ShadowingOuterLocalVariable {
