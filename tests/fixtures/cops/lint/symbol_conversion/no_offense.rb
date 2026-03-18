@@ -71,3 +71,7 @@ alias :"foo" :"bar"
 # Bare UTF-8 symbols (already unquoted, no offense)
 :résumé
 :café
+# Emoji hash keys cannot be bare symbols — emoji are not valid Ruby identifiers
+{ "🇺🇸": "hello" }
+{ "🏠": "house" }
+{ "🎉": "party" }

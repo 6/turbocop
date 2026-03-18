@@ -16,3 +16,10 @@ bar([*%W[x y], z])
 
 baz([*%i[a b c]])
      ^^^^^^^^^ Lint/RedundantSplatExpansion: Pass array contents as separate arguments.
+
+# when clause with percent literal splat — not a method argument, not exempt
+case x
+when *%w[foo bar baz]
+     ^^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
+  1
+end

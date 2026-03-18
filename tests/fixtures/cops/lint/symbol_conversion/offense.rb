@@ -126,3 +126,15 @@ instance_variable_get :"@ivar"
 # UTF-8 hash key (colon-style)
 { 'naïve': 1 }
   ^^^^^^^^ Lint/SymbolConversion: Unnecessary symbol conversion; use `naïve:` instead.
+
+# Percent-string notation with interpolation and .to_sym
+%(cover_#{face}_image).to_sym
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:"cover_#{face}_image"` instead.
+
+# Percent-string notation with leading interpolation and .to_sym
+%(#{periphery}_background_color).to_sym
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:"#{periphery}_background_color"` instead.
+
+# Percent-string notation with interpolation and .intern
+%(prefix_#{name}).intern
+^^^^^^^^^^^^^^^^^^^^^^^^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:"prefix_#{name}"` instead.

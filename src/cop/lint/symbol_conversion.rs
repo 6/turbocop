@@ -120,6 +120,26 @@ use crate::parse::source::SourceFile;
 /// The `value_starts_with_identifier` function (used for rocket-style hash key
 /// filtering) is intentionally NOT changed — it matches RuboCop's `/\A[a-z0-9_]/i`
 /// which is ASCII-only.
+///
+/// ## FP+FN fix (2026-03-18)
+///
+/// Corpus oracle reported FP=25, FN=36.
+///
+/// FP=25: All from basecamp/once-campfire using emoji flag sequences as hash keys
+/// (e.g., `{ "🇺🇸": "hello" }`). The previous blanket `bytes >= 0x80` check in
+/// `is_identifier_start`/`is_identifier_continue` accepted all non-ASCII bytes,
+/// including emoji. Emoji (Unicode Symbol/Other categories) are NOT valid Ruby
+/// identifiers — `:🇺🇸` is a syntax error.
+/// Fix: replaced byte-level checks with char-level Unicode property checks using
+/// `char::is_alphabetic()` and `char::is_numeric()`. These correctly allow
+/// letters (é, ñ, 日) and digits but reject emoji and other symbol characters.
+///
+/// FN=33: From asciidoctor-pdf using `%(...)` string notation with interpolation
+/// and `.to_sym` (e.g., `%(cover_#{face}_image).to_sym`). The `check_call_node`
+/// for `InterpolatedStringNode` only handled double-quoted strings (`"..."`)
+/// but `%(...)` notation starts with `%(` and ends with `)`.
+/// Fix: extended the inner-content extraction to also handle `%(` prefix and `)`
+/// suffix, constructing the correction as `:"inner_content"`.
 pub struct SymbolConversion;
 
 const BARE_OPERATOR_SYMBOLS: &[&[u8]] = &[
@@ -127,16 +147,44 @@ const BARE_OPERATOR_SYMBOLS: &[&[u8]] = &[
     b"!=", b"===", b"<=>", b"=~", b"!~", b"!", b"~", b"+@", b"-@", b"**", b"[]", b"[]=", b"`",
 ];
 
-fn is_identifier_start(b: u8) -> bool {
-    b.is_ascii_alphabetic() || b == b'_' || b >= 0x80
+/// Check if a character is a valid Ruby identifier start character.
+/// Ruby allows ASCII letters, underscore, and Unicode letters (but NOT emoji/symbols).
+fn is_char_identifier_start(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphabetic() || (!ch.is_ascii() && ch.is_alphabetic())
 }
 
+/// Check if a character is a valid Ruby identifier continuation character.
+/// Ruby allows ASCII alphanumerics, underscore, and Unicode letters/digits (but NOT emoji/symbols).
+fn is_char_identifier_continue(ch: char) -> bool {
+    ch == '_'
+        || ch.is_ascii_alphanumeric()
+        || (!ch.is_ascii() && (ch.is_alphabetic() || ch.is_numeric()))
+}
+
+/// Check if a byte is a valid identifier continuation at the byte level.
+/// Used for byte-level backward scanning in `is_in_alias` where we scan over
+/// identifier chars without needing full UTF-8 decoding. Accepts bytes >= 0x80
+/// to handle multi-byte UTF-8 sequences.
 fn is_identifier_continue(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80
 }
 
+/// Check if a byte slice contains only valid Ruby identifier characters (char-level).
+/// The first character must be a valid identifier start, the rest must be valid continuations.
+fn is_valid_identifier(value: &[u8]) -> bool {
+    let s = match std::str::from_utf8(value) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(ch) if is_char_identifier_start(ch) => chars.all(is_char_identifier_continue),
+        _ => false,
+    }
+}
+
 fn is_method_name_symbol(value: &[u8]) -> bool {
-    if value.is_empty() || !is_identifier_start(value[0]) {
+    if value.is_empty() {
         return false;
     }
 
@@ -145,11 +193,11 @@ fn is_method_name_symbol(value: &[u8]) -> bool {
         _ => value,
     };
 
-    !main.is_empty() && main.iter().copied().all(is_identifier_continue)
+    !main.is_empty() && is_valid_identifier(main)
 }
 
 fn is_hash_label_symbol(value: &[u8]) -> bool {
-    if value.is_empty() || !is_identifier_start(value[0]) {
+    if value.is_empty() {
         return false;
     }
 
@@ -163,21 +211,15 @@ fn is_hash_label_symbol(value: &[u8]) -> bool {
         return false;
     };
 
-    !main.is_empty() && main.iter().copied().all(is_identifier_continue)
+    !main.is_empty() && is_valid_identifier(main)
 }
 
 fn is_instance_variable_symbol(value: &[u8]) -> bool {
-    value.len() > 1
-        && value[0] == b'@'
-        && is_identifier_start(value[1])
-        && value[2..].iter().copied().all(is_identifier_continue)
+    value.len() > 1 && value[0] == b'@' && is_valid_identifier(&value[1..])
 }
 
 fn is_class_variable_symbol(value: &[u8]) -> bool {
-    value.len() > 2
-        && value.starts_with(b"@@")
-        && is_identifier_start(value[2])
-        && value[3..].iter().copied().all(is_identifier_continue)
+    value.len() > 2 && value.starts_with(b"@@") && is_valid_identifier(&value[2..])
 }
 
 /// Characters recognized by Ruby as single-char special global variables
@@ -191,8 +233,8 @@ fn is_global_variable_symbol(value: &[u8]) -> bool {
     }
 
     // Named globals: $foo, $LOAD_PATH, $_
-    if is_identifier_start(value[1]) {
-        return value[2..].iter().copied().all(is_identifier_continue);
+    if value.len() > 1 && is_valid_identifier(&value[1..]) {
+        return true;
     }
 
     // Numeric globals: $1, $2, ..., $9 (and possibly multi-digit like $10)
@@ -616,9 +658,11 @@ impl SymbolConversion {
             // Reconstruct the interpolated content from source
             let dstr_loc = dstr.location();
             let dstr_src = dstr_loc.as_slice();
-            // Strip the surrounding quotes from the dstr source
+            // Strip the surrounding quotes/delimiters from the dstr source
             let inner = if dstr_src.starts_with(b"\"") && dstr_src.ends_with(b"\"") {
                 &dstr_src[1..dstr_src.len() - 1]
+            } else if dstr_src.starts_with(b"%(") && dstr_src.ends_with(b")") {
+                &dstr_src[2..dstr_src.len() - 1]
             } else {
                 return; // heredoc or other form, skip
             };
@@ -1031,6 +1075,76 @@ mod tests {
                 "Expected no offense for {:?} but got: {:?}",
                 source,
                 diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn emoji_hash_keys_not_flagged() {
+        let cop = SymbolConversion;
+        // Emoji characters are NOT valid Ruby identifiers — `:🇺🇸` is a syntax error.
+        // These should NOT be flagged.
+        let no_offense_cases = [
+            "{ \"\u{1F1FA}\u{1F1F8}\": \"hello\" }", // 🇺🇸
+            "{ \"\u{1F3E0}\": \"house\" }",          // 🏠
+            "{ \"\u{1F389}\": \"party\" }",          // 🎉
+            ":\"🎉\"",                               // standalone emoji symbol
+            ":'🏠'",                                 // single-quoted emoji symbol
+        ];
+        for source in &no_offense_cases {
+            let diags = crate::testutil::run_cop_full(&cop, source.as_bytes());
+            assert!(
+                diags.is_empty(),
+                "Expected no offense for {:?} but got: {:?}",
+                source,
+                diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn percent_string_to_sym() {
+        let cop = SymbolConversion;
+        // %(...)  notation with interpolation and .to_sym should be flagged
+        let offense_cases = [
+            ("%(cover_#{face}_image).to_sym", ":\"cover_#{face}_image\""),
+            ("%(#{periphery}_bg).to_sym", ":\"#{periphery}_bg\""),
+            ("%(prefix_#{name}).intern", ":\"prefix_#{name}\""),
+        ];
+        for (source, expected) in &offense_cases {
+            let diags = crate::testutil::run_cop_full(&cop, source.as_bytes());
+            assert!(
+                !diags.is_empty(),
+                "Expected offense for {:?} but got none",
+                source
+            );
+            assert!(
+                diags[0].message.contains(&format!("`{expected}`")),
+                "Expected `{}` in message for {:?}, got: {}",
+                expected,
+                source,
+                diags[0].message
+            );
+        }
+
+        // Non-interpolated %(hello).to_sym is a StringNode, handled by existing code
+        let simple_cases = [
+            ("%(hello).to_sym", ":hello"),
+            ("%(foo_bar).to_sym", ":foo_bar"),
+        ];
+        for (source, expected) in &simple_cases {
+            let diags = crate::testutil::run_cop_full(&cop, source.as_bytes());
+            assert!(
+                !diags.is_empty(),
+                "Expected offense for {:?} but got none",
+                source
+            );
+            assert!(
+                diags[0].message.contains(&format!("`{expected}`")),
+                "Expected `{}` in message for {:?}, got: {}",
+                expected,
+                source,
+                diags[0].message
             );
         }
     }
