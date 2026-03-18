@@ -103,3 +103,26 @@ if condition
 elsif false
 else
 end
+
+# RuboCop 1.84.2 crashes when else body is empty and corrector would access nil else_branch
+# This happens when: if <falsey>..else;end or unless <truthy>..else;end
+if false
+  123
+else
+end
+
+unless 1
+  2
+else
+end
+
+unless 1
+2
+else
+end
+
+# Same pattern with method call on result (jruby/natalie corpus)
+if false
+  123
+else
+end.should == nil

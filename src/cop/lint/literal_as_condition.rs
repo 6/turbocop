@@ -129,6 +129,29 @@ use crate::parse::source::SourceFile;
 /// Fix: Changed `if_has_empty_else` to `if_has_empty_body_and_empty_else`, which
 /// only skips when both branches are empty. Verified with verify-cop-locations.py:
 /// all 11 FN fixed, 0 new FP.
+///
+/// ## Corpus investigation (2026-03-18, second pass)
+///
+/// Corpus oracle reported FP=4, FN=0.
+///
+/// FP root cause: The `if_has_empty_body_and_empty_else` check was still not
+/// precise enough. RuboCop's `correct_if_node` crashes when it reaches the
+/// `node.else? || node.ternary?` branch and calls `node.else_branch.source`
+/// on nil (empty else body). This path is reached when `condition_evaluation?`
+/// returns false:
+/// - For `if`: condition is falsey → result=false → crashes on nil else_branch
+/// - For `unless`: condition is truthy → result=false → crashes on nil else_branch
+///
+/// When `condition_evaluation?` returns true, the corrector uses `if_branch`
+/// (non-nil when then-body has content), so no crash occurs.
+///
+/// Examples: `if false; 123; else; end` (falsey in if → crash → no offense),
+/// `unless 1; 2; else; end` (truthy in unless → crash → no offense),
+/// but `if 1; 2; else; end` (truthy in if → uses if_branch → offense reported).
+///
+/// Fix: Replaced `if_has_empty_body_and_empty_else` with
+/// `if_should_skip_for_empty_else` / `unless_should_skip_for_empty_else`
+/// which account for the truthiness of the condition.
 pub struct LiteralAsCondition;
 
 /// Check if a node is a literal value (matches RuboCop's `literal?`).
@@ -262,31 +285,70 @@ fn statements_are_empty(statements: Option<ruby_prism::StatementsNode<'_>>) -> b
     }
 }
 
-/// RuboCop 1.84.2 crashes (emits no offense) when an `if`/`unless` has a
-/// literal condition and BOTH the then-body AND else-body are empty.
-/// Example: `if true; else; end` (both branches empty → crash).
-/// When the then-body has content (e.g. `if true; nested; else; end`),
-/// RuboCop correctly flags the literal condition.
-fn if_has_empty_body_and_empty_else(if_node: &ruby_prism::IfNode<'_>) -> bool {
-    if !statements_are_empty(if_node.statements()) {
+/// RuboCop 1.84.2's `correct_if_node` crashes when it tries to access
+/// `node.else_branch.source` on a nil else_branch. This happens when:
+/// - The else clause exists but its body is empty (`else_branch` is nil)
+/// - `condition_evaluation?` returns false, causing the corrector to reach
+///   the `node.else? || node.ternary?` branch and call `.source` on nil
+///
+/// `condition_evaluation?` returns false when:
+/// - For `if`: the condition is falsey (not truthy)
+/// - For `unless`: the condition is truthy (not falsey)
+///
+/// When both branches are empty, the crash always occurs regardless of
+/// condition truthiness, because all corrector paths fail.
+fn if_should_skip_for_empty_else(
+    if_node: &ruby_prism::IfNode<'_>,
+    predicate: &ruby_prism::Node<'_>,
+) -> bool {
+    let else_is_empty = if let Some(subsequent) = if_node.subsequent() {
+        if let Some(else_node) = subsequent.as_else_node() {
+            statements_are_empty(else_node.statements())
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if !else_is_empty {
         return false;
     }
-    if let Some(subsequent) = if_node.subsequent() {
-        if let Some(else_node) = subsequent.as_else_node() {
-            return statements_are_empty(else_node.statements());
-        }
+
+    let body_empty = statements_are_empty(if_node.statements());
+    if body_empty {
+        // Both branches empty → crash regardless of condition
+        return true;
     }
-    false
+
+    // Non-empty body, empty else: crash only when condition_evaluation? returns false
+    // For `if`: result = cond.truthy_literal? → false when cond is falsey
+    is_falsey_literal(predicate)
 }
 
-fn unless_has_empty_body_and_empty_else(unless_node: &ruby_prism::UnlessNode<'_>) -> bool {
-    if !statements_are_empty(unless_node.statements()) {
+fn unless_should_skip_for_empty_else(
+    unless_node: &ruby_prism::UnlessNode<'_>,
+    predicate: &ruby_prism::Node<'_>,
+) -> bool {
+    let else_is_empty = if let Some(else_node) = unless_node.else_clause() {
+        statements_are_empty(else_node.statements())
+    } else {
+        false
+    };
+
+    if !else_is_empty {
         return false;
     }
-    if let Some(else_node) = unless_node.else_clause() {
-        return statements_are_empty(else_node.statements());
+
+    let body_empty = statements_are_empty(unless_node.statements());
+    if body_empty {
+        // Both branches empty → crash regardless of condition
+        return true;
     }
-    false
+
+    // Non-empty body, empty else: crash only when condition_evaluation? returns false
+    // For `unless`: result = cond.falsey_literal? → false when cond is truthy
+    is_truthy_literal(predicate)
 }
 
 fn add_literal_offense(
@@ -379,10 +441,10 @@ impl Cop for LiteralAsCondition {
             if is_pattern_matching_guard(source, node) {
                 return;
             }
-            if if_has_empty_body_and_empty_else(&if_node) {
+            let predicate = if_node.predicate();
+            if if_should_skip_for_empty_else(&if_node, &predicate) {
                 return;
             }
-            let predicate = if_node.predicate();
 
             if is_falsey_literal(&predicate) || is_truthy_literal(&predicate) {
                 add_literal_offense(self, source, &predicate, diagnostics);
@@ -396,10 +458,10 @@ impl Cop for LiteralAsCondition {
             if is_pattern_matching_guard(source, node) {
                 return;
             }
-            if unless_has_empty_body_and_empty_else(&unless_node) {
+            let predicate = unless_node.predicate();
+            if unless_should_skip_for_empty_else(&unless_node, &predicate) {
                 return;
             }
-            let predicate = unless_node.predicate();
             if is_falsey_literal(&predicate) || is_truthy_literal(&predicate) {
                 add_literal_offense(self, source, &predicate, diagnostics);
             }

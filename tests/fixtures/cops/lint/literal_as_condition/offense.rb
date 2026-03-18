@@ -163,20 +163,9 @@ if true;
   end
 end
 
-# Non-empty then-body with empty else: RuboCop flags the literal
-if false
-   ^^^^^ Lint/LiteralAsCondition: Literal `false` appeared as a condition.
-  123
-else
-end
-
-unless 1
-       ^ Lint/LiteralAsCondition: Literal `1` appeared as a condition.
-  2
-else
-end
-
-# Single-line if with literal, body, and empty else
+# Non-empty then-body with empty else: RuboCop still flags when result=true
+# (corrector accesses if_branch which is non-nil)
+# if <truthy>; body; else; end → result=true → if_branch used → OK
 if 1; 2; else; end
    ^ Lint/LiteralAsCondition: Literal `1` appeared as a condition.
 
