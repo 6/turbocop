@@ -26,3 +26,7 @@ x = ['alpha', 'beta', 'gamma']
   ["three", "four"]
   ^ Style/WordArray: Use `%w` or `%W` for an array of words.
 ]
+
+# Parenthesized call with block is NOT ambiguous — should still flag
+foo(['bar', 'baz']) { qux }
+    ^ Style/WordArray: Use `%w` or `%W` for an array of words.

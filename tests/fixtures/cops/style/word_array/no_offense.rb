@@ -47,3 +47,21 @@
 
 # Simple 2-element matrix where one pair has space
 [["foo", "bar"], ["baz quux", "qux"]]
+
+# Ambiguous block context: array arg to non-parenthesized method call with block.
+# %w() would be ambiguous here (Ruby can't tell if { is a block or hash).
+describe_pattern "LOG", ['legacy', 'ecs-v1'] do
+  puts "test"
+end
+
+task :watch, ["account", "file-name"] do |t, args|
+  puts args
+end
+
+describe ['module1', 'module2', 'module3'] do
+  it { should be_in INSTALLED_MODULES }
+end
+
+# Parenthesized call with block is NOT ambiguous — this SHOULD fire,
+# but the array is inside the parens so it's fine to flag.
+# (This test ensures we only suppress non-parenthesized calls.)

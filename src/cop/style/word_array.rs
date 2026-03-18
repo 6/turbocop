@@ -10,14 +10,20 @@ const DEFAULT_WORD_REGEX: &str = r"^(?:\w|\w-\w|\n|\t)+$";
 
 /// Style/WordArray: flags bracket arrays of word-like strings that could use %w.
 ///
-/// Investigation: The main source of false positives was missing the
-/// `within_matrix_of_complex_content?` check from RuboCop. When a bracket
-/// array is nested inside a parent array (a "matrix") where ALL elements are
-/// arrays, and at least ONE sibling subarray has complex content (strings with
-/// spaces, non-word characters, or invalid encoding), RuboCop exempts the
-/// entire matrix. This commonly occurs with arrays of pairs like
-/// `[["US", "United States"], ["UK", "United Kingdom"]]` where some country
-/// names contain spaces.
+/// Investigation: Two main sources of false positives were found:
+///
+/// 1. Missing `within_matrix_of_complex_content?` check from RuboCop. When a
+///    bracket array is nested inside a parent array (a "matrix") where ALL
+///    elements are arrays, and at least ONE sibling subarray has complex content
+///    (strings with spaces, non-word characters, or invalid encoding), RuboCop
+///    exempts the entire matrix.
+///
+/// 2. Missing `invalid_percent_array_context?` check from RuboCop's
+///    PercentArray mixin. When a bracket word array is an argument to a
+///    non-parenthesized method call that also has a block (e.g.,
+///    `describe_pattern "LOG", ['legacy', 'ecs-v1'] do ... end`), `%w()`
+///    would be ambiguous — Ruby cannot distinguish `{` as a block vs hash
+///    literal. RuboCop exempts these arrays and so must we.
 pub struct WordArray;
 
 /// Extract a Ruby regexp pattern from a string like `/pattern/flags`.
@@ -144,6 +150,7 @@ impl Cop for WordArray {
             min_size,
             word_re,
             in_matrix_of_complex_content: false,
+            in_ambiguous_block_context: false,
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -158,6 +165,8 @@ struct WordArrayVisitor<'a, 'src, 'pr> {
     min_size: usize,
     word_re: Option<regex::Regex>,
     in_matrix_of_complex_content: bool,
+    /// True when inside direct arguments of a non-parenthesized call with a block.
+    in_ambiguous_block_context: bool,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -184,6 +193,11 @@ impl<'pr> WordArrayVisitor<'_, '_, 'pr> {
             return;
         }
 
+        // Skip if in ambiguous block context (invalid_percent_array_context?)
+        if self.in_ambiguous_block_context {
+            return;
+        }
+
         // Skip arrays that contain comments
         let array_start = opening.start_offset();
         let array_end = node
@@ -207,6 +221,21 @@ impl<'pr> WordArrayVisitor<'_, '_, 'pr> {
             "Use `%w` or `%W` for an array of words.".to_string(),
         ));
     }
+
+    /// Check if a call node represents an ambiguous block context:
+    /// non-parenthesized method call with a block.
+    fn is_ambiguous_block_call(&self, call: &ruby_prism::CallNode<'pr>) -> bool {
+        // Must have a block
+        if call.block().is_none() {
+            return false;
+        }
+        // Must have arguments
+        if call.arguments().is_none() {
+            return false;
+        }
+        // Must NOT be parenthesized
+        call.opening_loc().is_none()
+    }
 }
 
 impl<'pr> Visit<'pr> for WordArrayVisitor<'_, '_, 'pr> {
@@ -224,6 +253,35 @@ impl<'pr> Visit<'pr> for WordArrayVisitor<'_, '_, 'pr> {
         ruby_prism::visit_array_node(self, node);
 
         self.in_matrix_of_complex_content = prev;
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if self.is_ambiguous_block_call(node) {
+            // Visit receiver normally
+            if let Some(receiver) = node.receiver() {
+                self.visit(&receiver);
+            }
+            // Visit arguments — only suppress top-level ArrayNode arguments,
+            // matching RuboCop's `parent.arguments.include?(node)` check.
+            if let Some(args) = node.arguments() {
+                let prev = self.in_ambiguous_block_context;
+                for arg in args.arguments().iter() {
+                    if arg.as_array_node().is_some() {
+                        self.in_ambiguous_block_context = true;
+                        self.visit(&arg);
+                        self.in_ambiguous_block_context = prev;
+                    } else {
+                        self.visit(&arg);
+                    }
+                }
+            }
+            // Visit block normally — arrays inside block body are NOT ambiguous
+            if let Some(block) = node.block() {
+                self.visit(&block);
+            }
+        } else {
+            ruby_prism::visit_call_node(self, node);
+        }
     }
 }
 
