@@ -69,3 +69,19 @@ class HomeController < ApplicationController
     render :index
   end
 end
+
+# Qualified superclass: RuboCop does NOT match Admin::ApplicationController
+class ImportController < Admin::ApplicationController
+  def create
+    flash[:alert] = "Import failed"
+    render :new
+  end
+end
+
+# Deeply qualified superclass: RuboCop does NOT match
+class PostsController < Decidim::Admin::ApplicationController
+  def create
+    flash[:alert] = "msg"
+    render :edit
+  end
+end

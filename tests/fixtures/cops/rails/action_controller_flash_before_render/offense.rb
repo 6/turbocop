@@ -93,3 +93,15 @@ class SettingsController < ApplicationController
     render :index
   end
 end
+
+# FN fix: redirect_to inside respond_to format block is NOT a direct sibling redirect
+class TasksController < ApplicationController
+  def respond_to_not_found
+    flash[:warning] = "Not available"
+    ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+    respond_to do |format|
+      format.html { redirect_to(root_path) }
+      format.js   { render plain: 'window.location.reload();' }
+    end
+  end
+end

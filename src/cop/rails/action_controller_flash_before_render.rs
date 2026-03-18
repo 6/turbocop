@@ -14,7 +14,14 @@
 ///   detected. The RuboCop impl walks up to the if/rescue ancestor and checks its siblings.
 /// - Root cause 5: `before_action do` blocks at class level need to be visited, not just def
 ///   nodes. The visitor now also checks block bodies inside class-level call nodes.
-/// - Remaining: `redirect_back` is also treated as a redirect (same as `redirect_to`).
+/// - Root cause 6 (FP=399): Heuristic matching ANY superclass ending in `Controller` caused FPs
+///   on qualified names like `Admin::ApplicationController`. RuboCop only matches bare
+///   `ApplicationController`, `::ApplicationController`, `ActionController::Base`, and
+///   `::ActionController::Base`. Removed the heuristic.
+/// - Root cause 7 (FN=48): `contains_redirect` was recursive, searching inside blocks for
+///   `redirect_to`. RuboCop's `use_redirect_to?` only checks direct siblings (non-recursive)
+///   and only matches `redirect_to` (not `redirect_back`). Changed to non-recursive
+///   `is_redirect_sibling` that matches RuboCop's behavior.
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -138,7 +145,7 @@ impl FlashVisitor<'_> {
             // Check if this statement is a flash assignment (top-level)
             if let Some(flash_loc) = get_flash_assignment(stmt) {
                 let has_render = remaining.iter().any(|s| contains_render(s));
-                let has_redirect = remaining.iter().any(|s| contains_redirect(s));
+                let has_redirect = remaining.iter().any(|s| is_redirect_sibling(s));
 
                 // Offense if:
                 // (a) explicit render follows without redirect, or
@@ -246,14 +253,14 @@ impl FlashVisitor<'_> {
         outer_siblings: &[ruby_prism::Node<'_>],
     ) {
         let outer_has_render = outer_siblings.iter().any(|s| contains_render(s));
-        let outer_has_redirect = outer_siblings.iter().any(|s| contains_redirect(s));
+        let outer_has_redirect = outer_siblings.iter().any(|s| is_redirect_sibling(s));
 
         for (i, stmt) in branch_stmts.iter().enumerate() {
             let inner_remaining = &branch_stmts[i + 1..];
 
             if let Some(flash_loc) = get_flash_assignment(stmt) {
                 let inner_has_render = inner_remaining.iter().any(|s| contains_render(s));
-                let inner_has_redirect = inner_remaining.iter().any(|s| contains_redirect(s));
+                let inner_has_redirect = inner_remaining.iter().any(|s| is_redirect_sibling(s));
 
                 // If redirect appears in the same branch after flash → no offense
                 if inner_has_redirect {
@@ -393,20 +400,6 @@ fn is_action_controller_class(class: &ruby_prism::ClassNode<'_>) -> bool {
         }
     }
 
-    // Heuristic: anything ending in `Controller` (e.g., Devise::PasswordsController)
-    if let Some(c) = superclass.as_constant_read_node() {
-        if c.name().as_slice().ends_with(b"Controller") {
-            return true;
-        }
-    }
-    if let Some(cp) = superclass.as_constant_path_node() {
-        if let Some(name) = cp.name() {
-            if name.as_slice().ends_with(b"Controller") {
-                return true;
-            }
-        }
-    }
-
     false
 }
 
@@ -435,11 +428,31 @@ fn contains_render(node: &ruby_prism::Node<'_>) -> bool {
     finder.found
 }
 
-/// Check if a node contains a `redirect_to` or `redirect_back` call (no receiver).
-fn contains_redirect(node: &ruby_prism::Node<'_>) -> bool {
-    let mut finder = RedirectFinder { found: false };
-    finder.visit(node);
-    finder.found
+/// Check if a node IS a `redirect_to` call (no receiver), non-recursive.
+/// Also unwraps `return redirect_to ...` (ReturnNode with a single child).
+/// Matches RuboCop's `use_redirect_to?` which only checks direct siblings,
+/// not recursing into blocks/if/etc, and only matches `redirect_to` (not `redirect_back`).
+fn is_redirect_sibling(node: &ruby_prism::Node<'_>) -> bool {
+    // Direct `redirect_to ...`
+    if let Some(call) = node.as_call_node() {
+        if call.receiver().is_none() && call.name().as_slice() == b"redirect_to" {
+            return true;
+        }
+    }
+    // `return redirect_to ...`
+    if let Some(ret) = node.as_return_node() {
+        if let Some(args) = ret.arguments() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if arg_list.len() == 1 {
+                if let Some(call) = arg_list[0].as_call_node() {
+                    if call.receiver().is_none() && call.name().as_slice() == b"redirect_to" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 struct CallFinder<'a> {
@@ -451,24 +464,6 @@ impl<'pr> Visit<'pr> for CallFinder<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         if node.name().as_slice() == self.method && node.receiver().is_none() {
             self.found = true;
-        }
-        if !self.found {
-            ruby_prism::visit_call_node(self, node);
-        }
-    }
-}
-
-struct RedirectFinder {
-    found: bool,
-}
-
-impl<'pr> Visit<'pr> for RedirectFinder {
-    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if node.receiver().is_none() {
-            let name = node.name().as_slice();
-            if name == b"redirect_to" || name == b"redirect_back" {
-                self.found = true;
-            }
         }
         if !self.found {
             ruby_prism::visit_call_node(self, node);
