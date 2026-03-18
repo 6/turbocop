@@ -31,3 +31,19 @@ Time.at(@time).localtime.to_s
 
 Time.now.localtime
      ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+# Grouping parentheses — NOT method call parens, should still flag
+(Time.now - 1.day).to_i
+      ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+(first_seen_at || Time.now).to_i.to_s
+                       ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+(Time.now - 7200).to_i
+      ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+(Time.now - seconds).to_i
+      ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+return (Time.now - 1.day).to_i if expired?
+             ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.

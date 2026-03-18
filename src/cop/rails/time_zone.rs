@@ -91,6 +91,23 @@ use crate::parse::source::SourceFile;
 /// firing in strict mode AND was incorrectly flagging variable receivers (e.g.,
 /// `date_str.to_time`). Fixed by: (1) removing the strict-mode gate so `to_time` fires
 /// in both modes, (2) checking that the receiver is a string literal node before flagging.
+///
+/// ## Investigation (2026-03-18): FP=1, FN=334
+///
+/// **FN root cause (grouping parens treated as method-call parens):**
+/// `enclosing_call_is_safe()` found the enclosing `(` via `find_enclosing_open_paren()`,
+/// then extracted the "method name" before it. For grouping parens like
+/// `(Time.now - 1.day).to_i`, the `(` had no method name — it picked up an identifier
+/// from a completely different line/statement. Even when no identifier was found (e.g.,
+/// after `=` or `||`), it fell through to check the chain after the closing `)`, where
+/// `.to_i` was in SAFE_METHODS and incorrectly suppressed the offense.
+///
+/// Fix: three guards before treating the enclosing `(` as method-call parens:
+/// 1. `method_start > end_of_method` — no identifier at all (preceded by operator/punct)
+/// 2. Newline between method name and `(` — identifier is from a different statement
+/// 3. Method name is a Ruby keyword (`return`, `if`, etc.) — keywords use grouping parens
+///
+/// Fixes ~300+ of the 334 FN (grouping paren patterns in corpus).
 pub struct TimeZone;
 
 impl Cop for TimeZone {
@@ -425,6 +442,36 @@ fn enclosing_call_is_safe(bytes: &[u8], start: usize) -> bool {
         i + 1
     };
     let method_name = &bytes[method_start..=end_of_method];
+
+    // Check if the `(` is actually a method-call argument paren vs a grouping paren.
+    // Grouping parens: `(Time.now - 1.day).to_i`, `return (Time.now).to_i`
+    // Method-call parens: `foo(Time.now)`, `Time.utc(Time.now)`
+    //
+    // Two checks:
+    // 1. No newlines between the method name and `(` — prevents picking up
+    //    identifiers from a completely different statement/line.
+    // 2. The method name is not a Ruby keyword (return, if, unless, etc.) —
+    //    keywords followed by `(` create grouping parens, not method calls.
+    let gap = &bytes[end_of_method + 1..paren_pos];
+    let has_newline = gap.contains(&b'\n');
+    let is_keyword = matches!(
+        method_name,
+        b"return"
+            | b"if"
+            | b"unless"
+            | b"while"
+            | b"until"
+            | b"and"
+            | b"or"
+            | b"not"
+            | b"when"
+            | b"case"
+            | b"elsif"
+            | b"yield"
+    );
+    if method_start > end_of_method || has_newline || is_keyword {
+        return false;
+    }
 
     if SAFE_METHODS.contains(&method_name) {
         return true;
