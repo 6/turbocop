@@ -114,29 +114,15 @@ use ruby_prism::Visit;
 ///   distinct keys because `#<Class:X>::Nested` humanizes to `X.Nested` while
 ///   `X::#<Class:X>::Nested` humanizes to `X.::Nested`. (11 FN fixed, 0 FP)
 ///
-/// ### Round 8 (FP=0, FN=26)
-/// All 26 remaining FN were delegate-related (`delegate :method, to: :target`
-/// from ActiveSupport). The cop logic was correct — `process_delegate` works
-/// when `ActiveSupportExtensionsEnabled: true`. However, the config injection
-/// in `src/config/mod.rs` only propagated `AllCops.ActiveSupportExtensionsEnabled`
-/// to `Style/CollectionQuerying` and `Style/RedundantFilterChain`, not to
-/// `Lint/DuplicateMethods`. The corpus baseline uses `rubocop-rails` which sets
-/// `ActiveSupportExtensionsEnabled: true`, so the cop defaulted to `false` and
-/// ignored all `delegate` calls. Fixed by adding `Lint/DuplicateMethods` to the
-/// config injection list. (26 FN fixed, 0 FP)
-///
-/// FN patterns covered:
-/// - `delegate :method, to: :target` then `def method` (most common)
-/// - Same symbol listed twice in one `delegate` call
-/// - `delegate :method` then `delegate :method` (two calls, same method)
-/// - `attr_accessor :name` then `delegate :name, to: :target`
-/// - `delegate :name, to: :target` then `attr_writer :name` / `def name`
-///
-/// Remaining FN not addressed (edge cases, not delegate-related):
+/// Remaining FN not addressed (edge cases, ~26 total):
 /// - `def VCR.version` at top level in Rake tasks (inside DSL blocks)
 /// - `def FakeModel.method` inside test describe blocks (plain_block_depth > 0)
 /// - `def response.body` inside `class << @reflex.controller.response`
 /// - One-liner singleton classes (`class << Object.new; def m; end; end`)
+/// - Delegate-related FN where ActiveSupportExtensionsEnabled may not resolve
+///   correctly for specific corpus repos (config resolution issue, not cop logic)
+/// - `delegate` listing same symbol twice in one call (e.g., `:promoting_committee_enabled?`
+///   listed twice in same delegate line)
 pub struct DuplicateMethods;
 
 impl Cop for DuplicateMethods {
