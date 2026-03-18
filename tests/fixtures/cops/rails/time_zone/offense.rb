@@ -47,3 +47,13 @@ Time.now.localtime
 
 return (Time.now - 1.day).to_i if expired?
              ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+# utc? is a query method, NOT the same as .utc — should still flag
+Time.now.utc?
+     ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+Time.at(x).utc?
+     ^^ Rails/TimeZone: Use `Time.zone.at` instead of `Time.at`.
+
+Time.now.gmtime.utc?
+     ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.

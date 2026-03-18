@@ -108,6 +108,22 @@ use crate::parse::source::SourceFile;
 /// 3. Method name is a Ruby keyword (`return`, `if`, etc.) — keywords use grouping parens
 ///
 /// Fixes ~300+ of the 334 FN (grouping paren patterns in corpus).
+///
+/// ## Investigation (2026-03-18): FP=1, FN=43
+///
+/// **FN root cause (method name truncation with `?`/`!` suffixes):**
+/// `chain_contains_tz_safe_method()` read method names using only alphanumeric + underscore,
+/// truncating `utc?` to `utc` which matched SAFE_METHODS and suppressed the offense.
+/// Fix: include `?` and `!` in the method name character set so `utc?` is read as `utc?`
+/// and does NOT match `utc` in SAFE_METHODS. Fixes 43 FN across jruby, natalie-lang,
+/// sidekiq and other corpus repos.
+///
+/// **FP root cause (deeply nested parens):**
+/// `Time.parse(helper_method(Time.now)).utc` — the inner `Time.now` is nested two levels
+/// deep. `enclosing_call_is_safe()` only checked the immediate enclosing `(` (from
+/// `helper_method`), which was not safe, and the chain after `helper_method(...)` was `)`
+/// (not `.utc`). Fix: made `enclosing_call_is_safe()` recursive (up to 3 levels) so it
+/// checks the next enclosing `(` (from `Time.parse`), whose chain after `)` is `.utc`.
 pub struct TimeZone;
 
 impl Cop for TimeZone {
@@ -379,6 +395,14 @@ fn has_timezone_specifier(bytes: &[u8]) -> bool {
 /// This matches RuboCop's behavior where `not_danger_chain?` returns true when
 /// the parent-chain (now, year, -, utc) includes an ACCEPTED_METHOD.
 fn enclosing_call_is_safe(bytes: &[u8], start: usize) -> bool {
+    // Check up to 3 levels of nesting to handle cases like:
+    // Time.parse(helper_method(Time.now)).utc
+    // Level 1: helper_method( — not safe, chain after ) is ) — not safe
+    // Level 2: Time.parse( — not safe itself, but chain after ) is .utc — safe!
+    enclosing_call_is_safe_recursive(bytes, start, 3)
+}
+
+fn enclosing_call_is_safe_recursive(bytes: &[u8], start: usize, max_depth: u8) -> bool {
     const SAFE_METHODS: &[&[u8]] = &[
         b"utc",
         b"getlocal",
@@ -398,7 +422,7 @@ fn enclosing_call_is_safe(bytes: &[u8], start: usize) -> bool {
     // Methods that become safe when called with `in:` keyword argument
     const IN_KEYWORD_METHODS: &[&[u8]] = &[b"at", b"new", b"now"];
 
-    if start == 0 {
+    if start == 0 || max_depth == 0 {
         return false;
     }
 
@@ -469,35 +493,39 @@ fn enclosing_call_is_safe(bytes: &[u8], start: usize) -> bool {
             | b"elsif"
             | b"yield"
     );
-    if method_start > end_of_method || has_newline || is_keyword {
-        return false;
-    }
+    let is_grouping_paren = method_start > end_of_method || has_newline || is_keyword;
 
-    if SAFE_METHODS.contains(&method_name) {
-        return true;
-    }
-
-    // For Time.at/new/now, check if the enclosing call has `in:` keyword argument.
-    // E.g., `Time.at(Time.now, in: 'UTC')` — the `in:` makes the outer call safe.
-    if IN_KEYWORD_METHODS.contains(&method_name)
-        && enclosing_parens_have_in_keyword(bytes, paren_pos)
-    {
-        return true;
-    }
-
-    // The enclosing function itself isn't safe, but check if the CHAIN AFTER
-    // the enclosing call's closing `)` contains a safe method.
-    // E.g., `Time.to_mongo(Time.local(...)).zone` — `to_mongo` is not safe,
-    // but `.zone` after `Time.to_mongo(...)` IS safe.
-    // Find the closing `)` that matches the `(` at paren_pos, then scan forward.
-    let closing_paren = find_matching_close_paren(bytes, paren_pos);
-    if let Some(close_pos) = closing_paren {
-        if chain_contains_tz_safe_method(bytes, close_pos + 1) {
+    if !is_grouping_paren {
+        if SAFE_METHODS.contains(&method_name) {
             return true;
+        }
+
+        // For Time.at/new/now, check if the enclosing call has `in:` keyword argument.
+        // E.g., `Time.at(Time.now, in: 'UTC')` — the `in:` makes the outer call safe.
+        if IN_KEYWORD_METHODS.contains(&method_name)
+            && enclosing_parens_have_in_keyword(bytes, paren_pos)
+        {
+            return true;
+        }
+
+        // The enclosing function itself isn't safe, but check if the CHAIN AFTER
+        // the enclosing call's closing `)` contains a safe method.
+        // E.g., `Time.to_mongo(Time.local(...)).zone` — `to_mongo` is not safe,
+        // but `.zone` after `Time.to_mongo(...)` IS safe.
+        // Find the closing `)` that matches the `(` at paren_pos, then scan forward.
+        let closing_paren = find_matching_close_paren(bytes, paren_pos);
+        if let Some(close_pos) = closing_paren {
+            if chain_contains_tz_safe_method(bytes, close_pos + 1) {
+                return true;
+            }
         }
     }
 
-    false
+    // Not safe at this level — try the next enclosing level.
+    // E.g., Time.parse(helper_method(Time.now)).utc
+    // At level 1: helper_method( is not safe, chain after helper_method(...) is ) — not safe
+    // At level 2: Time.parse( is checked, chain after Time.parse(...) is .utc — safe!
+    enclosing_call_is_safe_recursive(bytes, paren_pos, max_depth - 1)
 }
 
 /// Find the opening `(` that encloses the position `pos` in the source.
@@ -663,9 +691,14 @@ fn chain_contains_tz_safe_method(bytes: &[u8], start: usize) -> bool {
             pos += 1;
         }
 
-        // Read the method name
+        // Read the method name (include ? and ! suffixes)
         let method_start = pos;
-        while pos < bytes.len() && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'_') {
+        while pos < bytes.len()
+            && (bytes[pos].is_ascii_alphanumeric()
+                || bytes[pos] == b'_'
+                || bytes[pos] == b'?'
+                || bytes[pos] == b'!')
+        {
             pos += 1;
         }
         if pos == method_start {

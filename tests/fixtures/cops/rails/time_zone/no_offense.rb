@@ -65,3 +65,6 @@ Time.at(Time.now + (60 * 60 * 24 * 7)).utc
 foo(Time.now).in_time_zone
 bar(Time.local(2023, 1, 1)).to_i
 wrap(Time.now).zone
+
+# Nested parens: inner Time.now inside outer call that has safe chain
+Time.parse(helper_method(Time.now)).utc
