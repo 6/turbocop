@@ -28,6 +28,17 @@
 /// Additional FN: nested blocks/defs inside outer defs/blocks were never visited
 /// because `visit_def_node`/`visit_block_node`/`visit_lambda_node` did not recurse
 /// into their bodies. Added explicit recursion after checking parameters.
+///
+/// Additional FN (5 corpus): Three root causes:
+/// 1. `collect_param_names`/`find_param_offset` did not handle `BlockParameterNode`
+///    (`&block` params), causing block-pass args to be invisible to the cop entirely.
+///    (chefspec FN, seeing_is_believing FN)
+/// 2. `AssignmentCollector` did not handle `MultiWriteNode` (parallel/destructuring
+///    assignment like `a, b = expr`). `LocalVariableTargetNode` targets inside
+///    multi-writes were never collected as assignments. (xiki FN x2, brakeman FN)
+/// 3. The `&&` short-circuit case (`char && block = lambda { ... }`) was already
+///    handled by default visitor recursion into `AndNode`; the actual blocker was
+///    cause #1 (`&block` not collected).
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -98,6 +109,11 @@ fn collect_param_names(params: &ruby_prism::ParametersNode<'_>) -> Vec<Vec<u8>> 
         }
         if let Some(kp) = kw.as_optional_keyword_parameter_node() {
             names.push(kp.name().as_slice().to_vec());
+        }
+    }
+    if let Some(block) = params.block() {
+        if let Some(name) = block.name() {
+            names.push(name.as_slice().to_vec());
         }
     }
     names
@@ -195,6 +211,53 @@ impl<'pr> Visit<'pr> for AssignmentCollector {
                 is_conditional: self.conditional_depth > 0,
             });
         }
+        self.visit(&node.value());
+    }
+
+    fn visit_multi_write_node(&mut self, node: &ruby_prism::MultiWriteNode<'pr>) {
+        // Check if any LHS target matches the param name
+        let rhs_uses_param = node_references_local_explicit(&node.value(), &self.param_name);
+        for target in node.lefts().iter() {
+            if let Some(local) = target.as_local_variable_target_node() {
+                if local.name().as_slice() == self.param_name.as_slice() {
+                    self.assignments.push(ParamAssignment {
+                        offset: local.location().start_offset(),
+                        rhs_uses_param,
+                        is_shorthand: false,
+                        is_conditional: self.conditional_depth > 0,
+                    });
+                }
+            }
+        }
+        if let Some(rest) = node.rest() {
+            if let Some(splat) = rest.as_splat_node() {
+                if let Some(expr) = splat.expression() {
+                    if let Some(local) = expr.as_local_variable_target_node() {
+                        if local.name().as_slice() == self.param_name.as_slice() {
+                            self.assignments.push(ParamAssignment {
+                                offset: local.location().start_offset(),
+                                rhs_uses_param,
+                                is_shorthand: false,
+                                is_conditional: self.conditional_depth > 0,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        for target in node.rights().iter() {
+            if let Some(local) = target.as_local_variable_target_node() {
+                if local.name().as_slice() == self.param_name.as_slice() {
+                    self.assignments.push(ParamAssignment {
+                        offset: local.location().start_offset(),
+                        rhs_uses_param,
+                        is_shorthand: false,
+                        is_conditional: self.conditional_depth > 0,
+                    });
+                }
+            }
+        }
+        // Visit the RHS value to find any nested assignments
         self.visit(&node.value());
     }
 
@@ -466,6 +529,13 @@ fn find_param_offset(params: &ruby_prism::ParametersNode<'_>, name: &[u8]) -> Op
         if let Some(kp) = kw.as_optional_keyword_parameter_node() {
             if kp.name().as_slice() == name {
                 return Some(kp.location().start_offset());
+            }
+        }
+    }
+    if let Some(block) = params.block() {
+        if let Some(pname) = block.name() {
+            if pname.as_slice() == name {
+                return Some(block.location().start_offset());
             }
         }
     }

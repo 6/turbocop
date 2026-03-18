@@ -107,3 +107,21 @@ def shadow_no_read(a, b, c, d)
   c += 123
   d ||= 123
 end
+
+# Multi-assignment where RHS references the param (not shadowing)
+def transform(result, data)
+  result, extra = result.split(",")
+  [result, extra]
+end
+
+# &block param used before reassignment
+def wrapper(m, &block)
+  block.call if block
+  block = -> { m }
+  block
+end
+
+# Multi-assignment where param is never read after (no offense)
+def ignore_multi(location)
+  location, line = get_location
+end

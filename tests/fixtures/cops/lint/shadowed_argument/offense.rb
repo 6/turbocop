@@ -88,3 +88,31 @@ gsub(/pattern/) {|match|
   ^^^^^^^^^^ Lint/ShadowedArgument: Argument `match` was shadowed by a local variable before it was used.
   process(match)
 }
+
+# FN fix: multi-assignment shadows method arg
+def search(url, args, options)
+  option_item, args = options[:task], options[:args]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/ShadowedArgument: Argument `args` was shadowed by a local variable before it was used.
+  process(args)
+end
+
+# FN fix: multi-assignment shadows optional method arg
+def check(result, location = nil)
+  location, line = get_location(result)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/ShadowedArgument: Argument `location` was shadowed by a local variable before it was used.
+  [location, line]
+end
+
+# FN fix: boolean expression contains assignment that shadows block param
+def scrub(char=nil, &block)
+  char && block = lambda { |c| char }
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/ShadowedArgument: Argument `block` was shadowed by a local variable before it was used.
+  block.call("x")
+end
+
+# FN fix: &block param shadowed by simple assignment
+def handle(m, *args, &block)
+  block = Registry.matchers[m.to_sym]
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/ShadowedArgument: Argument `block` was shadowed by a local variable before it was used.
+  instance_exec(args.first, &block)
+end
