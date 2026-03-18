@@ -43,6 +43,16 @@ use crate::parse::source::SourceFile;
 ///   analysis which ignores comments/blanks. Extended the else branch in step 3
 ///   to also check for guard clauses after blank lines.
 ///
+/// **FP fix (2026-03-18): Multi-line if/unless conditions in guard blocks**
+/// - `is_multiline_guard_block` now tracks parenthesis/bracket depth and
+///   continuation operators (`||`, `&&`, `==`, `===`, `\`, `,`, etc.) across
+///   the `if`/`unless` condition to correctly skip condition continuation lines
+///   before checking the body for a guard statement. Previously, multi-line
+///   conditions like `if cond_a &&\n  cond_b\n  return\nend` would mistake the
+///   second condition line for the body and fail to recognize the block as a
+///   guard clause. This fixed FPs where a modifier guard was followed by a
+///   multi-line block-form guard (the next sibling IS a guard, so no offense).
+///
 /// **Remaining gaps:** Some edge cases with heredocs inside conditions
 /// (e.g., `return true if <<~TEXT.length > bar`) may still differ.
 pub struct EmptyLineAfterGuardClause;
@@ -693,6 +703,10 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
 /// only the FIRST statement in the if-branch, and it must be a bare guard statement
 /// (not modifier-form like `return unless cond`). Also handles `and`/`or` operator
 /// guard forms like `redirect_to(@work) && return`.
+///
+/// Handles multi-line conditions: when the `if`/`unless` condition spans multiple
+/// lines (via `||`, `&&`, `\`, or parenthesized expressions), the function skips
+/// condition continuation lines to find the actual body.
 fn is_multiline_guard_block(content: &[u8], lines: &[&[u8]], start_idx: usize) -> bool {
     if !starts_with_keyword(content, b"if") && !starts_with_keyword(content, b"unless") {
         return false;
@@ -703,9 +717,31 @@ fn is_multiline_guard_block(content: &[u8], lines: &[&[u8]], start_idx: usize) -
         None => return false,
     };
 
+    // Track parenthesis/bracket depth across the condition to detect multi-line
+    // conditions. The condition starts on the if/unless line and continues while
+    // we have unclosed parens/brackets/braces OR the line ends with a continuation
+    // operator (||, &&, and, or, \, ,).
+    let mut paren_depth: i32 = 0;
+    let mut in_condition = true;
+
+    // Count parens on the if/unless line itself
+    let if_line = lines[content_line_idx];
+    for &b in if_line {
+        match b {
+            b'(' | b'{' | b'[' => paren_depth += 1,
+            b')' | b'}' | b']' => paren_depth -= 1,
+            _ => {}
+        }
+    }
+    // Check if the if/unless line ends with a continuation
+    let if_trimmed_end = trim_trailing_whitespace(if_line);
+    if !ends_with_continuation(if_trimmed_end) && paren_depth <= 0 {
+        in_condition = false;
+    }
+
     // RuboCop checks `if_branch.guard_clause?` — only the first statement in the
     // if-branch, not all statements or the else-branch. Find the first non-blank
-    // non-comment line after the if/unless keyword (the if-branch body).
+    // non-comment line after the condition (the if-branch body).
     for (i, line) in lines[(content_line_idx + 1)..].iter().enumerate() {
         let Some(start) = line.iter().position(|&b| b != b' ' && b != b'\t') else {
             continue;
@@ -714,6 +750,22 @@ fn is_multiline_guard_block(content: &[u8], lines: &[&[u8]], start_idx: usize) -
 
         // Skip comments
         if trimmed.starts_with(b"#") {
+            continue;
+        }
+
+        // If we're still in the condition, update paren depth and check for continuation
+        if in_condition {
+            for &b in trimmed {
+                match b {
+                    b'(' | b'{' | b'[' => paren_depth += 1,
+                    b')' | b'}' | b']' => paren_depth -= 1,
+                    _ => {}
+                }
+            }
+            let stripped = trim_trailing_whitespace(trimmed);
+            if !ends_with_continuation(stripped) && paren_depth <= 0 {
+                in_condition = false;
+            }
             continue;
         }
 
@@ -729,6 +781,48 @@ fn is_multiline_guard_block(content: &[u8], lines: &[&[u8]], start_idx: usize) -
         return is_bare_guard_in_block(trimmed, lines, content_line_idx + 1 + i);
     }
     false
+}
+
+/// Check if a line (already trimmed of trailing whitespace) ends with a continuation
+/// pattern that indicates the expression continues on the next line.
+fn ends_with_continuation(stripped: &[u8]) -> bool {
+    if stripped.is_empty() {
+        return false;
+    }
+    // Common operators and punctuation that indicate continuation
+    stripped.ends_with(b"||")
+        || stripped.ends_with(b"&&")
+        || stripped.ends_with(b"\\")
+        || stripped.ends_with(b",")
+        || stripped.ends_with(b"+")
+        || stripped.ends_with(b"==")
+        || stripped.ends_with(b"!=")
+        || stripped.ends_with(b"===")
+        || stripped.ends_with(b"<=")
+        || stripped.ends_with(b">=")
+        || stripped.ends_with(b"<=>")
+        || stripped.ends_with(b"=~")
+        || stripped.ends_with(b"!~")
+        || {
+            // Check for `and` or `or` keywords at end (with word boundary)
+            let len = stripped.len();
+            (len >= 4
+                && &stripped[len - 4..] == b" and"
+                && (len == 4 || !is_ident_char(stripped[len - 5])))
+                || (len >= 3
+                    && &stripped[len - 3..] == b" or"
+                    && (len == 3 || !is_ident_char(stripped[len - 4])))
+        }
+}
+
+/// Trim trailing whitespace, newlines, and carriage returns from a byte slice.
+fn trim_trailing_whitespace(line: &[u8]) -> &[u8] {
+    let end = line
+        .iter()
+        .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
+        .map(|e| e + 1)
+        .unwrap_or(0);
+    &line[..end]
 }
 
 /// Check if a trimmed line inside a block is a bare guard statement.
@@ -1088,6 +1182,160 @@ mod tests {
             diags.len(),
             1,
             "Expected 1 offense for guard before if-with-modifier-return, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fp_multiline_if_block_with_return_next_sibling_guard() {
+        // FP: multi-line `if..end` block containing `return` — followed by another guard.
+        // RuboCop sees next sibling is a guard clause → no offense for the if..end.
+        let source = b"def send\n  return if cond_a\n  if SomeClass ===\n       (\n         begin\n           @msg.message\n         rescue StandardError\n           nil\n         end\n       )\n    return\n  end\n  return skip(reason) if @msg.blank?\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            0,
+            "Expected 0 offenses for multiline if-block with return then guard, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fp_guard_then_multiline_if_with_return() {
+        // FP: `return unless cond` followed by multi-line `if..end` block that contains
+        // a bare return. RuboCop checks next_sibling.if_type? && contains_guard_clause?
+        let source = b"def foo\n  return unless @post.topic\n  if @post.id != @post.topic.category.id &&\n       !(@post.is_first_post?)\n    return\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            0,
+            "Expected 0 offenses for guard then multiline if with return, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fp_multiline_if_guard_at_end_of_method() {
+        // The `if..end` block is the last statement → its next sibling is nil → no offense.
+        let source = b"def foo\n  return unless active?\n  return if status != \"regular\"\n  return if pending.exists?\n  if created_by.bot? || created_by.staff? ||\n       created_by.has_trust_level?(4)\n    return\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        for d in &diags {
+            eprintln!("  DIAG: {:?}", d);
+        }
+        assert_eq!(
+            diags.len(),
+            0,
+            "Expected 0 offenses for multiline if guard at end of method, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fp_block_break_then_multiline_if() {
+        // Two consecutive block-form if/break guards, second with multi-line condition.
+        // Both are at end of method -- no offense.
+        let source = b"def foo\n  if (m == l)\n    break\n  end\n  if (@h[m] * (q.abs + r.abs) <\n    eps * (p.abs * (@h[m-1].abs + z.abs +\n    @h[m+1].abs)))\n    break\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        for d in &diags {
+            eprintln!(
+                "  DIAG: {}:{}:{} {}",
+                d.path, d.location.line, d.location.column, d.message
+            );
+        }
+        assert_eq!(
+            diags.len(),
+            0,
+            "Expected 0 offenses for consecutive block break guards, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_simple_return_true_if_guard() {
+        // FN: simple `return true if cond` followed by non-guard code
+        let source =
+            b"def ask_user(question)\n  return true if args['-y']\n  $stderr.print question\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for return true if guard, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_return_nil_unless_guard() {
+        // FN: `return nil unless cond` followed by code
+        let source = b"def foo\n  return nil unless time\n  Time.at(time)\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for return nil unless guard, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_raise_if_guard() {
+        // FN: `raise e if cond` followed by non-guard code
+        let source = b"def foo\nrescue => e\n  raise e if args['--debug']\n  warn e.message\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for raise if guard, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_next_unless_guard() {
+        // FN: `next unless e.end` followed by code
+        let source = b"items.each do |e|\n  next unless e.end\n  e.update :sheet => \"_x\"\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for next unless guard, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_break_if_guard() {
+        // FN: `break if nil != sheet` followed by code
+        let source =
+            b"loop do\n  break if nil != sheet\n  new_dir = File.expand_path('..', dir)\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for break if guard, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_return_empty_string_unless_guard() {
+        // FN: `return '' unless cond` followed by code
+        let source = b"def fmt(time)\n  return '' unless time.respond_to?(:strftime)\n  time.strftime('%H:%M:%S')\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for return empty string unless guard, got {}: {:?}",
             diags.len(),
             diags
         );

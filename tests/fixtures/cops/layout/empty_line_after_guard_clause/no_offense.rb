@@ -487,3 +487,145 @@ def multiline_raise_continuation_parens
       "zip -q test.zip -d test/data/file.txt"
     )
 end
+
+# FP fix: Guard followed by multi-line if block with guard (condition spans multiple lines)
+# RuboCop: return if guards → next sibling is block-form if with guard → no offense
+def guard_then_multiline_cond_if_guard
+  return unless active?
+  return if status != "regular" || topic.private?
+  return if pending.where(target: post).exists?
+  if created_by.bot? || created_by.staff? ||
+       created_by.has_trust_level?(4)
+    return
+  end
+end
+
+# FP fix: Guard followed by multi-line if with two-line condition containing guard
+def guard_then_two_line_cond_guard
+  return if value == "f"
+  if config.email.present? ||
+       config.address.present?
+    return
+  end
+end
+
+# FP fix: Guard followed by multi-line unless with guard
+def guard_then_multiline_unless_guard
+  next unless flags.include?(d)
+  unless records.nil?
+    raise ArgumentError, "Only one option allowed"
+  end
+end
+
+# FP fix: Block-form if with guard followed by another block-form if with guard
+# (both are consecutive guard clauses — RuboCop doesn't flag)
+def consecutive_block_form_guards
+  if is_admin? && groups.all? { |g| g.level == 1 }
+    return true
+  end
+  if is_staff? && groups.all? { |g| g.level == 2 }
+    return true
+  end
+  if authenticated? &&
+       groups.all? { |g| g.level == 3 }
+    return true
+  end
+end
+
+# FP fix: Guard followed by if block with multi-line condition (parens, &&)
+def guard_then_multiline_paren_condition
+  return nil if value.blank?
+  if defined?(ActiveRecord) && value.is_a?(ActiveRecord::Base) &&
+     value.respond_to?(:id) && value.id.is_a?(Integer)
+    return value.id
+  end
+end
+
+# FP fix: Guard followed by multi-line if block with raise guard
+def guard_then_multiline_raise_guard
+  raise "invalid config" unless store.is_a?(Base)
+  if api_key && store.class.to_s != "WebServiceStore"
+    raise "invalid configuration: only service expects an API Key"
+  end
+  if ENV["REDIS_URL"] &&
+      defined?(::Adapters::WebServiceStore) &&
+      store.instance_of?(::Adapters::WebServiceStore)
+    raise "invalid configuration: service shouldn't have redis url set"
+  end
+end
+
+# FP fix: Guard at end of block-form if, followed by multi-line if block with guard
+def block_guard_end_then_multiline_if_guard
+  if security.user_auth && security.users.empty?
+    raise ConfigError, "users required"
+  end
+  if !security.allow_anon && security.clients.empty?
+    raise ConfigError, "clients required"
+  end
+end
+
+# FP fix: Modifier guard followed by if with condition spanning 4+ lines with guard
+def guard_then_long_multiline_condition
+  return true if ((old.ip != ip) ||
+    (old.hostname != hostname) ||
+    provision_changed? ||
+    (old.subnet != subnet) ||
+    (old.ip6 != ip6) ||
+    (old.subnet6 != subnet6))
+  if (is_a?(Nic::Base) && rebuild? &&
+       !dhcp_record.valid?)
+    return true
+  end
+end
+
+# FP fix: block guard `break` inside `if (m == l)` then another multi-line if
+def block_break_then_multiline_if
+  if (m == l)
+    break
+  end
+  if (@h[m][m-1].abs * (q.abs + r.abs) <
+    eps * (p.abs * (@h[m-1][m-1].abs + z.abs +
+    @h[m+1][m+1].abs)))
+    break
+  end
+end
+
+# FP fix: Guard followed by multi-line if with `and` operator and return
+def block_guard_then_and_return_if
+  unless @work
+    raise "not found"
+  end
+  if @collection && has_access?
+    redirect_to(@work) && return
+  end
+  if @alternate &&
+     visible?
+    redirect_to(@alternate) && return
+  end
+end
+
+# FP fix: guard then multi-line if with === operator continuation
+def guard_then_triple_equals_if
+  return if disabled?
+  if SomeClass ===
+       (
+         begin
+           @message.message
+         rescue StandardError
+           nil
+         end
+       )
+    return
+  end
+  return skip(reason) if @message.blank?
+end
+
+# FP fix: guard then multi-line if with return at end of method
+def guard_then_multiline_cond_at_end
+  return unless active?
+  return if status != "regular"
+  if condition_a || condition_b ||
+       condition_c
+    return
+  end
+end
