@@ -25,10 +25,16 @@ use crate::parse::source::SourceFile;
 /// - Arithmetic operations (+, -, *, /, **, %) with a float operand produce floats
 /// - Float instance methods (abs, magnitude, next_float, prev_float, etc.) on float receivers
 /// - Numeric-returning methods (ceil, floor, round, truncate) with positive precision arg
-/// - Parenthesized expressions (ParenthesesNode wrapping StatementsNode)
 ///
 /// FN concentrated in jruby (20) and natalie (18) spec files comparing float constants
 /// and expressions like `2.0 ** -52`, `1.0 + Float::EPSILON`, `0.0.next_float`.
+///
+/// ## Investigation (2026-03-18, round 3)
+/// 5 FP from ParenthesesNode unwrapping. RuboCop's `float_type?` does NOT unwrap
+/// parenthesized expressions — `(0.0)` is a `begin` node in RuboCop's AST and
+/// `float_type?` returns false for it. Patterns like `(0.0).next_float.should == ...`
+/// in jruby/natalie were falsely detected because `is_float()` recursed through
+/// ParenthesesNode. Fixed by removing ParenthesesNode handling entirely.
 pub struct FloatComparison;
 
 impl Cop for FloatComparison {
@@ -134,22 +140,6 @@ const FLOAT_INSTANCE_METHODS: &[&[u8]] = &[
 fn is_float(node: &ruby_prism::Node<'_>) -> bool {
     if node.as_float_node().is_some() {
         return true;
-    }
-
-    // Parenthesized expressions: (0.1) -> unwrap and check inner expression
-    if let Some(parens) = node.as_parentheses_node() {
-        if let Some(body) = parens.body() {
-            // body is typically a StatementsNode wrapping the inner expression
-            if let Some(stmts) = body.as_statements_node() {
-                let stmts_body = stmts.body();
-                if stmts_body.len() == 1 {
-                    return is_float(&stmts_body.iter().next().unwrap());
-                }
-            } else {
-                return is_float(&body);
-            }
-        }
-        return false;
     }
 
     if let Some(call) = node.as_call_node() {

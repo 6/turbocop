@@ -24,3 +24,7 @@ x == 1.1.ceil
 x == 1.1.floor
 x == 1 + 2
 x == (1)
+# Parenthesized float expressions - RuboCop does not unwrap parens
+x == (0.1)
+(-0.0).next_float == (0.0).next_float
+(0.0).prev_float == (-0.0).prev_float

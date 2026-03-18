@@ -45,8 +45,6 @@ x == 0.0.prev_float
 ^^^^^^^^^^^^^^^^^^^ Lint/FloatComparison: Avoid equality comparisons of floats as they are unreliable.
 x == 1.1.ceil(1)
 ^^^^^^^^^^^^^^^^ Lint/FloatComparison: Avoid equality comparisons of floats as they are unreliable.
-x == (0.1)
-^^^^^^^^^^ Lint/FloatComparison: Avoid equality comparisons of floats as they are unreliable.
 n.to_f % 10 == 1
 ^^^^^^^^^^^^^^^^^ Lint/FloatComparison: Avoid equality comparisons of floats as they are unreliable.
 x == 280.0 / 355.0
