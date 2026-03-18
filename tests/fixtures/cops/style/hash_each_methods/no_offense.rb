@@ -10,3 +10,8 @@ foo.each { |k, v| puts "#{k}: #{v}" }
 foo.each { |_k, _v| puts "hello" }
 # Single arg
 foo.each { |item| p item }
+# .each with arguments should not trigger (not a hash each pattern)
+Resque::Failure.each(0, Resque::Failure.count, queue) do |_, item|
+  puts item
+end
+collection.each(limit) { |_key, val| process(val) }

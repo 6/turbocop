@@ -3,6 +3,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/HashEachMethods: suggest `each_key`/`each_value` instead of `keys.each`/`values.each`
+/// or `each { |k, _v| }` / `each { |_k, v| }`.
+///
+/// FP=125 root cause: nitrocop was flagging `.each` calls that had method arguments
+/// (e.g., `Resque::Failure.each(0, count, queue) { |_, item| }`). RuboCop's NodePattern
+/// `(call _ :each)` only matches when `.each` has no arguments — just a block. Fixed by
+/// checking `call.arguments().is_none()` before entering the unused-block-arg path.
 pub struct HashEachMethods;
 
 impl Cop for HashEachMethods {
@@ -93,6 +100,10 @@ impl Cop for HashEachMethods {
 impl HashEachMethods {
     /// Check `.each { |k, v| ... }` blocks where one argument is unused.
     /// An argument is considered unused if it starts with `_`.
+    ///
+    /// FP fix: RuboCop only matches `(call _ :each)` with no method arguments.
+    /// Calls like `Failure.each(0, count, queue) { |_, item| }` pass arguments
+    /// to `.each` and must be skipped — they are not Hash#each calls.
     fn check_each_block(
         &self,
         source: &SourceFile,
@@ -106,6 +117,12 @@ impl HashEachMethods {
 
         // Must have a receiver
         if call.receiver().is_none() {
+            return;
+        }
+
+        // .each must have no arguments (only a block). Calls like
+        // `.each(0, count)` are not Hash#each and should be skipped.
+        if call.arguments().is_some() {
             return;
         }
 
