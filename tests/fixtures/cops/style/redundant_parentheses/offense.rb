@@ -105,3 +105,18 @@ return (42)
 
 (!x.m arg)
 ^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a unary operation.
+
+x.y((a..b))
+    ^^^^^^ Style/RedundantParentheses: Don't use parentheses around a method argument.
+
+x.y((1..42))
+    ^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a method argument.
+
+"#{(foo)}"
+   ^^^^^ Style/RedundantParentheses: Don't use parentheses around an interpolated expression.
+
+(expression in pattern)
+^^^^^^^^^^^^^^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a one-line pattern matching.
+
+(expression => pattern)
+^^^^^^^^^^^^^^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a one-line pattern matching.

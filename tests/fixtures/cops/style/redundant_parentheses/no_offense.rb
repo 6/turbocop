@@ -47,9 +47,7 @@ config = { enable_starttls: (ENV["VAR"] == "true") }
 arr = [(1..5)]
 ranges + [(line..line)]
 (minimum..maximum).cover?(count)
-foo((1..10))
 x = (0..10)
-process((start..length), path, file)
 # not/while/until — plausible (RuboCop doesn't flag these)
 (not x)
 (a until b)
@@ -205,3 +203,15 @@ a, *b, c = (e = [1, 2, 3, 4])
 (-8.0) ** (1.0/3)
 # Unary ! around non-method-call (assignment parens)
 x = (!(found = find_file(exe)))
+# Pattern matching in method argument — parens required
+foo((bar in baz))
+obj&.foo((bar in baz))
+# Pattern matching in boolean operator — parens required
+(foo in bar) && (baz in qux)
+(foo in bar) || (baz in qux)
+# Pattern matching in assignment — parens required
+foo = (bar in baz)
+foo ||= (bar in baz)
+# Pattern matching in endless method definition — parens required
+def myfoo = (bar in [0, 1])
+def mybar = (baz => result)

@@ -86,6 +86,18 @@ use crate::parse::source::SourceFile;
 ///   tracking. Rescue modifier is not nil/begin_type in RuboCop.
 /// - **`a, *b = (e = [1,2,3])` multiple assignment RHS:** added `ParentKind::MultipleAssignment`
 ///   tracking for `MultiWriteNode`.
+/// - **Pattern matching `in`/`=>` expressions in non-top-level contexts:** `(Value(1) in [1])`,
+///   `(a => b)` — parens around pattern matching should not be flagged when inside method args,
+///   boolean operators (&&/||), assignments, or endless method definitions. Added
+///   `MatchPredicateNode` and `MatchRequiredNode` recognition.
+///
+/// ### FN root causes fixed:
+/// - **Range in method argument:** `x.y((a..b))` — the early return for ranges skipped
+///   the argument-of-parenthesized-call check. Fixed by checking method arg first for ranges.
+/// - **Interpolated expressions:** `"#{(foo)}"` — added `ParentKind::Interpolation` tracking
+///   for `EmbeddedStatementsNode` and detection of redundant parens inside string interpolation.
+/// - **Pattern matching at top level:** `(expression in pattern)`, `(expression => pattern)` —
+///   added detection for `MatchPredicateNode`/`MatchRequiredNode` with appropriate exemptions.
 pub struct RedundantParentheses;
 
 impl Cop for RedundantParentheses {
@@ -139,6 +151,7 @@ enum ParentKind {
     BlockArgument,
     RescueModifier,
     MultipleAssignment,
+    Interpolation,
     Other,
 }
 
@@ -148,6 +161,8 @@ struct ParentInfo {
     call_parenthesized: bool,
     call_arg_count: usize,
     is_operator: bool,
+    is_endless_def: bool,
+    is_assignment_parent: bool,
 }
 
 struct RedundantParensVisitor<'a> {
@@ -310,9 +325,15 @@ impl RedundantParensVisitor<'_> {
             return;
         }
 
-        // Range literals — RuboCop flags ((1..42)) as redundant (outer parens around
-        // already-parenthesized range). Skip single range in other contexts.
+        // Range literals — skip unless it's a method argument of a parenthesized call
+        // (RuboCop flags x.y((a..b)) as "a method argument") or double-parens ((1..42)).
+        // The method argument check is handled below in check_argument_of_parenthesized_call.
         if inner.as_range_node().is_some() {
+            // Check if this is an argument of a parenthesized method call first
+            if let Some(msg) = self.check_argument_of_parenthesized_call(node, inner, parent) {
+                self.add_offense(node, msg);
+                return;
+            }
             return;
         }
 
@@ -347,6 +368,18 @@ impl RedundantParensVisitor<'_> {
         // Lambda/proc with braces — (-> { x }), (lambda { x }), (proc { x })
         if is_lambda_or_proc_with_braces(inner) {
             self.add_offense(node, "an expression");
+            return;
+        }
+
+        // One-line pattern matching: (expr in pattern), (expr => pattern)
+        if let Some(msg) = self.check_pattern_matching(inner, parent) {
+            self.add_offense(node, msg);
+            return;
+        }
+
+        // Interpolation: "#{(foo)}" — parens inside string interpolation are redundant
+        if self.is_interpolation(parent) {
+            self.add_offense(node, "an interpolated expression");
             return;
         }
 
@@ -646,6 +679,11 @@ impl RedundantParensVisitor<'_> {
             return None;
         }
 
+        // Don't flag pattern matching in method arg (RuboCop's in_pattern_matching_in_method_argument?)
+        if inner.as_match_predicate_node().is_some() || inner.as_match_required_node().is_some() {
+            return None;
+        }
+
         // Don't flag if inner is a method call with unparenthesized args
         // where removing parens would change parsing.
         // But DO flag operator expressions like (z + w) since they don't need parens.
@@ -662,6 +700,53 @@ impl RedundantParensVisitor<'_> {
         Some("a method argument")
     }
 
+    /// Check if inner is a one-line pattern matching expression (MatchPredicateNode or
+    /// MatchRequiredNode). RuboCop flags these at top level / in method bodies, but exempts
+    /// them in method args, boolean operators, assignments, and endless defs.
+    fn check_pattern_matching(
+        &self,
+        inner: &ruby_prism::Node<'_>,
+        parent: Option<&ParentInfo>,
+    ) -> Option<&'static str> {
+        if inner.as_match_predicate_node().is_none() && inner.as_match_required_node().is_none() {
+            return None;
+        }
+
+        // Not flagged in method argument
+        if parent.is_some_and(|p| matches!(p.kind, ParentKind::Call)) {
+            return None;
+        }
+
+        // Not flagged if any ancestor is an operator keyword (&&, ||, and, or)
+        for i in (0..self.parent_stack.len().saturating_sub(1)).rev() {
+            if matches!(self.parent_stack[i].kind, ParentKind::And | ParentKind::Or) {
+                return None;
+            }
+        }
+
+        // Not flagged in endless def — check if a Def ancestor with `is_endless` flag
+        for i in (0..self.parent_stack.len().saturating_sub(1)).rev() {
+            if matches!(self.parent_stack[i].kind, ParentKind::Def)
+                && self.parent_stack[i].is_endless_def
+            {
+                return None;
+            }
+        }
+
+        // Not flagged in assignment context — assignments map to ParentKind::Other
+        // but we track them with `is_assignment_parent`
+        if parent.is_some_and(|p| p.is_assignment_parent) {
+            return None;
+        }
+
+        Some("a one-line pattern matching")
+    }
+
+    /// Check if the parent is an interpolation (EmbeddedStatementsNode inside a dstr).
+    fn is_interpolation(&self, parent: Option<&ParentInfo>) -> bool {
+        parent.is_some_and(|p| matches!(p.kind, ParentKind::Interpolation))
+    }
+
     fn push_parent(&mut self, kind: ParentKind) {
         self.parent_stack.push(ParentInfo {
             kind,
@@ -669,6 +754,8 @@ impl RedundantParensVisitor<'_> {
             call_parenthesized: false,
             call_arg_count: 0,
             is_operator: false,
+            is_endless_def: false,
+            is_assignment_parent: false,
         });
     }
 }
@@ -1399,8 +1486,89 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         if let Some(top) = self.parent_stack.last_mut() {
             top.kind = ParentKind::Def;
+            // Endless defs have an `equal_loc` (the `=` sign)
+            top.is_endless_def = node.equal_loc().is_some();
         }
         ruby_prism::visit_def_node(self, node);
+    }
+
+    fn visit_embedded_statements_node(&mut self, node: &ruby_prism::EmbeddedStatementsNode<'pr>) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.kind = ParentKind::Interpolation;
+        }
+        ruby_prism::visit_embedded_statements_node(self, node);
+    }
+
+    // Assignment nodes: track for pattern matching exemption
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.is_assignment_parent = true;
+        }
+        ruby_prism::visit_local_variable_write_node(self, node);
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.is_assignment_parent = true;
+        }
+        ruby_prism::visit_local_variable_or_write_node(self, node);
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.is_assignment_parent = true;
+        }
+        ruby_prism::visit_local_variable_and_write_node(self, node);
+    }
+
+    fn visit_instance_variable_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableWriteNode<'pr>,
+    ) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.is_assignment_parent = true;
+        }
+        ruby_prism::visit_instance_variable_write_node(self, node);
+    }
+
+    fn visit_class_variable_write_node(&mut self, node: &ruby_prism::ClassVariableWriteNode<'pr>) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.is_assignment_parent = true;
+        }
+        ruby_prism::visit_class_variable_write_node(self, node);
+    }
+
+    fn visit_global_variable_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableWriteNode<'pr>,
+    ) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.is_assignment_parent = true;
+        }
+        ruby_prism::visit_global_variable_write_node(self, node);
+    }
+
+    fn visit_constant_write_node(&mut self, node: &ruby_prism::ConstantWriteNode<'pr>) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.is_assignment_parent = true;
+        }
+        ruby_prism::visit_constant_write_node(self, node);
+    }
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.is_assignment_parent = true;
+        }
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
     }
 }
 
