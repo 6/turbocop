@@ -25,9 +25,24 @@ use std::ops::Range;
 ///    be preceded by whitespace or an operator character (like `+`, `|`, etc.),
 ///    preventing false alignment with `=` embedded in other contexts.
 ///
-/// Root causes of FPs (139 in corpus baseline):
-/// - Likely minor edge cases in alignment detection; no systematic pattern
-///   identified from available data.
+/// Root causes of FPs (526 in corpus baseline):
+/// 3. **Missing exact token match in alignment check (fixed 2026-03-18)**:
+///    RuboCop's `aligned_words?` has two modes: (1) `\s\S` at col-1 (token boundary)
+///    and (2) exact token text match at the same column. Our `check_alignment` only
+///    had mode 1. This caused FPs where intentional alignment used tokens not preceded
+///    by space (e.g., `.divmod` aligning with `.divmod` where `.` follows `)` directly).
+///    Added `extract_token_at` to extract a word/operator at the column and compare.
+///
+/// Root causes of FNs (503 in corpus baseline):
+/// 4. **Alignment check leaking into comment text (fixed 2026-03-18)**: When the
+///    extra space was before a trailing `#` comment, `is_aligned_with_adjacent` checked
+///    alignment at the column of `#` on adjacent lines. If the adjacent line also had
+///    a comment starting at a different column, the `\s\S` pattern inside comment text
+///    (e.g., `# c` in `# comment`) would falsely match as a token boundary, suppressing
+///    the offense. RuboCop only checks `@aligned_comments` for comment tokens, never
+///    `aligned_with_something?`. Fixed by separating comment and non-comment alignment
+///    paths: comments only use `aligned_comment_lines`, non-comments use the full
+///    `is_aligned_with_adjacent` check.
 ///
 /// ## Key design notes
 /// - Works with raw text scanning (not tokens), using CodeMap to skip non-code regions
@@ -116,20 +131,29 @@ impl Cop for ExtraSpacing {
                             continue;
                         }
 
-                        // For trailing comments: check if the comment is aligned
-                        // with other comments (RuboCop's aligned_comments logic)
-                        if allow_for_alignment
-                            && line[i] == b'#'
-                            && aligned_comment_lines.contains(&line_num)
-                        {
-                            continue;
-                        }
-
-                        // Skip if this could be alignment with adjacent code
-                        if allow_for_alignment
-                            && is_aligned_with_adjacent(&lines, line_idx, i, &comment_only_lines)
-                        {
-                            continue;
+                        if line[i] == b'#' {
+                            // For trailing comments: check ONLY if the comment is
+                            // aligned with other comments at the same column.
+                            // RuboCop's aligned_tok? for comment tokens only checks
+                            // @aligned_comments, never aligned_with_something?.
+                            // Checking is_aligned_with_adjacent here would cause
+                            // false negatives by matching `\s\S` patterns inside
+                            // comment text on adjacent lines.
+                            if allow_for_alignment && aligned_comment_lines.contains(&line_num) {
+                                continue;
+                            }
+                        } else {
+                            // For non-comment tokens: check alignment with adjacent code
+                            if allow_for_alignment
+                                && is_aligned_with_adjacent(
+                                    &lines,
+                                    line_idx,
+                                    i,
+                                    &comment_only_lines,
+                                )
+                            {
+                                continue;
+                            }
                         }
 
                         let mut diag = self.diagnostic(
@@ -279,20 +303,19 @@ fn is_aligned_with_adjacent(
     comment_only_lines: &HashSet<usize>,
 ) -> bool {
     let base_indent = line_indentation(lines[line_idx]);
-    let token_char = lines[line_idx][col];
 
     let current_line = lines[line_idx];
 
     // Pass 1: nearest non-blank, non-comment-only line
     if let Some(adj) = find_nearest_line(lines, line_idx, true, comment_only_lines, None) {
-        if check_alignment(lines[adj], col, token_char)
+        if check_alignment(current_line, lines[adj], col)
             || check_equals_alignment(current_line, lines[adj], col)
         {
             return true;
         }
     }
     if let Some(adj) = find_nearest_line(lines, line_idx, false, comment_only_lines, None) {
-        if check_alignment(lines[adj], col, token_char)
+        if check_alignment(current_line, lines[adj], col)
             || check_equals_alignment(current_line, lines[adj], col)
         {
             return true;
@@ -303,7 +326,7 @@ fn is_aligned_with_adjacent(
     if let Some(adj) =
         find_nearest_line(lines, line_idx, true, comment_only_lines, Some(base_indent))
     {
-        if check_alignment(lines[adj], col, token_char)
+        if check_alignment(current_line, lines[adj], col)
             || check_equals_alignment(current_line, lines[adj], col)
         {
             return true;
@@ -316,7 +339,7 @@ fn is_aligned_with_adjacent(
         comment_only_lines,
         Some(base_indent),
     ) {
-        if check_alignment(lines[adj], col, token_char)
+        if check_alignment(current_line, lines[adj], col)
             || check_equals_alignment(current_line, lines[adj], col)
         {
             return true;
@@ -372,26 +395,64 @@ fn find_nearest_line(
     }
 }
 
-/// Check alignment: space+non-space at the column (a token boundary).
+/// Check alignment: mirrors RuboCop's `aligned_words?` check.
 ///
-/// Matches RuboCop's `aligned_words?` check: `\s\S` at `left_edge - 1`.
-/// Previously this also had a "same character" mode that matched any character
-/// at the same column regardless of spacing, but that caused false negatives
-/// by allowing coincidental character alignment (e.g., `d` in `do` aligning
-/// with `d` at the end of `_______________________d`).
-fn check_alignment(line: &[u8], col: usize, _token_char: u8) -> bool {
-    if col >= line.len() {
+/// Two modes:
+/// 1. `\s\S` at `left_edge - 1` — space followed by non-space = token boundary
+/// 2. Exact token match: the token text starting at `col` on the current line
+///    appears at the same position on the adjacent line.
+///
+/// Mode 2 uses the full token text (not single characters) to avoid false
+/// negatives from coincidental single-character alignment (e.g., `d` in `do`
+/// aligning with trailing `d` in `_______________________d`).
+fn check_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> bool {
+    if col >= adj_line.len() {
         return false;
     }
-    // space + non-space at the same column (token boundary alignment)
-    if line[col] != b' '
-        && line[col] != b'\t'
+    // Mode 1: space + non-space at the same column (token boundary alignment)
+    if adj_line[col] != b' '
+        && adj_line[col] != b'\t'
         && col > 0
-        && (line[col - 1] == b' ' || line[col - 1] == b'\t')
+        && (adj_line[col - 1] == b' ' || adj_line[col - 1] == b'\t')
+    {
+        return true;
+    }
+    // Mode 2: exact token match — extract the "token" starting at col on the
+    // current line and check if it appears at the same position on the adjacent
+    // line. This handles cases like `.divmod` aligning with `.divmod` where the
+    // `.` on the adjacent line is not preceded by space but the alignment is
+    // intentional.
+    let token = extract_token_at(current_line, col);
+    if !token.is_empty()
+        && col + token.len() <= adj_line.len()
+        && &adj_line[col..col + token.len()] == token
     {
         return true;
     }
     false
+}
+
+/// Extract a "token-like" string starting at the given column.
+/// For operator/punctuation characters, returns just that character.
+/// For alphanumeric/underscore characters, returns the full identifier.
+fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
+    if col >= line.len() {
+        return &[];
+    }
+    let ch = line[col];
+    if ch.is_ascii_alphanumeric() || ch == b'_' {
+        // Identifier: take consecutive word characters
+        let end = line[col..]
+            .iter()
+            .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
+            .map_or(line.len(), |p| col + p);
+        &line[col..end]
+    } else if ch == b' ' || ch == b'\t' {
+        &[]
+    } else {
+        // Operator/punctuation: just the single character
+        &line[col..col + 1]
+    }
 }
 
 /// Check if there's equals-sign alignment between the current line and
@@ -517,5 +578,198 @@ mod tests {
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 1);
         assert_eq!(diags[0].location.column, 7);
+    }
+
+    #[test]
+    fn token_not_preceded_by_space_not_alignment() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // RuboCop spec: "alignment with token not preceded by space"
+        // The = and ( are on the same column, but ( is not preceded by space,
+        // so this is NOT alignment - should be an offense.
+        let diags = run_cop_full(&cop, b"website(\"example.org\")\nname   = \"Jill\"\n");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should report offense when aligned token is not preceded by space"
+        );
+    }
+
+    #[test]
+    fn aligning_with_same_character_allowed() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // RuboCop: "aligning with the same character" - allowed with AllowForAlignment=true
+        let diags = run_cop_full(
+            &cop,
+            b"y, m = (year * 12 + (mon - 1) + n).divmod(12)\nm,   = (m + 1)                    .divmod(1)\n",
+        );
+        assert!(
+            diags.is_empty(),
+            "Alignment with same character should be allowed, got {} offenses: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("L{}:C{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn different_kinds_of_assignments_allowed() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // RuboCop: "lining up different kinds of assignments" - allowed
+        let src = b"type_name ||= value.class.name if value\ntype_name   = type_name.to_s   if type_name\n\ntype_name  = value.class.name if     value\ntype_name += type_name.to_s   unless type_name\na  += 1\naa -= 2\n";
+        let diags = run_cop_full(&cop, src);
+        assert!(
+            diags.is_empty(),
+            "Different kinds of aligned assignments should be allowed, got {} offenses: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("L{}:C{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn aligning_comments_non_adjacent_allowed() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // RuboCop: "aligning comments on non-adjacent lines" - allowed
+        let src = b"include_examples 'aligned',   'var = until',  'test'\n\ninclude_examples 'unaligned', \"var = if\",     'test'\n";
+        let diags = run_cop_full(&cop, src);
+        assert!(
+            diags.is_empty(),
+            "Aligned comments on non-adjacent should be allowed, got {} offenses: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("L{}:C{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn multiple_unaligned_comments_flagged() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // RuboCop spec: multiple comments at different columns - all flagged
+        let src = b"class Foo\n  def require(p)  # comment\n  end\n\n  def load(p)  # comment\n  end\n\n  def join(*ps)  # comment\n  end\n\n  def exist?(*ps)  # comment\n  end\nend\n";
+        let diags = run_cop_full(&cop, src);
+        assert_eq!(
+            diags.len(),
+            4,
+            "Should report 4 offenses for unaligned comments, got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("L{}:C{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn aligned_values_in_array_of_hashes() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // Aligned values across multiple lines in array of hashes
+        // The commas and values align vertically — should be allowed
+        let src = b"[\n  {id: 1, name: 'short'  , code: 'equals'      },\n  {id: 2, name: 'longer' , code: 'greater_than'},\n  {id: 3, name: 'longest', code: 'less_than'   },\n]\n";
+        let diags = run_cop_full(&cop, src);
+        assert!(
+            diags.is_empty(),
+            "Aligned values in array of hashes should be allowed, got {} offenses: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!(
+                    "L{}:C{} '{}'",
+                    d.location.line, d.location.column, d.message
+                ))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn aligned_has_many_declarations() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // Aligned Rails declarations - commas at same columns across lines
+        let src = b"has_many :items  , dependent: :destroy\nhas_many :images , dependent: :destroy\nhas_many :options, dependent: :destroy\n";
+        let diags = run_cop_full(&cop, src);
+        assert!(
+            diags.is_empty(),
+            "Aligned has_many declarations should be allowed, got {} offenses: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("L{}:C{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn trailing_comments_not_aligned_should_flag() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // Trailing comments at different columns - NOT aligned, should be flagged
+        let src = b"check_a_pattern_result   # comment A\ncheck_b   # comment B\ncheck_c_patterns   # comment C\n";
+        let diags = run_cop_full(&cop, src);
+        assert_eq!(
+            diags.len(),
+            3,
+            "Should flag 3 unaligned trailing comments, got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("L{}:C{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn aligned_trailing_comments_allowed() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // Trailing comments at the same column - aligned, should be allowed
+        // From the vendor spec: "exactly two comments aligned"
+        let src = b"one  # comment one\ntwo  # comment two\n";
+        let diags = run_cop_full(&cop, src);
+        assert!(
+            diags.is_empty(),
+            "Aligned trailing comments should be allowed, got {} offenses",
+            diags.len()
+        );
+    }
+
+    #[test]
+    fn trailing_comment_aligned_with_empty_line_between() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // RuboCop spec: aligned tokens with empty line between
+        // The comments are at the same column, separated by blank/code lines
+        let src = b"unless nochdir\n  Dir.chdir \"/\"    # Release old working directory.\nend\n\nFile.umask 0000    # Ensure sensible umask.\n";
+        let diags = run_cop_full(&cop, src);
+        assert!(
+            diags.is_empty(),
+            "Aligned trailing comments with empty line between should be allowed, got {} offenses: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("L{}:C{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
     }
 }

@@ -83,3 +83,26 @@ two  # comment two
 
 # Only one space before comment is fine (no extra spacing)
 object.method(argument) # this is a comment
+
+# Token alignment: same operator at same column across lines
+y, m = (year * 12 + (mon - 1) + n).divmod(12)
+m,   = (m + 1)                    .divmod(1)
+
+# Aligned values in array of hashes: commas at same columns
+items = [
+  {id: 1, name: 'short'  , code: 'equals'      },
+  {id: 2, name: 'longer' , code: 'greater_than'},
+  {id: 3, name: 'longest', code: 'less_than'   },
+]
+
+# Aligned method calls with commas
+has_many :items  , dependent: :destroy
+has_many :images , dependent: :destroy
+has_many :options, dependent: :destroy
+
+# Aligned trailing comments separated by blank lines
+unless nochdir
+  Dir.chdir "/"    # Release old working directory.
+end
+
+File.umask 0000    # Ensure sensible umask.

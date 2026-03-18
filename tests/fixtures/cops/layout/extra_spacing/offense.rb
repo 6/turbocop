@@ -35,3 +35,11 @@ hash = {a:   1,  b:    2}
           ^^ Layout/ExtraSpacing: Unnecessary spacing detected.
                ^ Layout/ExtraSpacing: Unnecessary spacing detected.
                    ^^^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+# Trailing comments at different columns - NOT aligned, should be flagged
+check_a_pattern_result   # comment A
+                      ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+check_b   # comment B
+       ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+check_c_patterns   # comment C
+                ^ Layout/ExtraSpacing: Unnecessary spacing detected.

@@ -25,3 +25,8 @@ assert_difference(MyModel.count, +2,
 
 # Single-line hash with extra spaces
 hash = {a: 1, b: 2}
+
+# Trailing comments at different columns - NOT aligned, should be flagged
+check_a_pattern_result # comment A
+check_b # comment B
+check_c_patterns # comment C
