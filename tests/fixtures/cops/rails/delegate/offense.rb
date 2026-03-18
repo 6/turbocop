@@ -165,3 +165,22 @@ module Plugins
     end
   end
 end
+
+# Delegation inside a conditional block after `private` — RuboCop's AST-based sibling
+# check doesn't see `private` as affecting defs inside if/else bodies, because the def
+# is a child of the if-node, not the class body. Pattern from asciidoctor/timings.rb.
+class Timer
+  private
+
+  if CONST_DEFINED
+    def now
+    ^^^ Rails/Delegate: Use `delegate` to define delegations.
+      FastClock.now
+    end
+  else
+    def now
+    ^^^ Rails/Delegate: Use `delegate` to define delegations.
+      ::Time.now
+    end
+  end
+end

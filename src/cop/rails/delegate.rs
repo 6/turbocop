@@ -174,6 +174,25 @@ use crate::parse::source::SourceFile;
 /// at `indent == def_col` decrements it to 0 (exiting peer scope), `in_private` updates are
 /// skipped while inside the peer scope. This prevents `private` from inside sibling
 /// class/modules from bleeding into instance methods at the same level.
+///
+/// ## Investigation (2026-03-18): FP=1, FN=2
+///
+/// **FP (rubocop, line 88)**: Already fixed by prior `is_private_or_protected` improvements.
+/// `private` at same indent as `def` in deeply nested class correctly detected.
+///
+/// **FN (aruba, line 149)**: Already fixed by prior `peer_scope_depth` improvements.
+/// `def mode; @announcer.mode; end` after `public` keyword correctly detected.
+///
+/// **FN (asciidoctor, line 66)**: `def now; ::Time.now; end` inside `if/else` block after
+/// `private`. RuboCop's `node_visibility` uses AST sibling checks — a `def` inside an
+/// `if/else` body is NOT a sibling of `private` in the class body, so RuboCop considers
+/// it public. Our line-based `is_private_or_protected` incorrectly set `in_private = true`
+/// because `private` at indent 4 <= def_col 6.
+///
+/// Fix: Added `is_inside_conditional_block()` check in the delegate cop. After
+/// `is_private_or_protected` returns true, scan backwards from the def for block-opening
+/// keywords (if/unless/case/else/elsif/while/etc.) at lower indent. If found, the def
+/// is inside a conditional block and `private` doesn't apply per RuboCop's AST semantics.
 pub struct Delegate;
 
 impl Cop for Delegate {
@@ -401,7 +420,12 @@ impl Cop for Delegate {
         }
 
         // Skip private/protected methods — RuboCop only flags public methods.
-        if crate::cop::util::is_private_or_protected(source, node.location().start_offset()) {
+        // Exception: defs inside conditional blocks (if/unless/case/etc.) are NOT
+        // affected by a preceding `private` keyword in RuboCop's AST-based sibling
+        // check, because the def is a child of the conditional node, not the class body.
+        if crate::cop::util::is_private_or_protected(source, node.location().start_offset())
+            && !is_inside_conditional_block(source, node.location().start_offset())
+        {
             return;
         }
 
@@ -424,6 +448,63 @@ impl Cop for Delegate {
             "Use `delegate` to define delegations.".to_string(),
         ));
     }
+}
+
+/// Check if a def is inside a conditional/begin block at the class body level.
+/// RuboCop's VisibilityHelp uses AST sibling checks — a `def` inside an if/else/case
+/// block is NOT a sibling of `private`, so `private` doesn't affect it.
+/// Returns true if the def is inside such a block.
+fn is_inside_conditional_block(source: &SourceFile, def_offset: usize) -> bool {
+    let (def_line, def_col) = source.offset_to_line_col(def_offset);
+    let lines: Vec<&[u8]> = source.lines().collect();
+
+    // Scan backwards from the def to find an enclosing block-opening keyword
+    // at a LOWER indent than the def. If found before a class/module/private/end
+    // boundary, the def is nested inside a conditional.
+    for line in lines[..def_line.saturating_sub(1)].iter().rev() {
+        let indent = line
+            .iter()
+            .take_while(|&&b| b == b' ' || b == b'\t')
+            .count();
+        let trimmed = &line[indent..];
+
+        // Skip blank lines and comments
+        if trimmed.is_empty() || trimmed.starts_with(b"#") {
+            continue;
+        }
+
+        // Stop at class/module boundary at lower indent — we've left the scope
+        if indent < def_col && (trimmed.starts_with(b"class ") || trimmed.starts_with(b"module ")) {
+            return false;
+        }
+
+        // Stop at `def ` at same indent — reached another method definition
+        if indent == def_col && trimmed.starts_with(b"def ") {
+            return false;
+        }
+
+        // Check for block-opening keywords at lower indent (the class body level).
+        // These indicate the def is nested inside a conditional/loop/begin block.
+        if indent < def_col
+            && (trimmed.starts_with(b"if ")
+                || trimmed.starts_with(b"unless ")
+                || trimmed.starts_with(b"case ")
+                || trimmed.starts_with(b"case\n")
+                || trimmed.starts_with(b"while ")
+                || trimmed.starts_with(b"until ")
+                || trimmed.starts_with(b"for ")
+                || trimmed.starts_with(b"begin")
+                || trimmed == b"else"
+                || trimmed.starts_with(b"else ")
+                || trimmed.starts_with(b"elsif ")
+                || trimmed.starts_with(b"when ")
+                || trimmed.starts_with(b"rescue")
+                || trimmed.starts_with(b"ensure"))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Extract the receiver name as bytes for prefix checking.
