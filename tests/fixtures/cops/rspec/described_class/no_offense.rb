@@ -154,3 +154,10 @@ describe MyClass do
     let(:foo) { MyClass }
   end
 end
+
+# Instance method (def without receiver) IS a scope change — don't flag
+describe Foo::Bar do
+  def some_helper
+    Foo::Bar.new
+  end
+end

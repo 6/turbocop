@@ -97,3 +97,21 @@ describe MyClass do
     end
   end
 end
+
+# Qualified constant (ConstantPathNode) inside singleton method — NOT a scope change
+describe Foo::Bar do
+  def self.build_example(klass)
+    it 'uses described class' do
+      expect(Foo::Bar.new).to be_truthy
+             ^^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `Foo::Bar`.
+    end
+  end
+end
+
+# Qualified constant inside regular method call within describe
+describe Chef::Decorator do
+  it "#is_a? returns true" do
+    expect(decorator.is_a?(Chef::Decorator)).to be true
+                           ^^^^^^^^^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `Chef::Decorator`.
+  end
+end

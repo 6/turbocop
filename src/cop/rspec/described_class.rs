@@ -22,6 +22,16 @@ use ruby_prism::Visit;
 ///    `class_exec`, `module_exec`, `instance_exec`) and requires a block. Methods like
 ///    `safe_eval`, `batch_exec`, etc. were incorrectly skipped. Fixed by matching only
 ///    the 6 specific methods and requiring a block.
+///
+/// ## Corpus investigation (12 FNs, 2026-03-18)
+///
+/// **Singleton methods (`def self.foo`) were treated as scope changes.**
+/// In RuboCop's Parser AST, `def` (instance method) is a scope change but `defs`
+/// (singleton method) is not — the pattern `'{def class module}'` only matches `def`.
+/// In Prism, both are `DefNode`, distinguished by `receiver()`. The visitor was
+/// skipping ALL `DefNode`s, causing FNs when described class constants appeared
+/// inside singleton methods (e.g., `def self.impersonates_a` in chef specs).
+/// Fixed by only skipping `DefNode`s without a receiver (instance methods).
 pub struct DescribedClass;
 
 impl Cop for DescribedClass {
@@ -515,7 +525,16 @@ impl<'pr> Visit<'pr> for DescribedClassVisitor<'_> {
         self.namespace.truncate(self.namespace.len() - added);
     }
 
-    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        // In RuboCop AST, `def` (instance method) is a scope change but `defs`
+        // (singleton method like `def self.foo`) is not. In Prism, both are
+        // DefNode — singleton methods have a receiver (e.g., `self`).
+        // Only skip instance methods (no receiver); recurse into singleton methods.
+        if node.receiver().is_none() {
+            return;
+        }
+        ruby_prism::visit_def_node(self, node);
+    }
 }
 
 #[cfg(test)]
