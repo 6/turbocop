@@ -1427,6 +1427,57 @@ mod tests {
 }
 
 /// Check if a method at the given offset is likely private or protected.
+/// Check if a trimmed line is a single-line class or module definition
+/// (e.g., `class Error < StandardError; end` or `module Foo; end`).
+/// These open and close on the same line and should not affect peer scope depth.
+fn is_single_line_class_or_module(trimmed: &[u8]) -> bool {
+    // Must end with `end` (possibly followed by whitespace, already stripped)
+    if trimmed.ends_with(b"; end") || trimmed.ends_with(b";end") {
+        return true;
+    }
+    false
+}
+
+/// Find a heredoc start marker in a line. Returns the end marker bytes if found.
+/// Matches: `<<WORD`, `<<-WORD`, `<<~WORD`, `<<-'WORD'`, `<<~"WORD"`.
+fn find_heredoc_start(line: &[u8]) -> Option<Vec<u8>> {
+    let mut i = 0;
+    while i + 2 < line.len() {
+        if line[i] == b'<' && line[i + 1] == b'<' {
+            let mut j = i + 2;
+            // Skip optional `-` or `~`
+            if j < line.len() && (line[j] == b'-' || line[j] == b'~') {
+                j += 1;
+            }
+            // Skip optional quote character
+            let quote = if j < line.len() && (line[j] == b'\'' || line[j] == b'"') {
+                let q = line[j];
+                j += 1;
+                Some(q)
+            } else {
+                None
+            };
+            // Read the identifier
+            let start = j;
+            while j < line.len() && (line[j].is_ascii_alphanumeric() || line[j] == b'_') {
+                j += 1;
+            }
+            if j > start {
+                // Check closing quote if opened
+                if let Some(q) = quote {
+                    if j < line.len() && line[j] == q {
+                        return Some(line[start..j].to_vec());
+                    }
+                } else {
+                    return Some(line[start..j].to_vec());
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Looks for:
 /// - `private def foo` (inline) on the same line
 /// - Standalone `private` or `protected` on any preceding line at the SAME indentation
@@ -1479,6 +1530,7 @@ pub fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
     let lines: Vec<&[u8]> = source.lines().collect();
     let mut in_private = false;
     let mut peer_scope_depth = 0usize;
+    let mut heredoc_end_marker: Option<Vec<u8>> = None;
     for line in &lines[..def_line] {
         let indent = line
             .iter()
@@ -1494,11 +1546,30 @@ pub fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
             .map_or(0, |p| p + 1);
         let trimmed: &[u8] = &raw_trimmed[..end_pos];
 
+        // Skip lines inside heredocs. Heredoc content can contain `end`, `class`,
+        // `private` etc. at any indent level — these are string content, not Ruby
+        // structural keywords.
+        if let Some(ref marker) = heredoc_end_marker {
+            if trimmed == marker.as_slice() {
+                heredoc_end_marker = None;
+            }
+            continue;
+        }
+
+        // Detect heredoc start: <<-WORD, <<~WORD, <<WORD, <<-'WORD', <<~"WORD"
+        if let Some(pos) = find_heredoc_start(trimmed) {
+            heredoc_end_marker = Some(pos);
+        }
+
         // Track peer scope depth for class/module/class<< bodies at indent == def_col.
         // These are sibling scopes — their internal `private` doesn't affect our def.
         if indent == def_col {
             if trimmed.starts_with(b"class ") || trimmed.starts_with(b"module ") {
-                peer_scope_depth += 1;
+                // Single-line class/module (e.g., `class Error < StandardError; end`)
+                // opens and closes on the same line — do NOT modify peer_scope_depth.
+                if !is_single_line_class_or_module(trimmed) {
+                    peer_scope_depth += 1;
+                }
             } else if peer_scope_depth > 0
                 && (trimmed == b"end"
                     || trimmed.starts_with(b"end ")

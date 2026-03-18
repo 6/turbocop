@@ -39,6 +39,20 @@ const PUBLIC_MODIFIERS: &[&[u8]] = &[b"module_function ", b"ruby2_keywords "];
 ///
 /// Remaining FN gap (508): singleton methods (`def self.foo`, `def obj.bar`) not handled.
 /// RuboCop uses `on_defs` (aliased from `on_def`), nitrocop only handles `DefNode`.
+///
+/// **Investigation (2026-03-18):** 426 FPs, 383 FNs.
+/// Root causes of remaining FPs in `is_private_or_protected`:
+/// 1. Single-line class/module defs (`class Error < StandardError; end`) at indent ==
+///    def_col were incrementing `peer_scope_depth` but never decrementing it (the `end`
+///    is on the same line). This caused all subsequent `private` keywords to be ignored.
+///    Fix: added `is_single_line_class_or_module()` check — skip peer_scope_depth++ when
+///    the class/module opens and closes on the same line.
+/// 2. Heredoc content containing `end` at column 0 (e.g., `buf.puts(<<-RUBY)\nend\nRUBY`)
+///    was incorrectly treated as a scope boundary, resetting `in_private` state.
+///    Fix: added heredoc tracking in `is_private_or_protected` — detect `<<-WORD` / `<<~WORD`
+///    patterns and skip all lines until the closing heredoc marker.
+/// 3. Some FPs from enclosing class at same indent as def (inconsistent indentation) —
+///    inherent limitation of line-based visibility tracking vs RuboCop's AST approach.
 pub struct DocumentationMethod;
 
 /// Detect if the line containing the def has a modifier prefix before the `def` keyword.

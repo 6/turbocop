@@ -184,3 +184,64 @@ end)
 protected(def paren_protected_method
   42
 end)
+
+# Single-line class defs should not break peer scope tracking
+class Webfinger
+  class Error < StandardError; end
+  class GoneError < Error; end
+  class RedirectError < Error; end
+
+  # Documented public method
+  def perform
+    42
+  end
+
+  private
+
+  def secret_helper
+    42
+  end
+
+  def another_helper
+    42
+  end
+end
+
+# Heredoc content with 'end' at col 0 should not reset private state
+class HeredocEnd
+  private
+
+  def generate_code
+    buf = StringIO.new
+    buf.puts(<<-RUBY)
+end
+    RUBY
+    buf.string
+  end
+
+  def another_private
+    42
+  end
+end
+
+# Migration-style: single-line class + private section
+class BackfillMigration
+  class Account < ActiveRecord::Base; end
+  class User < ActiveRecord::Base; end
+  class Status < ActiveRecord::Base; end
+
+  # Documented up method
+  def up
+    process_logs
+  end
+
+  private
+
+  def process_logs
+    42
+  end
+
+  def process_users
+    42
+  end
+end
