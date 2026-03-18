@@ -79,6 +79,21 @@ def class_name
   self.class.name
 end
 
+# Direct delegation via self.class (method name matches exactly)
+def associations
+^^^ Rails/Delegate: Use `delegate` to define delegations.
+  self.class.associations
+end
+
+def mailer_name
+^^^ Rails/Delegate: Use `delegate` to define delegations.
+  self.class.mailer_name
+end
+
+# Single-line self.class delegation
+def keys; self.class.keys; end
+^^^ Rails/Delegate: Use `delegate` to define delegations.
+
 # private :method_name with MULTIPLE symbols — RuboCop's pattern only matches single-symbol
 # private calls, so private :[]=, :set_element doesn't make []= private for this cop
 def []=(i, v)
@@ -111,5 +126,18 @@ class Handler
 
   def register_module_function(object)
     object.module_function
+  end
+end
+
+# self.class delegation inside a class/module (nested context)
+module Document
+  def tag
+  ^^^ Rails/Delegate: Use `delegate` to define delegations.
+    self.class.tag
+  end
+
+  def aliases
+  ^^^ Rails/Delegate: Use `delegate` to define delegations.
+    self.class.aliases
   end
 end
