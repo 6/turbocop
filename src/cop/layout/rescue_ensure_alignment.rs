@@ -29,6 +29,15 @@ use crate::parse::source::SourceFile;
 /// 3. Rescue chains: Only the first rescue clause was checked; subsequent()
 ///    rescues in the chain were missed. Fix: Walk the full rescue chain.
 ///
+/// ## FP investigation (2026-03-18)
+/// 255 FPs caused by rescue/ensure inside assigned do..end blocks:
+/// When a block is part of an assignment (`result = Thread.new do`), RuboCop
+/// aligns rescue/ensure with the assignment target (line start), not with the
+/// method call. The block handler was using the CallNode's start column directly.
+/// Fix: Apply the same line-indent heuristic used for begin/def assignment
+/// alignment — compute the line's leading whitespace indent, and if it differs
+/// from call_col, use indent as align_col.
+///
 /// ## FP investigation (2026-03-17)
 /// 78 FPs caused by `private def` / `protected def` modifier alignment:
 /// When a method is defined with a visibility modifier (`private def foo`),
@@ -299,7 +308,24 @@ impl Cop for RescueEnsureAlignment {
             // matching RuboCop's Parser gem behavior where block.source_range.column
             // is the receiver's column.
             let (_, call_col) = source.offset_to_line_col(call_node.location().start_offset());
-            let align_col = call_col;
+
+            // When the block is part of an assignment (e.g., `result = Thread.new do`),
+            // RuboCop aligns rescue/ensure with the assignment target (line start),
+            // not with the method call. Same pattern as begin/def assignment alignment.
+            let align_col = {
+                let bytes = source.as_bytes();
+                let mut line_start = call_node.location().start_offset();
+                while line_start > 0 && bytes[line_start - 1] != b'\n' {
+                    line_start -= 1;
+                }
+                let mut indent = 0;
+                while line_start + indent < bytes.len()
+                    && (bytes[line_start + indent] == b' ' || bytes[line_start + indent] == b'\t')
+                {
+                    indent += 1;
+                }
+                if indent != call_col { indent } else { call_col }
+            };
 
             if let Some(body) = block_node.body() {
                 if let Some(begin_node) = body.as_begin_node() {

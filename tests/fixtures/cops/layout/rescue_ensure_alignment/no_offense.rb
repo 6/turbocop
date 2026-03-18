@@ -131,3 +131,36 @@ rescue StandardError => e
   handle(e)
 end
 
+# Assigned do-end block: rescue aligns with assignment target (line start)
+result = run_callbacks :call do
+  @app.call(env)
+rescue => error
+  handle(error)
+end
+
+# Assigned do-end block: ensure aligns with assignment target
+thread2 = Thread.new do
+  barrier.wait
+ensure
+  cleanup
+end
+
+# Assigned do-end block with lambda: rescue aligns with assignment target
+test_update = lambda do |order|
+  Author.order(order).update_all("id = id + 1")
+rescue ActiveRecord::ActiveRecordError
+  false
+end
+
+# Instance variable assigned do-end block: rescue aligns with line start
+@instance = records.map do |r|
+  r.process
+rescue StandardError
+  nil
+end
+
+# Or-assignment do-end block: rescue aligns with line start
+a ||= items.map do |_|
+rescue StandardError => _
+end
+
