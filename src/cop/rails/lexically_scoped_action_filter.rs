@@ -57,6 +57,15 @@ use crate::parse::source::SourceFile;
 ///   Mailer files that use `before_action` with `only:` were not scanned.
 ///   Also changed `app/controllers/**/*.rb` to `**/app/controllers/**/*.rb` to
 ///   match the vendor's glob format with leading `**`.
+///
+/// **Fixes applied (round 6): FN=3**
+/// - `def self.foo` (class methods) were incorrectly counted as defined action
+///   methods. RuboCop's `each_child_node(:def)` only matches instance methods;
+///   added `receiver().is_none()` check to filter out class methods.
+/// - Filter calls inside `def` bodies (metaprogramming patterns) were not found
+///   because `collect_filter_call_from_node` didn't descend into `DefNode`.
+///   RuboCop's `on_send` fires on ALL send nodes regardless of nesting. Added
+///   recursion into `DefNode` bodies to match.
 pub struct LexicallyScopedActionFilter;
 
 /// (call_start_offset, only_action_names, except_action_names)
@@ -133,11 +142,15 @@ impl Cop for LexicallyScopedActionFilter {
             None => return,
         };
 
-        // Collect defined method names in this class/module (direct children only)
+        // Collect defined instance method names in this class/module (direct children only).
+        // Only count instance methods (receiver is None), not class methods (def self.foo).
+        // RuboCop uses `each_child_node(:def)` which only matches instance methods.
         let mut defined_methods: Vec<Vec<u8>> = Vec::new();
         for stmt_node in stmts.body().iter() {
             if let Some(def_node) = stmt_node.as_def_node() {
-                defined_methods.push(def_node.name().as_slice().to_vec());
+                if def_node.receiver().is_none() {
+                    defined_methods.push(def_node.name().as_slice().to_vec());
+                }
             }
         }
 
@@ -211,9 +224,10 @@ fn collect_filter_calls_recursive(
     }
 }
 
-/// Check a single node for filter calls, recursing into blocks and conditionals.
-/// Handles: direct CallNode, CallNode inside IfNode/UnlessNode (modifier conditionals),
-/// and block bodies (e.g., `included do ... end`).
+/// Check a single node for filter calls, recursing into blocks, conditionals, and def bodies.
+/// RuboCop's `on_send` fires on ALL send nodes in the file and walks up to the nearest
+/// class/module ancestor. We approximate this by recursively descending into all nested
+/// structures: blocks, if/unless, and method def bodies.
 fn collect_filter_call_from_node(node: &ruby_prism::Node<'_>, results: &mut Vec<FilterCallInfo>) {
     if let Some(call) = node.as_call_node() {
         check_call_for_filter(&call, results);
@@ -229,6 +243,16 @@ fn collect_filter_call_from_node(node: &ruby_prism::Node<'_>, results: &mut Vec<
         if let Some(body) = unless_node.statements() {
             for child in body.body().iter() {
                 collect_filter_call_from_node(&child, results);
+            }
+        }
+    } else if let Some(def_node) = node.as_def_node() {
+        // Filter calls inside method bodies (e.g., metaprogramming patterns like
+        // `def setup_filters; before_action :foo, only: :bar; end`)
+        if let Some(body) = def_node.body() {
+            if let Some(inner_stmts) = body.as_statements_node() {
+                for child in inner_stmts.body().iter() {
+                    collect_filter_call_from_node(&child, results);
+                }
             }
         }
     }

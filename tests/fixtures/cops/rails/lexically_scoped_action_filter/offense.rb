@@ -81,3 +81,37 @@ class ConditionalFilterController < ApplicationController
   def index
   end
 end
+
+# Filter call inside a def body — RuboCop fires on_send for ALL send nodes
+module Admin::HomePageListController
+  def setup_filters
+    before_action :check_param, only: %i[create update]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/LexicallyScopedActionFilter: `create`, `update` are not explicitly defined on the module.
+  end
+end
+
+# Class method (def self.foo) should NOT count as a defined action method
+class ClassMethodController < ApplicationController
+  before_action :authorize, except: [:action_no_auth]
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/LexicallyScopedActionFilter: `action_no_auth` is not explicitly defined on the class.
+
+  def self.action_no_auth(action)
+  end
+
+  def authorize
+  end
+end
+
+# Filter inside class_eval block inside def body inside nested module
+module Concerns
+  module TokenAuth
+    module ClassMethods
+      def account_required(options = {})
+        class_eval do
+          skip_before_action :authenticate_token!, only: :create
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/LexicallyScopedActionFilter: `create` is not explicitly defined on the module.
+        end
+      end
+    end
+  end
+end
