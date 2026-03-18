@@ -84,6 +84,19 @@ RSpec.shared_context 'validated', :aggregate_failures do
   end
 end
 
+# pending/skip wrapping examples with single expectations — no offense on inner examples
+pending 'deferred feature' do
+  it 'has only one expectation' do
+    expect(foo).to eq(bar)
+  end
+end
+
+skip 'disabled feature' do
+  it 'has only one expectation' do
+    expect(foo).to eq(bar)
+  end
+end
+
 # aggregate_failures deeply nested inside RSpec.shared_examples
 RSpec.shared_examples 'nested groups', :aggregate_failures do
   describe '.process' do

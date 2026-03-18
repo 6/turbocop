@@ -63,6 +63,27 @@ end
   end
 end
 
+# pending used as example group wrapper — nested examples still checked
+pending 'deferred feature' do
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleExpectations: Example has too many expectations [3/1].
+  it 'has too many expectations in pending group' do
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleExpectations: Example has too many expectations [3/1].
+    expect(foo).to eq(1)
+    expect(bar).to eq(2)
+    expect(baz).to eq(3)
+  end
+end
+
+# skip used as example group wrapper — nested examples still checked
+skip 'disabled feature' do
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleExpectations: Example has too many expectations [2/1].
+  it 'has too many expectations in skip group' do
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleExpectations: Example has too many expectations [2/1].
+    expect(foo).to eq(1)
+    expect(bar).to eq(2)
+  end
+end
+
 # aggregate_failures: false overrides inherited aggregate_failures
 describe Foo, aggregate_failures: true do
   it 'overrides with false', aggregate_failures: false do

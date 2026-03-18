@@ -19,6 +19,14 @@ use crate::parse::source::SourceFile;
 ///   Fixed by accepting all `is_rspec_example_group()` methods with `RSpec.` prefix.
 /// - **1 FN (pry)**: `focus` (a focused example alias) was missing from `RSPEC_EXAMPLES`.
 ///   Added to the shared constant in `util.rs`.
+/// - **21 FNs (openfoodfoundation, moneta, validates_timeliness)**: When `pending` or `skip`
+///   was used as a group wrapper (e.g., `pending "deferred" do it "test" do ... end end`),
+///   the visitor treated the outer `pending`/`skip` as an example and returned early without
+///   recursing into the block body. Nested `it` blocks inside these wrappers were never
+///   visited, so their expectations were never counted. Fixed by recursing into the example
+///   block body after `check_example`, so nested examples are still discovered and checked.
+///   RuboCop fires `on_block` for every block node, so both the outer wrapper and inner
+///   examples are independently checked.
 ///
 /// ## Expectation methods matched (from rubocop-rspec config/default.yml):
 /// `are_expected`, `expect`, `expect_any_instance_of`, `is_expected`, `should`,
@@ -148,7 +156,15 @@ impl<'a, 'pr> Visit<'pr> for MultipleExpectationsVisitor<'a> {
             if let Some(block) = node.block() {
                 if let Some(bn) = block.as_block_node() {
                     self.check_example(node, &bn);
-                    return; // Don't recurse into example body from visitor
+                    // Recurse into example body to find nested examples
+                    // (e.g., `pending "group" do it "test" do ... end end`
+                    // or `skip "disabled" do it "test" do ... end end`).
+                    // RuboCop fires on_block for every block, including nested
+                    // examples inside pending/skip wrappers.
+                    if let Some(body) = bn.body() {
+                        self.visit(&body);
+                    }
+                    return;
                 }
             }
         }
