@@ -42,9 +42,16 @@ use ruby_prism::Visit;
 ///    `subject` calls directly in method bodies (not inside examples) are still
 ///    correctly ignored.
 ///
-/// The remaining FNs are from **config resolution**: projects set
-/// `IgnoreSharedExamples: false` in `.rubocop.yml` but nitrocop defaults to `true`
-/// when config resolution doesn't fully resolve the override.
+/// ## Corpus investigation (FN=41, 2026-03-18)
+///
+/// All 41 FNs were `subject` references inside `shared_context` blocks.
+/// Root cause: `is_shared_group_call` incorrectly included `shared_context`
+/// alongside `shared_examples`/`shared_examples_for`. RuboCop's
+/// `shared_example?` matcher uses `#SharedGroups.examples` (not `.all`),
+/// which only matches `shared_examples` and `shared_examples_for` — NOT
+/// `shared_context`. So `IgnoreSharedExamples: true` should not suppress
+/// offenses inside `shared_context` blocks. Fix: removed `shared_context`
+/// from `is_shared_group_call`.
 pub struct NamedSubject;
 
 /// EnforcedStyle:
@@ -122,8 +129,11 @@ fn find_subject_in_block(block_node: &ruby_prism::BlockNode<'_>) -> Option<bool>
 /// both receiverless (`shared_examples`) and qualified (`RSpec.shared_examples`).
 fn is_shared_group_call(node: &ruby_prism::CallNode<'_>) -> bool {
     let name = node.name().as_slice();
-    let is_shared_name =
-        name == b"shared_examples" || name == b"shared_examples_for" || name == b"shared_context";
+    // Only shared_examples and shared_examples_for are "shared example groups"
+    // for IgnoreSharedExamples purposes. shared_context is NOT — RuboCop's
+    // `shared_example?` matcher uses `#SharedGroups.examples` (not `.all`),
+    // which excludes shared_context.
+    let is_shared_name = name == b"shared_examples" || name == b"shared_examples_for";
     if !is_shared_name {
         return false;
     }
@@ -346,6 +356,27 @@ mod tests {
         let source = b"shared_examples 'foo' do\n  it { subject }\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&NamedSubject, source, config);
         assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn shared_context_not_suppressed_by_ignore_shared_examples() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        // IgnoreSharedExamples only applies to shared_examples/shared_examples_for,
+        // NOT shared_context. RuboCop's shared_example? matcher uses
+        // SharedGroups.examples (not .all), excluding shared_context.
+        let config = CopConfig {
+            options: HashMap::from([("IgnoreSharedExamples".into(), serde_yml::Value::Bool(true))]),
+            ..CopConfig::default()
+        };
+        let source = b"shared_context 'setup' do\n  before { subject.activate }\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&NamedSubject, source, config);
+        assert_eq!(
+            diags.len(),
+            1,
+            "shared_context should NOT be suppressed by IgnoreSharedExamples"
+        );
     }
 
     #[test]
