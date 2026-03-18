@@ -95,8 +95,42 @@ fn array_has_complex_content(
     false
 }
 
+/// Check if a subarray has complex string content, matching RuboCop's
+/// `complex_content?` semantics. Non-string elements are SKIPPED (not treated
+/// as complex). Only string elements with spaces, empty content, invalid
+/// encoding, or non-word characters count as complex.
+fn subarray_has_complex_string_content(
+    array_node: &ruby_prism::ArrayNode<'_>,
+    word_re: &Option<regex::Regex>,
+) -> bool {
+    for elem in array_node.elements().iter() {
+        let string_node = match elem.as_string_node() {
+            Some(s) => s,
+            None => continue, // skip non-string elements (RuboCop: `next unless s.str_content`)
+        };
+        if string_node.opening_loc().is_none() {
+            continue;
+        }
+        let unescaped_bytes = string_node.unescaped();
+        // Empty strings and strings with spaces are complex
+        if unescaped_bytes.is_empty() || unescaped_bytes.contains(&b' ') {
+            return true;
+        }
+        let content_str = match std::str::from_utf8(unescaped_bytes) {
+            Ok(s) => s,
+            Err(_) => return true,
+        };
+        if let Some(re) = word_re {
+            if !re.is_match(content_str) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Check if a parent array is a "matrix of complex content": all elements are
-/// arrays, and at least one has complex content. Matches RuboCop's
+/// arrays, and at least one has complex string content. Matches RuboCop's
 /// `matrix_of_complex_content?` method.
 fn is_matrix_of_complex_content(
     array_node: &ruby_prism::ArrayNode<'_>,
@@ -112,7 +146,7 @@ fn is_matrix_of_complex_content(
             Some(a) => a,
             None => return false, // not all elements are arrays
         };
-        if !any_complex && array_has_complex_content(&sub, word_re) {
+        if !any_complex && subarray_has_complex_string_content(&sub, word_re) {
             any_complex = true;
         }
     }
@@ -361,6 +395,37 @@ mod tests {
         assert!(
             diags.is_empty(),
             "Should not flag brackets with brackets style"
+        );
+    }
+
+    #[test]
+    fn matrix_with_mixed_types_does_not_suppress_pure_string_subarrays() {
+        use crate::testutil::run_cop_full;
+
+        // Parent array where some subarrays mix strings and integers.
+        // RuboCop's complex_content? skips non-strings, so the matrix
+        // is NOT considered "complex content". Pure-string subarrays
+        // like ["foo", "bar"] should still be flagged.
+        let source = b"x = [[\"foo\", \"bar\", 0], [\"baz\", \"qux\"]]\n";
+        let diags = run_cop_full(&WordArray, source);
+        assert!(
+            !diags.is_empty(),
+            "Should flag pure-string subarrays in a matrix with mixed-type siblings"
+        );
+    }
+
+    #[test]
+    fn all_word_matrix_flags_subarrays() {
+        use crate::testutil::run_cop_full;
+
+        // Matrix where all subarrays are simple word arrays.
+        // RuboCop flags each subarray since there's no complex content.
+        let source = b"[['Architecture', 'view_architectures'], ['Audit', 'view_audit_logs']]\n";
+        let diags = run_cop_full(&WordArray, source);
+        assert_eq!(
+            diags.len(),
+            2,
+            "Should flag both subarrays in an all-word matrix"
         );
     }
 }
