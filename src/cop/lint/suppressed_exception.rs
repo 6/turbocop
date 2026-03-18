@@ -7,11 +7,8 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Investigation (2026-03-10)
 /// Corpus: FP=10, FN=0 (1,804 matches, 99.4% conformance).
-/// Root cause: when `AllowComments` is true (default), the comment check only scanned
-/// lines *between* `rescue_line + 1` and `clause_end_line`, missing trailing comments
-/// on the rescue line itself (e.g., `rescue # ignore` or `rescue StandardError # skip`).
-/// RuboCop treats these as commented rescue bodies and does not flag them.
-/// Fix: also check the rescue keyword line for a trailing `#` comment.
+/// Original analysis incorrectly concluded RuboCop treats trailing comments on rescue
+/// lines as satisfying AllowComments. This was reversed in the 2026-03-18 investigation.
 ///
 /// ## Investigation (2026-03-14)
 /// Corpus: FP=9, FN=49.
@@ -21,6 +18,18 @@ use crate::parse::source::SourceFile;
 /// comments in subsequent rescue clauses or ensure/else blocks satisfy AllowComments
 /// for earlier empty rescue clauses. Fix: always use the ancestor begin node's end
 /// keyword as the scan boundary, matching RuboCop's behavior.
+///
+/// ## Investigation (2026-03-18)
+/// Corpus: FP=0, FN=50.
+/// FN root cause: trailing comments on the rescue line itself (e.g.,
+/// `rescue LoadError # comment`) were incorrectly treated as satisfying AllowComments.
+/// RuboCop's `comment_between_rescue_and_end?` uses `comment_line?` which matches
+/// `/^\s*#/` — only standalone comment lines, not trailing comments. Additionally,
+/// `processed_source[node.first_line...end_line]` skips the rescue line itself
+/// (0-indexed array with 1-based line number), so trailing comments on the rescue
+/// line are never even checked.
+/// Fix: removed the trailing-comment-on-rescue-line check. Only standalone comment
+/// lines between rescue+1 and end satisfy AllowComments.
 pub struct SuppressedException;
 
 impl Cop for SuppressedException {
@@ -93,32 +102,21 @@ impl Cop for SuppressedException {
 
                     let lines: Vec<&[u8]> = source.lines().collect();
 
-                    // Check for trailing comment on the rescue line itself
-                    // (e.g., `rescue # ignore` or `rescue StandardError # skip`)
-                    if let Some(rescue_line_bytes) = lines.get(rescue_line - 1) {
-                        if rescue_line_bytes.windows(1).enumerate().any(|(i, _)| {
-                            rescue_line_bytes[i] == b'#'
-                                && i > 0
-                                && (rescue_line_bytes[i - 1] == b' '
-                                    || rescue_line_bytes[i - 1] == b'\t')
-                        }) {
-                            suppressed = false;
-                        }
-                    }
-
-                    // Check for comment lines between rescue and clause end
-                    if suppressed {
-                        for line_num in (rescue_line + 1)..clause_end_line {
-                            if let Some(line) = lines.get(line_num - 1) {
-                                let trimmed = line
-                                    .iter()
-                                    .position(|&b| b != b' ' && b != b'\t')
-                                    .map(|start| &line[start..])
-                                    .unwrap_or(&[]);
-                                if trimmed.starts_with(b"#") {
-                                    suppressed = false;
-                                    break;
-                                }
+                    // Check for standalone comment lines between rescue and clause end.
+                    // RuboCop's comment_between_rescue_and_end? uses comment_line?
+                    // which matches /^\s*#/ — only lines that START with a comment.
+                    // Trailing comments on the rescue line (e.g., `rescue # skip`)
+                    // do NOT satisfy AllowComments.
+                    for line_num in (rescue_line + 1)..clause_end_line {
+                        if let Some(line) = lines.get(line_num - 1) {
+                            let trimmed = line
+                                .iter()
+                                .position(|&b| b != b' ' && b != b'\t')
+                                .map(|start| &line[start..])
+                                .unwrap_or(&[]);
+                            if trimmed.starts_with(b"#") {
+                                suppressed = false;
+                                break;
                             }
                         }
                     }

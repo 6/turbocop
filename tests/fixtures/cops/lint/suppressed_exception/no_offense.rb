@@ -35,19 +35,6 @@ def execute
 rescue => e
   # Log elsewhere
 end
-# AllowComments: trailing comment on rescue line itself
-begin
-  do_something
-rescue # intentionally ignored
-end
-begin
-  do_something
-rescue StandardError # intentionally ignored
-end
-def perform_task
-  do_work
-rescue RuntimeError # skip
-end
 # Multi-rescue: empty clause followed by clause with comment in later rescue
 begin
   do_something
