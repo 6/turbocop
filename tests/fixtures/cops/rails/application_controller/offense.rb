@@ -26,3 +26,8 @@ MyController = Class.new(ActionController::Base)
 
 Class.new(ActionController::Base) {}
           ^^^^^^^^^^^^^^^^^^^^^^ Rails/ApplicationController: Controllers should subclass `ApplicationController`.
+
+# stub_const with ApplicationController in string argument — should fire because
+# `ApplicationController` is only inside a string, not a constant assignment LHS.
+stub_const("Trestle::ApplicationController", Class.new(ActionController::Base))
+                                                       ^^^^^^^^^^^^^^^^^^^^^^ Rails/ApplicationController: Controllers should subclass `ApplicationController`.

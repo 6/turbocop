@@ -16,6 +16,16 @@ use crate::parse::source::SourceFile;
 ///   failed because `parent_class_name` returns the full source text including `::`.
 /// - `Class.new(ActionController::Base)` pattern was not handled — RuboCop's
 ///   `EnforceSuperclass` mixin has a separate `on_send` matcher for this.
+///
+/// **FN root cause (2 FN, 2026-03-18):**
+/// - `stub_const("Trestle::ApplicationController", Class.new(ActionController::Base))` was
+///   incorrectly skipped because the prefix check scanned for `ApplicationController` as raw text.
+///   The string argument `"Trestle::ApplicationController"` contains `ApplicationController` as a
+///   substring, so the check falsely returned (skipped) the offense.
+///   Fix: changed prefix check to look for `ApplicationController` followed by `=` (constant
+///   assignment syntax), not just any occurrence of the name. This correctly distinguishes
+///   `ApplicationController = Class.new(...)` (skip) from `stub_const("...ApplicationController",
+///   Class.new(...))` (fire).
 pub struct ApplicationController;
 
 impl Cop for ApplicationController {
@@ -46,6 +56,44 @@ impl Cop for ApplicationController {
             self.check_class_new(source, &call, diagnostics);
         }
     }
+}
+
+/// Check if the line prefix contains `ApplicationController` as a constant assignment LHS.
+/// Returns true if the prefix contains `ApplicationController` followed by `=` (with optional
+/// whitespace), indicating a constant assignment like `ApplicationController = Class.new(...)`.
+/// This avoids false matches for string literals like:
+///   stub_const("SomeMod::ApplicationController", Class.new(ActionController::Base))
+fn is_application_controller_assignment(prefix: &[u8]) -> bool {
+    let needle = b"ApplicationController";
+    let mut pos = 0;
+    while pos + needle.len() <= prefix.len() {
+        if &prefix[pos..pos + needle.len()] == needle {
+            // Check if what follows (skipping whitespace) is `=` (but not `==`)
+            let after = pos + needle.len();
+            let rest = &prefix[after..];
+            let rest_trimmed = rest.iter().position(|&b| b != b' ' && b != b'\t');
+            let after_ws = match rest_trimmed {
+                Some(i) => after + i,
+                None => prefix.len(),
+            };
+            if after_ws < prefix.len() {
+                let ch = prefix[after_ws];
+                // `=` but not `==`
+                if ch == b'=' {
+                    let next = if after_ws + 1 < prefix.len() {
+                        prefix[after_ws + 1]
+                    } else {
+                        0
+                    };
+                    if next != b'=' {
+                        return true;
+                    }
+                }
+            }
+        }
+        pos += 1;
+    }
+    false
 }
 
 impl ApplicationController {
@@ -150,7 +198,12 @@ impl ApplicationController {
         // Check if this is `ApplicationController = Class.new(...)` — skip it.
         // RuboCop's EnforceSuperclass checks that the parent casgn is NOT named
         // ApplicationController. We approximate by checking the source bytes
-        // preceding `Class.new` on the same line for `ApplicationController`.
+        // preceding `Class.new` on the same line for `ApplicationController`
+        // followed by `=` (assignment syntax). We must check for `=` after the
+        // name to avoid false matches in string literals like:
+        //   stub_const("Trestle::ApplicationController", Class.new(...))
+        // where `ApplicationController` appears inside a string argument, not as
+        // a constant assignment LHS.
         let call_start = call.location().start_offset();
         // Find start of current line by scanning backwards for '\n'
         let line_start = source.as_bytes()[..call_start]
@@ -159,10 +212,7 @@ impl ApplicationController {
             .map(|p| p + 1)
             .unwrap_or(0);
         let prefix = &source.as_bytes()[line_start..call_start];
-        if prefix
-            .windows(b"ApplicationController".len())
-            .any(|w| w == b"ApplicationController")
-        {
+        if is_application_controller_assignment(prefix) {
             return;
         }
 
