@@ -161,3 +161,10 @@ describe Foo::Bar do
     Foo::Bar.new
   end
 end
+
+# ConstantPathWriteNode where target doesn't match described class
+describe MyClass do
+  before do
+    OtherClass::CONST = 'value'
+  end
+end

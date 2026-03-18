@@ -115,3 +115,27 @@ describe Chef::Decorator do
                            ^^^^^^^^^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `Chef::Decorator`.
   end
 end
+
+# ConstantPathWriteNode — parent part of target matches described class
+describe Service do
+  before do
+    Service::INITD_PATH = 'path'
+    ^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `Service`.
+  end
+end
+
+# ConstantPathWriteNode with multi-segment described class
+describe Chef::Resource do
+  before do
+    Chef::Resource::Klz = klz
+    ^^^^^^^^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `Chef::Resource`.
+  end
+end
+
+# ConstantPathWriteNode with deeply qualified described class
+describe Anyway::Ext::DeepDup do
+  it "assigns constant" do
+    Anyway::Ext::DeepDup::TestClass = klass
+    ^^^^^^^^^^^^^^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `Anyway::Ext::DeepDup`.
+  end
+end

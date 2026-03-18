@@ -32,6 +32,20 @@ use ruby_prism::Visit;
 /// skipping ALL `DefNode`s, causing FNs when described class constants appeared
 /// inside singleton methods (e.g., `def self.impersonates_a` in chef specs).
 /// Fixed by only skipping `DefNode`s without a receiver (instance methods).
+///
+/// ## Corpus investigation (7 FNs, 2026-03-18)
+///
+/// **`ConstantPathWriteNode` targets were not checked for described class.**
+/// In RuboCop's Parser AST, `Service::CONST = val` is `(casgn (const nil :Service) :CONST val)`.
+/// The `(const nil :Service)` child is traversed by `find_usage` and matched as the described
+/// class. In Prism, this is a `ConstantPathWriteNode` with target `Service::CONST` (a
+/// `ConstantPathNode`). The visitor's `visit_constant_path_node` checked the full path
+/// `Service::CONST` (no match), then with `OnlyStaticConstants: true` stopped recursion,
+/// so the parent `Service` was never checked. Fixed by adding `visit_constant_path_write_node`
+/// (and or/and/operator variants) that extracts the parent portion of the target and checks
+/// if it matches the described class, matching RuboCop's casgn semantics. Affects all 7
+/// remaining FNs: chef resource_spec (3), thin service_spec (2), anyway_config deep_dup (1),
+/// puppet execution_spec (1).
 pub struct DescribedClass;
 
 impl Cop for DescribedClass {
@@ -297,6 +311,36 @@ impl DescribedClassVisitor<'_> {
         false
     }
 
+    /// Check the parent portion of a ConstantPathWriteNode target for offense.
+    /// For `Foo::BAR = val`, the target is `Foo::BAR` but we check just `Foo`
+    /// (the parent), matching RuboCop's behavior where casgn children include
+    /// only the namespace const, not the assigned constant name.
+    fn check_constant_path_write_target(&mut self, target: &ruby_prism::ConstantPathNode<'_>) {
+        if self.enforced_style != "described_class" {
+            return;
+        }
+
+        // Get the parent node of the target path. For `Foo::BAR`, parent is `Foo`.
+        // For `Foo::Bar::BAZ`, parent is `Foo::Bar`.
+        if let Some(parent) = target.parent() {
+            // Check if the parent is a constant that matches described class
+            if let Some(cr) = parent.as_constant_read_node() {
+                if self.is_offensive_const_read(&cr) {
+                    let loc = cr.location();
+                    let source_text = &self.source.as_bytes()[loc.start_offset()..loc.end_offset()];
+                    self.report_offense(loc.start_offset(), source_text);
+                }
+            } else if let Some(cp) = parent.as_constant_path_node() {
+                // Skip if contains described_class
+                if !Self::contains_described_class(&cp) && self.is_offensive_const_path(&cp) {
+                    let loc = cp.location();
+                    let source_text = &self.source.as_bytes()[loc.start_offset()..loc.end_offset()];
+                    self.report_offense(loc.start_offset(), source_text);
+                }
+            }
+        }
+    }
+
     fn report_offense(&mut self, start_offset: usize, source_text: &[u8]) {
         let (line, col) = self.source.offset_to_line_col(start_offset);
         let described_source = self
@@ -496,6 +540,50 @@ impl<'pr> Visit<'pr> for DescribedClassVisitor<'_> {
         }
 
         ruby_prism::visit_constant_path_node(self, node);
+    }
+
+    // Handle ConstantPathWriteNode (e.g., `Foo::BAR = val`).
+    // In RuboCop's Parser AST, this is `(casgn (const nil :Foo) :BAR val)` where
+    // the const child `(const nil :Foo)` is traversed and checked for offense.
+    // In Prism, the target is the full path `Foo::BAR`. We need to check the
+    // parent part of the target (everything except the last segment) to see if
+    // it matches the described class. The value is visited through default traversal.
+    fn visit_constant_path_write_node(&mut self, node: &ruby_prism::ConstantPathWriteNode<'pr>) {
+        if !self.in_scope_change && self.described_full_name.is_some() {
+            self.check_constant_path_write_target(&node.target());
+        }
+        // Visit value through default traversal
+        ruby_prism::visit_constant_path_write_node(self, node);
+    }
+
+    fn visit_constant_path_or_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOrWriteNode<'pr>,
+    ) {
+        if !self.in_scope_change && self.described_full_name.is_some() {
+            self.check_constant_path_write_target(&node.target());
+        }
+        ruby_prism::visit_constant_path_or_write_node(self, node);
+    }
+
+    fn visit_constant_path_and_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathAndWriteNode<'pr>,
+    ) {
+        if !self.in_scope_change && self.described_full_name.is_some() {
+            self.check_constant_path_write_target(&node.target());
+        }
+        ruby_prism::visit_constant_path_and_write_node(self, node);
+    }
+
+    fn visit_constant_path_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOperatorWriteNode<'pr>,
+    ) {
+        if !self.in_scope_change && self.described_full_name.is_some() {
+            self.check_constant_path_write_target(&node.target());
+        }
+        ruby_prism::visit_constant_path_operator_write_node(self, node);
     }
 
     // Don't descend into class/module/def definitions when inside a describe block
@@ -842,6 +930,32 @@ mod tests {
             diags.len(),
             1,
             "instance_exec without block should not be a scope change"
+        );
+    }
+
+    #[test]
+    fn constant_path_write_flags_described_class_prefix() {
+        // Chef::Resource::Klz = klz — the parent Chef::Resource is the described class
+        let source =
+            b"describe Chef::Resource do\n  before do\n    Chef::Resource::Klz = klz\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&DescribedClass, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Chef::Resource in Chef::Resource::Klz = ... should be flagged"
+        );
+    }
+
+    #[test]
+    fn simple_constant_path_write_flags_described_class() {
+        // Service::INITD_PATH = ... — Service is the described class
+        let source =
+            b"describe Service do\n  before do\n    Service::INITD_PATH = 'path'\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&DescribedClass, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Service in Service::INITD_PATH = ... should be flagged"
         );
     }
 }
