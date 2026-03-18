@@ -25,6 +25,13 @@ use crate::parse::source::SourceFile;
 /// prefix. Fix: split on whitespace and parse only the leading token, matching Rack's behavior.
 /// The diagnostic message uses the full original string content as the "current" value (e.g.
 /// `over '404 Not Found'`), matching RuboCop's output exactly.
+///
+/// **FP root cause (2 FP, 2026-03-18):** Strings like `"404 AWOL"` and `"500 Sorry"` have
+/// custom non-standard reason phrases. The cop was parsing the numeric prefix and flagging them,
+/// but RuboCop uses `Rack::Utils::SYMBOL_TO_STATUS_CODE` which only recognizes known reason
+/// phrases. A string like `"404 AWOL"` doesn't match any Rack status mapping, so RuboCop skips
+/// it. Fix: when a string status contains whitespace, validate that it exactly matches a known
+/// Rack "code reason-phrase" pair. Strings with unknown/custom reason phrases are not flagged.
 pub struct HttpStatus;
 
 fn status_code_to_symbol(code: i64) -> Option<&'static str> {
@@ -161,6 +168,77 @@ fn symbol_to_status_code(sym: &[u8]) -> Option<i64> {
     }
 }
 
+/// Returns the canonical Rack reason phrase for a given status code (e.g. 404 → "Not Found").
+/// Used to validate Rack-style string status codes like "404 Not Found".
+/// RuboCop only flags strings that exactly match a known Rack status format, so
+/// strings like "404 AWOL" or "500 Sorry" with custom reason phrases must be skipped.
+fn status_code_to_rack_reason(code: i64) -> Option<&'static str> {
+    match code {
+        100 => Some("Continue"),
+        101 => Some("Switching Protocols"),
+        102 => Some("Processing"),
+        103 => Some("Early Hints"),
+        200 => Some("OK"),
+        201 => Some("Created"),
+        202 => Some("Accepted"),
+        203 => Some("Non-Authoritative Information"),
+        204 => Some("No Content"),
+        205 => Some("Reset Content"),
+        206 => Some("Partial Content"),
+        207 => Some("Multi-Status"),
+        208 => Some("Already Reported"),
+        226 => Some("IM Used"),
+        300 => Some("Multiple Choices"),
+        301 => Some("Moved Permanently"),
+        302 => Some("Found"),
+        303 => Some("See Other"),
+        304 => Some("Not Modified"),
+        305 => Some("Use Proxy"),
+        307 => Some("Temporary Redirect"),
+        308 => Some("Permanent Redirect"),
+        400 => Some("Bad Request"),
+        401 => Some("Unauthorized"),
+        402 => Some("Payment Required"),
+        403 => Some("Forbidden"),
+        404 => Some("Not Found"),
+        405 => Some("Method Not Allowed"),
+        406 => Some("Not Acceptable"),
+        407 => Some("Proxy Authentication Required"),
+        408 => Some("Request Timeout"),
+        409 => Some("Conflict"),
+        410 => Some("Gone"),
+        411 => Some("Length Required"),
+        412 => Some("Precondition Failed"),
+        413 => Some("Payload Too Large"),
+        414 => Some("URI Too Long"),
+        415 => Some("Unsupported Media Type"),
+        416 => Some("Range Not Satisfiable"),
+        417 => Some("Expectation Failed"),
+        421 => Some("Misdirected Request"),
+        422 => Some("Unprocessable Entity"),
+        423 => Some("Locked"),
+        424 => Some("Failed Dependency"),
+        425 => Some("Too Early"),
+        426 => Some("Upgrade Required"),
+        428 => Some("Precondition Required"),
+        429 => Some("Too Many Requests"),
+        431 => Some("Request Header Fields Too Large"),
+        451 => Some("Unavailable For Legal Reasons"),
+        500 => Some("Internal Server Error"),
+        501 => Some("Not Implemented"),
+        502 => Some("Bad Gateway"),
+        503 => Some("Service Unavailable"),
+        504 => Some("Gateway Timeout"),
+        505 => Some("HTTP Version Not Supported"),
+        506 => Some("Variant Also Negotiates"),
+        507 => Some("Insufficient Storage"),
+        508 => Some("Loop Detected"),
+        510 => Some("Not Extended"),
+        511 => Some("Network Authentication Required"),
+        _ => None,
+    }
+}
+
 /// Permitted symbols that are not specific status codes (used by numeric style).
 const PERMITTED_SYMBOLS: &[&[u8]] = &[b"error", b"success", b"missing", b"redirect"];
 
@@ -258,11 +336,32 @@ impl Cop for HttpStatus {
                             let content = str_node.unescaped();
                             let code_text = std::str::from_utf8(content).unwrap_or("");
                             // Support strings like "404" as well as "404 Not Found" (Rack-style).
-                            // RuboCop uses Rack::Utils which parses the leading numeric portion.
+                            // RuboCop uses Rack::Utils which only recognizes known reason phrases.
+                            // Strings with custom/unknown reason phrases like "404 AWOL" must NOT
+                            // be flagged. Validate that strings with whitespace exactly match
+                            // a known Rack "code reason-phrase" pair before flagging.
                             let numeric_prefix =
                                 code_text.split_ascii_whitespace().next().unwrap_or("");
                             let num = numeric_prefix.parse::<i64>().ok();
-                            (num, code_text.to_string(), status_value.location())
+                            // If the string contains more than just the number, validate the
+                            // reason phrase matches the canonical Rack reason phrase exactly.
+                            let validated_num = if code_text.contains(' ') {
+                                num.filter(|&n| {
+                                    status_code_to_rack_reason(n)
+                                        .map(|reason| {
+                                            let expected = format!("{n} {reason}");
+                                            code_text == expected
+                                        })
+                                        .unwrap_or(false)
+                                })
+                            } else {
+                                num
+                            };
+                            (
+                                validated_num,
+                                code_text.to_string(),
+                                status_value.location(),
+                            )
                         } else {
                             (None, String::new(), status_value.location())
                         };
