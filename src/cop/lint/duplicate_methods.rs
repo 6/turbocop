@@ -99,12 +99,30 @@ use ruby_prism::Visit;
 ///   duplicate detection. Fixed by treating non-self sclass bodies as plain blocks
 ///   (incrementing `plain_block_depth`), matching RuboCop's behavior.
 ///
-/// Remaining FN not addressed (edge cases, ~7 total):
+/// ### Round 7 (FP=0, FN=37)
+/// Root causes of FN:
+/// - `class << ConstName` (e.g., `class << Multiton`, `class << SymPlane`,
+///   `class << Multiton::ClassMethods`) was treated as invisible
+///   (`plain_block_depth += 1`). Round 6 made this change to avoid FP from
+///   nested classes inside sclass-const vs sclass-self contexts. However, the
+///   Round 6 analysis was incorrect about RuboCop behavior: `parent_module_name`
+///   DOES return `#<Class:ConstName>` for defs inside `class << ConstName`, and
+///   the humanization regex produces `ConstName.method` — so duplicates ARE detected.
+///   Fixed by pushing `#<Class:ConstName>` as the scope name and applying
+///   `humanize_scope()` in `qualified_method_name()`, which converts
+///   `#<Class:X>` → `X.` matching RuboCop's regex. Nested classes produce
+///   distinct keys because `#<Class:X>::Nested` humanizes to `X.Nested` while
+///   `X::#<Class:X>::Nested` humanizes to `X.::Nested`. (11 FN fixed, 0 FP)
+///
+/// Remaining FN not addressed (edge cases, ~26 total):
 /// - `def VCR.version` at top level in Rake tasks (inside DSL blocks)
 /// - `def FakeModel.method` inside test describe blocks (plain_block_depth > 0)
 /// - `def response.body` inside `class << @reflex.controller.response`
 /// - One-liner singleton classes (`class << Object.new; def m; end; end`)
-/// - Some repos with `attr_accessor` + `delegate` combinations
+/// - Delegate-related FN where ActiveSupportExtensionsEnabled may not resolve
+///   correctly for specific corpus repos (config resolution issue, not cop logic)
+/// - `delegate` listing same symbol twice in one call (e.g., `:promoting_committee_enabled?`
+///   listed twice in same delegate line)
 pub struct DuplicateMethods;
 
 impl Cop for DuplicateMethods {
@@ -201,10 +219,21 @@ impl DupMethodVisitor<'_, '_> {
     /// For instance methods: `ClassName#method_name`
     /// For singleton methods: `ClassName.method_name`
     /// For top-level: `Object#method_name`
+    ///
+    /// When the scope contains `#<Class:ConstName>` entries (from `class << ConstName`),
+    /// applies RuboCop's humanization regex to produce readable names like `ConstName.method`.
     fn qualified_method_name(&self, method_name: &str, is_singleton: bool) -> String {
         let scope = self.current_scope_name();
-        let separator = if is_singleton { "." } else { "#" };
-        format!("{scope}{separator}{method_name}")
+        let humanized = humanize_scope(&scope);
+
+        if humanized.ends_with('.') {
+            // Scope already ends with `.` from humanization (e.g., `ConstName.`)
+            // so the method is implicitly a singleton method
+            format!("{humanized}{method_name}")
+        } else {
+            let separator = if is_singleton { "." } else { "#" };
+            format!("{humanized}{separator}{method_name}")
+        }
     }
 
     /// Get the current scope name from the scope stack.
@@ -720,6 +749,64 @@ fn constant_path_name(node: &ruby_prism::ConstantPathNode<'_>) -> String {
     child_name.to_string()
 }
 
+/// Extract the constant name from a singleton class expression (`class << ConstName`).
+/// Returns Some(name) for `ConstantReadNode` or `ConstantPathNode`, None otherwise.
+fn extract_sclass_const_name(expr: &ruby_prism::Node<'_>) -> Option<String> {
+    if let Some(const_read) = expr.as_constant_read_node() {
+        let name = std::str::from_utf8(const_read.name().as_slice()).unwrap_or("");
+        return Some(name.to_string());
+    }
+    if let Some(const_path) = expr.as_constant_path_node() {
+        return Some(constant_path_name(&const_path));
+    }
+    None
+}
+
+/// Apply RuboCop's humanization regex to a scope name containing `#<Class:...>`.
+///
+/// Matches two patterns:
+/// 1. `SomeName::#<Class:SomeName>` → `SomeName.` (class << self inside module SomeName)
+/// 2. `#<Class:SomeName>` → `SomeName.` (class << SomeName from outside)
+///
+/// Pattern 1 includes an optional `::` after the closing `>` to capture nested classes
+/// like `#<Class:Foo>::Bar` → `Foo.Bar`.
+fn humanize_scope(scope: &str) -> String {
+    // Check for pattern 1: `Name::#<Class:Name>` where the names match
+    // (mirrors the first alternative of RuboCop's regex)
+    if let Some(class_start) = scope.find("#<Class:") {
+        let before = &scope[..class_start];
+        let after_class = &scope[class_start + 8..]; // skip "#<Class:"
+        if let Some(close_pos) = after_class.find('>') {
+            let class_name = &after_class[..close_pos];
+            let remainder = &after_class[close_pos + 1..];
+            // Strip optional leading "::" from remainder
+            let remainder = remainder.strip_prefix("::").unwrap_or(remainder);
+
+            // Check if `before` matches pattern `ClassName::` (first alternative)
+            if let Some(stripped) = before.strip_suffix("::") {
+                if stripped == class_name {
+                    // Pattern 1: `Name::#<Class:Name>` → `Name.`
+                    let result = format!("{stripped}.{remainder}");
+                    return if result.ends_with('.') || remainder.is_empty() {
+                        format!("{stripped}.")
+                    } else {
+                        format!("{stripped}.{remainder}")
+                    };
+                }
+            }
+
+            // Pattern 2: standalone `#<Class:Name>` (possibly with trailing content)
+            if before.is_empty() {
+                if remainder.is_empty() {
+                    return format!("{class_name}.");
+                }
+                return format!("{class_name}.{remainder}");
+            }
+        }
+    }
+    scope.to_string()
+}
+
 impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
         let name = class_or_module_name_from_constant(node.constant_path());
@@ -769,17 +856,35 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
                 }
                 self.scope_stack.pop();
             }
+        } else if let Some(const_name) = extract_sclass_const_name(&expr) {
+            // `class << SomeConst` or `class << A::B` — creates a singleton scope
+            // for the constant. RuboCop's `parent_module_name` returns
+            // `#<Class:ConstName>` which humanizes to `ConstName.` for methods.
+            //
+            // We push `#<Class:ConstName>` onto the scope stack (without clearing
+            // existing scope). The `humanize_scope` function in `qualified_method_name`
+            // converts this to `ConstName.` for direct methods, matching RuboCop's
+            // output. For nested classes, the `#<Class:>` wrapper creates a distinct
+            // key from the same class defined via `class << self` inside the module.
+            //
+            // The scope stack is saved/restored so reopened `class << Const` blocks
+            // at different nesting levels share the same key prefix.
+            let saved_scopes = self.scope_stack.clone();
+            self.scope_stack.clear();
+            self.scope_stack.push(ScopeEntry {
+                name: format!("#<Class:{const_name}>"),
+                is_singleton: false,
+            });
+            if let Some(body) = node.body() {
+                self.visit(&body);
+            }
+            self.scope_stack = saved_scopes;
         } else {
-            // `class << SomeConst` or `class << A::B` or `class << expr`
+            // `class << some_expr` (e.g., `class << @obj.response`)
             //
-            // RuboCop's `parent_module_name` returns nil for defs inside a
-            // non-self sclass, and `found_sclass_method` only handles
-            // send-type receivers (not const receivers). This means methods
-            // defined inside `class << SomeConst` (including nested classes)
-            // are effectively invisible to RuboCop's duplicate detection.
-            //
-            // We match this behavior by incrementing plain_block_depth, which
-            // causes process_def and process_call to skip all definitions.
+            // RuboCop's `parent_module_name_for_sclass` returns nil for non-const
+            // non-self expressions, and `found_sclass_method` only handles
+            // send-type receivers. Methods inside are effectively invisible.
             self.plain_block_depth += 1;
             if let Some(body) = node.body() {
                 self.visit(&body);
@@ -1285,22 +1390,48 @@ mod tests {
     }
 
     #[test]
-    fn test_sclass_constant_path_ignored() {
-        // RuboCop's parent_module_name returns nil for defs inside class << SomeConst,
-        // and found_sclass_method only handles send-type receivers (not const receivers).
-        // So methods inside class << SomeConst are invisible to duplicate detection.
+    fn test_sclass_constant_path_detects_dups() {
+        // RuboCop's parent_module_name returns `#<Class:Multiton::ClassMethods>` for
+        // defs inside `class << Multiton::ClassMethods`, humanized to
+        // `Multiton::ClassMethods.`. Duplicate defs ARE detected.
         let n = count_offenses(
             b"class << Multiton::ClassMethods\n  def extended; 1; end\n  def extended; 2; end\nend\n",
         );
-        assert_eq!(n, 0, "class << A::B should be invisible to dup detection");
+        assert_eq!(n, 1, "class << A::B should detect duplicate defs");
     }
 
     #[test]
-    fn test_sclass_constant_path_reopened_ignored() {
-        // Reopened class << A::B is also invisible
+    fn test_sclass_constant_path_reopened_detects_dups() {
+        // Reopened class << A::B shares the same scope — duplicates detected
         let n = count_offenses(
             b"class << Multiton::ClassMethods\n  def extended; 1; end\nend\nclass << Multiton::ClassMethods\n  def extended; 2; end\nend\n",
         );
-        assert_eq!(n, 0, "reopened class << A::B should be invisible");
+        assert_eq!(n, 1, "reopened class << A::B should detect dups");
+    }
+
+    #[test]
+    fn test_sclass_const_nested_class_no_fp() {
+        // Nested class inside `class << Const` should NOT conflict with
+        // the same class inside `module Const > class << self`.
+        // RuboCop produces different scope keys for these two contexts.
+        let n = count_offenses(
+            b"class << Multiton\n  class Nested\n    def init; end\n  end\nend\nmodule Multiton\n  class << self\n    class Nested\n      def init; end\n    end\n  end\nend\n",
+        );
+        assert_eq!(
+            n, 0,
+            "nested class in sclass const vs sclass self should not conflict"
+        );
+    }
+
+    #[test]
+    fn test_sclass_const_cross_ref_with_def_self() {
+        // `def self.foo` inside `module M` and `def foo` inside `class << M` should match
+        let n = count_offenses(
+            b"module Container\n  def self.helper; 1; end\nend\nclass << Container\n  def helper; 2; end\nend\n",
+        );
+        assert_eq!(
+            n, 1,
+            "class << Const should cross-reference with def self.method"
+        );
     }
 }

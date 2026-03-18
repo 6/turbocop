@@ -272,43 +272,24 @@ class WithConstDelegators
   def run; end
 end
 
-# class << SomeConst — methods inside are not tracked by RuboCop
-# (parent_module_name returns nil for non-self sclass, found_sclass_method
-# only handles send-type receivers, not const receivers)
-class << Multiton::ClassMethods
-  class InstanceMutex < Hash
-    def initialize
-      @global = Mutex.new
-    end
-    def default(arg)
-      @global.synchronize { fetch(arg) { store(arg, Mutex.new) } }
+# Nested class inside class << ConstName does NOT conflict with
+# the same class inside module ConstName > class << self.
+# RuboCop produces different scope keys for these two contexts.
+class << Multiton
+  class InstanceMutex
+    def initialize; @m = Mutex.new; end
+  end
+end
+module Multiton
+  class << self
+    class InstanceMutex
+      def initialize; @m = Mutex.new; end
     end
   end
 end
 
-# Same methods in class << SomeConst should not be flagged even if
-# the same methods exist in a normal class context
-module Multiton
-  module ClassMethods
-    class << self
-      class InstanceMutex < Hash
-        def initialize
-          @global = Mutex.new
-        end
-        def default(arg)
-          @global.synchronize { fetch(arg) { store(arg, Mutex.new) } }
-        end
-      end
-    end
-  end
-end
-class << Multiton::ClassMethods
-  class InstanceMutex < Hash
-    def initialize
-      @global = Mutex.new
-    end
-    def default(arg)
-      @global.synchronize { fetch(arg) { store(arg, Mutex.new) } }
-    end
-  end
+# Different methods in class << ConstName are fine
+class << Multiton
+  def foo; 1; end
+  def bar; 2; end
 end

@@ -171,6 +171,31 @@ class Unified
   ^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `Unified.compute` is defined at both test.rb:152 and test.rb:153.
 end
 
+# Reopened class << ConstName should detect duplicates
+module Singleton
+  def self.append_features(mod); 1; end
+end
+class << Singleton
+  def append_features(mod); 2; end
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `Singleton.append_features` is defined at both test.rb:158 and test.rb:161.
+end
+
+# Reopened class << ConstName (two separate blocks)
+class << Singleton
+  def included(klass); 1; end
+end
+class << Singleton
+  def included(klass); 2; end
+  ^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `Singleton.included` is defined at both test.rb:166 and test.rb:169.
+end
+
+# class << ConstName with attr_reader duplicating def
+class << Singleton
+  def count; 1; end
+  attr_reader :count
+  ^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `Singleton.count` is defined at both test.rb:174 and test.rb:175.
+end
+
 # case/when does NOT suppress duplicate detection (only if/unless does)
 class CaseVariant
   case RUBY_VERSION
@@ -178,6 +203,6 @@ class CaseVariant
     def bar; 1; end
   when '2.7'
     def bar; 2; end
-    ^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `CaseVariant#bar` is defined at both test.rb:160 and test.rb:162.
+    ^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `CaseVariant#bar` is defined at both test.rb:182 and test.rb:184.
   end
 end
