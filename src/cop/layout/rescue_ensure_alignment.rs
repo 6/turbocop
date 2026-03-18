@@ -1,5 +1,5 @@
 use crate::cop::node_type::{
-    BEGIN_NODE, BLOCK_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, SINGLETON_CLASS_NODE,
+    BEGIN_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, SINGLETON_CLASS_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -97,6 +97,7 @@ impl Cop for RescueEnsureAlignment {
             MODULE_NODE,
             SINGLETON_CLASS_NODE,
             BLOCK_NODE,
+            CALL_NODE,
         ]
     }
 
@@ -273,31 +274,32 @@ impl Cop for RescueEnsureAlignment {
                     }
                 }
             }
-        } else if let Some(block_node) = node.as_block_node() {
+        } else if let Some(call_node) = node.as_call_node() {
+            // Handle blocks attached to method calls. Using CallNode gives us the
+            // full expression start (including receiver chain), which RuboCop uses
+            // for alignment since Parser gem's block node includes the receiver.
+            let block_node = match call_node.block() {
+                Some(b) => b,
+                None => return,
+            };
+            let block_node = match block_node.as_block_node() {
+                Some(b) => b,
+                None => return,
+            };
             let opening_loc = block_node.opening_loc();
             let opening_slice =
                 &source.as_bytes()[opening_loc.start_offset()..opening_loc.end_offset()];
-            // Only check do-end blocks, not brace blocks
             if opening_slice != b"do" {
                 return;
             }
 
             let (do_line, _) = source.offset_to_line_col(opening_loc.start_offset());
 
-            // For blocks, RuboCop aligns rescue/ensure with the start of the
-            // line containing the `do` keyword (the call expression).
-            let bytes = source.as_bytes();
-            let mut line_start = opening_loc.start_offset();
-            while line_start > 0 && bytes[line_start - 1] != b'\n' {
-                line_start -= 1;
-            }
-            let mut indent = 0;
-            while line_start + indent < bytes.len()
-                && (bytes[line_start + indent] == b' ' || bytes[line_start + indent] == b'\t')
-            {
-                indent += 1;
-            }
-            let align_col = indent;
+            // Use the CallNode's start column — this includes the receiver chain,
+            // matching RuboCop's Parser gem behavior where block.source_range.column
+            // is the receiver's column.
+            let (_, call_col) = source.offset_to_line_col(call_node.location().start_offset());
+            let align_col = call_col;
 
             if let Some(body) = block_node.body() {
                 if let Some(begin_node) = body.as_begin_node() {
@@ -313,6 +315,10 @@ impl Cop for RescueEnsureAlignment {
                     }
                 }
             }
+        } else if node.as_block_node().is_some() {
+            // BlockNode is also in interested_node_types for standalone blocks
+            // (not attached to a call). These are handled by CALL_NODE above.
+            // This arm exists only to avoid missing standalone blocks in the future.
         }
     }
 }
@@ -430,6 +436,28 @@ mod tests {
             diags.len(),
             1,
             "rescue misaligned with private def should fire"
+        );
+    }
+
+    #[test]
+    fn block_multiline_chain_rescue_aligned_no_offense() {
+        let src = b"      Foo.where(id: 1)\n         .find_each do |item|\n        item.process\n      rescue StandardError => e\n        handle(e)\n      end\n";
+        let diags = run_cop_full(&RescueEnsureAlignment, src);
+        assert!(
+            diags.is_empty(),
+            "rescue aligned with chain start should not fire: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn block_multiline_chain_rescue_misaligned() {
+        let src = b"      Foo.where(id: 1)\n         .find_each do |item|\n        item.process\n         rescue StandardError\n        handle\n      end\n";
+        let diags = run_cop_full(&RescueEnsureAlignment, src);
+        assert_eq!(
+            diags.len(),
+            1,
+            "rescue misaligned with chain start should fire"
         );
     }
 }

@@ -122,3 +122,12 @@ module MyModule
     end
   end
 end
+
+# Multi-line method chain with do..end block: rescue aligns with chain start
+Collection.where(active: true)
+           .find_each do |item|
+  item.process
+rescue StandardError => e
+  handle(e)
+end
+
