@@ -3,6 +3,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03-18):
+/// All 15 FP + 12 FN were caused by a location bug: the offense was reported
+/// at node.location() (start of the entire call chain, e.g. `dependabot_versions`)
+/// instead of recv_call.message_loc() (the `.reverse`/`.reverse_each` method name).
+/// Multi-line chains surfaced this as line mismatches (FP on chain start line,
+/// FN on the .reverse line). Fix: use recv_call.message_loc() for offense location.
 pub struct ReverseFind;
 
 impl Cop for ReverseFind {
@@ -74,7 +80,9 @@ impl Cop for ReverseFind {
             return;
         }
 
-        let loc = node.location();
+        let loc = recv_call
+            .message_loc()
+            .unwrap_or_else(|| recv_call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
