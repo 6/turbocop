@@ -169,3 +169,38 @@ def handle(response)
   end
 end
 
+# FN fix: variable in if-branch, block in multi-statement elsif branch
+def build_graph
+  if items.size == 1
+    prev = items.first
+    use(prev)
+  elsif items.size > 1
+    names = items.map(&:name)
+    items.each do |prev|
+                   ^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `prev`.
+      process(prev)
+    end
+  end
+end
+
+# FN fix: variable in case/when, block in different multi-statement when
+def run_server(engine)
+  case engine
+  when "puma"
+    server = create_puma
+    server.run.join
+  when "thin"
+    handler = get_handler("thin")
+    handler.run(app) do |server|
+                         ^^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `server`.
+      server.ssl = true
+    end
+  end
+end
+
+# FN fix: splat rest param inside destructured block param shadows outer
+def join_results(fruits)
+  actual.map { |(car, *fruits)| [car, fruits.map(&:name)] }
+                       ^^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `fruits`.
+end
+

@@ -198,7 +198,7 @@ impl FlashVisitor<'_> {
         // Check flash in the if-branch body with outer siblings as render context
         if let Some(stmts) = if_node.statements() {
             let body_nodes: Vec<_> = stmts.body().iter().collect();
-            self.check_branch_stmts_with_outer(&body_nodes, outer_siblings);
+            self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
         }
         // Check subsequent elsif/else clauses
         if let Some(subsequent) = if_node.subsequent() {
@@ -208,7 +208,7 @@ impl FlashVisitor<'_> {
             if let Some(else_clause) = subsequent.as_else_node() {
                 if let Some(stmts) = else_clause.statements() {
                     let body_nodes: Vec<_> = stmts.body().iter().collect();
-                    self.check_branch_stmts_with_outer(&body_nodes, outer_siblings);
+                    self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
                 }
             }
         }
@@ -221,7 +221,7 @@ impl FlashVisitor<'_> {
     ) {
         if let Some(stmts) = begin_node.statements() {
             let body_nodes: Vec<_> = stmts.body().iter().collect();
-            self.check_branch_stmts_with_outer(&body_nodes, outer_siblings);
+            self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
         }
         if let Some(rescue) = begin_node.rescue_clause() {
             self.check_rescue_with_outer(&rescue, outer_siblings);
@@ -235,53 +235,59 @@ impl FlashVisitor<'_> {
     ) {
         if let Some(stmts) = rescue.statements() {
             let body_nodes: Vec<_> = stmts.body().iter().collect();
-            self.check_branch_stmts_with_outer(&body_nodes, outer_siblings);
+            self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
         }
         if let Some(subsequent) = rescue.subsequent() {
             self.check_rescue_with_outer(&subsequent, outer_siblings);
         }
     }
 
-    /// Check statements inside a branch (if/rescue body). Flash assignments are offenses
-    /// if:
-    /// - There is a redirect in the branch itself → no offense
-    /// - There is a render in the outer siblings (after the if/rescue) → offense
-    /// - Flash has further siblings inside the branch that contain render → offense
+    /// Check statements inside a branch or block body with outer context awareness.
+    ///
+    /// `is_if_rescue_branch`: true for if/rescue branches, false for block bodies.
+    ///
+    /// For **if/rescue branches** (`is_if_rescue_branch=true`):
+    /// RuboCop walks up to the if/rescue ancestor and checks its right siblings
+    /// for render. It does NOT check for render within the same branch. Flash's
+    /// inner siblings are only checked for redirect_to.
+    ///
+    /// For **block bodies** (`is_if_rescue_branch=false`):
+    /// Blocks are treated like def bodies — flash's inner siblings ARE checked
+    /// for render. If render is found, offense. Otherwise falls back to outer.
     fn check_branch_stmts_with_outer(
         &mut self,
         branch_stmts: &[ruby_prism::Node<'_>],
         outer_siblings: &[ruby_prism::Node<'_>],
+        is_if_rescue_branch: bool,
     ) {
         let outer_has_render = outer_siblings.iter().any(|s| contains_render(s));
-        let outer_has_redirect = outer_siblings.iter().any(|s| is_redirect_sibling(s));
 
         for (i, stmt) in branch_stmts.iter().enumerate() {
             let inner_remaining = &branch_stmts[i + 1..];
 
             if let Some(flash_loc) = get_flash_assignment(stmt) {
-                let inner_has_render = inner_remaining.iter().any(|s| contains_render(s));
+                // RuboCop's use_redirect_to? checks flash's direct siblings for redirect_to
                 let inner_has_redirect = inner_remaining.iter().any(|s| is_redirect_sibling(s));
 
-                // If redirect appears in the same branch after flash → no offense
+                // If redirect_to appears after flash in the same branch → no offense
                 if inner_has_redirect {
                     continue;
                 }
 
-                let is_offense = if inner_has_render {
-                    // render in same branch after flash
-                    true
-                } else if !inner_remaining.is_empty() {
-                    // There are siblings in the branch but none is render/redirect → no offense
-                    // (something else happens after flash in the branch)
-                    false
+                let is_offense = if is_if_rescue_branch {
+                    // For if/rescue: only check outer siblings for render.
+                    // No implicit render from branches.
+                    outer_has_render
                 } else {
-                    // Flash is last in branch — check outer context
-                    // If outer siblings contain redirect → no offense
-                    if outer_has_redirect {
-                        false
+                    // For block bodies: check inner siblings for render first (like def level).
+                    let inner_has_render = inner_remaining.iter().any(|s| contains_render(s));
+                    if inner_has_render {
+                        true
+                    } else if inner_remaining.is_empty() {
+                        // Flash is alone in block — use outer context
+                        outer_has_render
                     } else {
-                        // Offense if outer siblings contain render, or no outer siblings (implicit render)
-                        outer_has_render || outer_siblings.is_empty()
+                        false
                     }
                 };
 
@@ -332,8 +338,8 @@ impl FlashVisitor<'_> {
             if let Some(body) = block_node.body() {
                 if let Some(stmts) = body.as_statements_node() {
                     let body_nodes: Vec<_> = stmts.body().iter().collect();
-                    // Use branch-with-outer logic: flash alone in block uses outer context
-                    self.check_branch_stmts_with_outer(&body_nodes, outer_siblings);
+                    // Block bodies are like def bodies — check inner render too
+                    self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, false);
                 }
             }
         }

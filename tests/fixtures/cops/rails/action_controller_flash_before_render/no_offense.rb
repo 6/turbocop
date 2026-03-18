@@ -85,3 +85,38 @@ class PostsController < Decidim::Admin::ApplicationController
     render :edit
   end
 end
+
+# Flash inside if branch with no outer siblings — NOT implicit render
+# RuboCop only applies implicit render at def level, not inside branches
+class RestroomsController < ApplicationController
+  def display_errors
+    if @restroom.errors.any?
+      flash[:alert] = "unexpected"
+    end
+  end
+end
+
+# Flash + render inside rescue body — RuboCop walks up to rescue ancestor,
+# finds no render in outer siblings, so no offense
+class CoursesController < ApplicationController
+  def create_from_tar
+    begin
+      do_something
+    rescue StandardError => e
+      flash[:error] = "Error -- #{e.message}"
+      render(action: "new") && return
+    end
+  end
+end
+
+# Flash + render inside if branch — RuboCop checks outer siblings of if, not inner
+class TasksController < ApplicationController
+  def update
+    if @task.save
+      redirect_to @task
+    else
+      flash[:error] = "Save failed"
+      render :edit
+    end
+  end
+end
