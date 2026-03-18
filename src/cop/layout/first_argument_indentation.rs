@@ -1,6 +1,5 @@
 use ruby_prism::Visit;
 
-use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -47,6 +46,24 @@ use crate::parse::source::SourceFile;
 /// context" from "interpolation where indentation is relative to the heredoc
 /// body." 1 FN from tab-indented code where RuboCop does flag the offense
 /// (charlotte-ruby) — would require tab-width-aware column counting.
+///
+/// ## Investigation (2026-03-18)
+///
+/// **FP fix (5 FPs):** All 5 FPs were inner calls inside `super()` (consuldemocracy,
+/// ManageIQ, gimite, phusion). RuboCop's `eligible_method_call?` only matches
+/// `:send` nodes, NOT `:super` nodes. So `super()` should not be an eligible
+/// parent for the `special_for_inner_method_call_in_parentheses` check. Fixed by
+/// setting `is_eligible: false` in the ParentCallInfo pushed by visit_super_node.
+///
+/// **FN fix (103 FNs):** Tab-indented code (phlex 93, loomio 4, charlotte-ruby 1,
+/// digininja 1, moneta 1, pact 1, redcar 1, peritor 1) was being skipped entirely
+/// by tab-detection guards. RuboCop's `previous_code_line =~ /\S/` counts both tabs
+/// and spaces as 1 character. Fixed by replacing `indentation_of` (spaces only)
+/// with `leading_whitespace_count` (tabs + spaces) and removing the tab-skip guards.
+///
+/// **Remaining FN (11):** Calls inside string interpolation in heredocs
+/// (puppetlabs 6, gumroad 4, autolab 1). The `in_interpolation` skip prevents
+/// FPs on heredoc interpolation where indentation context is meaningless.
 pub struct FirstArgumentIndentation;
 
 impl Cop for FirstArgumentIndentation {
@@ -158,16 +175,6 @@ impl FirstArgVisitor<'_> {
 
         // Skip bare operators (like `a + b`) and setter methods (like `self.x = 1`)
         if is_bare_operator(name) || is_setter_method(name) {
-            return;
-        }
-
-        // Skip if the argument's line or the previous code line contains tab
-        // indentation. Mixed tabs/spaces make column calculations unreliable,
-        // and RuboCop effectively skips these too (its IndentationWidth layer
-        // handles tab-width expansion at a higher level).
-        if line_has_tab_indentation(self.source, arg_line)
-            || prev_code_line_has_tab_indentation(self.source, arg_line)
-        {
             return;
         }
 
@@ -309,7 +316,9 @@ fn trim_end_whitespace(bytes: &[u8]) -> &[u8] {
 }
 
 /// Find the indentation of the previous non-blank, non-comment code line.
-/// This matches RuboCop's `previous_code_line` behavior.
+/// This matches RuboCop's `previous_code_line` behavior: the position of the
+/// first non-whitespace character (`=~ /\S/`), counting both tabs and spaces
+/// as 1 character each.
 fn previous_code_line_indent(source: &SourceFile, line_number: usize) -> usize {
     let mut line_num = line_number;
     loop {
@@ -334,49 +343,18 @@ fn previous_code_line_indent(source: &SourceFile, line_number: usize) -> usize {
         if trimmed == Some(b'#') {
             continue;
         }
-        return indentation_of(line_bytes);
+        // Count all leading whitespace characters (tabs and spaces),
+        // matching RuboCop's `=~ /\S/` which treats each tab as 1 char
+        return leading_whitespace_count(line_bytes);
     }
 }
 
-/// Check if a line has tab characters in its leading whitespace.
-fn line_has_tab_indentation(source: &SourceFile, line_number: usize) -> bool {
-    let line_bytes = source.lines().nth(line_number - 1).unwrap_or(b"");
-    line_bytes
-        .iter()
+/// Count the number of leading whitespace characters (spaces and tabs).
+/// Each tab counts as 1, matching Ruby's regex `=~ /\S/` behavior.
+fn leading_whitespace_count(line: &[u8]) -> usize {
+    line.iter()
         .take_while(|&&b| b == b' ' || b == b'\t')
-        .any(|&b| b == b'\t')
-}
-
-/// Check if the previous non-blank, non-comment code line has tab indentation.
-fn prev_code_line_has_tab_indentation(source: &SourceFile, line_number: usize) -> bool {
-    let mut line_num = line_number;
-    loop {
-        if line_num <= 1 {
-            return false;
-        }
-        line_num -= 1;
-        let line_bytes = source.lines().nth(line_num - 1).unwrap_or(b"");
-        // Skip blank lines
-        if line_bytes
-            .iter()
-            .all(|&b| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r')
-        {
-            continue;
-        }
-        // Skip comment lines
-        let trimmed = line_bytes
-            .iter()
-            .skip_while(|&&b| b == b' ' || b == b'\t')
-            .copied()
-            .next();
-        if trimmed == Some(b'#') {
-            continue;
-        }
-        return line_bytes
-            .iter()
-            .take_while(|&&b| b == b' ' || b == b'\t')
-            .any(|&b| b == b'\t');
-    }
+        .count()
 }
 
 fn is_bare_operator(name: &str) -> bool {
@@ -469,7 +447,10 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
             "super",
         );
 
-        // super() is always parenthesized and eligible
+        // super() is NOT eligible as a parent for special_inner_call checks.
+        // RuboCop's eligible_method_call? uses `(send _ !:[]= ...)` which only
+        // matches :send nodes, not :super nodes. So inner calls inside super()
+        // should use previous_code_line_indent, not special inner call logic.
         let is_parenthesized = node.lparen_loc().is_some();
 
         let arg_start_offsets: Vec<usize> = node
@@ -485,7 +466,7 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
         let parent_info = ParentCallInfo {
             is_parenthesized,
             arg_start_offsets,
-            is_eligible: true,
+            is_eligible: false,
         };
 
         self.parent_call_stack.push(parent_info);

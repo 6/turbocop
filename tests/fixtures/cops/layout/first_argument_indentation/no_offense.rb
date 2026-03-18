@@ -75,15 +75,36 @@ super(
   port: port.to_i
 )
 
-# Tab-indented code — mixed tabs/spaces should not be flagged
-branch = if condition
-	            "\n" + content_tag(
-	              'ul',
-	              items_from_tree(
-                    name, children, value_method, text_method, selected,
-                    options
-                  )
-                )
-              else
-                ''
-              end
+# Inner call in super() — super is not an eligible parent for
+# special_for_inner_method_call_in_parentheses
+def check_box(attribute, options = {})
+  super(attribute, options.merge(
+    label: label,
+    label_options: { class: "checkbox-label" }
+  ))
+end
+
+def initialize(code, body, method, url)
+  super(format(
+    'Response code %s for %s %s: %s',
+    code, method, url, body
+  ))
+end
+
+def show_topic(site_key, topic_key, options = {})
+  super(site_key, topic_key, options.merge(
+    pre_js: "var Config = {};"
+  ))
+end
+
+label_with_hint(attribute, options) +
+  super(attribute, options.merge(
+    label: false, hint: nil,
+    aria: { describedby: help_text_id(attribute, options) }
+  ))
+
+# Tab-indented code with correct indentation (2 tab prev + 2 = 4 tab arg)
+		method_call(
+				arg1,
+				arg2
+		)

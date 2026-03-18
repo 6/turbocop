@@ -40,3 +40,10 @@ assert_equal \
     "some long string value here",
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/FirstArgumentIndentation: Indent the first argument one step more than the start of the previous line.
   new_command.result.join(" ")
+
+# Tab-indented code with wrong indentation (3 tabs instead of expected 4)
+		loader.inflector.inflect(
+			"csv" => "CSV",
+			^^^^^^^^^^^^ Layout/FirstArgumentIndentation: Indent the first argument one step more than the start of the previous line.
+			"svg" => "SVG"
+		)
