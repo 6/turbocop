@@ -66,14 +66,16 @@ impl Cop for IndentationStyle {
             // Skip lines whose indentation starts in a string/heredoc region.
             // RuboCop checks indentation in comments (including =begin/=end blocks)
             // but skips string literals, so use is_not_string() instead of is_code().
-            // Exception: heredoc closing delimiters (e.g., `\tSQL`) are NOT skipped.
+            // Exception 1: heredoc closing delimiters (e.g., `\tSQL`) are NOT skipped.
             // In Parser gem, the closing delimiter is a separate :tSTRING_END token
             // outside the string_literal_range, so RuboCop checks its indentation.
-            if !code_map.is_not_string(line_start) {
-                // Check if this line is a heredoc closing delimiter — if so, still check it.
-                if !is_heredoc_closing_delimiter(line, code_map, line_start) {
-                    continue;
-                }
+            // Exception 2: regex literals are NOT skipped. RuboCop's
+            // string_literal_ranges only covers :str/:dstr nodes, not :regexp.
+            if !code_map.is_not_string(line_start)
+                && !code_map.is_regex(line_start)
+                && !is_heredoc_closing_delimiter(line, code_map, line_start)
+            {
+                continue;
             }
 
             if style == "spaces" {
@@ -87,9 +89,10 @@ impl Cop for IndentationStyle {
                     let tab_col = indent.iter().position(|&b| b == b'\t').unwrap_or(0);
                     let tab_offset = line_start + tab_col;
                     // Double-check the specific tab character is not in a string literal.
-                    // Exception: heredoc closing delimiters are checked even though
-                    // they're inside the heredoc range in the CodeMap.
+                    // Exceptions: heredoc closing delimiters and regex literals are
+                    // checked even though they're inside ranges in the CodeMap.
                     if code_map.is_not_string(tab_offset)
+                        || code_map.is_regex(tab_offset)
                         || is_heredoc_closing_delimiter(line, code_map, line_start)
                     {
                         let mut diag = self.diagnostic(
@@ -130,6 +133,7 @@ impl Cop for IndentationStyle {
                     let space_col = indent.iter().position(|&b| b == b' ').unwrap_or(0);
                     let space_offset = line_start + space_col;
                     if code_map.is_not_string(space_offset)
+                        || code_map.is_regex(space_offset)
                         || is_heredoc_closing_delimiter(line, code_map, line_start)
                     {
                         let mut diag = self.diagnostic(
@@ -246,6 +250,24 @@ mod tests {
         assert!(
             !flagged_lines.contains(&2),
             "Interpolated heredoc content line 2 should not be flagged: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn regex_mixed_tab_in_indent() {
+        // Reproduces the rouge-ruby/rouge FN: tab mixed with spaces in a multi-line regex
+        let source = b"KEYWORDS = /( bool       | byte       | complex64\n             | complex128 | error      | float32\n      \t                       | float64    | int8       | int16\n             | int32      | int64      | int\n             | rune       | string     | uint8\n             | uint16     | uint32     | uint64\n             | uintptr    | uint\n      \t                       )\\b/x\n";
+        let diags = crate::testutil::run_cop_full(&IndentationStyle, source);
+        let flagged_lines: Vec<usize> = diags.iter().map(|d| d.location.line).collect();
+        assert!(
+            flagged_lines.contains(&3),
+            "Line 3 (mixed tab) should be flagged: {:?}",
+            diags
+        );
+        assert!(
+            flagged_lines.contains(&8),
+            "Line 8 (mixed tab) should be flagged: {:?}",
             diags
         );
     }

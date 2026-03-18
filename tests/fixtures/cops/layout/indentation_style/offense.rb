@@ -19,6 +19,13 @@ end
 ^ Layout/IndentationStyle: Tab detected in indentation.
 =end
 
+# Tab mixed with spaces inside a regex literal should be flagged
+KEYWORDS = /( bool       | byte       | complex64
+             | complex128 | error      | float32
+      	     | float64    | int8       | int16
+      ^ Layout/IndentationStyle: Tab detected in indentation.
+             )\b/x
+
 # Heredoc closing tag with tab indentation should be flagged
 execute <<-SQL
 	SELECT * FROM users
