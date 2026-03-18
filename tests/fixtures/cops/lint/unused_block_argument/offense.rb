@@ -88,3 +88,50 @@ module Services
     end
   end
 end
+
+# Destructured block params: one element unused
+translations.find { |(locale, translation)|
+                             ^^^^^^^^^^^ Lint/UnusedBlockArgument: Unused block argument - `translation`.
+  locale.to_s == I18n.locale.to_s
+}
+
+# Destructured params in do..end block
+hash.inject([]) do |array, (id, attributes)|
+                     ^^ Lint/UnusedBlockArgument: Unused block argument - `id`.
+  array << [attributes[:iso_code]]
+end
+
+# Lambda with destructured params
+->((item_id, item_model)) {
+    ^^^^^^^ Lint/UnusedBlockArgument: Unused block argument - `item_id`.
+  process(item_model: item_model)
+}
+
+# Lambda with mixed regular and destructured params
+->(_, (item_id, item_model), _) {
+       ^^^^^^^ Lint/UnusedBlockArgument: Unused block argument - `item_id`.
+  process(item_model: item_model)
+}
+
+# Destructured with splat inside: |(a, *b, c)|
+items.each do |(first, *rest, last)|
+                       ^^^^ Lint/UnusedBlockArgument: Unused block argument - `rest`.
+  puts first
+  puts last
+end
+
+# Unused block-pass parameter (&block)
+obj.method do |original, env, &handler|
+                                ^^^^^^^ Lint/UnusedBlockArgument: Unused block argument - `handler`.
+  original.call(env)
+end
+
+# Unused keyword rest parameter (**opts)
+->(val, **opts) { val.to_s }
+         ^^^^ Lint/UnusedBlockArgument: Unused block argument - `opts`.
+
+# Unused keyword rest in block
+do_something do |val, **options|
+                   ^^^^^^^ Lint/UnusedBlockArgument: Unused block argument - `options`.
+  puts val
+end

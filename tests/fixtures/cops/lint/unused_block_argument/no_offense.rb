@@ -101,3 +101,32 @@ class Worker
     end
   end
 end
+
+# Destructured block params: both used
+translations.find { |(locale, translation)|
+  puts locale
+  puts translation
+}
+
+# Destructured with underscore prefix (no offense)
+hash.each do |(key, _value)|
+  puts key
+end
+
+# Destructured in lambda: both used
+->((item_id, item_model)) {
+  process(item_id: item_id, item_model: item_model)
+}
+
+# Block-pass parameter used
+obj.method do |original, env, &handler|
+  handler.call(original, env)
+end
+
+# Keyword rest parameter used
+->(val, **opts) { process(val, opts) }
+
+# Keyword rest in block used
+do_something do |val, **options|
+  handle(val, options)
+end
