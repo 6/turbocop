@@ -10,20 +10,31 @@ const DEFAULT_WORD_REGEX: &str = r"^(?:\w|\w-\w|\n|\t)+$";
 
 /// Style/WordArray: flags bracket arrays of word-like strings that could use %w.
 ///
-/// Investigation: Two main sources of false positives were found:
+/// ## Investigation findings
 ///
-/// 1. Missing `within_matrix_of_complex_content?` check from RuboCop. When a
-///    bracket array is nested inside a parent array (a "matrix") where ALL
-///    elements are arrays, and at least ONE sibling subarray has complex content
-///    (strings with spaces, non-word characters, or invalid encoding), RuboCop
-///    exempts the entire matrix.
+/// **FP fix 1:** Missing `within_matrix_of_complex_content?` check from RuboCop.
+/// When a bracket array is nested inside a parent array (a "matrix") where ALL
+/// elements are arrays, and at least ONE sibling subarray has complex content
+/// (strings with spaces, non-word characters, or invalid encoding), RuboCop
+/// exempts the entire matrix.
 ///
-/// 2. Missing `invalid_percent_array_context?` check from RuboCop's
-///    PercentArray mixin. When a bracket word array is an argument to a
-///    non-parenthesized method call that also has a block (e.g.,
-///    `describe_pattern "LOG", ['legacy', 'ecs-v1'] do ... end`), `%w()`
-///    would be ambiguous — Ruby cannot distinguish `{` as a block vs hash
-///    literal. RuboCop exempts these arrays and so must we.
+/// **FP fix 2:** Missing `invalid_percent_array_context?` check from RuboCop's
+/// PercentArray mixin. When a bracket word array is an argument to a
+/// non-parenthesized method call that also has a block (e.g.,
+/// `describe_pattern "LOG", ['legacy', 'ecs-v1'] do ... end`), `%w()`
+/// would be ambiguous — Ruby cannot distinguish `{` as a block vs hash
+/// literal. RuboCop exempts these arrays and so must we. (FP=107 fixed)
+///
+/// **FN fix:** The `is_matrix_of_complex_content` function was incorrectly
+/// treating non-string elements (integers, symbols) as "complex content".
+/// RuboCop's `complex_content?` method skips non-string elements (`next unless
+/// s.str_content`). This caused parent arrays with mixed-type subarrays
+/// (e.g., `[["foo", "bar", 0], ["baz", "qux"]]`) to be wrongly classified as
+/// complex-content matrices, suppressing pure-string subarrays. (FN=314 fixed)
+///
+/// **Remaining FN (158):** Primarily `brackets` style enforcement direction
+/// (flagging `%w[...]` arrays for conversion to brackets), which is not yet
+/// implemented, plus some edge cases in deeply nested structures.
 pub struct WordArray;
 
 /// Extract a Ruby regexp pattern from a string like `/pattern/flags`.
