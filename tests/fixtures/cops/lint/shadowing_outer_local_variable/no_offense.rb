@@ -258,33 +258,3 @@ def process_data(slug)
   end
 end
 
-
-# FP fix: variable_used_in_declaration_of_outer — Thread.new(value) { |value| }
-def do_work(lib)
-  value = process(lib)
-  Thread.new(value) { |value| value }
-end
-
-# FP fix: variable_used_in_declaration_of_outer — item.tap { |item| }
-def update_item(page)
-  menu_item = if item = page.menu_item
-                item.tap { |item| item.parent_id = nil }
-              else
-                build_item(page)
-              end
-  menu_item
-end
-
-# FP fix: var in elsif body, block param in different elsif predicate (full cond stack)
-def simplify(node)
-  if node.text?
-    node.text
-  elsif node.list?
-    *before, list = node.children
-    [*before, list]
-  elsif TEMPLATES.any? { |list| list === node }
-    node.flatten
-  else
-    node
-  end
-end

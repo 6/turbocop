@@ -169,30 +169,3 @@ def handle(response)
   end
 end
 
-
-# FN fix: unless/else pattern — variable in else, block in unless body shadows it
-def echo(major, minor)
-  unless minor
-    item = storage.items.detect do |item|
-                                    ^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `item`.
-      item.name == major
-    end
-    return unless item
-  else
-    list = find(major)
-    item = list.find_item(minor)
-    return unless item
-  end
-end
-
-# FN fix: if/else with var in if body, block in else body shadows it
-def resolve_location(path)
-  if File.exist?(path)
-    loc = build_location(path)
-  else
-    caller_location = locations
-      .find { |loc| loc.path && File.exist?(loc.path) }
-                      ^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `loc`.
-    next unless caller_location
-  end
-end
