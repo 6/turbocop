@@ -45,3 +45,51 @@ class EventsController < ApplicationController
     end
   end
 end
+
+# Implicit render: flash in a def with no explicit render call
+class HomeController < ApplicationController
+  def create
+    flash[:alert] = "msg"
+    ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+  end
+end
+
+# flash before render with ::ApplicationController (top-level constant)
+class PagesController < ::ApplicationController
+  def index
+    flash[:notice] = "Welcome"
+    ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+    render :index
+  end
+end
+
+# flash before render with ::ActionController::Base
+class ApiController < ::ActionController::Base
+  def show
+    flash[:alert] = "Not found"
+    ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+    render :show
+  end
+end
+
+# flash in if-block with render at outer level
+class RecordsController < ApplicationController
+  def create
+    if condition
+      do_something
+      flash[:alert] = "msg"
+      ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+    end
+
+    render :index
+  end
+end
+
+# before_action block with flash and render
+class SettingsController < ApplicationController
+  before_action do
+    flash[:alert] = "msg"
+    ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+    render :index
+  end
+end
