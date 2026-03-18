@@ -29,6 +29,17 @@ use crate::parse::source::SourceFile;
 ///    RuboCop checks the first argument regardless of additional keyword args.
 ///
 /// Fix: added all prepend/append hook variants to HOOK_METHODS, removed the multi-arg guard.
+///
+/// ## FP fix (2026-03-18)
+///
+/// FP=347, FN=0. The previous FN fix incorrectly removed the multi-arg guard entirely.
+/// RuboCop's `scoped_hook` NodePattern is `(send _ #Hooks.all (sym ${:each :example}))`,
+/// which requires **exactly one argument** — the scope symbol. Calls like
+/// `before(:each, :special_tag)` or `after(:each, type: :system)` have additional
+/// arguments so the pattern does NOT match and RuboCop does NOT flag them.
+///
+/// Fix: re-add `arg_list.len() > 1` guard for all style branches. Only flag when
+/// the scope symbol is the sole argument.
 pub struct HookArgument;
 
 /// Hook methods to check.
@@ -101,17 +112,7 @@ impl Cop for HookArgument {
         // For non-implicit styles with no arguments, flag the implicit usage
         if enforced_style == "each" || enforced_style == "example" {
             // No args = implicit — should have explicit arg
-            let has_scope_arg = if arg_list.is_empty() {
-                false
-            } else if let Some(sym) = arg_list[0].as_symbol_node() {
-                let val = sym.unescaped();
-                // Only flag if missing expected scope arg
-                val == b"each" || val == b"example" || NON_EXAMPLE_SCOPES.contains(&val)
-            } else {
-                false
-            };
-
-            if !has_scope_arg {
+            if arg_list.is_empty() {
                 let expected = enforced_style;
                 let hook_name = std::str::from_utf8(method_name).unwrap_or("before");
                 let loc = call.location();
@@ -122,27 +123,32 @@ impl Cop for HookArgument {
                     column,
                     format!("Use `{hook_name}(:{expected})` instead of `{hook_name}`."),
                 ));
+                return;
+            }
+
+            // Multi-arg hooks are not flagged — RuboCop's NodePattern only matches
+            // when the scope symbol is the sole argument.
+            if arg_list.len() > 1 {
+                return;
             }
 
             // Check for wrong style: e.g., enforced "each" but got :example
-            if !arg_list.is_empty() {
-                if let Some(sym) = arg_list[0].as_symbol_node() {
-                    let val = sym.unescaped();
-                    if NON_EXAMPLE_SCOPES.contains(&val) {
-                        return; // :suite/:context/:all are fine
-                    }
-                    let val_str = std::str::from_utf8(val).unwrap_or("");
-                    if val_str != enforced_style {
-                        let hook_name = std::str::from_utf8(method_name).unwrap_or("before");
-                        let loc = call.location();
-                        let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            format!("Use `{hook_name}(:{enforced_style})` instead of `{hook_name}(:{val_str})`."),
-                        ));
-                    }
+            if let Some(sym) = arg_list[0].as_symbol_node() {
+                let val = sym.unescaped();
+                if NON_EXAMPLE_SCOPES.contains(&val) {
+                    return; // :suite/:context/:all are fine
+                }
+                let val_str = std::str::from_utf8(val).unwrap_or("");
+                if val_str != enforced_style {
+                    let hook_name = std::str::from_utf8(method_name).unwrap_or("before");
+                    let loc = call.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!("Use `{hook_name}(:{enforced_style})` instead of `{hook_name}(:{val_str})`."),
+                    ));
                 }
             }
 
@@ -150,7 +156,9 @@ impl Cop for HookArgument {
         }
 
         // Default: "implicit" style — flag :each and :example arguments
-        if arg_list.is_empty() {
+        // RuboCop's NodePattern matches only when the scope symbol is the sole argument.
+        // Multi-arg hooks like `before(:each, :special_tag)` are not flagged.
+        if arg_list.len() != 1 {
             return;
         }
 
