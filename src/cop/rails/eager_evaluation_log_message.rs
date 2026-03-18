@@ -28,6 +28,21 @@ use ruby_prism::Visit;
 ///   end
 /// end
 /// ```
+///
+/// ## Investigation (2026-03-18)
+///
+/// **Root cause of FN=4**: The `sole_block_stmt` flag was propagating through
+/// compound statement containers (if/unless/case/while/until/rescue/begin). When an
+/// outer block has a single statement that is an `if` node, `sole_block_stmt = true`
+/// was set. The default visitor then descended into the if body without resetting the
+/// flag, so debug calls inside the conditional were incorrectly skipped.
+///
+/// RuboCop's check `return if node.parent&.block_type?` only returns when the debug
+/// call's DIRECT parent is a block node, so conditionals nested inside single-stmt
+/// blocks do NOT skip (the debug call's parent is the if body, not a block).
+///
+/// Fix: add visitor overrides for if/unless/case/while/until/rescue/begin that reset
+/// `sole_block_stmt = false` before descending.
 pub struct EagerEvaluationLogMessage;
 
 impl Cop for EagerEvaluationLogMessage {
@@ -105,6 +120,66 @@ impl<'pr> Visit<'pr> for EagerEvalVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         self.check_debug_call(node);
         ruby_prism::visit_call_node(self, node);
+    }
+
+    // When descending into compound statement containers (if/unless/case/while/until/rescue),
+    // reset sole_block_stmt to false. This prevents the "outer single-stmt block" flag from
+    // propagating into nested conditional bodies, where the debug call's parent is NOT a
+    // block_type (matching RuboCop's `return if node.parent&.block_type?` semantics).
+    //
+    // Example that was incorrectly skipped:
+    //   items.each do |item|   # sole_block_stmt = true (1 stmt = the if node)
+    //     if item.valid?
+    //       Rails.logger.debug "Processing #{item.name}"  # should fire
+    //     end
+    //   end
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        let was = self.sole_block_stmt;
+        self.sole_block_stmt = false;
+        ruby_prism::visit_if_node(self, node);
+        self.sole_block_stmt = was;
+    }
+
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        let was = self.sole_block_stmt;
+        self.sole_block_stmt = false;
+        ruby_prism::visit_unless_node(self, node);
+        self.sole_block_stmt = was;
+    }
+
+    fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
+        let was = self.sole_block_stmt;
+        self.sole_block_stmt = false;
+        ruby_prism::visit_case_node(self, node);
+        self.sole_block_stmt = was;
+    }
+
+    fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        let was = self.sole_block_stmt;
+        self.sole_block_stmt = false;
+        ruby_prism::visit_while_node(self, node);
+        self.sole_block_stmt = was;
+    }
+
+    fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        let was = self.sole_block_stmt;
+        self.sole_block_stmt = false;
+        ruby_prism::visit_until_node(self, node);
+        self.sole_block_stmt = was;
+    }
+
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        let was = self.sole_block_stmt;
+        self.sole_block_stmt = false;
+        ruby_prism::visit_rescue_node(self, node);
+        self.sole_block_stmt = was;
+    }
+
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        let was = self.sole_block_stmt;
+        self.sole_block_stmt = false;
+        ruby_prism::visit_begin_node(self, node);
+        self.sole_block_stmt = was;
     }
 }
 

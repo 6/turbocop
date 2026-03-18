@@ -22,3 +22,12 @@ items.each do |item|
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/EagerEvaluationLogMessage: Pass a block to `Rails.logger.debug`.
   process(item)
 end
+
+# Debug call inside a conditional that is the sole stmt of a block — should fire
+# because debug's parent is IfNode (not block_type), matching RuboCop's semantics.
+items.each do |item|
+  if item.valid?
+    Rails.logger.debug "Valid: #{item.name}"
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/EagerEvaluationLogMessage: Pass a block to `Rails.logger.debug`.
+  end
+end
