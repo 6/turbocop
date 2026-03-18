@@ -61,6 +61,27 @@ use ruby_prism::Visit;
 /// RuboCop does NOT treat interpolation as "using" the return value.
 ///
 /// **Fix:** Removed Argument context push from `visit_embedded_statements_node`.
+///
+/// ## Investigation findings (2026-03-18)
+///
+/// **FP cause: persisted? lookahead was limited to next statement only.** When a create
+/// method result was assigned to a variable and `persisted?` was called several statements
+/// later (not immediately), the cop incorrectly flagged the assignment. RuboCop uses
+/// VariableForce to track ALL references to the assigned variable across the entire scope,
+/// including calls inside nested conditionals, method calls, and other expressions.
+///
+/// Examples that were FPs:
+/// - `user = User.create; logger.info; if user.persisted?` — intervening statement
+/// - `@user = User.create; render json: @user, status: @user.persisted? ? :ok : :err` — non-adjacent
+/// - `record = find_or_create_by(name:); log("id=#{record.id}"); raise unless record.persisted?`
+///
+/// **Fix:** Changed `should_suppress_create` to scan ALL subsequent statements (not just
+/// the next one) using `subtree_checks_persisted`, a visitor-based recursive search.
+/// Added `PersistedFinder` visitor struct that searches any subtree for `var.persisted?`.
+///
+/// **Scope:** The scan is bounded to the current `StatementsNode` body (same method/block
+/// scope), matching RuboCop's per-scope VariableForce tracking. Cross-method references
+/// are correctly not suppressed.
 pub struct SaveBang;
 
 /// Modify-type persistence methods whose return value indicates success/failure.
@@ -353,59 +374,6 @@ impl SaveBangVisitor<'_, '_> {
         None
     }
 
-    /// Check if a statement is a persisted? call on a given variable name.
-    /// Handles patterns like: `if var.persisted?`, `unless var.persisted?`,
-    /// `var.persisted? && ...`, and direct `var.persisted?` calls.
-    fn stmt_checks_persisted(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
-        // Direct call: var.persisted?
-        if let Some(call) = node.as_call_node() {
-            if call.name().as_slice() == b"persisted?" {
-                if let Some(recv) = call.receiver() {
-                    return Self::node_is_var(&recv, var_name);
-                }
-            }
-        }
-        // if/unless with persisted? in predicate
-        if let Some(if_node) = node.as_if_node() {
-            return Self::expr_checks_persisted(&if_node.predicate(), var_name);
-        }
-        if let Some(unless_node) = node.as_unless_node() {
-            return Self::expr_checks_persisted(&unless_node.predicate(), var_name);
-        }
-        false
-    }
-
-    /// Check if an expression (possibly nested in boolean operators) contains
-    /// a persisted? call on the given variable.
-    fn expr_checks_persisted(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
-        if let Some(call) = node.as_call_node() {
-            if call.name().as_slice() == b"persisted?" {
-                if let Some(recv) = call.receiver() {
-                    if Self::node_is_var(&recv, var_name) {
-                        return true;
-                    }
-                }
-            }
-        }
-        if let Some(and_node) = node.as_and_node() {
-            return Self::expr_checks_persisted(&and_node.left(), var_name)
-                || Self::expr_checks_persisted(&and_node.right(), var_name);
-        }
-        if let Some(or_node) = node.as_or_node() {
-            return Self::expr_checks_persisted(&or_node.left(), var_name)
-                || Self::expr_checks_persisted(&or_node.right(), var_name);
-        }
-        // Negation: !var.persisted?
-        if let Some(call) = node.as_call_node() {
-            if call.name().as_slice() == b"!" {
-                if let Some(recv) = call.receiver() {
-                    return Self::expr_checks_persisted(&recv, var_name);
-                }
-            }
-        }
-        false
-    }
-
     /// Check if a node is a variable read matching the given name.
     fn node_is_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
         if let Some(lv) = node.as_local_variable_read_node() {
@@ -457,14 +425,29 @@ impl SaveBangVisitor<'_, '_> {
             return false;
         }
 
-        // Check the immediately following statement for persisted? check
-        if let Some(next_stmt) = body.get(idx + 1) {
-            if Self::stmt_checks_persisted(next_stmt, &var_name) {
+        // Scan ALL subsequent statements for any persisted? check on the variable.
+        // RuboCop uses VariableForce to track all references across the entire scope,
+        // so we need to search beyond just the immediately following statement.
+        for next_stmt in body.iter().skip(idx + 1) {
+            if Self::subtree_checks_persisted(next_stmt, &var_name) {
                 return true;
             }
         }
 
         false
+    }
+
+    /// Recursively search a subtree for any `var.persisted?` call.
+    /// This matches RuboCop's VariableForce approach of checking ALL references
+    /// to the assigned variable anywhere in the scope, including inside nested
+    /// conditionals, method calls, and other expressions.
+    fn subtree_checks_persisted(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
+        let mut finder = PersistedFinder {
+            var_name,
+            found: false,
+        };
+        finder.visit(node);
+        finder.found
     }
 
     /// Get the RHS value node from an assignment statement.
@@ -600,6 +583,32 @@ impl SaveBangVisitor<'_, '_> {
                 self.suppress_create_assignment = false;
             }
         }
+    }
+}
+
+/// A simple visitor that searches a subtree for `var.persisted?` calls.
+/// Used by `subtree_checks_persisted` to match RuboCop's VariableForce behavior
+/// of finding persisted? references anywhere in a scope, not just the next statement.
+struct PersistedFinder<'v> {
+    var_name: &'v [u8],
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for PersistedFinder<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if self.found {
+            return;
+        }
+        if node.name().as_slice() == b"persisted?" {
+            if let Some(recv) = node.receiver() {
+                if SaveBangVisitor::node_is_var(&recv, self.var_name) {
+                    self.found = true;
+                    return;
+                }
+            }
+        }
+        // Continue visiting children
+        ruby_prism::visit_call_node(self, node);
     }
 }
 

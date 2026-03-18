@@ -198,12 +198,11 @@ fn is_index_by_block_it(block_node: &ruby_prism::BlockNode<'_>) -> bool {
     // Second element must be `it` — either an ItLocalVariableReadNode (Prism 1.9+)
     // or a LocalVariableReadNode named `it` (older Prism versions).
     // Prism represents the `it` implicit parameter body usage as ItLocalVariableReadNode.
-    let is_it = elements[1].as_it_local_variable_read_node().is_some()
+    // Note: RuboCop allows `[y.to_sym, it]` — any key is fine as long as value is `it`
+    elements[1].as_it_local_variable_read_node().is_some()
         || elements[1]
             .as_local_variable_read_node()
-            .is_some_and(|lv| lv.name().as_slice() == b"it");
-    is_it
-    // Note: RuboCop allows `[y.to_sym, it]` — any key is fine as long as value is `it`
+            .is_some_and(|lv| lv.name().as_slice() == b"it")
 }
 
 /// Check if the block is `each_with_object({}) { |el, memo| memo[key] = el }`

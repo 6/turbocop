@@ -115,6 +115,30 @@ if user.persisted?
   foo
 end
 
+# CREATE with persisted? checked non-immediately (skip intervening statements)
+# RuboCop uses VariableForce to track all references in scope, not just next stmt.
+def create_user
+  user = User.create(user_params)
+  logger.info("Attempting to create user")
+  do_something_else
+  if user.persisted?
+    redirect_to user
+  end
+end
+
+# CREATE with persisted? used in same expression (non-adjacent)
+def create_and_render
+  @user = User.create(user_params)
+  render json: @user, status: @user.persisted? ? :created : :unprocessable_entity
+end
+
+# CREATE with persisted? in nested expression after other code
+def process
+  record = Record.find_or_create_by(name: params[:name])
+  log_event("Processing record #{record.id}")
+  raise ActiveRecord::RecordInvalid unless record.persisted?
+end
+
 # Persist call inside brace block — last expression (implicit return)
 items.each { |i| i.save }
 
@@ -138,4 +162,6 @@ def process
   super(object.save)
   nil
 end
+
+
 
