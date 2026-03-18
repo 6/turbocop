@@ -34,6 +34,21 @@ use crate::parse::source::SourceFile;
 /// and `ConstantPathWriteNode` (qualified `Foo::Bar = 1`). Only `ConstantWriteNode`
 /// was handled. Also added `MultiWriteNode` to `get_equals_assignment_operator_loc`
 /// for completeness (it was already in `is_assignment_node` for safe assignment).
+///
+/// ## FN fix (41 FNs):
+/// RuboCop's `traverse_node` unconditionally recurses into ALL child nodes of
+/// the condition expression (except blocks). Our `recurse_children` only handled
+/// specific node types (Or, And, Statements, Range, Defined). Missing types:
+/// - `BeginNode`: explicit `begin..end` blocks in conditions (e.g., `if x && begin; y = z; end`)
+///   including rescue/ensure clauses inside begin blocks
+/// - `CaseNode`/`WhenNode`: case expressions used as conditions (e.g., `elsif case; when match = scan(...)`)
+///   with recursion into both `when` conditions and bodies
+/// - `IfNode`/`UnlessNode`/`WhileNode`/`UntilNode`: nested control flow inside condition
+///   subtrees (e.g., modifier `if` inside `when` body that's part of an `elsif` condition)
+/// - `ElseNode`: else clauses
+/// - `RescueNode`: rescue handlers inside begin blocks
+/// - `EnsureNode`: ensure clauses inside begin blocks
+/// - `RescueModifierNode`: inline rescue (`expr rescue fallback`)
 pub struct AssignmentInCondition;
 
 impl Cop for AssignmentInCondition {
@@ -304,10 +319,192 @@ fn recurse_children(
     // DefinedNode
     if let Some(defined) = node.as_defined_node() {
         traverse_condition(source, &defined.value(), allow_safe, msg, cop, diagnostics);
+        return;
     }
-    // If it's a not (!) operator implemented as a call
-    // For other node types we don't recurse — they're either leaf nodes
-    // or complex expressions where assignments wouldn't be relevant
+    // BeginNode — explicit begin..end blocks used inside conditions
+    // e.g., `if valid? && begin; result = compute; result.present?; end`
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            for stmt in stmts.body().iter() {
+                traverse_condition(source, &stmt, allow_safe, msg, cop, diagnostics);
+            }
+        }
+        // Also traverse rescue/ensure clauses inside begin blocks
+        if let Some(rescue) = begin_node.rescue_clause() {
+            traverse_condition(source, &rescue.as_node(), allow_safe, msg, cop, diagnostics);
+        }
+        if let Some(ensure) = begin_node.ensure_clause() {
+            traverse_condition(source, &ensure.as_node(), allow_safe, msg, cop, diagnostics);
+        }
+        return;
+    }
+    // CaseNode — case expressions used inside conditions
+    // e.g., `if (case x; when :a; found = lookup; end)` or bare `case; when match = scan(...)`
+    if let Some(case_node) = node.as_case_node() {
+        for condition in case_node.conditions().iter() {
+            if let Some(when_node) = condition.as_when_node() {
+                // Traverse when conditions (the expressions after `when`)
+                for cond in when_node.conditions().iter() {
+                    traverse_condition(source, &cond, allow_safe, msg, cop, diagnostics);
+                }
+                // Traverse when body (statements inside the when clause)
+                if let Some(stmts) = when_node.statements() {
+                    for stmt in stmts.body().iter() {
+                        traverse_condition(source, &stmt, allow_safe, msg, cop, diagnostics);
+                    }
+                }
+            }
+        }
+        // Also check else clause
+        if let Some(else_clause) = case_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                for stmt in stmts.body().iter() {
+                    traverse_condition(source, &stmt, allow_safe, msg, cop, diagnostics);
+                }
+            }
+        }
+        return;
+    }
+    // IfNode / UnlessNode / WhileNode / UntilNode — when these appear nested
+    // inside a condition tree (e.g., `if modifier` inside a `when` body of a `case`
+    // that's used as an `elsif` condition), we recurse into both predicate and body.
+    // RuboCop's traverse_node walks all children unconditionally.
+    if let Some(if_node) = node.as_if_node() {
+        traverse_condition(
+            source,
+            &if_node.predicate(),
+            allow_safe,
+            msg,
+            cop,
+            diagnostics,
+        );
+        if let Some(stmts) = if_node.statements() {
+            for stmt in stmts.body().iter() {
+                traverse_condition(source, &stmt, allow_safe, msg, cop, diagnostics);
+            }
+        }
+        if let Some(subsequent) = if_node.subsequent() {
+            traverse_condition(source, &subsequent, allow_safe, msg, cop, diagnostics);
+        }
+        return;
+    }
+    if let Some(unless_node) = node.as_unless_node() {
+        traverse_condition(
+            source,
+            &unless_node.predicate(),
+            allow_safe,
+            msg,
+            cop,
+            diagnostics,
+        );
+        if let Some(stmts) = unless_node.statements() {
+            for stmt in stmts.body().iter() {
+                traverse_condition(source, &stmt, allow_safe, msg, cop, diagnostics);
+            }
+        }
+        if let Some(else_clause) = unless_node.else_clause() {
+            traverse_condition(
+                source,
+                &else_clause.as_node(),
+                allow_safe,
+                msg,
+                cop,
+                diagnostics,
+            );
+        }
+        return;
+    }
+    if let Some(while_node) = node.as_while_node() {
+        traverse_condition(
+            source,
+            &while_node.predicate(),
+            allow_safe,
+            msg,
+            cop,
+            diagnostics,
+        );
+        if let Some(stmts) = while_node.statements() {
+            for stmt in stmts.body().iter() {
+                traverse_condition(source, &stmt, allow_safe, msg, cop, diagnostics);
+            }
+        }
+        return;
+    }
+    if let Some(until_node) = node.as_until_node() {
+        traverse_condition(
+            source,
+            &until_node.predicate(),
+            allow_safe,
+            msg,
+            cop,
+            diagnostics,
+        );
+        if let Some(stmts) = until_node.statements() {
+            for stmt in stmts.body().iter() {
+                traverse_condition(source, &stmt, allow_safe, msg, cop, diagnostics);
+            }
+        }
+        return;
+    }
+    // ElseNode — else clause of if/unless/case
+    if let Some(else_node) = node.as_else_node() {
+        if let Some(stmts) = else_node.statements() {
+            for stmt in stmts.body().iter() {
+                traverse_condition(source, &stmt, allow_safe, msg, cop, diagnostics);
+            }
+        }
+        return;
+    }
+    // RescueNode — individual rescue clause (e.g., `rescue => e; stmts`)
+    if let Some(rescue_node) = node.as_rescue_node() {
+        if let Some(stmts) = rescue_node.statements() {
+            for stmt in stmts.body().iter() {
+                traverse_condition(source, &stmt, allow_safe, msg, cop, diagnostics);
+            }
+        }
+        // Chain to subsequent rescue clauses
+        if let Some(subsequent) = rescue_node.subsequent() {
+            traverse_condition(
+                source,
+                &subsequent.as_node(),
+                allow_safe,
+                msg,
+                cop,
+                diagnostics,
+            );
+        }
+        return;
+    }
+    // EnsureNode
+    if let Some(ensure_node) = node.as_ensure_node() {
+        if let Some(stmts) = ensure_node.statements() {
+            for stmt in stmts.body().iter() {
+                traverse_condition(source, &stmt, allow_safe, msg, cop, diagnostics);
+            }
+        }
+        return;
+    }
+    // RescueModifierNode — `expr rescue fallback` inline rescue
+    if let Some(rescue_mod) = node.as_rescue_modifier_node() {
+        traverse_condition(
+            source,
+            &rescue_mod.expression(),
+            allow_safe,
+            msg,
+            cop,
+            diagnostics,
+        );
+        traverse_condition(
+            source,
+            &rescue_mod.rescue_expression(),
+            allow_safe,
+            msg,
+            cop,
+            diagnostics,
+        );
+    }
+    // For other node types we don't recurse — they're leaf nodes or types
+    // where assignments aren't relevant (e.g., literals, method args)
 }
 
 #[cfg(test)]

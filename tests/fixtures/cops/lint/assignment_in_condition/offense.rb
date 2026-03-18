@@ -86,3 +86,54 @@ end
 if Foo::Bar = 1 || baz
             ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
 end
+
+# Assignment inside begin..end used as part of an if condition
+if valid? && begin
+  result = compute_value
+         ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+  result.present?
+end
+  use(result)
+end
+
+# Assignment inside begin..end used as while condition
+while begin item = queue.shift; item end
+                 ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+  process(item)
+end
+
+# Assignment in when condition (bare case used as elsif condition)
+if false
+elsif case
+when match = scan(/foo/)
+           ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+  process(match)
+end
+end
+
+# Assignment inside case/when body within an if condition
+if (case kind
+      when :special
+        found = lookup(kind)
+              ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+      else
+        false
+    end)
+  use(found)
+end
+
+# Assignment inside begin/rescue used as condition
+return true if check? && begin
+  data = parse(input)
+       ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+  data.valid?
+rescue StandardError
+  false
+end
+
+# Assignment inside rescue modifier in condition
+return nil unless valid? || begin
+  uri = URI.parse(route) rescue nil
+      ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+  uri.present?
+end

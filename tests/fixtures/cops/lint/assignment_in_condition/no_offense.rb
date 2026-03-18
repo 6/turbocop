@@ -73,3 +73,17 @@ end until parts = fetch_data
 begin
   line.concat(c)
 end while c = getc
+
+# assignment in case/when body outside of a condition is not flagged
+case kind
+when :special
+  result = lookup(kind)
+else
+  result = default_value
+end
+
+# assignment in when condition outside of a condition is not flagged
+case
+when match = scan(/foo/)
+  process(match)
+end
