@@ -112,3 +112,25 @@ if Shell.exist?(path)
   FileUtils.unlink(path)
   ^^^^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Use atomic file operation method `FileUtils.rm_f`.
 end
+
+# File.delete with File.exist? postfix if (any const receiver accepted)
+File.delete(path) if File.exist?(path)
+                  ^^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Remove unnecessary existence check `File.exist?`.
+^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Use atomic file operation method `FileUtils.rm_f`.
+
+# File.unlink with File.exist? postfix if
+File.unlink(path) if File.exist?(path)
+                  ^^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Remove unnecessary existence check `File.exist?`.
+^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Use atomic file operation method `FileUtils.rm_f`.
+
+# File.delete in block if form
+if File.exist?(path)
+^^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Remove unnecessary existence check `File.exist?`.
+  File.delete(path)
+  ^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Use atomic file operation method `FileUtils.rm_f`.
+end
+
+# File.unlink with space-separated args (no parens)
+File.delete path if File.exist? path
+                 ^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Remove unnecessary existence check `File.exist?`.
+^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Use atomic file operation method `FileUtils.rm_f`.

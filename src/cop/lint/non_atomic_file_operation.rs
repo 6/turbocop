@@ -26,6 +26,13 @@ use crate::parse::source::SourceFile;
 ///
 /// Rewritten to match RuboCop's behavior: start from if/unless nodes, extract the
 /// existence check from condition, verify single file-op body, emit both offenses.
+///
+/// ## Fix: accept any constant receiver for file operations (407 FN reduction)
+///
+/// Previous implementation restricted file operation receivers to `FileUtils` and `Dir` only.
+/// RuboCop accepts ANY constant receiver (`node.receiver&.const_type?`), so patterns like
+/// `File.delete(path) if File.exist?(path)` and `File.unlink(path) if File.exist?(path)`
+/// were missed. The fix relaxes the receiver check to accept any constant, matching RuboCop.
 pub struct NonAtomicFileOperation;
 
 const MAKE_METHODS: &[&[u8]] = &[b"mkdir"];
@@ -45,7 +52,6 @@ const REMOVE_FORCE_METHODS: &[&[u8]] = &[b"rm_f", b"rm_rf"];
 
 const EXIST_METHODS: &[&[u8]] = &[b"exist?", b"exists?"];
 const EXIST_CLASSES: &[&[u8]] = &[b"FileTest", b"File", b"Dir", b"Shell"];
-const FS_CLASSES: &[&[u8]] = &[b"FileUtils", b"Dir"];
 
 /// All recognized file operation methods (force + non-force).
 fn is_file_op_method(method: &[u8]) -> bool {
@@ -272,18 +278,14 @@ impl Cop for NonAtomicFileOperation {
             return;
         }
 
-        // Check receiver is FileUtils or Dir
+        // Check receiver is any constant (RuboCop: node.receiver&.const_type?)
         let recv = match file_op_call.receiver() {
             Some(r) => r,
             None => return,
         };
 
-        let recv_name = match const_name(&recv) {
-            Some(n) => n,
-            None => return,
-        };
-
-        if !FS_CLASSES.contains(&recv_name) {
+        // Must be a constant receiver (ConstantReadNode or ConstantPathNode)
+        if const_name(&recv).is_none() {
             return;
         }
 
