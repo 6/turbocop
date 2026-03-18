@@ -67,6 +67,25 @@ use crate::parse::source::SourceFile;
 ///   Fixed by adding ParentKind::SingletonClass.
 /// - **`def (@matcher = BasicObject.new).===(obj)`:** assignment in def receiver expression.
 ///   Fixed by adding ParentKind::Def.
+///
+/// ## Investigation findings (2026-03-18)
+///
+/// ### FP root causes fixed:
+/// - **`def (@obj).method` singleton method receiver (~16+ FPs from hexapdf):** parens around
+///   the receiver in singleton method definitions are always required. Added early return when
+///   parent is `ParentKind::Def`.
+/// - **`&(l = -> {})` block argument with assignment (~25+ FPs from jruby):** assignment inside
+///   `&()` block pass is required. Added `ParentKind::BlockArgument` tracking so assignment
+///   check doesn't flag it (block_pass is not nil/begin_type in RuboCop).
+/// - **`(-8.0) ** expr` with space before `**` (~3 FPs):** `is_raised_to_power_negative_numeric`
+///   wasn't skipping whitespace between `)` and `**`. Fixed to skip spaces.
+/// - **`(!(found = find_file(exe)))` unary around paren+assignment:** the unary check now
+///   recognizes when the base receiver (after unwrapping nested unary ops) is a
+///   ParenthesesNode and skips, since the outer parens wrap a necessary sub-expression.
+/// - **`(t = expr) rescue nil` inline rescue with assignment:** added `ParentKind::RescueModifier`
+///   tracking. Rescue modifier is not nil/begin_type in RuboCop.
+/// - **`a, *b = (e = [1,2,3])` multiple assignment RHS:** added `ParentKind::MultipleAssignment`
+///   tracking for `MultiWriteNode`.
 pub struct RedundantParentheses;
 
 impl Cop for RedundantParentheses {
@@ -117,6 +136,9 @@ enum ParentKind {
     Parameter,
     SingletonClass,
     Def,
+    BlockArgument,
+    RescueModifier,
+    MultipleAssignment,
     Other,
 }
 
@@ -339,6 +361,12 @@ impl RedundantParensVisitor<'_> {
         // with) a hash literal, and the paren is the first argument of an unparenthesized
         // method call, the parens are needed to prevent `{` from being parsed as a block.
         if self.first_arg_begins_with_hash_literal(node, inner) {
+            return;
+        }
+
+        // def (expr).method — parens around singleton method receiver are always required.
+        // RuboCop doesn't flag these because `def` receivers don't produce `on_begin` events.
+        if parent.is_some_and(|p| matches!(p.kind, ParentKind::Def)) {
             return;
         }
 
@@ -831,6 +859,35 @@ fn check_unary<'a>(
         }
     }
 
+    // RuboCop's check_unary unwraps nested unary ops, then checks
+    // method_call_with_redundant_parentheses? on the result.
+    // If the final receiver isn't a method call (e.g., it's a parens node
+    // wrapping an assignment like !(x = expr)), don't flag.
+    // RuboCop's check_unary unwraps nested unary ops, then checks
+    // method_call_with_redundant_parentheses? on the result.
+    // If the final receiver is a parens node wrapping a non-method-call
+    // (e.g., !(x = expr)), the parens around the assignment are needed.
+    if let Some(recv) = call.receiver() {
+        // Unwrap nested unary operations to find the base receiver
+        let mut current = recv;
+        while let Some(inner_call) = current.as_call_node() {
+            if is_unary_operation(&inner_call) {
+                if let Some(r) = inner_call.receiver() {
+                    current = r;
+                    continue;
+                }
+            }
+            break;
+        }
+        // If the base receiver is a ParenthesesNode (begin node), the outer
+        // parens around the unary is needed only if the inner expression isn't
+        // a simple method call. E.g., (!(x = expr)) — inner is (x = expr),
+        // which is a paren around assignment, so the outer paren is needed.
+        if current.as_parentheses_node().is_some() {
+            return None;
+        }
+    }
+
     Some("a unary operation")
 }
 
@@ -1074,10 +1131,14 @@ fn is_raised_to_power_negative_numeric(
         return false;
     }
 
-    // Check if the closing paren is followed by **
+    // Check if the closing paren is followed by ** (possibly with whitespace)
     let end_offset = paren_node.location().end_offset();
-    if end_offset + 1 < content.len() {
-        return content[end_offset] == b'*' && content[end_offset + 1] == b'*';
+    let mut i = end_offset;
+    while i < content.len() && content[i] == b' ' {
+        i += 1;
+    }
+    if i + 1 < content.len() {
+        return content[i] == b'*' && content[i + 1] == b'*';
     }
     false
 }
@@ -1224,6 +1285,27 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
             top.kind = ParentKind::Splat;
         }
         ruby_prism::visit_splat_node(self, node);
+    }
+
+    fn visit_block_argument_node(&mut self, node: &ruby_prism::BlockArgumentNode<'pr>) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.kind = ParentKind::BlockArgument;
+        }
+        ruby_prism::visit_block_argument_node(self, node);
+    }
+
+    fn visit_rescue_modifier_node(&mut self, node: &ruby_prism::RescueModifierNode<'pr>) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.kind = ParentKind::RescueModifier;
+        }
+        ruby_prism::visit_rescue_modifier_node(self, node);
+    }
+
+    fn visit_multi_write_node(&mut self, node: &ruby_prism::MultiWriteNode<'pr>) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.kind = ParentKind::MultipleAssignment;
+        }
+        ruby_prism::visit_multi_write_node(self, node);
     }
 
     fn visit_assoc_splat_node(&mut self, node: &ruby_prism::AssocSplatNode<'pr>) {

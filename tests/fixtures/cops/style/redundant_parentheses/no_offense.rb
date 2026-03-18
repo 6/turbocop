@@ -189,3 +189,19 @@ end
 def (@matcher = BasicObject.new).===(obj)
   obj
 end
+# def with variable receiver — parens required for singleton method definition
+def (@document).unwrap(obj); obj; end
+def (@doc).version=(v); @version = v; end
+# def with literal receiver — parens required
+def (false).foo; end
+# Block argument with assignment — parens required in &(expr)
+m(&(l = -> {}))
+m(1, &(callback = proc { |x| x }))
+# Inline rescue with assignment — parens required
+(t = File.mtime(target)) rescue nil
+# Multiple assignment with assignment — parens required
+a, *b, c = (e = [1, 2, 3, 4])
+# Negative float in exponentiation with space
+(-8.0) ** (1.0/3)
+# Unary ! around non-method-call (assignment parens)
+x = (!(found = find_file(exe)))

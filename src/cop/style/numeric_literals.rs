@@ -150,7 +150,7 @@ impl Cop for NumericLiterals {
             .or(text.strip_prefix('+'))
             .unwrap_or(text);
         let int_part = unsigned
-            .split(|c: char| c == 'e' || c == 'E' || c == '.')
+            .split(['e', 'E', '.'])
             .next()
             .unwrap_or(unsigned);
 
