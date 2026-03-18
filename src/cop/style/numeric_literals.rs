@@ -149,10 +149,7 @@ impl Cop for NumericLiterals {
             .strip_prefix('-')
             .or(text.strip_prefix('+'))
             .unwrap_or(text);
-        let int_part = unsigned
-            .split(['e', 'E', '.'])
-            .next()
-            .unwrap_or(unsigned);
+        let int_part = unsigned.split(['e', 'E', '.']).next().unwrap_or(unsigned);
 
         self.check_integer_part(source, &loc, int_part, config, diagnostics);
     }
