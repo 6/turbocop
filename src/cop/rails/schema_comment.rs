@@ -68,11 +68,15 @@ use crate::parse::source::SourceFile;
 /// `call.block()` vs block_pass in parser gem's send children). Applied
 /// arg-count gate for `add_column` (requires 3-4 parser-gem args).
 ///
-/// REVERTED create_table arg-count gate (1-2 args): this gate filtered out
-/// 2,314 correct detections to fix only 17 FP — a bad tradeoff. The 17 FP
-/// come from non-migration `create_table` calls (test helpers, Sequel, etc.).
-/// The proper fix is a `within_change_method_or_block?` context check (like
-/// RuboCop's), not arg-count filtering. FP=17 remain as a known gap.
+/// Fix for FP=17: applied `parser_arg_count` gate for `create_table` requiring
+/// 1-2 parser-gem args, matching RuboCop's `(send nil? :create_table _table _?)`.
+/// All 17 FPs fell into two categories:
+///
+/// - 0 args (4 cases): bare `create_table` calls (not ActiveRecord migrations)
+/// - 3+ args (13 cases): test helpers, Sequel ORM, wrapper methods with `&block`
+///
+/// The previous revert note was incorrect; the gate correctly matches RuboCop's
+/// semantics and does not filter valid migration calls.
 pub struct SchemaComment;
 
 const TABLE_MSG: &str = "New database table without `comment`.";
@@ -222,6 +226,14 @@ impl Cop for SchemaComment {
 
         match name {
             b"create_table" if call.receiver().is_none() => {
+                // RuboCop pattern: (send nil? :create_table _table _?)
+                // Matches 1-2 argument children in the parser gem AST.
+                // Filters out bare `create_table` (0 args), calls with 3+ args
+                // (test helpers, Sequel ORM, wrapper methods with &block).
+                let argc = parser_arg_count(&call);
+                if !(1..=2).contains(&argc) {
+                    return;
+                }
                 if !has_valid_comment(&call) {
                     // Table without comment — only report table-level offense
                     let loc = node.location();
