@@ -57,3 +57,22 @@ ApplicationRecord.transaction do
     ^^^^^ Rails/TransactionExitStatement: Do not use `throw` inside a transaction block.
   end
 end
+
+# Pattern from corpus: return inside transaction inside method with rescue
+def call
+  ActiveRecord::Base.transaction do
+    return false unless place
+    ^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/TransactionExitStatement: Do not use `return` inside a transaction block.
+  end
+rescue ActiveRecord::RecordInvalid => e
+  handle_error(e)
+end
+
+# Pattern from corpus: with_lock without receiver
+def refresh_token
+  with_lock do
+    return unless should_refresh?
+    ^^^^^^ Rails/TransactionExitStatement: Do not use `return` inside a transaction block.
+    perform_token_refresh!
+  end
+end
