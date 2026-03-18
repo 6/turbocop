@@ -44,3 +44,17 @@ class ConditionalController < BaseController
   end
 end
 
+# Actions inside nested modules within a class should be checked
+class Resource
+  module Controller
+    module Actions
+      def create
+      end
+
+      def show
+      ^^^ Rails/ActionOrder: Action `show` should appear before `create` in the controller.
+      end
+    end
+  end
+end
+

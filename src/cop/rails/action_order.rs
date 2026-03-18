@@ -39,6 +39,12 @@ use crate::parse::source::SourceFile;
 /// Fix: added MODULE_NODE to interested_node_types and handle ModuleNode in check_node
 /// with the same logic as ClassNode.
 ///
+/// Root cause of FN=1 (third): `collect_public_defs` didn't recurse into `ModuleNode`
+/// bodies. In TrestleAdmin/trestle, actions are defined inside `module Actions` nested
+/// within `class Resource`. RuboCop's `def_node_search` is recursive and finds `def` nodes
+/// at any depth. Fix: added `ModuleNode` recursion in `collect_public_defs` so that `def`
+/// nodes inside nested modules within a class are also collected.
+///
 /// ## Corpus investigation (2026-03-18)
 ///
 /// Corpus oracle reported FP=5, FN=0.
@@ -160,6 +166,18 @@ fn collect_public_defs(
         if let Some(else_clause) = unless_node.else_clause() {
             if let Some(else_stmts) = else_clause.statements() {
                 for child in else_stmts.body().iter() {
+                    collect_public_defs(&child, is_public, out);
+                }
+            }
+        }
+        return;
+    }
+
+    // Walk into nested modules to find defs (RuboCop's def_node_search is recursive)
+    if let Some(module_node) = node.as_module_node() {
+        if let Some(body) = module_node.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                for child in stmts.body().iter() {
                     collect_public_defs(&child, is_public, out);
                 }
             }
