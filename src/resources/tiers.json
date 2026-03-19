@@ -562,6 +562,7 @@
     "Rails/RootPublicPath": "stable",
     "Rails/SafeNavigation": "stable",
     "Rails/SafeNavigationWithBlank": "stable",
+    "Rails/SchemaComment": "stable",
     "Rails/ScopeArgs": "stable",
     "Rails/SelectMap": "stable",
     "Rails/ShortI18n": "stable",
