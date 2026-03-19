@@ -17,6 +17,16 @@ use crate::parse::source::SourceFile;
 /// Local rerun after the fix improved the cop from the CI nitrocop baseline of
 /// 115 offenses to 117, leaving 3 missing offenses and no excess over the CI
 /// baseline. The remaining FN were not reduced further in this phase.
+///
+/// ## Phase 2 fix (2026-03-19)
+///
+/// FN=3 remaining: all involved bare method calls (no receiver) to always-truthy
+/// methods like `to_s` and `to_i`. The `is_truthy_method_call()` guard required
+/// `call.receiver().is_some()`, which excluded implicit-self calls like `to_s`.
+/// Removed the receiver check. Also added RHS nested-truthy detection for
+/// parenthesized expressions like `x || (default || to_s)` where the inner
+/// `to_s` makes the parenthesized RHS always truthy.
+///
 /// Checks for useless OR expressions where the left side always returns a truthy value.
 pub struct UselessOr;
 
@@ -72,6 +82,17 @@ impl Cop for UselessOr {
 
         if let Some(truthy_node) = nested_truthy_middle(&lhs) {
             report_offense(self, source, &or_node, &truthy_node, diagnostics);
+            return;
+        }
+
+        // Check if the RHS is a parenthesized expression containing an
+        // always-truthy sub-expression (e.g., `x || (default || to_s)` where
+        // `to_s` makes the parenthesized RHS always truthy)
+        let rhs = or_node.right();
+        if rhs.as_parentheses_node().is_some() {
+            if let Some(truthy_node) = find_nested_truthy(rhs) {
+                report_offense(self, source, &or_node, &truthy_node, diagnostics);
+            }
         }
     }
 }
@@ -81,11 +102,6 @@ fn is_truthy_method_call(node: &ruby_prism::Node<'_>) -> bool {
         Some(c) => c,
         None => return false,
     };
-
-    // Must have a receiver (not a bare method call)
-    if call.receiver().is_none() {
-        return false;
-    }
 
     // Must have no arguments (explicit empty parentheses are allowed).
     if call
@@ -122,6 +138,38 @@ fn nested_truthy_middle<'pr>(node: &ruby_prism::Node<'pr>) -> Option<ruby_prism:
                     if let Some(truthy_node) = nested_truthy_middle(&stmt) {
                         return Some(truthy_node);
                     }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Check if a node is or contains an always-truthy expression.
+/// This handles parenthesized `||` expressions like `(default || to_s)`
+/// where `to_s` always returns truthy, making the whole expression always truthy.
+fn find_nested_truthy<'pr>(node: ruby_prism::Node<'pr>) -> Option<ruby_prism::Node<'pr>> {
+    if is_truthy_method_call(&node) {
+        return Some(node);
+    }
+
+    if let Some(or_node) = node.as_or_node() {
+        // If either side of an `||` is always truthy, the whole `||` is always truthy
+        if let Some(found) = find_nested_truthy(or_node.right()) {
+            return Some(found);
+        }
+        if let Some(found) = find_nested_truthy(or_node.left()) {
+            return Some(found);
+        }
+    }
+
+    if let Some(parens) = node.as_parentheses_node() {
+        if let Some(body) = parens.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                let stmts_body = stmts.body();
+                if stmts_body.len() == 1 {
+                    return find_nested_truthy(stmts_body.iter().next()?);
                 }
             }
         }
