@@ -41,24 +41,6 @@
 ///   not detected. When inner_remaining is empty in a block, used outer_has_render instead of
 ///   the implicit render check (!outer_has_redirect). Fixed to match RuboCop's
 ///   context.right_siblings.empty? && !use_redirect_to?(context.parent) logic.
-/// - Root cause 13 (FN): `def ... rescue ... end` (implicit begin) wraps the body as a
-///   `BeginNode` in Prism, not a `StatementsNode`. `check_def_body` only handled
-///   `as_statements_node()`, silently skipping def-with-rescue methods. Fixed by also
-///   handling `as_begin_node()` and processing both statements and rescue clauses.
-/// - Root cause 14 (FN): In multi-statement block bodies, flash as the last statement was
-///   checking outer scope for redirect_to (which suppressed implicit render). In Parser AST,
-///   multi-statement block bodies have a `begin` wrapper whose `right_siblings` are empty,
-///   so RuboCop can't see outer redirect. Single-statement blocks place the node directly
-///   under the block, whose siblings include outer scope. Fixed by checking `i > 0` to
-///   distinguish multi- vs single-statement block bodies.
-/// - Root cause 15 (FN): `parent_render_flag` (from Parser AST single-child if body
-///   flattening, where else clause render appears as right_siblings) was only used when
-///   recursing into nested if nodes, not when calling `check_branch_stmts_with_outer` for
-///   multi-statement if bodies. Added `extra_outer_render` parameter to propagate this flag.
-/// - Remaining FN (1): browsermedia/browsercms portlet.rb — `Cms::Portlet < ActiveRecord::Base`
-///   is not a controller, but RuboCop's `def_node_search :action_controller?` matches ANY
-///   `ActionController::Base` reference in the class subtree (line 121). This is arguably a
-///   RuboCop bug (over-broad matching). Not fixing to avoid FP risk.
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -159,20 +141,13 @@ impl FlashVisitor<'_> {
             Some(b) => b,
             None => return,
         };
-        if let Some(stmts) = body.as_statements_node() {
-            let body_nodes: Vec<ruby_prism::Node<'_>> = stmts.body().iter().collect();
-            self.check_statements(&body_nodes);
-        } else if let Some(begin_node) = body.as_begin_node() {
-            // def ... rescue ... end (no explicit begin): Prism wraps body in BeginNode.
-            // Process the statements part as the def body, and rescue clauses separately.
-            if let Some(stmts) = begin_node.statements() {
-                let body_nodes: Vec<_> = stmts.body().iter().collect();
-                self.check_statements(&body_nodes);
-            }
-            if let Some(rescue) = begin_node.rescue_clause() {
-                self.check_rescue_with_outer(&rescue, &[]);
-            }
-        }
+        let stmts = match body.as_statements_node() {
+            Some(s) => s,
+            None => return,
+        };
+
+        let body_nodes: Vec<ruby_prism::Node<'_>> = stmts.body().iter().collect();
+        self.check_statements(&body_nodes);
     }
 
     /// Check a list of sibling statements for flash-before-render patterns.
@@ -294,15 +269,10 @@ impl FlashVisitor<'_> {
                 } else if let Some(nested_unless) = body_nodes[0].as_unless_node() {
                     self.check_unless_node_with_outer(&nested_unless, &[]);
                 } else {
-                    self.check_branch_stmts_impl(
-                        &body_nodes,
-                        outer_siblings,
-                        true,
-                        effective_render,
-                    );
+                    self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
                 }
             } else {
-                self.check_branch_stmts_impl(&body_nodes, outer_siblings, true, effective_render);
+                self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
             }
         }
         // Check subsequent elsif/else clauses.
@@ -403,18 +373,7 @@ impl FlashVisitor<'_> {
         outer_siblings: &[ruby_prism::Node<'_>],
         is_if_rescue_branch: bool,
     ) {
-        self.check_branch_stmts_impl(branch_stmts, outer_siblings, is_if_rescue_branch, false);
-    }
-
-    fn check_branch_stmts_impl(
-        &mut self,
-        branch_stmts: &[ruby_prism::Node<'_>],
-        outer_siblings: &[ruby_prism::Node<'_>],
-        is_if_rescue_branch: bool,
-        extra_outer_render: bool,
-    ) {
-        let outer_has_render =
-            extra_outer_render || outer_siblings.iter().any(|s| contains_render(s));
+        let outer_has_render = outer_siblings.iter().any(|s| contains_render(s));
 
         for (i, stmt) in branch_stmts.iter().enumerate() {
             let inner_remaining = &branch_stmts[i + 1..];
@@ -439,21 +398,10 @@ impl FlashVisitor<'_> {
                         true
                     } else if inner_remaining.is_empty() {
                         // Flash is alone/last in block — implicit render.
-                        // In Parser AST, single-statement block bodies have
-                        // the statement directly as child of the block node,
-                        // so right_siblings include outer scope. Multi-statement
-                        // bodies are wrapped in begin, whose siblings are empty.
-                        if i > 0 {
-                            // Multi-statement block: parent is begin wrapper,
-                            // can't see outer redirect. Always implicit render.
-                            true
-                        } else {
-                            // Single-statement block: parent is block node,
-                            // can see outer scope for redirect.
-                            let outer_has_redirect =
-                                outer_siblings.iter().any(|s| is_redirect_sibling(s));
-                            !outer_has_redirect
-                        }
+                        // RuboCop checks context.parent.right_siblings for redirect.
+                        let outer_has_redirect =
+                            outer_siblings.iter().any(|s| is_redirect_sibling(s));
+                        !outer_has_redirect
                     } else {
                         false
                     }
