@@ -135,6 +135,20 @@ when :alias
   add_other node, type: AST::Builtin.nil_type
 end
 
+# Backtick strings with different interpolation (not duplicates)
+if `#{native} === nil`
+  `#{@native}[key] = #{value}`
+else
+  `#{@native}[key] = #{native}`
+end
+
+# Backtick strings with different interpolated variables
+if Pathname.new(xcode_orig_path).exist?
+  `sudo -p "#{prompt}" mv "#{xcode_orig_path}" "#{xcode_path}"`
+elsif Pathname.new(xcode_beta_path).exist?
+  `sudo -p "#{prompt}" mv "#{xcode_beta_path}" "#{xcode_path}"`
+end
+
 # Different actual code despite similar comments
 case msg
 when /not found/

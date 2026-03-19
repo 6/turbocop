@@ -53,6 +53,15 @@ use crate::parse::source::SourceFile;
 /// literal branch for the `IgnoreLiteralBranches` config path to satisfy the
 /// Prism hash/keyword-hash split.
 ///
+/// ## Follow-up (2026-03-19) — backtick string FP
+///
+/// FP=2: `XStringNode` and `InterpolatedXStringNode` (backtick strings like
+/// `` `cmd #{var}` ``) were not handled by `LiteralSpanFinder`. The `#` in
+/// `#{...}` interpolation was not protected as a literal span, so
+/// `strip_comments()` ate everything from `#` to end-of-line, making branches
+/// with different interpolated variables appear identical. Fixed by adding
+/// `visit_x_string_node` and `visit_interpolated_x_string_node` handlers.
+///
 /// ## Follow-up (2026-03-18) — whitespace normalization
 ///
 /// Remaining 15 FN were caused by whitespace-only differences between branches.
@@ -577,6 +586,30 @@ impl<'pr> Visit<'pr> for LiteralSpanFinder {
         let mut fp = b"IY:".to_vec();
         fp.extend_from_slice(node.location().as_slice());
         self.spans.push((start, end, fp));
+    }
+
+    fn visit_x_string_node(&mut self, node: &ruby_prism::XStringNode<'pr>) {
+        let start = node.location().start_offset();
+        let close_end = node.closing_loc().end_offset();
+        let end = close_end.max(node.location().end_offset());
+        let mut fp = b"X:".to_vec();
+        fp.extend_from_slice(node.unescaped());
+        self.spans.push((start, end, fp));
+    }
+
+    fn visit_interpolated_x_string_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedXStringNode<'pr>,
+    ) {
+        let start = node.location().start_offset();
+        let close_end = node.closing_loc().end_offset();
+        let end = close_end.max(node.location().end_offset());
+        let mut fp = b"IX:".to_vec();
+        for part in node.parts().iter() {
+            fp.extend_from_slice(part.location().as_slice());
+        }
+        self.spans.push((start, end, fp));
+        // Don't recurse — treat the whole interpolated xstring as one literal span
     }
 }
 
