@@ -68,18 +68,25 @@ use crate::parse::source::SourceFile;
 /// `call.block()` vs block_pass in parser gem's send children). Applied
 /// arg-count gate for `add_column` (requires 3-4 parser-gem args).
 ///
-/// ## Corpus fix (2026-03-19) — FP=17 fixed via scoped create_table arg-count gate
+/// ## Corpus fix attempt (2026-03-19) — scoped create_table arg-count gate — REVERTED (3rd time)
 ///
-/// The 17 FPs were `create_table` calls with 3+ parser-gem args (test helpers,
-/// Sequel ORM, non-migration code). RuboCop's `create_table?` pattern
-/// `(send nil? :create_table _table _?)` only matches 1-2 children.
+/// Attempted to apply `parser_arg_count` gate (1-2 args) ONLY to the table-level
+/// offense while keeping column-level checks unrestricted. This was supposed to
+/// avoid the previous revert's problem of blocking both table+column offenses.
+/// However, corpus rerun showed FN=2,481: when the `create_table` call has >2 args
+/// AND no `comment:` keyword, the old code emitted a table-level offense. The gate
+/// suppressed those table offenses (correct for the 17 FPs) but also suppressed
+/// ~2,500 legitimate table-level offenses from `create_table :table, force: true`
+/// style calls (which have 2 parser-gem children: sym + keyword_hash, so argc=2
+/// matches... but with `do |t|` block, Prism's `call.block()` is a BlockNode, not
+/// a BlockArgumentNode, so it's NOT counted by `parser_arg_count`). In practice,
+/// `create_table :users, force: :cascade do |t| ... end` has argc=2 and should match.
+/// The FN=2,481 suggests the gate is wrong or the count is wrong for some patterns.
 ///
-/// Previous attempts (reverted twice) applied the gate as an early return,
-/// which also blocked column-level offense checking inside blocks. The fix
-/// separates the two concerns: the arg-count gate controls ONLY the table-level
-/// offense, while column-level checks inside blocks still run when the table
-/// has a valid comment (matching RuboCop's `create_table_with_block?` fallthrough
-/// which uses `(send nil? :create_table ...)` with no arg-count restriction).
+/// **Root cause unclear**: the gate should theoretically work (1-2 args), but corpus
+/// shows massive FN. Needs deeper investigation of which specific patterns are lost.
+/// Until then, FP=17 remains as a known gap. The proper fix is likely a migration
+/// context check (`within_change_method?`) rather than arg-count filtering.
 pub struct SchemaComment;
 
 const TABLE_MSG: &str = "New database table without `comment`.";
@@ -229,21 +236,13 @@ impl Cop for SchemaComment {
 
         match name {
             b"create_table" if call.receiver().is_none() => {
-                // RuboCop's create_table? pattern: (send nil? :create_table _table _?)
-                // Only matches 1-2 argument children in the parser gem AST.
-                // The table-level offense is only emitted when this pattern matches.
-                let argc = parser_arg_count(&call);
-                let matches_pattern = (1..=2).contains(&argc);
-
-                if matches_pattern && !has_valid_comment(&call) {
-                    // Table without comment — report table-level offense
+                if !has_valid_comment(&call) {
+                    // Table without comment — only report table-level offense
                     let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     diagnostics.push(self.diagnostic(source, line, column, TABLE_MSG.to_string()));
-                } else if has_valid_comment(&call) {
-                    // Table has comment — check column definitions inside the block.
-                    // RuboCop's create_table_with_block? uses (send nil? :create_table ...)
-                    // which matches ANY arg count, so column checks always apply.
+                } else {
+                    // Table has comment — check column definitions inside the block
                     if let Some(block) = call.block() {
                         if let Some(block_node) = block.as_block_node() {
                             if let Some(body) = block_node.body() {

@@ -46,9 +46,3 @@ Sequel.migration do
   end
 end
 
-# create_table with 3 positional args — test helper pattern.
-# RuboCop's pattern (send nil? :create_table _table _?) only matches 1-2 children.
-# parser_arg_count = 3, so this should NOT be flagged.
-create_table konstant.table_name, columns, konstant.primary_key rescue nil
-create_table "special_foo", {}, true
-

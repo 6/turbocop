@@ -63,3 +63,7 @@ wrap(Time.now).zone
 
 # Nested parens: inner Time.now inside outer call that has safe chain
 Time.parse(helper_method(Time.now)).utc
+
+# Safe navigation &. continues the chain (treated like regular . in nitrocop)
+Time.at(val)&.utc
+Time.now&.to_i

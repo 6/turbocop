@@ -129,19 +129,24 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Investigation (2026-03-19): FN=16
 ///
-/// Two fixes:
+/// **1. Grouping parens with space (12 FN — FIXED):** `schedule (Time.now - 60).to_f` —
+/// backward scan found `schedule` before `(`, but the space between `schedule` and `(`
+/// means the `(` is a subexpression grouping paren. The `.to_f` after `)` chains on the
+/// grouped expression, not the `schedule` call. Fix: detect space/tab in the gap between
+/// method name and `(`; when present (`is_spaced_paren`), skip the chain-after-closing-paren
+/// check in `enclosing_call_is_safe_recursive`.
 ///
-/// **1. Grouping parens with space (12 FN):** `schedule (Time.now - 60).to_f` — backward
-/// scan found `schedule` before `(`, but the space between `schedule` and `(` means the
-/// `(` is a subexpression grouping paren. The `.to_f` after `)` chains on the grouped
-/// expression, not the `schedule` call. Fix: detect space/tab in the gap between method
-/// name and `(`; when present, skip the chain-after-closing-paren check.
+/// **2. Safe navigation `&.` chain break (2+ FN — REVERTED):** `Time.at(val)&.utc` — in
+/// RuboCop, `csend` (safe navigation) is not `send_type?`, so `extract_method_chain` stops
+/// at `&.utc`. Attempted fix: removed `&.` handling from `chain_contains_tz_safe_method`.
+/// REVERTED because corpus rerun showed FP=405: many legitimate `Time.at(x)&.utc` patterns
+/// in the corpus ARE accepted by RuboCop (possibly via a different code path or because
+/// `csend` handling changed in newer parser versions). Restoring `&.` handling eliminates
+/// the 405 FPs while leaving ~2-4 FN from the `&.` pattern. The FN are acceptable since
+/// `&.utc` genuinely provides timezone safety.
 ///
-/// **2. Safe navigation `&.` chain break (2+ FN):** `Time.at(val)&.utc` — in RuboCop,
-/// `csend` (safe navigation) is not `send_type?`, so `extract_method_chain` stops at
-/// `&.utc`. The chain is just `[:at]` — `utc` is never reached. Fix: removed `&.` handling
-/// from `chain_contains_tz_safe_method`; only regular `.` continues the chain. Since
-/// whitespace is skipped first, `&.utc` lands on `&` (not `.`) and correctly breaks.
+/// Remaining FN after spaced-paren fix: ~4-6 (2+ from `&.` pattern, plus possible
+/// other patterns in rack-contrib, rack-cache, TracksApp, flippercloud, hackclub).
 pub struct TimeZone;
 
 impl Cop for TimeZone {
@@ -648,12 +653,15 @@ fn chain_contains_tz_safe_method(bytes: &[u8], start: usize) -> bool {
             pos += 1;
         }
 
-        // Must see '.' to continue the chain. In RuboCop, `csend` (safe navigation
-        // `&.`) is not `send_type?`, so `extract_method_chain` stops at `&.`. We match
-        // this by only following regular `.` chains. Since whitespace is skipped above,
-        // `&.utc` lands on `&` (not `.`) and correctly returns false here.
-        if pos >= bytes.len() || bytes[pos] != b'.' {
+        // Must see '.' or '&.' to continue the chain
+        if pos >= bytes.len() || (bytes[pos] != b'.' && bytes[pos] != b'&') {
             return false;
+        }
+        if bytes[pos] == b'&' {
+            pos += 1;
+            if pos >= bytes.len() || bytes[pos] != b'.' {
+                return false;
+            }
         }
         pos += 1; // skip the '.'
 
