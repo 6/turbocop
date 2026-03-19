@@ -11,6 +11,14 @@ use crate::parse::source::SourceFile;
 /// FP=1: asciidoctor-pdf `describe '...', if: cond, &(proc do...end)` style.
 /// `&(proc do end)` stores a BlockArgumentNode in call.block(), not a BlockNode.
 /// RuboCop's on_block only fires for BlockNode. Fixed by requiring BlockNode.
+///
+/// ## Corpus investigation (2026-03-18)
+///
+/// FN=4: Files where `describe` blocks are inside `module`/`class` wrappers
+/// (prontolabs/pronto, louismullie/treat, rspec/rspec-rails). The cop only
+/// checked direct children of ProgramNode. RuboCop's TopLevelGroup mixin
+/// recursively unwraps module/class when there's a single top-level statement.
+/// Fixed by implementing the same unwrapping in `collect_example_groups`.
 pub struct MultipleDescribes;
 
 impl Cop for MultipleDescribes {
@@ -51,25 +59,11 @@ impl Cop for MultipleDescribes {
         };
 
         let stmts = program.statements();
-        let body = stmts.body();
 
-        // Collect top-level example group calls (describe, context, etc.)
-        // but exclude shared_examples, shared_examples_for, shared_context
+        // Collect top-level example groups, unwrapping single module/class wrappers
+        // to match RuboCop's TopLevelGroup mixin.
         let mut example_groups: Vec<(usize, usize)> = Vec::new();
-
-        for stmt in body.iter() {
-            if let Some(call) = stmt.as_call_node() {
-                let name = call.name().as_slice();
-                // Must have a real BlockNode (do...end or { }). BlockArgumentNode (&proc)
-                // is not counted — RuboCop's on_block only fires for BlockNode.
-                let has_block_node = call.block().is_some_and(|b| b.as_block_node().is_some());
-                if has_block_node && is_top_level_example_group(call.receiver().as_ref(), name) {
-                    let loc = call.location();
-                    let (line, col) = source.offset_to_line_col(loc.start_offset());
-                    example_groups.push((line, col));
-                }
-            }
-        }
+        collect_example_groups(source, &stmts.body(), &mut example_groups);
 
         if example_groups.len() <= 1 {
             return;
@@ -83,6 +77,50 @@ impl Cop for MultipleDescribes {
             col,
             "Do not use multiple top-level example groups - try to nest them.".to_string(),
         ));
+    }
+}
+
+/// Mirrors RuboCop's TopLevelGroup#top_level_nodes: if the body has exactly one
+/// statement and it's a module or class, recurse into its body. Otherwise scan
+/// directly for example groups. This handles files like `module Foo; describe ...; end`.
+fn collect_example_groups(
+    source: &SourceFile,
+    body: &ruby_prism::NodeList<'_>,
+    example_groups: &mut Vec<(usize, usize)>,
+) {
+    let nodes: Vec<_> = body.iter().collect();
+    // If there's exactly one node and it's a module/class, unwrap into its body
+    if nodes.len() == 1 {
+        if let Some(module_node) = nodes[0].as_module_node() {
+            if let Some(inner_body) = module_node.body() {
+                if let Some(stmts) = inner_body.as_statements_node() {
+                    collect_example_groups(source, &stmts.body(), example_groups);
+                }
+            }
+            return;
+        }
+        if let Some(class_node) = nodes[0].as_class_node() {
+            if let Some(inner_body) = class_node.body() {
+                if let Some(stmts) = inner_body.as_statements_node() {
+                    collect_example_groups(source, &stmts.body(), example_groups);
+                }
+            }
+            return;
+        }
+    }
+
+    for node in &nodes {
+        if let Some(call) = node.as_call_node() {
+            let name = call.name().as_slice();
+            // Must have a real BlockNode (do...end or { }). BlockArgumentNode (&proc)
+            // is not counted — RuboCop's on_block only fires for BlockNode.
+            let has_block_node = call.block().is_some_and(|b| b.as_block_node().is_some());
+            if has_block_node && is_top_level_example_group(call.receiver().as_ref(), name) {
+                let loc = call.location();
+                let (line, col) = source.offset_to_line_col(loc.start_offset());
+                example_groups.push((line, col));
+            }
+        }
     }
 }
 
@@ -125,5 +163,7 @@ mod tests {
         scenario_class_and_method = "class_and_method.rb",
         scenario_class_only = "class_only.rb",
         scenario_string_args = "string_args.rb",
+        scenario_module_wrapped = "module_wrapped.rb",
+        scenario_class_wrapped = "class_wrapped.rb",
     );
 }
