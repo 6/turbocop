@@ -44,12 +44,37 @@ use std::ops::Range;
 ///    paths: comments only use `aligned_comment_lines`, non-comments use the full
 ///    `is_aligned_with_adjacent` check.
 ///
+/// ## Investigation findings (2026-03-19)
+///
+/// 5. **%w()/%i() word/symbol array FPs (fixed)**: Extra spaces inside `%w()`, `%W()`,
+///    `%i()`, `%I()` arrays are element separators, not extra spacing. RuboCop's
+///    token-based approach doesn't see these as code gaps because the entire array
+///    content is tokenized differently. Added collection of word/symbol array interior
+///    ranges (similar to hash pair ranges) and skip them during scanning.
+///    Fixes ~20 FPs from rouge-ruby and similar repos.
+///
+/// 6. **Multibyte alignment FPs (fixed)**: Lines with multibyte characters (CJK, etc.)
+///    have different byte offsets for the same visual column. The alignment check used
+///    byte positions, so tokens visually aligned at the same column but at different
+///    byte offsets were not recognized as aligned. Changed alignment detection to use
+///    character-count-based columns (counting each byte-level position through chars)
+///    so that multibyte characters are properly accounted for.
+///    Fixes ~24 FPs from shopqi and similar repos with CJK text.
+///
+/// 7. **Tab-based spacing FNs (fixed)**: Tabs between tokens (not as indentation) were
+///    completely ignored because the scanner only looked for space characters. RuboCop's
+///    token-based approach counts any gap > 1 character between tokens as extra spacing,
+///    regardless of whether it's spaces or tabs. Extended the scanner to detect whitespace
+///    runs containing tabs (after skipping indentation) and flag them.
+///    Fixes ~30 FNs from coderwall, fog, jruby and similar repos.
+///
 /// ## Key design notes
 /// - Works with raw text scanning (not tokens), using CodeMap to skip non-code regions
 /// - Alignment detection mirrors RuboCop's PrecedingFollowingAlignment mixin:
 ///   Pass 1 checks nearest non-blank non-comment line, Pass 2 checks nearest
 ///   line with same indentation
 /// - Hash pair ranges in multiline hashes are ignored (handled by Layout/HashAlignment)
+/// - Word/symbol array ranges (%w/%i/%W/%I) are ignored (spacing is element separation)
 /// - ForceEqualSignAlignment is read from config but not yet implemented (produces
 ///   a different offense message)
 pub struct ExtraSpacing;
@@ -81,7 +106,11 @@ impl Cop for ExtraSpacing {
 
         // Collect multiline hash pair ranges to ignore (key..value spacing
         // is handled by Layout/HashAlignment, not this cop).
-        let ignored_ranges = collect_hash_pair_ranges(parse_result, src_bytes);
+        let mut ignored_ranges = collect_hash_pair_ranges(parse_result, src_bytes);
+
+        // Collect word/symbol array interior ranges to ignore (%w, %W, %i, %I).
+        // Spaces inside these arrays are element separators, not extra spacing.
+        ignored_ranges.extend(collect_word_array_ranges(parse_result, src_bytes));
 
         // Build the set of aligned comment lines (1-indexed). Two consecutive
         // comments that start at the same column are both considered "aligned".
@@ -102,16 +131,24 @@ impl Cop for ExtraSpacing {
                 i += 1;
             }
 
-            // Now scan for extra spaces within the line
+            // Now scan for extra whitespace within the line.
+            // We detect both multi-space runs AND whitespace runs containing tabs.
+            // A single tab between tokens is extra spacing (it takes >1 column),
+            // just like multiple spaces.
             while i < line.len() {
-                if line[i] == b' ' {
+                if line[i] == b' ' || line[i] == b'\t' {
                     let space_start = i;
-                    while i < line.len() && line[i] == b' ' {
+                    let mut has_tab = line[i] == b'\t';
+                    while i < line.len() && (line[i] == b' ' || line[i] == b'\t') {
+                        if line[i] == b'\t' {
+                            has_tab = true;
+                        }
                         i += 1;
                     }
                     let space_count = i - space_start;
 
-                    if space_count > 1 && i < line.len() {
+                    // Flag if: multiple characters, or any tabs (a tab is always >1 col)
+                    if (space_count > 1 || has_tab) && i < line.len() {
                         // Get the byte offset in the full source
                         let abs_offset = line_start_offset + space_start;
 
@@ -244,6 +281,51 @@ impl HashPairCollector<'_> {
 
 fn is_in_ignored_range(ranges: &[Range<usize>], offset: usize) -> bool {
     ranges.iter().any(|r| r.contains(&offset))
+}
+
+// -- Word/symbol array ignored ranges --
+
+/// Collect byte ranges of word/symbol array interiors (%w, %W, %i, %I).
+/// Spaces inside these arrays are element separators, not extra spacing.
+fn collect_word_array_ranges(
+    parse_result: &ruby_prism::ParseResult<'_>,
+    src_bytes: &[u8],
+) -> Vec<Range<usize>> {
+    let mut collector = WordArrayCollector {
+        ranges: Vec::new(),
+        src_bytes,
+    };
+    collector.visit(&parse_result.node());
+    collector.ranges
+}
+
+struct WordArrayCollector<'a> {
+    ranges: Vec<Range<usize>>,
+    src_bytes: &'a [u8],
+}
+
+impl<'pr> Visit<'pr> for WordArrayCollector<'_> {
+    fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
+        if let Some(opening) = node.opening_loc() {
+            let opener = opening.as_slice();
+            // Check if this is a %w, %W, %i, or %I array
+            if opener.starts_with(b"%w")
+                || opener.starts_with(b"%W")
+                || opener.starts_with(b"%i")
+                || opener.starts_with(b"%I")
+            {
+                // Mark the interior (between opening and closing delimiters) as ignored
+                let start = opening.end_offset();
+                let end = node
+                    .closing_loc()
+                    .map_or(node.location().end_offset(), |c| c.start_offset());
+                if end > start {
+                    self.ranges.push(start..end);
+                }
+            }
+        }
+        ruby_prism::visit_array_node(self, node);
+    }
 }
 
 // -- Aligned comments --
@@ -405,15 +487,28 @@ fn find_nearest_line(
 /// Mode 2 uses the full token text (not single characters) to avoid false
 /// negatives from coincidental single-character alignment (e.g., `d` in `do`
 /// aligning with trailing `d` in `_______________________d`).
+///
+/// Uses character-based column comparison to handle multibyte characters (CJK, etc.)
+/// correctly. The byte position `col` on the current line is converted to a
+/// character column, then the corresponding byte position on the adjacent line
+/// is found for comparison.
 fn check_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> bool {
-    if col >= adj_line.len() {
+    // Convert byte col on current line to character col, then find
+    // the corresponding byte position on the adjacent line.
+    let char_col = byte_to_char_col(current_line, col);
+    let adj_col = match char_col_to_byte(adj_line, char_col) {
+        Some(c) => c,
+        None => return false,
+    };
+
+    if adj_col >= adj_line.len() {
         return false;
     }
-    // Mode 1: space + non-space at the same column (token boundary alignment)
-    if adj_line[col] != b' '
-        && adj_line[col] != b'\t'
-        && col > 0
-        && (adj_line[col - 1] == b' ' || adj_line[col - 1] == b'\t')
+    // Mode 1: space + non-space at the same character column (token boundary alignment)
+    if adj_line[adj_col] != b' '
+        && adj_line[adj_col] != b'\t'
+        && adj_col > 0
+        && (adj_line[adj_col - 1] == b' ' || adj_line[adj_col - 1] == b'\t')
     {
         return true;
     }
@@ -424,8 +519,8 @@ fn check_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> bool {
     // intentional.
     let token = extract_token_at(current_line, col);
     if !token.is_empty()
-        && col + token.len() <= adj_line.len()
-        && &adj_line[col..col + token.len()] == token
+        && adj_col + token.len() <= adj_line.len()
+        && &adj_line[adj_col..adj_col + token.len()] == token
     {
         return true;
     }
@@ -466,15 +561,22 @@ fn check_equals_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> b
     // Find the '=' in or near the token starting at col on the current line
     let eq_col = find_equals_col(current_line, col);
     if let Some(eq_col) = eq_col {
-        // Check if the adjacent line has '=' at the same column
-        if eq_col < adj_line.len() && adj_line[eq_col] == b'=' {
+        // Convert the byte position of '=' to a character column,
+        // then find the corresponding byte position on the adjacent line.
+        let eq_char_col = byte_to_char_col(current_line, eq_col);
+        let adj_eq_col = match char_col_to_byte(adj_line, eq_char_col) {
+            Some(c) => c,
+            None => return false,
+        };
+        // Check if the adjacent line has '=' at the same character column
+        if adj_eq_col < adj_line.len() && adj_line[adj_eq_col] == b'=' {
             // Verify the `=` on the adjacent line looks like an assignment operator:
             // it must be preceded by a space or operator character, not part of an
             // identifier or embedded in a string.
-            if eq_col == 0 {
+            if adj_eq_col == 0 {
                 return true; // `=` at start of line is always an assignment
             }
-            let prev = adj_line[eq_col - 1];
+            let prev = adj_line[adj_eq_col - 1];
             if prev == b' '
                 || prev == b'\t'
                 || prev == b'+'
@@ -520,6 +622,32 @@ fn line_indentation(line: &[u8]) -> usize {
     line.iter()
         .take_while(|&&b| b == b' ' || b == b'\t')
         .count()
+}
+
+/// Convert a byte offset to a character column (0-indexed).
+/// Each UTF-8 character (regardless of byte length) counts as 1 column.
+fn byte_to_char_col(line: &[u8], byte_col: usize) -> usize {
+    let end = byte_col.min(line.len());
+    let s = std::str::from_utf8(&line[..end]).unwrap_or("");
+    s.chars().count()
+}
+
+/// Convert a character column to a byte offset on the given line.
+/// Returns None if the line is shorter than the requested character column.
+fn char_col_to_byte(line: &[u8], char_col: usize) -> Option<usize> {
+    let s = std::str::from_utf8(line).unwrap_or("");
+    let mut byte_offset = 0;
+    for (i, ch) in s.chars().enumerate() {
+        if i == char_col {
+            return Some(byte_offset);
+        }
+        byte_offset += ch.len_utf8();
+    }
+    if char_col == s.chars().count() {
+        Some(byte_offset)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

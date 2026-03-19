@@ -106,3 +106,23 @@ unless nochdir
 end
 
 File.umask 0000    # Ensure sensible umask.
+
+# Extra spaces inside %w() word arrays are separators, not extra spacing
+builtins = %w(
+  foo  bar  baz
+  one  two  three
+)
+
+# Extra spaces inside %i() symbol arrays
+syms = %i(foo  bar  baz)
+
+# Extra spaces inside %W() and %I() arrays
+words = %W(hello  world  #{name})
+isyms = %I(hello  world)
+
+# Aligned values with multibyte characters (CJK)
+# Commas should align visually even though byte offsets differ
+data = [
+  {id: 1, name: 'short'     , code: 'a'},
+  {id: 2, name: 'longer'    , code: 'b'},
+]
