@@ -720,20 +720,6 @@ fn in_dangerous_time_context(
     source: &SourceFile,
 ) -> Option<(String, usize)> {
     const DANGEROUS_METHODS: &[&[u8]] = &[b"now", b"parse", b"at", b"new", b"local"];
-    const GOOD_METHODS: &[&[u8]] = &[
-        b"utc",
-        b"getlocal",
-        b"in_time_zone",
-        b"iso8601",
-        b"xmlschema",
-        b"jisx0301",
-        b"rfc3339",
-        b"httpdate",
-        b"to_i",
-        b"to_f",
-        b"zone",
-        b"current",
-    ];
 
     let paren_pos = find_enclosing_open_paren(bytes, start)?;
     if paren_pos == 0 {
