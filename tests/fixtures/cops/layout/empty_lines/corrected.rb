@@ -31,3 +31,20 @@ d = 4
 =begin
 more docs
 =end
+
+# Consecutive blank lines inside =begin/=end block
+e = 5
+=begin
+some documentation
+
+more documentation
+=end
+f = 6
+
+# Multiple consecutive blank lines inside =begin/=end
+g = 7
+=begin
+docs here
+
+more docs here
+=end
