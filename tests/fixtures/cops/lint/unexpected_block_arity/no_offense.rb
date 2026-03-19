@@ -12,3 +12,11 @@ values.reduce { |a, b, c| a + b }
 reduce { }
 reduce { _1 }
 reduce { it }
+values.each_with_index { |elem, idx| elem }
+values.each_with_object([]) { |v, memo| memo << v }
+values.sort { |a, b| a <=> b }
+values.chunk_while { |a, b| a == b }
+values.slice_when { |a, b| a != b }
+values.max { |a, b| a <=> b }
+values.min { |a, b| a <=> b }
+values.minmax { |a, b| a <=> b }
