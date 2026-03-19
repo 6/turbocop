@@ -6,6 +6,14 @@ use crate::parse::source::SourceFile;
 
 /// RSpec/ItBehavesLike: Enforce `it_behaves_like` vs `it_should_behave_like` style.
 /// Default prefers `it_behaves_like`.
+///
+/// ## Corpus investigation (2026-03-19)
+///
+/// FP=0, FN=12 (all from jruby).
+///
+/// FN=12: All FNs had receivers (e.g., `@state.it_should_behave_like @shared_desc`).
+/// The cop was requiring `call.receiver().is_none()`, but vendor RuboCop uses
+/// `(send _ % ...)` which matches any receiver. Removed the receiver check.
 pub struct ItBehavesLike;
 
 impl Cop for ItBehavesLike {
@@ -39,9 +47,8 @@ impl Cop for ItBehavesLike {
             None => return,
         };
 
-        if call.receiver().is_some() {
-            return;
-        }
+        // Note: vendor RuboCop uses `(send _ % ...)` with `_` for any receiver,
+        // so we match calls with or without a receiver.
 
         let name = call.name().as_slice();
         let style = config.get_str("EnforcedStyle", "it_behaves_like");

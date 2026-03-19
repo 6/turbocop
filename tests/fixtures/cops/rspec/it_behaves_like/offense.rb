@@ -10,3 +10,7 @@ describe Foo do
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ItBehavesLike: Prefer `it_behaves_like` over `it_should_behave_like` when including examples in a nested context.
   end
 end
+
+# With receiver (vendor pattern uses `_` for any receiver)
+@state.it_should_behave_like 'shared behavior'
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ItBehavesLike: Prefer `it_behaves_like` over `it_should_behave_like` when including examples in a nested context.
