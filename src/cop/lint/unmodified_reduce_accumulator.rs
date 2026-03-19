@@ -36,6 +36,29 @@ use ruby_prism::Visit;
 /// direct expression node rather than a `StatementsNode`. Within those bodies,
 /// chained calls rooted in a bare method call that only uses the element still
 /// need to count as element-only returns.
+///
+/// ## Corpus investigation (2026-03-19)
+///
+/// Corpus oracle reported FP=0, FN=4. Two distinct root causes:
+///
+/// **FN root cause 1 (2 cases):** `next element` inside a conditional branch was
+/// not flagged when the accumulator appeared in another return position (e.g.,
+/// `item.process && all_ok` as the last expression). The `uses_acc` check used a
+/// deep recursive visitor (`lvar_used`) that found the accumulator buried inside
+/// complex expressions like `&&` nodes. RuboCop's `lvar_used?` is a shallow
+/// node_matcher that only matches top-level patterns (bare lvar, lvasgn,
+/// `acc << x`, string interpolation). Replaced with `lvar_used_shallow` to match
+/// RuboCop's semantics: `acc += 1` and `el.foo && acc` as return values do NOT
+/// count as "using the accumulator" for `returns_accumulator_anywhere?`.
+///
+/// **FN root cause 2 (2 cases):** `acc[k.to_sym]` and `acc[db[val]]` were not
+/// flagged as accumulator index offenses. The element check in
+/// `is_accumulator_index` used deep `lvar_used` to find the element variable
+/// inside index arguments like `k.to_sym`. Since `k` (the element) was found,
+/// the check treated it as `acc[el]` (acceptable). But RuboCop's `lvar_used?` is
+/// shallow — `(send (lvar :k) :to_sym)` does NOT match `(lvar :k)`. Only bare
+/// `result[key]` is acceptable; `result[key.to_sym]` is an offense. Replaced
+/// with `lvar_used_shallow`.
 pub struct UnmodifiedReduceAccumulator;
 
 impl Cop for UnmodifiedReduceAccumulator {
@@ -281,7 +304,11 @@ fn check_return_values(
 fn analyze_return_value(node: &ruby_prism::Node<'_>, acc_name: &str, el_name: &str) -> ReturnInfo {
     ReturnInfo {
         start_offset: node.location().start_offset(),
-        uses_acc: lvar_used(node, acc_name),
+        // Use shallow check matching RuboCop's `lvar_used?` node_matcher:
+        // only top-level patterns like bare lvar, lvasgn, send(lvar, :<<), dstr, etc.
+        // Deep references (e.g. `el.foo && acc`) don't count for
+        // `returns_accumulator_anywhere?`.
+        uses_acc: lvar_used_shallow(node, acc_name),
         is_acc_index: is_accumulator_index(node, acc_name, el_name),
         is_element_only: !references_var(node, acc_name)
             && is_only_element_expr(node, acc_name, el_name),
@@ -376,9 +403,15 @@ fn is_accumulator_index(node: &ruby_prism::Node<'_>, acc_name: &str, el_name: &s
                         if method == b"[]=" {
                             return true;
                         }
-                        // For acc[], check if any argument uses the element
+                        // For acc[], check if any argument is directly the element
+                        // variable. Uses shallow check matching RuboCop's `lvar_used?`
+                        // node_matcher — `acc[el]` is acceptable but `acc[el.to_sym]`
+                        // or `acc[foo[el]]` are offenses.
                         if let Some(args) = call.arguments() {
-                            let has_el = args.arguments().iter().any(|a| lvar_used(&a, el_name));
+                            let has_el = args
+                                .arguments()
+                                .iter()
+                                .any(|a| lvar_used_shallow(&a, el_name));
                             return !has_el;
                         }
                         return true;
@@ -508,6 +541,69 @@ fn element_modified_recursive(node: &ruby_prism::Node<'_>, el_name: &str) -> boo
             }
         }
     }
+
+    false
+}
+
+/// Shallow check matching RuboCop's `lvar_used?` node_matcher.
+/// Only matches top-level patterns:
+///   (lvar name)                         — bare variable read
+///   (lvasgn name ...)                   — assignment
+///   (send (lvar name) :<< ...)          — shovel operator
+///   (dstr (begin (lvar name)))          — string interpolation
+///   (op_asgn (lvasgn name) ...)         — shorthand assignment (+=, etc.)
+///
+/// Does NOT recursively search into child nodes. This is used for
+/// `returns_accumulator_anywhere?` and `returned_accumulator_index` element
+/// checks where RuboCop only looks at the outermost node shape.
+fn lvar_used_shallow(node: &ruby_prism::Node<'_>, var_name: &str) -> bool {
+    // (lvar name)
+    if let Some(read) = node.as_local_variable_read_node() {
+        return std::str::from_utf8(read.name().as_slice()).unwrap_or("") == var_name;
+    }
+
+    // (lvasgn name ...)
+    if let Some(write) = node.as_local_variable_write_node() {
+        return std::str::from_utf8(write.name().as_slice()).unwrap_or("") == var_name;
+    }
+
+    // (send (lvar name) :<< ...)
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"<<" {
+            if let Some(recv) = call.receiver() {
+                if let Some(read) = recv.as_local_variable_read_node() {
+                    return std::str::from_utf8(read.name().as_slice()).unwrap_or("") == var_name;
+                }
+            }
+        }
+    }
+
+    // (dstr (begin (lvar name)))
+    if let Some(dstr) = node.as_interpolated_string_node() {
+        let parts: Vec<ruby_prism::Node<'_>> = dstr.parts().iter().collect();
+        if parts.len() == 1 {
+            if let Some(embedded) = parts[0].as_embedded_statements_node() {
+                if let Some(stmts) = embedded.statements() {
+                    let body: Vec<ruby_prism::Node<'_>> = stmts.body().iter().collect();
+                    if body.len() == 1 {
+                        if let Some(read) = body[0].as_local_variable_read_node() {
+                            return std::str::from_utf8(read.name().as_slice()).unwrap_or("")
+                                == var_name;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // NOTE: Shorthand assignments (acc += 1, acc ||= x, acc &&= x) are
+    // intentionally NOT matched here. RuboCop's `lvar_used?` pattern
+    // `(%SHORTHAND_ASSIGNMENTS (lvasgn %1))` does not match op_asgn nodes
+    // because they have extra children (operator, value) beyond the lvasgn.
+    // This means `acc += 1` as a return value does NOT count as "using the
+    // accumulator" for `returns_accumulator_anywhere?`, which is correct —
+    // `next el` should still be flagged even when the last expression is
+    // `acc += 1`.
 
     false
 }
