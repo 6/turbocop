@@ -59,6 +59,18 @@
 /// Remaining 1 FN (browsermedia portlet.rb:228) is a RuboCop over-match:
 /// `Cms::Portlet < ActiveRecord::Base` is not a controller but RuboCop's
 /// `def_node_search :action_controller?` matches ANY reference in the class subtree.
+///
+/// ## Investigation (2026-03-19): FP=4, FN=1 — third fix
+///
+/// FP=4: All four FPs were flash as the last statement in a def-with-rescue body
+/// (with or without ensure). In RuboCop's Parser AST, `each_ancestor(:if, :rescue)`
+/// finds the rescue ancestor and only checks its right_siblings (ensure body or empty)
+/// for render — implicit render detection is suppressed. nitrocop's `check_statements`
+/// was incorrectly triggering implicit render for the last body statement. Fixed by
+/// using `check_branch_stmts_with_outer` with `is_if_rescue_branch=true` and ensure
+/// body nodes as outer context, matching RuboCop's rescue ancestor behavior.
+///
+/// FN=1: Unchanged — RuboCop over-match on non-controller class (see above).
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -164,13 +176,23 @@ impl FlashVisitor<'_> {
             self.check_statements(&body_nodes);
         } else if let Some(begin_node) = body.as_begin_node() {
             // def ... rescue ... end (no explicit begin): Prism wraps body in BeginNode.
-            // Process the statements part as the def body, and rescue clauses separately.
+            // In RuboCop's Parser AST, flash in the body has a :rescue ancestor, so
+            // each_ancestor(:if, :rescue) finds :rescue and only the rescue node's
+            // right_siblings are checked for render. Those right_siblings are the
+            // ensure body (if present) or empty. We replicate this by treating the
+            // body as a rescue branch with ensure body as outer context.
+            let ensure_stmts: Vec<ruby_prism::Node<'_>> = begin_node
+                .ensure_clause()
+                .and_then(|ec| ec.statements())
+                .map(|stmts| stmts.body().iter().collect())
+                .unwrap_or_default();
+
             if let Some(stmts) = begin_node.statements() {
                 let body_nodes: Vec<_> = stmts.body().iter().collect();
-                self.check_statements(&body_nodes);
+                self.check_branch_stmts_with_outer(&body_nodes, &ensure_stmts, true);
             }
             if let Some(rescue) = begin_node.rescue_clause() {
-                self.check_rescue_with_outer(&rescue, &[]);
+                self.check_rescue_with_outer(&rescue, &ensure_stmts);
             }
         }
     }

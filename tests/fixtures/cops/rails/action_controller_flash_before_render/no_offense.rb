@@ -258,6 +258,40 @@ class AlertsController < ApplicationController
   end
 end
 
+# Flash in main body of def-with-rescue: rescue ancestor suppresses implicit render
+# (RuboCop checks rescue's right_siblings, which are empty — no render found)
+class TokensController < ApplicationController
+  def revoke
+    token.destroy
+    flash[:info] = "Token revoked"
+  rescue StandardError => e
+    flash[:error] = e.message
+  ensure
+    redirect_to action: :index
+  end
+end
+
+# Flash in main body of def-with-rescue (no ensure): rescue ancestor's right_siblings
+# are empty, so no render is found
+class CurrencyController < ApplicationController
+  def update_currency
+    record.update!(value: new_value)
+    flash[:success] = "Updated"
+  rescue ActiveRecord::RecordInvalid => e
+    flash[:error] = e.message
+  end
+end
+
+# Flash in rescue body with redirect_to in ensure — no render in ensure
+class RssController < ApplicationController
+  def create
+  rescue StandardError => e
+    flash[:alert] = "Error"
+  ensure
+    redirect_to :index
+  end
+end
+
 # Flash in def-with-rescue — no render in right siblings, only redirect
 class PaymentsController < ApplicationController
   def create
