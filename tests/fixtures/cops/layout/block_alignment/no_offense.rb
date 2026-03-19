@@ -79,18 +79,6 @@ expect(arr.all? do |o|
          o.valid?
        end)
 
-# multiline with || continuation: do on second line
-a ||
-  items.each do |x|
-  process(x)
-end
-
-# multiline with && continuation: do on second line
-(value.is_a? Array) &&
-  value.all? do |subvalue|
-  type_check(subvalue)
-end
-
 # FP fix: multiline string literal (no explicit continuation) -- do on wrapped line
 it "returns remote census api response when available and valid without send
     date_of_birth and postal_code" do
@@ -188,3 +176,28 @@ packages_lines, last_package_lines =
     [pkgs, pkg]
   end
 end
+
+# FP fix: do on continuation line of multi-line call with bracket-key assignment
+          env[:machine].id = env[:machine].provider.driver.clone_vm(
+            env[:clone_id], options) do |progress|
+            env[:ui].clear_line
+          end
+
+# FP fix: do on continuation line with multi-line args (ask/lambda pattern)
+  entry[:phone] = ask("Phone?  ",
+                      lambda { |p| p.to_s }) do |q|
+    q.validate = true
+  end
+
+# FP fix: << operator on same line — end aligns with LHS of <<
+      lists << tag.ul(:class => "pagination") do
+        items.each do |page|
+          concat page
+        end
+      end
+
+# FP fix: << with multi-line args — end aligns with acc
+              acc << HexaPDF::Layout::InlineBox.create(width: 10, height: 10,
+                                                       margin: [0, 1, -2, 0]) do |cv, box|
+                cv.image("icon.png", at: [0, 0], width: box.content_width)
+              end

@@ -90,3 +90,35 @@ accepted_states.any? do |(status, reason)|
       [s.to, t.to]
     end
     ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+# FN: cross-line single assignment — end at col 8 misaligned with Class.new at col 10
+        @connection_model =
+          Class.new(Blazer::Connection) do
+            def self.name
+              "SnowflakeAdapter"
+            end
+        end
+        ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+# FN: cross-line assignment with bracket LHS — end at col 10 misaligned with data at col 12
+          body[:available][:items] =
+            data[:networks].map do |id, network|
+              {type: "app", name: network[:name]}
+          end
+          ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+# FN: cross-line assignment — end at col 8, File.open at col 10
+          contents =
+            File.open("config/setup.rb") do |src|
+            src.read
+          end
+          ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+# FN: cross-line || continuation — end at col 0, but call at col 2
+a ||
+  items.each do |x|
+  process(x)
+end
+^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+# FN: cross-line && continuation — end at col 0, but call at col 2
+(value.is_a? Array) &&
+  value.all? do |subvalue|
+  type_check(subvalue)
+end
+^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.

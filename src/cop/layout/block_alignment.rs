@@ -134,6 +134,45 @@ use crate::parse::source::SourceFile;
 ///    closer heuristic accepts `call_start_col` which matches the RHS call. Requires AST walk.
 ///
 /// Remaining gaps: 2 FP (paren/rescue, splat-arg) + 1 FN (chained closer in assignment).
+///
+/// ## Corpus investigation findings (2026-03-19, round 3)
+///
+/// Root causes of remaining 10 FP:
+/// 1. **`:` in bracket-key LHS** (vagrant-parallels x2, hashicorp/vagrant, JEG2/highline,
+///    peritor/webistrano — 5 FP) — `env[:machine].id = expr do` or `entry[:phone] = ask(...) do`.
+///    `skip_assignment_backward` LHS walk didn't handle `:` (symbol literal prefix inside
+///    brackets), stopping at `:machine` instead of walking through to `env`. Fixed by adding
+///    `:` to accepted chars and balanced paren/bracket handling in the LHS walk.
+/// 2. **`<<` not handled as same-line operator** (docuseal, openstreetmap — 2 FP) —
+///    `acc << expr do ... end` or `lists << tag.ul(...) do`. The `<<` shovel operator wasn't
+///    recognized by `find_same_line_operator_lhs`, so `acc`'s column wasn't accepted as
+///    alignment target. Added `<<` to the same-line operator check.
+/// 3. **Parens not handled in LHS walk** (openstreetmap, opf/openproject — 1 FP) —
+///    `RequestStore.store[key(work_package)] = value do` where `(` in the LHS stopped the
+///    backward walk. Added balanced paren/bracket handling to `skip_assignment_backward`.
+/// 4. Existing unfixable: paren/rescue (automaticmode, 1 FP), splat-arg (flyerhzm, 1 FP).
+///
+/// Root causes of remaining 7 FN:
+/// 1. **Cross-line single assignment accepted** (ankane/blazer, fog, jruby/warbler — 3 FN) —
+///    `@connection_model =\n  Class.new(...) do ... end` at col 8. `find_assignment_lhs_col`
+///    walked to the previous line and found the assignment LHS. But RuboCop's
+///    `disqualified_parent?` stops at cross-line parents (except masgn). Fixed by restricting
+///    cross-line assignment detection to multi-assignment (masgn) only (detected by comma in LHS).
+/// 2. **Cross-line `||`/`&&` accepted as alignment target** (sharetribe — 1 FN) —
+///    `accepted_states.empty? ||\n  accepted_states.any? do ... end` at col 6.
+///    `find_operator_continuation_start` accepted the indent of the `||` LHS line. But RuboCop's
+///    `disqualified_parent?` stops at cross-line parents. Fixed by removing
+///    `find_operator_continuation_start` entirely — cross-line operator continuations are
+///    not valid alignment targets.
+/// 3. **Cross-line `<<` no longer accepted** (trogdoro — 1 FN) — `threads <<\n  Thread::new(...)
+///    do ... end` at col 10 matched `threads <<` line indent via `operator_continuation_indent`.
+///    Removing that function fixed this FN.
+/// 4. **Cross-line single assignment no longer accepted** (sup-heliotrope — 1 FN) —
+///    `@files =\n  begin...end.map do ... end` at col 4. The cross-line `@files =` was
+///    previously accepted; masgn restriction now rejects it.
+/// 5. Existing unfixable: chained `.to_json` in assignment (diaspora, 1 FN).
+///
+/// Remaining gaps: 2 FP (paren/rescue, splat-arg) + 1 FN (chained closer in assignment).
 pub struct BlockAlignment;
 
 impl Cop for BlockAlignment {
@@ -201,7 +240,7 @@ impl Cop for BlockAlignment {
         // heuristic line-based backward scanning (`find_chain_expression_start`),
         // which couldn't handle multiline strings, interleaved comments, etc.
         let call_start_offset = call_node.location().start_offset();
-        let (call_start_line, call_start_col) = source.offset_to_line_col(call_start_offset);
+        let (_, call_start_col) = source.offset_to_line_col(call_start_offset);
 
         // Check for assignment: if the call expression is on the RHS of `=`/`+=`/etc.,
         // walk backward from the call start to find the LHS variable.
@@ -213,33 +252,8 @@ impl Cop for BlockAlignment {
         // the call start, use the LHS column. Otherwise use the CallNode's column.
         let expression_start_col = assignment_col.unwrap_or(call_start_col);
 
-        #[cfg(test)]
-        {
-            let method_name = std::str::from_utf8(call_node.name().as_slice()).unwrap_or("?");
-            eprintln!(
-                "DEBUG BlockAlignment: method={} call_start=({},{}) opening=({},{}) assignment_col={:?} expr_start_col={} start_of_line_indent={} end=({},{})",
-                method_name,
-                call_start_line,
-                call_start_col,
-                opening_line,
-                source.offset_to_line_col(opening_loc.start_offset()).1,
-                assignment_col,
-                expression_start_col,
-                start_of_line_indent,
-                source.offset_to_line_col(closing_loc.start_offset()).0,
-                source.offset_to_line_col(closing_loc.start_offset()).1,
-            );
-        }
-
         // Also compute the expression start line's indent.
         let expression_start_indent = line_indent(bytes, call_start_offset);
-
-        // Check for operator continuation: the CallNode doesn't include parent
-        // operators like `||`, `&&`, `<<`, `+`. If the call expression appears on
-        // the RHS of such an operator (e.g., `a || items.each do`), the `end`
-        // may validly align with the operator's LHS start.
-        let operator_continuation_indent =
-            find_operator_continuation_start(bytes, call_start_offset);
 
         // Find the column of the call expression on the do-line (for hash-value blocks).
         let call_expr_col = find_call_expression_col(bytes, opening_loc.start_offset());
@@ -268,10 +282,7 @@ impl Cop for BlockAlignment {
             }
             "start_of_line" => {
                 // closing must align with start of the expression
-                if end_col != expression_start_col
-                    && end_col != expression_start_indent
-                    && operator_continuation_indent.is_none_or(|c| end_col != c)
-                {
+                if end_col != expression_start_col && end_col != expression_start_indent {
                     diagnostics.push(self.diagnostic(
                         source,
                         end_line,
@@ -294,12 +305,15 @@ impl Cop for BlockAlignment {
                 //   the parent is on a different line, so the alignment target becomes
                 //   the CallNode itself rather than the outermost assignment), OR
                 // - the call expression column on the do-line (for hash-value blocks), OR
-                // - the operator continuation indent (for ||/&&/+/<< continuations), OR
-                // - the same-line operator LHS column (for &&/|| before call on same line)
+                // - the same-line operator LHS column (for &&/||/<< before call on same line)
                 //
                 // NOTE: do_col (the column of the `do`/`{` keyword itself) is NOT a
                 // valid alignment target. RuboCop only accepts the indent of the do-line
                 // (start_of_line_indent) or the expression start column, not the do column.
+                //
+                // NOTE: Cross-line operator continuations (||/&& on previous line) are NOT
+                // valid alignment targets. RuboCop's `disqualified_parent?` stops the
+                // ancestry walk when the parent is on a different line (except for masgn).
                 let same_line_operator_col = find_same_line_operator_lhs(bytes, call_start_offset);
                 // Accept call_start_col when: (a) no assignment (original behavior), or
                 // (b) the closer is followed by a chained method call on the same line
@@ -322,7 +336,6 @@ impl Cop for BlockAlignment {
                     && (!call_starts_at_indent || end_col != expression_start_indent)
                     && (!accept_call_start || end_col != call_start_col)
                     && end_col != call_expr_col
-                    && operator_continuation_indent.is_none_or(|c| end_col != c)
                     && same_line_operator_col.is_none_or(|c| end_col != c)
                 {
                     diagnostics.push(self.diagnostic(
@@ -740,66 +753,6 @@ fn skip_assignment_backward(bytes: &[u8], line_start: usize, pos: usize) -> usiz
     }
 
     pos
-}
-
-/// Walk backward from `call_start_offset` to check if the call is on the RHS of
-/// a binary operator (`||`, `&&`, `<<`, `+`). If so, return the indent of the
-/// operator's LHS line. This handles patterns like:
-///   a ||
-///     items.each do |x|
-///     process(x)
-///   end
-///
-/// Unlike the previous `find_chain_expression_start` heuristic, this function
-/// ONLY walks through operator continuations — it does NOT walk through unclosed
-/// brackets, commas, backslash continuations, or leading dots. This prevents
-/// over-eager backward walking that caused false negatives (e.g., walking from
-/// `lambda{|env|` through `show_status(` into `req = ...`).
-fn find_operator_continuation_start(bytes: &[u8], call_start_offset: usize) -> Option<usize> {
-    // Find start of the line containing the call
-    let mut line_start = call_start_offset;
-    while line_start > 0 && bytes[line_start - 1] != b'\n' {
-        line_start -= 1;
-    }
-
-    // We only check if the PREVIOUS line ends with ||, &&, <<, or +
-    if line_start == 0 {
-        return None;
-    }
-
-    let prev_line_end = line_start - 1; // the \n
-    let mut prev_line_start = prev_line_end;
-    while prev_line_start > 0 && bytes[prev_line_start - 1] != b'\n' {
-        prev_line_start -= 1;
-    }
-
-    let prev_line_content = &bytes[prev_line_start..prev_line_end];
-    let trimmed_end = prev_line_content
-        .iter()
-        .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r');
-    let last_non_ws = trimmed_end?;
-    let last_byte = prev_line_content[last_non_ws];
-
-    let is_operator = match last_byte {
-        b'+' => true,
-        b'|' => last_non_ws > 0 && prev_line_content[last_non_ws - 1] == b'|',
-        b'&' => last_non_ws > 0 && prev_line_content[last_non_ws - 1] == b'&',
-        b'<' => last_non_ws > 0 && prev_line_content[last_non_ws - 1] == b'<',
-        _ => false,
-    };
-
-    if !is_operator {
-        return None;
-    }
-
-    // Return the indent of the previous line (the operator's LHS)
-    let mut indent = 0;
-    while prev_line_start + indent < bytes.len()
-        && (bytes[prev_line_start + indent] == b' ' || bytes[prev_line_start + indent] == b'\t')
-    {
-        indent += 1;
-    }
-    Some(indent)
 }
 
 /// Check if a closing keyword (end/}) is followed by a chained method call.
