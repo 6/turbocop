@@ -249,3 +249,27 @@ class SetupController < ApplicationController
     redirect_to root_path
   end
 end
+
+# Flash in single-statement block before redirect — outer redirect visible
+class AlertsController < ApplicationController
+  def create
+    messages.each { |message| flash[:alert] = message }
+    redirect_to :index
+  end
+end
+
+# Flash in def-with-rescue — no render in right siblings, only redirect
+class PaymentsController < ApplicationController
+  def create
+    unless valid_payment?
+      flash[:error] = "Invalid payment"
+      redirect_to payments_path
+      return
+    end
+    process_payment
+    redirect_to receipts_path
+  rescue PaymentError => e
+    flash[:error] = e.message
+    redirect_to payments_path
+  end
+end
