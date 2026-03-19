@@ -48,3 +48,29 @@ alias $FS $;
 old_fs = $;
 $FS.should == $;
 result = items.join($;)
+
+# Semicolon before comment is NOT flagged by RuboCop (comment token masks the semicolon)
+x = 1; # trailing comment
+retry; # try again
+break; # done
+next; # skip
+return; # early return
+a = 1; # rubocop:disable Style/Foo
+
+# Semicolon before `}` with comment after is NOT flagged (comment shifts token positions)
+foo { bar; } # comment
+
+# Semicolon before `}` with code after is NOT flagged (code shifts token positions)
+foo { bar; }.baz
+
+# String interpolation: semicolon before `}` but with content after in the string
+"prefix #{foo;} suffix"
+"#{foo;} "
+"#{foo;}x"
+
+# Semicolons after `{` NOT at token position 1 (RuboCop's positional check misses these)
+items.each {; bar }
+a.b.c {; bar }
+
+# Block args before semicolons (not flagged)
+foo { |x|; bar }

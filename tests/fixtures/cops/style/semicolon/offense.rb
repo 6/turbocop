@@ -17,3 +17,25 @@ def foo(a) x(1); y(2); z(3); end
                ^ Style/Semicolon: Do not use semicolons to terminate expressions.
                      ^ Style/Semicolon: Do not use semicolons to terminate expressions.
                            ^ Style/Semicolon: Do not use semicolons to terminate expressions.
+
+foo { bar; }
+         ^ Style/Semicolon: Do not use semicolons to terminate expressions.
+
+items.each { bar; }
+                ^ Style/Semicolon: Do not use semicolons to terminate expressions.
+
+arr.map { baz; }
+             ^ Style/Semicolon: Do not use semicolons to terminate expressions.
+
+"#{foo;}"
+      ^ Style/Semicolon: Do not use semicolons to terminate expressions.
+
+x = "#{foo;}"
+          ^ Style/Semicolon: Do not use semicolons to terminate expressions.
+
+"#{;foo}"
+   ^ Style/Semicolon: Do not use semicolons to terminate expressions.
+
+x = "a;b"; y = 2
+      ^ Style/Semicolon: Do not use semicolons to terminate expressions.
+         ^ Style/Semicolon: Do not use semicolons to terminate expressions.
