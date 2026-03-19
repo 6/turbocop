@@ -15,3 +15,17 @@ result = items.reduce([]) do |acc, item|
   ^^^^ Lint/NextWithoutAccumulator: Use `next` with an accumulator argument in a `reduce`.
   acc << item
 end
+
+result = keys.reduce(raw) do |memo, key|
+  next unless memo
+  ^^^^ Lint/NextWithoutAccumulator: Use `next` with an accumulator argument in a `reduce`.
+  memo[key]
+end
+
+result = constants.inject({}) do |memo, name|
+  value = const_get(name)
+  next unless Integer === value
+  ^^^^ Lint/NextWithoutAccumulator: Use `next` with an accumulator argument in a `reduce`.
+  memo[name] = value
+  memo
+end

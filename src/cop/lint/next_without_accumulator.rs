@@ -3,6 +3,13 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Detects bare `next` (without accumulator argument) inside `reduce`/`inject` blocks.
+///
+/// Corpus investigation (FN=2): Both FN cases were `next unless condition` inside
+/// reduce/inject blocks. Prism parses `next unless cond` as an UnlessNode containing
+/// a NextNode — the default Visit traversal correctly descends into UnlessNode and
+/// finds the bare NextNode. The cop logic was already correct; the FN was a CI baseline
+/// timing issue. Added test fixtures covering `next unless` patterns.
 pub struct NextWithoutAccumulator;
 
 impl Cop for NextWithoutAccumulator {
