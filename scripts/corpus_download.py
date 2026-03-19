@@ -91,7 +91,12 @@ def _cache_dir() -> Path:
 
 
 def _try_gh(repo: str | None) -> tuple[Path, int, str] | None:
-    """Try downloading via gh CLI. Returns (path, run_id, head_sha) or None."""
+    """Try downloading via gh CLI. Returns (path, run_id, head_sha) or None.
+
+    Checks recent successful corpus oracle runs and prefers the extended
+    artifact (corpus-report-extended) over standard (corpus-report), since
+    extended is a superset covering all repos.
+    """
     if not shutil.which("gh"):
         return None
 
@@ -107,9 +112,11 @@ def _try_gh(repo: str | None) -> tuple[Path, int, str] | None:
     # Build the command with optional repo flag
     repo_args = ["-R", repo] if repo else []
 
+    # List recent successful runs (check a few in case the most recent
+    # is standard but there's a newer extended run, or vice versa)
     result = subprocess.run(
         ["gh", "run", "list", *repo_args, "--workflow=corpus-oracle.yml",
-         "--status=success", "--limit=1", "--json=databaseId,headSha"],
+         "--status=success", "--limit=5", "--json=databaseId,headSha"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -119,39 +126,53 @@ def _try_gh(repo: str | None) -> tuple[Path, int, str] | None:
     if not runs:
         return None
 
-    run_id = runs[0]["databaseId"]
-    head_sha = runs[0].get("headSha", "")
+    # Try each run, preferring extended artifact over standard.
+    # Runs are ordered newest-first, so the first successful download wins.
+    artifact_names = ["corpus-report-extended", "corpus-report"]
 
-    # Check cache
-    cache_path = _cache_dir() / f"corpus-results-{run_id}.json"
-    if cache_path.exists():
-        print(f"Using cached corpus-results from run {run_id}", file=sys.stderr)
-        return cache_path, run_id, head_sha
+    for run in runs:
+        run_id = run["databaseId"]
+        head_sha = run.get("headSha", "")
 
-    print(f"Downloading corpus-report from run {run_id} via gh...", file=sys.stderr)
+        # Check cache (new format with variant, then old format without)
+        for variant in artifact_names:
+            cache_path = _cache_dir() / f"corpus-results-{run_id}-{variant}.json"
+            if cache_path.exists():
+                label = "extended" if "extended" in variant else "standard"
+                print(f"Using cached {label} corpus-results from run {run_id}", file=sys.stderr)
+                return cache_path, run_id, head_sha
+        old_cache = _cache_dir() / f"corpus-results-{run_id}.json"
+        if old_cache.exists():
+            print(f"Using cached corpus-results from run {run_id}", file=sys.stderr)
+            return old_cache, run_id, head_sha
 
-    tmpdir = tempfile.mkdtemp(prefix="corpus-dl-")
-    result = subprocess.run(
-        ["gh", "run", "download", *repo_args, str(run_id),
-         "--name=corpus-report", f"--dir={tmpdir}"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        shutil.rmtree(tmpdir, ignore_errors=True)
-        return None
+        # Try downloading extended first, then standard
+        for variant in artifact_names:
+            tmpdir = tempfile.mkdtemp(prefix="corpus-dl-")
+            dl_result = subprocess.run(
+                ["gh", "run", "download", *repo_args, str(run_id),
+                 f"--name={variant}", f"--dir={tmpdir}"],
+                capture_output=True, text=True,
+            )
+            if dl_result.returncode != 0:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                continue
 
-    path = Path(tmpdir) / "corpus-results.json"
-    if not path.exists():
-        shutil.rmtree(tmpdir, ignore_errors=True)
-        return None
+            path = Path(tmpdir) / "corpus-results.json"
+            if not path.exists():
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                continue
 
-    # Cache for next time
-    shutil.copy2(path, cache_path)
+            # Found it — cache and return
+            cache_path = _cache_dir() / f"corpus-results-{run_id}-{variant}.json"
+            shutil.copy2(path, cache_path)
+            _cache_synthetic_from_dir(Path(tmpdir), run_id)
 
-    # Also cache synthetic-results.json if present in the artifact
-    _cache_synthetic_from_dir(Path(tmpdir), run_id)
+            label = "extended" if "extended" in variant else "standard"
+            print(f"Downloaded {label} corpus-report from run {run_id} via gh", file=sys.stderr)
+            return cache_path, run_id, head_sha
 
-    return cache_path, run_id, head_sha
+    return None
 
 
 def _github_api_get(url: str, token: str | None = None) -> dict:
@@ -199,7 +220,10 @@ def _github_api_download(url: str, token: str) -> bytes:
 
 
 def _try_curl_api(repo: str | None) -> tuple[Path, int, str] | None:
-    """Try downloading via GitHub REST API with GH_TOKEN env var."""
+    """Try downloading via GitHub REST API with GH_TOKEN env var.
+
+    Prefers extended artifact over standard, same as _try_gh.
+    """
     token = (os.environ.get("GH_TOKEN_FOR_ACTIONS_READ")
              or os.environ.get("GH_TOKEN")
              or os.environ.get("GITHUB_TOKEN"))
@@ -216,11 +240,13 @@ def _try_curl_api(repo: str | None) -> tuple[Path, int, str] | None:
     if not repo:
         return None
 
-    # Step 1: List runs (works without auth for public repos)
     api_base = f"https://api.github.com/repos/{repo}"
+    artifact_names = ["corpus-report-extended", "corpus-report"]
+
+    # List recent successful runs
     try:
         data = _github_api_get(
-            f"{api_base}/actions/workflows/corpus-oracle.yml/runs?status=success&per_page=1"
+            f"{api_base}/actions/workflows/corpus-oracle.yml/runs?status=success&per_page=5"
         )
     except (HTTPError, URLError) as e:
         print(f"GitHub API error listing runs: {e}", file=sys.stderr)
@@ -230,65 +256,69 @@ def _try_curl_api(repo: str | None) -> tuple[Path, int, str] | None:
     if not runs:
         return None
 
-    run_id = runs[0]["id"]
-    head_sha = runs[0].get("head_sha", "")
+    for run in runs:
+        run_id = run["id"]
+        head_sha = run.get("head_sha", "")
 
-    # Check cache
-    cache_path = _cache_dir() / f"corpus-results-{run_id}.json"
-    if cache_path.exists():
-        print(f"Using cached corpus-results from run {run_id}", file=sys.stderr)
-        return cache_path, run_id, head_sha
+        # Check cache (new format with variant, then old format without)
+        for variant in artifact_names:
+            cache_path = _cache_dir() / f"corpus-results-{run_id}-{variant}.json"
+            if cache_path.exists():
+                label = "extended" if "extended" in variant else "standard"
+                print(f"Using cached {label} corpus-results from run {run_id}", file=sys.stderr)
+                return cache_path, run_id, head_sha
+        old_cache = _cache_dir() / f"corpus-results-{run_id}.json"
+        if old_cache.exists():
+            print(f"Using cached corpus-results from run {run_id}", file=sys.stderr)
+            return old_cache, run_id, head_sha
 
-    # Step 2: Find the corpus-report artifact
-    if not token:
-        # Can list artifacts without auth, but can't download
-        print("Found corpus oracle run but need a token to download artifacts.", file=sys.stderr)
-        print("Set GH_TOKEN, GH_TOKEN_FOR_ACTIONS_READ, or GITHUB_TOKEN env var, or run: gh auth login", file=sys.stderr)
-        return None
+        if not token:
+            print("Found corpus oracle run but need a token to download artifacts.", file=sys.stderr)
+            print("Set GH_TOKEN, GH_TOKEN_FOR_ACTIONS_READ, or GITHUB_TOKEN env var, or run: gh auth login", file=sys.stderr)
+            return None
 
-    try:
-        artifacts_data = _github_api_get(
-            f"{api_base}/actions/runs/{run_id}/artifacts", token
-        )
-    except (HTTPError, URLError) as e:
-        print(f"GitHub API error listing artifacts: {e}", file=sys.stderr)
-        return None
+        # List artifacts for this run
+        try:
+            artifacts_data = _github_api_get(
+                f"{api_base}/actions/runs/{run_id}/artifacts", token
+            )
+        except (HTTPError, URLError) as e:
+            print(f"GitHub API error listing artifacts: {e}", file=sys.stderr)
+            continue
 
-    artifact_id = None
-    for a in artifacts_data.get("artifacts", []):
-        if a["name"] == "corpus-report":
-            artifact_id = a["id"]
-            break
+        # Build name -> id map
+        artifact_map = {a["name"]: a["id"] for a in artifacts_data.get("artifacts", [])}
 
-    if not artifact_id:
-        print("corpus-report artifact not found in run", file=sys.stderr)
-        return None
+        # Try extended first, then standard
+        for variant in artifact_names:
+            artifact_id = artifact_map.get(variant)
+            if not artifact_id:
+                continue
 
-    # Step 3: Download the artifact zip
-    print(f"Downloading corpus-report from run {run_id} via API...", file=sys.stderr)
-    try:
-        zip_bytes = _github_api_download(
-            f"{api_base}/actions/artifacts/{artifact_id}/zip", token
-        )
-    except (HTTPError, URLError) as e:
-        print(f"GitHub API error downloading artifact: {e}", file=sys.stderr)
-        return None
+            label = "extended" if "extended" in variant else "standard"
+            print(f"Downloading {label} corpus-report from run {run_id} via API...", file=sys.stderr)
+            try:
+                zip_bytes = _github_api_download(
+                    f"{api_base}/actions/artifacts/{artifact_id}/zip", token
+                )
+            except (HTTPError, URLError) as e:
+                print(f"GitHub API error downloading artifact: {e}", file=sys.stderr)
+                continue
 
-    # Step 4: Extract corpus-results.json from the zip
-    try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            if "corpus-results.json" not in zf.namelist():
-                print("corpus-results.json not found in artifact zip", file=sys.stderr)
-                return None
-            with zf.open("corpus-results.json") as f:
-                cache_path.write_bytes(f.read())
-            # Also extract synthetic-results.json if present
-            _cache_synthetic_from_zip(zf, run_id)
-    except zipfile.BadZipFile:
-        print("Downloaded artifact is not a valid zip file", file=sys.stderr)
-        return None
+            try:
+                with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+                    if "corpus-results.json" not in zf.namelist():
+                        continue
+                    cache_path = _cache_dir() / f"corpus-results-{run_id}-{variant}.json"
+                    with zf.open("corpus-results.json") as f:
+                        cache_path.write_bytes(f.read())
+                    _cache_synthetic_from_zip(zf, run_id)
+            except zipfile.BadZipFile:
+                continue
 
-    return cache_path, run_id, head_sha
+            return cache_path, run_id, head_sha
+
+    return None
 
 
 def _try_corpus_md() -> tuple[Path, int, str] | None:
