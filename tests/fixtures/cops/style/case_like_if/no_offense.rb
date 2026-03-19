@@ -155,3 +155,33 @@ elsif data['key'] == 'email'
 else
   data['key']
 end
+
+# Else body with modifier unless — RuboCop walks branch_conditions into the
+# else body (modifier unless is if_type in Parser AST), finds an unconvertible
+# condition (start_with?), and rejects the chain.
+if /^branches/.match?(line)
+  nil
+elsif /^revision/ =~ line
+  do_something
+elsif /^date/ =~ line
+  author_utf8 = /author: ([^;]+)/.match(line_utf8)[1]
+  file_state = /state: ([^;]+)/.match(line)[1]
+else
+  commit_log += line unless line.start_with?('*** empty log message ***')
+end
+
+# Else body with nested if-else — RuboCop walks branch_conditions into the
+# nested if, finds an unconvertible condition (value.nil?), rejects the chain.
+if condition[:pre_condition] == 'not_set'
+  do_a
+elsif condition[:pre_condition] == 'current_user.id'
+  do_b
+elsif condition[:pre_condition] == 'current_user.organization_id'
+  do_c
+else
+  if condition[:value].nil?
+    do_d
+  else
+    do_e
+  end
+end

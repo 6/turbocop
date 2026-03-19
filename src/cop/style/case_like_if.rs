@@ -59,6 +59,19 @@ use crate::parse::source::SourceFile;
 ///   `InterpolatedRegularExpressionNode` for `/#{...}/`, but Parser AST uses
 ///   `:regexp` for both. Fix: check `as_interpolated_regular_expression_node()`
 ///   alongside `as_regular_expression_node()` in all regexp checks.
+/// - 3 FPs (fifth round): RuboCop's `branch_conditions` walks into any
+///   if_type node including nested if/unless in the `else` body (in Parser AST,
+///   both `if` and `unless` are `:if` type). When the else body contains a
+///   modifier `unless` (e.g., `x unless cond`) or a nested `if-else` block,
+///   RuboCop treats their conditions as part of the branch chain. If these
+///   conditions aren't convertible to `case-when` (e.g., `line.start_with?()`,
+///   `value.nil?`), the entire chain is rejected. In Prism, `else` wraps its
+///   body in an ElseNode and `unless` is a separate UnlessNode (not IfNode).
+///   Fix: after the elsif chain walk, unwrap ElseNode → single-statement
+///   IfNode or UnlessNode and continue walking their predicates/branches.
+///   The 1 FN (chatwoot) appears to be a corpus oracle data issue — RuboCop
+///   with default MinBranchesCount=3 does not flag a 2-branch+else chain,
+///   verified independently.
 pub struct CaseLikeIf;
 
 impl Cop for CaseLikeIf {
@@ -118,13 +131,26 @@ impl Cop for CaseLikeIf {
             return;
         }
 
-        // Count branches (if + elsif chain)
+        // Count branches and collect predicates (if + elsif chain).
+        // RuboCop's `branch_conditions` walks into any if_type node in the chain,
+        // including nested if/unless nodes inside the `else` body. In Prism,
+        // elsif nodes are direct IfNode successors, but `else` wraps its body
+        // in an ElseNode. We must unwrap ElseNode → single-statement IfNode
+        // to match RuboCop's behavior. This prevents FPs where the else body
+        // contains a nested if/unless with a non-convertible condition.
         let mut branch_count = 1;
+        let mut predicates = vec![if_node.predicate()];
         let mut current_else = if_node.subsequent();
         while let Some(else_clause) = current_else {
             if let Some(elsif) = else_clause.as_if_node() {
                 branch_count += 1;
+                predicates.push(elsif.predicate());
                 current_else = elsif.subsequent();
+            } else if let Some((pred, next)) = unwrap_else_to_branch_info(&else_clause) {
+                // else body is a single if/unless node — continue walking
+                branch_count += 1;
+                predicates.push(pred);
+                current_else = next;
             } else {
                 break;
             }
@@ -132,18 +158,6 @@ impl Cop for CaseLikeIf {
 
         if branch_count < min_branches {
             return;
-        }
-
-        // Collect all predicates from the if-elsif chain
-        let mut predicates = vec![if_node.predicate()];
-        let mut current_else = if_node.subsequent();
-        while let Some(else_clause) = current_else {
-            if let Some(elsif) = else_clause.as_if_node() {
-                predicates.push(elsif.predicate());
-                current_else = elsif.subsequent();
-            } else {
-                break;
-            }
         }
 
         // Phase 1: Find the target from the first condition
@@ -246,6 +260,36 @@ fn regexp_has_named_captures(node: &ruby_prism::Node<'_>) -> bool {
         }
     }
     false
+}
+
+/// If a node is an ElseNode whose body is a single if/unless node, return that
+/// node's predicate and its continuation (subsequent/consequent for further walking).
+/// This matches RuboCop's behavior where `branch_conditions` walks through
+/// `node.else_branch` which in Parser AST can be a nested if/unless directly
+/// (both are if_type in Parser), while in Prism they're separate types wrapped
+/// in an ElseNode.
+fn unwrap_else_to_branch_info<'a>(
+    node: &ruby_prism::Node<'a>,
+) -> Option<(ruby_prism::Node<'a>, Option<ruby_prism::Node<'a>>)> {
+    let else_node = node.as_else_node()?;
+    let stmts = else_node.statements()?;
+    let children: Vec<_> = stmts.body().iter().collect();
+    if children.len() != 1 {
+        return None;
+    }
+    let child = &children[0];
+    // IfNode (nested if or modifier if)
+    if let Some(if_node) = child.as_if_node() {
+        return Some((if_node.predicate(), if_node.subsequent()));
+    }
+    // UnlessNode (modifier unless or full unless — both are if_type in Parser AST)
+    if let Some(unless_node) = child.as_unless_node() {
+        return Some((
+            unless_node.predicate(),
+            unless_node.else_clause().map(|e| e.as_node()),
+        ));
+    }
+    None
 }
 
 /// Get the inner expression from a potentially parenthesized node.
