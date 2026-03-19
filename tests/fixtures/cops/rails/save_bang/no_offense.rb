@@ -163,5 +163,11 @@ def process
   nil
 end
 
+# CREATE assigned to instance/class/global variable (RuboCop's VariableForce only tracks locals)
+@record = object.first_or_create
+@@record = User.create(name: 'Joe')
+$record = User.create(name: 'Joe')
 
-
+# CREATE assigned to instance variable without persisted? check (exempt — not tracked by VariableForce)
+@user = User.create(name: 'Joe')
+foo(@user)

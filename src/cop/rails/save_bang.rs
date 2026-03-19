@@ -82,6 +82,31 @@ use ruby_prism::Visit;
 /// **Scope:** The scan is bounded to the current `StatementsNode` body (same method/block
 /// scope), matching RuboCop's per-scope VariableForce tracking. Cross-method references
 /// are correctly not suppressed.
+///
+/// ## Corpus investigation (2026-03-19)
+///
+/// Corpus oracle reported FP=1437, FN=4678 (82% match).
+///
+/// **FP root cause 1: Non-local variable create-in-assignment flagged.**
+/// RuboCop's VariableForce only tracks local variables. Instance/class/global variable
+/// create assignments (e.g., `@user = User.create(...)`) are skipped by
+/// `return_value_assigned?` in `on_send` and never checked by VariableForce's
+/// `check_assignment`. Nitrocop was flagging all create-in-assignment regardless.
+/// **Fix:** Added `in_local_assignment` flag; only flag create-in-assignment for locals.
+///
+/// **FN root cause 1: Receiver chain context propagation.**
+/// When a persist call is the receiver of a method chain (e.g., `log(object.save.to_s)`),
+/// nitrocop was inheriting the outer Argument/Assignment context down to the persist call,
+/// incorrectly exempting it. RuboCop evaluates each persist call independently — the
+/// immediate parent being a chained method doesn't exempt it.
+/// **Fix:** Push VoidStatement context when visiting non-persisted? receiver chains.
+///
+/// **FN root cause 2: Multi-statement body ImplicitReturn.**
+/// RuboCop's `implicit_return?` only recognizes single-statement method/block bodies.
+/// In a multi-statement body, the last statement's parent is a `begin` node (not def/block
+/// directly), so `implicit_return?` returns false. Nitrocop was marking the last statement
+/// as ImplicitReturn for ALL method/block bodies regardless of statement count.
+/// **Fix:** Only grant ImplicitReturn when the body has exactly one statement (len == 1).
 pub struct SaveBang;
 
 /// Modify-type persistence methods whose return value indicates success/failure.
@@ -153,6 +178,7 @@ impl Cop for SaveBang {
             diagnostics: Vec::new(),
             context_stack: Vec::new(),
             suppress_create_assignment: false,
+            in_local_assignment: false,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -168,6 +194,10 @@ struct SaveBangVisitor<'a, 'src> {
     context_stack: Vec<Context>,
     /// When true, suppress create-in-assignment offenses because a persisted? check follows.
     suppress_create_assignment: bool,
+    /// When true, the current Assignment context is for a local variable write.
+    /// Only local variable create-in-assignment generates offenses; instance/class/global/constant
+    /// assignments are treated as "return value used" (RuboCop's VariableForce only tracks locals).
+    in_local_assignment: bool,
 }
 
 impl SaveBangVisitor<'_, '_> {
@@ -522,8 +552,11 @@ impl SaveBangVisitor<'_, '_> {
             }
             Some(Context::Assignment) => {
                 // Assignment: exempt for modify methods, flag create methods
-                // unless persisted? is checked on the assigned variable
-                if is_create && !self.suppress_create_assignment {
+                // unless persisted? is checked on the assigned variable.
+                // Only flag for LOCAL variable assignments — RuboCop's VariableForce
+                // only tracks locals; ivar/cvar/gvar assignments are treated as
+                // "return value used" by return_value_assigned? in on_send.
+                if is_create && !self.suppress_create_assignment && self.in_local_assignment {
                     self.flag_create_assignment(call);
                 }
             }
@@ -563,7 +596,10 @@ impl SaveBangVisitor<'_, '_> {
         for (i, stmt) in body.iter().enumerate() {
             let is_last = i == len - 1;
 
-            let ctx = if is_last && in_method_or_block && self.allow_implicit_return {
+            // RuboCop's implicit_return? only recognizes single-statement method/block
+            // bodies. In a multi-statement body, the last statement's parent is a `begin`
+            // node, not the def/block directly, so implicit_return? returns false.
+            let ctx = if is_last && in_method_or_block && self.allow_implicit_return && len == 1 {
                 Context::ImplicitReturn
             } else {
                 Context::VoidStatement
@@ -646,8 +682,13 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
                 self.visit(&recv);
                 self.context_stack.pop();
             } else {
-                // Non-persisted? receiver: inherit parent context (don't suppress offenses)
+                // Non-persisted? receiver: push VoidStatement so persist calls as receivers
+                // of method chains are always flagged, regardless of outer context.
+                // RuboCop evaluates each persist call independently — being a receiver of
+                // another method (e.g., `save.to_s`, `create.one`) doesn't exempt it.
+                self.context_stack.push(Context::VoidStatement);
                 self.visit(&recv);
+                self.context_stack.pop();
             }
         }
 
@@ -791,9 +832,11 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
     // ── Assignment nodes: RHS is assignment context ──────────────────────
 
     fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        self.in_local_assignment = true;
         self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
+        self.in_local_assignment = false;
     }
 
     fn visit_instance_variable_write_node(
@@ -830,18 +873,22 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         &mut self,
         node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
     ) {
+        self.in_local_assignment = true;
         self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
+        self.in_local_assignment = false;
     }
 
     fn visit_local_variable_and_write_node(
         &mut self,
         node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
     ) {
+        self.in_local_assignment = true;
         self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
+        self.in_local_assignment = false;
     }
 
     fn visit_instance_variable_or_write_node(

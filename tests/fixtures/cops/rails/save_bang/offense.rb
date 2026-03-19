@@ -10,14 +10,12 @@ def process
   nil
 end
 
-# CREATE methods in assignments should be flagged (return value not checked with persisted?)
+# CREATE methods in local variable assignments should be flagged (return value not checked with persisted?)
 def create_examples
   x = object.create
              ^^^^^^ Rails/SaveBang: Use `create!` instead of `create` if the return value is not checked. Or check `persisted?` on model returned from `create`.
   y = object.find_or_create_by(name: 'Tom')
              ^^^^^^^^^^^^^^^^^^ Rails/SaveBang: Use `find_or_create_by!` instead of `find_or_create_by` if the return value is not checked. Or check `persisted?` on model returned from `find_or_create_by`.
-  @record = object.first_or_create
-                   ^^^^^^^^^^^^^^^ Rails/SaveBang: Use `first_or_create!` instead of `first_or_create` if the return value is not checked. Or check `persisted?` on model returned from `first_or_create`.
   nil
 end
 
@@ -110,6 +108,32 @@ def process
          ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
   nil
 end
+
+# Persist call as receiver of method chain inside argument context
+# (outer expression is an argument, but the persist call itself is a receiver — not exempt)
+log(object.save.to_s)
+           ^^^^ Rails/SaveBang: Use `save!` instead of `save` if the return value is not checked.
+result = object.update(name: 'Tom').inspect
+                ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+
+# Multi-statement method: last statement is NOT implicit return
+# (RuboCop only exempts single-statement method/block bodies)
+def multi_stmt_method
+  setup_things
+  object.save
+         ^^^^ Rails/SaveBang: Use `save!` instead of `save` if the return value is not checked.
+end
+
+# Multi-statement block: last statement is NOT implicit return
+items.each do |item|
+  log(item)
+  item.save
+       ^^^^ Rails/SaveBang: Use `save!` instead of `save` if the return value is not checked.
+end
+
+# Multi-statement brace block
+items.each { |item| log(item); item.update(name: 'Tom') }
+                                    ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
 
 # Persist call in string interpolation (return value not checked)
 def process
