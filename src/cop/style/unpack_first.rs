@@ -9,6 +9,12 @@ use crate::parse::source::SourceFile;
 /// this put the offense on the wrong line (chain start instead of `.unpack` line).
 /// Fix: report from `unpack_call.message_loc()` to the outer node's end, matching RuboCop's behavior.
 /// Message also changed to exclude receiver prefix (e.g. `unpack('h*').first` not `'foo'.unpack('h*').first`).
+///
+/// Investigation (2): FP=2 from bare `unpack("H*")[0]` without explicit receiver (implicit self).
+/// RuboCop's NodePattern `(call $(call (...) :unpack $(...)) :first)` requires `(...)` as the
+/// receiver of `unpack`, which does NOT match `nil` (implicit self in Parser AST). So RuboCop
+/// only flags `obj.unpack("H*")[0]`, not bare `unpack("H*")[0]`. Fixed by checking
+/// `unpack_call.receiver().is_some()`.
 pub struct UnpackFirst;
 
 impl UnpackFirst {
@@ -76,7 +82,7 @@ impl Cop for UnpackFirst {
         };
 
         if let Some(unpack_call) = receiver.as_call_node() {
-            if unpack_call.name().as_slice() == b"unpack" {
+            if unpack_call.name().as_slice() == b"unpack" && unpack_call.receiver().is_some() {
                 if let Some(args) = unpack_call.arguments() {
                     let arg_list: Vec<_> = args.arguments().iter().collect();
                     if arg_list.len() == 1 {
