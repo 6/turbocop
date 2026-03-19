@@ -46,3 +46,17 @@ Sequel.migration do
   end
 end
 
+# Bare create_table with 0 args — not a migration create_table call.
+# RuboCop pattern (send nil? :create_table _table _?) requires 1-2 args.
+create_table
+create_table unless DB.table_exists?(self::TABLE)
+
+# create_table with 3+ parser-gem args — custom wrappers, not AR migrations.
+create_table konstant.table_name, columns, konstant.primary_key
+create_table "special_foo", {}, true
+create_table table_name, create_table_sql(table_name, engine), force: force
+
+# create_table with &block (block_pass counts as parser arg)
+create_table table_name, options, &block
+create_table(:entities, id: false, &block)
+

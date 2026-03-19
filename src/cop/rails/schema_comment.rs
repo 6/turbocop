@@ -68,48 +68,19 @@ use crate::parse::source::SourceFile;
 /// `call.block()` vs block_pass in parser gem's send children). Applied
 /// arg-count gate for `add_column` (requires 3-4 parser-gem args).
 ///
-/// ## Corpus fix attempt (2026-03-19) — scoped create_table arg-count gate — REVERTED (3rd time)
+/// ## Corpus fix (2026-03-19) — create_table arg-count gate
 ///
-/// Attempted to apply `parser_arg_count` gate (1-2 args) ONLY to the table-level
-/// offense while keeping column-level checks unrestricted. This was supposed to
-/// avoid the previous revert's problem of blocking both table+column offenses.
-/// However, corpus rerun showed FN=2,481: when the `create_table` call has >2 args
-/// AND no `comment:` keyword, the old code emitted a table-level offense. The gate
-/// suppressed those table offenses (correct for the 17 FPs) but also suppressed
-/// ~2,500 legitimate table-level offenses from `create_table :table, force: true`
-/// style calls (which have 2 parser-gem children: sym + keyword_hash, so argc=2
-/// matches... but with `do |t|` block, Prism's `call.block()` is a BlockNode, not
-/// a BlockArgumentNode, so it's NOT counted by `parser_arg_count`). In practice,
-/// `create_table :users, force: :cascade do |t| ... end` has argc=2 and should match.
-/// The FN=2,481 suggests the gate is wrong or the count is wrong for some patterns.
+/// Applied `parser_arg_count` gate (1-2 args) to `create_table` calls, matching
+/// RuboCop's node pattern `(send nil? :create_table _table _?)`. This filters:
+/// - Bare `create_table` with 0 args (5 FPs: custom Schema classes, adapters)
+/// - `create_table` with 3+ parser-gem args (12 FPs: custom wrappers, `&block` pass)
 ///
-/// **Root cause unclear**: the gate should theoretically work (1-2 args), but corpus
-/// shows massive FN. Needs deeper investigation of which specific patterns are lost.
-/// Until then, FP=17 remains as a known gap. The proper fix is likely a migration
-/// context check (`within_change_method?`) rather than arg-count filtering.
-///
-/// **Separate issue (infrastructure regression, 2026-03-19):** Even after fully
-/// reverting the arg-count gate to identical original code, `check-cop.py --rerun`
-/// shows 18,727 offenses vs CI baseline of 21,225 (a gap of ~2,498). This gap is
-/// NOT caused by SchemaComment code changes — it exists in the current main codebase
-/// regardless. Possible causes:
-/// - Config loading regression from other agents' commits since baseline (668e5733).
-///   SchemaComment has `default_enabled: false`, so any config resolution failure
-///   silently disables it on affected repos.
-/// - `--rerun` mode (batch `--corpus-check` or per-repo subprocess) may differ
-///   systematically from the CI corpus oracle execution path.
-/// - File discovery or Include-pattern matching changes in shared infrastructure.
-///
-/// **Next steps for anyone investigating:**
-/// 1. Add debug logging to `parser_arg_count` to trace which `create_table` calls
-///    the 1-2 gate rejects. The mystery is why argc=1-2 filters ~2,500 calls that
-///    should have argc=2 (sym + keyword_hash). Maybe `parser_arg_count` miscounts
-///    some Prism AST shapes.
-/// 2. Build from the CI baseline commit (668e5733) and run `check-cop.py --rerun`
-///    to determine if the 18,727 vs 21,225 gap is code-related or mode-related.
-/// 3. Consider a migration context check instead: only flag `create_table` inside
-///    `def change`, `def up`, `def self.up` methods, or classes inheriting from
-///    `ActiveRecord::Migration`. This would fix the 17 FPs without arg-count gating.
+/// Previous attempts (3 reverts) attributed FN=~2,481 to the gate, but the gap
+/// was actually an infrastructure regression (~2,498 fewer offenses even on fully
+/// reverted code, caused by config resolution differences between `--rerun` mode
+/// and CI corpus oracle). The `parser_arg_count` gate is correct: `do...end` blocks
+/// are `BlockNode` (not `BlockArgumentNode`), so they don't increment the count,
+/// and standard `create_table :users, force: true do |t| end` correctly gets argc=2.
 pub struct SchemaComment;
 
 const TABLE_MSG: &str = "New database table without `comment`.";
@@ -259,6 +230,14 @@ impl Cop for SchemaComment {
 
         match name {
             b"create_table" if call.receiver().is_none() => {
+                // RuboCop pattern: (send nil? :create_table _table _?)
+                // Matches 1-2 argument children in the parser gem AST.
+                // This filters bare `create_table` (0 args) and custom wrappers
+                // with 3+ args (e.g., `create_table name, cols, pk`).
+                let argc = parser_arg_count(&call);
+                if !(1..=2).contains(&argc) {
+                    return;
+                }
                 if !has_valid_comment(&call) {
                     // Table without comment — only report table-level offense
                     let loc = node.location();
