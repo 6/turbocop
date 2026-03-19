@@ -432,6 +432,7 @@ jobs:
           fi
 
       - name: Generate cop coverage report
+        if: github.event.inputs.corpus_size == 'extended'
         run: |
           SYNTH_ARG=""
           if [ -f bench/synthetic/synthetic-results.json ]; then
@@ -450,12 +451,6 @@ jobs:
             IS_EXTENDED=true
           fi
 
-          # cop_coverage.md is always generated (both modes)
-          if ! git diff --quiet docs/cop_coverage.md 2>/dev/null || \
-             ! git ls-files --error-unmatch docs/cop_coverage.md >/dev/null 2>&1; then
-            CHANGED=true
-          fi
-
           if [ "$IS_EXTENDED" = false ]; then
             if ! diff -q tiers.json src/resources/tiers.json >/dev/null 2>&1; then
               CHANGED=true
@@ -472,6 +467,10 @@ jobs:
                ! git ls-files --error-unmatch docs/corpus_extended.md >/dev/null 2>&1; then
               CHANGED=true
             fi
+            if ! git diff --quiet docs/cop_coverage.md 2>/dev/null || \
+               ! git ls-files --error-unmatch docs/cop_coverage.md >/dev/null 2>&1; then
+              CHANGED=true
+            fi
           fi
 
           if [ "$CHANGED" = false ]; then
@@ -484,18 +483,16 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$BRANCH"
 
-          git add -f docs/cop_coverage.md
-
           if [ "$IS_EXTENDED" = false ]; then
             if ! diff -q tiers.json src/resources/tiers.json >/dev/null 2>&1; then
               cp tiers.json src/resources/tiers.json
               git add src/resources/tiers.json
             fi
             git add -f README.md docs/corpus.md
-            git commit -m "Update tiers.json, README, corpus and cop coverage reports from corpus oracle"
+            git commit -m "Update tiers.json, README, and corpus report from corpus oracle"
           else
-            git add -f docs/corpus_extended.md
-            git commit -m "Update extended corpus and cop coverage reports from corpus oracle"
+            git add -f docs/corpus_extended.md docs/cop_coverage.md
+            git commit -m "Update extended corpus report and cop coverage from corpus oracle"
           fi
 
           git push origin "$BRANCH"

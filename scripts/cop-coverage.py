@@ -115,8 +115,7 @@ def confidence_tier(occurrences: int, unique_repos: int) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Per-cop corpus coverage report")
-    parser.add_argument("--input", type=str, help="Path to corpus-results.json (standard corpus)")
-    parser.add_argument("--extended", type=str, help="Path to extended corpus-results.json")
+    parser.add_argument("--input", type=str, help="Path to corpus-results.json")
     parser.add_argument("--synthetic", type=str, help="Path to synthetic-results.json")
     parser.add_argument("--format", choices=["table", "csv"], default="table", help="Output format")
     parser.add_argument("--department", type=str, help="Filter to a specific department")
@@ -125,57 +124,50 @@ def main():
     args = parser.parse_args()
 
     data = load_corpus_results(args.input)
-    std_cov = compute_coverage(data)
-    ext_data = load_json(args.extended)
-    ext_cov = compute_coverage(ext_data) if ext_data else {}
+    corpus_cov = compute_coverage(data)
     synth_data = load_json(args.synthetic)
     synth_cov = compute_synthetic(synth_data) if synth_data else {}
 
-    has_extended = bool(ext_cov)
     has_synthetic = bool(synth_cov)
 
     # Merge all cop names
-    all_cops = sorted(set(std_cov) | set(ext_cov) | set(synth_cov))
+    all_cops = sorted(set(corpus_cov) | set(synth_cov))
 
-    std_repos = data.get("summary", {}).get("total_repos", 0)
-    ext_repos = ext_data.get("summary", {}).get("total_repos", 0) if ext_data else 0
+    total_repos = data.get("summary", {}).get("total_repos", 0)
 
-    # Build merged rows
+    # Build rows
     rows = []
     for cop in all_cops:
-        s = std_cov.get(cop, {})
-        e = ext_cov.get(cop, {})
+        c = corpus_cov.get(cop, {})
         y = synth_cov.get(cop, {})
         rows.append({
             "cop": cop,
-            "std_occ": s.get("occurrences", 0),
-            "std_repos": s.get("unique_repos", 0),
-            "ext_occ": e.get("occurrences", 0),
-            "ext_repos": e.get("unique_repos", 0),
+            "occ": c.get("occurrences", 0),
+            "repos": c.get("unique_repos", 0),
             "synth_occ": y.get("occurrences", 0),
-            "confidence": confidence_tier(s.get("occurrences", 0), s.get("unique_repos", 0)),
+            "confidence": confidence_tier(c.get("occurrences", 0), c.get("unique_repos", 0)),
         })
 
-    # Sort by standard occurrences descending
-    rows.sort(key=lambda x: (-x["std_occ"], -x["ext_occ"], x["cop"]))
+    # Sort by occurrences descending
+    rows.sort(key=lambda x: (-x["occ"], -x["synth_occ"], x["cop"]))
 
     # Apply filters
     if args.department:
         dept = args.department.rstrip("/")
         rows = [r for r in rows if r["cop"].startswith(dept + "/")]
     if args.zero_only:
-        rows = [r for r in rows if r["std_occ"] == 0]
+        rows = [r for r in rows if r["occ"] == 0]
 
     # Compute tier counts (unfiltered)
     tier_counts = {"High": 0, "Medium": 0, "Low": 0, "None": 0}
     for cop in all_cops:
-        s = std_cov.get(cop, {})
-        tier = confidence_tier(s.get("occurrences", 0), s.get("unique_repos", 0))
+        c = corpus_cov.get(cop, {})
+        tier = confidence_tier(c.get("occurrences", 0), c.get("unique_repos", 0))
         tier_counts[tier] += 1
 
     if args.summary:
         total_cops = sum(tier_counts.values())
-        print(f"Corpus coverage summary ({std_repos} repos, {total_cops} cops):")
+        print(f"Corpus coverage summary ({total_repos} repos, {total_cops} cops):")
         print(f"  High   (>=100 occurrences, >=10 repos): {tier_counts['High']}")
         print(f"  Medium (10-99 occurrences or 3-9 repos): {tier_counts['Medium']}")
         print(f"  Low    (1-9 occurrences, 1-2 repos):    {tier_counts['Low']}")
@@ -184,17 +176,13 @@ def main():
 
     if args.format == "csv":
         writer = csv.writer(sys.stdout)
-        header = ["Rank", "Cop", "Std Occurrences", "Std Repos"]
-        if has_extended:
-            header += ["Ext Occurrences", "Ext Repos"]
+        header = ["Rank", "Cop", "Occurrences", "Repos"]
         if has_synthetic:
             header += ["Synth Occurrences"]
         header.append("Confidence")
         writer.writerow(header)
         for i, r in enumerate(rows, 1):
-            row = [i, r["cop"], r["std_occ"], r["std_repos"]]
-            if has_extended:
-                row += [r["ext_occ"], r["ext_repos"]]
+            row = [i, r["cop"], r["occ"], r["repos"]]
             if has_synthetic:
                 row += [r["synth_occ"]]
             row.append(r["confidence"])
@@ -202,9 +190,7 @@ def main():
         return
 
     # Markdown table
-    sources = [f"standard corpus ({std_repos:,} repos)"]
-    if has_extended:
-        sources.append(f"extended corpus ({ext_repos:,} repos)")
+    sources = [f"corpus ({total_repos:,} repos)"]
     if has_synthetic:
         sources.append("synthetic bench")
     print(f"# Per-Cop Corpus Coverage")
@@ -212,7 +198,7 @@ def main():
     print(f"> Auto-generated by the corpus oracle workflow.")
     print(f"> Sources: {', '.join(sources)}")
     print()
-    print(f"**Confidence tiers (standard corpus):** {tier_counts['High']} High, "
+    print(f"**Confidence tiers:** {tier_counts['High']} High, "
           f"{tier_counts['Medium']} Medium, {tier_counts['Low']} Low, {tier_counts['None']} None")
     print()
     print(f"- **High**: >=100 occurrences AND >=10 repos")
@@ -222,11 +208,8 @@ def main():
     print()
 
     # Build header
-    header = "| Rank | Cop | Std Occ | Std Repos |"
-    sep = "|-----:|-----|--------:|----------:|"
-    if has_extended:
-        header += " Ext Occ | Ext Repos |"
-        sep += "--------:|----------:|"
+    header = "| Rank | Cop | Occurrences | Repos |"
+    sep = "|-----:|-----|------------:|------:|"
     if has_synthetic:
         header += " Synth |"
         sep += "------:|"
@@ -236,9 +219,7 @@ def main():
     print(header)
     print(sep)
     for i, r in enumerate(rows, 1):
-        line = f"| {i} | {r['cop']} | {r['std_occ']:,} | {r['std_repos']} |"
-        if has_extended:
-            line += f" {r['ext_occ']:,} | {r['ext_repos']} |"
+        line = f"| {i} | {r['cop']} | {r['occ']:,} | {r['repos']} |"
         if has_synthetic:
             line += f" {r['synth_occ']:,} |" if r["synth_occ"] > 0 else " — |"
         line += f" {r['confidence']} |"
