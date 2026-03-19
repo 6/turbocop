@@ -26,6 +26,15 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: added recursive `collect_top_level_nodes` to descend through
 /// `ModuleNode`/`ClassNode` wrappers, matching RuboCop's `top_level_nodes`.
+///
+/// FP=6: Files with multiple top-level statements (e.g., `require` + class/module
+/// wrapping describe) were incorrectly flagged. RuboCop's `top_level_nodes`
+/// only recurses into class/module when there is a single top-level statement.
+/// With multiple statements (`:begin` node in Parser), it returns direct children
+/// only — so a describe nested inside a class is NOT found.
+///
+/// Fix: check `body.len()`. If single statement, recurse (has_example_group_in_nodes).
+/// If multiple statements, only check direct children (has_direct_example_group).
 pub struct SpecFilePathSuffix;
 
 impl Cop for SpecFilePathSuffix {
@@ -68,10 +77,14 @@ impl Cop for SpecFilePathSuffix {
         let stmts = program.statements();
         let body = stmts.body();
 
-        // Check if file contains any top-level example group (not just shared examples).
-        // Recursively descends through module/class wrappers, matching RuboCop's
-        // TopLevelGroup#top_level_nodes behavior.
-        let has_example_group = has_example_group_in_nodes(body.iter());
+        // Match RuboCop's TopLevelGroup#top_level_nodes behavior:
+        // - Single top-level statement: recurse into module/class wrappers
+        // - Multiple top-level statements (:begin): only check direct children
+        let has_example_group = if body.len() == 1 {
+            has_example_group_in_nodes(body.iter())
+        } else {
+            has_direct_example_group(body.iter())
+        };
 
         if !has_example_group {
             return;
@@ -90,6 +103,20 @@ impl Cop for SpecFilePathSuffix {
             "Spec path should end with `_spec.rb`.".to_string(),
         ));
     }
+}
+
+/// Check direct children only for example group calls (no class/module recursion).
+/// Used when there are multiple top-level statements, matching RuboCop's
+/// `TopLevelGroup#top_level_nodes` which returns `:begin` node children directly.
+fn has_direct_example_group<'a>(nodes: impl Iterator<Item = ruby_prism::Node<'a>>) -> bool {
+    for node in nodes {
+        if let Some(call) = node.as_call_node() {
+            if is_rspec_example_group_call(&call) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Recursively descend through `module`/`class` nodes to collect the
@@ -186,6 +213,97 @@ mod tests {
             diags.len(),
             0,
             "1.describe should not trigger SpecFilePathSuffix: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn multi_stmt_require_plus_class_with_describe_not_flagged() {
+        // FP fix: when there are multiple top-level statements, RuboCop's
+        // TopLevelGroup only checks direct children (not recursing into class/module).
+        let source = b"require 'helper'\nclass TestHelpers\n  describe \"some method\" do\n    it { expect(true).to eq(true) }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathSuffix,
+            source,
+            crate::cop::CopConfig::default(),
+            "spec/treat.rb",
+        );
+        assert_eq!(
+            diags.len(),
+            0,
+            "require + class wrapping describe should not trigger SpecFilePathSuffix: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn multi_stmt_require_plus_module_with_rspec_describe_not_flagged() {
+        // FP fix: require + module wrapping RSpec.describe — multiple top-level stmts
+        let source = b"require 'rails_helper'\nmodule UserAssignments\n  RSpec.describe GenerateJob do\n    it { expect(true).to eq(true) }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathSuffix,
+            source,
+            crate::cop::CopConfig::default(),
+            "spec/jobs/user_assignments/generate_user_assignments_job.rb",
+        );
+        assert_eq!(
+            diags.len(),
+            0,
+            "require + module wrapping RSpec.describe should not trigger SpecFilePathSuffix: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn multi_stmt_require_plus_class_with_context_not_flagged() {
+        // FP fix: require + class containing context — multiple top-level stmts
+        let source = b"require 'test_helper'\nclass BackfillTaskTest\n  context 'when running' do\n    it { expect(true).to eq(true) }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathSuffix,
+            source,
+            crate::cop::CopConfig::default(),
+            "test/tasks/maintenance/backfill_task_test.rb",
+        );
+        assert_eq!(
+            diags.len(),
+            0,
+            "require + class with context should not trigger SpecFilePathSuffix: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn single_stmt_class_with_describe_still_flagged() {
+        // Ensure single top-level class wrapping describe IS still flagged
+        let source = b"class DocumentTest\n  describe Document do\n    it 'works' do\n      expect(true).to eq(true)\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathSuffix,
+            source,
+            crate::cop::CopConfig::default(),
+            "spec/entities/document.rb",
+        );
+        assert_eq!(
+            diags.len(),
+            1,
+            "Single top-level class wrapping describe should still trigger SpecFilePathSuffix: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn single_stmt_module_with_describe_still_flagged() {
+        // Ensure single top-level module wrapping describe IS still flagged
+        let source = b"module Specs\n  module Entities\n    describe Collection do\n      it 'works' do\n        expect(true).to eq(true)\n      end\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &SpecFilePathSuffix,
+            source,
+            crate::cop::CopConfig::default(),
+            "spec/entities/collection.rb",
+        );
+        assert_eq!(
+            diags.len(),
+            1,
+            "Single top-level module wrapping describe should still trigger SpecFilePathSuffix: {:?}",
             diags
         );
     }
