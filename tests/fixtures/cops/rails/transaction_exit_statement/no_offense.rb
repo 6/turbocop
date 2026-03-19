@@ -56,3 +56,9 @@ end
 
 # method call chained (no block)
 transaction.foo
+
+# safe navigation &.with_lock — RuboCop's on_send doesn't fire for csend (safe navigation)
+# so return inside &.with_lock should NOT be flagged
+prefix_val&.with_lock do |factory|
+  return yield(factory) unless prefix_val.deleted?
+end

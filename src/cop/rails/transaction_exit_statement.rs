@@ -28,6 +28,15 @@
 /// ## Remaining Gaps
 ///
 /// None observed. All vendor spec cases pass.
+///
+/// ## Investigation (2026-03-19)
+///
+/// **FP root cause (1 FP):** `prefix_val&.with_lock do ... end` was flagged because the
+/// cop didn't distinguish between `send` and `csend` (safe navigation) nodes. RuboCop's
+/// `on_send` handler only fires for `send` nodes, not `csend`. Since `&.with_lock` uses
+/// safe navigation, RuboCop never sees it as a transaction block.
+///
+/// Fix: Added `call_operator_loc() == &.` check to skip safe navigation calls.
 use ruby_prism::Visit;
 
 use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
@@ -150,6 +159,17 @@ impl Cop for TransactionExitStatement {
             Some(c) => c,
             None => return,
         };
+
+        // RuboCop's `on_send` handler does NOT fire for `csend` (safe navigation) nodes.
+        // `prefix_val&.with_lock do ... end` uses safe navigation, so it should NOT be
+        // treated as a transaction block.
+        if call
+            .call_operator_loc()
+            .is_some_and(|loc| loc.as_slice() == b"&.")
+        {
+            return;
+        }
+
         let method_name = call.name().as_slice();
 
         // Check if the method is a transaction method (built-in or configured).
