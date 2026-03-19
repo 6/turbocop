@@ -4,6 +4,13 @@ use crate::parse::source::SourceFile;
 
 pub struct InsecureProtocolSource;
 
+/// ## Extended corpus investigation (2026-03-19)
+///
+/// FN=1 from repo `openstack__puppet-swift` — file named `.gemfile` (dotfile)
+/// containing `source :rubygems`. Rust's `Path::extension()` returns `None` for
+/// dotfiles, so `is_ruby_file()` in `fs.rs` failed to recognize `.gemfile` as a
+/// Ruby file. The file was never discovered during directory walking, so no cops
+/// could run on it. Fix: added dotfile extension check to `is_ruby_file()`.
 impl Cop for InsecureProtocolSource {
     fn name(&self) -> &'static str {
         "Bundler/InsecureProtocolSource"

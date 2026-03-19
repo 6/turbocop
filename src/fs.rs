@@ -203,6 +203,20 @@ fn is_ruby_file(path: &Path) -> bool {
         if name.ends_with("Fastfile") || name.ends_with("fastfile") {
             return true;
         }
+        // Dotfiles like `.gemfile` have no extension in Rust (Path::extension()
+        // returns None). Check if the name after the leading dot matches a known
+        // Ruby extension. This matches RuboCop's `**/*.gemfile` Include pattern
+        // which treats `.gemfile` as having the `gemfile` extension.
+        if let Some(after_dot) = name.strip_prefix('.') {
+            if !after_dot.is_empty()
+                && !after_dot.contains('.')
+                && RUBY_EXTENSIONS
+                    .iter()
+                    .any(|&r| r.eq_ignore_ascii_case(after_dot))
+            {
+                return true;
+            }
+        }
     }
     // For extensionless files not in the known list, check for Ruby shebang.
     // This catches scripts like bin/console, bin/rails, etc.
@@ -263,6 +277,31 @@ mod tests {
             "git command failed: git {}",
             args.join(" ")
         );
+    }
+
+    #[test]
+    fn is_ruby_file_dotfile_extensions() {
+        // Rust's Path::extension() returns None for dotfiles like .gemfile.
+        // is_ruby_file should still recognize them by checking after the leading dot.
+        assert!(
+            is_ruby_file(Path::new(".gemfile")),
+            ".gemfile should be a Ruby file"
+        );
+        assert!(
+            is_ruby_file(Path::new("some/path/.gemfile")),
+            "some/path/.gemfile should be a Ruby file"
+        );
+        assert!(is_ruby_file(Path::new(".rb")), ".rb should be a Ruby file");
+        assert!(
+            is_ruby_file(Path::new(".rake")),
+            ".rake should be a Ruby file"
+        );
+        // Regular extensions still work
+        assert!(is_ruby_file(Path::new("foo.gemfile")));
+        assert!(is_ruby_file(Path::new("Gemfile")));
+        // Non-ruby dotfiles should not match
+        assert!(!is_ruby_file(Path::new(".gitignore")));
+        assert!(!is_ruby_file(Path::new(".env")));
     }
 
     #[test]
@@ -545,6 +584,33 @@ mod tests {
             .iter()
             .any(|p| p.file_name().and_then(|n| n.to_str()) == Some(".irbrc"));
         assert!(contains, "tracked .irbrc should be discovered");
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn discovers_tracked_dotgemfile() {
+        if !git_available() {
+            eprintln!("Skipping: git not available");
+            return;
+        }
+
+        let dir = setup_dir("tracked_dotgemfile");
+        fs::write(
+            dir.join(".gemfile"),
+            "source 'https://rubygems.org'\ngem 'rails'\n",
+        )
+        .unwrap();
+        git(&dir, &["init", "-q"]);
+        git(&dir, &["add", ".gemfile"]);
+
+        let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
+        let discovered = discover_files(&[dir.clone()], &config).unwrap();
+        let contains = discovered
+            .files
+            .iter()
+            .any(|p| p.file_name().and_then(|n| n.to_str()) == Some(".gemfile"));
+        assert!(contains, "tracked .gemfile should be discovered");
 
         fs::remove_dir_all(&dir).ok();
     }

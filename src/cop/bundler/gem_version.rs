@@ -49,6 +49,14 @@ pub struct GemVersion;
 ///
 /// The `is_version_specification()` rewrite covers all 29 corpus FN. No remaining
 /// FN are attributable to parse-error file drops. Awaiting fresh corpus run to confirm.
+///
+/// ### Extended corpus FN=1 (2026-03-19)
+///
+/// Root cause: repo `openstack__puppet-swift` has a file named `.gemfile` (dotfile).
+/// Rust's `Path::extension()` returns `None` for dotfiles, so `is_ruby_file()` in
+/// `fs.rs` failed to recognize `.gemfile` as a Ruby file. The file was never discovered
+/// during directory walking, so no cops could run on it. Fix: added dotfile extension
+/// check to `is_ruby_file()` — strips leading `.` and checks against `RUBY_EXTENSIONS`.
 impl Cop for GemVersion {
     fn name(&self) -> &'static str {
         "Bundler/GemVersion"
