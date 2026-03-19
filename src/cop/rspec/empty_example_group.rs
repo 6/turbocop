@@ -17,6 +17,16 @@ use crate::parse::source::SourceFile;
 /// - Example groups nested inside example blocks (`it`, `specify`, etc.) are skipped,
 ///   matching RuboCop's `return if node.each_ancestor(:block).any? { example?(block) }`.
 ///   These are meta-spec patterns like `RSpec.describe { } .run` inside an `it` block.
+///
+/// ## Corpus investigation (2026-03-19)
+///
+/// FP=0, FN=11.
+///
+/// FN=11: All FNs were example groups with `def self.method_name` that internally
+/// calls `it`/`example`/etc. The `ExampleFinder` was descending into def bodies
+/// and finding these dynamically-created examples, treating the group as non-empty.
+/// RuboCop's `examples?` matcher only checks immediate children and blocks, not
+/// def bodies. Fix: override `visit_def_node` in ExampleFinder to skip def bodies.
 pub struct EmptyExampleGroup;
 
 impl Cop for EmptyExampleGroup {
@@ -197,6 +207,14 @@ impl<'pr> Visit<'pr> for ExampleFinder {
         }
         ruby_prism::visit_if_node(self, node);
     }
+
+    // Don't descend into method definitions — examples inside `def self.method`
+    // are dynamically defined and don't count as direct examples for the group.
+    // RuboCop's `examples?` uses `def_node_matcher` which only checks immediate
+    // children and blocks, not def bodies.
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {
+        // Skip — examples inside defs don't make the group non-empty
+    }
 }
 
 #[cfg(test)]
@@ -209,5 +227,6 @@ mod tests {
         scenario_empty_describe = "empty_describe.rb",
         scenario_hooks_only = "hooks_only.rb",
         scenario_qualified_rspec = "qualified_rspec.rb",
+        scenario_def_self_example_factory = "def_self_example_factory.rb",
     );
 }
