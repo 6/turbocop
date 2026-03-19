@@ -432,7 +432,12 @@ jobs:
           fi
 
       - name: Generate cop coverage report
-        run: python3 scripts/cop-coverage.py --input corpus-results.json > docs/cop_coverage.md
+        run: |
+          SYNTH_ARG=""
+          if [ -f bench/synthetic/synthetic-results.json ]; then
+            SYNTH_ARG="--synthetic bench/synthetic/synthetic-results.json"
+          fi
+          python3 scripts/cop-coverage.py --input corpus-results.json $SYNTH_ARG > docs/cop_coverage.md
 
       - name: Open PR if tiers, README, or corpus report changed
         env:
