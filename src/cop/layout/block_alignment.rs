@@ -201,7 +201,7 @@ impl Cop for BlockAlignment {
         // heuristic line-based backward scanning (`find_chain_expression_start`),
         // which couldn't handle multiline strings, interleaved comments, etc.
         let call_start_offset = call_node.location().start_offset();
-        let (_, call_start_col) = source.offset_to_line_col(call_start_offset);
+        let (call_start_line, call_start_col) = source.offset_to_line_col(call_start_offset);
 
         // Check for assignment: if the call expression is on the RHS of `=`/`+=`/etc.,
         // walk backward from the call start to find the LHS variable.
@@ -212,6 +212,24 @@ impl Cop for BlockAlignment {
         // The expression start column: if there's an assignment on the same line as
         // the call start, use the LHS column. Otherwise use the CallNode's column.
         let expression_start_col = assignment_col.unwrap_or(call_start_col);
+
+        #[cfg(test)]
+        {
+            let method_name = std::str::from_utf8(call_node.name().as_slice()).unwrap_or("?");
+            eprintln!(
+                "DEBUG BlockAlignment: method={} call_start=({},{}) opening=({},{}) assignment_col={:?} expr_start_col={} start_of_line_indent={} end=({},{})",
+                method_name,
+                call_start_line,
+                call_start_col,
+                opening_line,
+                source.offset_to_line_col(opening_loc.start_offset()).1,
+                assignment_col,
+                expression_start_col,
+                start_of_line_indent,
+                source.offset_to_line_col(closing_loc.start_offset()).0,
+                source.offset_to_line_col(closing_loc.start_offset()).1,
+            );
+        }
 
         // Also compute the expression start line's indent.
         let expression_start_indent = line_indent(bytes, call_start_offset);
@@ -479,7 +497,14 @@ fn find_assignment_lhs_col(bytes: &[u8], call_start_offset: usize) -> Option<usi
 
     // If the call starts at the beginning of its line (or very close to it),
     // check if the previous line ends with `=` (possibly with trailing whitespace).
-    // This handles multiline assignment RHS patterns.
+    // This handles multiline multi-assignment (masgn) RHS patterns like:
+    //   packages_lines, last_package_lines =
+    //     stdout.each_line.reduce([[], []]) do ...
+    //     end
+    //
+    // NOTE: Only walk through cross-line assignments for multi-assignment (masgn),
+    // not single assignments. RuboCop's `disqualified_parent?` stops at cross-line
+    // parents EXCEPT for masgn. We detect masgn by checking for a comma in the LHS.
     let indent = line_indent(bytes, call_start_offset);
     if call_col == indent && line_start > 0 {
         // Find the previous line
@@ -500,12 +525,18 @@ fn find_assignment_lhs_col(bytes: &[u8], call_start_offset: usize) -> Option<usi
                 let is_comparison =
                     last_idx > 0 && matches!(prev_line[last_idx - 1], b'=' | b'!' | b'<' | b'>');
                 if !is_comparison {
-                    // Find the LHS on the previous line: walk to first non-ws
-                    let prev_indent = prev_line
-                        .iter()
-                        .position(|&b| b != b' ' && b != b'\t')
-                        .unwrap_or(0);
-                    return Some(prev_indent);
+                    // Only accept cross-line assignment for multi-assignment (masgn).
+                    // Check for comma in the LHS portion (before `=`).
+                    let lhs_portion = &prev_line[..last_idx];
+                    let has_comma = lhs_portion.contains(&b',');
+                    if has_comma {
+                        // Find the LHS on the previous line: walk to first non-ws
+                        let prev_indent = prev_line
+                            .iter()
+                            .position(|&b| b != b' ' && b != b'\t')
+                            .unwrap_or(0);
+                        return Some(prev_indent);
+                    }
                 }
             }
         }
@@ -652,20 +683,46 @@ fn skip_assignment_backward(bytes: &[u8], line_start: usize, pos: usize) -> usiz
         }
 
         // Walk backward through the LHS identifier (variable, ivar, cvar, etc.)
+        // Handles balanced parens/brackets for complex LHS like:
+        //   RequestStore.store[key(work_package)] = ...
+        //   env[:machine].id = ...
         let mut lhs_pos = lhs_end;
+        let mut lhs_paren_depth: i32 = 0;
         while lhs_pos > line_start {
             let ch = bytes[lhs_pos - 1];
-            if ch.is_ascii_alphanumeric()
+            if lhs_paren_depth > 0 {
+                // Inside balanced parens/brackets, eat everything
+                match ch {
+                    b')' | b']' => {
+                        lhs_paren_depth += 1;
+                        lhs_pos -= 1;
+                    }
+                    b'(' | b'[' => {
+                        lhs_paren_depth -= 1;
+                        lhs_pos -= 1;
+                    }
+                    _ => {
+                        lhs_pos -= 1;
+                    }
+                }
+            } else if ch == b')' || ch == b']' {
+                lhs_paren_depth += 1;
+                lhs_pos -= 1;
+            } else if ch.is_ascii_alphanumeric()
                 || ch == b'_'
                 || ch == b'@'
                 || ch == b'$'
                 || ch == b'.'
                 || ch == b'['
-                || ch == b']'
             {
                 lhs_pos -= 1;
-            } else if ch == b':' && lhs_pos >= 2 + line_start && bytes[lhs_pos - 2] == b':' {
-                lhs_pos -= 2;
+            } else if ch == b':' {
+                // Single `:` for symbol keys inside brackets (e.g., `[:machine]`)
+                // or `::` namespace separator
+                lhs_pos -= 1;
+                if lhs_pos > line_start && bytes[lhs_pos - 1] == b':' {
+                    lhs_pos -= 1; // `::`
+                }
             } else if ch == b',' {
                 // Multi-assignment: `a, b = ...` — continue to find the first variable
                 lhs_pos -= 1;
@@ -793,14 +850,13 @@ fn is_closer_chained(bytes: &[u8], closer_offset: usize, closer_len: usize) -> b
     false
 }
 
-/// Check if there's a `&&` or `||` operator on the same line BEFORE the call_start_offset.
-/// If so, return the column of the expression start on the LHS of that operator.
-/// This handles patterns like:
+/// Check if there's a `&&`, `||`, or `<<` operator on the same line BEFORE the
+/// call_start_offset. If so, return the column of the expression start on the LHS
+/// of that operator. This handles patterns like:
 ///   next true if urls&.size&.positive? && urls&.all? do |url|
-///                urls&.size&.positive? is the LHS whose start column is what end should align with
 ///   if adjustment_type == "removal" && article.tag_list.none? do |tag|
-///                                      ^^^^ call starts here, && before it
-///      adjustment_type is the LHS (col 7)
+///   acc << items.map do |item|
+///   lists << tag.ul(:class => "foo") do
 ///
 /// Returns the column of the first non-whitespace token of the LHS expression.
 fn find_same_line_operator_lhs(bytes: &[u8], call_start_offset: usize) -> Option<usize> {
@@ -809,7 +865,7 @@ fn find_same_line_operator_lhs(bytes: &[u8], call_start_offset: usize) -> Option
         line_start -= 1;
     }
 
-    // Look backward from call_start_offset to find && or || on the same line
+    // Look backward from call_start_offset to find &&, ||, or << on the same line
     let mut pos = call_start_offset;
 
     // Skip whitespace before the call expression
@@ -817,11 +873,14 @@ fn find_same_line_operator_lhs(bytes: &[u8], call_start_offset: usize) -> Option
         pos -= 1;
     }
 
-    // Check for && or ||
+    // Check for &&, ||, or <<
     if pos >= 2 + line_start {
         let op1 = bytes[pos - 2];
         let op2 = bytes[pos - 1];
-        if (op1 == b'&' && op2 == b'&') || (op1 == b'|' && op2 == b'|') {
+        if (op1 == b'&' && op2 == b'&')
+            || (op1 == b'|' && op2 == b'|')
+            || (op1 == b'<' && op2 == b'<')
+        {
             pos -= 2;
             // Skip whitespace before the operator
             while pos > line_start && bytes[pos - 1] == b' ' {
@@ -1439,6 +1498,69 @@ mod tests {
             diags.len(),
             1,
             "FN: brace at col 4 misaligned with -> at col 2. Got: {:?}",
+            diags
+        );
+    }
+
+    // FP: do on continuation line of multi-line method call with assignment
+    // env[:machine].id = env[:machine].provider.driver.clone_vm(
+    //   env[:clone_id], options) do |progress|
+    //   ...
+    // end   <-- end at col 10, aligns with assignment LHS env[:machine].id
+    #[test]
+    fn fp_do_on_continuation_line_with_assignment() {
+        let source = b"          env[:machine].id = env[:machine].provider.driver.clone_vm(\n            env[:clone_id], options) do |progress|\n            env[:ui].clear_line\n          end\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "FP: end at col 10 aligns with LHS env[:machine].id at col 10. Got: {:?}",
+            diags
+        );
+    }
+
+    // FP: do on continuation line of multi-line ask() call
+    // entry[:phone] = ask("Phone?  ",
+    //                     lambda { ... }) do |q|
+    //   q.validate = ...
+    // end   <-- end at col 2, aligns with entry[:phone] at col 2
+    #[test]
+    fn fp_do_on_continuation_line_ask() {
+        let source = b"  entry[:phone] = ask(\"Phone?  \",\n                      lambda { |p| p.to_s }) do |q|\n    q.validate = true\n  end\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "FP: end at col 2 aligns with entry[:phone] at col 2. Got: {:?}",
+            diags
+        );
+    }
+
+    // FP: do on continuation line with multi-line args (openstreetmap pattern)
+    // lists << tag.ul(:class => [...]) do
+    //   ...
+    // end   <-- end at col 6, aligns with do-line indent or lists at col 6
+    #[test]
+    fn fp_multiline_args_tag_ul() {
+        let source = b"      lists << tag.ul(:class => [\n                        \"pagination\",\n                      ]) do\n        items.each do |page|\n          concat page\n        end\n      end\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "FP: end at col 6 aligns with lists at col 6. Got: {:?}",
+            diags
+        );
+    }
+
+    // FP: .select do on continuation line of chained call (openproject pattern)
+    // custom_fields
+    //   .select do |cf|
+    //     cf.something
+    // end   <-- end at col 6, aligns with custom_fields indent
+    #[test]
+    fn fp_select_do_continuation_chain() {
+        let source = b"      RequestStore.store[key] = custom_fields\n                                   .select do |cf|\n        cf.available?\n      end\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "FP: end at col 6 aligns with do-line indent or expression. Got: {:?}",
             diags
         );
     }
