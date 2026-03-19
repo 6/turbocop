@@ -107,6 +107,62 @@ use ruby_prism::Visit;
 /// directly), so `implicit_return?` returns false. Nitrocop was marking the last statement
 /// as ImplicitReturn for ALL method/block bodies regardless of statement count.
 /// **Fix:** Only grant ImplicitReturn when the body has exactly one statement (len == 1).
+///
+/// ## Corpus investigation (2026-03-19, batch 2)
+///
+/// Oracle: FP=240, FN=183 (98.6% match rate on 31,933 offenses).
+///
+/// **FP root cause 1: Narrow literal check in expected_signature (100+ FP).**
+/// Only checked StringNode/IntegerNode/SymbolNode. Missed InterpolatedStringNode,
+/// InterpolatedSymbolNode, ArrayNode, TrueNode, FalseNode, etc. RuboCop's
+/// `expected_signature?` uses `!node.first_argument.literal?` which covers all literals.
+/// **Fix:** Added `is_literal_node()` helper covering all Prism literal types.
+///
+/// **FP root cause 2: Array/hash Collection context too permissive (56+ FP).**
+/// Pushed Collection context for array/hash elements, exempting persist calls inside
+/// arrays. RuboCop's `assignable_node` climbs through arrays/hashes — elements inherit
+/// the enclosing context. `[save]` in void context IS flagged.
+/// **Fix:** Made arrays/hashes transparent (inherit parent context).
+///
+/// **FP root cause 3: Setter receiver not recognized as assignment (22 FP).**
+/// `create.multipart = true` — RuboCop's `return_value_assigned?` treats setter calls
+/// (`method=`) as assignments via `SendNode#assignment?` (alias for `setter_method?`).
+/// **Fix:** Detect setter methods in `visit_call_node` and push Assignment context.
+///
+/// **FP root cause 4: Missing assignment node visitors (10+ FP).**
+/// Missing visitors for operator-write (`+=`), or-write (`||=`), and-write (`&&=`),
+/// constant or-write, index or-write, call or-write, etc. Persist calls in these
+/// contexts got void context instead of assignment.
+/// **Fix:** Added visitors for all Prism write/operator-write node types.
+///
+/// **FP root cause 5: Parenthesized conditions lost context (6 FP).**
+/// `if(@result.save)` — ParenthesesNode body is a StatementsNode, and our
+/// `visit_statements_node` pushed VoidStatement, overriding the Condition context.
+/// **Fix:** `visit_parentheses_node` unwraps StatementsNode, visiting children directly.
+///
+/// **FP root cause 6: ||= and &&= flagging create (4+ FP).**
+/// RuboCop's VariableForce `check_assignment` returns early for or_asgn/and_asgn
+/// because `right_assignment_node` gets the lvasgn target, not the RHS.
+/// **Fix:** Don't set `in_local_assignment` for ||= and &&= write nodes.
+///
+/// **FP root cause 7: Block argument not counted in expected_signature (5+ FP).**
+/// `create(hash, &block)` has 2 args in RuboCop (block_pass counts), but Prism
+/// separates block from arguments. Our count was 1.
+/// **Fix:** Count BlockArgumentNode in total argument count.
+///
+/// **FN root cause 1: Array/hash Collection context suppressed offenses (30+ FN).**
+/// Same fix as FP root cause 2 — making arrays/hashes transparent both fixes FPs
+/// (arrays in void context now flag) and FNs (arrays in assignment context now exempt).
+///
+/// **FN root cause 2: Singleton method implicit return (14+ FN).**
+/// `def self.method; create(name: 'x'); end` — RuboCop's `implicit_return?` only
+/// matches `def`, not `defs`. Nitrocop gave ImplicitReturn for all DefNode.
+/// **Fix:** Only grant ImplicitReturn when DefNode has no receiver (instance method).
+///
+/// **Remaining (6 FP, 34 FN):** Edge cases including block_node unwrapping in
+/// `assignable_node` (RuboCop unwraps `create { }` to the block_node before checking
+/// parent context), and complex control flow patterns. These represent <0.13% of total
+/// offenses and are documented for future investigation.
 pub struct SaveBang;
 
 /// Modify-type persistence methods whose return value indicates success/failure.
@@ -139,8 +195,42 @@ enum Context {
     Argument,
     /// Used in an explicit return or next statement.
     ExplicitReturn,
-    /// Inside an array or hash literal (return value is "used").
-    Collection,
+}
+
+/// Check if a method name is a setter method (ends with `=` but not a comparison operator).
+/// Matches RuboCop's `MethodDispatchNode#setter_method?` / `assignment?`.
+fn is_setter_method(name: &[u8]) -> bool {
+    name.ends_with(b"=")
+        && !matches!(
+            name,
+            b"==" | b"!=" | b"===" | b"<=>" | b"<=" | b">=" | b"=~"
+        )
+}
+
+/// Check if a Prism node is a literal type (matches RuboCop's `Node#literal?`).
+/// Literal types include strings, symbols, numbers, arrays, booleans, regexps, etc.
+/// Hash is technically a literal but is handled separately (allowed in expected_signature).
+fn is_literal_node(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_string_node().is_some()
+        || node.as_interpolated_string_node().is_some()
+        || node.as_symbol_node().is_some()
+        || node.as_interpolated_symbol_node().is_some()
+        || node.as_integer_node().is_some()
+        || node.as_float_node().is_some()
+        || node.as_rational_node().is_some()
+        || node.as_imaginary_node().is_some()
+        || node.as_array_node().is_some()
+        || node.as_true_node().is_some()
+        || node.as_false_node().is_some()
+        || node.as_nil_node().is_some()
+        || node.as_regular_expression_node().is_some()
+        || node.as_interpolated_regular_expression_node().is_some()
+        || node.as_x_string_node().is_some()
+        || node.as_interpolated_x_string_node().is_some()
+        || node.as_range_node().is_some()
+        || node.as_source_file_node().is_some()
+        || node.as_source_line_node().is_some()
+        || node.as_source_encoding_node().is_some()
 }
 
 impl Cop for SaveBang {
@@ -216,9 +306,16 @@ impl SaveBangVisitor<'_, '_> {
             return None;
         }
 
-        // Check expected_signature: no arguments, or one hash/non-literal argument
+        // Check expected_signature: no arguments, or one hash/non-literal argument.
+        // In RuboCop, &block_arg counts as an argument (part of node.arguments).
+        // In Prism, it's separate (call.block()). Count it for parity.
+        let has_block_arg = call
+            .block()
+            .is_some_and(|b| b.as_block_argument_node().is_some());
+
         if let Some(args) = call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
+            let total_args = arg_list.len() + usize::from(has_block_arg);
 
             // destroy with any arguments is not a persistence method
             if method_name == b"destroy" {
@@ -226,26 +323,27 @@ impl SaveBangVisitor<'_, '_> {
             }
 
             // More than one argument: not a persistence call (e.g., Model.save(1, name: 'Tom'))
-            if arg_list.len() >= 2 {
+            if total_args >= 2 {
                 return None;
             }
 
-            // Single argument: must be a hash or non-literal
+            // Single argument: must be a hash or non-literal.
+            // Matches RuboCop's: node.first_argument.hash_type? || !node.first_argument.literal?
             if arg_list.len() == 1 {
                 let arg = &arg_list[0];
-                // String literal is not a valid persistence call
-                if arg.as_string_node().is_some() {
+                // Hash and keyword hash arguments are valid (expected persistence signature)
+                if arg.as_hash_node().is_some() || arg.as_keyword_hash_node().is_some() {
+                    // Valid: create(name: 'Joe'), save(validate: false)
+                } else if is_literal_node(arg) {
+                    // Any other literal type is NOT a valid persistence call signature
                     return None;
                 }
-                // Integer literal is not valid
-                if arg.as_integer_node().is_some() {
-                    return None;
-                }
-                // Symbol literal is not valid
-                if arg.as_symbol_node().is_some() {
-                    return None;
-                }
+                // Non-literals (variables, method calls, splats, etc.) are valid
             }
+        } else if has_block_arg {
+            // Only a &block argument and no other args — still valid (1 argument)
+            // RuboCop: expected_signature? returns true (1 arg, not literal)
+            // This is fine — persist method with just a block
         }
 
         // Check allowed receivers
@@ -571,7 +669,7 @@ impl SaveBangVisitor<'_, '_> {
                 // (already handled by not pushing VoidStatement for last stmt)
                 // This context means AllowImplicitReturn is true, so skip.
             }
-            Some(Context::Argument) | Some(Context::ExplicitReturn) | Some(Context::Collection) => {
+            Some(Context::Argument) | Some(Context::ExplicitReturn) => {
                 // These contexts mean the return value is used: no offense
             }
             None => {
@@ -667,6 +765,7 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
             let method_name = node.name().as_slice();
             let is_persisted_check = method_name == b"persisted?";
             let is_negation = method_name == b"!" && node.arguments().is_none();
+            let is_setter = is_setter_method(method_name);
 
             if is_persisted_check {
                 // persisted? on the result means the return value IS checked
@@ -679,6 +778,14 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
                 // `!object.save` / `not object.save` — RuboCop treats this as
                 // single_negative? which is part of condition/compound boolean.
                 self.context_stack.push(Context::Condition);
+                self.visit(&recv);
+                self.context_stack.pop();
+            } else if is_setter {
+                // Setter method (e.g., `create.multipart = true`): RuboCop's
+                // return_value_assigned? treats setter calls as assignments via
+                // SendNode#assignment? (alias for setter_method?). The persist
+                // call's return value is used to set an attribute, so it's exempt.
+                self.context_stack.push(Context::Assignment);
                 self.visit(&recv);
                 self.context_stack.pop();
             } else {
@@ -741,9 +848,13 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         if let Some(params) = node.parameters() {
             self.visit_parameters_node(&params);
         }
+        // RuboCop's implicit_return? only matches `def` (instance methods), not `defs`
+        // (singleton methods like `def self.foo`). In Prism, singleton methods are DefNode
+        // with a receiver. Only instance methods (no receiver) get implicit return semantics.
+        let is_instance_method = node.receiver().is_none();
         if let Some(body) = node.body() {
             if let Some(stmts) = body.as_statements_node() {
-                self.visit_statements_with_context(&stmts, true);
+                self.visit_statements_with_context(&stmts, is_instance_method);
             } else {
                 self.visit(&body);
             }
@@ -873,22 +984,22 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         &mut self,
         node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
     ) {
-        self.in_local_assignment = true;
+        // Don't set in_local_assignment for ||= — RuboCop's VariableForce
+        // check_assignment returns early for or_asgn because right_assignment_node
+        // gets the lvasgn target, not the RHS value. So create-in-||= is exempt.
         self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
-        self.in_local_assignment = false;
     }
 
     fn visit_local_variable_and_write_node(
         &mut self,
         node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
     ) {
-        self.in_local_assignment = true;
+        // Same as ||= — don't flag create in &&= assignments.
         self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
-        self.in_local_assignment = false;
     }
 
     fn visit_instance_variable_or_write_node(
@@ -916,6 +1027,157 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
     }
 
     fn visit_constant_path_write_node(&mut self, node: &ruby_prism::ConstantPathWriteNode<'pr>) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    // ── Missing or/and write nodes: push Assignment context ──
+
+    fn visit_class_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOrWriteNode<'pr>,
+    ) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_class_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableAndWriteNode<'pr>,
+    ) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_global_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOrWriteNode<'pr>,
+    ) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_global_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableAndWriteNode<'pr>,
+    ) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_constant_or_write_node(&mut self, node: &ruby_prism::ConstantOrWriteNode<'pr>) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_constant_and_write_node(&mut self, node: &ruby_prism::ConstantAndWriteNode<'pr>) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_constant_path_or_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOrWriteNode<'pr>,
+    ) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_constant_path_and_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathAndWriteNode<'pr>,
+    ) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_constant_path_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOperatorWriteNode<'pr>,
+    ) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_index_or_write_node(&mut self, node: &ruby_prism::IndexOrWriteNode<'pr>) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_index_and_write_node(&mut self, node: &ruby_prism::IndexAndWriteNode<'pr>) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_index_operator_write_node(&mut self, node: &ruby_prism::IndexOperatorWriteNode<'pr>) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_call_operator_write_node(&mut self, node: &ruby_prism::CallOperatorWriteNode<'pr>) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_call_or_write_node(&mut self, node: &ruby_prism::CallOrWriteNode<'pr>) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_call_and_write_node(&mut self, node: &ruby_prism::CallAndWriteNode<'pr>) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    // ── Operator-write nodes (+=, -=, etc.): RHS is assignment context ──
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_instance_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOperatorWriteNode<'pr>,
+    ) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_class_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOperatorWriteNode<'pr>,
+    ) {
+        self.context_stack.push(Context::Assignment);
+        self.visit(&node.value());
+        self.context_stack.pop();
+    }
+
+    fn visit_global_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOperatorWriteNode<'pr>,
+    ) {
         self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
@@ -977,15 +1239,14 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         // inherit ImplicitReturn context (not Condition), matching RuboCop
         // behavior where `find(**opts) || create(**opts)` at end of method
         // is exempt.
-        // Same for ExplicitReturn, Assignment, Argument, Collection contexts
+        // Same for ExplicitReturn, Assignment, Argument contexts
         // where the return value of the || expression is being used.
         let ctx = self.current_context();
         match ctx {
             Some(Context::ImplicitReturn)
             | Some(Context::ExplicitReturn)
             | Some(Context::Assignment)
-            | Some(Context::Argument)
-            | Some(Context::Collection) => {
+            | Some(Context::Argument) => {
                 // Inherit parent context — the || result is being used
                 self.visit(&node.left());
                 self.visit(&node.right());
@@ -1002,28 +1263,27 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
 
     // ── Array / Hash literals: children are collection context ───────────
 
+    // Arrays, hashes, and keyword hashes are transparent for context.
+    // Their elements inherit the parent context, matching RuboCop's `assignable_node`
+    // which climbs through array/hash parents to apply exemption checks at the
+    // enclosing expression level. For example, `[save]` in void context still
+    // flags `save`, but `return [save]` or `x = [save]` exempts it.
     fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
-        self.context_stack.push(Context::Collection);
         for element in node.elements().iter() {
             self.visit(&element);
         }
-        self.context_stack.pop();
     }
 
     fn visit_hash_node(&mut self, node: &ruby_prism::HashNode<'pr>) {
-        self.context_stack.push(Context::Collection);
         for element in node.elements().iter() {
             self.visit(&element);
         }
-        self.context_stack.pop();
     }
 
     fn visit_keyword_hash_node(&mut self, node: &ruby_prism::KeywordHashNode<'pr>) {
-        self.context_stack.push(Context::Collection);
         for element in node.elements().iter() {
             self.visit(&element);
         }
-        self.context_stack.pop();
     }
 
     // ── BeginNode: body statements are in the parent's context ───────────
@@ -1046,9 +1306,18 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
     // ── Parentheses: transparent, pass through context ───────────────────
 
     fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'pr>) {
-        // Parentheses are transparent for context purposes
+        // Parentheses are transparent for context purposes.
+        // If the body is a StatementsNode, visit its children directly to avoid
+        // visit_statements_node overriding the parent context to VoidStatement.
+        // This is important for parenthesized conditions like `if(object.save)`.
         if let Some(body) = node.body() {
-            self.visit(&body);
+            if let Some(stmts) = body.as_statements_node() {
+                for stmt in stmts.body().iter() {
+                    self.visit(&stmt);
+                }
+            } else {
+                self.visit(&body);
+            }
         }
     }
 

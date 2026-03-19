@@ -17,6 +17,11 @@ if object.save
   puts "saved"
 end
 
+# Parenthesized condition
+if(object.save)
+  puts "saved"
+end
+
 unless object.save
   puts "not saved"
 end
@@ -49,10 +54,10 @@ handle_result(object.save)
 log(object.update(name: 'Tom'))
 handle_save(object.save, true)
 
-# Used in array/hash literal
-[object.save, object.update(name: 'Tom')]
+# Used in array/hash literal that is assigned (return value used)
+result = [object.save, object.update(name: 'Tom')]
 
-# Hash value
+# Hash value assigned
 result = { success: object.save }
 
 # Return with hash/array (argument context)
@@ -171,3 +176,40 @@ $record = User.create(name: 'Joe')
 # CREATE assigned to instance variable without persisted? check (exempt — not tracked by VariableForce)
 @user = User.create(name: 'Joe')
 foo(@user)
+
+# CREATE in ||= assignment (RuboCop's VariableForce doesn't flag or_asgn create-in-assignment)
+label ||= Project.create(title: params[:title])
+
+# CREATE in &&= assignment (same as ||=)
+record &&= User.create(name: 'Joe')
+
+# Operator-write assignment (+=, -=, etc.) — return value is used
+def process
+  packet += cipher.update(data)
+  nil
+end
+
+# Persist call with block argument: create(hash, &block) has 2 args → not expected_signature
+Model.create(name: 'Joe', &block)
+
+# Setter receiver: persist call used as receiver of attribute write (assignment context)
+# RuboCop treats setter methods (ending with =) as assignments.
+def setter_examples
+  create.multipart = true
+  update.multipart = true
+  save.flag = false
+end
+
+# Persist methods with literal arguments are not expected_signature (not AR persist calls)
+# RuboCop's expected_signature? rejects literal args that aren't hashes.
+create("string")
+create("string_#{interpolation}")
+create(:"sym_#{interpolation}")
+create([{name: 'Joe'}, {name: 'Bob'}])
+save([offense])
+save(false)
+create(true)
+update([{id: 1, values: {name: 'Tom'}}])
+create(42)
+create(/regex/)
+first_or_create([{name: 'parrot'}, {name: 'parakeet'}])

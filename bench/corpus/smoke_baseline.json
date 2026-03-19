@@ -8,11 +8,11 @@
     "rc_files": 35
   },
   "doorkeeper__doorkeeper__b305358": {
-    "fn": 303,
+    "fn": 302,
     "fp": 6,
-    "matches": 13423,
+    "matches": 13424,
     "nc_files": 258,
-    "rate": 97.7,
+    "rate": 97.8,
     "rc_files": 260
   },
   "multi_json__multi_json__c5fa9fc": {
@@ -32,11 +32,11 @@
     "rc_files": 288
   },
   "ruby-formatter__rufo__a90e654": {
-    "fn": 650,
-    "fp": 26,
-    "matches": 10097,
+    "fn": 651,
+    "fp": 22,
+    "matches": 10096,
     "nc_files": 150,
-    "rate": 93.7,
+    "rate": 93.8,
     "rc_files": 158
   },
   "standardrb__standard__c886a57": {

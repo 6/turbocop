@@ -141,3 +141,23 @@ def process
                     ^^^^ Rails/SaveBang: Use `save!` instead of `save` if the return value is not checked.
   nil
 end
+
+# Persist call in array literal in void context (NOT exempt)
+def process_array
+  [object.save]
+          ^^^^ Rails/SaveBang: Use `save!` instead of `save` if the return value is not checked.
+  nil
+end
+
+# Persist call in hash literal in void context (NOT exempt)
+def process_hash
+  {key: object.save}
+               ^^^^ Rails/SaveBang: Use `save!` instead of `save` if the return value is not checked.
+  nil
+end
+
+# Singleton method: implicit return does NOT apply (RuboCop only exempts def, not def self.x)
+def self.create_default
+  create(name: 'test')
+  ^^^^^^ Rails/SaveBang: Use `create!` instead of `create` if the return value is not checked.
+end
