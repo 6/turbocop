@@ -70,7 +70,20 @@
 /// using `check_branch_stmts_with_outer` with `is_if_rescue_branch=true` and ensure
 /// body nodes as outer context, matching RuboCop's rescue ancestor behavior.
 ///
-/// FN=1: Unchanged — RuboCop over-match on non-controller class (see above).
+/// FN=1: Investigated and intentionally not matched. The FN is at
+/// `browsermedia/browsercms: app/models/cms/portlet.rb:228`. The class
+/// `Cms::Portlet < ActiveRecord::Base` is NOT a controller, but its body
+/// references `ActionController::Base.view_paths` (line 121). RuboCop's
+/// `def_node_search :action_controller?` searches the entire class subtree
+/// for `ApplicationController` / `ActionController::Base` constants, so it
+/// over-matches. Attempted subtree-search fix caused 2 new FNs on
+/// `rails__rails` because the manual walker (used when `in_action_controller`
+/// is true) doesn't handle modules or other nested structures that the full
+/// visitor traverses. Net result was FN 1→3 (worse). The subtree-search
+/// approach conflicts with the manual-walker architecture; a correct fix
+/// would require either rewriting the visitor to always use the full walker
+/// with per-class controller flags, or adding comprehensive handling for
+/// all nesting types (modules, sclass, etc.) in the manual walker.
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
