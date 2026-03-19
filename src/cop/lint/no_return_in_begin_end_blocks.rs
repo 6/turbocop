@@ -14,6 +14,16 @@ use ruby_prism::Visit;
 /// (`CallAndWriteNode`, `CallOrWriteNode`, `CallOperatorWriteNode`), index assignment
 /// (`IndexAndWriteNode`, `IndexOrWriteNode`, `IndexOperatorWriteNode`), and global
 /// variable or-write (`GlobalVariableOrWriteNode`) node types.
+///
+/// ## Corpus investigation (2026-03-19)
+///
+/// Corpus oracle reported FP=0, FN=210. All 210 FNs were from `return` inside
+/// `begin..end` assignments within method bodies. The visitor blocked recursion
+/// into `def`, `class`, `module`, and `lambda` nodes entirely (`fn visit_def_node
+/// { }`) meaning it never reached assignments inside methods — which is 100% of
+/// real-world usage. Fixed by letting the visitor recurse into these scopes while
+/// resetting `in_begin_assignment` to false, so nested scopes start fresh but
+/// assignments within methods are properly checked.
 pub struct NoReturnInBeginEndBlocks;
 
 impl Cop for NoReturnInBeginEndBlocks {
@@ -39,6 +49,7 @@ impl Cop for NoReturnInBeginEndBlocks {
             source,
             diagnostics: Vec::new(),
             in_begin_assignment: false,
+            in_assignment_value: false,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -49,20 +60,21 @@ struct NoReturnVisitor<'a, 'src> {
     cop: &'a NoReturnInBeginEndBlocks,
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
+    /// True when we're inside a begin..end block that is a descendant of an
+    /// assignment value. RuboCop uses `node.each_node(:kwbegin)` to find
+    /// begin blocks at ANY depth within assignment values, not just direct.
     in_begin_assignment: bool,
+    /// True when we're traversing an assignment's value subtree. Any BeginNode
+    /// encountered while this is true triggers `in_begin_assignment`.
+    in_assignment_value: bool,
 }
 
 impl NoReturnVisitor<'_, '_> {
     fn check_assignment_value(&mut self, value: &ruby_prism::Node<'_>) {
-        // Check if the value is a BeginNode (kwbegin)
-        if value.as_begin_node().is_some() {
-            let old = self.in_begin_assignment;
-            self.in_begin_assignment = true;
-            self.visit(value);
-            self.in_begin_assignment = old;
-        } else {
-            self.visit(value);
-        }
+        let old = self.in_assignment_value;
+        self.in_assignment_value = true;
+        self.visit(value);
+        self.in_assignment_value = old;
     }
 }
 
@@ -250,6 +262,20 @@ impl<'pr> Visit<'pr> for NoReturnVisitor<'_, '_> {
         self.check_assignment_value(&node.value());
     }
 
+    // When traversing an assignment value subtree, any BeginNode (kwbegin)
+    // sets in_begin_assignment for its descendants. This matches RuboCop's
+    // `node.each_node(:kwbegin)` which finds begin blocks at ANY depth.
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        if self.in_assignment_value {
+            let old = self.in_begin_assignment;
+            self.in_begin_assignment = true;
+            ruby_prism::visit_begin_node(self, node);
+            self.in_begin_assignment = old;
+        } else {
+            ruby_prism::visit_begin_node(self, node);
+        }
+    }
+
     fn visit_return_node(&mut self, node: &ruby_prism::ReturnNode<'pr>) {
         if self.in_begin_assignment {
             let loc = node.location();
@@ -263,11 +289,33 @@ impl<'pr> Visit<'pr> for NoReturnVisitor<'_, '_> {
         }
     }
 
-    // Don't recurse into nested scopes
-    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
-    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
-    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
-    fn visit_lambda_node(&mut self, _node: &ruby_prism::LambdaNode<'pr>) {}
+    // Recurse into methods/classes/modules but reset the begin-assignment
+    // flag so nested scopes start fresh. RuboCop checks for return inside
+    // begin..end assignments regardless of nesting depth.
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        let old = self.in_begin_assignment;
+        self.in_begin_assignment = false;
+        ruby_prism::visit_def_node(self, node);
+        self.in_begin_assignment = old;
+    }
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        let old = self.in_begin_assignment;
+        self.in_begin_assignment = false;
+        ruby_prism::visit_class_node(self, node);
+        self.in_begin_assignment = old;
+    }
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+        let old = self.in_begin_assignment;
+        self.in_begin_assignment = false;
+        ruby_prism::visit_module_node(self, node);
+        self.in_begin_assignment = old;
+    }
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        let old = self.in_begin_assignment;
+        self.in_begin_assignment = false;
+        ruby_prism::visit_lambda_node(self, node);
+        self.in_begin_assignment = old;
+    }
 }
 
 #[cfg(test)]

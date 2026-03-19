@@ -134,3 +134,36 @@ arr[0] += begin
   return 1
   ^^^^^^ Lint/NoReturnInBeginEndBlocks: Do not `return` in `begin..end` blocks in assignment contexts.
 end
+
+# Inside a method body (real-world pattern)
+def fetch_category
+  @category = begin
+    Category.new(params)
+  rescue ArgumentError => e
+    return render json: { errors: [e.message] }
+    ^^^^^^ Lint/NoReturnInBeginEndBlocks: Do not `return` in `begin..end` blocks in assignment contexts.
+  end
+end
+
+# Inside a class method
+class Worker
+  def process
+    result ||= begin
+      return if cancelled?
+      ^^^^^^ Lint/NoReturnInBeginEndBlocks: Do not `return` in `begin..end` blocks in assignment contexts.
+      compute_result
+    end
+  end
+end
+
+# Deeply nested begin inside assignment value (RuboCop's each_node(:kwbegin))
+def fetch_data
+  status = Timeout.timeout(600) do
+    begin
+      download
+    rescue => e
+      return
+      ^^^^^^ Lint/NoReturnInBeginEndBlocks: Do not `return` in `begin..end` blocks in assignment contexts.
+    end
+  end
+end

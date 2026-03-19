@@ -67,3 +67,11 @@ end
 arr[0] += begin
   42
 end
+
+# return inside a method but NOT in a begin..end assignment
+def normal_method
+  return if invalid?
+  x = begin
+    compute
+  end
+end
