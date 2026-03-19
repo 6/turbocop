@@ -5,7 +5,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: corpus-${{ github.ref }}
+  group: corpus-${{ github.ref }}-${{ github.event.inputs.corpus_size || 'standard' }}
   cancel-in-progress: true
 
 on:
@@ -109,7 +109,7 @@ jobs:
               batches.append({
                   'batch_id': str(batch_idx),
                   'batch_hash': batch_hash,
-                  'repos_json': json.dumps([{'id': r['id'], 'repo_url': r['repo_url'], 'sha': r['sha']} for r in chunk]),
+                  'num_batches': str(num_batches),
               })
 
           print(f'{len(repos)} repos in {len(batches)} batches (batch_size={BATCH_SIZE}, corpus={corpus_size})', file=sys.stderr)
@@ -180,13 +180,57 @@ jobs:
           path: rubocop-cache/
           key: rubocop-batch-${{ matrix.batch_hash }}-${{ steps.rubocop-cache-key.outputs.hash }}
 
-      - name: Run batch
+      - name: Compute batch repos
+        id: batch-repos
         env:
-          REPOS_JSON: ${{ matrix.repos_json }}
+          BATCH_ID: ${{ matrix.batch_id }}
+          NUM_BATCHES: ${{ matrix.num_batches }}
+          CORPUS_SIZE: ${{ github.event.inputs.corpus_size || 'standard' }}
+          REPO_FILTER: ${{ github.event.inputs.repo_filter || 'all' }}
+        run: |
+          python3 << 'PYEOF'
+          import json, os
+
+          corpus_size = os.environ.get('CORPUS_SIZE', 'standard')
+          batch_id = int(os.environ['BATCH_ID'])
+          num_batches = int(os.environ['NUM_BATCHES'])
+
+          repos = []
+          with open('bench/corpus/manifest.jsonl') as f:
+              for line in f:
+                  line = line.strip()
+                  if line:
+                      repos.append(json.loads(line))
+
+          if corpus_size == 'extended':
+              extended_path = 'bench/corpus/manifest_extended.jsonl'
+              if os.path.exists(extended_path):
+                  with open(extended_path) as f:
+                      for line in f:
+                          line = line.strip()
+                          if line:
+                              repos.append(json.loads(line))
+
+          repo_filter = os.environ.get('REPO_FILTER', 'all')
+          if repo_filter != 'all':
+              repos = [r for r in repos if r['id'] == repo_filter]
+
+          # Same round-robin as compute-matrix
+          rr_batches = [[] for _ in range(num_batches)]
+          for i, repo in enumerate(repos):
+              rr_batches[i % num_batches].append(repo)
+
+          chunk = rr_batches[batch_id] if batch_id < len(rr_batches) else []
+          with open('batch_repos.json', 'w') as f:
+              json.dump([{'id': r['id'], 'repo_url': r['repo_url'], 'sha': r['sha']} for r in chunk], f)
+          print(f'Batch {batch_id}: {len(chunk)} repos')
+          PYEOF
+
+      - name: Run batch
         run: |
           mkdir -p results/nitrocop results/rubocop rubocop-cache
 
-          echo "$REPOS_JSON" | jq -c '.[]' | while IFS= read -r row; do
+          jq -c '.[]' batch_repos.json | while IFS= read -r row; do
             REPO_ID=$(echo "$row" | jq -r '.id')
             REPO_URL=$(echo "$row" | jq -r '.repo_url')
             REPO_SHA=$(echo "$row" | jq -r '.sha')
