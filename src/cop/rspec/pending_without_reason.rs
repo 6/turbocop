@@ -24,6 +24,16 @@ use crate::parse::source::SourceFile;
 /// - In example context, flag only no-arg skipped/pending calls.
 /// - Flag skipped example-group methods with "skip" message, including
 ///   top-level explicit `RSpec.xdescribe`.
+///
+/// ## Corpus investigation (2026-03-18)
+///
+/// Corpus oracle reported FP=0, FN=7. All 7 FN are top-level `RSpec.xdescribe`
+/// calls (no enclosing spec group block). The SKIPPED_GROUP_METHODS check
+/// required `ParentContext::SpecGroup`, but top-level calls have `Other` context.
+///
+/// Fix: mirror RuboCop's `block_node_example_group?` logic — also flag
+/// SKIPPED_GROUP_METHODS when the call itself has an explicit `RSpec` receiver
+/// and a block, regardless of parent context.
 pub struct PendingWithoutReason;
 
 /// Skipped example-group methods (`ExampleGroups::Skipped` in RuboCop).
@@ -174,11 +184,14 @@ impl<'a, 'pr> Visit<'pr> for PendingWithoutReasonVisitor<'a, 'pr> {
             add_reason_offense(self.cop, self.source, self.diagnostics, node, label);
         }
 
-        // RuboCop: skipped example-group methods report "skip", including
-        // top-level explicit `RSpec.xdescribe`.
+        // RuboCop: skipped example-group methods report "skip".
+        // Flagged when inside a spec group OR when the call itself is an
+        // example group with an explicit RSpec receiver and block (top-level
+        // `RSpec.xdescribe` case — mirrors RuboCop's `block_node_example_group?`).
         if SKIPPED_GROUP_METHODS.contains(&method_name)
             && has_rspec_receiver(node.receiver())
-            && context == ParentContext::SpecGroup
+            && (context == ParentContext::SpecGroup
+                || (has_block && is_explicit_rspec_receiver(node.receiver())))
         {
             add_reason_offense(self.cop, self.source, self.diagnostics, node, "skip");
         }

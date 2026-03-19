@@ -13,5 +13,7 @@ RSpec.describe Foo do
   end
 end
 
-RSpec.xdescribe 'something' do
+
+# top-level RSpec.xdescribe with a reason in metadata is still no_offense
+RSpec.describe Foo, skip: 'reason' do
 end
