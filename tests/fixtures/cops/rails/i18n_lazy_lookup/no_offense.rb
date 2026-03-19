@@ -30,4 +30,14 @@ class BooksController < ApplicationController
   def set_locale
     t("books.set_locale.label")
   end
+
+  public
+
+  # Symbol keys should not be flagged in lazy mode — RuboCop only flags string keys
+  def index
+    t(:'books.index.page_title')
+  end
+  def update
+    t(:'books.update.submitted')
+  end
 end

@@ -4,6 +4,19 @@ use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Rails/I18nLazyLookup — checks for places where I18n lazy lookup can be used.
+///
+/// In lazy mode (default), flags explicit keys like `t('books.create.success')` that could
+/// be replaced with `t('.success')`. In explicit mode, flags lazy keys.
+///
+/// Key matching derives controller path from the file path and compares against the translation
+/// key. Only public action methods in Controller classes are checked.
+///
+/// FP fix: In lazy mode, symbol keys (e.g., `t(:'spotlight.admin_users.index.page_title')`)
+/// are now skipped. RuboCop's `handle_lazy_style` compares `key_node.value` (a Symbol) against
+/// `scoped_key` (a String) — in Ruby, `Symbol == String` is always false, so symbol keys are
+/// never flagged. Previously nitrocop converted both to byte slices and compared them, causing
+/// 13 false positives across spotlight, hyrax, and avalon repos.
 pub struct I18nLazyLookup;
 
 impl Cop for I18nLazyLookup {
@@ -109,16 +122,16 @@ impl<'pr> Visit<'pr> for I18nLazyLookupVisitor<'_> {
             if let Some(args) = node.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if !arg_list.is_empty() {
-                    let key = if let Some(s) = arg_list[0].as_string_node() {
-                        Some(s.unescaped().to_vec())
+                    let (key, is_symbol) = if let Some(s) = arg_list[0].as_string_node() {
+                        (Some(s.unescaped().to_vec()), false)
+                    } else if let Some(sym) = arg_list[0].as_symbol_node() {
+                        (Some(sym.unescaped().to_vec()), true)
                     } else {
-                        arg_list[0]
-                            .as_symbol_node()
-                            .map(|sym| sym.unescaped().to_vec())
+                        (None, false)
                     };
 
                     if let Some(key) = key {
-                        self.check_key(node, &key);
+                        self.check_key(node, &key, is_symbol);
                     }
                 }
             }
@@ -129,7 +142,7 @@ impl<'pr> Visit<'pr> for I18nLazyLookupVisitor<'_> {
 }
 
 impl I18nLazyLookupVisitor<'_> {
-    fn check_key(&mut self, node: &ruby_prism::CallNode<'_>, key: &[u8]) {
+    fn check_key(&mut self, node: &ruby_prism::CallNode<'_>, key: &[u8], is_symbol: bool) {
         // Only flag inside Controller classes with public methods
         if !self.in_controller_class {
             return;
@@ -156,6 +169,11 @@ impl I18nLazyLookupVisitor<'_> {
             _ => {
                 // "lazy" (default): flag explicit lookups that could use lazy lookup
                 if key.starts_with(b".") {
+                    return;
+                }
+                // RuboCop only flags string keys in lazy mode — symbol keys are
+                // skipped because its internal comparison (Symbol == String) is false.
+                if is_symbol {
                     return;
                 }
                 // Must have at least 3 segments (controller.action.key)
