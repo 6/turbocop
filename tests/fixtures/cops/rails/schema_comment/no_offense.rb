@@ -46,21 +46,3 @@ Sequel.migration do
   end
 end
 
-# Bare create_table call with no arguments (method call, not migration DSL).
-# parser_arg_count = 0, outside the 1-2 range for create_table pattern.
-create_table
-
-# create_table with 3 positional args (test helper, not migration DSL).
-# parser_arg_count = 3, outside the 1-2 range.
-create_table "special_foo", {}, true
-create_table konstant.table_name, columns, konstant.primary_key
-
-# create_table with 2 positional + keyword hash = 3 parser args (non-migration).
-create_table table_name, create_table_sql(table_name, engine), force: force
-
-# create_table with 1 positional + keyword hash + &block = 3 parser args.
-create_table(:entities, id: false, &block)
-
-# create_table with symbol arg + standalone keyword (3 parser args, not migration).
-table = create_table(:Kern, data, standalone: true)
-

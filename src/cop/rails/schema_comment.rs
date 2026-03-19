@@ -68,21 +68,11 @@ use crate::parse::source::SourceFile;
 /// `call.block()` vs block_pass in parser gem's send children). Applied
 /// arg-count gate for `add_column` (requires 3-4 parser-gem args).
 ///
-/// ## Corpus investigation (2026-03-19) — FP=17 fixed via create_table arg-count gate
-///
-/// Re-investigated the 17 FPs: all have 0 or 3+ parser-gem arg children on
-/// `create_table`. RuboCop's node pattern `(send nil? :create_table _table _?)`
-/// inherently only matches 1-2 children. The earlier revert was incorrect —
-/// the arg-count gate does NOT lose correct detections because migration
-/// `create_table :users do |t|` has 1 arg (the block is the parent node, not
-/// a send child) and `create_table :users, force: true do |t|` has 2 args.
-/// Applied `parser_arg_count` gate requiring 1-2 args, matching RuboCop exactly.
-///
-/// FP categories eliminated:
-/// - Bare `create_table` (0 args): method calls, not migration DSL
-/// - 3 positional args: test helpers (`create_table "tbl", {}, true`)
-/// - 2 positional + keyword hash: non-AR wrappers (Sequel, ClickHouse)
-/// - 1 positional + keyword hash + &block: `create_table(:tbl, id: false, &block)`
+/// REVERTED create_table arg-count gate (1-2 args): this gate filtered out
+/// 2,314 correct detections to fix only 17 FP — a bad tradeoff. The 17 FP
+/// come from non-migration `create_table` calls (test helpers, Sequel, etc.).
+/// The proper fix is a `within_change_method_or_block?` context check (like
+/// RuboCop's), not arg-count filtering. FP=17 remain as a known gap.
 pub struct SchemaComment;
 
 const TABLE_MSG: &str = "New database table without `comment`.";
@@ -232,14 +222,6 @@ impl Cop for SchemaComment {
 
         match name {
             b"create_table" if call.receiver().is_none() => {
-                // RuboCop pattern: (send nil? :create_table _table _?)
-                // Matches 1-2 argument children in the parser gem AST.
-                // Bare create_table (0 args) and calls with 3+ args (test helpers,
-                // Sequel, non-migration wrappers) are not flagged.
-                let argc = parser_arg_count(&call);
-                if !(1..=2).contains(&argc) {
-                    return;
-                }
                 if !has_valid_comment(&call) {
                     // Table without comment — only report table-level offense
                     let loc = node.location();
