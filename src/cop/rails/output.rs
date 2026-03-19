@@ -48,6 +48,14 @@ use ruby_prism::Visit;
 /// Fixed by adding `visit_lambda_node`, `visit_def_node`, and
 /// `visit_rescue_modifier_node` overrides that reset `parent_is_call = false`
 /// before recursing, matching the pattern already used in `rspec/output.rs`.
+///
+/// ## Corpus investigation (2026-03-19)
+///
+/// FP=15, FN=7. All 15 FPs are from vendored gem paths (heroku/ruby/1.9.1/gems/
+/// in cjstewart88/Tubalr and vendor/bundle/ in liaoziyang/stackneveroverflow).
+/// These are file-exclusion issues — RuboCop's AllCops.Exclude covers these
+/// paths but nitrocop's path resolution doesn't relativize correctly.
+/// The cop logic is correct; no code fix needed for FPs.
 pub struct Output;
 
 const MSG: &str = "Do not write to stdout. Use Rails's logger if you want to log.";
