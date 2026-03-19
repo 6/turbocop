@@ -68,3 +68,18 @@ Time.at(Time.now, in: 'Z')
 
 Time.at(Time.now, in: '-00:00')
              ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+# Grouping parens with space between method name and ( — the .to_f is on the
+# grouped expression, NOT the enclosing call, so should still flag
+schedule (Time.now - 60).to_f, arg2
+               ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+expect(val).to eq (Time.now + 7.days).to_i
+                        ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+# Safe navigation &. breaks the chain — csend is not send_type? in RuboCop
+Time.at(val)&.utc
+     ^^ Rails/TimeZone: Use `Time.zone.at` instead of `Time.at`.
+
+Time.now&.to_i
+     ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.

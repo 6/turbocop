@@ -68,14 +68,18 @@ use crate::parse::source::SourceFile;
 /// `call.block()` vs block_pass in parser gem's send children). Applied
 /// arg-count gate for `add_column` (requires 3-4 parser-gem args).
 ///
-/// REVERTED create_table arg-count gate (1-2 args): this gate was tried twice
-/// (2026-03-18 and 2026-03-19, commits reverted both times). It filtered out
-/// ~2,500 correct detections to fix only 17 FP — a bad tradeoff. The gate
-/// removes ALL offenses for a filtered `create_table` (both table-level AND
-/// column-level), so even a small number of false rejections causes massive FN.
-/// The 17 FP come from non-migration `create_table` calls (test helpers,
-/// Sequel, etc.). The proper fix is a `within_change_method_or_block?` context
-/// check (like RuboCop's), not arg-count filtering. FP=17 remain as a known gap.
+/// ## Corpus fix (2026-03-19) — FP=17 fixed via scoped create_table arg-count gate
+///
+/// The 17 FPs were `create_table` calls with 3+ parser-gem args (test helpers,
+/// Sequel ORM, non-migration code). RuboCop's `create_table?` pattern
+/// `(send nil? :create_table _table _?)` only matches 1-2 children.
+///
+/// Previous attempts (reverted twice) applied the gate as an early return,
+/// which also blocked column-level offense checking inside blocks. The fix
+/// separates the two concerns: the arg-count gate controls ONLY the table-level
+/// offense, while column-level checks inside blocks still run when the table
+/// has a valid comment (matching RuboCop's `create_table_with_block?` fallthrough
+/// which uses `(send nil? :create_table ...)` with no arg-count restriction).
 pub struct SchemaComment;
 
 const TABLE_MSG: &str = "New database table without `comment`.";
@@ -225,13 +229,21 @@ impl Cop for SchemaComment {
 
         match name {
             b"create_table" if call.receiver().is_none() => {
-                if !has_valid_comment(&call) {
-                    // Table without comment — only report table-level offense
+                // RuboCop's create_table? pattern: (send nil? :create_table _table _?)
+                // Only matches 1-2 argument children in the parser gem AST.
+                // The table-level offense is only emitted when this pattern matches.
+                let argc = parser_arg_count(&call);
+                let matches_pattern = (1..=2).contains(&argc);
+
+                if matches_pattern && !has_valid_comment(&call) {
+                    // Table without comment — report table-level offense
                     let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     diagnostics.push(self.diagnostic(source, line, column, TABLE_MSG.to_string()));
-                } else {
-                    // Table has comment — check column definitions inside the block
+                } else if has_valid_comment(&call) {
+                    // Table has comment — check column definitions inside the block.
+                    // RuboCop's create_table_with_block? uses (send nil? :create_table ...)
+                    // which matches ANY arg count, so column checks always apply.
                     if let Some(block) = call.block() {
                         if let Some(block_node) = block.as_block_node() {
                             if let Some(body) = block_node.body() {

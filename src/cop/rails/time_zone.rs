@@ -126,6 +126,22 @@ use crate::parse::source::SourceFile;
 /// `helper_method`), which was not safe, and the chain after `helper_method(...)` was `)`
 /// (not `.utc`). Fix: made `enclosing_call_is_safe()` recursive (up to 3 levels) so it
 /// checks the next enclosing `(` (from `Time.parse`), whose chain after `)` is `.utc`.
+///
+/// ## Investigation (2026-03-19): FN=16
+///
+/// Two fixes:
+///
+/// **1. Grouping parens with space (12 FN):** `schedule (Time.now - 60).to_f` — backward
+/// scan found `schedule` before `(`, but the space between `schedule` and `(` means the
+/// `(` is a subexpression grouping paren. The `.to_f` after `)` chains on the grouped
+/// expression, not the `schedule` call. Fix: detect space/tab in the gap between method
+/// name and `(`; when present, skip the chain-after-closing-paren check.
+///
+/// **2. Safe navigation `&.` chain break (2+ FN):** `Time.at(val)&.utc` — in RuboCop,
+/// `csend` (safe navigation) is not `send_type?`, so `extract_method_chain` stops at
+/// `&.utc`. The chain is just `[:at]` — `utc` is never reached. Fix: removed `&.` handling
+/// from `chain_contains_tz_safe_method`; only regular `.` continues the chain. Since
+/// whitespace is skipped first, `&.utc` lands on `&` (not `.`) and correctly breaks.
 pub struct TimeZone;
 
 impl Cop for TimeZone {
@@ -477,6 +493,7 @@ fn enclosing_call_is_safe_recursive(bytes: &[u8], start: usize, max_depth: u8) -
     //    keywords followed by `(` create grouping parens, not method calls.
     let gap = &bytes[end_of_method + 1..paren_pos];
     let has_newline = gap.contains(&b'\n');
+    let has_space = gap.iter().any(|&b| b == b' ' || b == b'\t');
     let is_keyword = matches!(
         method_name,
         b"return"
@@ -493,6 +510,11 @@ fn enclosing_call_is_safe_recursive(bytes: &[u8], start: usize, max_depth: u8) -
             | b"yield"
     );
     let is_grouping_paren = method_start > end_of_method || has_newline || is_keyword;
+    // When there's a space between the method name and `(`, the `(` starts a
+    // grouped subexpression within the argument list: `schedule (Time.now - 60).to_f`.
+    // Any chain after `)` (like `.to_f`) is on the grouped expression, NOT on the
+    // enclosing call. We must not check chain_contains_tz_safe_method after `)`.
+    let is_spaced_paren = has_space && !is_grouping_paren;
 
     if !is_grouping_paren {
         if SAFE_METHODS.contains(&method_name) {
@@ -504,10 +526,16 @@ fn enclosing_call_is_safe_recursive(bytes: &[u8], start: usize, max_depth: u8) -
         // E.g., `Time.to_mongo(Time.local(...)).zone` — `to_mongo` is not safe,
         // but `.zone` after `Time.to_mongo(...)` IS safe.
         // Find the closing `)` that matches the `(` at paren_pos, then scan forward.
-        let closing_paren = find_matching_close_paren(bytes, paren_pos);
-        if let Some(close_pos) = closing_paren {
-            if chain_contains_tz_safe_method(bytes, close_pos + 1) {
-                return true;
+        //
+        // Skip this check when there's a space between method name and `(`:
+        // `schedule (Time.now - 60).to_f` — `.to_f` chains on the grouped
+        // expression `(Time.now - 60)`, not on the `schedule` call.
+        if !is_spaced_paren {
+            let closing_paren = find_matching_close_paren(bytes, paren_pos);
+            if let Some(close_pos) = closing_paren {
+                if chain_contains_tz_safe_method(bytes, close_pos + 1) {
+                    return true;
+                }
             }
         }
     }
@@ -620,15 +648,12 @@ fn chain_contains_tz_safe_method(bytes: &[u8], start: usize) -> bool {
             pos += 1;
         }
 
-        // Must see '.' or '&.' to continue the chain
-        if pos >= bytes.len() || (bytes[pos] != b'.' && bytes[pos] != b'&') {
+        // Must see '.' to continue the chain. In RuboCop, `csend` (safe navigation
+        // `&.`) is not `send_type?`, so `extract_method_chain` stops at `&.`. We match
+        // this by only following regular `.` chains. Since whitespace is skipped above,
+        // `&.utc` lands on `&` (not `.`) and correctly returns false here.
+        if pos >= bytes.len() || bytes[pos] != b'.' {
             return false;
-        }
-        if bytes[pos] == b'&' {
-            pos += 1;
-            if pos >= bytes.len() || bytes[pos] != b'.' {
-                return false;
-            }
         }
         pos += 1; // skip the '.'
 
