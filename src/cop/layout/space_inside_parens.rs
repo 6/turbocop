@@ -496,6 +496,7 @@ fn check_missing_open_space(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_missing_close_space(
     cop: &SpaceInsideParens,
     source: &SourceFile,
