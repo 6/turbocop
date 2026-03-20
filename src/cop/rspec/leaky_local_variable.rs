@@ -193,6 +193,28 @@ use crate::parse::source::SourceFile;
 ///   reassigned inside `platform_is :windows do ... end` blocks need
 ///   VariableForce-style branching analysis.
 /// - 286 FNs from VariableForce scope tracking gaps.
+///
+/// ## Investigation (FP=41, FN=1059, 2026-03-20)
+///
+/// **FN fix: iterator block assignments (major FN source)**
+/// `var_value_reaches_example_scope_in_stmts` walked top-level statements
+/// linearly and, upon finding the statement containing the assignment offset,
+/// `continue`d to the next sibling. When the assignment was inside a non-RSpec
+/// block (e.g., `.each do |v| val = v; context ... do it ... end end`), both
+/// the assignment and the example scopes were inside the same statement — so
+/// skipping to the next sibling missed all references. Fix: fall through to
+/// `stmt_example_scope_var_interaction` on the containing statement instead
+/// of `continue`-ing past it. This addresses the dominant FN pattern (puppet,
+/// datadog, sensu repos using `.each` for parameterized specs).
+///
+/// **Remaining gaps:**
+/// - FP=~41: rswag DSL, platform_is conditional reassignment, file-level
+///   variables reassigned conditionally in hooks. All require VariableForce-
+///   level flow analysis.
+/// - FN: VariableForce's comprehensive scope tracking across all Ruby scope
+///   boundaries. Our AST-walking heuristics handle common patterns but can't
+///   replicate VariableForce's full dataflow analysis. A complete fix would
+///   require implementing VariableForce in Rust.
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
