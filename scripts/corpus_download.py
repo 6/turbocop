@@ -117,7 +117,7 @@ def _try_gh(repo: str | None, prefer: str = "extended") -> tuple[Path, int, str]
     # is standard but there's a newer extended run, or vice versa)
     result = subprocess.run(
         ["gh", "run", "list", *repo_args, "--workflow=corpus-oracle.yml",
-         "--status=success", "--limit=5", "--json=databaseId,headSha"],
+         "--status=success", "--limit=100", "--json=databaseId,headSha"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -258,7 +258,7 @@ def _try_curl_api(repo: str | None, prefer: str = "extended") -> tuple[Path, int
     # List recent successful runs
     try:
         data = _github_api_get(
-            f"{api_base}/actions/workflows/corpus-oracle.yml/runs?status=success&per_page=5"
+            f"{api_base}/actions/workflows/corpus-oracle.yml/runs?status=success&per_page=100"
         )
     except (HTTPError, URLError) as e:
         print(f"GitHub API error listing runs: {e}", file=sys.stderr)
@@ -301,10 +301,12 @@ def _try_curl_api(repo: str | None, prefer: str = "extended") -> tuple[Path, int
         # Build name -> id map
         artifact_map = {a["name"]: a["id"] for a in artifacts_data.get("artifacts", [])}
 
-        # Try extended first, then standard
+        # Try preferred variant first; skip to next run if it's missing
         for variant in artifact_names:
             artifact_id = artifact_map.get(variant)
             if not artifact_id:
+                if variant == preferred:
+                    break  # Preferred not available in this run — try next run
                 continue
 
             label = "extended" if "extended" in variant else "standard"
