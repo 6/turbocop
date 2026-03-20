@@ -32,8 +32,10 @@ impl Cop for RequireOrder {
             offset += line.len() + 1; // +1 for the newline
         }
 
-        // Groups are separated by blank lines or non-require lines.
+        // Groups are separated by blank lines or non-require/non-comment lines.
         // `require` and `require_relative` are separate groups even if adjacent.
+        // Comment lines are transparent — they don't break groups (matching RuboCop's
+        // AST-based approach where comments aren't sibling nodes).
         let mut groups: Vec<Vec<(usize, String, &str)>> = Vec::new(); // (line, path, kind)
         let mut current_group: Vec<(usize, String, &str)> = Vec::new();
         let mut current_kind: &str = "";
@@ -62,6 +64,8 @@ impl Cop for RequireOrder {
                 }
                 current_kind = kind;
                 current_group.push((i + 1, path, kind));
+            } else if is_comment_line(trimmed) {
+                // Comment lines are transparent — don't break groups
             } else {
                 if current_group.len() > 1 {
                     groups.push(std::mem::take(&mut current_group));
@@ -116,7 +120,16 @@ fn extract_require_path_and_kind(line: &str) -> Option<(String, &'static str)> {
     // Find the closing quote
     let end_pos = rest[1..].find(*quote as char).map(|p| p + 1)?;
     let inner = &rest[1..end_pos];
+    // Skip strings with interpolation — RuboCop only checks str_type? (not dstr)
+    if inner.contains("#{") {
+        return None;
+    }
     Some((inner.to_string(), kind))
+}
+
+/// Returns true if the line is a comment (starts with `#`).
+fn is_comment_line(trimmed: &str) -> bool {
+    trimmed.starts_with('#')
 }
 
 #[cfg(test)]

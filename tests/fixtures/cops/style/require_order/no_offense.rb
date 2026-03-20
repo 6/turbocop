@@ -16,3 +16,12 @@ require 'c'
 require 'a'
 require 'b'
 require 'c' if foo
+
+require "#{base_dir}/foo"
+require "#{base_dir}/bar"
+
+require "#{Dir.pwd}/support/a"
+require "#{Dir.pwd}/support/b"
+
+require "test/#{helper}"
+require "app/#{model}"

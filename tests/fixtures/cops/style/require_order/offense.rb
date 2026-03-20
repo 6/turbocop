@@ -29,3 +29,19 @@ require 'a' if foo
 ^ Style/RequireOrder: Sort `require` in alphabetical order.
 require 'b'
 ^ Style/RequireOrder: Sort `require` in alphabetical order.
+
+require 'b'
+# comment
+require 'a'
+^ Style/RequireOrder: Sort `require` in alphabetical order.
+
+require 'b'
+# require 'z'
+require 'a'
+^ Style/RequireOrder: Sort `require` in alphabetical order.
+
+require 'b'
+# multiple
+# comments
+require 'a'
+^ Style/RequireOrder: Sort `require` in alphabetical order.
