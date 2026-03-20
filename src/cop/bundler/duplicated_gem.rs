@@ -11,6 +11,14 @@ pub struct DuplicatedGem;
 
 /// ## Corpus investigation (2026-03-20)
 ///
+/// ### Round 8 — Extended corpus FP=0, FN=1
+///
+/// **FN=1**: `gem 'rom' do...end` in if branch (rom-rb/rom-rails). In Parser gem,
+/// `gem 'x' do...end` is `(block (send ...) ...)` — the send node's first non-begin
+/// ancestor is `:block`, not `:if`. So `conditional_declaration?` returns false and
+/// all duplicates are flagged. Fixed by incrementing `blocks_above_conditional` when
+/// the CallNode has a block child (`node.block().is_some()`).
+///
 /// ### Round 7 — Standard corpus FP=30
 ///
 /// **FP=30**: All 30 FPs from gems in multi-branch if/elsif/else conditionals
@@ -509,7 +517,15 @@ impl<'pr> Visit<'pr> for GemDeclarationVisitor<'_> {
         if let Some(gem_name) = gem_name_from_call(node) {
             let loc = node.message_loc().unwrap_or(node.location());
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-            let (conditional_root, blocks_above_conditional) = self.conditional_info();
+            let (conditional_root, mut blocks_above_conditional) = self.conditional_info();
+            // In Parser gem, `gem 'x' do...end` is `(block (send ...) ...)` — the
+            // send is inside a block node. So the first non-begin ancestor of the
+            // send is `:block`, not `:if`. This means `conditional_declaration?`
+            // returns false. Reflect this by incrementing blocks_above_conditional
+            // when the call has a block attached.
+            if node.block().is_some() {
+                blocks_above_conditional += 1;
+            }
             let call_loc = node.location();
             let call_source =
                 self.source.as_bytes()[call_loc.start_offset()..call_loc.end_offset()].to_vec();

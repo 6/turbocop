@@ -108,6 +108,18 @@ else
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Bundler/DuplicatedGem: Gem `myrails` requirements already given on line 89 of the Gemfile.
 end
 
+# Gem with do...end block in if/else — the block makes the first gem's
+# non-begin ancestor :block (not :if) in Parser gem, so conditional_declaration?
+# returns false and all duplicates are flagged unconditionally.
+if ENV['ROM_SOURCE']
+  gem 'datamapper', github: 'rom-rb/rom', branch: 'master' do
+    gem 'datamapper-core'
+  end
+else
+  gem "datamapper"
+  ^^^^^^^^^^^^^^^^ Bundler/DuplicatedGem: Gem `datamapper` requirements already given on line 99 of the Gemfile.
+end
+
 # Modifier-if gem in if/elsif/else — modifier if is the root conditional,
 # other gem has different structure, not exempted
 if RUBY_VERSION =~ /^1\.?9/
@@ -117,4 +129,4 @@ elsif RUBY_VERSION =~ /^1\.?8/
   gem 'json_pure', '< 2.0.0'
 else
   gem 'code-check'
-  ^^^^^^^^^^^^^^^^^ Bundler/DuplicatedGem: Gem `code-check` requirements already given on line 99 of the Gemfile.
+  ^^^^^^^^^^^^^^^^^ Bundler/DuplicatedGem: Gem `code-check` requirements already given on line 110 of the Gemfile.
