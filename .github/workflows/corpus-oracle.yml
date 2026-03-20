@@ -394,9 +394,143 @@ jobs:
           path: bench/synthetic/synthetic-results.json
           retention-days: 7
 
+  # ── Stress-test: flipped EnforcedStyles on 200 repos ──────────
+  run-stress-test:
+    needs: [build-nitrocop]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Download nitrocop binary
+        uses: actions/download-artifact@v4
+        with:
+          name: nitrocop-binary
+          path: bin/
+
+      - name: Make binary executable
+        run: chmod +x bin/nitrocop
+
+      - uses: ruby/setup-ruby@v1
+
+      - name: Cache baseline bundle
+        uses: actions/cache@v4
+        with:
+          path: bench/corpus/vendor/bundle
+          key: corpus-bundle-${{ hashFiles('bench/corpus/Gemfile') }}
+
+      - name: Install baseline gems
+        run: |
+          cd bench/corpus
+          bundle config set --local path vendor/bundle
+          bundle install --jobs 4 --retry 3
+
+      - name: Export nitrocop cop list
+        run: bin/nitrocop --list-cops > nitrocop-cops.txt
+
+      - name: Select 200 repos for stress test
+        run: |
+          python3 << 'PYEOF'
+          import json, hashlib
+
+          repos = []
+          with open('bench/corpus/manifest.jsonl') as f:
+              for line in f:
+                  line = line.strip()
+                  if line:
+                      repos.append(json.loads(line))
+
+          # Deterministic selection: pick every Nth repo to get ~200 spread
+          # across the manifest (which is sorted by stars). This ensures we
+          # test a diverse mix of large and small repos.
+          step = max(1, len(repos) // 200)
+          selected = repos[::step][:200]
+
+          with open('stress_repos.json', 'w') as f:
+              json.dump(selected, f)
+          print(f'Selected {len(selected)} repos from {len(repos)} total for stress test')
+          PYEOF
+
+      - name: Run stress test with flipped styles
+        run: |
+          mkdir -p results/stress-nitrocop results/stress-rubocop
+
+          jq -c '.[]' stress_repos.json | while IFS= read -r row; do
+            REPO_ID=$(echo "$row" | jq -r '.id')
+            REPO_URL=$(echo "$row" | jq -r '.repo_url')
+            REPO_SHA=$(echo "$row" | jq -r '.sha')
+
+            # Clone
+            DEST="repos/${REPO_ID}"
+            git init "$DEST" --quiet || { echo "Skip ${REPO_ID}"; continue; }
+            git -C "$DEST" fetch --depth 1 "$REPO_URL" "$REPO_SHA" --quiet 2>/dev/null \
+              || git -C "$DEST" fetch --depth 1 "$REPO_URL" --quiet \
+              || { rm -rf "$DEST"; continue; }
+            git -C "$DEST" checkout FETCH_HEAD --quiet 2>/dev/null || true
+
+            REPO_TIMEOUT=300  # 5 min per tool
+
+            # nitrocop with flipped styles
+            rc=0
+            timeout "${REPO_TIMEOUT}" \
+            env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
+                BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
+            bin/nitrocop \
+              --preview \
+              --format json \
+              --no-cache \
+              --config bench/corpus/flipped_styles.yml \
+              "$DEST" \
+              > "results/stress-nitrocop/${REPO_ID}.json" 2>/dev/null || rc=$?
+
+            # rubocop with flipped styles
+            rc=0
+            timeout "${REPO_TIMEOUT}" \
+            env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
+                BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
+            bundle exec rubocop \
+              --config bench/corpus/flipped_styles.yml \
+              --format json \
+              --force-exclusion \
+              --cache false \
+              "$DEST" \
+              > "results/stress-rubocop/${REPO_ID}.json" 2>/dev/null || rc=$?
+
+            rm -rf "$DEST"
+          done
+
+      - name: Diff stress results
+        run: |
+          python3 bench/corpus/diff_results.py \
+            --nitrocop-dir results/stress-nitrocop \
+            --rubocop-dir results/stress-rubocop \
+            --manifest bench/corpus/manifest.jsonl \
+            --cop-list nitrocop-cops.txt \
+            --output-json stress-results.json \
+            --output-md stress-results.md \
+            2>/dev/null || true
+
+      - name: Print stress summary
+        run: |
+          if [ -f stress-results.md ]; then
+            echo "## Stress Test (Flipped EnforcedStyles)" >> "$GITHUB_STEP_SUMMARY"
+            head -c 64000 stress-results.md >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+
+      - name: Upload stress results
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-results
+          path: |
+            stress-results.json
+            stress-results.md
+          retention-days: 30
+
   # ── Collect and diff all results ───────────────────────────────
   collect-results:
-    needs: [oracle-repo, run-synthetic]
+    needs: [oracle-repo, run-synthetic, run-stress-test]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ github.event.inputs.corpus_size == 'extended' && 20 || 10 }}
