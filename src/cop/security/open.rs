@@ -11,6 +11,16 @@ use crate::parse::source::SourceFile;
 /// FN=3 were from lines with `# standard:disable Security/Open` comments. Fixed by
 /// parsing only `rubocop:`/`nitrocop:` directives in `parse/directives.rs`, matching
 /// RuboCop's source-directive behavior.
+///
+/// ## Corpus investigation (2026-03-20) — extended corpus
+///
+/// Extended corpus oracle reported FP=0, FN=1.
+///
+/// FN=1: Fixed by also flagging `open(&block)` calls where only a block argument
+/// (no positional args) is passed. In Prism, `&block` is a BlockArgumentNode in the
+/// block position, not in arguments(). RuboCop's NodePattern `...` matches block_pass
+/// nodes, so it flags these. Fixed by checking call.block() for BlockArgumentNode when
+/// arguments() is None.
 pub struct Open;
 
 /// Check if the argument is a "safe" string literal.
@@ -100,19 +110,28 @@ impl Cop for Open {
             }
         };
 
-        // Must have arguments; open() with no args is not a security risk
-        let args = match call.arguments() {
-            Some(a) => a,
-            None => return,
-        };
-        let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.is_empty() {
-            return;
-        }
+        // Must have arguments or a block argument; open() with no args is not a security risk.
+        // In Prism, `open(&block)` has arguments=None but block=BlockArgumentNode.
+        let has_block_arg = call
+            .block()
+            .is_some_and(|b| b.as_block_argument_node().is_some());
 
-        // Check if the first argument is a safe literal string
-        if is_safe_arg(&arg_list[0]) {
-            return;
+        match call.arguments() {
+            Some(args) => {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                if arg_list.is_empty() && !has_block_arg {
+                    return;
+                }
+                // Check if the first positional argument is a safe literal string
+                if !arg_list.is_empty() && is_safe_arg(&arg_list[0]) {
+                    return;
+                }
+            }
+            None => {
+                if !has_block_arg {
+                    return;
+                }
+            }
         }
 
         let msg = if let Some(receiver_name) = receiver_name {

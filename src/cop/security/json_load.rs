@@ -3,6 +3,16 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-20) — extended corpus
+///
+/// Extended corpus oracle reported FP=2, FN=1.
+///
+/// FP=2: Fixed by skipping `JSON.load` calls that include a `create_additions`
+/// keyword argument (in any position — direct kwarg, hash arg, or after proc arg).
+/// When `create_additions` is explicit, the call is safe regardless of its value.
+///
+/// FN=1: Fixed by also detecting `JSON.restore` (alias for `JSON.load`).
+/// Message uses "JSON.restore" instead of "JSON.load" to match RuboCop.
 pub struct JsonLoad;
 
 impl Cop for JsonLoad {
@@ -32,7 +42,8 @@ impl Cop for JsonLoad {
             None => return,
         };
 
-        if call.name().as_slice() != b"load" {
+        let method_name = call.name().as_slice();
+        if method_name != b"load" && method_name != b"restore" {
             return;
         }
 
@@ -46,15 +57,54 @@ impl Cop for JsonLoad {
             return;
         }
 
+        // Skip if any argument contains a `create_additions` keyword
+        if has_create_additions_kwarg(&call) {
+            return;
+        }
+
+        let method_str = std::str::from_utf8(method_name).unwrap_or("load");
         let msg_loc = call.message_loc().unwrap();
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
             line,
             column,
-            "Prefer `JSON.parse` over `JSON.load`.".to_string(),
+            format!("Prefer `JSON.parse` over `JSON.{method_str}`."),
         ));
     }
+}
+
+/// Check if a hash-like node (KeywordHashNode or HashNode) contains `create_additions` key.
+fn hash_has_create_additions(node: &ruby_prism::Node<'_>) -> bool {
+    let elements = if let Some(kh) = node.as_keyword_hash_node() {
+        kh.elements()
+    } else if let Some(h) = node.as_hash_node() {
+        h.elements()
+    } else {
+        return false;
+    };
+    for elem in elements.iter() {
+        if let Some(assoc) = elem.as_assoc_node() {
+            if let Some(sym) = assoc.key().as_symbol_node() {
+                if sym.unescaped() == b"create_additions" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if any argument to JSON.load/restore contains a `create_additions` keyword.
+fn has_create_additions_kwarg(call: &ruby_prism::CallNode<'_>) -> bool {
+    if let Some(args) = call.arguments() {
+        for arg in args.arguments().iter() {
+            if hash_has_create_additions(&arg) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn is_constant_named(_source: &SourceFile, node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {

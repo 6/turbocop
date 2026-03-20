@@ -34,3 +34,17 @@ end
 def hash
   [1, 2, 3].hash
 end
+
+# def hash with parameters — this is a custom method, not Object#hash
+def self.hash(uin, ptwebqq)
+  n = Array.new(4, 0)
+  v = uin >> 24 & 255 ^ uin
+  v + 1
+end
+
+# Another method named hash with args — not Object#hash
+def hash(data)
+  buffer = prefix
+  buffer += data
+  buffer
+end

@@ -16,6 +16,27 @@ use crate::parse::source::SourceFile;
 /// After fix: FP=0, FN=2. The 2 remaining FN are within corpus file-drop noise (7
 /// repos with RuboCop parser crashes produce noise offenses). No further cop logic
 /// changes needed.
+///
+/// ## Corpus investigation (2026-03-20) — extended corpus
+///
+/// Extended corpus oracle reported FP=10, FN=4.
+///
+/// FP=8: Fixed by requiring `def hash` to have NO parameters before running
+/// combinator finder. Methods like `def self.hash(uin, ptwebqq)` are custom
+/// methods, not Object#hash overrides. Commit: this session.
+///
+/// FP=2: Fixed by skipping MONUPLE check when `[x].hash` is followed by a
+/// combinator operator in source text (e.g., `[x].hash ^ BIG_VALUE` inside
+/// `def hash` — only COMBINATOR should fire, not both).
+///
+/// FN=2: Fixed by allowing bare `hash` calls (no receiver) in REDUNDANT check.
+/// Pattern: `[a, hash, b].hash` where `hash` is `self.hash`.
+///
+/// FN=1: Fixed by adding `IndexOperatorWriteNode` handling to combinator finder
+/// for patterns like `h[:key] ^= value` inside `def hash`.
+///
+/// FN=1: workarea `results[id] += value` — insufficient context to determine if
+/// inside `def hash`. May be a corpus artifact or deeper nesting issue.
 pub struct CompoundHash;
 
 const COMBINATOR_MSG: &str = "Use `[...].hash` instead of combining hash values manually.";
@@ -107,6 +128,17 @@ fn find_outermost_combinators<'pr>(
             ruby_prism::visit_global_variable_operator_write_node(self, node);
         }
 
+        fn visit_index_operator_write_node(
+            &mut self,
+            node: &ruby_prism::IndexOperatorWriteNode<'pr>,
+        ) {
+            if self.is_combinator_op_at(&node.binary_operator_loc()) {
+                self.results.push(node.location());
+                return;
+            }
+            ruby_prism::visit_index_operator_write_node(self, node);
+        }
+
         // Do not recurse into nested def nodes — they define a separate scope
         fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
     }
@@ -140,8 +172,10 @@ impl Cop for CompoundHash {
         // === COMBINATOR pattern: detect operators inside def hash ===
 
         // Handle `def hash` and `def object.hash` (DefNode)
+        // Only flag methods named `hash` with NO parameters (Object#hash override).
+        // Methods like `def hash(data)` are custom methods, not hash overrides.
         if let Some(def_node) = node.as_def_node() {
-            if def_node.name().as_slice() == b"hash" {
+            if def_node.name().as_slice() == b"hash" && def_node.parameters().is_none() {
                 if let Some(body) = def_node.body() {
                     let mut combinator_locs = Vec::new();
                     find_outermost_combinators(&body, source, &mut combinator_locs);
@@ -228,20 +262,28 @@ impl Cop for CompoundHash {
         let elements: Vec<ruby_prism::Node<'_>> = array_node.elements().iter().collect();
 
         // Monuple: [single_value].hash
+        // Skip if the .hash result is used as a combinator operand (e.g., [x].hash ^ y),
+        // because the COMBINATOR pattern already covers it inside def hash.
         if elements.len() == 1 {
-            let msg_loc = call.message_loc().unwrap();
-            let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, MONUPLE_MSG.to_string()));
+            let end_offset = call.location().end_offset();
+            let rest = &source.as_bytes()[end_offset..];
+            let trimmed = rest.iter().skip_while(|b| b.is_ascii_whitespace()).copied();
+            let next_char = trimmed.clone().next();
+            let is_combinator_follow =
+                matches!(next_char, Some(b'^') | Some(b'+') | Some(b'*') | Some(b'|'));
+            if !is_combinator_follow {
+                let msg_loc = call.message_loc().unwrap();
+                let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
+                diagnostics.push(self.diagnostic(source, line, column, MONUPLE_MSG.to_string()));
+            }
         }
 
         // Redundant: flag EACH element that calls .hash (ANY, not ALL)
+        // Includes both `foo.hash` (with receiver) and bare `hash` (self.hash, no receiver).
         if elements.len() >= 2 {
             for elem in &elements {
                 if let Some(c) = elem.as_call_node() {
-                    if c.name().as_slice() == b"hash"
-                        && c.arguments().is_none()
-                        && c.receiver().is_some()
-                    {
+                    if c.name().as_slice() == b"hash" && c.arguments().is_none() {
                         let loc = c.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
                         diagnostics.push(self.diagnostic(
