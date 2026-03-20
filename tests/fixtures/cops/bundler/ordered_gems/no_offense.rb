@@ -38,3 +38,7 @@ group :development do
   if !ENV['RACK_SRC']; gem 'jruby-rack' else gem 'jruby-rack', path: '../../target' end
   if !ENV['WARBLER_SRC']; gem 'warbler' else gem 'warbler', path: '../../warbler' end
 end
+
+# gem names inside regex literals should not be treated as gem calls
+gsub_file 'Gemfile', /gem 'sqlite3'\n/, '' unless prefer :database, 'sqlite'
+gsub_file 'Gemfile', /gem 'pg'.*/, ''

@@ -8,6 +8,16 @@ use crate::parse::source::SourceFile;
 /// - 8 FN from inline conditional gem calls (e.g., `if cond; gem 'x' else gem 'y', path: 'z' end`).
 ///   Fixed by scanning for `gem 'name'` patterns anywhere on the line (not just at start),
 ///   with comment stripping and word-boundary checks.
+///
+/// ## Corpus investigation (2026-03-20)
+///
+/// Corpus oracle reported FP=1, FN=0.
+///
+/// FP=1: `gsub_file 'Gemfile', /gem 'pg'.*/, ''` — the regex literal `/gem 'pg'.*/`
+/// contained `gem 'pg'` preceded by `/`, which passed the word boundary check.
+/// Fixed by adding `b'/'` to the boundary exclusion set in `extract_literal_gem_name`.
+/// In Gemfiles, `gem` method calls are never preceded by `/`; this only occurs in
+/// regex literals or path strings.
 pub struct OrderedGems;
 
 impl Cop for OrderedGems {
@@ -145,7 +155,7 @@ fn extract_literal_gem_name(line: &str) -> Option<&str> {
             // Check word boundary before "gem": must be start of string or non-alphanumeric
             if abs_pos > 0 {
                 let prev = bytes[abs_pos - 1];
-                if prev.is_ascii_alphanumeric() || prev == b'_' {
+                if prev.is_ascii_alphanumeric() || prev == b'_' || prev == b'/' {
                     i = abs_pos + 3;
                     continue;
                 }
