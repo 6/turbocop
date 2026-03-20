@@ -4,6 +4,42 @@ use crate::parse::source::SourceFile;
 
 pub struct RubyVersionGlobalsUsage;
 
+/// Returns true if position `pos` is inside a string literal but NOT inside a `#{}` interpolation.
+fn is_inside_string(line: &str, pos: usize) -> bool {
+    let bytes = line.as_bytes();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut interp_depth = 0;
+    let mut i = 0;
+    while i < pos && i < bytes.len() {
+        if in_double && interp_depth > 0 {
+            match bytes[i] {
+                b'{' => interp_depth += 1,
+                b'}' => interp_depth -= 1,
+                _ => {}
+            }
+            i += 1;
+            continue;
+        }
+        match bytes[i] {
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'\\' if in_single || in_double => {
+                i += 1; // skip escaped character
+            }
+            b'#' if in_double && i + 1 < bytes.len() && bytes[i + 1] == b'{' => {
+                interp_depth = 1;
+                i += 2;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    // Inside a string but not inside an interpolation block
+    in_single || (in_double && interp_depth == 0)
+}
+
 impl Cop for RubyVersionGlobalsUsage {
     fn name(&self) -> &'static str {
         "Gemspec/RubyVersionGlobalsUsage"
@@ -41,7 +77,9 @@ impl Cop for RubyVersionGlobalsUsage {
                 let after_ok = after_pos >= line_str.len()
                     || !line_str.as_bytes()[after_pos].is_ascii_alphanumeric()
                         && line_str.as_bytes()[after_pos] != b'_';
-                if before_ok && after_ok {
+                // Skip if RUBY_VERSION is inside a string literal
+                let in_string = is_inside_string(line_str, abs_pos);
+                if before_ok && after_ok && !in_string {
                     diagnostics.push(self.diagnostic(
                         source,
                         line_idx + 1,
