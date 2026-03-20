@@ -260,3 +260,10 @@ end
 content, content_type = Formatter.create do |r|
   r.attach name: :data
 end
+
+# MODIFY method in operator-write assignment (+=, &=, etc.)
+# RuboCop's return_value_assigned? checks assignable_node.parent.assignment?
+# and op_asgn is in SHORTHAND_ASSIGNMENTS, so assignment? returns true.
+success &= record.update(v: params[:v])
+packet += @cipher.update(data)
+total -= record.save

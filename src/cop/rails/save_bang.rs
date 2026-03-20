@@ -294,6 +294,23 @@ use ruby_prism::Visit;
 ///   based on source analysis; likely corpus config artifact.
 /// - taps operation.rb:510: `Taps::Multipart.create` in multi_write. Appears exempted
 ///   by Assignment context (in_local_assignment=false); likely corpus config artifact.
+///
+/// ## Corpus investigation (2026-03-20, batch 6)
+///
+/// Oracle: FP=9, FN=0.
+///
+/// **FP root cause: operator-write (+=, &=, etc.) incorrectly pushed VoidStatement (5 FP).**
+/// Examples: `success &= pref.update(v: ...)` (openstreetmap, 3 FP),
+/// `packet += @chacha_main.update(data)` (net-ssh, 1 FP),
+/// `decrypted += cipher.update(buffer)` (roo, 1 FP).
+/// RuboCop's `return_value_assigned?` checks `assignable_node(node).parent.assignment?`.
+/// `op_asgn` is in `SHORTHAND_ASSIGNMENTS` (`rubocop-ast` node.rb), so `.assignment?`
+/// returns true — persist calls in operator-write values ARE exempt.
+/// The previous batch 4 fix incorrectly changed operator-write from Assignment to
+/// VoidStatement based on a wrong analysis that `assignable_node` doesn't handle `op_asgn`.
+/// **Fix:** Changed all `*OperatorWriteNode` visitors back to Assignment context.
+///
+/// **Remaining (4 FP, 0 FN):** Same 4 corpus config artifacts from batch 5.
 pub struct SaveBang;
 
 /// Modify-type persistence methods whose return value indicates success/failure.
@@ -1400,8 +1417,8 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         &mut self,
         node: &ruby_prism::ConstantPathOperatorWriteNode<'pr>,
     ) {
-        // RuboCop's assignable_node doesn't handle op_asgn
-        self.context_stack.push(Context::VoidStatement);
+        // op_asgn is in SHORTHAND_ASSIGNMENTS, so assignment? returns true
+        self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
     }
@@ -1419,8 +1436,8 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
     }
 
     fn visit_index_operator_write_node(&mut self, node: &ruby_prism::IndexOperatorWriteNode<'pr>) {
-        // RuboCop's assignable_node doesn't handle op_asgn
-        self.context_stack.push(Context::VoidStatement);
+        // op_asgn is in SHORTHAND_ASSIGNMENTS, so assignment? returns true
+        self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
     }
@@ -1434,9 +1451,8 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
             self.visit(&receiver);
             self.context_stack.pop();
         }
-        // RuboCop's assignable_node doesn't handle op_asgn — persist calls in
-        // operator-write values are treated as void context, not assignment.
-        self.context_stack.push(Context::VoidStatement);
+        // op_asgn is in SHORTHAND_ASSIGNMENTS, so assignment? returns true
+        self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
     }
@@ -1461,7 +1477,10 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         &mut self,
         node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
     ) {
-        self.context_stack.push(Context::VoidStatement);
+        // RuboCop's `return_value_assigned?` checks `assignable_node(node).parent.assignment?`.
+        // `op_asgn` is in SHORTHAND_ASSIGNMENTS, so `.assignment?` returns true.
+        // Persist calls in operator-write values ARE exempt (return value captured).
+        self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
     }
@@ -1470,7 +1489,7 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         &mut self,
         node: &ruby_prism::InstanceVariableOperatorWriteNode<'pr>,
     ) {
-        self.context_stack.push(Context::VoidStatement);
+        self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
     }
@@ -1479,7 +1498,7 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         &mut self,
         node: &ruby_prism::ClassVariableOperatorWriteNode<'pr>,
     ) {
-        self.context_stack.push(Context::VoidStatement);
+        self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
     }
@@ -1488,7 +1507,7 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         &mut self,
         node: &ruby_prism::GlobalVariableOperatorWriteNode<'pr>,
     ) {
-        self.context_stack.push(Context::VoidStatement);
+        self.context_stack.push(Context::Assignment);
         self.visit(&node.value());
         self.context_stack.pop();
     }
