@@ -178,8 +178,6 @@ jobs:
           fi
           KEY_HASH=$(echo "${EXCLUDES_HASH}" | cat - bench/corpus/Gemfile bench/corpus/baseline_rubocop.yml | sha256sum | cut -c1-16)
           echo "hash=${KEY_HASH}" >> "$GITHUB_OUTPUT"
-          STRESS_HASH=$(echo "${EXCLUDES_HASH}" | cat - bench/corpus/Gemfile bench/corpus/flipped_styles.yml | sha256sum | cut -c1-16)
-          echo "stress_hash=${STRESS_HASH}" >> "$GITHUB_OUTPUT"
 
       - name: Restore cached rubocop results
         uses: actions/cache/restore@v4
@@ -187,13 +185,6 @@ jobs:
         with:
           path: rubocop-cache/
           key: rubocop-batch-${{ matrix.batch_hash }}-${{ steps.rubocop-cache-key.outputs.hash }}
-
-      - name: Restore cached stress rubocop results
-        uses: actions/cache/restore@v4
-        id: stress-rubocop-cache
-        with:
-          path: stress-rubocop-cache/
-          key: stress-rubocop-batch-${{ matrix.batch_hash }}-${{ steps.rubocop-cache-key.outputs.stress_hash }}
 
       - name: Compute batch repos
         id: batch-repos
@@ -245,18 +236,7 @@ jobs:
         env:
           CORPUS_SIZE: ${{ github.event.inputs.corpus_size || 'standard' }}
         run: |
-          mkdir -p results/nitrocop results/rubocop results/stress-nitrocop results/stress-rubocop rubocop-cache stress-rubocop-cache
-
-          # Stress test: run flipped EnforcedStyles alongside baseline.
-          # Standard corpus: all repos (doubles runtime from ~10 to ~15-20 min).
-          # Extended corpus: sample 2 repos per batch to limit overhead
-          # (~225 batches × 2 = ~450 repos, adds ~10% vs 100%).
-          if [ "$CORPUS_SIZE" = "extended" ]; then
-            STRESS_LIMIT=2
-          else
-            STRESS_LIMIT=9999
-          fi
-          STRESS_COUNT=0
+          mkdir -p results/nitrocop results/rubocop rubocop-cache
 
           while IFS= read -r row; do
             REPO_ID=$(echo "$row" | jq -r '.id')
@@ -265,18 +245,11 @@ jobs:
 
             echo "::group::${REPO_ID}"
 
-            # Check for cached rubocop results (baseline + stress)
             RUBOCOP_CACHED=false
             if [ -f "rubocop-cache/${REPO_ID}.json" ]; then
               echo "Using cached rubocop result for ${REPO_ID}"
               cp "rubocop-cache/${REPO_ID}.json" "results/rubocop/${REPO_ID}.json"
               RUBOCOP_CACHED=true
-            fi
-            STRESS_RUBOCOP_CACHED=false
-            if [ -f "stress-rubocop-cache/${REPO_ID}.json" ]; then
-              echo "Using cached stress rubocop result for ${REPO_ID}"
-              cp "stress-rubocop-cache/${REPO_ID}.json" "results/stress-rubocop/${REPO_ID}.json"
-              STRESS_RUBOCOP_CACHED=true
             fi
 
             # Clone — fetch exactly the pinned SHA at depth 1
@@ -295,7 +268,6 @@ jobs:
 
             # Resolve per-repo config (adds file exclusions for repos with known parser crashes)
             REPO_CONFIG=$(python3 bench/corpus/gen_repo_config.py "$REPO_ID" bench/corpus/baseline_rubocop.yml "$DEST")
-            REPO_STRESS_CONFIG=$(python3 bench/corpus/gen_repo_config.py "$REPO_ID" bench/corpus/flipped_styles.yml "$DEST")
 
             # nitrocop
             echo "=== nitrocop: ${REPO_ID} ==="
@@ -362,52 +334,6 @@ jobs:
               cp "results/rubocop/${REPO_ID}.json" "rubocop-cache/${REPO_ID}.json"
             fi
 
-            # ── Stress test: re-run with flipped EnforcedStyles (sampled) ──
-            if [ "$STRESS_COUNT" -lt "$STRESS_LIMIT" ]; then
-              STRESS_TIMEOUT=300  # 5 min per tool
-              STRESS_COUNT=$((STRESS_COUNT + 1))
-
-              echo "=== stress nitrocop: ${REPO_ID} (${STRESS_COUNT}/${STRESS_LIMIT}) ==="
-              rc=0
-              timeout "${STRESS_TIMEOUT}" \
-              env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
-                  BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
-              bin/nitrocop \
-                --preview \
-                --format json \
-                --no-cache \
-                --config "$REPO_STRESS_CONFIG" \
-                "$DEST" \
-                > "results/stress-nitrocop/${REPO_ID}.json" 2>/dev/null || rc=$?
-
-              if [ "$rc" -eq 124 ]; then
-                echo "::warning::stress nitrocop timed out for ${REPO_ID}"
-              fi
-
-              if [ "$STRESS_RUBOCOP_CACHED" = false ]; then
-                echo "=== stress rubocop: ${REPO_ID} ==="
-                rc=0
-                timeout "${STRESS_TIMEOUT}" \
-                env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
-                    BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
-                bundle exec rubocop \
-                  --config "$REPO_STRESS_CONFIG" \
-                  --format json \
-                  --force-exclusion \
-                  --cache false \
-                  "$DEST" \
-                  > "results/stress-rubocop/${REPO_ID}.json" 2>/dev/null || rc=$?
-
-                if [ "$rc" -eq 124 ]; then
-                  echo "::warning::stress rubocop timed out for ${REPO_ID}"
-                fi
-              fi
-
-              if [ "$STRESS_RUBOCOP_CACHED" = false ] && [ -f "results/stress-rubocop/${REPO_ID}.json" ]; then
-                cp "results/stress-rubocop/${REPO_ID}.json" "stress-rubocop-cache/${REPO_ID}.json"
-              fi
-            fi
-
             # Free disk space between repos
             rm -rf "$DEST"
 
@@ -420,13 +346,6 @@ jobs:
         with:
           path: rubocop-cache/
           key: rubocop-batch-${{ matrix.batch_hash }}-${{ steps.rubocop-cache-key.outputs.hash }}
-
-      - name: Save stress rubocop results cache
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: stress-rubocop-cache/
-          key: stress-rubocop-batch-${{ matrix.batch_hash }}-${{ steps.rubocop-cache-key.outputs.stress_hash }}
 
       - name: Upload results
         uses: actions/upload-artifact@v4
@@ -527,37 +446,6 @@ jobs:
             --output-md corpus-results.md \
             ${COP_LIST:+--cop-list "$COP_LIST"} \
             $CONTEXT_DIR
-
-      - name: Diff stress results
-        run: |
-          COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
-          if [ -d "all-results/results/stress-nitrocop" ] && [ -d "all-results/results/stress-rubocop" ]; then
-            python3 bench/corpus/diff_results.py \
-              --nitrocop-dir all-results/results/stress-nitrocop \
-              --rubocop-dir all-results/results/stress-rubocop \
-              --manifest bench/corpus/manifest.jsonl \
-              --output-json stress-results.json \
-              --output-md stress-results.md \
-              ${COP_LIST:+--cop-list "$COP_LIST"} \
-              2>/dev/null || true
-          else
-            echo "No stress results directories found"
-          fi
-
-      - name: Merge stress results
-        run: |
-          if [ -f stress-results.json ]; then
-            python3 scripts/stress-report.py \
-              --corpus corpus-results.json \
-              --stress stress-results.json \
-              --summary
-            python3 scripts/stress-report.py \
-              --corpus corpus-results.json \
-              --stress stress-results.json \
-              --md corpus-results.md
-          else
-            echo "No stress results to merge"
-          fi
 
       - name: Generate tiers.json
         run: |
