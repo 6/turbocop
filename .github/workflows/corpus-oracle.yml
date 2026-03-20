@@ -168,10 +168,17 @@ jobs:
         id: rubocop-cache-key
         run: |
           # Rubocop results are deterministic for a given (repo SHA, rubocop version, config).
-          # Cache key = hash of Gemfile + config. Per-batch key since each runner processes different repos.
-          KEY_HASH=$(cat bench/corpus/Gemfile bench/corpus/baseline_rubocop.yml | sha256sum | cut -c1-16)
+          # Cache key = hash of Gemfile + config + per-repo excludes. Including repo_excludes.json
+          # ensures the cache is invalidated when per-repo file exclusions change (gen_repo_config.py
+          # generates overlay configs from this file, changing effective rubocop config for those repos).
+          EXCLUDES_FILE="bench/corpus/repo_excludes.json"
+          EXCLUDES_HASH=""
+          if [ -f "$EXCLUDES_FILE" ]; then
+            EXCLUDES_HASH=$(sha256sum "$EXCLUDES_FILE" | cut -c1-16)
+          fi
+          KEY_HASH=$(echo "${EXCLUDES_HASH}" | cat - bench/corpus/Gemfile bench/corpus/baseline_rubocop.yml | sha256sum | cut -c1-16)
           echo "hash=${KEY_HASH}" >> "$GITHUB_OUTPUT"
-          STRESS_HASH=$(cat bench/corpus/Gemfile bench/corpus/flipped_styles.yml | sha256sum | cut -c1-16)
+          STRESS_HASH=$(echo "${EXCLUDES_HASH}" | cat - bench/corpus/Gemfile bench/corpus/flipped_styles.yml | sha256sum | cut -c1-16)
           echo "stress_hash=${STRESS_HASH}" >> "$GITHUB_OUTPUT"
 
       - name: Restore cached rubocop results

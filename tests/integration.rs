@@ -2002,12 +2002,12 @@ fn inherit_from_merges_configs() {
         "Child should disable FrozenStringLiteralComment"
     );
 
-    // Global excludes: child's AllCops.Exclude replaces base's by default
-    // (RuboCop only merges when inherit_mode: merge: [Exclude] is specified)
+    // Global excludes: RuboCop always merges AllCops.Exclude (union).
+    // Child's AllCops.Exclude patterns are added to the base's patterns.
     let excludes = config.global_excludes();
     assert!(
-        !excludes.contains(&"vendor/**".to_string()),
-        "Base's vendor/** should be replaced by child's excludes"
+        excludes.contains(&"vendor/**".to_string()),
+        "Base's vendor/** should be preserved (AllCops.Exclude always merges)"
     );
     assert!(
         excludes.contains(&"tmp/**".to_string()),

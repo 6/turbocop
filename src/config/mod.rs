@@ -1716,23 +1716,22 @@ fn merge_layer_into(
     inherit_mode: Option<&InheritMode>,
 ) {
     // Merge global excludes (AllCops.Exclude).
-    // RuboCop replaces Exclude arrays by default; only merges when inherit_mode
-    // explicitly requests it. When inherit_mode is None (building up from inherited
-    // layers), we append to accumulate patterns from multiple ancestors.
+    // RuboCop ALWAYS merges AllCops.Exclude (union), unlike per-cop Exclude
+    // which replaces by default. The only exception is when inherit_mode
+    // explicitly sets `override: [Exclude]`.
     if !overlay.global_excludes.is_empty() {
-        let should_merge = match inherit_mode {
-            None => true, // inherited layers: accumulate
-            Some(mode) => mode.merge.contains("Exclude"),
+        let should_replace = match inherit_mode {
+            None => false,
+            Some(mode) => mode.override_keys.contains("Exclude"),
         };
-        if should_merge {
+        if should_replace {
+            base.global_excludes.clone_from(&overlay.global_excludes);
+        } else {
             for exc in &overlay.global_excludes {
                 if !base.global_excludes.contains(exc) {
                     base.global_excludes.push(exc.clone());
                 }
             }
-        } else {
-            // Replace: overlay's excludes supersede the base
-            base.global_excludes.clone_from(&overlay.global_excludes);
         }
     }
 
@@ -3614,6 +3613,80 @@ mod tests {
         let cc = config.cop_config("Style/Foo");
         assert!(cc.exclude.contains(&"vendor/**".to_string()));
         assert!(cc.exclude.contains(&"tmp/**".to_string()));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn allcops_exclude_merges_with_inherited() {
+        // RuboCop always merges AllCops.Exclude (union), unlike per-cop Exclude.
+        // A child config's AllCops.Exclude should append to the parent's, not replace.
+        let dir = std::env::temp_dir().join("nitrocop_test_allcops_exclude_merge");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        write_yaml(
+            &dir,
+            "base.yml",
+            "AllCops:\n  Exclude:\n    - 'vendor/**/*'\n    - 'tmp/**/*'\n",
+        );
+        let path = write_yaml(
+            &dir,
+            ".rubocop.yml",
+            "inherit_from: base.yml\nAllCops:\n  Exclude:\n    - 'coverage/**/*'\n",
+        );
+
+        let config = load_config(Some(&path), None, None).unwrap();
+        let excludes = config.global_excludes();
+        assert!(
+            excludes.iter().any(|e| e == "vendor/**/*"),
+            "inherited vendor exclude missing: {excludes:?}"
+        );
+        assert!(
+            excludes.iter().any(|e| e == "tmp/**/*"),
+            "inherited tmp exclude missing: {excludes:?}"
+        );
+        assert!(
+            excludes.iter().any(|e| e == "coverage/**/*"),
+            "local coverage exclude missing: {excludes:?}"
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn allcops_exclude_override_replaces() {
+        // When inherit_mode explicitly overrides Exclude, AllCops.Exclude
+        // should replace instead of merge.
+        let dir = std::env::temp_dir().join("nitrocop_test_allcops_exclude_override");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        write_yaml(
+            &dir,
+            "base.yml",
+            "AllCops:\n  Exclude:\n    - 'vendor/**/*'\n    - 'tmp/**/*'\n",
+        );
+        let path = write_yaml(
+            &dir,
+            ".rubocop.yml",
+            "inherit_from: base.yml\ninherit_mode:\n  override:\n    - Exclude\nAllCops:\n  Exclude:\n    - 'coverage/**/*'\n",
+        );
+
+        let config = load_config(Some(&path), None, None).unwrap();
+        let excludes = config.global_excludes();
+        assert!(
+            !excludes.iter().any(|e| e == "vendor/**/*"),
+            "vendor exclude should be replaced: {excludes:?}"
+        );
+        assert!(
+            !excludes.iter().any(|e| e == "tmp/**/*"),
+            "tmp exclude should be replaced: {excludes:?}"
+        );
+        assert!(
+            excludes.iter().any(|e| e == "coverage/**/*"),
+            "local coverage exclude missing: {excludes:?}"
+        );
 
         fs::remove_dir_all(&dir).ok();
     }
