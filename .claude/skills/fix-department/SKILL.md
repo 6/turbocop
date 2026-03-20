@@ -34,6 +34,41 @@ When the corpus oracle has concrete FP/FN examples for a cop, use
 `verify-cop-locations.py` as the location-level check before treating that cop
 as done locally.
 
+## Persistence
+
+Default behavior for this skill is to keep iterating until the target is
+actually done or truly blocked. Do not stop just because a batch was committed,
+landed onto `main`, or pushed.
+
+`$fix-department --loop` makes this explicit:
+- Keep looping back to Phase 1 after each accepted cop fix, integration step,
+  or checkpoint.
+- Do not ask non-blocking clarifying questions. Make the reasonable default
+  assumption and continue.
+- Only stop for:
+  - target complete (`README.md` / `docs/corpus.md` CI-owned scorecard at 100%)
+  - a real blocker or risky ambiguity that could damage unrelated work
+  - an explicit user interrupt, redirect, or wrap-up request
+- If the user asks for an intermediate action such as commit / land / push,
+  treat that as a sub-step inside the loop, then resume the fix workflow.
+
+### Turn-Boundary Contract
+
+Codex skill activation is turn-scoped, but `/fix-department --loop` should be
+treated as a standing task across the thread.
+
+- If thread history shows an active `/fix-department --loop` run and the user
+  asks for status, commit, land, cherry-pick, rebase, push, or verification,
+  treat that request as a sub-step inside the same loop.
+- After satisfying that sub-step, resume the interrupted phase or Phase 1 in
+  the same turn unless the user explicitly paused, stopped, or redirected the
+  run.
+- Do not treat a successful commit, cherry-pick, rebase, or report as the end
+  of the loop by itself.
+- If you truly cannot resume in the same turn, say that the loop is still
+  active and tell the user to run `$fix-continue --loop` rather than silently
+  ending the workflow.
+
 **Worktree isolation depends on platform:** On macOS (local dev) and Linux devcontainers,
 use `isolation: "worktree"` for teammates. On ephemeral cloud VMs (not devcontainers), do NOT
 use worktree isolation — teammates commit directly to the current branch. Cloud VM worktrees

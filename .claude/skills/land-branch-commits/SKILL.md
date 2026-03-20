@@ -102,6 +102,13 @@ Report:
 - Which commits were excluded because they were already on `main`
 - Whether `main` is ahead of `origin/main`, and whether anything was pushed
 
+If thread history shows an active `/fix-department --loop` run, landing commits
+onto `main` is only an integration checkpoint, not the end of the overall
+task. After reporting the landed SHAs, return to the interrupted fix workflow
+unless the user explicitly stopped or redirected the run. If you cannot safely
+resume in the same turn, say that the loop is still active and tell the user to
+run `$fix-continue --loop`.
+
 ## Notes
 
 - Prefer `git cherry` over `git log main..branch` for this task. It filters out

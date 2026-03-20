@@ -53,6 +53,23 @@ landed onto `main`, or pushed.
 - If the user asks for an intermediate action such as commit / land / push,
   treat that as a sub-step inside the loop, then resume the fix workflow.
 
+### Turn-Boundary Contract
+
+Codex skill activation is turn-scoped, but `/fix-department --loop` should be
+treated as a standing task across the thread.
+
+- If thread history shows an active `/fix-department --loop` run and the user
+  asks for status, commit, land, cherry-pick, rebase, push, or verification,
+  treat that request as a sub-step inside the same loop.
+- After satisfying that sub-step, resume the interrupted phase or Phase 1 in
+  the same turn unless the user explicitly paused, stopped, or redirected the
+  run.
+- Do not treat a successful commit, cherry-pick, rebase, or report as the end
+  of the loop by itself.
+- If you truly cannot resume in the same turn, say that the loop is still
+  active and tell the user to run `$fix-continue --loop` rather than silently
+  ending the workflow.
+
 ## Workflow
 
 ### Phase 0: Assess
@@ -327,6 +344,8 @@ Do not leave retained progress only in a worktree branch.
 
 6. In `--loop` mode, after integration/reporting, return to Phase 1 unless the
    target is done or the user explicitly stopped the run.
+   This includes turns where the user asked only for an intermediate git action
+   such as "commit to main", "rebase", or "push".
 
 ## Notes
 

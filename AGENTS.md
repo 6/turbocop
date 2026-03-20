@@ -288,6 +288,16 @@ See [docs/rubygem.md](docs/rubygem.md) for the gem build/release pipeline, platf
 
 Use `/fix-department <gem-name>` to bring all cops in a specific gem to 100% corpus conformance. This is the preferred approach for incremental adoption — completing one gem at a time (e.g., `rubocop-performance`) so users can adopt it with confidence. See `.claude/skills/fix-department/SKILL.md`.
 
+`/fix-department --loop` is a standing task, not a one-turn command. In Codex,
+skill activation is turn-scoped, so later turns like "status?", "commit to
+main", "rebase", "push", or similar git maintenance can accidentally look like
+standalone tasks even though they are checkpoints inside the same loop. For
+this repo, treat those turns as intermediate sub-steps of the active loop:
+satisfy the request, then resume the prior `/fix-department --loop` workflow
+unless the user explicitly pauses, stops, or redirects. If you cannot safely
+resume in the same turn, say so explicitly and tell the user to run
+`/fix-continue --loop`.
+
 Use `/triage` to just view the ranked cop list without fixing. See `.claude/skills/triage/SKILL.md`.
 
 ## Corpus Investigation
