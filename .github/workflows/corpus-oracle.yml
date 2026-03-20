@@ -235,10 +235,23 @@ jobs:
           PYEOF
 
       - name: Run batch
+        env:
+          CORPUS_SIZE: ${{ github.event.inputs.corpus_size || 'standard' }}
         run: |
           mkdir -p results/nitrocop results/rubocop results/stress-nitrocop results/stress-rubocop rubocop-cache stress-rubocop-cache
 
-          jq -c '.[]' batch_repos.json | while IFS= read -r row; do
+          # Stress test: run flipped EnforcedStyles alongside baseline.
+          # Standard corpus: all repos (doubles runtime from ~10 to ~15-20 min).
+          # Extended corpus: sample 2 repos per batch to limit overhead
+          # (~225 batches × 2 = ~450 repos, adds ~10% vs 100%).
+          if [ "$CORPUS_SIZE" = "extended" ]; then
+            STRESS_LIMIT=2
+          else
+            STRESS_LIMIT=9999
+          fi
+          STRESS_COUNT=0
+
+          while IFS= read -r row; do
             REPO_ID=$(echo "$row" | jq -r '.id')
             REPO_URL=$(echo "$row" | jq -r '.repo_url')
             REPO_SHA=$(echo "$row" | jq -r '.sha')
@@ -338,54 +351,57 @@ jobs:
               cp "results/rubocop/${REPO_ID}.json" "rubocop-cache/${REPO_ID}.json"
             fi
 
-            # ── Stress test: re-run with flipped EnforcedStyles ──
-            STRESS_TIMEOUT=300  # 5 min per tool
+            # ── Stress test: re-run with flipped EnforcedStyles (sampled) ──
+            if [ "$STRESS_COUNT" -lt "$STRESS_LIMIT" ]; then
+              STRESS_TIMEOUT=300  # 5 min per tool
+              STRESS_COUNT=$((STRESS_COUNT + 1))
 
-            echo "=== stress nitrocop: ${REPO_ID} ==="
-            rc=0
-            timeout "${STRESS_TIMEOUT}" \
-            env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
-                BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
-            bin/nitrocop \
-              --preview \
-              --format json \
-              --no-cache \
-              --config bench/corpus/flipped_styles.yml \
-              "$DEST" \
-              > "results/stress-nitrocop/${REPO_ID}.json" 2>/dev/null || rc=$?
-
-            if [ "$rc" -eq 124 ]; then
-              echo "::warning::stress nitrocop timed out for ${REPO_ID}"
-            fi
-
-            if [ "$STRESS_RUBOCOP_CACHED" = false ]; then
-              echo "=== stress rubocop: ${REPO_ID} ==="
+              echo "=== stress nitrocop: ${REPO_ID} (${STRESS_COUNT}/${STRESS_LIMIT}) ==="
               rc=0
               timeout "${STRESS_TIMEOUT}" \
               env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
                   BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
-              bundle exec rubocop \
-                --config bench/corpus/flipped_styles.yml \
+              bin/nitrocop \
+                --preview \
                 --format json \
-                --force-exclusion \
-                --cache false \
+                --no-cache \
+                --config bench/corpus/flipped_styles.yml \
                 "$DEST" \
-                > "results/stress-rubocop/${REPO_ID}.json" 2>/dev/null || rc=$?
+                > "results/stress-nitrocop/${REPO_ID}.json" 2>/dev/null || rc=$?
 
               if [ "$rc" -eq 124 ]; then
-                echo "::warning::stress rubocop timed out for ${REPO_ID}"
+                echo "::warning::stress nitrocop timed out for ${REPO_ID}"
               fi
-            fi
 
-            if [ "$STRESS_RUBOCOP_CACHED" = false ] && [ -f "results/stress-rubocop/${REPO_ID}.json" ]; then
-              cp "results/stress-rubocop/${REPO_ID}.json" "stress-rubocop-cache/${REPO_ID}.json"
+              if [ "$STRESS_RUBOCOP_CACHED" = false ]; then
+                echo "=== stress rubocop: ${REPO_ID} ==="
+                rc=0
+                timeout "${STRESS_TIMEOUT}" \
+                env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
+                    BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
+                bundle exec rubocop \
+                  --config bench/corpus/flipped_styles.yml \
+                  --format json \
+                  --force-exclusion \
+                  --cache false \
+                  "$DEST" \
+                  > "results/stress-rubocop/${REPO_ID}.json" 2>/dev/null || rc=$?
+
+                if [ "$rc" -eq 124 ]; then
+                  echo "::warning::stress rubocop timed out for ${REPO_ID}"
+                fi
+              fi
+
+              if [ "$STRESS_RUBOCOP_CACHED" = false ] && [ -f "results/stress-rubocop/${REPO_ID}.json" ]; then
+                cp "results/stress-rubocop/${REPO_ID}.json" "stress-rubocop-cache/${REPO_ID}.json"
+              fi
             fi
 
             # Free disk space between repos
             rm -rf "$DEST"
 
             echo "::endgroup::"
-          done
+          done < <(jq -c '.[]' batch_repos.json)
 
       - name: Save rubocop results cache
         uses: actions/cache/save@v4
