@@ -148,6 +148,12 @@ impl DisabledRanges {
                 })
                 .filter(|s| !s.is_empty())
                 .map(|s| {
+                    // Handle wildcard department patterns like `Style/*` before
+                    // trimming, since `*` would be stripped as non-identifier.
+                    // Normalize to just the department name.
+                    if let Some(dept) = s.strip_suffix("/*") {
+                        return dept;
+                    }
                     // Strip trailing non-identifier chars (e.g., trailing `?` in
                     // `Naming/PredicatePrefix?`). RuboCop's regex stops at
                     // `[A-Za-z]\w+(/[A-Za-z]\w+)*` so trailing punctuation is ignored.
@@ -1016,6 +1022,44 @@ mod tests {
         assert!(
             dr2.check_and_mark_used("Rails/SkipsModelValidations", 1),
             "inline Rails::SkipsModelValidations should suppress Rails/SkipsModelValidations"
+        );
+    }
+
+    #[test]
+    fn wildcard_department_disable() {
+        // `# rubocop:disable Style/*` should disable all Style cops
+        let src = "# rubocop:disable Style/*\nx = 1\n# rubocop:enable Style/*\ny = 2\n";
+        let dr = disabled_ranges(src);
+        assert!(
+            dr.is_disabled("Style/IfInsideElse", 2),
+            "Style/* should disable Style/IfInsideElse"
+        );
+        assert!(
+            dr.is_disabled("Style/MissingElse", 2),
+            "Style/* should disable Style/MissingElse"
+        );
+        assert!(
+            !dr.is_disabled("Lint/Void", 2),
+            "Style/* should NOT disable Lint/Void"
+        );
+        assert!(
+            !dr.is_disabled("Style/IfInsideElse", 4),
+            "Style/* should be re-enabled after enable directive"
+        );
+    }
+
+    #[test]
+    fn wildcard_department_disable_inline() {
+        // Inline wildcard department disable
+        let src = "x = 1 # rubocop:disable Style/*\ny = 2\n";
+        let dr = disabled_ranges(src);
+        assert!(
+            dr.is_disabled("Style/IfInsideElse", 1),
+            "inline Style/* should disable Style/IfInsideElse on same line"
+        );
+        assert!(
+            !dr.is_disabled("Style/IfInsideElse", 2),
+            "inline Style/* should NOT disable on next line"
         );
     }
 
