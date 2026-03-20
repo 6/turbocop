@@ -97,9 +97,9 @@ rescue => CapturedErr
           ^^^^^^^^^^^ Naming/ConstantName: Use SCREAMING_SNAKE_CASE for constants.
 end
 
-# Lambda literal — RuboCop does NOT allow lambdas as valid RHS
-Positive = ->{ _1 > 0 }
-^^^^^^^^ Naming/ConstantName: Use SCREAMING_SNAKE_CASE for constants.
+# Lambda literal with literal receiver — range is a literal
+PositiveRange = (0..100).select(&:positive?)
+^^^^^^^^^^^^^ Naming/ConstantName: Use SCREAMING_SNAKE_CASE for constants.
 
 # Range literal receiver — ranges ARE literals in RuboCop
 Letters = ('A'..'Z').to_a

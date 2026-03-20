@@ -35,3 +35,14 @@ Items = [1, 2, 3].map { |x| x * 2 }
 Config = %w[a b c].each_with_object({}) do |item, hash|
   hash[item] = true
 end
+
+# Lambda literals — in Parser AST these are :block type, which RuboCop allows
+Positive = ->{ _1 > 0 }
+Noop = ->(reply) { reply }
+MyHandler = ->(data, &block) do
+  block.call(data)
+end
+App = -> env { [200, {}, %w(Success)] }
+FailureHandler = ->(job, e) do
+  job["class"]
+end

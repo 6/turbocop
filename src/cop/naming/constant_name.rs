@@ -50,17 +50,22 @@ use crate::parse::source::SourceFile;
 /// `call.block().is_some()` before the literal receiver check in
 /// `is_valid_rhs_for_assignment()`.
 ///
-/// Follow-up (2026-03-20): FN=4 from three root causes:
-/// 1. `LambdaNode` was incorrectly in `is_valid_rhs_for_assignment` — RuboCop does
-///    NOT allow lambda literals (`-> {}`) as valid RHS; only `BlockNode`-wrapped
-///    calls (like `proc { }`) are allowed.
-/// 2. Range nodes (`irange`/`erange`) were missing from `is_literal()`. RuboCop's
+/// Follow-up (2026-03-20): FN=4 from two root causes:
+/// 1. Range nodes (`irange`/`erange`) were missing from `is_literal()`. RuboCop's
 ///    `literal?` predicate includes ranges, so `(1..5).freeze` and `('A'..'Z').to_a`
 ///    should be flagged.
-/// 3. `call.block().is_some()` matched both `BlockNode` and `BlockArgumentNode`.
+/// 2. `call.block().is_some()` matched both `BlockNode` and `BlockArgumentNode`.
 ///    In Parser AST, `&:to_sym` is an argument, not a wrapping block — only actual
 ///    `BlockNode` (do/end, {}) should be allowed. Fixed to use
 ///    `call.block().and_then(|b| b.as_block_node()).is_some()`.
+///
+/// Follow-up (2026-03-20): FP=14 from lambda literals (`-> {}`, `-> do end`).
+/// In Parser AST, lambdas are `:block` nodes wrapping `:lambda`, so RuboCop's
+/// `%i[block const casgn].include?(value.type)` allows them. In Prism, lambdas are
+/// `LambdaNode` (not `BlockNode`), so they need a separate check. Previously
+/// `LambdaNode` was incorrectly removed thinking RuboCop didn't allow them.
+/// Fixed by re-adding `value.as_lambda_node().is_some()` to
+/// `is_valid_rhs_for_assignment()`.
 pub struct ConstantName;
 
 impl Cop for ConstantName {
@@ -225,9 +230,15 @@ impl ConstantName {
 /// 4. Conditional expression containing a constant in branches
 fn is_valid_rhs_for_assignment(value: &ruby_prism::Node<'_>) -> bool {
     // Block node: `proc { }`, `lambda { }`, `Foo.new { }`
-    // Note: lambda LITERALS (`-> {}`) are NOT allowed by RuboCop — only block-wrapped
-    // calls like `proc { }` or `Foo.new { }` are allowed.
     if value.as_block_node().is_some() {
+        return true;
+    }
+
+    // Lambda literal: `-> {}`, `-> do ... end`
+    // In Parser AST, lambda literals are `:block` nodes wrapping `:lambda`, so
+    // RuboCop's `%i[block const casgn].include?(value.type)` allows them.
+    // In Prism, they are `LambdaNode` — must check separately.
+    if value.as_lambda_node().is_some() {
         return true;
     }
 
