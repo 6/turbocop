@@ -99,6 +99,14 @@ use crate::parse::source::SourceFile;
 /// condition lines, but that helper recognized `>=`/`<=` and not bare `>`/`<`.
 /// Fix: treat trailing `<` and `>` as continuation operators while scanning
 /// multi-line `if`/`unless` conditions.
+///
+/// Another remaining FP came from `next unless ...` followed by an
+/// `unless..raise..end` guard block where the raise string contained bracket
+/// characters like `[` or `{`. `is_bare_guard_in_block` used naive byte-level
+/// bracket counting to reject multi-line guard statements, so brackets inside
+/// string literals made the raise look like an unterminated expression and the
+/// sibling guard block was missed. Fix: reuse `count_bracket_depth_change()`
+/// there as well so bracket counting ignores string and regex content.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -910,14 +918,7 @@ fn is_bare_guard_in_block(trimmed: &[u8], lines: &[&[u8]], line_idx: usize) -> b
             .position(|&b| b != b' ' && b != b'\t')
             .map(|s| &next[s..])
             .unwrap_or(b"");
-        let mut paren_depth: i32 = 0;
-        for &b in trimmed {
-            match b {
-                b'(' | b'{' | b'[' => paren_depth += 1,
-                b')' | b'}' | b']' => paren_depth -= 1,
-                _ => {}
-            }
-        }
+        let paren_depth = count_bracket_depth_change(trimmed);
         if paren_depth > 0 && !next_trimmed.is_empty() {
             return false;
         }

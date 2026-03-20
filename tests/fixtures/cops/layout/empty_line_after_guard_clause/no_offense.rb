@@ -725,3 +725,17 @@ def attachments_too_large?(upload, optimized_1x, max_size)
 
   true
 end
+
+# FP fix: next guard followed by `unless..raise..end` where the raise string
+# contains bracket characters that should not affect guard-block detection
+def delimiters_from(flags, format)
+  found = nil
+  DELIMITERS.each do |delimiter|
+    next unless flags.include?(delimiter)
+    unless found.nil?
+      raise ArgumentError, "Only one of [ { ( < | can be given in #{format}"
+    end
+
+    found = delimiter
+  end
+end
