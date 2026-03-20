@@ -44,3 +44,7 @@ STR
 output = <<~MSG
   #{colorize("item,value")}
 MSG
+
+# Percent array literals can use `,` as their delimiter.
+symbols = %i,alpha beta gamma,
+words = %w,alpha beta,

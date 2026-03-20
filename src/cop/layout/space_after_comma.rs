@@ -2,6 +2,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 /// ## Corpus investigation (2026-03-10)
 ///
@@ -61,7 +62,74 @@ use crate::parse::source::SourceFile;
 ///   covering the inner interpolated string's `#{}` content. Fixed in CodeMap by
 ///   also skipping `InterpolatedStringNode` parts (the recursive visitor handles
 ///   them correctly on its own).
+///
+/// ## Corpus investigation (2026-03-19)
+///
+/// FP=14 root cause:
+/// - All 14 remaining FPs were old-style `%w/%W/%i/%I` array literals using
+///   `,` as the delimiter (for example `%i,alpha beta,`). Nitrocop's raw byte
+///   scan treated both the opening and closing delimiter commas as punctuation
+///   that required a following space, but RuboCop treats percent-literal
+///   delimiters as syntax, not comma separators. Fixed by collecting the
+///   opening/closing comma offsets for comma-delimited percent arrays from the
+///   Prism AST and skipping those offsets during the byte scan.
 pub struct SpaceAfterComma;
+
+struct PercentArrayCommaCollector {
+    offsets: Vec<usize>,
+}
+
+impl<'pr> Visit<'pr> for PercentArrayCommaCollector {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.collect(&node);
+    }
+
+    fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.collect(&node);
+    }
+}
+
+impl PercentArrayCommaCollector {
+    fn collect(&mut self, node: &ruby_prism::Node<'_>) {
+        let Some(array) = node.as_array_node() else {
+            return;
+        };
+        let Some(open_loc) = array.opening_loc() else {
+            return;
+        };
+
+        let open = open_loc.as_slice();
+        if !open.starts_with(b"%w")
+            && !open.starts_with(b"%W")
+            && !open.starts_with(b"%i")
+            && !open.starts_with(b"%I")
+        {
+            return;
+        }
+
+        if open.last() != Some(&b',') {
+            return;
+        }
+
+        self.offsets.push(open_loc.end_offset() - 1);
+
+        if let Some(close_loc) = array.closing_loc() {
+            if close_loc.as_slice().starts_with(b",") {
+                self.offsets.push(close_loc.start_offset());
+            }
+        }
+    }
+}
+
+fn comma_delimited_percent_array_offsets(parse_result: &ruby_prism::ParseResult<'_>) -> Vec<usize> {
+    let mut collector = PercentArrayCommaCollector {
+        offsets: Vec::new(),
+    };
+    collector.visit(&parse_result.node());
+    collector.offsets.sort_unstable();
+    collector.offsets.dedup();
+    collector.offsets
+}
 
 impl Cop for SpaceAfterComma {
     fn name(&self) -> &'static str {
@@ -75,18 +143,22 @@ impl Cop for SpaceAfterComma {
     fn check_source(
         &self,
         source: &SourceFile,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
+        let percent_array_delimiter_offsets = comma_delimited_percent_array_offsets(parse_result);
         // RuboCop's SpaceAfterPunctuation#space_required_before? skips commas
         // before `}` when Layout/SpaceInsideHashLiteralBraces uses `no_space`.
         let skip_rcurly = config.get_str("__SpaceInsideHashBracesStyle", "space") == "no_space";
         for (i, &byte) in bytes.iter().enumerate() {
             if byte != b',' {
+                continue;
+            }
+            if percent_array_delimiter_offsets.binary_search(&i).is_ok() {
                 continue;
             }
             // Check commas in code regions AND inside heredoc interpolation
