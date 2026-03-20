@@ -109,10 +109,9 @@ impl Cop for Focus {
         // Also matches bare `focus` calls from Ruby 3.1+ shorthand `focus:` (which
         // desugars to `focus: focus` where the value is `(send nil? :focus)`).
         if is_rspec_focused(method_name) {
-            // Skip chained calls like `fit.id` — RuboCop's `node.chained?` guard.
-            // A call is chained when it serves as the receiver of another call
-            // (i.e., `.` or `&.` follows immediately after the call expression).
-            if !is_chained_call(source, &call) {
+            // Only flag receiverless calls (fit, fdescribe, focus, etc.).
+            // Calls like analyzer.fit(x) have a receiver and are not RSpec focus.
+            if call.receiver().is_none() && !is_chained_call(source, &call) {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(Diagnostic {
