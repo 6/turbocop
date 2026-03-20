@@ -146,3 +146,15 @@ instance_variable_get :"@ivar"
 # Special global variable $$ (process ID)
 :"$$"
 ^^^^^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:$$` instead.
+
+# Percent-s symbol literal — %s is an unnecessary quoting style
+%s"foo"
+^^^^^^^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:foo` instead.
+
+# Percent-s with special characters
+%s"foo-bar"
+^^^^^^^^^^^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:"foo-bar"` instead.
+
+# Non-UTF8 string to_sym
+"\xff".to_sym
+^^^^^^^^^^^^^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:"\xFF"` instead.

@@ -183,11 +183,11 @@ fn find_directive_start(line: &str) -> Option<usize> {
                 search_from = abs_pos + 1;
                 continue;
             }
-            // Check not quoted
-            if before_trimmed.ends_with('"') || before_trimmed.ends_with('\'') {
-                search_from = abs_pos + 1;
-                continue;
-            }
+            // Note: No quote check needed here. Directives inside strings like
+            // `"# rubocop:disable ..."` are filtered by the `code_map.is_not_string()`
+            // check in the caller. The previous `ends_with('"')` check was too aggressive
+            // — it rejected lines like `code") # rubocop:disable ...` where the `"` was
+            // a closing string quote in code, not a quote wrapping the directive.
             // If we already saw a `#` that started a non-directive comment,
             // then this `# rubocop:` is inside comment text (e.g. documentation),
             // not an actual directive.

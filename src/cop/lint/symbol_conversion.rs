@@ -165,8 +165,12 @@ use crate::parse::source::SourceFile;
 /// FN=1: `:"$$"` from pdf-reader — `$$` (process ID) is a valid special global
 /// variable. Fix: added `$` to `SPECIAL_GLOBAL_CHARS`.
 ///
-/// FN=1: `%s"..."` literal from rouge — `%s` percent-literal symbols are not yet
-/// handled. Remaining gap.
+/// FN=1: `%s"..."` literal from rouge — `%s` percent-literal symbols were not
+/// handled. Fixed by accepting `%s` opening in `check_symbol_node`.
+///
+/// FN=1: `"\xff".to_sym` from jruby — `symbol_correction` returned None for
+/// non-UTF8 content because `from_utf8` failed. Fixed by generating hex-escaped
+/// symbol like `:\"\xFF\"` for non-UTF8 bytes.
 pub struct SymbolConversion;
 
 const BARE_OPERATOR_SYMBOLS: &[&[u8]] = &[
@@ -348,11 +352,23 @@ fn escape_double_quoted_symbol(value: &str) -> String {
 /// Compute the correction string for a symbol value.
 /// Returns Ruby-like symbol literal syntax, e.g. `:+`, `:@ivar`, or `:"foo-bar"`.
 fn symbol_correction(value: &[u8]) -> Option<String> {
-    let value_str = std::str::from_utf8(value).ok()?;
-    if can_be_unquoted_symbol(value) {
-        Some(format!(":{value_str}"))
+    if let Ok(value_str) = std::str::from_utf8(value) {
+        if can_be_unquoted_symbol(value) {
+            Some(format!(":{value_str}"))
+        } else {
+            Some(format!(":\"{}\"", escape_double_quoted_symbol(value_str)))
+        }
     } else {
-        Some(format!(":\"{}\"", escape_double_quoted_symbol(value_str)))
+        // Non-UTF8 content: generate hex-escaped symbol like :"\xFF"
+        let mut escaped = String::new();
+        for &b in value {
+            if b.is_ascii_graphic() || b == b' ' {
+                escaped.push(b as char);
+            } else {
+                escaped.push_str(&format!("\\x{:02X}", b));
+            }
+        }
+        Some(format!(":\"{escaped}\""))
     }
 }
 
@@ -584,9 +600,11 @@ impl SymbolConversion {
 
         // For standalone symbols or rocket-style hash keys/values:
         // Check if the symbol is unnecessarily quoted
-        // Opening must be :" or :' (quoted symbol syntax)
+        // Opening must be :" or :' (quoted symbol syntax) or %s (percent literal)
+        let is_pct_s = opening.map(|o| o.starts_with(b"%s")).unwrap_or(false);
         match opening {
             Some(b":\"" | b":'") => {}
+            _ if is_pct_s => {}
             _ => return,
         }
 
