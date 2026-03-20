@@ -2,6 +2,18 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/RequireOrder: Sort `require` and `require_relative` in alphabetical order.
+///
+/// Investigation findings (FP=117, FN=373):
+/// - FP root cause: nitrocop was flagging `require` with string interpolation (e.g.,
+///   `require "#{base}/foo"`). RuboCop only checks `str_type?` arguments, skipping `dstr`
+///   (interpolated strings). Fixed by rejecting paths containing `#{`.
+/// - FN root cause: nitrocop treated comment lines (including `# require 'foo'`) as group
+///   separators. RuboCop's AST-based approach treats comments as transparent since they
+///   aren't sibling nodes; only blank lines (`\n\n`) break groups via `in_same_section?`.
+///   Fixed by making comment lines transparent in group formation.
+/// - Remaining: interpolated-string requires now act as group separators (matching RuboCop),
+///   since they fail `str_type?` and break the sibling walk.
 pub struct RequireOrder;
 
 impl Cop for RequireOrder {
@@ -103,15 +115,28 @@ impl Cop for RequireOrder {
 
 fn extract_require_path_and_kind(line: &str) -> Option<(String, &'static str)> {
     let line = line.trim();
-    let (rest, kind) = if let Some(r) = line.strip_prefix("require_relative ") {
+    // Match `require_relative` before `require` to avoid prefix collision
+    let (rest, kind) = if let Some(r) = line.strip_prefix("require_relative") {
+        if r.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_') {
+            return None;
+        }
         (r, "require_relative")
-    } else if let Some(r) = line.strip_prefix("require ") {
+    } else if let Some(r) = line.strip_prefix("require") {
+        if r.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_') {
+            return None;
+        }
         (r, "require")
     } else {
         return None;
     };
 
-    let rest = rest.trim();
+    // Handle both `require 'x'` and `require('x')` / `require_relative("x")` syntax
+    let rest = rest.trim_start();
+    let rest = rest
+        .strip_prefix('(')
+        .map(|r| r.trim_start())
+        .unwrap_or(rest);
+
     // Extract string argument — handle `require 'x' if cond` (modifier conditional)
     let quote = rest.as_bytes().first()?;
     if *quote != b'\'' && *quote != b'"' {

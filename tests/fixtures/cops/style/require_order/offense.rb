@@ -45,3 +45,11 @@ require 'b'
 # comments
 require 'a'
 ^ Style/RequireOrder: Sort `require` in alphabetical order.
+
+require("b")
+require("a")
+^ Style/RequireOrder: Sort `require` in alphabetical order.
+
+require_relative("b")
+require_relative("a")
+^ Style/RequireOrder: Sort `require_relative` in alphabetical order.

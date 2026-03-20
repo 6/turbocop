@@ -25,3 +25,9 @@ require "#{Dir.pwd}/support/b"
 
 require "test/#{helper}"
 require "app/#{model}"
+
+require("a")
+require("b")
+
+require("alpha")
+require "beta"
