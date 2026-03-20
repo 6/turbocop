@@ -320,44 +320,39 @@ fn check_file_level_vars(
         collect_file_level_assignments(&stmt, &mut file_level_assigns, false);
     }
 
-    if file_level_assigns.is_empty() {
-        return;
-    }
+    if !file_level_assigns.is_empty() {
+        // Filter dead file-level assignments: if a variable is assigned multiple
+        // times at file level and a later unconditional assignment exists with no
+        // describe-block example-scope reference between them, the earlier
+        // assignment is dead (its value never reaches any example).
+        let live_assigns = filter_dead_file_level_assignments(&file_level_assigns, &stmts);
 
-    // Filter dead file-level assignments: if a variable is assigned multiple
-    // times at file level and a later unconditional assignment exists with no
-    // describe-block example-scope reference between them, the earlier
-    // assignment is dead (its value never reaches any example).
-    // This uses assignment-list-based filtering (checking collected assignments
-    // by byte offset) rather than statement-tree-based filtering, so it works
-    // for assignments nested inside non-RSpec blocks (e.g., `control do ... end`).
-    let live_assigns = filter_dead_file_level_assignments(&file_level_assigns, &stmts);
-
-    // For each live file-level assignment, check if the variable is referenced
-    // inside any example scope within any describe block in the file
-    for assign in &live_assigns {
-        let mut used = false;
-        for stmt in stmts.body().iter() {
-            if check_var_used_in_describe_blocks(&stmt, &assign.name) {
-                used = true;
-                break;
+        // For each live file-level assignment, check if the variable is referenced
+        // inside any example scope within any describe block in the file
+        for assign in &live_assigns {
+            let mut used = false;
+            for stmt in stmts.body().iter() {
+                if check_var_used_in_describe_blocks(&stmt, &assign.name) {
+                    used = true;
+                    break;
+                }
+            }
+            if used {
+                let (line, column) = source.offset_to_line_col(assign.offset);
+                diagnostics.push(
+                    cop.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Do not use local variables defined outside of examples inside of them."
+                            .to_string(),
+                    ),
+                );
             }
         }
-        if used {
-            let (line, column) = source.offset_to_line_col(assign.offset);
-            diagnostics.push(
-                cop.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Do not use local variables defined outside of examples inside of them."
-                        .to_string(),
-                ),
-            );
-        }
     }
 
-    // Also check def method bodies for variables that leak into describe blocks
+    // Also check def/class/module bodies for variables that leak into describe blocks
     check_def_level_vars(source, &stmts, diagnostics, cop);
 }
 
@@ -946,8 +941,16 @@ fn stmt_example_scope_var_interaction(
         // and Ruby's block-local variable scoping.
         if let Some(blk) = call.block() {
             if let Some(bn) = blk.as_block_node() {
+                let block_contains_assignment = stmt_contains_offset(node, assign_offset);
                 if block_has_param(&bn, var_name) {
-                    return VarInteraction::None; // shadowed by block param
+                    // If the tracked assignment is inside this block (i.e., a
+                    // reassignment of the block param like `k = k.to_s`), we
+                    // must still recurse to find example-scope references.
+                    // If the assignment is NOT inside this block, the block
+                    // param shadows the outer variable — skip it.
+                    if !block_contains_assignment {
+                        return VarInteraction::None; // shadowed by block param
+                    }
                 }
                 // Ruby block scoping: if this block does NOT contain the
                 // assignment we're tracking but has its own local assignment
@@ -956,7 +959,6 @@ fn stmt_example_scope_var_interaction(
                 // This handles the discourse/rswag pattern where sibling
                 // blocks (get/post/put) each have their own local copy of
                 // a variable like `expected_request_schema`.
-                let block_contains_assignment = stmt_contains_offset(node, assign_offset);
                 if !block_contains_assignment && block_body_assigns_var(&bn, var_name) {
                     return VarInteraction::None;
                 }
@@ -2790,7 +2792,6 @@ end
     }
 
     #[test]
-    #[ignore] // FN not yet implemented — def body vars leaking into describe blocks
     fn test_fn_def_body_vars_leak_into_describe() {
         // chef pattern: variables assigned inside def body, then used in describe/let/it blocks
         let source = br#"def static_provider_resolution(opts = {})
@@ -2826,7 +2827,6 @@ end
     }
 
     #[test]
-    #[ignore] // FN not yet implemented — block param reassignment leaking into examples
     fn test_fn_each_block_param_reassignment() {
         // arachni/ManageIQ pattern: block param reassigned then used in example
         let source = br#"describe SomeClass do
