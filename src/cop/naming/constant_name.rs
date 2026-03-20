@@ -49,6 +49,18 @@ use crate::parse::source::SourceFile;
 /// immediately. In Prism, the CallNode itself has a block child. Fixed by checking
 /// `call.block().is_some()` before the literal receiver check in
 /// `is_valid_rhs_for_assignment()`.
+///
+/// Follow-up (2026-03-20): FN=4 from three root causes:
+/// 1. `LambdaNode` was incorrectly in `is_valid_rhs_for_assignment` — RuboCop does
+///    NOT allow lambda literals (`-> {}`) as valid RHS; only `BlockNode`-wrapped
+///    calls (like `proc { }`) are allowed.
+/// 2. Range nodes (`irange`/`erange`) were missing from `is_literal()`. RuboCop's
+///    `literal?` predicate includes ranges, so `(1..5).freeze` and `('A'..'Z').to_a`
+///    should be flagged.
+/// 3. `call.block().is_some()` matched both `BlockNode` and `BlockArgumentNode`.
+///    In Parser AST, `&:to_sym` is an argument, not a wrapping block — only actual
+///    `BlockNode` (do/end, {}) should be allowed. Fixed to use
+///    `call.block().and_then(|b| b.as_block_node()).is_some()`.
 pub struct ConstantName;
 
 impl Cop for ConstantName {
@@ -211,14 +223,10 @@ impl ConstantName {
 /// 2. Method call where receiver is nil or not a literal
 /// 3. `Class.new(...)` or `Struct.new(...)`
 /// 4. Conditional expression containing a constant in branches
-/// 5. Lambda literal
 fn is_valid_rhs_for_assignment(value: &ruby_prism::Node<'_>) -> bool {
-    // Lambda literal: `-> { }`
-    if value.as_lambda_node().is_some() {
-        return true;
-    }
-
     // Block node: `proc { }`, `lambda { }`, `Foo.new { }`
+    // Note: lambda LITERALS (`-> {}`) are NOT allowed by RuboCop — only block-wrapped
+    // calls like `proc { }` or `Foo.new { }` are allowed.
     if value.as_block_node().is_some() {
         return true;
     }
@@ -241,7 +249,9 @@ fn is_valid_rhs_for_assignment(value: &ruby_prism::Node<'_>) -> bool {
         // CallNode with a block — equivalent to Parser's :block type node.
         // In Parser AST, `[1,2].map { |x| x }` wraps the send in a block node.
         // In Prism, the CallNode itself has a block child. RuboCop allows these.
-        if call.block().is_some() {
+        // Important: only allow actual BlockNode (do/end, {}), NOT BlockArgumentNode
+        // (&:sym, &block). In Parser AST, `&:sym` is an argument, not a wrapping block.
+        if call.block().and_then(|b| b.as_block_node()).is_some() {
             return true;
         }
         match call.receiver() {
@@ -286,12 +296,9 @@ fn is_literal_receiver(node: &ruby_prism::Node<'_>) -> bool {
 
 /// Check if a node is a literal value. Matches RuboCop's `literal?` predicate:
 /// int, float, str, dstr, sym, dsym, complex, rational, regexp, true, false, nil,
-/// array, hash (including keyword hash).
-/// Note: ranges (irange/erange) are intentionally excluded — the existing
-/// no_offense fixture treats `(1..5).freeze` as allowed, matching observed
-/// RuboCop behavior in the corpus.
+/// array, hash (including keyword hash), range (irange/erange).
 /// Used by `is_literal_receiver` to determine if a method call on a literal
-/// (e.g., `"foo".freeze`, `[1,2].freeze`, `{a: 1}.merge(b)`) should be disallowed.
+/// (e.g., `"foo".freeze`, `[1,2].freeze`, `(1..5).freeze`) should be disallowed.
 fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
     node.as_integer_node().is_some()
         || node.as_float_node().is_some()
@@ -308,6 +315,7 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_array_node().is_some()
         || node.as_hash_node().is_some()
         || node.as_keyword_hash_node().is_some()
+        || node.as_range_node().is_some()
 }
 
 /// Check if an if-expression has a constant in any of its branches.

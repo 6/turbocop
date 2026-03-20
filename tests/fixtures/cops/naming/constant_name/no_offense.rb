@@ -14,13 +14,8 @@ Uchar1max = (1 << 7) - 1
 # Receiverless method call
 Config = setup_config
 
-# Lambda
-Handler = -> { process }
+# Lambda-style method call (proc wraps in block node — allowed by RuboCop)
 MyProc = proc { do_something }
-
-# .freeze on range literal — ranges are NOT literals in RuboCop,
-# so this is a method call with non-literal receiver (allowed)
-MyRange = (1..5).freeze
 
 # Compound assignment with SCREAMING_SNAKE_CASE (allowed)
 COUNTER &&= 1

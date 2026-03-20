@@ -96,3 +96,19 @@ begin
 rescue => CapturedErr
           ^^^^^^^^^^^ Naming/ConstantName: Use SCREAMING_SNAKE_CASE for constants.
 end
+
+# Lambda literal — RuboCop does NOT allow lambdas as valid RHS
+Positive = ->{ _1 > 0 }
+^^^^^^^^ Naming/ConstantName: Use SCREAMING_SNAKE_CASE for constants.
+
+# Range literal receiver — ranges ARE literals in RuboCop
+Letters = ('A'..'Z').to_a
+^^^^^^^ Naming/ConstantName: Use SCREAMING_SNAKE_CASE for constants.
+
+# Frozen range (literal receiver)
+MyRange = (1..5).freeze
+^^^^^^^ Naming/ConstantName: Use SCREAMING_SNAKE_CASE for constants.
+
+# Array literal with block argument (&:sym) — NOT a block node
+Fields = %w[name email].map(&:to_sym)
+^^^^^^ Naming/ConstantName: Use SCREAMING_SNAKE_CASE for constants.
