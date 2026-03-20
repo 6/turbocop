@@ -22,4 +22,11 @@ Gem::Specification.new do |spec|
   # Version arg before if/unless modifier — version IS present
   spec.add_dependency 'filemagic', '~> 0.7' unless RUBY_ENGINE == 'jruby'
   spec.add_dependency 'rubocop', '1.50.0' unless ENV['CI']
+  # Multi-line method calls with version on continuation lines
+  spec.add_development_dependency(
+    "rspec", ">= 3", "< 4"
+  )
+  spec.add_dependency(
+    "nokogiri", "~> 1.14"
+  )
 end

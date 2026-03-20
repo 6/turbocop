@@ -29,7 +29,8 @@ impl Cop for DevelopmentDependencies {
         }
 
         // For "Gemfile" or "gems.rb" styles, flag add_development_dependency calls
-        for (line_idx, line) in source.lines().enumerate() {
+        let lines: Vec<&[u8]> = source.lines().collect();
+        for (line_idx, line) in lines.iter().enumerate() {
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s,
                 Err(_) => continue,
@@ -40,16 +41,24 @@ impl Cop for DevelopmentDependencies {
             }
             if let Some(pos) = line_str.find(".add_development_dependency") {
                 let after_method = &line_str[pos + ".add_development_dependency".len()..];
+                // If the line has an unclosed paren, join continuation lines
+                let joined;
+                let effective_after = if has_unclosed_paren(after_method) {
+                    joined = join_continuation_lines(after_method, &lines, line_idx);
+                    joined.as_str()
+                } else {
+                    after_method
+                };
                 // Only flag when the first argument is a string literal (quoted).
                 // Dynamic args like `dep.name` or bare variables should be skipped,
                 // matching RuboCop's `(send _ :add_development_dependency (str ...) ...)`
-                if !has_string_literal_arg(after_method) {
+                if !has_string_literal_arg(effective_after) {
                     continue;
                 }
                 // RuboCop's NodePattern is (send _ :add_development_dependency (str ...) _? _?)
                 // which matches at most 3 total arguments (gem name + up to 2 version constraints).
                 // Skip lines with more than 3 args to avoid false positives.
-                if count_top_level_args(after_method) > 3 {
+                if count_top_level_args(effective_after) > 3 {
                     continue;
                 }
                 if is_gem_allowed(after_method, &allowed_gems) {
@@ -64,6 +73,70 @@ impl Cop for DevelopmentDependencies {
             }
         }
     }
+}
+
+/// Check if a string has an unclosed parenthesis (more opens than closes).
+fn has_unclosed_paren(s: &str) -> bool {
+    let mut depth: i32 = 0;
+    let bytes = s.as_bytes();
+    let mut pos = 0;
+    while pos < bytes.len() {
+        match bytes[pos] {
+            b'\'' | b'"' => {
+                let quote = bytes[pos];
+                pos += 1;
+                while pos < bytes.len() && bytes[pos] != quote {
+                    pos += 1;
+                }
+                if pos < bytes.len() {
+                    pos += 1;
+                }
+            }
+            b'(' => {
+                depth += 1;
+                pos += 1;
+            }
+            b')' => {
+                depth -= 1;
+                pos += 1;
+            }
+            _ => pos += 1,
+        }
+    }
+    depth > 0
+}
+
+/// Join continuation lines until parens are balanced.
+fn join_continuation_lines(after: &str, lines: &[&[u8]], current_idx: usize) -> String {
+    let mut result = after.to_string();
+    let mut depth: i32 = 0;
+    for &b in after.as_bytes() {
+        match b {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            _ => {}
+        }
+    }
+    if depth <= 0 {
+        return result;
+    }
+    for line in lines.iter().skip(current_idx + 1) {
+        if let Ok(s) = std::str::from_utf8(line) {
+            result.push(' ');
+            result.push_str(s.trim());
+            for &b in s.as_bytes() {
+                match b {
+                    b'(' => depth += 1,
+                    b')' => depth -= 1,
+                    _ => {}
+                }
+            }
+            if depth <= 0 {
+                break;
+            }
+        }
+    }
+    result
 }
 
 /// Check if the first argument after the method call is a string literal.

@@ -47,4 +47,14 @@ Gem::Specification.new do |spec|
   # Version-like string in comparison before ternary is not a version arg
   spec.add_dependency 'nokogiri', RUBY_VERSION < '2.1.0' ? '~> 1.6.0' : '~> 1'
        ^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.
+  # Splat+array wraps version — RuboCop's NodePattern doesn't match nested str in SplatNode
+  spec.add_dependency(*["openssl", " ~> 3.2"])
+       ^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.
+  spec.add_dependency(*["highline", " ~> 1.7"])
+       ^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.
+  # Multi-line method call with NO version — continuation lines have no version string
+  spec.add_dependency(
+       ^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.
+    "rails"
+  )
 end

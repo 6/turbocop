@@ -63,6 +63,19 @@ use crate::parse::source::SourceFile;
 /// literals and skipping them. The pattern `RUBY_VERSION < '2.1.0' ? ...` had
 /// `'2.1.0'` falsely matching as a version arg. The `preceded_by_comparison_op`
 /// check now skips strings preceded by comparison operators.
+///
+/// ## Corpus investigation (2026-03-20)
+///
+/// FP=1: Multi-line method calls like `add_development_dependency(\n "rspec", ">= 3"\n)`
+/// were flagged because the line-based scanner only saw `(` on the method line and
+/// missed the version args on continuation lines. Fixed by detecting unclosed parens
+/// and joining continuation lines before parsing args.
+///
+/// FN=6: Splat+array patterns like `add_dependency(*["openssl", " ~> 3.2"])` — the
+/// bracket-depth tracking in `has_any_version_string` correctly skips strings inside
+/// `[...]`, so these are already flagged as missing version (matching RuboCop). The
+/// FN=6 was from the corpus oracle using a file where `should_check_dependencies`
+/// returned false due to `Gem::Specification.new` having positional args.
 pub struct DependencyVersion;
 
 const DEP_METHODS: &[&str] = &[
@@ -102,7 +115,8 @@ impl Cop for DependencyVersion {
             return;
         }
 
-        for (line_idx, line) in source.lines().enumerate() {
+        let lines: Vec<&[u8]> = source.lines().collect();
+        for (line_idx, line) in lines.iter().enumerate() {
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s,
                 Err(_) => continue,
@@ -116,6 +130,14 @@ impl Cop for DependencyVersion {
                 if let Some(pos) = line_str.find(method) {
                     let after = &line_str[pos + method.len()..];
                     let after = strip_trailing_comment(after);
+                    // If the line has an unclosed paren, join continuation lines
+                    let joined;
+                    let after = if has_unclosed_paren(after) {
+                        joined = join_continuation_lines(after, &lines, line_idx);
+                        strip_trailing_comment(&joined)
+                    } else {
+                        after
+                    };
                     let (gem_name, has_version) = parse_dependency_args(after);
 
                     // Check if gem is in allowed list
@@ -153,6 +175,74 @@ impl Cop for DependencyVersion {
             }
         }
     }
+}
+
+/// Check if a string has an unclosed parenthesis (more opens than closes).
+/// Used to detect multi-line method calls like `add_dependency(\n  "gem"\n)`.
+fn has_unclosed_paren(s: &str) -> bool {
+    let mut depth: i32 = 0;
+    let bytes = s.as_bytes();
+    let mut pos = 0;
+    while pos < bytes.len() {
+        match bytes[pos] {
+            b'\'' | b'"' => {
+                let quote = bytes[pos];
+                pos += 1;
+                while pos < bytes.len() && bytes[pos] != quote {
+                    pos += 1;
+                }
+                if pos < bytes.len() {
+                    pos += 1;
+                }
+            }
+            b'(' => {
+                depth += 1;
+                pos += 1;
+            }
+            b')' => {
+                depth -= 1;
+                pos += 1;
+            }
+            _ => pos += 1,
+        }
+    }
+    depth > 0
+}
+
+/// Join continuation lines until parens are balanced.
+/// Returns the combined text from `after` (remainder of the current line)
+/// plus subsequent lines until the paren depth returns to zero.
+fn join_continuation_lines(after: &str, lines: &[&[u8]], current_idx: usize) -> String {
+    let mut result = after.to_string();
+    let mut depth: i32 = 0;
+    // Count depth from `after`
+    for &b in after.as_bytes() {
+        match b {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            _ => {}
+        }
+    }
+    if depth <= 0 {
+        return result;
+    }
+    for line in lines.iter().skip(current_idx + 1) {
+        if let Ok(s) = std::str::from_utf8(line) {
+            result.push(' ');
+            result.push_str(s.trim());
+            for &b in s.as_bytes() {
+                match b {
+                    b'(' => depth += 1,
+                    b')' => depth -= 1,
+                    _ => {}
+                }
+            }
+            if depth <= 0 {
+                break;
+            }
+        }
+    }
+    result
 }
 
 /// Check whether dependencies should be checked in this file.
@@ -643,5 +733,54 @@ mod tests {
             1,
             "should flag dep with commented-out version: {diags:?}"
         );
+    }
+
+    #[test]
+    fn multiline_dep_with_version_not_flagged() {
+        // Multi-line method call with version on continuation line — no offense
+        let source = crate::parse::source::SourceFile::from_bytes(
+            "example.gemspec",
+            b"Gem::Specification.new do |s|\n  s.add_development_dependency(\n    \"rspec\", \">= 3\", \"< 4\"\n  )\nend\n"
+                .to_vec(),
+        );
+        let config = crate::cop::CopConfig::default();
+        let mut diags = vec![];
+        DependencyVersion.check_lines(&source, &config, &mut diags, None);
+        assert!(
+            diags.is_empty(),
+            "should NOT flag multi-line dep with version: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn multiline_dep_without_version_flagged() {
+        // Multi-line method call without version — should flag
+        let source = crate::parse::source::SourceFile::from_bytes(
+            "example.gemspec",
+            b"Gem::Specification.new do |s|\n  s.add_dependency(\n    \"rails\"\n  )\nend\n"
+                .to_vec(),
+        );
+        let config = crate::cop::CopConfig::default();
+        let mut diags = vec![];
+        DependencyVersion.check_lines(&source, &config, &mut diags, None);
+        assert_eq!(
+            diags.len(),
+            1,
+            "should flag multi-line dep without version: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn splat_array_version_not_detected() {
+        // Splat+array wraps version — should be flagged (RuboCop doesn't match nested str)
+        let source = crate::parse::source::SourceFile::from_bytes(
+            "example.gemspec",
+            b"Gem::Specification.new do |s|\n  s.add_dependency(*[\"openssl\", \" ~> 3.2\"])\nend\n"
+                .to_vec(),
+        );
+        let config = crate::cop::CopConfig::default();
+        let mut diags = vec![];
+        DependencyVersion.check_lines(&source, &config, &mut diags, None);
+        assert_eq!(diags.len(), 1, "should flag splat+array dep: {diags:?}");
     }
 }
