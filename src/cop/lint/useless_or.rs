@@ -27,6 +27,17 @@ use crate::parse::source::SourceFile;
 /// parenthesized expressions like `x || (default || to_s)` where the inner
 /// `to_s` makes the parenthesized RHS always truthy.
 ///
+/// ## Phase 3 fix (2026-03-20)
+///
+/// FP=1 remaining: `@tag || (msg[0].to_s)` was incorrectly flagged. The RHS
+/// parenthesized-truthy check (added in Phase 2) was overly broad — it reported
+/// an offense whenever the RHS of `||` was a parenthesized expression containing
+/// a truthy method call. But a truthy RHS doesn't make `||` useless; only a
+/// truthy LHS does (since the RHS would never evaluate). RuboCop's spec confirms
+/// it only checks the LHS. Removed the entire RHS parenthesized-truthy check.
+/// Also removed a matching incorrect offense fixture case for
+/// `object.get_option('logo') || (default || h.asset_url(...).to_s)`.
+///
 /// Checks for useless OR expressions where the left side always returns a truthy value.
 pub struct UselessOr;
 
@@ -82,17 +93,6 @@ impl Cop for UselessOr {
 
         if let Some(truthy_node) = nested_truthy_middle(&lhs) {
             report_offense(self, source, &or_node, &truthy_node, diagnostics);
-            return;
-        }
-
-        // Check if the RHS is a parenthesized expression containing an
-        // always-truthy sub-expression (e.g., `x || (default || to_s)` where
-        // `to_s` makes the parenthesized RHS always truthy)
-        let rhs = or_node.right();
-        if rhs.as_parentheses_node().is_some() {
-            if let Some(truthy_node) = find_nested_truthy(rhs) {
-                report_offense(self, source, &or_node, &truthy_node, diagnostics);
-            }
         }
     }
 }
@@ -138,38 +138,6 @@ fn nested_truthy_middle<'pr>(node: &ruby_prism::Node<'pr>) -> Option<ruby_prism:
                     if let Some(truthy_node) = nested_truthy_middle(&stmt) {
                         return Some(truthy_node);
                     }
-                }
-            }
-        }
-    }
-
-    None
-}
-
-/// Check if a node is or contains an always-truthy expression.
-/// This handles parenthesized `||` expressions like `(default || to_s)`
-/// where `to_s` always returns truthy, making the whole expression always truthy.
-fn find_nested_truthy<'pr>(node: ruby_prism::Node<'pr>) -> Option<ruby_prism::Node<'pr>> {
-    if is_truthy_method_call(&node) {
-        return Some(node);
-    }
-
-    if let Some(or_node) = node.as_or_node() {
-        // If either side of an `||` is always truthy, the whole `||` is always truthy
-        if let Some(found) = find_nested_truthy(or_node.right()) {
-            return Some(found);
-        }
-        if let Some(found) = find_nested_truthy(or_node.left()) {
-            return Some(found);
-        }
-    }
-
-    if let Some(parens) = node.as_parentheses_node() {
-        if let Some(body) = parens.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                let stmts_body = stmts.body();
-                if stmts_body.len() == 1 {
-                    return find_nested_truthy(stmts_body.iter().next()?);
                 }
             }
         }
