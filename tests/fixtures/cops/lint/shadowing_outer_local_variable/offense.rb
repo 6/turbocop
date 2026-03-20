@@ -247,3 +247,77 @@ def parse_args(sw)
   end
 end
 
+# FN fix: unless/else — block in RHS of assignment in unless body, var also assigned in else
+def echo(major, minor)
+  unless minor
+    item = storage.items.detect do |item|
+                                    ^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `item`.
+      item.name == major
+    end
+  else
+    item = list.find_item(minor)
+  end
+end
+
+# FN fix: if/else — block nested in method chain in else body, var in if body
+def track_constant(tp, caller_locations)
+  if File.exist?(tp.path)
+    loc = build_source_location(tp, caller_locations)
+  else
+    caller_location = caller_locations
+      .find { |loc| loc.path && File.exist?(loc.path) }
+               ^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `loc`.
+    loc = resolve_location(caller_location)
+  end
+end
+
+# FN fix: variable reassigned inside block scope (case branch), block in else
+def parse_in_order(argv, setter)
+  opt, arg, sw, val, rest = nil
+  catch(:terminate) {
+    while arg = argv.shift
+      case arg
+      when /\A--/
+        sw, = complete(:long, opt, true)
+      else
+        catch(:prune) do
+          visit(:each_option) do |sw|
+                                  ^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `sw`.
+            sw.block.call(arg)
+          end
+        end
+      end
+    end
+  }
+end
+
+# FN fix: adjacent elsif — block nested in method chain, not direct branch child
+def schema_example(value)
+  if value.key?("oneOf")
+    value["oneOf"].first
+  elsif value.key?("anyOf")
+    ref = value["anyOf"].first
+    schema_example(ref)
+  elsif value.key?("allOf")
+    value["allOf"].map { |ref| schema_example(ref) }.reduce({}, &:merge)
+                          ^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `ref`.
+  end
+end
+
+# FN fix: multi-assign inside unless body, block in nested block in else of inner if
+def get_login_info(sources)
+  username, password = nil, nil
+  unless sources.empty?
+    if force_account
+      host, username, password = sources.find { |h, u, p| h == target }
+    else
+      choose do |menu|
+        sources.each do |host, olduser, oldpw|
+                         ^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `host`.
+          menu.choice(olduser, host)
+        end
+      end
+    end
+  end
+end
+

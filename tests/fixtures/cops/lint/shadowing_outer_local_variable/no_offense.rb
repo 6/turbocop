@@ -282,4 +282,18 @@ def find_or_create_item(page)
   record
 end
 
+# FP fix: Thread.new(value) passes value as argument — intentional shadowing
+def threaded_or_sequential(lib, &block)
+  if use_threads?
+    Thread.new { block.call(lib) }
+  else
+    value = block.call(lib)
+    Thread.new(value) { |value| value }
+  end
+end
+
+# FP fix: Thread.new with splat args — intentional shadowing
+def start_thread(*args)
+  Thread.new(*args) { |*args| process(*args) }
+end
 
