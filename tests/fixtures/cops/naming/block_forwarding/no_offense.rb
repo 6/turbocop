@@ -67,3 +67,14 @@ def nested_multi_assign(&block)
   end
   bar(&block)
 end
+# block forwarded in outer def but also used as local variable in nested def —
+# RuboCop's lvar check traverses into nested defs and finds the usage
+def outer_with_nested_lvar(&block)
+  Class.new do
+    def process(*args, &block)
+      block.call if block
+    end
+    module_eval &block
+    self
+  end
+end

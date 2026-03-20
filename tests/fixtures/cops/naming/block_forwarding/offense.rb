@@ -80,3 +80,23 @@ def multi_forward_spaces(& block)
   bar(& block)
       ^^^^^^^ Naming/BlockForwarding: Use anonymous block forwarding.
 end
+# forwarding in nested def shares same block param name — counted as body forwarding
+# for the outer method (RuboCop traverses into nested defs).
+# Inner def has keyword param so it gets skipped by the keyword check.
+def outer_method(&block)
+                 ^^^^^^ Naming/BlockForwarding: Use anonymous block forwarding.
+  Class.new do
+    def initialize(*args, key: true, &block)
+      super(*args, &block)
+                   ^^^^^^ Naming/BlockForwarding: Use anonymous block forwarding.
+    end
+  end
+end
+# space in param — block used as local variable, but RuboCop's source text
+# comparison fails to detect lvar usage, so param offense still fires
+def transform(& block)
+              ^^^^^^^ Naming/BlockForwarding: Use anonymous block forwarding.
+  items = [] unless defined?(@items)
+  items << block if block_given?
+  items
+end

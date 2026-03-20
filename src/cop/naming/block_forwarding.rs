@@ -59,6 +59,36 @@ use crate::parse::source::SourceFile;
 /// was too aggressive, suppressing body offenses even when sources matched.
 /// Symbol block passes (`&:foo`) are already excluded by the visitor since
 /// they don't match as `LocalVariableReadNode`.
+///
+/// ## Corpus investigation (2026-03-20)
+///
+/// Extended corpus oracle reported FP=2, FN=3.
+///
+/// FP=2 from `ahoward__sekrets__62af274` (test/lib/testing.rb:6,72): the outer
+/// `def Testing(*args, &block)` method has `module_eval &block` forwarding inside
+/// a `Class.new do...end` block, but a nested `def assert(*args, &block)` uses
+/// `block` as a local variable (`block.call`, `if block`). RuboCop's
+/// `use_block_argument_as_local_variable?` traverses into nested defs and finds
+/// the inner lvar usage, skipping the outer method. nitrocop was stopping at def
+/// boundaries.
+///
+/// Fix: removed the nested def barrier in the visitor (`visit_def_node` now
+/// traverses into nested defs). This matches RuboCop's `each_descendant` behavior.
+///
+/// FN=2 from `RStankov__SearchObjectGraphQL__3257615` (graphql_spec.rb:22,49):
+/// outer `def define_schema(&block)` has a nested `def initialize(*args, key: true,
+/// **kwargs, &block)` with `super(*args, &block)`. RuboCop's `each_descendant`
+/// finds the inner `&block` forwarding as a body offense for the outer method.
+/// Same fix (nested def traversal).
+///
+/// FN=1 from `mongoid__mongoid-cached-json__b235c99` (config.rb:112):
+/// `def transform(& block)` has a space in the param. The block is used as a
+/// local variable (`items << block`), but RuboCop's `use_block_argument_as_local_variable?`
+/// compares `last_argument.source[1..]` (= `" block"` with space) against lvar
+/// names (`"block"`), so the comparison fails and the param offense fires.
+///
+/// Fix: when `has_space_in_param` is true, bypass the `only_forwarded` check and
+/// fire the param offense unconditionally, matching RuboCop's source-text quirk.
 pub struct BlockForwarding;
 
 impl Cop for BlockForwarding {
@@ -132,6 +162,16 @@ impl Cop for BlockForwarding {
 
         let param_name_bytes = param_name.as_slice();
 
+        // Detect whitespace in the block param source (e.g., `& block` vs `&block`).
+        // RuboCop's `use_block_argument_as_local_variable?` compares
+        // `last_argument.source[1..]` against lvar names. When the param has a
+        // space (source is `& block`), `source[1..]` is `" block"` which doesn't
+        // match the lvar name `"block"`, so RuboCop fails to detect local variable
+        // usage and fires the param offense anyway.
+        let loc = block_param.location();
+        let param_loc_len = loc.end_offset() - loc.start_offset();
+        let has_space_in_param = param_loc_len > param_name_bytes.len() + 1;
+
         // Visit the body to check block param usage
         let mut checker = BlockUsageChecker {
             block_name: param_name_bytes,
@@ -147,8 +187,10 @@ impl Cop for BlockForwarding {
         }
         // If body is None, the block param is unused — still an offense
 
-        // If the block param is assigned (e.g., block ||= ...), it's not pure forwarding
-        if !checker.only_forwarded {
+        // If the block param is assigned (e.g., block ||= ...), it's not pure forwarding.
+        // But when the param has a space (`& block`), RuboCop's lvar check fails
+        // due to source text mismatch, so the param offense fires unconditionally.
+        if !checker.only_forwarded && !has_space_in_param {
             return;
         }
 
@@ -159,10 +201,10 @@ impl Cop for BlockForwarding {
 
         // Offense if:
         // - Block is forwarded (has_forwarding) and only forwarded (only_forwarded), OR
-        // - Block is never referenced at all (unused param should be anonymous &)
-        if checker.has_forwarding || !checker.has_any_reference {
+        // - Block is never referenced at all (unused param should be anonymous &), OR
+        // - Param has space (RuboCop's lvar check broken, fires unconditionally)
+        if checker.has_forwarding || !checker.has_any_reference || has_space_in_param {
             // Offense on the parameter
-            let loc = block_param.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(
                 source,
@@ -170,13 +212,6 @@ impl Cop for BlockForwarding {
                 column,
                 "Use anonymous block forwarding.".to_string(),
             ));
-
-            // RuboCop matches body forwarding usages by comparing source text
-            // (e.g., "&block" == "&block"). When the param has extra whitespace
-            // (e.g., "& block"), the source strings don't match and RuboCop
-            // skips the body offenses. Replicate this behavior.
-            let param_loc_len = loc.end_offset() - loc.start_offset();
-            let has_space_in_param = param_loc_len > param_name_bytes.len() + 1;
 
             // Offense on each &block forwarding usage in the body.
             // RuboCop compares source text of param vs forwarding usage
@@ -350,8 +385,14 @@ impl<'pr> Visit<'pr> for BlockUsageChecker<'_> {
         }
     }
 
-    // Don't descend into nested def nodes — they have their own scope
-    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
+    // Traverse INTO nested defs. RuboCop's `each_descendant(:block_pass)`
+    // and `use_block_argument_as_local_variable?` both cross def boundaries,
+    // so we must do the same. Inner defs that define their own `&block` param
+    // may shadow the outer one, but RuboCop doesn't distinguish by scope —
+    // it matches by name only.
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        ruby_prism::visit_def_node(self, node);
+    }
 }
 
 #[cfg(test)]
