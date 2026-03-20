@@ -68,3 +68,20 @@ RSpec.feature 'checkout', type: :feature do
     end
   end
 end
+
+# RSpec.describe with receiver inside a non-example-group block
+# should still count toward nesting depth
+describe MyService do
+  it 'handles nested specs' do
+    with_environment do
+      RSpec.describe 'InnerSpec' do
+        context 'first level' do
+          context 'exceeds max' do
+          ^^^^^^^^^^^^^^^^^^^^^^ RSpec/NestedGroups: Maximum example group nesting exceeded [4/3].
+            it { expect(true).to eq(true) }
+          end
+        end
+      end
+    end
+  end
+end

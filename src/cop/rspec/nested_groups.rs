@@ -34,6 +34,20 @@ use crate::parse::source::SourceFile;
 /// and explicit `BeginNode` wrappers.
 ///
 /// FN=0: no missed-detection change expected from this fix.
+///
+/// ## Corpus investigation (2026-03-20)
+///
+/// Corpus oracle reported FP=0, FN=4. All from DataDog/datadog-ci-rb.
+///
+/// Root cause: `walk_block_or_begin` only counted receiverless example groups
+/// (`context`, `describe`) toward nesting depth, but NOT `RSpec.describe` or
+/// `RSpec.context` (with `RSpec` receiver). In the corpus file, `RSpec.describe`
+/// was used inside non-example-group blocks (e.g., `it` / helper method blocks),
+/// and its depth contribution was skipped due to the `call.receiver().is_none()`
+/// guard. RuboCop's `example_group?` recognizes both forms.
+///
+/// Fix: check for example groups with or without `RSpec` receiver when deciding
+/// whether to increment nesting depth, matching the top-level detection logic.
 pub struct NestedGroups;
 
 impl Cop for NestedGroups {
@@ -270,7 +284,15 @@ impl NestingVisitor<'_> {
                 .allowed_groups
                 .iter()
                 .any(|group| group.as_bytes() == method_name);
-            if call.receiver().is_none() && is_rspec_example_group(method_name) && !is_allowed {
+            // Example groups with or without RSpec receiver count toward nesting.
+            // RuboCop's `example_group?` matches both `context do` and `RSpec.describe do`.
+            let is_example_group = if let Some(recv) = call.receiver() {
+                util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                    && is_rspec_example_group(method_name)
+            } else {
+                is_rspec_example_group(method_name)
+            };
+            if is_example_group && !is_allowed {
                 next_depth += 1;
                 if next_depth > self.max {
                     let loc = call.location();
