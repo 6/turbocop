@@ -42,9 +42,9 @@ BASELINE_CONFIG = PROJECT_ROOT / "bench" / "corpus" / "baseline_rubocop.yml"
 LOCAL_CACHE_DIR = PROJECT_ROOT / ".check-cop-cache"
 
 
-def download_corpus_results() -> Path:
+def download_corpus_results(prefer: str = "standard") -> Path:
     """Download corpus-results.json from the latest successful CI run."""
-    path, _run_id, _sha = _download_corpus()
+    path, _run_id, _sha = _download_corpus(prefer=prefer)
     return path
 
 
@@ -393,13 +393,16 @@ def main():
                         help="Force re-execution of nitrocop (ignore local cache)")
     parser.add_argument("--quick", action="store_true",
                         help="Only run repos with baseline activity (faster, may miss new FPs on zero-baseline repos)")
+    parser.add_argument("--extended", action="store_true",
+                        help="Use extended corpus (5k+ repos) instead of standard (1k repos)")
     args = parser.parse_args()
 
     # Load corpus results
     if args.input:
         input_path = args.input
     else:
-        input_path = download_corpus_results()
+        prefer = "extended" if args.extended else "standard"
+        input_path = download_corpus_results(prefer=prefer)
 
     data = json.loads(input_path.read_text())
     by_cop = data["by_cop"]

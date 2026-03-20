@@ -29,12 +29,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from corpus_download import download_corpus_results as _download_corpus
 
 
-def download_corpus_results() -> tuple[Path, str]:
+def download_corpus_results(prefer: str = "standard") -> tuple[Path, str]:
     """Download corpus-results.json from the latest successful CI run.
 
     Returns (path_to_json, head_sha).
     """
-    path, _run_id, head_sha = _download_corpus()
+    path, _run_id, head_sha = _download_corpus(prefer=prefer)
     return path, head_sha
 
 
@@ -254,6 +254,8 @@ def main():
                         help="(deprecated, use git-based detection) File with cop names to exclude")
     parser.add_argument("--no-git-exclude", action="store_true",
                         help="Disable automatic git-based exclusion of already-fixed cops")
+    parser.add_argument("--extended", action="store_true",
+                        help="Use extended corpus (5k+ repos) instead of standard (1k repos)")
     args = parser.parse_args()
 
     if not args.repo and not args.list:
@@ -267,7 +269,8 @@ def main():
     if args.input:
         input_path = args.input
     else:
-        input_path, oracle_sha = download_corpus_results()
+        prefer = "extended" if args.extended else "standard"
+        input_path, oracle_sha = download_corpus_results(prefer=prefer)
 
     # Detect cops fixed since the corpus oracle run via git history
     exclude_cops: set[str] = set()

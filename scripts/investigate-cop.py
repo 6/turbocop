@@ -33,9 +33,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
 
 
-def download_corpus_results() -> Path:
+def download_corpus_results(prefer: str = "standard") -> Path:
     """Download corpus-results.json from the latest successful CI run."""
-    path, _run_id, _sha = _download_corpus()
+    path, _run_id, _sha = _download_corpus(prefer=prefer)
     return path
 
 
@@ -106,6 +106,8 @@ def main():
                         help="Show only false negatives")
     parser.add_argument("--limit", type=int, default=0,
                         help="Limit number of examples shown (0 = all)")
+    parser.add_argument("--extended", action="store_true",
+                        help="Use extended corpus (5k+ repos) instead of standard (1k repos)")
     args = parser.parse_args()
 
     if args.fp_only and args.fn_only:
@@ -116,7 +118,8 @@ def main():
     if args.input:
         input_path = args.input
     else:
-        input_path = download_corpus_results()
+        prefer = "extended" if args.extended else "standard"
+        input_path = download_corpus_results(prefer=prefer)
 
     data = json.loads(input_path.read_text())
     by_cop = data["by_cop"]
