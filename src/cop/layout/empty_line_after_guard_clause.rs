@@ -142,6 +142,25 @@ use crate::parse::source::SourceFile;
 /// line before the following statement. Fix: keep handling ternaries
 /// separately, but do not reject ordinary `if` nodes just because they have
 /// `elsif`/`else` branches.
+///
+/// Another remaining FN cluster came from modifier guards on lines containing
+/// UTF-8 characters such as `return unless params[:utf8] == "✓"` or
+/// `return "✅" if success?`. The cop used `offset_to_line_col()` to get the
+/// guard node's end column, but that column is measured in UTF-8 characters
+/// while `source.lines()` yields raw byte slices. Slicing the line by that
+/// character column made valid guard lines appear to have trailing same-line
+/// code, so they were skipped as embedded expressions. Fix: compute the suffix
+/// from the original byte offset relative to the line start instead of from the
+/// character column.
+///
+/// Another remaining FN family came from lines that merely contained guard-like
+/// method names, such as `::Kernel.raise ... if level < 0`, `fail!(...) if ...`,
+/// or `DraftSequence.next!(...) if ...`. The raw-text sibling checks treated any
+/// top-level `raise`/`fail`/`next` token as a guard keyword even when it was a
+/// receiver-qualified call or a custom bang/predicate method. RuboCop's
+/// `guard_clause?` only matches bare guard keywords / bare Kernel calls with no
+/// receiver. Fix: require stricter token boundaries for raw-text guard detection:
+/// no preceding `.`/`:` receiver separator and no trailing `!`/`?` method suffix.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -282,7 +301,7 @@ impl Cop for EmptyLineAfterGuardClause {
             loc.end_offset().saturating_sub(1)
         };
 
-        let (if_end_line, end_col) = source.offset_to_line_col(effective_end_offset);
+        let (if_end_line, _) = source.offset_to_line_col(effective_end_offset);
 
         // Check for heredoc arguments — if present, the "end line" is after the
         // heredoc closing delimiter, not after the if node's source range.
@@ -318,17 +337,15 @@ impl Cop for EmptyLineAfterGuardClause {
         // non-comment code after the if node on the same line, skip.
         // Only check this for non-heredoc guards (heredoc guards span multiple lines).
         if heredoc_end_line.is_none() {
-            if let Some(cur_line) = lines.get(if_end_line.saturating_sub(1)) {
-                let after_pos = end_col + 1;
-                if after_pos < cur_line.len() {
-                    let rest = &cur_line[after_pos..];
-                    if let Some(idx) = rest
-                        .iter()
-                        .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
-                    {
-                        if rest[idx] != b'#' {
-                            return;
-                        }
+            if let Some(rest) =
+                line_suffix_after_offset(source, &lines, if_end_line, effective_end_offset)
+            {
+                if let Some(idx) = rest
+                    .iter()
+                    .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
+                {
+                    if rest[idx] != b'#' {
+                        return;
                     }
                 }
             }
@@ -460,17 +477,17 @@ impl EmptyLineAfterGuardClause {
         corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lines: Vec<&[u8]> = source.lines().collect();
-        let (end_line, end_col) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+        let end_offset = loc.end_offset().saturating_sub(1);
+        let (end_line, _) = source.offset_to_line_col(end_offset);
 
         // Check for embedded expression on same line
-        if let Some(cur_line) = lines.get(end_line.saturating_sub(1)) {
-            let after_pos = end_col + 1;
-            if after_pos < cur_line.len() {
-                let rest = &cur_line[after_pos..];
-                if let Some(idx) = rest.iter().position(|&b| b != b' ' && b != b'\t') {
-                    if rest[idx] != b'#' {
-                        return;
-                    }
+        if let Some(rest) = line_suffix_after_offset(source, &lines, end_line, end_offset) {
+            if let Some(idx) = rest
+                .iter()
+                .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
+            {
+                if rest[idx] != b'#' {
+                    return;
                 }
             }
         }
@@ -685,7 +702,7 @@ fn is_guard_line(content: &[u8]) -> bool {
     // Bare guard statements like `raise "error"` or `return foo` are NOT
     // considered guard lines for the purpose of this check.
     for keyword in GUARD_METHODS {
-        if starts_with_keyword(content, keyword) {
+        if starts_with_guard_keyword(content, keyword) {
             // Check if this line also has a modifier `if` or `unless`
             if contains_word(content, b"if") || contains_word(content, b"unless") {
                 return true;
@@ -719,7 +736,7 @@ fn is_guard_line_with_continuations(content: &[u8], lines: &[&[u8]], line_idx: u
     // non-guard lines).
     let starts_with_guard = GUARD_METHODS
         .iter()
-        .any(|kw| starts_with_keyword(content, kw));
+        .any(|kw| starts_with_guard_keyword(content, kw));
     if !starts_with_guard {
         return false;
     }
@@ -899,6 +916,18 @@ fn trim_trailing_whitespace(line: &[u8]) -> &[u8] {
     &line[..end]
 }
 
+fn line_suffix_after_offset<'a>(
+    source: &SourceFile,
+    lines: &[&'a [u8]],
+    line: usize,
+    byte_offset: usize,
+) -> Option<&'a [u8]> {
+    let cur_line = *lines.get(line.checked_sub(1)?)?;
+    let line_start = source.line_start_offset(line);
+    let after_pos = byte_offset.checked_sub(line_start)?.saturating_add(1);
+    (after_pos < cur_line.len()).then_some(&cur_line[after_pos..])
+}
+
 /// Check if a trimmed line inside a block is a bare guard statement.
 /// This matches RuboCop's `guard_clause?` which requires `single_line?` AND
 /// only matches bare guard calls (return/raise/fail/next/break), NOT modifier-form
@@ -908,7 +937,7 @@ fn is_bare_guard_in_block(trimmed: &[u8], lines: &[&[u8]], line_idx: usize) -> b
     // Check for guard keyword at the start of the line
     let has_guard_keyword = GUARD_METHODS
         .iter()
-        .any(|kw| starts_with_keyword(trimmed, kw));
+        .any(|kw| starts_with_guard_keyword(trimmed, kw));
 
     // If the line starts with a guard keyword but also has a modifier `if`/`unless`,
     // it's NOT a bare guard statement — it's a modifier-form if/unless wrapping the
@@ -926,7 +955,7 @@ fn is_bare_guard_in_block(trimmed: &[u8], lines: &[&[u8]], line_idx: usize) -> b
     let has_operator_guard = !has_guard_keyword
         && GUARD_METHODS
             .iter()
-            .any(|kw| contains_word_at_top_level(trimmed, kw))
+            .any(|kw| contains_guard_keyword_at_top_level(trimmed, kw))
         && (contains_word_at_top_level(trimmed, b"and")
             || contains_word_at_top_level(trimmed, b"or")
             || contains_pattern_at_top_level(trimmed, b"&&", false)
@@ -1217,11 +1246,101 @@ fn contains_modifier_guard(content: &[u8]) -> bool {
         return false;
     }
     for keyword in GUARD_METHODS {
-        if contains_word_at_top_level(content, keyword) {
+        if contains_guard_keyword_at_top_level(content, keyword) {
             return true;
         }
     }
     false
+}
+
+fn starts_with_guard_keyword(content: &[u8], keyword: &[u8]) -> bool {
+    content.starts_with(keyword) && guard_keyword_boundaries_ok(content, 0, keyword.len())
+}
+
+fn contains_guard_keyword_at_top_level(haystack: &[u8], keyword: &[u8]) -> bool {
+    let plen = keyword.len();
+    if haystack.len() < plen {
+        return false;
+    }
+
+    let mut depth: i32 = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut i = 0;
+
+    while i < haystack.len() {
+        let b = haystack[i];
+
+        if in_single_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'\'' {
+                in_single_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_double_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'"' {
+                in_double_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        match b {
+            b'\'' => {
+                in_single_quote = true;
+                i += 1;
+                continue;
+            }
+            b'"' => {
+                in_double_quote = true;
+                i += 1;
+                continue;
+            }
+            b'(' | b'{' | b'[' => {
+                depth += 1;
+                i += 1;
+                continue;
+            }
+            b')' | b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+
+        if depth == 0
+            && i + plen <= haystack.len()
+            && &haystack[i..i + plen] == keyword
+            && guard_keyword_boundaries_ok(haystack, i, plen)
+        {
+            return true;
+        }
+
+        i += 1;
+    }
+
+    false
+}
+
+fn guard_keyword_boundaries_ok(haystack: &[u8], start: usize, len: usize) -> bool {
+    let before_ok = start == 0 || {
+        let prev = haystack[start - 1];
+        !is_ident_char(prev) && prev != b'.' && prev != b':'
+    };
+    let after_ok = start + len >= haystack.len() || {
+        let next = haystack[start + len];
+        !is_ident_char(next) && next != b'!' && next != b'?'
+    };
+    before_ok && after_ok
 }
 
 fn contains_word_at_top_level(haystack: &[u8], word: &[u8]) -> bool {
@@ -1740,6 +1859,58 @@ mod tests {
             diags.len(),
             1,
             "Expected 1 offense for CRLF `return unless` before local assignment, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_return_unless_with_utf8_literal_before_assignment() {
+        let source = "def ignore_searx\n  return unless params[:utf8] == \"✓\"\n  @search = Search.new({results_count: 0}, nil)\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source.as_bytes());
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for UTF-8 modifier guard before assignment, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_return_with_utf8_value_before_expression() {
+        let source = "def result_emoji\n  return \"✅\" if success?\n  \"\"\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source.as_bytes());
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for UTF-8 guard value before expression, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_receiver_qualified_raise_is_not_guard_sibling() {
+        let source = b"def dirname(path, level = 1)\n  return path if level == 0\n  ::Kernel.raise ::ArgumentError, \"level can't be negative\" if level < 0\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense before receiver-qualified raise, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_bang_method_is_not_guard_sibling() {
+        let source = b"def check_thread_exists(params:, channel:)\n  return if params.thread_id.blank?\n  fail!(\"Thread not found\") if !channel.threads.exists?(id: params.thread_id)\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense before bang-method modifier line, got {}: {:?}",
             diags.len(),
             diags
         );
