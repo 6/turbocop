@@ -16,6 +16,14 @@ use crate::parse::source::SourceFile;
 /// Fix: removed receiver and block guards, extract hook source text from byte
 /// range (start of call to end of closing paren or last argument) to match
 /// RuboCop's `hook.source` output.
+///
+/// ## Corpus investigation (2026-03-20)
+/// FP=27, FN=0. Root cause: RuboCop's NodePattern wraps the `send` in an outer
+/// `(block ...)` node, requiring an actual block (`do...end` or `{ }`). Calls
+/// like `@state.before(:all, &@proc)` use `BlockArgumentNode` (block_pass), not
+/// a real `BlockNode`, and should not be flagged. Similarly, bare calls like
+/// `obj.before(:all)` with no block at all should not be flagged.
+/// Fix: added `call.block().and_then(|b| b.as_block_node()).is_some()` guard.
 pub struct BeforeAfterAll;
 
 impl Cop for BeforeAfterAll {
@@ -72,6 +80,14 @@ impl Cop for BeforeAfterAll {
         };
 
         if scope != b"all" && scope != b"context" {
+            return;
+        }
+
+        // RuboCop's NodePattern wraps the send in (block ...), requiring an actual
+        // block (do...end or {}). Calls with block_pass (&proc) or no block at all
+        // should not be flagged.
+        let has_block = call.block().and_then(|b| b.as_block_node()).is_some();
+        if !has_block {
             return;
         }
 
