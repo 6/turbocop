@@ -54,15 +54,16 @@ use crate::parse::source::SourceFile;
 ///
 /// Round 4 (56 FP → 0 FP, 0 FN target):
 ///
-/// FP root cause: `has_parser_rejected_escape` only checked `\U`, but the Parser
-/// gem rejects ALL non-standard uppercase escape sequences (`\A`, `\B`, `\D`..`\Z`
-/// except `\C-x` and `\M-x` which are valid control/meta escapes). In single-quoted
-/// strings these are literal text, but after single→double quote conversion they
-/// become escape sequences. Prism accepts them as unknown escapes (literal), but the
-/// Parser gem treats them as fatal errors, so RuboCop's `valid_syntax?` returns false.
+/// Previous (incorrect) analysis: claimed the Parser gem rejects ALL non-standard
+/// uppercase escape sequences. Actually, only `\U` is fatally rejected (it looks
+/// like an incomplete unicode escape). Other uppercase escapes like `\A`, `\B`, `\D`,
+/// `\Z` are accepted by the Parser gem as non-standard escapes (with deprecation
+/// warning, but `valid_syntax?` returns true). The blanket rejection of all uppercase
+/// escapes caused FN=2 in corpus (strings with `\A`/`\z` + interpolation were
+/// incorrectly skipped).
 ///
-/// Fix: expanded `has_parser_rejected_escape` to reject any `\[A-Z]` sequence except
-/// `\C-` (control) and `\M-` (meta) prefixes.
+/// Fix (round 4 correction): narrowed `has_parser_rejected_escape` to only reject
+/// `\U`. Other uppercase escapes pass through to Prism parsing as before.
 ///
 /// Round 5 (56 FP from `%q{...}` strings — reverted):
 ///
@@ -267,27 +268,21 @@ fn valid_syntax_as_double_quoted(source: &[u8]) -> bool {
 /// that the Parser gem rejects but Prism accepts in double-quoted strings.
 ///
 /// In single-quoted strings, `\X` is literal backslash + X. When converted to
-/// double-quoted, these become escape sequences. The Parser gem rejects all
-/// non-standard uppercase escape sequences as fatal errors, while Prism accepts
-/// them as unknown escapes (treating them as literal text).
+/// double-quoted, these become escape sequences.
 ///
-/// Standard uppercase escapes in Ruby double-quoted strings:
-/// - `\C-x` (control character) and `\M-x` (meta character) are valid
-///
-/// All other uppercase backslash sequences are non-standard and rejected by Parser.
+/// The Parser gem only fatally rejects `\U` (it looks like an incomplete unicode
+/// escape `\u`). Other uppercase escapes like `\A`, `\B`, `\D`, `\Z` are treated
+/// as non-standard/unknown escapes — the Parser gem accepts them (possibly with a
+/// deprecation warning, but `valid_syntax?` returns true). Only `\U` causes a
+/// fatal SyntaxError.
 fn has_parser_rejected_escape(content: &str) -> bool {
     let bytes = content.as_bytes();
     let mut i = 0;
     while i + 1 < bytes.len() {
         if bytes[i] == b'\\' {
             let next = bytes[i + 1];
-            if next.is_ascii_uppercase() {
-                // \C-x and \M-x are valid Ruby escape sequences — skip them
-                // only when followed by `-` (the control/meta prefix pattern).
-                if (next == b'C' || next == b'M') && i + 2 < bytes.len() && bytes[i + 2] == b'-' {
-                    i += 3; // skip past \C- or \M-
-                    continue;
-                }
+            // Only \U is fatally rejected by the Parser gem
+            if next == b'U' {
                 return true;
             }
             // Skip past the escaped character to avoid double-processing
@@ -380,26 +375,18 @@ mod tests {
     }
 
     #[test]
-    fn test_all_nonstandard_uppercase_escapes_rejected() {
-        // All non-standard uppercase escapes should be rejected
-        for ch in b"ABDEFGHIJKLNOPQRSTVWXYZ" {
-            let src = format!("'\\{} #{{foo}}'", *ch as char);
+    fn test_only_backslash_u_uppercase_rejected() {
+        // Only \U is fatally rejected by the Parser gem
+        assert!(has_parser_rejected_escape("\\U+0041 #{foo}"));
+        assert!(has_parser_rejected_escape("\\U #{foo}"));
+        // Other uppercase escapes are NOT rejected — Parser gem accepts them
+        for ch in b"ABCDEFGHIJKLMNOPQRSTVWXYZ" {
+            let content = format!("\\{} #{{foo}}", *ch as char);
             assert!(
-                !valid_syntax_as_double_quoted(src.as_bytes()),
-                "Expected \\{} to be rejected",
+                !has_parser_rejected_escape(&content),
+                "Expected \\{} to NOT be rejected",
                 *ch as char
             );
         }
-    }
-
-    #[test]
-    fn test_control_and_meta_escapes_allowed() {
-        // \C-x and \M-x are valid Ruby escape sequences
-        assert!(!has_parser_rejected_escape("\\C-a #{foo}"));
-        assert!(!has_parser_rejected_escape("\\M-a #{foo}"));
-        assert!(!has_parser_rejected_escape("\\M-\\C-a #{foo}"));
-        // But \C without - is non-standard
-        assert!(has_parser_rejected_escape("\\C #{foo}"));
-        assert!(has_parser_rejected_escape("\\M #{foo}"));
     }
 }

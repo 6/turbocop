@@ -53,34 +53,10 @@ txt = 'test #{BEGIN { x = 1 }}'
 # Prism accepts it, but we must match RuboCop behavior.
 label = '\U+0041 is #{char}'
 
-# Non-standard uppercase escape sequences — Parser gem rejects these as fatal
-# errors when in double-quoted strings, but Prism accepts them as literal text.
-# Since the single-to-double conversion makes them escape sequences, and
-# RuboCop's valid_syntax? (which uses the Parser gem) returns false, nitrocop
-# must not flag these strings.
-a = '\A #{name}'
-b = '\B #{name}'
-c = '\D #{name}'
-d = '\E #{name}'
-e = '\F #{name}'
-f = '\G #{name}'
-g = '\H #{name}'
-h = '\I #{name}'
-i = '\J #{name}'
-j = '\K #{name}'
-k = '\L #{name}'
-l = '\N #{name}'
-m = '\O #{name}'
-n = '\P #{name}'
-o = '\Q #{name}'
-p = '\R #{name}'
-q = '\S #{name}'
-r = '\T #{name}'
-s = '\V #{name}'
-t = '\W #{name}'
-u = '\X #{name}'
-v = '\Y #{name}'
-w = '\Z #{name}'
+# \U escape — in double-quoted strings, Parser gem fatally rejects \U
+# (looks like incomplete unicode escape). Other uppercase escapes (\A, \B, etc.)
+# are NOT fatally rejected by Parser — they are treated as non-standard escapes
+# with a deprecation warning but valid_syntax? returns true.
 
 # Multiline %q strings — RuboCop does not flag these (Parser gem splits
 # multiline strings into dstr children without loc markers).

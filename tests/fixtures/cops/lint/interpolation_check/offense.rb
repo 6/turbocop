@@ -28,3 +28,12 @@ b = %q|text #{foo} bar|
 
 c = %q(value #{bar})
     ^^^ Lint/InterpolationCheck: Interpolation in single quoted string detected. Use double quoted strings if you need interpolation.
+
+# Strings with non-standard uppercase escapes like \A, \Z — the Parser gem
+# does NOT fatally reject these (only \U is fatal). So these are valid
+# interpolation candidates and should be flagged.
+d = '\A#{regexp}\z'
+    ^ Lint/InterpolationCheck: Interpolation in single quoted string detected. Use double quoted strings if you need interpolation.
+
+e = '\Astring#{interpolation}\z'
+    ^ Lint/InterpolationCheck: Interpolation in single quoted string detected. Use double quoted strings if you need interpolation.
