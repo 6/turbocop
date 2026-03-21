@@ -461,11 +461,7 @@ Co-Authored-By: 6[bot] <129682364+6[bot]@users.noreply.github.com>"
           gh label create "$MODEL_LABEL" --color "c2e0c6" 2>/dev/null || true
           gh label create "needs-rebase" --color "e4e669" 2>/dev/null || true
 
-          PR_BODY="Automated ${MODE} fix for ${COP} (backend: ${BACKEND}).
-
-          **Validation**
-          - [ ] Full CI (checks.yml)
-          - [ ] Corpus cop check"
+          PR_BODY="Automated ${MODE} fix for ${COP} (backend: ${BACKEND})."
 
           PR_URL=$(gh pr create \
             --base main \
