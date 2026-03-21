@@ -88,10 +88,9 @@ impl Cop for SpaceBeforeComment {
             // literals (e.g., `?\ ` produces a space character). The space is consumed by the
             // escape, so there's no separator space between the character literal and the comment.
             // Detect this: `?\ ` is `?` (start-3), `\` (start-2), ` ` (start-1).
-            let is_space_from_char_escape = start >= 3
-                && bytes[start - 2] == b'\\'
-                && bytes[start - 3] == b'?';
-            if prev != b' ' && prev != b'\t' || (prev == b' ' && is_space_from_char_escape) {
+            let is_space_from_char_escape =
+                start >= 3 && bytes[start - 2] == b'\\' && bytes[start - 3] == b'?';
+            if (prev != b' ' && prev != b'\t') || (prev == b' ' && is_space_from_char_escape) {
                 let (line, column) = source.offset_to_line_col(start);
                 let mut diag = self.diagnostic(
                     source,
