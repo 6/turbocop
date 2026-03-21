@@ -118,10 +118,17 @@ jobs:
           wc -l /tmp/task.md
           grep -c "CODE BUG\|CONFIG/CONTEXT\|CONFIRMED\|NOT REPRODUCED" /tmp/task.md || echo "no diagnostics"
 
+          # Count code bugs vs config issues from pre-diagnostic
+          CODE_BUGS=$(grep -c "CODE BUG" /tmp/task.md || echo "0")
+          CONFIG_ISSUES=$(grep -c "CONFIG/CONTEXT" /tmp/task.md || echo "0")
+          echo "code_bugs=$CODE_BUGS" >> "$GITHUB_OUTPUT"
+          echo "Code bugs: $CODE_BUGS, Config issues: $CONFIG_ISSUES"
+        id: task
+
       # --- Retry-only: collect prior attempts ---
 
       - name: Collect prior attempts
-        if: github.event.inputs.mode == 'retry'
+        if: github.event.inputs.mode == 'retry' && steps.task.outputs.code_bugs != '0'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -130,7 +137,7 @@ jobs:
             --output /tmp/prior_attempts.md
 
       - name: Close prior open PRs
-        if: github.event.inputs.mode == 'retry'
+        if: github.event.inputs.mode == 'retry' && steps.task.outputs.code_bugs != '0'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -149,6 +156,7 @@ jobs:
       # --- Build final prompt (combines task + retry context + extra instructions) ---
 
       - name: Build final prompt
+        if: steps.task.outputs.code_bugs != '0'
         run: |
           cp /tmp/task.md /tmp/final-task.md
 
@@ -171,7 +179,14 @@ jobs:
           echo "=== Final prompt ==="
           wc -l /tmp/final-task.md
 
+      - name: Skip if already fixed
+        if: steps.task.outputs.code_bugs == '0'
+        run: |
+          echo "::warning::No code bugs found — cop appears already fixed. Skipping agent."
+          echo "All FP/FN examples are config/context issues or already detected."
+
       - name: Prepare clean workspace for agent
+        if: steps.task.outputs.code_bugs != '0'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -186,6 +201,7 @@ jobs:
       # --- Install + run agent ---
 
       - name: Install agent CLI
+        if: steps.task.outputs.code_bugs != '0'
         run: |
           if [ "${{ github.event.inputs.backend }}" = "minimax" ]; then
             curl -fsSL https://claude.ai/install.sh | bash
@@ -194,6 +210,7 @@ jobs:
           fi
 
       - name: Run agent
+        if: steps.task.outputs.code_bugs != '0'
         timeout-minutes: 45
         env:
           ANTHROPIC_BASE_URL: ${{ github.event.inputs.backend == 'minimax' && 'https://api.minimax.io/anthropic' || '' }}
@@ -248,7 +265,7 @@ jobs:
           echo "Result: $(jq -r '.result // "no result"' /tmp/agent-result.json 2>/dev/null | head -20)"
 
       - name: Generate summary
-        if: always()
+        if: always() && steps.task.outputs.code_bugs != '0'
         run: |
           COP="${{ github.event.inputs.cop }}"
           BACKEND="${{ github.event.inputs.backend }}"
@@ -327,7 +344,7 @@ jobs:
           cat /tmp/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload agent log
-        if: always()
+        if: always() && steps.task.outputs.code_bugs != '0'
         uses: actions/upload-artifact@v4
         with:
           name: agent-log-${{ github.run_id }}-${{ github.run_attempt }}
@@ -343,6 +360,7 @@ jobs:
       # --- Validate + PR ---
 
       - name: Check for changes
+        if: steps.task.outputs.code_bugs != '0'
         id: changes
         run: |
           UNCOMMITTED=false
