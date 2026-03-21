@@ -80,17 +80,17 @@ write_files:
       done
       rm -f "$RUNNER_TAR"
 
-      echo "=== Creating shared cargo target directory ==="
-      sudo -u $RUNNER_USER mkdir -p $RUNNER_HOME/cargo-target
-
-      echo "=== Pre-warming: clone repo and build into shared target ==="
+      echo "=== Pre-warming: build seed target cache ==="
+      # Each job copies this seed into its own target/ via hard links (cp -al)
+      # so concurrent jobs don't fight over the same directory
       sudo -u $RUNNER_USER bash -c "
         source \$HOME/.cargo/env
         cd \$HOME
         git clone --recurse-submodules https://github.com/$REPO.git nitrocop-cache
         cd nitrocop-cache
-        CARGO_TARGET_DIR=\$HOME/cargo-target cargo build
-        CARGO_TARGET_DIR=\$HOME/cargo-target CARGO_INCREMENTAL=1 cargo test --lib --no-run
+        CARGO_INCREMENTAL=1 cargo build
+        CARGO_INCREMENTAL=1 cargo test --lib --no-run
+        mv target \$HOME/cargo-target-seed
       "
 
       echo "=== Setup complete ==="

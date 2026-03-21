@@ -51,17 +51,21 @@ jobs:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
 
-      # On self-hosted: use persistent shared target dir (survives across jobs)
+      # On self-hosted: copy pre-warmed target into job workspace (each job
+      # gets its own copy to avoid concurrent cargo lock contention)
       # On GitHub-hosted: use actions/cache to save/restore target/
       - name: Set up cargo cache
         run: |
-          if [ -d "/home/runner/cargo-target" ]; then
-            echo "Self-hosted runner detected — using persistent cargo target"
-            echo "CARGO_TARGET_DIR=/home/runner/cargo-target" >> "$GITHUB_ENV"
+          if [ -d "/home/runner/cargo-target-seed" ]; then
+            echo "Self-hosted runner — seeding target/ from pre-warmed cache"
+            cp -al /home/runner/cargo-target-seed target 2>/dev/null || \
+              cp -r /home/runner/cargo-target-seed target
+            echo "seeded=true" >> "$GITHUB_OUTPUT"
           fi
+        id: cargo-cache
 
       - uses: actions/cache@v4
-        if: ${{ !env.CARGO_TARGET_DIR }}
+        if: steps.cargo-cache.outputs.seeded != 'true'
         with:
           path: target
           key: agent-target-${{ hashFiles('Cargo.lock') }}
