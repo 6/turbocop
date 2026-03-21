@@ -1,6 +1,6 @@
 use crate::cop::node_type::{
-    BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE,
-    REQUIRED_PARAMETER_NODE, STATEMENTS_NODE,
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, FORWARDING_SUPER_NODE, LOCAL_VARIABLE_READ_NODE,
+    REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SUPER_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -49,6 +49,17 @@ use crate::parse::source::SourceFile;
 /// numbered parameter `_1` blocks were not detected. These parse as blocks
 /// with `ItParametersNode` or `NumberedParametersNode` params (not
 /// `BlockParametersNode`). Fix: added detection for both patterns.
+///
+/// ## Investigation findings (2026-03-21)
+///
+/// **FN root cause (3 FNs across 2 repos):** `super { |x| x.foo }` and
+/// `super(args) do |x| x.foo end` were not detected. The cop only handled
+/// `CallNode` blocks but not `SuperNode` (explicit args) or
+/// `ForwardingSuperNode` (no args). RuboCop's `symbol_proc_receiver?` matcher
+/// explicitly handles `{(call ...) (super ...) zsuper}`. Fix: added
+/// `check_super_block` and `check_forwarding_super_block` methods to handle
+/// both cases, with appropriate config checks (AllowMethodsWithArguments
+/// applies to SuperNode arguments; ForwardingSuperNode has no arguments).
 pub struct SymbolProc;
 
 impl Cop for SymbolProc {
@@ -61,9 +72,11 @@ impl Cop for SymbolProc {
             BLOCK_NODE,
             BLOCK_PARAMETERS_NODE,
             CALL_NODE,
+            FORWARDING_SUPER_NODE,
             LOCAL_VARIABLE_READ_NODE,
             REQUIRED_PARAMETER_NODE,
             STATEMENTS_NODE,
+            SUPER_NODE,
         ]
     }
 
@@ -82,14 +95,53 @@ impl Cop for SymbolProc {
         let allow_comments = config.get_bool("AllowComments", false);
         let _active_support = config.get_bool("ActiveSupportExtensionsEnabled", false);
 
-        // Look for blocks like { |x| x.foo } that can be replaced with (&:foo)
-        // We match on CallNode (the method receiving the block) so we can
-        // check AllowedMethods against the outer method name.
-        let call_with_block = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
+        // Handle three cases: CallNode, SuperNode, and ForwardingSuperNode
+        // All three can have blocks attached
+        if let Some(call_with_block) = node.as_call_node() {
+            self.check_call_block(
+                source,
+                &call_with_block,
+                parse_result,
+                allow_methods_with_arguments,
+                &allowed_methods,
+                &allowed_patterns,
+                allow_comments,
+                diagnostics,
+            );
+        } else if let Some(super_node) = node.as_super_node() {
+            self.check_super_block(
+                source,
+                &super_node,
+                parse_result,
+                allow_methods_with_arguments,
+                allow_comments,
+                diagnostics,
+            );
+        } else if let Some(fwd_super) = node.as_forwarding_super_node() {
+            self.check_forwarding_super_block(
+                source,
+                &fwd_super,
+                parse_result,
+                allow_comments,
+                diagnostics,
+            );
+        }
+    }
+}
 
+impl SymbolProc {
+    /// Check a CallNode with an attached block (e.g., `items.map { |x| x.foo }`).
+    fn check_call_block(
+        &self,
+        source: &SourceFile,
+        call_with_block: &ruby_prism::CallNode<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        allow_methods_with_arguments: bool,
+        allowed_methods: &Option<Vec<String>>,
+        allowed_patterns: &Option<Vec<String>>,
+        allow_comments: bool,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let block = match call_with_block.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
@@ -134,7 +186,7 @@ impl Cop for SymbolProc {
         }
 
         // Check outer method name against AllowedMethods
-        if let Some(ref allowed) = allowed_methods {
+        if let Some(allowed) = allowed_methods {
             if let Ok(name_str) = std::str::from_utf8(outer_method) {
                 if allowed.iter().any(|m| m == name_str) {
                     return;
@@ -143,7 +195,7 @@ impl Cop for SymbolProc {
         }
 
         // Check outer method name against AllowedPatterns (regex)
-        if let Some(ref patterns) = allowed_patterns {
+        if let Some(patterns) = allowed_patterns {
             if let Ok(name_str) = std::str::from_utf8(outer_method) {
                 for pattern in patterns {
                     if let Ok(re) = regex::Regex::new(pattern) {
@@ -160,7 +212,87 @@ impl Cop for SymbolProc {
             return;
         }
 
-        // Extract the single method call from the block body (shared by all paths)
+        // Check the block body for symbol proc pattern
+        self.check_block_body(
+            source,
+            &block,
+            parse_result,
+            "the method",
+            allow_comments,
+            diagnostics,
+        );
+    }
+
+    /// Check a SuperNode with an attached block (e.g., `super(args) { |x| x.foo }`).
+    fn check_super_block(
+        &self,
+        source: &SourceFile,
+        super_node: &ruby_prism::SuperNode<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        allow_methods_with_arguments: bool,
+        allow_comments: bool,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let block = match super_node.block() {
+            Some(b) => match b.as_block_node() {
+                Some(bn) => bn,
+                None => return,
+            },
+            None => return,
+        };
+
+        // AllowMethodsWithArguments: when true, skip if super has arguments
+        if allow_methods_with_arguments && super_node.arguments().is_some() {
+            return;
+        }
+
+        // Check the block body for symbol proc pattern
+        self.check_block_body(
+            source,
+            &block,
+            parse_result,
+            "`super`",
+            allow_comments,
+            diagnostics,
+        );
+    }
+
+    /// Check a ForwardingSuperNode with an attached block (e.g., `super { |x| x.foo }`).
+    fn check_forwarding_super_block(
+        &self,
+        source: &SourceFile,
+        fwd_super: &ruby_prism::ForwardingSuperNode<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        allow_comments: bool,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let block = match fwd_super.block() {
+            Some(bn) => bn,
+            None => return,
+        };
+
+        // Check the block body for symbol proc pattern
+        self.check_block_body(
+            source,
+            &block,
+            parse_result,
+            "`super`",
+            allow_comments,
+            diagnostics,
+        );
+    }
+
+    /// Check the body of a block for the symbol proc pattern.
+    fn check_block_body(
+        &self,
+        source: &SourceFile,
+        block: &ruby_prism::BlockNode<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        method_desc: &str,
+        allow_comments: bool,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // Extract the single method call from the block body
         let body = match block.body() {
             Some(b) => b,
             None => return,
@@ -286,8 +418,9 @@ impl Cop for SymbolProc {
             line,
             column,
             format!(
-                "Pass `&:{}` as an argument to the method instead of a block.",
+                "Pass `&:{}` as an argument to {} instead of a block.",
                 String::from_utf8_lossy(method_name),
+                method_desc,
             ),
         ));
     }
