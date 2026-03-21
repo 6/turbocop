@@ -18,6 +18,24 @@ use crate::parse::source::SourceFile;
 /// Rerun outcome: removed the CI-baseline false positives from `ifme` (5),
 /// `dryrun` (1), and one `natalie` case. Local reruns still show one legacy
 /// `jruby` false positive plus offenses in an excluded local-only corpus repo.
+///
+/// ## FN investigation (2026-03-21)
+///
+/// FN=4 root cause: In Ruby, `?\ ` (character literal with backslash-space) is
+/// recognized as a space escape sequence, producing a space character. The space
+/// is "consumed" by the escape, meaning there's no whitespace token between the
+/// character literal and the following comment. RuboCop correctly detects this
+/// because its position-based check (`token1.pos.end == token2.pos.begin`) sees
+/// the character literal ending where the comment begins.
+///
+/// The Rust implementation checked `bytes[start - 1]` for a space character, which
+/// would be the space from `?\ `. It then skipped the offense. But that space is
+/// not a "separator" - it's part of the character literal's output.
+///
+/// Fix: detect when the space before a comment is from `?\ ` by checking if
+/// bytes[start-3..start] == `?\ ` (question mark, backslash, space). In that
+/// case, the space is from the character literal escape and should not be
+/// treated as a separator. Report the offense.
 pub struct SpaceBeforeComment;
 
 impl Cop for SpaceBeforeComment {
@@ -66,7 +84,14 @@ impl Cop for SpaceBeforeComment {
             }
 
             // Inline comment: check for space before #
-            if prev != b' ' && prev != b'\t' {
+            // In Ruby, `\ ` (backslash-space) is recognized as a space escape in character
+            // literals (e.g., `?\ ` produces a space character). The space is consumed by the
+            // escape, so there's no separator space between the character literal and the comment.
+            // Detect this: `?\ ` is `?` (start-3), `\` (start-2), ` ` (start-1).
+            let is_space_from_char_escape = start >= 3
+                && bytes[start - 2] == b'\\'
+                && bytes[start - 3] == b'?';
+            if prev != b' ' && prev != b'\t' || (prev == b' ' && is_space_from_char_escape) {
                 let (line, column) = source.offset_to_line_col(start);
                 let mut diag = self.diagnostic(
                     source,
