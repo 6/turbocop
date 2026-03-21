@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Kilo Cloud Agent setup for nitrocop cop-fix tasks.
+# Called from Kilo startup commands: bash .kilocode/setup-script
+
+# Install build tools (ruby-prism crate needs a C compiler)
+apt-get update && apt-get install -y build-essential curl
+
+# Install Rust
+if ! command -v cargo &>/dev/null; then
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  source "$HOME/.cargo/env"
+fi
+
+# Build the project
+cargo build
+
+# Remove files that would confuse the agent.
+# The agent gets instructions from .kilocode/rules/cop-fix.md and the task prompt.
+# These deletions are ephemeral — never committed.
+rm -f CLAUDE.md AGENTS.md
+rm -rf .agents/ .claude/ .devcontainer/ .github/ bench/ docs/ gem/ scripts/

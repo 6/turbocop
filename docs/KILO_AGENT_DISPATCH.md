@@ -47,20 +47,13 @@ This is enough for all 319 Tier 1 cops. Upgrade to Max-Highspeed ($80/mo, 15K re
    - BYOK provider: MiniMax
    - API key: your MiniMax API key
    - Model: MiniMax M2.7-highspeed
-   - Startup commands:
-     ```bash
-     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-     source $HOME/.cargo/env
-     cargo build
-     rm -f CLAUDE.md AGENTS.md
-     rm -rf .agents/ .claude/ .devcontainer/ .github/ bench/ docs/ gem/ scripts/
-     ```
+   - Startup commands: `bash .kilocode/setup-script`
 4. Create a **webhook trigger** linked to the `minimax-highspeed` profile:
    - Prompt template: `{{bodyJson}}` (the dispatch sends JSON with a `message` field containing the full task)
    - Inbound auth: set a shared secret (this becomes `KILO_WEBHOOK_SECRET` in GitHub secrets)
 5. Note the webhook URL
 
-The startup commands install Rust, build the project, and remove large instruction files that would confuse the agent. The agent gets its instructions from `.kilocode/rules/cop-fix.md` (committed to the repo) and the task prompt (sent via webhook). These deletions are ephemeral — they only happen in the container and are never committed.
+The setup script (`.kilocode/setup-script`, committed to the repo) installs build tools + Rust, builds the project, and removes files that would confuse the agent (CLAUDE.md, AGENTS.md, .claude/skills/, etc). These deletions are ephemeral — they only happen in the container and are never committed. The agent gets its instructions from `.kilocode/rules/cop-fix.md` and the task prompt.
 
 **Optional: additional profiles for harder cops.** Create more environment profiles (`claude-sonnet`, `claude-opus`) with Anthropic API keys instead of MiniMax. Create a webhook trigger for each. You only need `minimax-highspeed` to start.
 
