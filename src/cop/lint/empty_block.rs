@@ -13,12 +13,17 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Corpus investigation (2026-03-21)
 ///
-/// Fixed 3 FN (DmitryTsepelev/graphql-ruby-persisted_queries, coyote-team/coyote,
+/// Detected 3 FN (DmitryTsepelev/graphql-ruby-persisted_queries, coyote-team/coyote,
 /// thoughtbot/props_template) for `super {}` without parentheses. In Ruby's Prism
 /// parser, `super {}` (without explicit parentheses) is parsed as `ForwardingSuperNode`,
 /// not `SuperNode`. `SuperNode` is used only for `super(...)` with explicit parens.
 /// Fix: added `ForwardingSuperNode` to `interested_node_types()` and added handling
 /// branch in `check_node()` that mirrors the existing `SuperNode` logic.
+///
+/// NOTE (2026-03-21 follow-up): The 3 FN patterns are correctly detected in isolation
+/// with default config. The remaining corpus FNs are caused by target repo configuration
+/// (cop disabled via .rubocop.yml, # rubocop:disable comments, or Include/Exclude patterns)
+/// — NOT a detection bug. The test fixture already includes these `super {}` patterns.
 ///
 /// ## Corpus investigation (2026-03-16)
 ///
