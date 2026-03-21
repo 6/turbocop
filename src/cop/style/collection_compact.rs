@@ -261,13 +261,50 @@ impl CollectionCompact {
         call: &ruby_prism::CallNode<'_>,
         allowed_receivers: &[String],
     ) -> bool {
+        if allowed_receivers.is_empty() {
+            return false;
+        }
         if let Some(receiver) = call.receiver() {
-            let recv_src = std::str::from_utf8(receiver.location().as_slice()).unwrap_or("");
-            if allowed_receivers.iter().any(|ar| recv_src == ar.as_str()) {
+            let recv_name = self.receiver_name(&receiver);
+            if allowed_receivers.iter().any(|ar| recv_name == *ar) {
                 return true;
             }
         }
         false
+    }
+
+    /// Recursively resolve the root receiver name, matching RuboCop's
+    /// `AllowedReceivers#receiver_name` behavior.  Walks through method
+    /// chains (CallNode receivers) to find the originating identifier.
+    ///
+    /// Examples:
+    ///   `params`                        → "params"
+    ///   `params.merge(key: val)`        → "params"
+    ///   `params.map { |k,v| ... }`      → "params"  (block on map, Prism keeps CallNode as receiver)
+    ///   `Foo::Bar`                       → source text (constant paths are not traversed)
+    fn receiver_name(&self, node: &ruby_prism::Node<'_>) -> String {
+        if let Some(call) = node.as_call_node() {
+            if let Some(recv) = call.receiver() {
+                // Stop recursing through constant receivers (matches RuboCop)
+                if recv.as_constant_read_node().is_some()
+                    || recv.as_constant_path_node().is_some()
+                {
+                    let const_src =
+                        std::str::from_utf8(recv.location().as_slice()).unwrap_or("");
+                    let method =
+                        std::str::from_utf8(call.name().as_slice()).unwrap_or("");
+                    return format!("{const_src}.{method}");
+                }
+                return self.receiver_name(&recv);
+            }
+            // No receiver — bare method call like `params`
+            let method = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
+            return method.to_string();
+        }
+        // Fallback: use the node's source text
+        std::str::from_utf8(node.location().as_slice())
+            .unwrap_or("")
+            .to_string()
     }
 }
 
@@ -275,4 +312,52 @@ impl CollectionCompact {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(CollectionCompact, "cops/style/collection_compact");
+
+    #[test]
+    fn allowed_receivers_traverses_method_chains() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let mut options = HashMap::new();
+        options.insert(
+            "AllowedReceivers".to_string(),
+            serde_yml::Value::Sequence(vec![serde_yml::Value::String("params".to_string())]),
+        );
+        let config = CopConfig {
+            options,
+            ..CopConfig::default()
+        };
+
+        // Direct receiver: params.reject(&:nil?) — should be suppressed
+        let code = b"params.reject(&:nil?)";
+        let diags = crate::testutil::run_cop_with_config(&CollectionCompact, code, config.clone());
+        assert!(
+            diags.is_empty(),
+            "params.reject(&:nil?) should be suppressed by AllowedReceivers"
+        );
+
+        // Chained through map block: params.map { ... }.reject(&:nil?) — should be suppressed
+        let code = b"Hash[params.map { |k, v|\n  next if k == \"name\"\n  [k.to_sym, v]\n}.reject(&:nil?)]";
+        let diags = crate::testutil::run_cop_with_config(&CollectionCompact, code, config.clone());
+        assert!(
+            diags.is_empty(),
+            "params.map {{ ... }}.reject(&:nil?) should be suppressed by AllowedReceivers"
+        );
+
+        // Chained method: params.merge(key: val).reject(&:nil?) — should be suppressed
+        let code = b"params.merge(key: val).reject(&:nil?)";
+        let diags = crate::testutil::run_cop_with_config(&CollectionCompact, code, config.clone());
+        assert!(
+            diags.is_empty(),
+            "params.merge(...).reject(&:nil?) should be suppressed by AllowedReceivers"
+        );
+
+        // Non-allowed receiver: foo.reject(&:nil?) — should NOT be suppressed
+        let code = b"foo.reject(&:nil?)";
+        let diags = crate::testutil::run_cop_with_config(&CollectionCompact, code, config.clone());
+        assert!(
+            !diags.is_empty(),
+            "foo.reject(&:nil?) should NOT be suppressed by AllowedReceivers"
+        );
+    }
 }
