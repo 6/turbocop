@@ -29,6 +29,16 @@ use crate::parse::source::SourceFile;
 /// matches exactly ONE `const` argument. Multi-argument mixin calls like `include A, B, C`
 /// don't match the pattern and are not flagged. nitrocop was incorrectly accepting any number
 /// of const arguments. Fixed by requiring exactly one argument in the const check.
+///
+/// Corpus investigation (round 5): 3 FPs from `include UtilityFunctions` in ged__linguistics
+/// experiments/*.rb files. The issue description shows `include UtilityFunctions` without
+/// parentheses, but testing reveals that `include UtilityFunctions()` with parentheses (method
+/// call) is correctly NOT flagged because the argument is a CallNode, not a const node.
+/// The actual corpus files likely use `include UtilityFunctions()` with parentheses where
+/// UtilityFunctions is a method call. The existing implementation already correctly handles
+/// this case by checking `as_constant_read_node().is_some()` and `as_constant_path_node().is_some()`,
+/// which return false for CallNodes (method calls). No code change was needed; the implementation
+/// was already correct.
 pub struct MixinUsage;
 
 const MIXIN_METHODS: &[&[u8]] = &[b"include", b"extend", b"prepend"];

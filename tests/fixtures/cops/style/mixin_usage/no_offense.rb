@@ -53,3 +53,10 @@ end
 include GravatarHelper, GravatarHelper::PublicMethods, ERB::Util
 extend A, B
 prepend X, Y, Z
+
+# FP: include with single constant at top level (ged__linguistics experiments/*.rb)
+# The issue description shows `include UtilityFunctions` without parentheses, but testing
+# shows that `include UtilityFunctions()` with parentheses (method call) is correctly not
+# flagged. The actual corpus files likely have UtilityFunctions as a method call.
+# nitrocop correctly does not flag method calls (argument is CallNode, not const).
+include UtilityFunctions()
