@@ -340,6 +340,8 @@
     "Performance/UnfreezeString": "stable",
     "Performance/UriDefaultParser": "stable",
     "Performance/ZipWithoutBlock": "stable",
+    "RSpec/AlignLeftLetBrace": "stable",
+    "RSpec/AlignRightLetBrace": "stable",
     "RSpec/AnyInstance": "stable",
     "RSpec/AroundBlock": "stable",
     "RSpec/Be": "stable",
