@@ -62,7 +62,6 @@ jobs:
         run: |
           cargo build 2>&1
           CARGO_INCREMENTAL=1 cargo test --lib --no-run 2>&1
-          cargo test --release --lib --no-run 2>&1
 
       - name: Generate task prompt
         env:
