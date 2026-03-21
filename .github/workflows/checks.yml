@@ -8,6 +8,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to check (branch or SHA)'
+        required: false
+        type: string
 
 jobs:
   build-and-test:
@@ -20,6 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          ref: ${{ inputs.ref || '' }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -100,6 +107,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          ref: ${{ inputs.ref || '' }}
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2

@@ -393,9 +393,14 @@ jobs:
 
           ## Validation
           - [x] cargo test --lib passes for this cop
-          - [ ] Full CI (checks.yml)
-          - [ ] Corpus count check (agent-cop-check.yml)
+          - [ ] Full CI (checks.yml) — dispatched automatically
+          - [ ] Corpus count check
           "
+
+            # Dispatch CI checks on the branch (GITHUB_TOKEN PRs don't
+            # trigger pull_request workflows automatically)
+            gh workflow run checks.yml --ref "$BRANCH" -f ref="$BRANCH" || \
+              echo "WARNING: could not dispatch checks workflow"
             # Run corpus cop check inline (GITHUB_TOKEN PRs don't trigger
             # pull_request workflows, so agent-cop-check won't fire)
             echo ""
