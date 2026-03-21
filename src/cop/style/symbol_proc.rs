@@ -131,6 +131,7 @@ impl Cop for SymbolProc {
 
 impl SymbolProc {
     /// Check a CallNode with an attached block (e.g., `items.map { |x| x.foo }`).
+    #[allow(clippy::too_many_arguments)]
     fn check_call_block(
         &self,
         source: &SourceFile,
@@ -173,14 +174,14 @@ impl SymbolProc {
         // Check unsafe_hash_usage: skip {}.select/reject (see rubocop#10864)
         let outer_method = call_with_block.name().as_slice();
         if (outer_method == b"select" || outer_method == b"reject")
-            && is_hash_literal_receiver(&call_with_block)
+            && is_hash_literal_receiver(call_with_block)
         {
             return;
         }
 
         // Check unsafe_array_usage: skip [].min/max
         if (outer_method == b"min" || outer_method == b"max")
-            && is_array_literal_receiver(&call_with_block)
+            && is_array_literal_receiver(call_with_block)
         {
             return;
         }
