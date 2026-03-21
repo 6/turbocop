@@ -8,7 +8,7 @@ use crate::cop::node_type::{
     LOCAL_VARIABLE_OPERATOR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_READ_NODE,
     LOCAL_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE,
 };
-use crate::cop::util::is_snake_case;
+use crate::cop::util::{is_screaming_snake_case, is_snake_case};
 use crate::cop::{CodeMap, Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -78,6 +78,14 @@ use crate::parse::source::SourceFile;
 /// never sees RescueNode. Fixed by adding a `check_source` implementation
 /// with a custom `RescueRefVisitor` that overrides `visit_rescue_node`
 /// to check rescue reference variables.
+///
+/// ## FP fix (2026-03-21)
+///
+/// FP=3: nitrocop flagged `@OP = IRB::SLex.new` as not snake_case,
+/// but RuboCop does not flag all-caps (SCREAMING_SNAKE_CASE) instance
+/// variable names. These are treated as pseudo-constants. Fixed by
+/// skipping style check (but not forbidden name check) for variables
+/// where `is_screaming_snake_case` returns true.
 pub struct VariableName;
 
 impl Cop for VariableName {
@@ -233,6 +241,15 @@ impl Cop for VariableName {
         }
 
         let (line, column) = source.offset_to_line_col(start_offset);
+
+        // Skip style check for all-caps (SCREAMING_SNAKE_CASE) variable names.
+        // RuboCop does not flag these as they are commonly used for constants/pseudo-constants.
+        // This matches the behavior for global variables (which only check forbidden names).
+        if !is_global && is_screaming_snake_case(var_name_str.as_bytes()) {
+            // Still check forbidden identifiers/patterns, but not style
+            self.check_forbidden_only(source, var_name_str, line, column, config, diagnostics);
+            return;
+        }
 
         if is_global {
             // RuboCop only checks forbidden names on global variables, not style
