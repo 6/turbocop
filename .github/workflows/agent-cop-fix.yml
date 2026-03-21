@@ -23,7 +23,7 @@ on:
 jobs:
   fix:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,7 +99,7 @@ jobs:
           fi
 
       - name: Run agent
-        timeout-minutes: 20
+        timeout-minutes: 30
         env:
           ANTHROPIC_BASE_URL: ${{ github.event.inputs.backend == 'minimax' && 'https://api.minimax.io/anthropic' || '' }}
           ANTHROPIC_AUTH_TOKEN: ${{ github.event.inputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
