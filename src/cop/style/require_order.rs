@@ -14,6 +14,15 @@ use crate::parse::source::SourceFile;
 ///   Fixed by making comment lines transparent in group formation.
 /// - Remaining: interpolated-string requires now act as group separators (matching RuboCop),
 ///   since they fail `str_type?` and break the sibling walk.
+///
+/// Investigation findings (FP=19, FN=11):
+/// - FP root cause: `require` statements inside `=begin`/`=end` multi-line comment blocks
+///   were processed as real requires. RuboCop's AST parser ignores these entirely since
+///   they are comment blocks. Fixed by tracking `=begin`/`=end` state and skipping lines
+///   inside them.
+/// - FN root cause: files starting with UTF-8 BOM (bytes EF BB BF) caused `strip_prefix("require")`
+///   to fail on line 1, so the first require wasn't recognized. Fixed by stripping BOM
+///   from line content before processing.
 pub struct RequireOrder;
 
 impl Cop for RequireOrder {
@@ -51,6 +60,7 @@ impl Cop for RequireOrder {
         let mut groups: Vec<Vec<(usize, String, &str)>> = Vec::new(); // (line, path, kind)
         let mut current_group: Vec<(usize, String, &str)> = Vec::new();
         let mut current_kind: &str = "";
+        let mut inside_begin_block = false;
 
         for (i, line) in lines.iter().enumerate() {
             // Skip lines inside heredocs
@@ -64,7 +74,42 @@ impl Cop for RequireOrder {
                 continue;
             }
 
-            let trimmed = std::str::from_utf8(line).unwrap_or("").trim();
+            let line_str = std::str::from_utf8(line).unwrap_or("");
+            // Track =begin/=end multi-line comment blocks
+            if line_str.starts_with("=begin")
+                && (line_str.len() == 6
+                    || line_str
+                        .as_bytes()
+                        .get(6)
+                        .map_or(false, |b| b.is_ascii_whitespace()))
+            {
+                inside_begin_block = true;
+                if current_group.len() > 1 {
+                    groups.push(std::mem::take(&mut current_group));
+                } else {
+                    current_group.clear();
+                }
+                current_kind = "";
+                continue;
+            }
+            if inside_begin_block {
+                if line_str.starts_with("=end")
+                    && (line_str.len() == 4
+                        || line_str
+                            .as_bytes()
+                            .get(4)
+                            .map_or(false, |b| b.is_ascii_whitespace()))
+                {
+                    inside_begin_block = false;
+                }
+                continue;
+            }
+
+            // Strip UTF-8 BOM if present (common on first line of some files)
+            let trimmed = line_str
+                .trim()
+                .strip_prefix('\u{FEFF}')
+                .unwrap_or(line_str.trim());
             if let Some((path, kind)) = extract_require_path_and_kind(trimmed) {
                 // If the kind changed (require vs require_relative), start a new group
                 if !current_group.is_empty() && kind != current_kind {

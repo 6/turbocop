@@ -105,6 +105,9 @@ class Base
   def setup; end
 end
 
+# Single-line def with inline comment after end — not redundant (loofah pattern)
+def initialize; end # rubocop:disable Lint/MissingSuper
+
 # super(args) with trailing blank lines (twilio-ruby pattern)
 class Resource
   # @param [Version] version Version that contains the resource

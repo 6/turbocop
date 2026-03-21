@@ -31,3 +31,14 @@ require("b")
 
 require("alpha")
 require "beta"
+
+=begin test
+require 'test/unit'
+require 'rubygems'
+require 'qualitysmith_extensions/object/ignore_access'
+=end
+
+=begin
+require 'z'
+require 'a'
+=end

@@ -53,3 +53,8 @@ require("a")
 require_relative("b")
 require_relative("a")
 ^ Style/RequireOrder: Sort `require_relative` in alphabetical order.
+
+﻿require 'webmachine/adapter'
+require 'rack'
+^ Style/RequireOrder: Sort `require` in alphabetical order.
+require 'webmachine/constants'
