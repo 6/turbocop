@@ -23,3 +23,12 @@ items.map { _1.to_s }
 
 records.select { _1.active? }
                ^^^^^^^^^^^^^^^ Style/SymbolProc: Pass `&:active?` as an argument to the method instead of a block.
+
+# super blocks (FN cases)
+super { |entry| entry.call_on_yielded }
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/SymbolProc: Pass `&:call_on_yielded` as an argument to `super` instead of a block.
+
+super(headers) do |format|
+               ^^^^^^^^^^^^^^ Style/SymbolProc: Pass `&:mjml` as an argument to `super` instead of a block.
+  format.mjml
+end
