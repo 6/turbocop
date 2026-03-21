@@ -1,4 +1,4 @@
-use crate::cop::node_type::{CALL_NODE, SUPER_NODE};
+use crate::cop::node_type::{CALL_NODE, FORWARDING_SUPER_NODE, SUPER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -10,6 +10,15 @@ use crate::parse::source::SourceFile;
 /// Previous fixes closed the large `Proc.new {}` false-positive cluster by
 /// matching RuboCop's `lambda_or_proc?` handling for `Proc.new` and
 /// `::Proc.new`. Also added `SuperNode` handling for `super(...) {}`.
+///
+/// ## Corpus investigation (2026-03-21)
+///
+/// Fixed 3 FN (DmitryTsepelev/graphql-ruby-persisted_queries, coyote-team/coyote,
+/// thoughtbot/props_template) for `super {}` without parentheses. In Ruby's Prism
+/// parser, `super {}` (without explicit parentheses) is parsed as `ForwardingSuperNode`,
+/// not `SuperNode`. `SuperNode` is used only for `super(...)` with explicit parens.
+/// Fix: added `ForwardingSuperNode` to `interested_node_types()` and added handling
+/// branch in `check_node()` that mirrors the existing `SuperNode` logic.
 ///
 /// ## Corpus investigation (2026-03-16)
 ///
@@ -76,7 +85,7 @@ impl Cop for EmptyBlock {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, SUPER_NODE]
+        &[CALL_NODE, SUPER_NODE, FORWARDING_SUPER_NODE]
     }
 
     fn check_node(
@@ -88,21 +97,28 @@ impl Cop for EmptyBlock {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let (call_node, super_node, block_node) = if let Some(call_node) = node.as_call_node() {
-            let block_node = match call_node.block().and_then(|b| b.as_block_node()) {
-                Some(bn) => bn,
-                None => return, // BlockArgumentNode — not a literal block
+        let (call_node, super_node, forwarding_super_node, block_node) =
+            if let Some(call_node) = node.as_call_node() {
+                let block_node = match call_node.block().and_then(|b| b.as_block_node()) {
+                    Some(bn) => bn,
+                    None => return, // BlockArgumentNode — not a literal block
+                };
+                (Some(call_node), None, None, block_node)
+            } else if let Some(super_node) = node.as_super_node() {
+                let block_node = match super_node.block().and_then(|b| b.as_block_node()) {
+                    Some(bn) => bn,
+                    None => return,
+                };
+                (None, Some(super_node), None, block_node)
+            } else if let Some(forwarding_super_node) = node.as_forwarding_super_node() {
+                let block_node = match forwarding_super_node.block() {
+                    Some(bn) => bn,
+                    None => return,
+                };
+                (None, None, Some(forwarding_super_node), block_node)
+            } else {
+                return;
             };
-            (Some(call_node), None, block_node)
-        } else if let Some(super_node) = node.as_super_node() {
-            let block_node = match super_node.block().and_then(|b| b.as_block_node()) {
-                Some(bn) => bn,
-                None => return,
-            };
-            (None, Some(super_node), block_node)
-        } else {
-            return;
-        };
 
         let body_empty = match block_node.body() {
             None => true,
@@ -159,6 +175,8 @@ impl Cop for EmptyBlock {
                 cn.location().start_offset()
             } else if let Some(ref sn) = super_node {
                 sn.location().start_offset()
+            } else if let Some(ref fsn) = forwarding_super_node {
+                fsn.location().start_offset()
             } else {
                 block_node.location().start_offset()
             };
@@ -185,6 +203,8 @@ impl Cop for EmptyBlock {
             call_node.location().start_offset()
         } else if let Some(super_node) = super_node {
             super_node.location().start_offset()
+        } else if let Some(forwarding_super_node) = forwarding_super_node {
+            forwarding_super_node.location().start_offset()
         } else {
             block_node.location().start_offset()
         };
