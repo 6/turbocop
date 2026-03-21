@@ -16,3 +16,12 @@ end
 
 super(name, extensions: extensions, block: block, **kwargs) {}
 ^^^^^ Lint/EmptyBlock: Empty block detected.
+
+block_given? ? super : super {}
+                       ^^^^^^ Lint/EmptyBlock: Empty block detected.
+
+super {}
+^^^^^^ Lint/EmptyBlock: Empty block detected.
+
+    super {}
+    ^^^^^^ Lint/EmptyBlock: Empty block detected.
