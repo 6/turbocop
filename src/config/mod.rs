@@ -1416,7 +1416,18 @@ fn load_config_recursive_inner(
                     // make_excludes_absolute resolves relative to the project root,
                     // not the gem root. The current behavior of keeping patterns
                     // relative is correct — they match at the project level.
-                    Ok(layer) => merge_layer_into(&mut base_layer, &layer, None),
+                    Ok(mut layer) => {
+                        // RuboCop 1.84+ plugins: / require: does NOT merge
+                        // AllCops.Exclude from plugin gem defaults into the
+                        // project config. Only per-cop settings are loaded.
+                        // rubocop-rails' default.yml has AllCops.Exclude patterns
+                        // (db/*schema.rb, **/app/assets/**/*) that would incorrectly
+                        // suppress offenses on those files if merged.
+                        if gem_name.starts_with("rubocop-") {
+                            layer.global_excludes.clear();
+                        }
+                        merge_layer_into(&mut base_layer, &layer, None);
+                    }
                     Err(e) => {
                         eprintln!(
                             "warning: failed to load default config for {}: {e:#}",
