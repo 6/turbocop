@@ -400,46 +400,62 @@ jobs:
           git fetch origin main
           git checkout -B "$BRANCH" origin/main
 
-          if [ -s /tmp/agent.patch ]; then
-            git apply --3way /tmp/agent.patch
+          if [ ! -s /tmp/agent.patch ]; then
+            echo "No cop file changes found in agent output"
+            echo "has_pr=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-            # Auto-format Rust files (agent often skips this)
-            RS_FILES=$(git diff --name-only | grep '\.rs$' || true)
-            if [ -n "$RS_FILES" ]; then
-              cargo fmt -- $RS_FILES
-            fi
+          CLEAN_APPLY=true
+          LABELS="agent-fix"
+          if git apply --3way /tmp/agent.patch; then
+            echo "Patch applied cleanly"
+          else
+            echo "WARNING: patch had conflicts — creating PR anyway for review"
+            # Stage whatever applied, resolve conflicts by taking ours
+            git checkout --theirs -- . 2>/dev/null || true
+            git add -A
+            CLEAN_APPLY=false
+            LABELS="agent-fix,needs-rebase"
+          fi
 
-            git add src/cop/ tests/fixtures/cops/ bench/corpus/
+          # Auto-format Rust files (agent often skips this)
+          RS_FILES=$(git diff --name-only | grep '\.rs$' || true)
+          if [ -n "$RS_FILES" ]; then
+            cargo fmt -- $RS_FILES 2>/dev/null || true
+          fi
 
-            RETRY_NOTE=""
-            if [ "$MODE" = "retry" ]; then
-              RETRY_NOTE=" (retry)"
-            fi
-            git commit -m "Fix ${COP}: agent-generated fix${RETRY_NOTE} ($BACKEND)"
+          git add src/cop/ tests/fixtures/cops/ bench/corpus/
 
-            git push origin --delete "$BRANCH" 2>/dev/null || true
-            git push -u origin "$BRANCH"
+          RETRY_NOTE=""
+          if [ "$MODE" = "retry" ]; then
+            RETRY_NOTE=" (retry)"
+          fi
+          git commit -m "Fix ${COP}: agent-generated fix${RETRY_NOTE} ($BACKEND)" --allow-empty
 
-            PR_URL=$(gh pr create \
-              --base main \
-              --head "$BRANCH" \
-              --label "agent-fix" \
-              --title "Fix ${COP}: agent-generated conformance fix${RETRY_NOTE}" \
-              --body "Automated ${MODE} fix for ${COP} (backend: ${BACKEND}).
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git push -u origin "$BRANCH"
+
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --label "$LABELS" \
+            --title "Fix ${COP}: agent-generated conformance fix${RETRY_NOTE}" \
+            --body "Automated ${MODE} fix for ${COP} (backend: ${BACKEND}).
 
           ## Validation
           - [ ] Full CI (checks.yml)
           - [ ] Corpus cop check
           ")
-            echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-            echo "has_pr=true" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "has_pr=true" >> "$GITHUB_OUTPUT"
+          echo "Created PR: $PR_URL"
 
-            # Enable auto-merge — PR merges automatically when CI passes
+          # Enable auto-merge only if patch applied cleanly
+          if [ "$CLEAN_APPLY" = "true" ]; then
             gh pr merge "$PR_URL" --auto --squash --delete-branch || \
               echo "WARNING: could not enable auto-merge (check repo settings)"
-            echo "Created PR: $PR_URL"
           else
-            echo "No cop file changes found in agent output"
-            echo "has_pr=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping auto-merge — PR needs manual rebase"
           fi
 
