@@ -46,6 +46,31 @@
 /// 3. The `&&` short-circuit case (`char && block = lambda { ... }`) was already
 ///    handled by default visitor recursion into `AndNode`; the actual blocker was
 ///    cause #1 (`&block` not collected).
+///
+/// ## Additional FN Investigation (2026-03-21)
+///
+/// The 5 FN cases in the corpus report (watch, regex, replace, page, initialize)
+/// were investigated:
+///
+/// 1. `watch` and `page` cases: The assignments (`options, individual_files = ...`
+///    and `options, page = ...`) are inside if-modifier conditionals. RuboCop's
+///    `conditional_assignment?` returns true for these, causing the assignment to be
+///    skipped. Nitrocop's `conditional_depth > 0` also skips these. Both
+///    implementations agree these are not reported.
+///
+/// 2. `regex`/`replace` cases: The FN report claims `options` is a parameter
+///    being shadowed, but the method signature `def regex(text, pattern, flags)`
+///    has no `options` parameter. The `options = 0` assignment creates a local
+///    variable, not shadowing a parameter. FN report appears to be in error.
+///
+/// 3. `initialize` case: The assignment `y = x[:y]` has `y` on the LHS and `x[:y]`
+///    on the RHS. The `y` in `x[:y]` is a method argument (symbol key), not a
+///    local variable read. Since `y` is never referenced as a local variable,
+///    `argument.referenced?` is false and no offense is reported. Both RuboCop
+///    and nitrocop correctly skip this case.
+///
+/// Conclusion: The 5 FN cases are either not RuboCop offenses (conditional
+/// assignments, parameter not referenced) or contain errors in the FN report.
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
