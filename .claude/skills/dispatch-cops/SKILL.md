@@ -1,30 +1,28 @@
 ---
 name: dispatch-cops
-description: Dispatch cop-fix tasks to remote Kilo Cloud Agents for parallel corpus conformance fixes
+description: Dispatch cop-fix tasks to Codex agents (via GHA) for parallel corpus conformance fixes
 allowed-tools: Bash(*), Read, Grep, Glob, AskUserQuestion
 ---
 
 # Dispatch Cops — Remote Agent Orchestration
 
-Dispatch cop-fix tasks to Kilo Cloud Agents to fix corpus conformance gaps
-in parallel. Each agent fixes one cop and pushes to a branch validated by CI.
+Dispatch cop-fix tasks to Codex agents (running in GitHub Actions) to fix
+corpus conformance gaps in parallel. Each cop gets its own GHA job where
+Codex edits the code, validates with cargo test, and opens a PR.
 
-See `docs/KILO_AGENT_DISPATCH.md` for full setup instructions and architecture.
+See `docs/agent-dispatch.md` for full setup instructions and architecture.
 
 ## Prerequisites
 
 Before dispatching, verify the pipeline is set up:
 
 ```bash
-# Check secrets are configured (will show if they exist, not values)
-gh secret list | grep -E "KILO_WEBHOOK|KILO_API"
-
 # Verify the workflows exist
 ls .github/workflows/agent-cop-fix.yml .github/workflows/agent-cop-retry.yml .github/workflows/agent-cop-check.yml
 ```
 
-If secrets aren't configured, tell the user to follow the One-Time Setup in
-`docs/KILO_AGENT_DISPATCH.md` first.
+The user needs `CODEX_AUTH_JSON` configured in GitHub repo secrets.
+See `docs/agent-dispatch.md` for setup instructions.
 
 ## Phases
 
@@ -180,8 +178,8 @@ python3 scripts/agent/tier_cops.py --extended
 
 ## Important Notes
 
-- All Python scripts run locally or in GHA — Kilo agents only run `cargo` and `git`
-- Agent behavior is controlled by `.kilocode/rules/cop-fix.md` (committed to repo)
-- Startup commands remove CLAUDE.md/AGENTS.md ephemerally so agents aren't confused
+- Codex runs inside GHA — full Rust build environment with cache
+- The task prompt contains all context the agent needs
 - `workflow_dispatch` requires write access — safe on public repos
 - Retries auto-close stale PRs and include prior attempt context
+- Monitor ChatGPT usage at chatgpt.com/settings — dispatch in small batches

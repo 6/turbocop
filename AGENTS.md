@@ -302,7 +302,7 @@ Use `/triage` to just view the ranked cop list without fixing. See `.claude/skil
 
 ### Remote Agent Dispatch
 
-Use `/dispatch-cops` to parallelize cop fixes at scale via Kilo Cloud Agents. Each agent fixes one cop and pushes to a branch validated by CI. See `.claude/skills/dispatch-cops/SKILL.md` and [docs/KILO_AGENT_DISPATCH.md](docs/KILO_AGENT_DISPATCH.md) for full setup.
+Use `/dispatch-cops` to parallelize cop fixes at scale via Kilo Cloud Agents. Each agent fixes one cop and pushes to a branch validated by CI. See `.claude/skills/dispatch-cops/SKILL.md` and [docs/agent-dispatch.md](docs/agent-dispatch.md) for full setup.
 
 ```
 /dispatch-cops              # start from triage

@@ -1,8 +1,9 @@
 name: Agent Cop Retry
 
-# Re-dispatch a cop fix task with context from ALL prior failed attempts.
-# Automatically discovers all closed/failed PRs for this cop and includes
-# their diffs and CI failure logs so the agent doesn't repeat mistakes.
+permissions:
+  contents: write
+  actions: read
+  pull-requests: write
 
 on:
   workflow_dispatch:
@@ -11,94 +12,151 @@ on:
         description: 'Cop to retry (e.g. Style/NegatedWhile)'
         required: true
         type: string
-      model:
-        description: 'Model profile'
-        type: choice
-        options:
-          - minimax
-          - claude-sonnet
-          - claude-opus
-        default: claude-sonnet
       extra_context:
         description: 'Additional instructions (optional)'
         required: false
         type: string
 
 jobs:
-  dispatch:
+  retry:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          fetch-depth: 0
 
-      - name: Generate base task packet
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build test binary
+        run: cargo test --lib --no-run 2>&1
+
+      - name: Compute branch name
+        id: branch
+        run: |
+          BRANCH=$(python3 -c "
+          import re, sys
+          cop = sys.argv[1]
+          dept, name = cop.split('/', 1)
+          def snake(s):
+              s = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', s)
+              s = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s)
+              return s.lower()
+          dept_map = {'RSpec': 'rspec', 'RSpecRails': 'rspec_rails', 'FactoryBot': 'factory_bot'}
+          dept_dir = dept_map.get(dept, snake(dept))
+          print(f'fix/{dept_dir}-{snake(name)}')
+          " "${{ github.event.inputs.cop }}")
+          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Generate task prompt
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/agent/generate-cop-task.py \
             "${{ github.event.inputs.cop }}" \
             --extended \
             --output /tmp/task.md
 
-      # Collect context from prior attempts BEFORE closing them
-      - name: Collect all prior failed attempts
+      - name: Collect prior failed attempts
         env:
           GH_TOKEN: ${{ github.token }}
-          COP: ${{ github.event.inputs.cop }}
         run: |
           python3 scripts/agent/collect_prior_attempts.py \
-            --cop "$COP" \
+            --cop "${{ github.event.inputs.cop }}" \
             --output /tmp/prior_attempts.md
 
-      - name: Append failure context to task
-        env:
-          EXTRA_CONTEXT: ${{ github.event.inputs.extra_context }}
+      - name: Build retry prompt
         run: |
-          ATTEMPTS="/tmp/prior_attempts.md"
-          if [ -s "$ATTEMPTS" ]; then
-            echo "" >> /tmp/task.md
-            cat "$ATTEMPTS" >> /tmp/task.md
+          cp /tmp/task.md /tmp/retry-task.md
+
+          if [ -s /tmp/prior_attempts.md ]; then
+            echo "" >> /tmp/retry-task.md
+            cat /tmp/prior_attempts.md >> /tmp/retry-task.md
           fi
 
-          if [ -n "$EXTRA_CONTEXT" ]; then
-            echo "" >> /tmp/task.md
-            echo "## Additional Instructions" >> /tmp/task.md
-            echo "" >> /tmp/task.md
-            echo "$EXTRA_CONTEXT" >> /tmp/task.md
+          if [ -n "${{ github.event.inputs.extra_context }}" ]; then
+            echo "" >> /tmp/retry-task.md
+            echo "## Additional Instructions" >> /tmp/retry-task.md
+            echo "${{ github.event.inputs.extra_context }}" >> /tmp/retry-task.md
           fi
 
-          echo "" >> /tmp/task.md
-          echo "**CRITICAL:** Do NOT repeat approaches that already failed. Read the prior attempts carefully and try a DIFFERENT strategy." >> /tmp/task.md
+          echo "" >> /tmp/retry-task.md
+          echo "**CRITICAL:** Do NOT repeat approaches that already failed. Read the prior attempts carefully and try a DIFFERENT strategy." >> /tmp/retry-task.md
+          wc -l /tmp/retry-task.md
 
-      # Close any open PRs for this cop so we don't accumulate stale PRs.
-      # The new attempt will create a fresh branch/PR.
-      - name: Close prior open PRs for this cop
+      - name: Close prior open PRs
         env:
           GH_TOKEN: ${{ github.token }}
-          COP: ${{ github.event.inputs.cop }}
         run: |
-          # Find open PRs matching this cop
+          COP="${{ github.event.inputs.cop }}"
           OPEN_PRS=$(gh pr list --state open --search "$COP in:title" --json number --jq '.[].number' 2>/dev/null || true)
           for pr in $OPEN_PRS; do
             echo "Closing stale PR #$pr"
-            gh pr close "$pr" --comment "Superseded by retry attempt. See new PR." 2>/dev/null || true
+            gh pr close "$pr" --comment "Superseded by retry attempt." 2>/dev/null || true
           done
 
-      - name: Dispatch to Kilo
-        env:
-          KILO_WEBHOOK_SECRET: ${{ secrets.KILO_WEBHOOK_SECRET }}
-          KILO_WEBHOOK_MINIMAX: ${{ secrets.KILO_WEBHOOK_MINIMAX }}
-          KILO_WEBHOOK_CLAUDE_SONNET: ${{ secrets.KILO_WEBHOOK_CLAUDE_SONNET }}
-          KILO_WEBHOOK_CLAUDE_OPUS: ${{ secrets.KILO_WEBHOOK_CLAUDE_OPUS }}
-        run: |
-          MODEL="${{ github.event.inputs.model }}"
-          case "$MODEL" in
-            minimax)        WEBHOOK_URL="$KILO_WEBHOOK_MINIMAX" ;;
-            claude-sonnet)  WEBHOOK_URL="$KILO_WEBHOOK_CLAUDE_SONNET" ;;
-            claude-opus)    WEBHOOK_URL="$KILO_WEBHOOK_CLAUDE_OPUS" ;;
-          esac
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex@latest
 
-          python3 scripts/agent/kilo_dispatch.py \
-            --task /tmp/task.md \
-            --cop "${{ github.event.inputs.cop }}" \
-            --webhook-url "$WEBHOOK_URL"
+      - name: Run Codex agent
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          mkdir -p ~/.codex
+          echo "$CODEX_AUTH_JSON" > ~/.codex/auth.json
+          codex exec --full-auto - < /tmp/retry-task.md
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate changes
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          cargo test --lib --no-run 2>&1
+          COP="${{ github.event.inputs.cop }}"
+          FILTER=$(python3 -c "
+          import re, sys
+          cop = sys.argv[1]
+          dept, name = cop.split('/', 1)
+          def snake(s):
+              s = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', s)
+              s = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s)
+              return s.lower()
+          dept_map = {'RSpec': 'rspec', 'RSpecRails': 'rspec_rails', 'FactoryBot': 'factory_bot'}
+          dept_dir = dept_map.get(dept, snake(dept))
+          print(f'cop::{dept_dir}::{snake(name)}')
+          " "$COP")
+          cargo test --lib -- "$FILTER" 2>&1
+
+      - name: Commit, push, and create PR
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="${{ steps.branch.outputs.name }}"
+          COP="${{ github.event.inputs.cop }}"
+
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git checkout -b "$BRANCH"
+          git add -A
+          git commit -m "Fix ${COP}: agent-generated fix (retry)
+
+          Co-Authored-By: OpenAI Codex <noreply@openai.com>"
+
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Fix ${COP}: agent-generated conformance fix (retry)" \
+            --body "Retry fix for ${COP}. Prior attempts were reviewed and a different approach was used."
