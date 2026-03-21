@@ -30,24 +30,29 @@ if [ ! -d "vendor/rubocop/.git" ] && [ -f ".gitmodules" ]; then
   git submodule update --init --recursive
 fi
 
-# Download pre-built build cache from GitHub Releases (public, no auth needed).
-# This avoids the 5+ minute cold compile. The GHA dispatch workflow uploads
-# a fresh cache before each dispatch.
-CACHE_URL="https://github.com/6/nitrocop/releases/download/agent-build-cache/agent-build-cache.tar.gz"
+# Download pre-built build cache from GitHub Releases.
+# The cache is SHA-stamped so we skip download if already current.
+RELEASE_BASE="https://github.com/6/nitrocop/releases/download/agent-build-cache"
 if [ ! -d "target/debug/deps" ]; then
   echo "--- Downloading pre-built cache ---"
-  mkdir -p target/debug
-  if curl -sL --fail "$CACHE_URL" -o /tmp/agent-build-cache.tar.gz; then
-    tar xzf /tmp/agent-build-cache.tar.gz -C target/debug/
-    rm -f /tmp/agent-build-cache.tar.gz
-    echo "Build cache restored"
+  # Get the latest SHA
+  LATEST_SHA=$(curl -sL --fail "${RELEASE_BASE}/latest-sha.txt" 2>/dev/null || echo "")
+  if [ -n "$LATEST_SHA" ]; then
+    CACHE_FILE="agent-build-cache-${LATEST_SHA}.tar.gz"
+    mkdir -p target/debug
+    if curl -sL --fail "${RELEASE_BASE}/${CACHE_FILE}" -o /tmp/cache.tar.gz; then
+      tar xzf /tmp/cache.tar.gz -C target/debug/
+      rm -f /tmp/cache.tar.gz
+      echo "Build cache restored (${LATEST_SHA})"
+    else
+      echo "WARNING: could not download cache, will compile from scratch"
+    fi
   else
-    echo "WARNING: could not download cache, will compile from scratch"
+    echo "WARNING: no cache available, will compile from scratch"
   fi
 fi
 
-# Quick incremental build to pick up any source differences between
-# the cache (built from main) and the agent's branch.
+# Quick incremental build (near-instant if cache matches, ~5min if cold)
 echo "--- Incremental build ($(date)) ---"
 cargo test --lib --no-run 2>&1 || echo "WARNING: build failed"
 echo "--- Build done ($(date)) ---"

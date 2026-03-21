@@ -21,50 +21,7 @@ on:
         default: minimax
 
 jobs:
-  # Build the target/ cache on GHA (has Rust cache, fast incremental)
-  # and upload as a release asset so Kilo can download without auth.
-  build-cache:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build test binary
-        run: cargo test --lib --no-run 2>&1
-
-      - name: Package build cache
-        run: |
-          # Tar just the essential build artifacts (not the full target/)
-          # Include deps + incremental + the test binary
-          tar czf /tmp/agent-build-cache.tar.gz \
-            -C target/debug \
-            deps/ \
-            build/ \
-            incremental/ \
-            .fingerprint/ \
-            $(cd target/debug && ls nitrocop-* 2>/dev/null || true)
-          ls -lh /tmp/agent-build-cache.tar.gz
-
-      - name: Upload build cache to release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="agent-build-cache"
-          # Create or update the release
-          gh release view "$TAG" &>/dev/null || \
-            gh release create "$TAG" --title "Agent Build Cache" \
-              --notes "Pre-built target/debug cache for Kilo agents. Auto-updated." \
-              --prerelease
-          # Upload (overwrite if exists)
-          gh release upload "$TAG" /tmp/agent-build-cache.tar.gz --clobber
-
   dispatch:
-    needs: build-cache
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
