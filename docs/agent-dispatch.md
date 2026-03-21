@@ -40,6 +40,11 @@ Codex automatically refreshes tokens, but if they expire between runs, re-run `c
 
 **Usage limits:** ChatGPT Pro allows 300-1500 messages per 5-hour window. Each cop fix uses ~10-30 internal messages. Dispatch in small batches (5-10 cops at a time) and monitor usage at [chatgpt.com/codex/settings/usage](https://chatgpt.com/codex/settings/usage).
 
+**This is a supported use case.** OpenAI explicitly documents running Codex in CI/CD:
+- [Non-interactive mode](https://developers.openai.com/codex/noninteractive) — `codex exec` is "designed for CI/CD jobs"
+- [CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth) — shows how to use ChatGPT-managed auth on CI runners
+- [Auth docs](https://developers.openai.com/codex/auth) — documents both API key and ChatGPT OAuth auth methods
+
 ### Step 2: GitHub Repository Secrets
 
 Go to **Settings > Secrets and variables > Actions** and add:
