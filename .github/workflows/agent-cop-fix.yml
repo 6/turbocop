@@ -33,7 +33,7 @@ on:
 
 jobs:
   fix:
-    runs-on: ubuntu-latest-16-cores
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
