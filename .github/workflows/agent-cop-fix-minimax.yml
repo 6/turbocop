@@ -1,0 +1,120 @@
+name: Agent Cop Fix (MiniMax)
+
+permissions:
+  contents: write
+  actions: read
+  pull-requests: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      cop:
+        description: 'Cop to fix (e.g. Style/NegatedWhile)'
+        required: true
+        type: string
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build test binary
+        run: cargo test --lib --no-run 2>&1
+
+      - name: Compute identifiers
+        id: cop
+        run: |
+          python3 -c "
+          import re, sys
+          cop = sys.argv[1]
+          dept, name = cop.split('/', 1)
+          def snake(s):
+              s = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', s)
+              s = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s)
+              return s.lower()
+          dept_map = {'RSpec': 'rspec', 'RSpecRails': 'rspec_rails', 'FactoryBot': 'factory_bot'}
+          dept_dir = dept_map.get(dept, snake(dept))
+          cop_snake = snake(name)
+          print(f'branch=fix/{dept_dir}-{cop_snake}')
+          print(f'filter=cop::{dept_dir}::{cop_snake}')
+          " "${{ github.event.inputs.cop }}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate task prompt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/agent/generate-cop-task.py \
+            "${{ github.event.inputs.cop }}" \
+            --extended \
+            --output /tmp/task.md
+          wc -l /tmp/task.md
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@latest
+
+      - name: Run Claude Code agent (MiniMax M2.7)
+        env:
+          ANTHROPIC_BASE_URL: https://api.minimax.io/anthropic
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.MINIMAX_API_KEY }}
+          ANTHROPIC_MODEL: MiniMax-M2.7
+          ANTHROPIC_SMALL_FAST_MODEL: MiniMax-M2.7
+          API_TIMEOUT_MS: "300000"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+        run: |
+          claude -p --dangerously-skip-permissions "$(cat /tmp/task.md)"
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No changes made"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            git diff --stat
+          fi
+
+      - name: Validate
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          cargo test --lib --no-run 2>&1
+          cargo test --lib -- "${{ steps.cop.outputs.filter }}" 2>&1
+          echo "Tests pass for ${{ github.event.inputs.cop }}"
+
+      - name: Commit, push, and create PR
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="${{ steps.cop.outputs.branch }}"
+          COP="${{ github.event.inputs.cop }}"
+
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git checkout -b "$BRANCH"
+          git add -A
+          git commit -m "Fix ${COP}: agent-generated fix
+
+          Co-Authored-By: MiniMax M2.7 <noreply@minimax.io>"
+
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Fix ${COP}: agent-generated conformance fix" \
+            --body "Automated fix for ${COP} by Claude Code + MiniMax M2.7.
+
+          ## Validation
+          - [x] cargo test --lib passes for this cop
+          - [ ] Full CI (checks.yml)
+          - [ ] Corpus count check (agent-cop-check.yml)
+          "

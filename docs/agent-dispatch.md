@@ -1,6 +1,8 @@
-# Agent Dispatch for Corpus Conformance
+# Agent Dispatch for Corpus Conformance (Codex)
 
 Automated system for fixing corpus conformance gaps by dispatching Codex agents to fix one cop at a time. Each cop runs in a GitHub Actions runner with Codex CLI, which edits the code, validates with `cargo test`, and opens a PR.
+
+**Cheaper alternative:** See [agent-dispatch-minimax.md](agent-dispatch-minimax.md) for Claude Code + MiniMax M2.7 (~$0.03/cop vs $200/mo flat rate).
 
 ## Architecture
 
@@ -38,7 +40,7 @@ The workflow uses your ChatGPT Pro plan (flat rate, no per-token billing).
 
 Codex automatically refreshes tokens, but if they expire between runs, re-run `codex login` locally and update the secret.
 
-**Important:** Do not use Codex CLI locally with the same account while GHA jobs are running — token refreshes will conflict. This shouldn't be an issue if you use Claude Code locally (which uses a separate Anthropic account).
+**Important:** Use a dedicated ChatGPT subscription for CI dispatch — do not share with your personal Codex usage. Token refreshes from concurrent sessions will conflict and invalidate each other. A separate ChatGPT Plus ($20/mo) or Pro ($200/mo) account for CI keeps things clean.
 
 **Usage limits:** ChatGPT Pro allows 300-1500 messages per 5-hour window. Each cop fix uses ~10-30 internal messages. Dispatch in small batches (5-10 cops at a time) and monitor usage at [chatgpt.com/codex/settings/usage](https://chatgpt.com/codex/settings/usage).
 
