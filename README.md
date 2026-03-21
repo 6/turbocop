@@ -54,9 +54,9 @@ Config auto-discovery walks up from the target directory to find `.rubocop.yml`.
 <!-- corpus-cops:start -->
 nitrocop supports 910 cops from 6 RuboCop gems.
 
-Compared with RuboCop on [**1,017 open-source repos**](docs/corpus.md) (234k Ruby files).
+Compared with RuboCop on [**1,017 open-source repos**](docs/corpus.md) (228k Ruby files).
 
-98.8% of compared issue reports matched (12.2M of 12.3M). 716 of 910 cops matched exactly; 194 differed.
+98.8% of compared issue reports matched (11.8M of 11.9M). 720 of 910 cops matched exactly; 190 differed.
 
 **[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (588 cops)
 
@@ -64,20 +64,20 @@ Compared with RuboCop on [**1,017 open-source repos**](docs/corpus.md) (234k Rub
 |------------|-----:|----------------:|---------:|------------------:|
 | Layout | 100 | 74 | 26 | 74.0% |
 | Lint | 148 | 134 | 14 | 90.5% |
-| Style | 287 | 138 | 149 | 48.0% |
+| Style | 287 | 140 | 147 | 48.7% |
 | Metrics | 10 | 10 | 0 | ✓ 100.0% |
 | Naming | 19 | 19 | 0 | ✓ 100.0% |
 | Security | 6 | 6 | 0 | ✓ 100.0% |
 | Bundler | 7 | 7 | 0 | ✓ 100.0% |
 | Gemspec | 10 | 10 | 0 | ✓ 100.0% |
 | Migration | 1 | 1 | 0 | ✓ 100.0% |
-| **Total** | **588** | **399** | **189** | **67.8%** |
+| **Total** | **588** | **401** | **187** | **68.1%** |
 
 **[rubocop-rails](https://github.com/rubocop/rubocop-rails)** `2.34.3` (138 cops)
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| Rails | 138 | 136 | 2 | 98.5% |
+| Rails | 138 | 138 | 0 | ✓ 100.0% |
 
 **[rubocop-performance](https://github.com/rubocop/rubocop-performance)** `1.26.1` (52 cops)
 
