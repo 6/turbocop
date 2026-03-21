@@ -4,3 +4,5 @@ y = 2#another
      ^ Layout/SpaceBeforeComment: Put a space before an end-of-line comment.
 foo(1)# nope
       ^ Layout/SpaceBeforeComment: Put a space before an end-of-line comment.
+src << " " if code[0] != ?\ #
+                            ^ Layout/SpaceBeforeComment: Put a space before an end-of-line comment.
