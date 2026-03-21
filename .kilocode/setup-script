@@ -19,9 +19,12 @@ fi
 if ! command -v cargo &>/dev/null; then
   echo "--- Installing Rust ---"
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  # Make cargo available in this session AND future sessions
+  echo 'source "$HOME/.cargo/env"' >> "$HOME/.bashrc"
+  echo 'source "$HOME/.cargo/env"' >> "$HOME/.profile"
 fi
-[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
-[ -f "/root/.cargo/env" ] && . "/root/.cargo/env"
+# Source for this script's session
+export PATH="$HOME/.cargo/bin:$PATH"
 
 # Ensure submodules are checked out (needed for ruby-prism build)
 if [ ! -d "vendor/rubocop/.git" ] && [ -f ".gitmodules" ]; then
@@ -31,7 +34,7 @@ fi
 
 # Build
 echo "--- Building ($(date)) ---"
-cargo build 2>&1
+cargo build 2>&1 || echo "WARNING: cargo build failed, agent will need to build"
 
 # Remove files that would confuse the agent
 rm -f CLAUDE.md AGENTS.md
