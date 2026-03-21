@@ -49,24 +49,31 @@ Show a table like:
 | #108| Style/SymbolProc           | Pending | Skip       |
 ```
 
-### 4. Merge ready PRs
+### 4. Land ready PRs
 
-For each "Ready" PR:
+Use `scripts/land-branch-commits.sh` to cherry-pick each commit from the PR branch onto main, preserving individual commits (agent fix + any cleanup commits stay separate):
+
 ```bash
-gh pr merge <number> --squash --delete-branch
+bash scripts/land-branch-commits.sh <branch-name>
+git push origin main
 ```
 
-If `--dry-run` was specified, show what would be merged but don't merge.
+Then close the PR and delete the remote branch:
+```bash
+gh pr close <number> --delete-branch
+```
+
+If `--dry-run` was specified, show what would be landed but don't land.
 
 ### 5. Report
 
-Summarize: N merged, N failed (skipped), N pending (skipped).
+Summarize: N landed, N failed (skipped), N pending (skipped).
 
 ## Rules
 
-- Only merge PRs with the `agent-fix` label
-- Never merge PRs with the `validation-failed` label
-- Squash merge to keep main history clean
-- Delete the branch after merge
+- Only land PRs with the `agent-fix` label
+- Never land PRs with the `validation-failed` label
+- Preserve individual commits (don't squash) — keeps agent fix vs reviewer cleanup visible in history
+- Delete the remote branch after landing
 - If unsure about a PR, skip it and note why
-- Don't merge PRs that have merge conflicts — note them for manual resolution
+- Don't land PRs that have merge conflicts — note them for manual resolution
