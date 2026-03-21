@@ -16,19 +16,68 @@ from datetime import datetime
 from pathlib import Path
 
 
-def find_logfile(newer_than: Path) -> str | None:
+LOG_PATTERNS = {
+    "minimax": "~/.claude/projects/**/*.jsonl",
+    "codex": "~/.codex/sessions/**/*.jsonl",
+}
+
+
+def find_logfile(newer_than: Path, backend: str = "minimax") -> str | None:
     """Find the most recent JSONL file newer than the reference file."""
     ref_mtime = newer_than.stat().st_mtime if newer_than.exists() else 0
-    candidates = glob.glob(
-        os.path.expanduser("~/.claude/projects/**/*.jsonl"), recursive=True
-    )
+    pattern = LOG_PATTERNS.get(backend, LOG_PATTERNS["minimax"])
+    candidates = glob.glob(os.path.expanduser(pattern), recursive=True)
     for f in sorted(candidates, key=os.path.getmtime, reverse=True):
         if os.path.getmtime(f) > ref_mtime:
             return f
     return None
 
 
-def get_status(logfile: str) -> dict:
+def _parse_claude_event(ev: dict, status: dict) -> bool:
+    """Parse a Claude Code JSONL event. Returns True if status was updated."""
+    status["last_type"] = ev.get("type", "?")
+    if ev.get("type") != "assistant":
+        return False
+    for block in reversed(ev.get("message", {}).get("content", [])):
+        if block.get("type") == "tool_use" and not status["last_tool"]:
+            status["last_tool"] = block.get("name", "?")
+        elif block.get("type") == "text" and not status["last_text"]:
+            text = block.get("text", "").strip()
+            if text:
+                status["last_text"] = text[:200]
+    return bool(status["last_tool"] or status["last_text"])
+
+
+def _parse_codex_event(ev: dict, status: dict) -> bool:
+    """Parse a Codex rollout JSONL event. Returns True if status was updated."""
+    # Codex events use "event_msg" with a "payload" containing type/content
+    payload = ev.get("payload", ev)
+    msg_type = payload.get("type", ev.get("type", "?"))
+    status["last_type"] = msg_type
+
+    # Assistant messages
+    if msg_type in ("assistant", "response.output_item.done"):
+        content = payload.get("content", payload.get("item", {}).get("content", []))
+        if isinstance(content, str):
+            status["last_text"] = content.strip()[:200]
+            return True
+        if isinstance(content, list):
+            for block in reversed(content):
+                if isinstance(block, str):
+                    status["last_text"] = block.strip()[:200]
+                    return True
+                btype = block.get("type", "")
+                if btype in ("function_call", "tool_use") and not status["last_tool"]:
+                    status["last_tool"] = block.get("name", block.get("function", {}).get("name", "?"))
+                elif btype in ("text", "output_text") and not status["last_text"]:
+                    text = block.get("text", "").strip()
+                    if text:
+                        status["last_text"] = text[:200]
+            return bool(status["last_tool"] or status["last_text"])
+    return False
+
+
+def get_status(logfile: str, backend: str = "minimax") -> dict:
     """Read the last few events and extract status info."""
     status = {
         "events": 0,
@@ -44,28 +93,16 @@ def get_status(logfile: str) -> dict:
         return status
 
     status["events"] = len(lines)
+    parser = _parse_codex_event if backend == "codex" else _parse_claude_event
 
-    # Scan last 10 lines for the most recent assistant content
+    # Scan last 10 lines for the most recent useful content
     for line in reversed(lines[-10:]):
         try:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
 
-        status["last_type"] = ev.get("type", "?")
-
-        if ev.get("type") != "assistant":
-            continue
-
-        for block in reversed(ev.get("message", {}).get("content", [])):
-            if block.get("type") == "tool_use" and not status["last_tool"]:
-                status["last_tool"] = block.get("name", "?")
-            elif block.get("type") == "text" and not status["last_text"]:
-                text = block.get("text", "").strip()
-                if text:
-                    status["last_text"] = text[:200]
-
-        if status["last_tool"] or status["last_text"]:
+        if parser(ev, status):
             break
 
     return status
@@ -81,16 +118,20 @@ def main():
         "--interval", type=int, default=30,
         help="Seconds between progress updates (default: 30)",
     )
+    parser.add_argument(
+        "--backend", choices=["minimax", "codex"], default="minimax",
+        help="Agent backend (determines log location and format)",
+    )
     args = parser.parse_args()
 
     time.sleep(10)  # initial delay for session to start
 
     while True:
         now = datetime.now().strftime("%H:%M:%S")
-        logfile = find_logfile(args.newer_than)
+        logfile = find_logfile(args.newer_than, args.backend)
 
         if logfile:
-            s = get_status(logfile)
+            s = get_status(logfile, args.backend)
             tool = s["last_tool"] or "n/a"
             text = s["last_text"] or "(none)"
             print(

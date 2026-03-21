@@ -99,6 +99,47 @@ def test_get_status_truncates_long_text():
     assert len(s["last_text"]) == 200
 
 
+def test_codex_text_event():
+    """Codex rollout format with assistant text content."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+        write_jsonl(f.name, [
+            {"type": "response.output_item.done", "payload": {
+                "type": "response.output_item.done",
+                "item": {"content": [{"type": "text", "text": "Fixing the cop now."}]},
+            }},
+        ])
+        s = watch_agent_progress.get_status(f.name, backend="codex")
+    assert "Fixing the cop now" in s["last_text"]
+
+
+def test_codex_tool_event():
+    """Codex rollout format with function_call tool use."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+        write_jsonl(f.name, [
+            {"type": "response.output_item.done", "payload": {
+                "type": "response.output_item.done",
+                "item": {"content": [
+                    {"type": "function_call", "name": "shell", "function": {"name": "shell"}},
+                ]},
+            }},
+        ])
+        s = watch_agent_progress.get_status(f.name, backend="codex")
+    assert s["last_tool"] == "shell"
+
+
+def test_codex_string_content():
+    """Codex event with plain string content."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+        write_jsonl(f.name, [
+            {"type": "assistant", "payload": {
+                "type": "assistant",
+                "content": "Running cargo test now.",
+            }},
+        ])
+        s = watch_agent_progress.get_status(f.name, backend="codex")
+    assert "Running cargo test" in s["last_text"]
+
+
 def test_find_logfile_returns_none():
     with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as ref:
         # No JSONL files in a temp dir — should return None
@@ -114,5 +155,8 @@ if __name__ == "__main__":
     test_get_status_malformed()
     test_get_status_skips_empty_text()
     test_get_status_truncates_long_text()
+    test_codex_text_event()
+    test_codex_tool_event()
+    test_codex_string_content()
     test_find_logfile_returns_none()
     print("All tests passed.")

@@ -341,7 +341,8 @@ jobs:
         run: |
           # Background progress watcher — shows what the agent is doing every 30s
           python3 /tmp/ci-scripts/watch_agent_progress.py \
-            --newer-than /tmp/final-task.md --interval 30 &
+            --newer-than /tmp/final-task.md --interval 30 \
+            --backend "${{ github.event.inputs.backend }}" &
           WATCHER_PID=$!
 
           if [ "${{ github.event.inputs.backend }}" = "minimax" ]; then
