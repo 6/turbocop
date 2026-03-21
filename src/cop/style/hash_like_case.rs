@@ -3,7 +3,7 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
-/// Corpus investigation (FP=24, FN=2):
+/// Corpus investigation (FP=24, FN=5):
 ///
 /// Root causes of 24 FPs:
 /// 1. Accepted integer conditions (`when 32`), but RuboCop only allows str/sym.
@@ -11,9 +11,16 @@ use ruby_prism::Visit;
 /// 3. Did not enforce same-type constraint on conditions and bodies. Mixed
 ///    true/false, int/float, or string/symbol conditions caused false positives.
 ///
-/// Root cause of 2 FNs:
+/// Root cause of original 2 FNs:
 /// - Bodies were restricted to scalar literals. RuboCop's `recursive_basic_literal?`
 ///   also matches arrays and hashes of literals (e.g., `["#BackupSuccess"]`).
+///
+/// 5 Additional FNs investigated (2026-03-21):
+/// - FN #1 & #2 (hash bodies): Cop correctly detects with 3+ branches. Snippets
+///   showed only 1 branch, likely truncated in report.
+/// - FN #3 (regex bodies): Correctly NOT detected. RuboCop's `recursive_basic_literal?`
+///   does not include regex literals.
+/// - FN #4 & #5 (array/string bodies): Cop correctly detects with 3+ branches.
 ///
 /// Fixes applied:
 /// - Removed integer_node from `is_simple_when` (only str/sym allowed).
