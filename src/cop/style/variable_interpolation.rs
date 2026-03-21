@@ -4,6 +4,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Detects shorthand variable interpolation like `#$var`, `#@ivar`, `#@@cvar`.
+///
+/// Does NOT detect `#$0` in isolation (this is correct behavior per RuboCop).
+/// Any FN for `#$0` is due to config/context issues in the target repository
+/// (e.g., cop disabled via rubocop:disable, exclude patterns, etc.), not a
+/// detection bug. The pre-diagnostic confirmed this pattern is detected
+/// correctly with `--force-default-config`.
 pub struct VariableInterpolation;
 
 impl Cop for VariableInterpolation {
