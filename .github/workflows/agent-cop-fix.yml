@@ -349,9 +349,10 @@ jobs:
           git diff "${{ steps.prep.outputs.main_sha }}" HEAD -- \
             src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent.patch
 
-          # Restore full repo to original main (cleanup commit is on main,
-          # so "git checkout main" is a no-op — must reset to main_sha)
-          git checkout "${{ steps.prep.outputs.main_sha }}"
+          # Branch from origin/main (not main_sha which may differ from remote
+          # and cause workflow file diffs that GITHUB_TOKEN can't push)
+          git fetch origin main
+          git checkout -B "$BRANCH" origin/main
 
           if [ -s /tmp/agent.patch ]; then
             git apply /tmp/agent.patch
@@ -363,7 +364,6 @@ jobs:
 
             # Create clean branch + PR
             git push origin --delete "$BRANCH" 2>/dev/null || true
-            git checkout -b "$BRANCH"
             git add src/cop/ tests/fixtures/cops/ bench/corpus/
 
             RETRY_NOTE=""
