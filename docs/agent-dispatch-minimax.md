@@ -7,7 +7,7 @@ Alternative to the Codex-based dispatch. Runs Claude Code CLI with MiniMax M2.7 
 ```
 You (any machine with gh CLI)
   │
-  │  gh workflow run agent-cop-fix-minimax.yml -f cop="Style/NegatedWhile"
+  │  gh workflow run agent-cop-fix.yml -f cop="Style/NegatedWhile"
   ▼
 GitHub Actions
   │  1. Checkout repo + build Rust (cached)
@@ -55,16 +55,16 @@ Same commands as the Codex workflow, just a different workflow name:
 
 ```bash
 # Single cop
-gh workflow run agent-cop-fix-minimax.yml -f cop="Style/VariableInterpolation"
+gh workflow run agent-cop-fix.yml -f cop="Style/VariableInterpolation"
 
 # Batch (Tier 1)
 python3 scripts/agent/tier_cops.py --extended --tier 1 --names | while read cop; do
-  gh workflow run agent-cop-fix-minimax.yml -f cop="$cop"
+  gh workflow run agent-cop-fix.yml -f cop="$cop"
   sleep 5
 done
 
 # Retry
-gh workflow run agent-cop-retry-minimax.yml -f cop="Style/VariableInterpolation"
+gh workflow run agent-cop-retry.yml -f cop="Style/VariableInterpolation"
 ```
 
 ## Tradeoffs vs Codex

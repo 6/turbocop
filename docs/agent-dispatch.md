@@ -9,9 +9,9 @@ Automated system for fixing corpus conformance gaps by dispatching Codex agents 
 ```
 You (any machine with gh CLI)
   │
-  │  gh workflow run agent-cop-fix-codex.yml -f cop="Style/NegatedWhile"
+  │  gh workflow run agent-cop-fix.yml -f cop="Style/NegatedWhile"
   ▼
-GitHub Actions (agent-cop-fix-codex.yml)
+GitHub Actions (agent-cop-fix.yml)
   │  1. Checkout repo + build Rust (cached, ~1 min)
   │  2. generate-cop-task.py → self-contained task prompt
   │  3. codex exec --full-auto → Codex edits files in the GHA runner
@@ -85,7 +85,7 @@ python3 scripts/agent/tier_cops.py --extended
 python3 scripts/agent/generate-cop-task.py Style/VariableInterpolation --extended
 
 # Dispatch one cop
-gh workflow run agent-cop-fix-codex.yml -f cop="Style/VariableInterpolation"
+gh workflow run agent-cop-fix.yml -f cop="Style/VariableInterpolation"
 ```
 
 Wait ~10-15 min (build + Codex agent + validation). Check the PR:
@@ -105,7 +105,7 @@ If ≥7/10 pilot cops produce usable PRs, scale to Phase 3.
 
 ```bash
 python3 scripts/agent/tier_cops.py --extended --tier 1 --names | while read cop; do
-  gh workflow run agent-cop-fix-codex.yml -f cop="$cop"
+  gh workflow run agent-cop-fix.yml -f cop="$cop"
   sleep 5
 done
 ```
@@ -115,8 +115,8 @@ GHA runs these in parallel (up to your concurrency limit, typically 20 for free/
 ### Phase 4: Retry Failures
 
 ```bash
-gh workflow run agent-cop-retry-codex.yml -f cop="Style/VariableInterpolation"
-gh workflow run agent-cop-retry-codex.yml -f cop="Style/VariableInterpolation" \
+gh workflow run agent-cop-retry.yml -f cop="Style/VariableInterpolation"
+gh workflow run agent-cop-retry.yml -f cop="Style/VariableInterpolation" \
   -f extra_context="The FN is a global variable interpolation"
 ```
 
@@ -178,8 +178,8 @@ On the PR, two additional workflows run:
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `agent-cop-fix-codex.yml` | `workflow_dispatch` | Generate prompt → Codex fixes → validate → PR |
-| `agent-cop-retry-codex.yml` | `workflow_dispatch` | Retry with prior attempt context |
+| `agent-cop-fix.yml` | `workflow_dispatch` | Generate prompt → Codex fixes → validate → PR |
+| `agent-cop-retry.yml` | `workflow_dispatch` | Retry with prior attempt context |
 | `agent-cop-check.yml` | PR (cop file changes) | Validate changed cops against corpus |
 | `agent-build-cache.yml` | `workflow_dispatch` | Pre-build Rust cache (optional optimization) |
 

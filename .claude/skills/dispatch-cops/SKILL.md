@@ -18,7 +18,7 @@ Before dispatching, verify the pipeline is set up:
 
 ```bash
 # Verify the workflows exist
-ls .github/workflows/agent-cop-fix-minimax.yml .github/workflows/agent-cop-retry-codex.yml .github/workflows/agent-cop-check.yml
+ls .github/workflows/agent-cop-fix.yml .github/workflows/agent-cop-retry.yml .github/workflows/agent-cop-check.yml
 ```
 
 The user needs `CODEX_AUTH_JSON` configured in GitHub repo secrets.
@@ -71,7 +71,7 @@ for cop in \
   "Style/NegatedWhile" \
   "Style/KeywordParametersOrder" \
   "Style/VariableInterpolation"; do
-  gh workflow run agent-cop-fix-minimax.yml -f cop="$cop"
+  gh workflow run agent-cop-fix.yml -f cop="$cop"
   sleep 5
 done
 ```
@@ -92,13 +92,13 @@ Ask the user which tier to dispatch. Then dispatch:
 ```bash
 # Tier 1 (minimax, default)
 python3 scripts/agent/tier_cops.py --extended --tier 1 --names | while read cop; do
-  gh workflow run agent-cop-fix-minimax.yml -f cop="$cop"
+  gh workflow run agent-cop-fix.yml -f cop="$cop"
   sleep 5
 done
 
 # Tier 2 (use Codex for stronger model, or MiniMax to try cheap first)
 python3 scripts/agent/tier_cops.py --extended --tier 2 --names | while read cop; do
-  gh workflow run agent-cop-fix-codex.yml -f cop="$cop"
+  gh workflow run agent-cop-fix.yml -f cop="$cop" -f backend="codex"
   sleep 5
 done
 ```
@@ -140,13 +140,13 @@ gh pr list --state open --search "status:failure" --limit 50
 Retry each with stronger model:
 
 ```bash
-gh workflow run agent-cop-retry-codex.yml -f cop="Department/CopName"
+gh workflow run agent-cop-retry.yml -f cop="Department/CopName"
 ```
 
 For specific issues, add context:
 
 ```bash
-gh workflow run agent-cop-retry-codex.yml \
+gh workflow run agent-cop-retry.yml \
   -f cop="Department/CopName" \
   -f extra_context="<what went wrong>"
 ```

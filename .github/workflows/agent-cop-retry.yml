@@ -1,4 +1,4 @@
-name: Agent Cop Retry (Codex)
+name: Agent Cop Retry
 
 permissions:
   contents: write
@@ -12,6 +12,13 @@ on:
         description: 'Cop to retry (e.g. Style/NegatedWhile)'
         required: true
         type: string
+      backend:
+        description: 'Agent backend'
+        type: choice
+        options:
+          - minimax
+          - codex
+        default: codex
       extra_context:
         description: 'Additional instructions (optional)'
         required: false
@@ -35,10 +42,10 @@ jobs:
       - name: Build test binary
         run: cargo test --lib --no-run 2>&1
 
-      - name: Compute branch name
-        id: branch
+      - name: Compute identifiers
+        id: cop
         run: |
-          BRANCH=$(python3 -c "
+          python3 -c "
           import re, sys
           cop = sys.argv[1]
           dept, name = cop.split('/', 1)
@@ -48,9 +55,10 @@ jobs:
               return s.lower()
           dept_map = {'RSpec': 'rspec', 'RSpecRails': 'rspec_rails', 'FactoryBot': 'factory_bot'}
           dept_dir = dept_map.get(dept, snake(dept))
-          print(f'fix/{dept_dir}-{snake(name)}')
-          " "${{ github.event.inputs.cop }}")
-          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+          cop_snake = snake(name)
+          print(f'branch=fix/{dept_dir}-{cop_snake}')
+          print(f'filter=cop::{dept_dir}::{cop_snake}')
+          " "${{ github.event.inputs.cop }}" >> "$GITHUB_OUTPUT"
 
       - name: Generate task prompt
         env:
@@ -99,64 +107,86 @@ jobs:
             gh pr close "$pr" --comment "Superseded by retry attempt." 2>/dev/null || true
           done
 
-      - name: Install Codex CLI
-        run: npm install -g @openai/codex@latest
-
-      - name: Run Codex agent
-        env:
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+      - name: Install agent CLI
         run: |
-          mkdir -p ~/.codex
-          echo "$CODEX_AUTH_JSON" > ~/.codex/auth.json
-          codex exec --full-auto -m gpt-5.4 - < /tmp/retry-task.md
+          if [ "${{ github.event.inputs.backend }}" = "minimax" ]; then
+            curl -fsSL https://claude.ai/install.sh | bash
+          else
+            npm install -g @openai/codex@latest
+          fi
+
+      - name: Prepare clean workspace for agent
+        run: |
+          echo "main_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git rm -r --quiet \
+            CLAUDE.md AGENTS.md \
+            .claude/ .agents/ .devcontainer/ .github/ gem/ scripts/ \
+            2>/dev/null || true
+          git commit -m "tmp: clean workspace for agent"
+        id: prep
+
+      - name: Run agent
+        env:
+          ANTHROPIC_BASE_URL: ${{ github.event.inputs.backend == 'minimax' && 'https://api.minimax.io/anthropic' || '' }}
+          ANTHROPIC_AUTH_TOKEN: ${{ github.event.inputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
+          ANTHROPIC_MODEL: ${{ github.event.inputs.backend == 'minimax' && 'MiniMax-M2.7' || '' }}
+          ANTHROPIC_SMALL_FAST_MODEL: ${{ github.event.inputs.backend == 'minimax' && 'MiniMax-M2.7' || '' }}
+          API_TIMEOUT_MS: "300000"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+          CODEX_AUTH_JSON: ${{ github.event.inputs.backend == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
+        run: |
+          if [ "${{ github.event.inputs.backend }}" = "minimax" ]; then
+            claude -p --dangerously-skip-permissions "$(cat /tmp/retry-task.md)"
+          else
+            mkdir -p ~/.codex
+            echo "$CODEX_AUTH_JSON" > ~/.codex/auth.json
+            codex exec --full-auto -m gpt-5.4 - < /tmp/retry-task.md
+          fi
 
       - name: Check for changes
         id: changes
         run: |
-          if git diff --quiet && git diff --cached --quiet; then
+          if git diff --quiet; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Validate changes
-        if: steps.changes.outputs.has_changes == 'true'
-        run: |
-          cargo test --lib --no-run 2>&1
-          COP="${{ github.event.inputs.cop }}"
-          FILTER=$(python3 -c "
-          import re, sys
-          cop = sys.argv[1]
-          dept, name = cop.split('/', 1)
-          def snake(s):
-              s = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', s)
-              s = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s)
-              return s.lower()
-          dept_map = {'RSpec': 'rspec', 'RSpecRails': 'rspec_rails', 'FactoryBot': 'factory_bot'}
-          dept_dir = dept_map.get(dept, snake(dept))
-          print(f'cop::{dept_dir}::{snake(name)}')
-          " "$COP")
-          cargo test --lib -- "$FILTER" 2>&1
-
-      - name: Commit, push, and create PR
+      - name: Validate and create PR
         if: steps.changes.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          BRANCH="${{ steps.branch.outputs.name }}"
+          BRANCH="${{ steps.cop.outputs.branch }}"
           COP="${{ github.event.inputs.cop }}"
+          BACKEND="${{ github.event.inputs.backend }}"
 
-          git push origin --delete "$BRANCH" 2>/dev/null || true
-          git checkout -b "$BRANCH"
           git add -A
-          git commit -m "Fix ${COP}: agent-generated fix (retry)
+          git commit -m "agent changes" --allow-empty
 
-          Co-Authored-By: codex <noreply@github.com>"
+          git diff "${{ steps.prep.outputs.main_sha }}" HEAD -- \
+            src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent.patch
 
-          git push -u origin "$BRANCH"
+          git checkout main
 
-          gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "Fix ${COP}: agent-generated conformance fix (retry)" \
-            --body "Retry fix for ${COP}. Prior attempts were reviewed and a different approach was used."
+          if [ -s /tmp/agent.patch ]; then
+            git apply /tmp/agent.patch
+
+            cargo test --lib --no-run 2>&1
+            cargo test --lib -- "${{ steps.cop.outputs.filter }}" 2>&1
+
+            git push origin --delete "$BRANCH" 2>/dev/null || true
+            git checkout -b "$BRANCH"
+            git add src/cop/ tests/fixtures/cops/ bench/corpus/
+            git commit -m "Fix ${COP}: agent-generated fix (retry, $BACKEND)"
+
+            git push -u origin "$BRANCH"
+
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "Fix ${COP}: agent-generated fix (retry)" \
+              --body "Retry fix for ${COP} (backend: ${BACKEND}). Prior attempts reviewed."
+          else
+            echo "No cop file changes found in agent output"
+          fi

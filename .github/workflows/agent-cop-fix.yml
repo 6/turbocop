@@ -1,4 +1,4 @@
-name: Agent Cop Fix (MiniMax)
+name: Agent Cop Fix
 
 permissions:
   contents: write
@@ -12,6 +12,13 @@ on:
         description: 'Cop to fix (e.g. Style/NegatedWhile)'
         required: true
         type: string
+      backend:
+        description: 'Agent backend'
+        type: choice
+        options:
+          - minimax
+          - codex
+        default: minimax
 
 jobs:
   fix:
@@ -58,19 +65,17 @@ jobs:
             --output /tmp/task.md
           wc -l /tmp/task.md
 
-      - name: Install Claude Code CLI
-        run: curl -fsSL https://claude.ai/install.sh | bash
+      - name: Install agent CLI
+        run: |
+          if [ "${{ github.event.inputs.backend }}" = "minimax" ]; then
+            curl -fsSL https://claude.ai/install.sh | bash
+          else
+            npm install -g @openai/codex@latest
+          fi
 
-      # Save the main branch SHA so we can restore deleted files later.
-      # Then strip distracting files and commit to a temp branch so the
-      # agent sees a clean workspace AND clean git status.
       - name: Prepare clean workspace for agent
         run: |
           echo "main_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-          # Only remove files that actively mislead the agent (instruction
-          # files for other workflows). Keep bench/, vendor/, scripts/ etc
-          # since the agent may need to read or modify them.
           git rm -r --quiet \
             CLAUDE.md AGENTS.md \
             .claude/ .agents/ .devcontainer/ .github/ gem/ scripts/ \
@@ -78,18 +83,26 @@ jobs:
           git commit -m "tmp: clean workspace for agent"
         id: prep
 
-      - name: Run Claude Code agent (MiniMax M2.7)
+      - name: Run agent
         env:
-          ANTHROPIC_BASE_URL: https://api.minimax.io/anthropic
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.MINIMAX_API_KEY }}
-          ANTHROPIC_MODEL: MiniMax-M2.7
-          ANTHROPIC_SMALL_FAST_MODEL: MiniMax-M2.7
+          # MiniMax
+          ANTHROPIC_BASE_URL: ${{ github.event.inputs.backend == 'minimax' && 'https://api.minimax.io/anthropic' || '' }}
+          ANTHROPIC_AUTH_TOKEN: ${{ github.event.inputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
+          ANTHROPIC_MODEL: ${{ github.event.inputs.backend == 'minimax' && 'MiniMax-M2.7' || '' }}
+          ANTHROPIC_SMALL_FAST_MODEL: ${{ github.event.inputs.backend == 'minimax' && 'MiniMax-M2.7' || '' }}
           API_TIMEOUT_MS: "300000"
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+          # Codex
+          CODEX_AUTH_JSON: ${{ github.event.inputs.backend == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
         run: |
-          claude -p --dangerously-skip-permissions "$(cat /tmp/task.md)"
+          if [ "${{ github.event.inputs.backend }}" = "minimax" ]; then
+            claude -p --dangerously-skip-permissions "$(cat /tmp/task.md)"
+          else
+            mkdir -p ~/.codex
+            echo "$CODEX_AUTH_JSON" > ~/.codex/auth.json
+            codex exec --full-auto -m gpt-5.4 - < /tmp/task.md
+          fi
 
-      # Check if agent made changes (compare against the cleanup commit)
       - name: Check for changes
         id: changes
         run: |
@@ -101,8 +114,6 @@ jobs:
             git diff --stat
           fi
 
-      # Restore the full repo from main, keep only the agent's cop changes,
-      # and create a single clean commit.
       - name: Validate and create PR
         if: steps.changes.outputs.has_changes == 'true'
         env:
@@ -110,34 +121,32 @@ jobs:
         run: |
           BRANCH="${{ steps.cop.outputs.branch }}"
           COP="${{ github.event.inputs.cop }}"
+          BACKEND="${{ github.event.inputs.backend }}"
 
-          # Commit agent's changes on top of the cleanup
+          # Commit agent's changes
           git add -A
           git commit -m "agent changes" --allow-empty
 
-          # Extract agent's changes (cop source, fixtures, and config files)
+          # Extract changes to allowed paths only
           git diff "${{ steps.prep.outputs.main_sha }}" HEAD -- \
             src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent.patch
 
-          # Go back to main
+          # Restore full repo from main
           git checkout main
 
-          # Apply only the cop changes
           if [ -s /tmp/agent.patch ]; then
             git apply /tmp/agent.patch
 
-            # Validate: does it compile and pass tests?
+            # Validate
             cargo test --lib --no-run 2>&1
             cargo test --lib -- "${{ steps.cop.outputs.filter }}" 2>&1
             echo "Tests pass for ${COP}"
 
-            # Create clean branch with just the cop fix
+            # Create clean branch + PR
             git push origin --delete "$BRANCH" 2>/dev/null || true
             git checkout -b "$BRANCH"
             git add src/cop/ tests/fixtures/cops/ bench/corpus/
-            git commit -m "Fix ${COP}: agent-generated fix
-
-          Co-Authored-By: MiniMax M2.7 <noreply@minimax.io>"
+            git commit -m "Fix ${COP}: agent-generated fix ($BACKEND)"
 
             git push -u origin "$BRANCH"
 
@@ -145,7 +154,7 @@ jobs:
               --base main \
               --head "$BRANCH" \
               --title "Fix ${COP}: agent-generated conformance fix" \
-              --body "Automated fix for ${COP} by Claude Code + MiniMax M2.7.
+              --body "Automated fix for ${COP} (backend: ${BACKEND}).
 
           ## Validation
           - [x] cargo test --lib passes for this cop
