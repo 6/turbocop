@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-repo file exclusions for the corpus oracle. When RuboCop's parser crashes on specific files, it silently drops all subsequent files in that batch. Excluding the crashing files lets RuboCop inspect the rest of the repo cleanly. Paths are relative to the repo root (glob syntax, same as AllCops/Exclude).",
+  "_comment": "Per-repo file exclusions for the corpus oracle. Files listed here are excluded from RuboCop inspection via AllCops/Exclude overlay. With rescue_parser_crashes.rb loaded, crashes no longer kill subsequent files, but these exclusions still prevent known-crashy files from producing misleading 0-offense entries. Paths are relative to the repo root (glob syntax, same as AllCops/Exclude).",
   "jruby__jruby__0303464": {
     "comment": "Lint/LiteralAsCondition crash on bench_compilation.rb; Prism::Translation::Parser crashes on invalid multibyte regex escapes in test files, killing ~1000 files as collateral",
     "exclude": [

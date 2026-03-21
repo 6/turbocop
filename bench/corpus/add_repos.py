@@ -57,6 +57,7 @@ DENYLIST = {
     "smalruby/smalruby-editor",  # Ancient config format (no department given for LineLength)
     "pubnub/ruby",  # RuboCop parser crash, 46 files dropped
     "codeout/junoser",  # RuboCop parser crash, 32 files dropped
+    "AliOsm/phlex-icons",  # RuboCop parser crash, 1580 files dropped
 }
 
 
