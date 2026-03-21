@@ -240,6 +240,56 @@ def _extract_source_lines(src: list[str]) -> tuple[list[str], str | None, int | 
     return source_lines, offense_line, offense_line_idx
 
 
+# Ruby block-opening keywords/patterns and their AST significance
+_ENCLOSING_PATTERNS = [
+    (r'^\s*BEGIN\s*\{', "BEGIN {} block (Prism: PreExecutionNode)"),
+    (r'^\s*END\s*\{', "END {} block (Prism: PostExecutionNode)"),
+    (r'^\s*class\s+', "class body"),
+    (r'^\s*module\s+', "module body"),
+    (r'^\s*def\s+', "method body"),
+    (r'^\s*if\s+', "if branch"),
+    (r'^\s*unless\s+', "unless branch"),
+    (r'^\s*while\s+', "while loop"),
+    (r'^\s*until\s+', "until loop"),
+    (r'^\s*begin\b', "begin block"),
+    (r'^\s*rescue\b', "rescue block"),
+    (r'^\s*ensure\b', "ensure block"),
+    (r'^\s*case\s+', "case expression"),
+    (r'.*\bdo\s*(\|.*\|)?\s*$', "block (do..end)"),
+    (r'.*\{\s*(\|.*\|)?\s*$', "block ({..})"),
+]
+
+
+def _find_enclosing_structure(
+    source_lines: list[str], offense_line_idx: int | None,
+) -> str | None:
+    """Identify the enclosing Ruby structure around the offense line.
+
+    Scans backwards from the offense line looking for block-opening keywords
+    to help the agent understand what context makes a FP/FN different."""
+    if offense_line_idx is None or offense_line_idx == 0:
+        return None
+
+    # Get indentation of offense line
+    offense = source_lines[offense_line_idx]
+    offense_indent = len(offense) - len(offense.lstrip())
+
+    # Scan backwards for enclosing structure with less indentation
+    for i in range(offense_line_idx - 1, -1, -1):
+        line = source_lines[i]
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        line_indent = len(line) - len(stripped)
+        if line_indent < offense_indent:
+            for pattern, desc in _ENCLOSING_PATTERNS:
+                if re.match(pattern, line):
+                    return f"{desc} (line: `{stripped.rstrip()}`)"
+            # Generic: just report the line
+            return f"enclosing line: `{stripped.rstrip()}`"
+    return None
+
+
 def _run_nitrocop(binary_path: Path, cwd: str, cop: str = "") -> list[dict]:
     """Run nitrocop on test.rb in the given directory, return offenses list."""
     cmd = [str(binary_path), "--force-default-config", "--format", "json"]
@@ -323,11 +373,16 @@ def run_diagnostic(
                     else:
                         test_snippet = f"{offense_line}\n^ {cop}: {msg}"
 
+                # Identify enclosing structure for context
+                enclosing = _find_enclosing_structure(source_lines, offense_line_idx)
+
                 results.append({
                     "kind": kind, "loc": loc, "msg": msg,
                     "diagnosed": True, "detected": detected,
                     "offense_line": offense_line,
                     "test_snippet": test_snippet,
+                    "enclosing": enclosing,
+                    "source_context": "\n".join(source_lines),
                 })
             except Exception as e:
                 results.append({
@@ -399,10 +454,17 @@ def _format_with_diagnostics(
             else:
                 lines.append("**NOT DETECTED — CODE BUG**")
                 lines.append("The cop fails to detect this pattern. Fix the detection logic.")
+                if d.get("enclosing"):
+                    lines.append(f"\n**Enclosing structure:** {d['enclosing']}")
+                    lines.append("The offense is inside this structure — the cop may need")
+                    lines.append("to handle this context to detect the pattern.")
             lines.append(f"\nMessage: `{d['msg']}`")
             if d.get("test_snippet"):
                 lines.append("\nReady-made test snippet (add to offense.rb, adjust `^` count):")
                 lines.append(f"```ruby\n{d['test_snippet']}\n```")
+            if d.get("source_context"):
+                lines.append(f"\nFull source context:")
+                lines.append(f"```ruby\n{d['source_context']}\n```")
         else:
             lines.append(f"(could not diagnose: {d.get('reason', 'unknown')})")
             lines.append(f"Message: `{d['msg']}`")
@@ -416,7 +478,14 @@ def _format_with_diagnostics(
                 lines.append("**CONFIRMED false positive — CODE BUG**")
                 lines.append("nitrocop incorrectly flags this pattern in isolation.")
                 lines.append("Fix the detection logic to not flag this.")
-                if d.get("offense_line"):
+                if d.get("enclosing"):
+                    lines.append(f"\n**Enclosing structure:** {d['enclosing']}")
+                    lines.append("The offense is inside this structure — this is likely WHY")
+                    lines.append("RuboCop does not flag it. Your fix should detect this context.")
+                if d.get("source_context"):
+                    lines.append(f"\nFull source context (add relevant parts to no_offense.rb):")
+                    lines.append(f"```ruby\n{d['source_context']}\n```")
+                elif d.get("offense_line"):
                     lines.append(f"\nAdd to no_offense.rb:")
                     lines.append(f"```ruby\n{d['offense_line']}\n```")
             else:
@@ -424,6 +493,9 @@ def _format_with_diagnostics(
                 lines.append("nitrocop does not flag this in isolation. The FP is triggered")
                 lines.append("by surrounding code context or file-level state.")
                 lines.append("Investigate what full-file context causes the false detection.")
+                if d.get("source_context"):
+                    lines.append(f"\nSource context:")
+                    lines.append(f"```ruby\n{d['source_context']}\n```")
             lines.append(f"\nMessage: `{d['msg']}`")
         else:
             lines.append(f"(could not diagnose: {d.get('reason', 'unknown')})")
