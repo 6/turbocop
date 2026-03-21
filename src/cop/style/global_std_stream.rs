@@ -5,14 +5,32 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 /// Corpus investigation (2026-03):
-/// 3 FPs caused by `::STDOUT = expr` (ConstantPathWriteNode) patterns.
+///
+/// ## FPs (3 cases): `::STDOUT = expr` patterns
 /// In Prism, `::STDOUT = expr` creates a ConstantPathWriteNode whose target is a
 /// ConstantPathNode. The visitor visits the target ConstantPathNode, and since
 /// parent() is None (top-level `::STDOUT`), the cop was flagging it. But RuboCop's
-/// `on_const` callback is NOT called for constant assignment targets (they are
-/// `casgn` nodes in RuboCop's AST, not `const` nodes).
+/// `on_const` callback is NOT called for constant assignment targets.
+///
 /// Fix: track `in_const_path_write` flag to suppress flagging ConstantPathNode
 /// targets inside ConstantPathWriteNode/OrWriteNode/AndWriteNode/OperatorWriteNode.
+///
+/// ## FNs (7 cases): Assignment patterns
+/// The cop was missing cases like `$stderr = STDOUT` and `$stderr = @stderr = STDERR`.
+///
+/// Root cause: The `in_gvar_assignment` flag was set for ANY std gvar assignment,
+/// which incorrectly suppressed flagging when the assigned constant didn't match
+/// the gvar. E.g., `$stderr = STDOUT` should flag STDOUT (since $stderr != $stdout),
+/// but the old code suppressed it.
+///
+/// Fix: Changed `in_gvar_assignment` (bool) to `in_std_gvar_assignment` (Option<&str>)
+/// which stores the actual gvar name. A constant is only skipped if its matching
+/// gvar equals the gvar being assigned to.
+///
+/// Additionally, added handlers for InstanceVariableWriteNode, ClassVariableWriteNode,
+/// LocalVariableWriteNode, and ConstantWriteNode to clear the gvar context when
+/// entering non-gvar assignments. This ensures constants inside chained assignments
+/// like `$stderr = @stderr = STDERR` are properly flagged.
 pub struct GlobalStdStream;
 
 impl Cop for GlobalStdStream {
@@ -33,7 +51,7 @@ impl Cop for GlobalStdStream {
             cop: self,
             source,
             diagnostics: Vec::new(),
-            in_gvar_assignment: false,
+            in_std_gvar_assignment: None,
             in_const_path_write: false,
         };
         visitor.visit(&parse_result.node());
@@ -45,16 +63,25 @@ struct GlobalStdStreamVisitor<'a, 'src> {
     cop: &'a GlobalStdStream,
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
-    /// True when visiting the value side of a `$stdout = ...` assignment
-    in_gvar_assignment: bool,
+    /// The name of the std gvar being assigned to, if any (e.g., "$stdout")
+    /// Used to suppress flagging only when assigning a constant TO its matching gvar.
+    in_std_gvar_assignment: Option<&'static str>,
     /// True when visiting inside a ConstantPathWriteNode (target is not a const read)
     in_const_path_write: bool,
 }
 
 impl GlobalStdStreamVisitor<'_, '_> {
     fn check_std_stream(&mut self, name_bytes: &[u8], loc: &ruby_prism::Location<'_>) {
-        if self.in_gvar_assignment {
-            return;
+        // Check if we're in an assignment to the matching std gvar for this constant.
+        // E.g., if we're assigning to $stdout and the constant is STDOUT, skip it.
+        // But $stderr = STDOUT should be flagged because $stderr != $stdout.
+        if let Some(assigning_to) = self.in_std_gvar_assignment {
+            if let Some(matching_gvar) = std_stream_gvar(name_bytes) {
+                if matching_gvar == assigning_to {
+                    // Assigning the matching constant to its matching gvar - OK
+                    return;
+                }
+            }
         }
         if let Some(gvar) = std_stream_gvar(name_bytes) {
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
@@ -74,14 +101,56 @@ impl Visit<'_> for GlobalStdStreamVisitor<'_, '_> {
         let var_name = node.name();
         let var_bytes = var_name.as_slice();
         // Check if this is $stdout = ..., $stderr = ..., or $stdin = ...
-        let is_std_gvar = matches!(var_bytes, b"$stdout" | b"$stderr" | b"$stdin");
-        if is_std_gvar {
-            self.in_gvar_assignment = true;
+        let std_gvar_name: Option<&'static str> = match var_bytes {
+            b"$stdout" => Some("$stdout"),
+            b"$stderr" => Some("$stderr"),
+            b"$stdin" => Some("$stdin"),
+            _ => None,
+        };
+        if std_gvar_name.is_some() {
+            self.in_std_gvar_assignment = std_gvar_name;
         }
-        ruby_prism::visit_global_variable_write_node(self, node);
-        if is_std_gvar {
-            self.in_gvar_assignment = false;
+        // Visit the value node (the default visitor only visits value)
+        self.visit(&node.value());
+        if std_gvar_name.is_some() {
+            self.in_std_gvar_assignment = None;
         }
+    }
+
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'_>) {
+        // When entering a local variable assignment like `foo = STDERR`,
+        // temporarily clear the gvar assignment context. The constant on the RHS
+        // should still be flagged (unless it's directly assigned to its matching gvar).
+        let saved = self.in_std_gvar_assignment.take();
+        self.visit(&node.value());
+        self.in_std_gvar_assignment = saved;
+    }
+
+    fn visit_instance_variable_write_node(&mut self, node: &ruby_prism::InstanceVariableWriteNode<'_>) {
+        // When entering an instance variable assignment like `@stderr = STDERR`,
+        // temporarily clear the gvar assignment context. The constant on the RHS
+        // should still be flagged.
+        let saved = self.in_std_gvar_assignment.take();
+        self.visit(&node.value());
+        self.in_std_gvar_assignment = saved;
+    }
+
+    fn visit_class_variable_write_node(&mut self, node: &ruby_prism::ClassVariableWriteNode<'_>) {
+        // When entering a class variable assignment like `@@stderr = STDERR`,
+        // temporarily clear the gvar assignment context. The constant on the RHS
+        // should still be flagged.
+        let saved = self.in_std_gvar_assignment.take();
+        self.visit(&node.value());
+        self.in_std_gvar_assignment = saved;
+    }
+
+    fn visit_constant_write_node(&mut self, node: &ruby_prism::ConstantWriteNode<'_>) {
+        // When entering a constant assignment like `FOO = STDERR`,
+        // temporarily clear the gvar assignment context. The constant on the RHS
+        // should still be flagged.
+        let saved = self.in_std_gvar_assignment.take();
+        self.visit(&node.value());
+        self.in_std_gvar_assignment = saved;
     }
 
     fn visit_constant_read_node(&mut self, node: &ruby_prism::ConstantReadNode<'_>) {
