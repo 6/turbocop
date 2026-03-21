@@ -35,6 +35,9 @@ jobs:
   fix:
     runs-on: ubuntu-latest-16-cores
     timeout-minutes: 45
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      RUSTFLAGS: -C link-arg=-fuse-ld=mold
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,6 +57,10 @@ jobs:
           path: target
           key: agent-target-${{ hashFiles('Cargo.lock') }}
           restore-keys: agent-target-
+
+      # mold linker: cuts relink time from 30-60s to 2-5s for incremental builds
+      - name: Install mold linker
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
 
       # --- Fast steps ---
 
