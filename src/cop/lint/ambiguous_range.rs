@@ -52,13 +52,13 @@ use crate::parse::source::SourceFile;
 ///
 /// ## FP fix (2026-03-21)
 ///
-/// FP=4: `@string[start..@pos-1]` was incorrectly flagged.
-///
-/// RuboCop accepts arithmetic operator method calls on variables as range boundaries
-/// (e.g., `@pos-1`, `a + 1`, `x * 2`) but nitrocop was blanket-rejecting ALL
-/// operator methods. The distinction is that comparison operators (`>=`, `<=`, `>>`,
-/// `<<`) are still rejected (they create genuine ambiguity), while arithmetic
-/// operators (`+`, `-`, `*`, `/`) on variables are accepted.
+/// FP=4 across 2 repos. Two root causes:
+/// 1. `@string[start..@pos-1]`: arithmetic operators on variables (`+`, `-`, `*`, `/`)
+///    were rejected as ambiguous. RuboCop accepts these; only comparison operators
+///    (`>=`, `<=`, `>>`, `<<`) create genuine ambiguity.
+/// 2. `1.. ..1` and `1... ...1`: range nodes used as boundaries (endless to beginless).
+///    RuboCop accepts `RangeNode` as an unambiguous boundary. Added `as_range_node()`
+///    check to `is_acceptable_boundary`.
 pub struct AmbiguousRange;
 
 impl Cop for AmbiguousRange {
@@ -175,6 +175,11 @@ fn is_acceptable_boundary(node: &ruby_prism::Node<'_>, require_parens_for_chains
         || node.as_x_string_node().is_some()
         || node.as_interpolated_symbol_node().is_some()
     {
+        return true;
+    }
+
+    // Range nodes used as boundaries (e.g., `1.. ..1` — endless range to beginless range)
+    if node.as_range_node().is_some() {
         return true;
     }
 
