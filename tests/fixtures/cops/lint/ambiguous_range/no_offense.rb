@@ -21,3 +21,8 @@ begin; compute_min; end..begin; compute_max; end
 # Method calls with block arguments (&) are acceptable — Prism puts &block in
 # CallNode.block(), but it's a BlockArgumentNode, not an actual block body.
 records.select(&:active?)..records.reject(&:archived?)
+
+# FP #1: Exact case from FP report - @pos-1 inside method body
+def get_text(start)
+  @string[start..@pos-1]
+end
