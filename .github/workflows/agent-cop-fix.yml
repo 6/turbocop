@@ -596,7 +596,7 @@ jobs:
 
           # Enable auto-merge (squash).
           # PR will merge automatically once CI passes + review approval.
-          gh pr merge "$PR_URL" --auto --squash --delete-branch
+          gh pr merge "$PR_URL" --auto --rebase --delete-branch
 
       # --- Cleanup: close draft PR if agent failed ---
       - name: Close draft PR on failure
