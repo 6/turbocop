@@ -32,3 +32,8 @@ send(:to_c)
 # Qualified constant (Core::Utils::Time) does NOT match "Time" in IgnoredClasses
 Core::Utils::Time.now.to_i
 ^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `Core::Utils::Time.now.to_i`, use stricter `Integer(Core::Utils::Time.now, 10)`.
+Faker::Time.backward(days: 365).to_i
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `Faker::Time.backward(days: 365).to_i`, use stricter `Integer(Faker::Time.backward(days: 365), 10)`.
+# Symbol argument with regular block (not block argument) should still be flagged
+receive(:to_i) { 1 }
+^^^^^^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `:to_i`, use stricter `{ |i| Integer(i, 10) }`.

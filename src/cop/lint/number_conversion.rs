@@ -195,11 +195,14 @@ impl NumberConversion {
         // In RuboCop, block_pass counts as an argument, so `map(x, &:to_i)` has 2 args
         // and is skipped by `arguments.one?`. In Prism, block is separate from arguments,
         // so we must check that no regular arguments exist alongside the block_pass.
+        // Only enter this branch for block arguments (&:to_i), NOT regular blocks
+        // ({ ... }). Regular blocks like `receive(:to_i) { 1 }` should fall through
+        // to the symbol argument check below.
         if let Some(block) = call.block() {
-            if call.arguments().is_some() {
-                return;
-            }
             if let Some(block_arg) = block.as_block_argument_node() {
+                if call.arguments().is_some() {
+                    return;
+                }
                 if let Some(expr) = block_arg.expression() {
                     if let Some(sym) = expr.as_symbol_node() {
                         let sym_value = sym.unescaped();
@@ -222,8 +225,9 @@ impl NumberConversion {
                         }
                     }
                 }
+                return;
             }
-            return;
+            // Regular block (not block argument) — fall through to symbol arg check
         }
 
         // Check symbol argument form: try(:to_f), send(:to_c)
