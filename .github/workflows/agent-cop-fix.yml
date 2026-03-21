@@ -289,9 +289,9 @@ jobs:
           ruby-version: '4.0'
           bundler-cache: false
 
-      - name: Install Prism gem
+      - name: Install Ruby gems (for agent debugging)
         if: steps.task.outputs.code_bugs != '0'
-        run: gem install prism --no-document
+        run: gem install prism rubocop rubocop-performance rubocop-rails rubocop-rspec --no-document
 
       - name: Prepare clean workspace for agent
         if: steps.task.outputs.code_bugs != '0'

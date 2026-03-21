@@ -97,6 +97,17 @@ cargo run -- --format json --only Style/MixinUsage /tmp/test.rb
 
 Every Ruby construct maps to a specific `*Node` type — use `node.as_*_node()` to downcast.
 
+## Comparing Against RuboCop
+
+RuboCop and its plugins are installed. Use it to verify expected behavior:
+```bash
+echo 'BEGIN { include Foo }' > /tmp/test.rb
+rubocop --only Style/MixinUsage /tmp/test.rb        # does RuboCop flag this?
+rubocop --only Style/MixinUsage --format json /tmp/test.rb  # structured output
+```
+
+This is the ground truth — if RuboCop doesn't flag it, nitrocop shouldn't either (and vice versa).
+
 ## Scope-Aware Cops
 
 Since Prism has no parent pointers, cops that need nesting/scope context use one of:
