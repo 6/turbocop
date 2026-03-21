@@ -29,3 +29,6 @@ try(:to_f)
 ^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `:to_f`, use stricter `{ |i| Float(i) }`.
 send(:to_c)
 ^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `:to_c`, use stricter `{ |i| Complex(i) }`.
+# Qualified constant (Core::Utils::Time) does NOT match "Time" in IgnoredClasses
+Core::Utils::Time.now.to_i
+^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `Core::Utils::Time.now.to_i`, use stricter `Integer(Core::Utils::Time.now, 10)`.

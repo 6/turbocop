@@ -1,5 +1,4 @@
 use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, RATIONAL_NODE};
-use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -39,6 +38,17 @@ use crate::parse::source::SourceFile;
 ///    when regular arguments exist alongside the block_pass.
 /// 2. Removed the `call.receiver().is_none()` early return from
 ///    `handle_symbol_form` so bare symbol forms are flagged.
+///
+/// ## Corpus investigation (2026-03-21)
+///
+/// Corpus oracle reported FP=0, FN=11.
+///
+/// FN=11: All from DataDog/dd-trace-rb using `Core::Utils::Time.now.to_i`.
+/// `is_ignored_class` used `constant_name()` which returns just the last
+/// segment "Time" from `Core::Utils::Time`, matching the default IgnoredClasses
+/// ["Time", "DateTime"]. But RuboCop uses `const_name` which returns the full
+/// qualified name "Core::Utils::Time" — this does NOT match "Time" so it's
+/// flagged. Fix: use full source text of the root constant for comparison.
 pub struct NumberConversion;
 
 const CONVERSION_METHODS: &[(&[u8], &str)] = &[
@@ -269,15 +279,19 @@ impl NumberConversion {
     }
 }
 
-/// Check if node (or its receiver chain root) is an ignored class constant.
+/// Check if the root receiver of the receiver chain is an ignored class constant.
+/// RuboCop uses `top_receiver` to walk the receiver chain to the root constant,
+/// then `const_name` to get the full qualified name (e.g., "Core::Utils::Time").
+/// The IgnoredClasses check compares the FULL name, so "Core::Utils::Time" does
+/// NOT match "Time" in the default list.
 fn is_ignored_class(node: &ruby_prism::Node<'_>, ignored_classes: &[String]) -> bool {
-    // Direct constant check
-    if let Some(name_bytes) = constant_name(node) {
+    // If this is a constant, check it directly using full source text
+    if node.as_constant_read_node().is_some() || node.as_constant_path_node().is_some() {
+        let name_bytes = node.location().as_slice();
         if let Ok(name) = std::str::from_utf8(name_bytes) {
-            if ignored_classes.iter().any(|c| c == name) {
-                return true;
-            }
+            return ignored_classes.iter().any(|c| c == name);
         }
+        return false;
     }
     // Walk receiver chain: check if it's a call whose receiver is an ignored class
     if let Some(call) = node.as_call_node() {
