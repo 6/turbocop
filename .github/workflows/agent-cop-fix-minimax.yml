@@ -68,11 +68,12 @@ jobs:
         run: |
           echo "main_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-          # Remove files that would confuse the agent
+          # Only remove files that actively mislead the agent (instruction
+          # files for other workflows). Keep bench/, vendor/, scripts/ etc
+          # since the agent may need to read or modify them.
           git rm -r --quiet \
             CLAUDE.md AGENTS.md \
-            .claude/ .agents/ .devcontainer/ .github/ \
-            bench/ docs/ gem/ scripts/ \
+            .claude/ .agents/ .devcontainer/ .github/ gem/ scripts/ \
             2>/dev/null || true
           git commit -m "tmp: clean workspace for agent"
         id: prep
@@ -114,9 +115,9 @@ jobs:
           git add -A
           git commit -m "agent changes" --allow-empty
 
-          # Now restore main and cherry-pick just the cop file changes.
-          # Save the diff of what the agent actually changed (cop files only).
-          git diff "${{ steps.prep.outputs.main_sha }}" HEAD -- src/cop/ tests/fixtures/cops/ > /tmp/agent.patch
+          # Extract agent's changes (cop source, fixtures, and config files)
+          git diff "${{ steps.prep.outputs.main_sha }}" HEAD -- \
+            src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent.patch
 
           # Go back to main
           git checkout main
@@ -133,7 +134,7 @@ jobs:
             # Create clean branch with just the cop fix
             git push origin --delete "$BRANCH" 2>/dev/null || true
             git checkout -b "$BRANCH"
-            git add src/cop/ tests/fixtures/cops/
+            git add src/cop/ tests/fixtures/cops/ bench/corpus/
             git commit -m "Fix ${COP}: agent-generated fix
 
           Co-Authored-By: MiniMax M2.7 <noreply@minimax.io>"
