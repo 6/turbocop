@@ -27,3 +27,18 @@ RSpec.describe 'test' do
     RUBY
   end
 end
+
+# Multi-line calls with single-line blocks must not be treated as single-line lets.
+# RuboCop's node.single_line? considers the entire node, not just the block braces.
+RSpec.describe 'multi-line call' do
+  let('foo') { 1 }
+  let('foo' \
+      'bar') { 1 }
+
+  let!('foo') { 1 }
+  let!('foo' \
+      'bar') { 1 }
+
+  let("key#{1}") { 1 }
+  let!("key#{1}") { 1 }
+end

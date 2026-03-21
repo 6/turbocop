@@ -39,12 +39,24 @@ use crate::parse::source::SourceFile;
 /// FP=1, FN=0.
 ///
 /// FP=1: rubocop__rubocop-rspec repo, spec/smoke_tests/weird_rspec_spec.rb:47.
-/// Root cause: the rubocop-rspec project's .rubocop.yml has `AllCops: Exclude:
-/// spec/smoke_tests/**/*.rb`. RuboCop skips this file entirely; nitrocop processes
-/// it. The opening_loc columns ARE actually different (let col=17, let! col=18),
-/// so nitrocop's alignment detection is correct — the FP is a file-scoping
-/// issue (AllCops.Exclude pattern not matching correctly in nitrocop's file discovery).
-/// No cop logic fix applied; the root cause is in file discovery/exclusion handling.
+/// Previous analysis incorrectly attributed to AllCops.Exclude. The corpus oracle
+/// uses baseline_rubocop.yml which does NOT inherit repo-specific excludes.
+///
+/// ## Corpus investigation (2026-03-21)
+///
+/// FP=2, FN=0. Both FPs on weird_rspec_spec.rb:47 in rubocop-rspec and rubocop-rspec_rails.
+///
+/// Root cause: nitrocop's single-line check compared block opening/closing brace
+/// lines, while RuboCop's `node.single_line?` checks the entire node (call + block).
+/// Multi-line calls like `let('foo' \ 'bar') { 1 }` (lines 40-41 and 44-45) had
+/// their blocks on one line, so nitrocop included them as single-line lets. This
+/// shifted the adjacent_let_chunks grouping: with the extra entries on lines 41 and
+/// 45, lines 47-48 ended up in the same chunk (both key=false after the gap from
+/// 45). Without them (RuboCop's view), lines 47-48 were in different chunks
+/// (47=key_true after gap from 43, 48=key_false).
+///
+/// Fix: changed single-line check to compare call start line vs block close line,
+/// matching RuboCop's whole-node single_line? behavior.
 pub struct AlignLeftLetBrace;
 
 impl Cop for AlignLeftLetBrace {
@@ -81,12 +93,17 @@ impl Cop for AlignLeftLetBrace {
             return;
         }
 
-        // Step 2: Resolve offsets to (line, column) and filter to single-line blocks
+        // Step 2: Resolve offsets to (line, column) and filter to single-line lets.
+        // RuboCop's `node.single_line?` checks the entire node (call + block),
+        // not just the block braces. Multi-line calls like `let('foo' \ 'bar') { 1 }`
+        // have the call starting on one line and the block on the next — these must
+        // be excluded to match RuboCop's adjacent_let_chunks grouping.
         let mut lets: Vec<(usize, usize)> = Vec::new();
-        for (open_offset, close_offset) in &collector.blocks {
+        for (call_start, open_offset, close_offset) in &collector.blocks {
+            let (call_line, _) = source.offset_to_line_col(*call_start);
             let (open_line, open_col) = source.offset_to_line_col(*open_offset);
             let (close_line, _) = source.offset_to_line_col(*close_offset);
-            if open_line == close_line {
+            if call_line == close_line && open_line == close_line {
                 lets.push((open_line, open_col));
             }
         }
@@ -120,8 +137,8 @@ impl Cop for AlignLeftLetBrace {
 
 /// Visitor that collects byte offsets of opening/closing braces for let/let! blocks.
 struct LetCollector {
-    /// Pairs of (opening_brace_offset, closing_brace_offset)
-    blocks: Vec<(usize, usize)>,
+    /// Triples of (call_start_offset, opening_brace_offset, closing_brace_offset)
+    blocks: Vec<(usize, usize, usize)>,
 }
 
 impl<'pr> Visit<'pr> for LetCollector {
@@ -131,9 +148,10 @@ impl<'pr> Visit<'pr> for LetCollector {
             // Check if it has a block (not a block_pass like `let(:foo, &blk)`)
             if let Some(block) = node.block() {
                 if let Some(block_node) = block.as_block_node() {
+                    let call_start = node.location().start_offset();
                     let open_offset = block_node.opening_loc().start_offset();
                     let close_offset = block_node.closing_loc().start_offset();
-                    self.blocks.push((open_offset, close_offset));
+                    self.blocks.push((call_start, open_offset, close_offset));
                 }
             }
         }

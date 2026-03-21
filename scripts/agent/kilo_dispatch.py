@@ -10,7 +10,7 @@ Usage:
     python3 scripts/agent/kilo_dispatch.py --task /tmp/task.md --cop Style/NegatedWhile --dry-run
 
 Environment:
-    KILO_API_KEY      - Kilo API key (or set in --api-key)
+    KILO_WEBHOOK_SECRET      - Kilo webhook shared secret (or set in --api-key)
     KILO_WEBHOOK_URL  - Kilo webhook trigger URL (or set in --webhook-url)
 """
 
@@ -46,10 +46,9 @@ def dispatch_to_kilo(
     headers = {
         "Content-Type": "text/plain",
     }
-    # Kilo webhook inbound auth — include shared secret if configured.
-    # Kilo may expect Authorization header or a custom header name.
+    # Kilo webhook inbound auth: x-webhook-secret header with shared secret
     if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+        headers["x-webhook-secret"] = api_key
 
     req = urllib.request.Request(webhook_url, data=data, headers=headers, method="POST")
 
@@ -82,13 +81,13 @@ def main():
     parser.add_argument("--webhook-url", default=None,
                         help="Kilo webhook URL (default: KILO_WEBHOOK_URL env)")
     parser.add_argument("--api-key", default=None,
-                        help="Kilo API key (default: KILO_API_KEY env)")
+                        help="Kilo webhook shared secret (default: KILO_WEBHOOK_SECRET env)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print what would be sent without dispatching")
     args = parser.parse_args()
 
     webhook_url = args.webhook_url or os.environ.get("KILO_WEBHOOK_URL")
-    api_key = args.api_key or os.environ.get("KILO_API_KEY")
+    api_key = args.api_key or os.environ.get("KILO_WEBHOOK_SECRET")
 
     if not args.dry_run:
         if not webhook_url:
@@ -96,7 +95,7 @@ def main():
                   file=sys.stderr)
             sys.exit(1)
         if not api_key:
-            print("Error: KILO_API_KEY not set. Use --api-key or set env var.",
+            print("Error: KILO_WEBHOOK_SECRET not set. Use --api-key or set env var.",
                   file=sys.stderr)
             sys.exit(1)
 

@@ -57,7 +57,7 @@ This is enough for all 319 Tier 1 cops. Upgrade to Max-Highspeed ($80/mo, 15K re
      ```
 4. Create a **webhook trigger** linked to the `minimax-highspeed` profile:
    - Prompt template: `{{body}}` (passes the task prompt through as-is)
-   - Inbound auth: set a shared secret (this becomes `KILO_API_KEY` in GitHub secrets)
+   - Inbound auth: set a shared secret (this becomes `KILO_WEBHOOK_SECRET` in GitHub secrets)
 5. Note the webhook URL
 
 The startup commands install Rust, build the project, and remove large instruction files that would confuse the agent. The agent gets its instructions from `.kilocode/rules/cop-fix.md` (committed to the repo) and the task prompt (sent via webhook). These deletions are ephemeral — they only happen in the container and are never committed.
@@ -70,7 +70,7 @@ Go to **Settings > Secrets and variables > Actions** and add:
 
 | Secret | Value | Required? |
 |--------|-------|-----------|
-| `KILO_API_KEY` | Your Kilo API key | Yes |
+| `KILO_WEBHOOK_SECRET` | Shared secret you set on the Kilo webhook trigger (any random string) | Yes |
 | `KILO_WEBHOOK_MINIMAX` | Webhook URL for minimax-highspeed profile | Yes |
 | `KILO_WEBHOOK_CLAUDE_SONNET` | Webhook URL for claude-sonnet profile | For Tier 2 cops |
 | `KILO_WEBHOOK_CLAUDE_OPUS` | Webhook URL for claude-opus profile | For Tier 3 cops |

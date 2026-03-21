@@ -46,13 +46,18 @@ use crate::parse::source::SourceFile;
 ///
 /// FP=1, FN=0.
 ///
-/// FP=1: rubocop__rubocop-rspec repo, spec/smoke_tests/weird_rspec_spec.rb:47.
-/// Root cause: the rubocop-rspec project's .rubocop.yml has `AllCops: Exclude:
-/// spec/smoke_tests/**/*.rb`. RuboCop skips this file entirely; nitrocop processes
-/// it. The closing_loc columns ARE actually different (let col=21, let! col=22),
-/// so nitrocop's alignment detection is correct — the FP is a file-scoping
-/// issue (AllCops.Exclude pattern not matching correctly in nitrocop's file discovery).
-/// No cop logic fix applied; the root cause is in file discovery/exclusion handling.
+/// Previous analysis incorrectly attributed to AllCops.Exclude.
+///
+/// ## Corpus investigation (2026-03-21)
+///
+/// FP=2, FN=0. Both FPs on weird_rspec_spec.rb:47 in rubocop-rspec and rubocop-rspec_rails.
+///
+/// Root cause: same as AlignLeftLetBrace — nitrocop's single-line check only
+/// compared block brace lines, while RuboCop's `node.single_line?` checks the
+/// entire node. Multi-line calls shifted adjacent_let_chunks grouping, causing
+/// lines 47-48 to be grouped together in nitrocop but not in RuboCop.
+///
+/// Fix: changed single-line check to compare call start line vs block close line.
 pub struct AlignRightLetBrace;
 
 impl Cop for AlignRightLetBrace {
@@ -129,15 +134,21 @@ impl<'a, 'pr> Visit<'pr> for LetCollector<'a> {
             // Check if it has a block (curly braces)
             if let Some(block) = node.block() {
                 if let Some(block_node) = block.as_block_node() {
+                    let call_loc = node.location();
                     let open_loc = block_node.opening_loc();
                     let close_loc = block_node.closing_loc();
 
+                    let (call_line, _) =
+                        self.source.offset_to_line_col(call_loc.start_offset());
                     let (open_line, _) = self.source.offset_to_line_col(open_loc.start_offset());
                     let (close_line, close_col) =
                         self.source.offset_to_line_col(close_loc.start_offset());
 
-                    // Single-line check: opening and closing brace on same line
-                    if open_line == close_line {
+                    // Single-line check: entire expression (call + block) on same line.
+                    // RuboCop's `node.single_line?` checks the whole node, not just
+                    // the block braces. Multi-line calls like `let('foo' \ 'bar') { 1 }`
+                    // must be excluded.
+                    if call_line == close_line && open_line == close_line {
                         self.lets.push((open_line, close_col));
                     }
                 }

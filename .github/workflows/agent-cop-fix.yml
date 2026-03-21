@@ -80,7 +80,7 @@ jobs:
       # with different BYOK credentials (MiniMax vs Anthropic API key).
       - name: Dispatch to Kilo
         env:
-          KILO_API_KEY: ${{ secrets.KILO_API_KEY }}
+          KILO_WEBHOOK_SECRET: ${{ secrets.KILO_WEBHOOK_SECRET }}
           KILO_WEBHOOK_MINIMAX: ${{ secrets.KILO_WEBHOOK_MINIMAX }}
           KILO_WEBHOOK_CLAUDE_SONNET: ${{ secrets.KILO_WEBHOOK_CLAUDE_SONNET }}
           KILO_WEBHOOK_CLAUDE_OPUS: ${{ secrets.KILO_WEBHOOK_CLAUDE_OPUS }}

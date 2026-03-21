@@ -47,3 +47,20 @@ RSpec.describe 'interp' do
   let("foo#{1}") { 1 }
   let!("foo#{1}") { 1 }
 end
+
+# Multi-line calls with single-line blocks: the call spans multiple lines
+# (line continuation with \) but the block braces are on the same line.
+# RuboCop's node.single_line? returns false for these — they must NOT be
+# included in the single-line lets list, or they shift adjacent chunking.
+RSpec.describe 'multi-line call' do
+  let('foo') { 1 }
+  let('foo' \
+      'bar') { 1 }
+
+  let!('foo') { 1 }
+  let!('foo' \
+      'bar') { 1 }
+
+  let("key#{1}") { 1 }
+  let!("key#{1}") { 1 }
+end
