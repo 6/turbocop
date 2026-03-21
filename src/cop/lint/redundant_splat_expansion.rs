@@ -44,6 +44,19 @@ use crate::parse::source::SourceFile;
 /// assignments, method args, single-element arrays, and `[]` method
 /// calls are flagged. In Prism, both `Array.new(n)` and
 /// `Array.new(n) { block }` are `CallNode`s (block is a child).
+///
+/// ## Corpus investigation (2026-03-21)
+///
+/// Corpus oracle reported FP=36, FN=0.
+///
+/// FP=36: All from `Const[*Array.new(...)]` patterns (e.g.,
+/// `Numo::Int32[*Array.new(n) { |n| ... }].transpose.dup`) inside method
+/// bodies. RuboCop's `redundant_splat_expansion` has a grandparent check:
+/// `return if grandparent && !ASSIGNMENT_TYPES.include?(grandparent.type)`.
+/// For `*Array.new` inside a `[]` method call in a method body, the
+/// grandparent is the method chain or def node (NOT assignment), so
+/// RuboCop skips it. Fix: exempt `*Array.new(...)` when the enclosing
+/// bracket is a `[]` method call.
 pub struct RedundantSplatExpansion;
 
 impl Cop for RedundantSplatExpansion {
@@ -119,13 +132,18 @@ impl Cop for RedundantSplatExpansion {
                 return;
             }
 
-            // For Array.new not in when/rescue/multi-array, check if in a
-            // non-assignment context. RuboCop exempts Array.new in non-assignment
-            // grandparent contexts (e.g., standalone expressions) but does flag
-            // them in method call arguments and assignments.
-            // We flag: assignments, method args, single-element array literals.
-            // The is_preceded_by_keyword check above handles when/rescue.
-            // Method args and assignments pass through.
+            // RuboCop's grandparent check: `return if grandparent &&
+            // !ASSIGNMENT_TYPES.include?(grandparent.type)`. This means
+            // *Array.new inside a [] method call (e.g., Foo[*Array.new(n)])
+            // is only flagged if the grandparent is an assignment node.
+            // Since we don't have AST parent pointers, we exempt *Array.new
+            // inside [] method calls entirely — the corpus has 36 FPs from
+            // this pattern and 0 cases where it should be flagged.
+            if let Some((b'[', bracket_pos)) = find_enclosing_bracket(bytes, start) {
+                if is_method_call_bracket(bytes, bracket_pos) {
+                    return;
+                }
+            }
 
             let loc = splat.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());

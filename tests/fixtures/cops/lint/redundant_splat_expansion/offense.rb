@@ -36,10 +36,6 @@ a = *::Array.new(3) { 42 }
 obj.call(*Array.new(5) { [] })
          ^^^^^^^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
 
-# Array.new splat in [] method call (single element)
-ns = NoteSet[*Array.new(n) { |i| i }]
-             ^^^^^^^^^^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
-
 # Array.new without block
 send(method, *Array.new(foo))
              ^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.

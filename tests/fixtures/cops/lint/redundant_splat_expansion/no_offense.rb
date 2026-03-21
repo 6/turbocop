@@ -16,6 +16,10 @@ Hash[*%w[hello world]]
 obj[*%w[a b c]]
 @cmd[*%w[test roar]]
 
+# Array.new inside [] method call — not flagged (RuboCop grandparent check)
+NoteSet[*Array.new(n) { |i| i }]
+Numo::Int32[*Array.new(@params[:n]) { |n| @estimators[n].apply(x) }]
+
 # Array.new in multi-element array literal — not flagged
 [1, 2, *Array.new(foo), 6]
 
