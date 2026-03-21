@@ -27,8 +27,8 @@ variable "ssh_public_key" {
 }
 
 variable "server_type" {
-  description = "Hetzner server type (cpx41 = 8 vCPU/16GB, ccx33 = 8 vCPU/32GB dedicated)"
-  default     = "cpx41"
+  description = "Hetzner server type (cpx42 = 8 vCPU/16GB Germany ~€20/mo)"
+  default     = "cpx42"
 }
 
 provider "hcloud" {

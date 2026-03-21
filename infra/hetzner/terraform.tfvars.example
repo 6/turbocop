@@ -2,4 +2,4 @@ hcloud_token        = "your-hetzner-api-token"
 github_runner_token = "your-github-runner-registration-token"
 github_repo         = "6/nitrocop"
 ssh_public_key      = "ssh-ed25519 AAAA... you@host"
-server_type         = "cpx41"  # 8 vCPU, 16GB RAM, ~€14/mo
+server_type         = "cpx42"  # 8 vCPU, 16GB RAM, ~€20/mo (Germany)
