@@ -95,6 +95,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           PR_JSON=$(gh pr view "${{ steps.target.outputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
             --json number,title,url,state,author,headRefName,headRefOid,baseRefName,isCrossRepository,headRepository,labels)
           python3 - <<'PY' "$PR_JSON" "${{ github.repository }}" "${{ steps.target.outputs.head_sha }}" "${{ steps.target.outputs.force }}" >> "$GITHUB_OUTPUT"
           import json
@@ -174,7 +175,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git diff --stat origin/main...HEAD > /tmp/pr-diff.stat
-          gh pr diff "${{ steps.pr.outputs.number }}" > /tmp/pr.diff
+          gh pr diff "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" > /tmp/pr.diff
 
       - name: Prepare repair packet
         if: steps.pr.outputs.should_run == 'true'
@@ -202,7 +203,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh pr comment "${{ steps.pr.outputs.number }}" --body \
+          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body \
             "Auto-repair skipped for failed Checks run #${{ steps.target.outputs.checks_run_id }}.\n\nReason: ${{ steps.repair.outputs.reason }}"
 
       - name: Mark repair attempt
@@ -210,10 +211,10 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh label create auto-repair-attempted --color "d4c5f9" 2>/dev/null || true
-          gh label create needs-human --color "b60205" 2>/dev/null || true
-          gh pr edit "${{ steps.pr.outputs.number }}" --add-label "auto-repair-attempted"
-          gh pr comment "${{ steps.pr.outputs.number }}" --body \
+          gh label create auto-repair-attempted --repo "${{ github.repository }}" --color "d4c5f9" 2>/dev/null || true
+          gh label create needs-human --repo "${{ github.repository }}" --color "b60205" 2>/dev/null || true
+          gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "auto-repair-attempted"
+          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body \
             "Auto-repair starting from failed Checks run #${{ steps.target.outputs.checks_run_id }}.\n\nRoute: \`${{ steps.repair.outputs.route }}\`\nBackend: \`${{ steps.repair.outputs.backend }}\`\nReason: ${{ steps.repair.outputs.reason }}"
 
       - uses: dtolnay/rust-toolchain@stable
@@ -343,7 +344,7 @@ jobs:
               echo "Validated locally before push using \`/tmp/repair-verify.sh\`."
             } > /tmp/repair-comment.md
           else
-            gh pr edit "${{ steps.pr.outputs.number }}" --add-label "needs-human" 2>/dev/null || true
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
             {
               echo "Auto-repair failed local verification with backend \`${{ steps.repair.outputs.backend }}\`."
               echo ""
@@ -358,7 +359,7 @@ jobs:
               echo "</details>"
             } > /tmp/repair-comment.md
           fi
-          gh pr comment "${{ steps.pr.outputs.number }}" --body-file /tmp/repair-comment.md
+          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file /tmp/repair-comment.md
 
       - name: Scan generated files for backend secret leakage
         if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'

@@ -423,6 +423,8 @@ jobs:
     timeout-minutes: ${{ github.event.inputs.corpus_size == 'extended' && 20 || 10 }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Download all results
         uses: actions/download-artifact@v4
@@ -480,17 +482,6 @@ jobs:
           # Step summary has a 1024k limit; keep just the top tables
           head -c 128000 corpus-results.md >> "$GITHUB_STEP_SUMMARY" || true
 
-      - name: Upload report
-        uses: actions/upload-artifact@v4
-        with:
-          name: corpus-report${{ github.event.inputs.corpus_size == 'extended' && '-extended' || '' }}
-          path: |
-            corpus-results.json
-            corpus-results.md
-            tiers.json
-            bench/synthetic/synthetic-results.json
-          retention-days: 30
-
       - name: Update corpus report
         run: |
           if [ "${{ github.event.inputs.corpus_size }}" = "extended" ]; then
@@ -507,6 +498,33 @@ jobs:
             SYNTH_ARG="--synthetic bench/synthetic/synthetic-results.json"
           fi
           python3 scripts/cop-coverage.py --input corpus-results.json $SYNTH_ARG > docs/cop_coverage.md
+
+      - name: Upload report
+        if: github.event.inputs.corpus_size != 'extended'
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-report
+          path: |
+            corpus-results.json
+            corpus-results.md
+            tiers.json
+            bench/synthetic/synthetic-results.json
+            docs/corpus.md
+          retention-days: 30
+
+      - name: Upload extended report
+        if: github.event.inputs.corpus_size == 'extended'
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-report-extended
+          path: |
+            corpus-results.json
+            corpus-results.md
+            tiers.json
+            bench/synthetic/synthetic-results.json
+            docs/corpus_extended.md
+            docs/cop_coverage.md
+          retention-days: 30
 
       - name: Generate app token
         id: app-token
@@ -556,6 +574,7 @@ jobs:
           BRANCH="corpus-oracle/update-$(date +%s)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local --unset-all http.https://github.com/.extraheader || true
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git checkout -B "$BRANCH"
 

@@ -55,6 +55,28 @@ def extract_diagnostics_from_task(task_path: Path) -> list[dict]:
     return results
 
 
+def normalize_fixture_snippet(source: str) -> str:
+    """Trim noisy boundary lines from extracted corpus snippets.
+
+    The corpus context sometimes includes leading/trailing blank lines or
+    comment-only spacer lines (`#`) that are not useful fixture content.
+    Keep interior spacing intact, but strip those boundary markers so the
+    pre-populated fixtures stay readable.
+    """
+    lines = source.splitlines()
+
+    def is_boundary_noise(line: str) -> bool:
+        stripped = line.strip()
+        return stripped == "" or stripped == "#"
+
+    while lines and is_boundary_noise(lines[0]):
+        lines.pop(0)
+    while lines and is_boundary_noise(lines[-1]):
+        lines.pop()
+
+    return "\n".join(lines).rstrip()
+
+
 def prepopulate(task_path: Path, cop: str, fixture_dir: Path) -> dict:
     """Append confirmed code bug examples to fixture files.
 
@@ -75,7 +97,10 @@ def prepopulate(task_path: Path, cop: str, fixture_dir: Path) -> dict:
         with open(no_offense_path, "a") as f:
             f.write("\n# === Pre-populated from corpus (confirmed FP code bugs) ===\n")
             for ex in fp_examples:
-                f.write(f"\n{ex['source']}\n")
+                snippet = normalize_fixture_snippet(ex["source"])
+                if not snippet:
+                    continue
+                f.write(f"\n{snippet}\n")
                 fp_added += 1
 
     # Append FN examples to offense.rb
@@ -84,7 +109,10 @@ def prepopulate(task_path: Path, cop: str, fixture_dir: Path) -> dict:
         with open(offense_path, "a") as f:
             f.write("\n# === Pre-populated from corpus (confirmed FN code bugs) ===\n")
             for ex in fn_examples:
-                f.write(f"\n{ex['source']}\n")
+                snippet = normalize_fixture_snippet(ex["source"])
+                if not snippet:
+                    continue
+                f.write(f"\n{snippet}\n")
                 fn_added += 1
 
     return {"fp_added": fp_added, "fn_added": fn_added}
