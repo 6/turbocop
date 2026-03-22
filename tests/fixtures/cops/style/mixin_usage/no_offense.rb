@@ -56,8 +56,6 @@ prepend X, Y, Z
 
 # === Pre-populated from corpus (confirmed FP code bugs) ===
 
-#
-
 BEGIN {
 	base = File::dirname( File::dirname(File::expand_path(__FILE__)) )
 	$LOAD_PATH.unshift "#{base}/lib"
@@ -70,8 +68,6 @@ BEGIN {
 
 $yaml = false
 Linguistics::use( :en )
-
-#
 
 BEGIN {
 	base = File::dirname( File::dirname(File::expand_path(__FILE__)) )
@@ -87,8 +83,6 @@ Linguistics::use( :en, :classes => [String,Array] )
 
 module Linguistics::EN
 end
-
-#
 
 BEGIN {
 	base = File::dirname( File::dirname(File::expand_path(__FILE__)) )
