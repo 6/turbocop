@@ -3,6 +3,14 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Detects `sort { |a, b| b <=> a }` and suggests `sort.reverse`.
+///
+/// ## Corpus findings
+/// - Offense location must use `message_loc()` (the `sort` method name) not
+///   `node.location()` (entire call including receiver chain). RuboCop's
+///   `node.loc.selector` points at the method name, not the receiver.
+///   Using `node.location()` caused FP/FN on the same line when `.sort` was
+///   chained after a long receiver expression.
 pub struct SortReverse;
 
 impl Cop for SortReverse {
@@ -118,7 +126,7 @@ impl Cop for SortReverse {
 
         // Check reversed order: receiver=b, arg=a
         if recv_name == param_b && arg_name == param_a {
-            let loc = node.location();
+            let loc = call.message_loc().unwrap_or(call.location());
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(
                 source,
