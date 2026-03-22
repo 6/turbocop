@@ -39,3 +39,19 @@ def method(&block)
     block.call(1)
   end
 end
+
+# block.call with &block_pass in one occurrence suppresses ALL occurrences
+def method(&block)
+  block.call(1, &some_proc)
+  block.call(2)
+end
+
+# block.call with block literal
+def method(&block)
+  block.call { do_something }
+end
+
+# block.call with numbered block argument
+def method(&block)
+  block.call { _1.do_something }
+end

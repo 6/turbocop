@@ -11,6 +11,17 @@ use ruby_prism::Visit;
 /// so RuboCop still flags `block.call` inside inner blocks that shadow the param name.
 /// Our previous implementation was more correct (detected shadowing in all inner blocks)
 /// but caused FNs vs RuboCop. Now we match RuboCop's limited shadowing check exactly.
+///
+/// ## FP fix (2026-03-22)
+///
+/// 1 FP in extended corpus (Albacore repo). Root cause: RuboCop's `calls_to_report`
+/// uses `return []` (not `next`) inside `map` when checking `args_include_block_pass?`.
+/// This means if ANY `block.call(...)` in the method has a `&block_pass` argument,
+/// ALL offenses for that method are suppressed. Our implementation was checking per-call
+/// (`node.block().is_none()`) which only suppressed the specific call with the block
+/// argument. Fixed by adding a `BlockPassFinder` pre-scan that checks if any
+/// `block.call` in the method body has a block argument (block_pass or block literal),
+/// and if so, skips all reporting for that method.
 pub struct RedundantBlockCall;
 
 impl Cop for RedundantBlockCall {
@@ -115,6 +126,19 @@ fn check_def(
         return;
     }
 
+    // RuboCop's calls_to_report uses `return []` inside `map` when ANY block.call
+    // has a block_pass argument — this suppresses ALL offenses for the entire method.
+    // Pre-scan: if any block.call has a block argument (block_pass or block literal),
+    // skip all reporting for this method.
+    let mut block_pass_finder = BlockPassFinder {
+        name: arg_name,
+        found: false,
+    };
+    block_pass_finder.visit(&body);
+    if block_pass_finder.found {
+        return;
+    }
+
     let mut call_finder = BlockCallFinder {
         cop,
         source,
@@ -155,6 +179,34 @@ impl<'pr> Visit<'pr> for ReassignFinder<'_> {
             self.found = true;
         }
         ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+}
+
+/// Pre-scan visitor: checks if any `block.call(...)` has a block argument
+/// (block_pass like `&proc` or block literal like `{ ... }`).
+/// RuboCop suppresses ALL offenses for the method if any call has one.
+struct BlockPassFinder<'a> {
+    name: &'a [u8],
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for BlockPassFinder<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if !self.found && node.name().as_slice() == b"call" && node.block().is_some() {
+            if let Some(recv) = node.receiver() {
+                if let Some(local_var) = recv.as_local_variable_read_node() {
+                    if local_var.name().as_slice() == self.name {
+                        self.found = true;
+                        return;
+                    }
+                }
+            }
+        }
+        ruby_prism::visit_call_node(self, node);
+    }
+
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {
+        // Don't descend into nested defs
     }
 }
 
