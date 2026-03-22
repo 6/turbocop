@@ -95,7 +95,6 @@ def prepopulate(task_path: Path, cop: str, fixture_dir: Path) -> dict:
     fp_examples = [d for d in diagnostics if d["kind"] == "fp"]
     if fp_examples and no_offense_path.exists():
         with open(no_offense_path, "a") as f:
-            f.write("\n# === Pre-populated from corpus (confirmed FP code bugs) ===\n")
             for ex in fp_examples:
                 snippet = normalize_fixture_snippet(ex["source"])
                 if not snippet:
@@ -107,7 +106,6 @@ def prepopulate(task_path: Path, cop: str, fixture_dir: Path) -> dict:
     fn_examples = [d for d in diagnostics if d["kind"] == "fn"]
     if fn_examples and offense_path.exists():
         with open(offense_path, "a") as f:
-            f.write("\n# === Pre-populated from corpus (confirmed FN code bugs) ===\n")
             for ex in fn_examples:
                 snippet = normalize_fixture_snippet(ex["source"])
                 if not snippet:

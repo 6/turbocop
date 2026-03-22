@@ -128,7 +128,7 @@ def test_fp_appended_to_no_offense():
         content = (tmp / "no_offense.rb").read_text()
         assert "1.. ..1" in content
         assert "@pos-1" in content
-        assert "Pre-populated from corpus" in content
+        assert "Pre-populated from corpus" not in content
 
 
 def test_fn_appended_to_offense():
@@ -143,6 +143,7 @@ def test_fn_appended_to_offense():
         content = (tmp / "offense.rb").read_text()
         assert "super { |x| x.foo }" in content
         assert "Style/Foo" in content
+        assert "Pre-populated from corpus" not in content
 
 
 def test_config_only_no_changes():
@@ -192,6 +193,7 @@ def test_boundary_noise_is_trimmed_from_snippets():
         assert "\n#\n\nBEGIN {" not in content
         assert "BEGIN {\n  include UtilityFunctions\n}" in content
         assert not content.rstrip().endswith("#")
+        assert "Pre-populated from corpus" not in content
 
 
 if __name__ == "__main__":
