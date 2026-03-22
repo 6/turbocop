@@ -18,6 +18,7 @@ from typing import Optional
 
 LOG_PATTERNS = {
     "minimax": "~/.claude/projects/**/*.jsonl",
+    "claude": "~/.claude/projects/**/*.jsonl",
     "codex": "~/.codex/sessions/**/*.jsonl",
 }
 
@@ -433,7 +434,7 @@ def main():
     watch_parser = subparsers.add_parser("watch", help="Print live progress updates")
     watch_parser.add_argument("--newer-than", type=Path, required=True)
     watch_parser.add_argument("--interval", type=int, default=30)
-    watch_parser.add_argument("--backend", choices=["minimax", "codex"], default="minimax")
+    watch_parser.add_argument("--backend", choices=["minimax", "claude", "codex"], default="minimax")
 
     extract_parser = subparsers.add_parser("extract", help="Render a conversation excerpt as markdown")
     extract_parser.add_argument("path", help="Path to JSONL session log")
