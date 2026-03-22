@@ -26,6 +26,15 @@ jobs:
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Validate and normalize version
         id: version
@@ -56,26 +65,29 @@ jobs:
 
       - name: Bump version and tag
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           sed -i 's/^version = ".*"/version = "${{ steps.version.outputs.cargo }}"/' Cargo.toml
           sed -i 's/VERSION = ".*"/VERSION = "${{ steps.version.outputs.gem }}"/' gem/lib/nitrocop.rb
           cargo update -p nitrocop
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "6[bot]"
+          git config user.email "129682364+6[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git add Cargo.toml Cargo.lock gem/lib/nitrocop.rb
-          git commit -m "Release v${{ steps.version.outputs.tag }}"
-          git tag "v${{ steps.version.outputs.tag }}"
-          # Clean up any stale tag/branch from a previous failed attempt
-          git push origin --delete "v${{ steps.version.outputs.tag }}" 2>/dev/null || true
-          git push origin --delete "release/v${{ steps.version.outputs.tag }}" 2>/dev/null || true
-          # Push tag (builds check out by tag, not main)
-          git push origin "v${{ steps.version.outputs.tag }}"
-          # Push version bump to main via PR to satisfy branch protection.
-          # Auto-merge waits for required status checks to pass.
+          COMMIT_MSG="Release v${{ steps.version.outputs.tag }}"
+          git commit -m "$COMMIT_MSG"
           BRANCH="release/v${{ steps.version.outputs.tag }}"
           git checkout -b "$BRANCH"
-          git push origin "$BRANCH"
+          gh api "repos/${{ github.repository }}/git/refs/tags/v${{ steps.version.outputs.tag }}" -X DELETE 2>/dev/null || true
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git push origin "$BRANCH" --force
+          eval "$(python3 scripts/ci/promote_branch_head_to_verified_commit.py \
+            --repo "${{ github.repository }}" \
+            --branch "$BRANCH" \
+            --message "$COMMIT_MSG")"
+          gh api "repos/${{ github.repository }}/git/refs" \
+            -f ref="refs/tags/v${{ steps.version.outputs.tag }}" \
+            -f sha="$SIGNED_SHA"
           gh pr create --title "Release v${{ steps.version.outputs.tag }}" \
             --body "Version bump from release workflow. Auto-merges after CI passes." \
             --base main --head "$BRANCH"

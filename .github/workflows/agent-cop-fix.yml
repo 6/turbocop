@@ -657,16 +657,10 @@ jobs:
           git push origin "$BRANCH" --force
 
           REPO="${{ github.repository }}"
-          UNSIGNED_SHA=$(gh api "repos/${REPO}/git/ref/heads/${BRANCH}" --jq '.object.sha')
-          TREE_SHA=$(gh api "repos/${REPO}/git/commits/${UNSIGNED_SHA}" --jq '.tree.sha')
-          PARENT_SHA=$(gh api "repos/${REPO}/git/commits/${UNSIGNED_SHA}" --jq '.parents[0].sha')
-          SIGNED_SHA=$(gh api "repos/${REPO}/git/commits" \
-            -f message="Fix ${COP}: agent-generated fix${RETRY_NOTE} (${BACKEND})" \
-            -f tree="$TREE_SHA" \
-            -f "parents[]=$PARENT_SHA" \
-            --jq '.sha')
-          gh api "repos/${REPO}/git/refs/heads/${BRANCH}" \
-            -X PATCH -f sha="$SIGNED_SHA" -F force=true
+          eval "$(python3 scripts/ci/promote_branch_head_to_verified_commit.py \
+            --repo "$REPO" \
+            --branch "$BRANCH" \
+            --message "Fix ${COP}: agent-generated fix${RETRY_NOTE} (${BACKEND})")"
 
           # Build final PR body with agent results
           TURNS=$(jq -r '.num_turns // "?"' /tmp/agent-result.json 2>/dev/null || echo "?")

@@ -435,7 +435,12 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git push origin HEAD:${{ steps.pr.outputs.head_branch }}
+          git push origin HEAD:${{ steps.pr.outputs.head_branch }} --force
+          python3 scripts/ci/promote_branch_head_to_verified_commit.py \
+            --repo "${{ github.repository }}" \
+            --branch "${{ steps.pr.outputs.head_branch }}" \
+            --message "Repair PR #${{ steps.pr.outputs.number }}: auto-repair (${{ steps.repair.outputs.backend }})" \
+            >> "$GITHUB_OUTPUT"
 
       - name: Comment repair result
         if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
@@ -450,7 +455,7 @@ jobs:
               echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
               echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
               echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-              echo "- Repair commit: \`${{ steps.assess.outputs.head_sha }}\`"
+              echo "- Repair commit: \`${{ steps.push.outputs.signed_sha || steps.assess.outputs.head_sha }}\`"
               echo ""
               echo "Auto-repair succeeded with backend \`${{ steps.repair.outputs.backend }}\`."
               echo ""

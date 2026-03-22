@@ -572,8 +572,8 @@ jobs:
           fi
 
           BRANCH="corpus-oracle/update-$(date +%s)"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "6[bot]"
+          git config user.email "129682364+6[bot]@users.noreply.github.com"
           git config --local --unset-all http.https://github.com/.extraheader || true
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git checkout -B "$BRANCH"
@@ -584,13 +584,18 @@ jobs:
               git add src/resources/tiers.json
             fi
             git add -f README.md docs/corpus.md
-            git commit -m "Update tiers.json, README, and corpus report from corpus oracle"
+            COMMIT_MSG="Update tiers.json, README, and corpus report from corpus oracle"
           else
             git add -f docs/corpus_extended.md docs/cop_coverage.md
-            git commit -m "Update extended corpus report and cop coverage from corpus oracle"
+            COMMIT_MSG="Update extended corpus report and cop coverage from corpus oracle"
           fi
 
-          git push origin "$BRANCH"
+          git commit -m "$COMMIT_MSG"
+          git push origin "$BRANCH" --force
+          python3 scripts/ci/promote_branch_head_to_verified_commit.py \
+            --repo "${{ github.repository }}" \
+            --branch "$BRANCH" \
+            --message "$COMMIT_MSG"
 
           if [ "$IS_EXTENDED" = false ]; then
             gh pr create \
