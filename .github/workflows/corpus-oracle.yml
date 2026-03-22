@@ -66,7 +66,8 @@ jobs:
             ls -lh "rubocop-baseline-${HASH}.tar.zst"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No rubocop baseline for hash ${HASH} — rubocop will run fresh per batch"
+            echo "::error::No rubocop baseline for config hash ${HASH}. Run 'gh workflow run rubocop-baseline.yml' to generate it, then re-run this workflow."
+            exit 1
           fi
 
       - name: Upload as workflow artifact
