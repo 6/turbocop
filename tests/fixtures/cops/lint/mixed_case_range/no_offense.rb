@@ -5,4 +5,6 @@ y = (1..10)
 z = ('A'..'Za')
 re = /[A-Za-z]/
 escaped = /[A\-z]/
+start_symbol = /[_-a]/
+end_symbol = /[A-_]/
 unicode = /[\p{InLatin_Extended-A}]/

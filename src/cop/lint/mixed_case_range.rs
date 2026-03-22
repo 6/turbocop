@@ -26,6 +26,11 @@ use crate::parse::source::SourceFile;
 /// and a non-letter, such as `('0'..'z')`, `(' '..'z')`, `('['..'z')`, and
 /// `("\x21".."\x5A")`. The previous implementation only flagged lowercase-vs-uppercase letter
 /// pairs, so these range-node cases were missed even though RuboCop treats them as unsafe.
+///
+/// The first repair attempt reused that broader rule for regexp character classes too, which
+/// regressed corpus repos on accepted patterns like `/[_-a]/` and `/[A-_]/`. Keep regexp ranges
+/// on the narrower "upper-vs-lower letter bucket" rule, and apply the broader comparison only to
+/// Ruby `RangeNode`s.
 pub struct MixedCaseRange;
 
 const MSG: &str = "Ranges from upper to lower case ASCII letters may include unintended characters. Instead of `A-z` (which also includes several symbols) specify each range individually: `A-Za-z` and individually specify any symbols.";
@@ -108,7 +113,7 @@ impl MixedCaseRange {
         let left_char = left_val[0] as char;
         let right_char = right_val[0] as char;
 
-        if is_unsafe_range(left_char, right_char) {
+        if is_unsafe_char_range(left_char, right_char) {
             let loc = range.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             return vec![self.diagnostic(source, line, column, MSG.to_string())];
@@ -232,7 +237,7 @@ impl MixedCaseRange {
                     continue;
                 }
 
-                if is_unsafe_range(chars[i], range_end) {
+                if is_unsafe_regexp_range(chars[i], range_end) {
                     if let Some(abs_offset) = offsets.get(i).copied().flatten() {
                         let (line, column) = source.offset_to_line_col(abs_offset);
                         diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
@@ -365,8 +370,18 @@ fn char_range(c: char) -> Option<u8> {
     }
 }
 
-fn is_unsafe_range(start: char, end: char) -> bool {
+fn is_unsafe_char_range(start: char, end: char) -> bool {
     char_range(start) != char_range(end)
+}
+
+fn is_unsafe_regexp_range(start: char, end: char) -> bool {
+    let start_range = char_range(start);
+    let end_range = char_range(end);
+
+    match (start_range, end_range) {
+        (Some(a), Some(b)) => a != b,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
