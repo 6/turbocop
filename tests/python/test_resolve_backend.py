@@ -16,7 +16,7 @@ def test_all_backends_resolve():
         config = resolve_backend.resolve(name)
         assert config["cli"] in ("claude", "codex"), f"{name}: unexpected cli"
         assert config["log_format"] in ("claude", "codex"), f"{name}: unexpected log_format"
-        assert config["install_cmd"], f"{name}: missing install_cmd"
+        assert config["setup_cmd"], f"{name}: missing setup_cmd"
         assert config["run_cmd"], f"{name}: missing run_cmd"
         assert config["log_pattern"], f"{name}: missing log_pattern"
 
@@ -26,6 +26,7 @@ def test_minimax_uses_claude():
     assert config["cli"] == "claude"
     assert config["log_format"] == "claude"
     assert "ANTHROPIC_BASE_URL" in config["env"]
+    assert "claude.ai/install.sh" in config["setup_cmd"]
 
 
 def test_claude_uses_claude():
@@ -33,6 +34,7 @@ def test_claude_uses_claude():
     assert config["cli"] == "claude"
     assert config["log_format"] == "claude"
     assert "ANTHROPIC_BASE_URL" not in config["env"]
+    assert "claude.ai/install.sh" in config["setup_cmd"]
 
 
 def test_codex_uses_codex():
@@ -40,6 +42,11 @@ def test_codex_uses_codex():
     assert config["cli"] == "codex"
     assert config["log_format"] == "codex"
     assert "CODEX_AUTH_JSON" in config["secrets"]
+    assert "validate_codex_auth.py" in config["setup_cmd"]
+    assert "guard_codex_secret.py" in config["setup_cmd"]
+    assert "@openai/codex@latest" in config["setup_cmd"]
+    assert "chmod 700 ~/.codex" in config["setup_cmd"]
+    assert "chmod 600 ~/.codex/auth.json" in config["setup_cmd"]
     assert "--json" in config["run_cmd"]
     assert "/tmp/agent-events.jsonl" in config["run_cmd"]
     assert "summarize_agent_result.py" in config["run_cmd"]
@@ -66,7 +73,7 @@ def test_cli_output_format():
         assert "=" in line, f"Line missing '=': {line}"
     keys = [l.split("=", 1)[0] for l in lines]
     assert "cli" in keys
-    assert "install_cmd" in keys
+    assert "setup_cmd" in keys
     assert "log_format" in keys
     assert "run_cmd" in keys
 

@@ -15,7 +15,7 @@ import sys
 BACKENDS = {
     "minimax": {
         "cli": "claude",
-        "install_cmd": "curl -fsSL https://claude.ai/install.sh | bash",
+        "setup_cmd": "curl -fsSL https://claude.ai/install.sh | bash",
         "log_format": "claude",
         "log_pattern": "~/.claude/projects/**/*.jsonl",
         "run_cmd": (
@@ -39,7 +39,7 @@ BACKENDS = {
     },
     "claude": {
         "cli": "claude",
-        "install_cmd": "curl -fsSL https://claude.ai/install.sh | bash",
+        "setup_cmd": "curl -fsSL https://claude.ai/install.sh | bash",
         "log_format": "claude",
         "log_pattern": "~/.claude/projects/**/*.jsonl",
         "run_cmd": (
@@ -59,7 +59,19 @@ BACKENDS = {
     },
     "codex": {
         "cli": "codex",
-        "install_cmd": "npm install -g @openai/codex@latest",
+        "setup_cmd": (
+            'python3 /tmp/ci-scripts/validate_codex_auth.py '
+            '--from-env CODEX_AUTH_JSON '
+            '--max-age-days 7 && '
+            'python3 /tmp/ci-scripts/guard_codex_secret.py '
+            '--from-env CODEX_AUTH_JSON '
+            'emit-masks && '
+            'npm install -g @openai/codex@latest && '
+            'mkdir -p ~/.codex && '
+            'chmod 700 ~/.codex && '
+            'printf \'%s\' "$CODEX_AUTH_JSON" > ~/.codex/auth.json && '
+            'chmod 600 ~/.codex/auth.json'
+        ),
         "log_format": "codex",
         "log_pattern": "~/.codex/sessions/**/*.jsonl",
         "run_cmd": (
@@ -104,7 +116,7 @@ def main():
 
     # Output key=value pairs
     print(f"cli={config['cli']}")
-    print(f"install_cmd={config['install_cmd']}")
+    print(f"setup_cmd={config['setup_cmd']}")
     print(f"log_format={config['log_format']}")
     print(f"log_pattern={config['log_pattern']}")
     print(f"run_cmd={config['run_cmd']}")

@@ -332,37 +332,11 @@ jobs:
 
       # --- Install + run agent ---
 
-      - name: Install agent CLI
+      - name: Run backend setup
         if: steps.task.outputs.code_bugs != '0'
-        run: ${{ steps.backend.outputs.install_cmd }}
-
-      - name: Validate Codex auth secret
-        if: steps.task.outputs.code_bugs != '0' && github.event.inputs.backend == 'codex'
         env:
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-        run: |
-          python3 /tmp/ci-scripts/validate_codex_auth.py \
-            --from-env CODEX_AUTH_JSON \
-            --max-age-days 7
-
-      - name: Register Codex secret masks
-        if: steps.task.outputs.code_bugs != '0' && github.event.inputs.backend == 'codex'
-        env:
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-        run: |
-          python3 /tmp/ci-scripts/guard_codex_secret.py \
-            --from-env CODEX_AUTH_JSON \
-            emit-masks
-
-      - name: Set up Codex auth
-        if: steps.task.outputs.code_bugs != '0' && github.event.inputs.backend == 'codex'
-        env:
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-        run: |
-          mkdir -p ~/.codex
-          chmod 700 ~/.codex
-          printf '%s' "$CODEX_AUTH_JSON" > ~/.codex/auth.json
-          chmod 600 ~/.codex/auth.json
+          CODEX_AUTH_JSON: ${{ github.event.inputs.backend == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
+        run: ${{ steps.backend.outputs.setup_cmd }}
 
       - name: Run agent
         if: steps.task.outputs.code_bugs != '0'
