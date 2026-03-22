@@ -241,6 +241,8 @@ def build_prompt(
         "",
         "Repair the existing PR branch in place. Do not create a new branch or PR.",
         "Preserve the intent of the current PR and make the smallest changes needed to fix the failing checks.",
+        "Do not repair this PR by reverting it back to `origin/main`, deleting the whole diff, or otherwise turning it into an empty/no-op PR.",
+        "If the only plausible fix is a full revert of the PR, stop and explain that clearly instead of performing the revert.",
         "Do not edit unrelated files or do broad cleanup.",
         "",
         "## Context",
@@ -309,6 +311,7 @@ def build_prompt(
         "- Keep the fix scoped to the failing checks.",
         "- Reuse the existing PR branch and existing tests where possible.",
         "- Prefer the minimal patch that makes the deterministic verification pass.",
+        "- A full revert to `origin/main` or an empty PR is treated as a failed repair, not a success.",
         "- If a fix is blocked by missing context, explain that clearly in the final message.",
         "",
     ])

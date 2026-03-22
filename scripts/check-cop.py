@@ -311,6 +311,32 @@ def load_manifest() -> dict[str, dict]:
     return repos
 
 
+def load_standard_manifest() -> dict[str, dict]:
+    """Load repo info from the standard manifest, keyed by repo ID."""
+    repos = {}
+    if not MANIFEST_PATH.exists():
+        return repos
+    with open(MANIFEST_PATH) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                entry = json.loads(line)
+                repos[entry["id"]] = entry
+    return repos
+
+
+def repo_head_sha(repo_dir: Path) -> str | None:
+    """Return the current HEAD SHA for a cloned corpus repo, if available."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_dir), "rev-parse", "HEAD"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    sha = result.stdout.strip()
+    return sha or None
+
+
 def relevant_repos_for_cop(cop_name: str, data: dict) -> set[str]:
     """Return the repos worth rerunning for a cop in quick mode.
 
@@ -350,11 +376,18 @@ def clone_repos_for_cop(cop_name: str, data: dict):
         print(f"  No baseline activity or divergence for {cop_name}", file=sys.stderr)
         return
 
-    # Filter to repos in manifest and not already cloned
+    # Filter to repos in manifest and not already cloned at the pinned SHA
     to_clone = []
     for repo_id in sorted(needed):
-        if repo_id in manifest and not (CORPUS_DIR / repo_id).exists():
-            to_clone.append(manifest[repo_id])
+        if repo_id not in manifest:
+            continue
+        dest = CORPUS_DIR / repo_id
+        if dest.exists():
+            if repo_head_sha(dest) == manifest[repo_id].get("sha"):
+                continue
+            import shutil
+            shutil.rmtree(dest, ignore_errors=True)
+        to_clone.append(manifest[repo_id])
 
     if not to_clone:
         print(f"  All {len(needed)} needed repos already cloned", file=sys.stderr)
@@ -389,24 +422,28 @@ def clone_repos_for_cop(cop_name: str, data: dict):
     print(f"  Cloned {ok}/{len(to_clone)} repos", file=sys.stderr)
 
 
-def validate_corpus():
+def validate_corpus(include_extended: bool = False):
     """Check that local corpus matches manifest.jsonl.
 
     Fails fast on missing or extra repos so local reruns use the exact
     same corpus checkout as CI.
     """
-    if not MANIFEST_PATH.exists():
+    manifest = load_manifest() if include_extended else load_standard_manifest()
+    if not manifest:
         return
-    manifest_ids = set()
-    with open(MANIFEST_PATH) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                manifest_ids.add(json.loads(line)["id"])
+
+    manifest_ids = set(manifest)
 
     local_ids = {d.name for d in CORPUS_DIR.iterdir() if d.is_dir()} if CORPUS_DIR.exists() else set()
     extra = local_ids - manifest_ids
     missing = manifest_ids - local_ids
+    wrong_sha = []
+
+    for repo_id in sorted(local_ids & manifest_ids):
+        actual = repo_head_sha(CORPUS_DIR / repo_id)
+        expected = manifest[repo_id].get("sha")
+        if actual != expected:
+            wrong_sha.append((repo_id, expected, actual or "(unknown)"))
 
     if extra:
         print(f"ERROR: {len(extra)} stale repos in vendor/corpus/ not in manifest:", file=sys.stderr)
@@ -416,8 +453,15 @@ def validate_corpus():
         pct = len(missing) / len(manifest_ids) * 100
         print(f"ERROR: {len(missing)}/{len(manifest_ids)} manifest repos not cloned locally "
               f"({pct:.0f}% missing)", file=sys.stderr)
-    if extra or missing:
-        print("Corpus checkout does not match bench/corpus/manifest.jsonl. "
+    if wrong_sha:
+        print(f"ERROR: {len(wrong_sha)} repos do not match the manifest SHA:", file=sys.stderr)
+        for repo_id, expected, actual in wrong_sha[:20]:
+            print(f"  - {repo_id}: expected {expected[:12]}, got {actual[:12]}", file=sys.stderr)
+        if len(wrong_sha) > 20:
+            print(f"  ... and {len(wrong_sha) - 20} more", file=sys.stderr)
+    if extra or missing or wrong_sha:
+        manifest_msg = "manifest.jsonl + manifest_extended.jsonl" if include_extended else "manifest.jsonl"
+        print(f"Corpus checkout does not match bench/corpus/{manifest_msg}. "
               "Run bench/corpus/clone_repos.sh to sync repos.", file=sys.stderr)
         sys.exit(1)
 
@@ -544,7 +588,7 @@ def main():
             # Auto-clone needed repos instead of requiring full corpus checkout
             clone_repos_for_cop(args.cop, data)
         else:
-            validate_corpus()
+            validate_corpus(args.extended)
         check_corpus_bundle()
 
     print(f"Checking {args.cop} against corpus")

@@ -90,6 +90,8 @@ def test_prompt_includes_route_and_failed_packet():
     assert "Selected backend: `codex`" in prompt
     assert "Check cops against corpus baseline" in prompt
     assert "Keep the patch narrow." in prompt
+    assert "Do not repair this PR by reverting it back to `origin/main`" in prompt
+    assert "empty PR is treated as a failed repair" in prompt
 
 
 if __name__ == "__main__":

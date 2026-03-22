@@ -235,8 +235,60 @@ def test_end_to_end_near_perfect_not_100():
                     f"Performance line should not show 100.0% with FP>0: {line}"
 
 
+def test_example_order_is_stable():
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        nc_dir = tmp / "nitrocop"
+        rc_dir = tmp / "rubocop"
+        nc_dir.mkdir()
+        rc_dir.mkdir()
+
+        nc_dir.joinpath("repo_a.json").write_text(json.dumps({
+            "offenses": [
+                {"path": "repos/repo_a/z.rb", "line": 9, "cop_name": "Layout/TestCop"},
+                {"path": "repos/repo_a/a.rb", "line": 2, "cop_name": "Layout/TestCop"},
+                {"path": "repos/repo_a/m.rb", "line": 5, "cop_name": "Layout/TestCop"},
+            ]
+        }))
+        rc_dir.joinpath("repo_a.json").write_text(json.dumps({
+            "files": [
+                {"path": "repos/repo_a/a.rb", "offenses": []},
+                {"path": "repos/repo_a/m.rb", "offenses": []},
+                {"path": "repos/repo_a/z.rb", "offenses": []},
+            ],
+            "summary": {"target_file_count": 3, "inspected_file_count": 3}
+        }))
+
+        manifest = tmp / "manifest.jsonl"
+        manifest.write_text(json.dumps({"id": "repo_a"}) + "\n")
+        out_json = tmp / "out.json"
+        out_md = tmp / "out.md"
+
+        result = subprocess.run(
+            [
+                sys.executable, str(SCRIPT),
+                "--nitrocop-dir", str(nc_dir),
+                "--rubocop-dir", str(rc_dir),
+                "--manifest", str(manifest),
+                "--output-json", str(out_json),
+                "--output-md", str(out_md),
+            ],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"Script failed:\nstderr: {result.stderr}"
+
+        data = json.loads(out_json.read_text())
+        cop = [c for c in data["by_cop"] if c["cop"] == "Layout/TestCop"][0]
+        assert cop["fp_examples"][:3] == [
+            "a.rb:2",
+            "m.rb:5",
+            "z.rb:9",
+        ]
+
+
 if __name__ == "__main__":
     test_end_to_end()
     test_match_rate_never_rounds_up_to_100()
     test_end_to_end_near_perfect_not_100()
+    test_example_order_is_stable()
     print("OK: all tests passed")

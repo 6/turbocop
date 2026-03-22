@@ -95,9 +95,56 @@ def test_run_nitrocop_per_repo_errors_on_missing_required_repos():
             check_cop.CORPUS_DIR = original_corpus_dir
 
 
+def test_clone_repos_for_cop_reclones_when_existing_sha_mismatches():
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        original_corpus_dir = check_cop.CORPUS_DIR
+        original_manifest_path = check_cop.MANIFEST_PATH
+        original_repo_head_sha = check_cop.repo_head_sha
+        original_subprocess_run = check_cop.subprocess.run
+        try:
+            check_cop.CORPUS_DIR = tmp_path / "vendor" / "corpus"
+            check_cop.MANIFEST_PATH = tmp_path / "bench" / "corpus" / "manifest.jsonl"
+            write_manifest(check_cop.MANIFEST_PATH)
+
+            existing = check_cop.CORPUS_DIR / "demo-repo"
+            existing.mkdir(parents=True, exist_ok=True)
+            existing.joinpath("placeholder.txt").write_text("old clone")
+
+            check_cop.repo_head_sha = lambda path: "cafebabe"
+
+            calls = []
+
+            class FakeResult:
+                def __init__(self):
+                    self.returncode = 0
+                    self.stdout = ""
+                    self.stderr = ""
+
+            def fake_run(cmd, **kwargs):
+                calls.append(cmd)
+                return FakeResult()
+
+            check_cop.subprocess.run = fake_run
+
+            check_cop.clone_repos_for_cop(
+                "Style/MixinUsage",
+                {"cop_activity_repos": {"Style/MixinUsage": ["demo-repo"]}, "by_repo_cop": {}},
+            )
+
+            assert any(cmd[:4] == ["git", "init", str(existing)] for cmd in calls)
+            assert any(cmd[:4] == ["git", "-C", str(existing), "fetch"] for cmd in calls)
+        finally:
+            check_cop.CORPUS_DIR = original_corpus_dir
+            check_cop.MANIFEST_PATH = original_manifest_path
+            check_cop.repo_head_sha = original_repo_head_sha
+            check_cop.subprocess.run = original_subprocess_run
+
+
 if __name__ == "__main__":
     test_clone_repos_for_cop_creates_corpus_dir_for_zero_divergence()
     test_relevant_repos_for_cop_unions_activity_and_divergence()
     test_run_nitrocop_per_repo_skips_missing_corpus_when_no_relevant_repos()
     test_run_nitrocop_per_repo_errors_on_missing_required_repos()
+    test_clone_repos_for_cop_reclones_when_existing_sha_mismatches()
     print("All tests passed.")

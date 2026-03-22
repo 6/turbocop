@@ -75,8 +75,10 @@ jobs:
           if not prs:
               raise SystemExit("No pull request associated with workflow_run event")
 
+          repo = os.environ["GITHUB_REPOSITORY"]
           print(f"pr_number={prs[0]['number']}")
           print(f"checks_run_id={run['id']}")
+          print(f"checks_url=https://github.com/{repo}/actions/runs/{run['id']}")
           print(f"head_sha={run['head_sha']}")
           print(f"head_branch={run['head_branch']}")
           print("backend_override=auto")
@@ -85,6 +87,7 @@ jobs:
           else
             echo "pr_number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
             echo "checks_run_id=${{ github.event.inputs.checks_run_id }}" >> "$GITHUB_OUTPUT"
+            echo "checks_url=https://github.com/${{ github.repository }}/actions/runs/${{ github.event.inputs.checks_run_id }}" >> "$GITHUB_OUTPUT"
             echo "backend_override=${{ github.event.inputs.backend }}" >> "$GITHUB_OUTPUT"
             echo "force=${{ github.event.inputs.force }}" >> "$GITHUB_OUTPUT"
           fi
@@ -203,8 +206,14 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body \
-            "Auto-repair skipped for failed Checks run #${{ steps.target.outputs.checks_run_id }}.\n\nReason: ${{ steps.repair.outputs.reason }}"
+          cat > /tmp/repair-comment.md <<EOF
+          ## Auto-repair Skipped
+
+          - Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})
+          - Reason: ${{ steps.repair.outputs.reason }}
+          - Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
+          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file /tmp/repair-comment.md
 
       - name: Mark repair attempt
         if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
@@ -214,8 +223,16 @@ jobs:
           gh label create auto-repair-attempted --repo "${{ github.repository }}" --color "d4c5f9" 2>/dev/null || true
           gh label create needs-human --repo "${{ github.repository }}" --color "b60205" 2>/dev/null || true
           gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "auto-repair-attempted"
-          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body \
-            "Auto-repair starting from failed Checks run #${{ steps.target.outputs.checks_run_id }}.\n\nRoute: \`${{ steps.repair.outputs.route }}\`\nBackend: \`${{ steps.repair.outputs.backend }}\`\nReason: ${{ steps.repair.outputs.reason }}"
+          cat > /tmp/repair-comment.md <<EOF
+          ## Auto-repair Started
+
+          - Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})
+          - Route: \`${{ steps.repair.outputs.route }}\`
+          - Backend: \`${{ steps.repair.outputs.backend }}\`
+          - Reason: ${{ steps.repair.outputs.reason }}
+          - Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
+          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file /tmp/repair-comment.md
 
       - uses: dtolnay/rust-toolchain@stable
         if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
@@ -315,13 +332,17 @@ jobs:
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Push verified repair
-        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip' && steps.verify.outputs.status == '0'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+      - name: Assess repair result
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        id: assess
         run: |
+          if [ "${{ steps.verify.outputs.status }}" != "0" ]; then
+            echo "result=verify_failed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if git diff --quiet && [ "$(git rev-parse HEAD)" = "${{ steps.prep.outputs.base_sha }}" ]; then
-            echo "No repair changes to push"
+            echo "result=no_changes" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -329,6 +350,25 @@ jobs:
             git add -A
             git commit -m "Repair PR #${{ steps.pr.outputs.number }}: auto-repair (${{ steps.repair.outputs.backend }})"
           fi
+
+          CURRENT_HEAD=$(git rev-parse HEAD)
+          echo "head_sha=$CURRENT_HEAD" >> "$GITHUB_OUTPUT"
+          git diff --stat origin/main...HEAD > /tmp/final-pr-diff.stat || true
+          git diff origin/main...HEAD > /tmp/final-pr.diff || true
+
+          if git diff --quiet origin/main...HEAD; then
+            echo "result=empty_pr" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "result=pushable" >> "$GITHUB_OUTPUT"
+
+      - name: Push verified repair
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip' && steps.assess.outputs.result == 'pushable'
+        id: push
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git push origin HEAD:${{ steps.pr.outputs.head_branch }}
 
@@ -337,15 +377,62 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          if [ "${{ steps.verify.outputs.status }}" = "0" ]; then
+          RESULT="${{ steps.assess.outputs.result }}"
+          if [ "$RESULT" = "pushable" ] && [ "${{ steps.push.outcome }}" = "success" ]; then
             {
+              echo "## Auto-repair Succeeded"
+              echo ""
+              echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
+              echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
+              echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              echo "- Repair commit: \`${{ steps.assess.outputs.head_sha }}\`"
+              echo ""
               echo "Auto-repair succeeded with backend \`${{ steps.repair.outputs.backend }}\`."
               echo ""
               echo "Validated locally before push using \`/tmp/repair-verify.sh\`."
             } > /tmp/repair-comment.md
+          elif [ "$RESULT" = "no_changes" ]; then
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            {
+              echo "## Auto-repair Did Not Produce a Fix"
+              echo ""
+              echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
+              echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
+              echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              echo ""
+              echo "The repair attempt completed local verification commands but produced no branch changes, so it was treated as unsuccessful."
+            } > /tmp/repair-comment.md
+          elif [ "$RESULT" = "empty_pr" ]; then
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            {
+              echo "## Auto-repair Rejected"
+              echo ""
+              echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
+              echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
+              echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              echo ""
+              echo "The repair would have reduced the PR to an empty diff against \`origin/main\`, which this workflow treats as an invalid blanket revert."
+            } > /tmp/repair-comment.md
+          elif [ "${{ steps.push.outcome }}" = "failure" ]; then
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            {
+              echo "## Auto-repair Push Failed"
+              echo ""
+              echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
+              echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
+              echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              echo ""
+              echo "Local verification passed, but pushing the repair branch failed."
+            } > /tmp/repair-comment.md
           else
             gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
             {
+              echo "## Auto-repair Failed Verification"
+              echo ""
+              echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
+              echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
+              echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              echo ""
               echo "Auto-repair failed local verification with backend \`${{ steps.repair.outputs.backend }}\`."
               echo ""
               echo "Reason: ${{ steps.repair.outputs.reason }}"
@@ -360,6 +447,96 @@ jobs:
             } > /tmp/repair-comment.md
           fi
           gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file /tmp/repair-comment.md
+
+      - name: Generate repair summary
+        if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        run: |
+          OUTCOME="${{ steps.assess.outputs.result }}"
+          PUSH_OUTCOME="${{ steps.push.outcome }}"
+          if [ "$OUTCOME" = "pushable" ] && [ "$PUSH_OUTCOME" = "success" ]; then
+            FINAL_OUTCOME="pushed"
+          elif [ -n "$OUTCOME" ]; then
+            FINAL_OUTCOME="$OUTCOME"
+          else
+            FINAL_OUTCOME="unknown"
+          fi
+
+          {
+            echo "# Agent PR Repair: PR #${{ steps.pr.outputs.number }}"
+            echo ""
+            echo "**Checks run:** [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
+            echo "**Route:** \`${{ steps.repair.outputs.route }}\` | **Backend:** \`${{ steps.repair.outputs.backend }}\` | **Outcome:** \`$FINAL_OUTCOME\`"
+            echo "**Workflow:** [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            echo ""
+
+            echo "## Result"
+            echo ""
+            if [ -s /tmp/agent-result.json ]; then
+              COST=$(jq -r '.total_cost_usd // "?"' /tmp/agent-result.json 2>/dev/null)
+              TURNS=$(jq -r '.num_turns // "?"' /tmp/agent-result.json 2>/dev/null)
+              RESULT=$(jq -r '.result // "no result"' /tmp/agent-result.json 2>/dev/null)
+              echo "| Metric | Value |"
+              echo "|--------|-------|"
+              echo "| Cost | \$$COST |"
+              echo "| Turns | $TURNS |"
+              echo ""
+              echo "### Agent Output"
+              echo ""
+              echo '```'
+              echo "$RESULT" | head -50
+              echo '```'
+            else
+              echo "No agent-result.json found."
+            fi
+            echo ""
+
+            echo "## Verification"
+            echo ""
+            echo '```'
+            tail -60 /tmp/repair-verify.log 2>/dev/null || echo "(no verification log)"
+            echo '```'
+            echo ""
+
+            echo "## Agent Changes"
+            echo ""
+            if [ -s /tmp/agent-recovery.stat ]; then
+              echo '```'
+              cat /tmp/agent-recovery.stat
+              echo '```'
+            else
+              echo "No agent changes captured."
+            fi
+            echo ""
+
+            if [ -s /tmp/final-pr-diff.stat ]; then
+              echo "## Final PR Diff"
+              echo ""
+              echo '```'
+              cat /tmp/final-pr-diff.stat
+              echo '```'
+              echo ""
+            fi
+
+            LOGFILE=$(cat /tmp/agent-logfile.txt 2>/dev/null || true)
+            if [ -n "$LOGFILE" ] && [ -f "$LOGFILE" ]; then
+              echo "## Agent Conversation"
+              echo ""
+              python3 /tmp/ci-scripts/extract_agent_log.py "$LOGFILE" --max-lines 120 2>/dev/null || true
+              echo ""
+            fi
+
+            if [ -s /tmp/final-pr.diff ]; then
+              echo "<details>"
+              echo "<summary>Final PR diff (first 200 lines)</summary>"
+              echo ""
+              echo '```diff'
+              head -200 /tmp/final-pr.diff
+              echo '```'
+              echo "</details>"
+            fi
+          } > /tmp/repair-summary.md
+
+          cat /tmp/repair-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Scan generated files for backend secret leakage
         if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
@@ -391,6 +568,9 @@ jobs:
             /tmp/repair.json \
             /tmp/repair-verify.sh \
             /tmp/repair-verify.log \
+            /tmp/repair-summary.md \
+            /tmp/final-pr-diff.stat \
+            /tmp/final-pr.diff \
             '~/.claude/projects/**/*.jsonl' \
             '~/.codex/sessions/**/*.jsonl'
 
@@ -416,6 +596,9 @@ jobs:
             /tmp/repair.json
             /tmp/repair-verify.sh
             /tmp/repair-verify.log
+            /tmp/repair-summary.md
+            /tmp/final-pr-diff.stat
+            /tmp/final-pr.diff
             ~/.claude/projects/**/*.jsonl
             ~/.codex/sessions/**/*.jsonl
           retention-days: 7

@@ -348,7 +348,7 @@ def main():
             by_cop_matches[cop] += 1
             if multi_repo:
                 by_repo_cop[repo_id][cop]["matches"] += 1
-        for filepath, line, cop in fp:
+        for filepath, line, cop in sorted(fp):
             by_cop_fp[cop] += 1
             key = (filepath, line, cop)
             loc = f"{repo_id}: {filepath}:{line}" if multi_repo else f"{filepath}:{line}"
@@ -357,7 +357,7 @@ def main():
             by_cop_fp_examples[cop].append(_make_example(loc, msg, filepath, line, cop))
             if multi_repo:
                 by_repo_cop[repo_id][cop]["fp"] += 1
-        for filepath, line, cop in fn:
+        for filepath, line, cop in sorted(fn):
             by_cop_fn[cop] += 1
             key = (filepath, line, cop)
             loc = f"{repo_id}: {filepath}:{line}" if multi_repo else f"{filepath}:{line}"
