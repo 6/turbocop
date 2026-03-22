@@ -19,6 +19,13 @@ use crate::parse::source::SourceFile;
 ///   literal segment around `#{...}`.
 /// - Unicode property escapes like `\p{InLatin_Extended-A}` contain `-` inside the property
 ///   name; those must be skipped as atomic escapes instead of scanned as `d-A`.
+///
+/// ## Corpus investigation (2026-03-22)
+///
+/// RuboCop also flags single-character ranges whose bounds cross between an ASCII letter range
+/// and a non-letter, such as `('0'..'z')`, `(' '..'z')`, `('['..'z')`, and
+/// `("\x21".."\x5A")`. The previous implementation only flagged lowercase-vs-uppercase letter
+/// pairs, so these range-node cases were missed even though RuboCop treats them as unsafe.
 pub struct MixedCaseRange;
 
 const MSG: &str = "Ranges from upper to lower case ASCII letters may include unintended characters. Instead of `A-z` (which also includes several symbols) specify each range individually: `A-Za-z` and individually specify any symbols.";
@@ -359,13 +366,7 @@ fn char_range(c: char) -> Option<u8> {
 }
 
 fn is_unsafe_range(start: char, end: char) -> bool {
-    let start_range = char_range(start);
-    let end_range = char_range(end);
-
-    match (start_range, end_range) {
-        (Some(a), Some(b)) => a != b,
-        _ => false,
-    }
+    char_range(start) != char_range(end)
 }
 
 #[cfg(test)]
