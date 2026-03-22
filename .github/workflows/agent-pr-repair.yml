@@ -178,6 +178,12 @@ jobs:
           ref: ${{ steps.pr.outputs.head_branch }}
           persist-credentials: false
 
+      - name: Initialize runtime layout
+        if: steps.pr.outputs.should_run == 'true'
+        run: |
+          python3 scripts/workflows/agent_runtime.py agent-pr-repair \
+            --runner-temp "${RUNNER_TEMP}" >> "$GITHUB_ENV"
+
       - name: Set git identity
         if: steps.pr.outputs.should_run == 'true'
         run: |
@@ -194,8 +200,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          git diff --stat origin/main...HEAD > /tmp/pr-diff.stat
-          gh pr diff "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" > /tmp/pr.diff
+          git diff --stat origin/main...HEAD > "$PR_DIFF_STAT_FILE"
+          gh pr diff "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" > "$PR_DIFF_FILE"
 
       - name: Prepare repair packet
         if: steps.pr.outputs.should_run == 'true'
@@ -208,11 +214,11 @@ jobs:
             --pr-number "${{ steps.pr.outputs.number }}" \
             --pr-title "${{ steps.pr.outputs.title }}" \
             --head-branch "${{ steps.pr.outputs.head_branch }}" \
-            --diff-stat /tmp/pr-diff.stat \
-            --diff /tmp/pr.diff \
-            --prompt-out /tmp/final-task.md \
-            --verify-out /tmp/repair-verify.sh \
-            --json-out /tmp/repair.json \
+            --diff-stat "$PR_DIFF_STAT_FILE" \
+            --diff "$PR_DIFF_FILE" \
+            --prompt-out "$FINAL_TASK_FILE" \
+            --verify-out "$REPAIR_VERIFY_SCRIPT" \
+            --json-out "$REPAIR_JSON_FILE" \
             --backend-override "${{ steps.target.outputs.backend_override }}" \
             --extra-context "${{ github.event.inputs.extra_context || '' }}" \
             >> "$GITHUB_OUTPUT"
@@ -225,27 +231,27 @@ jobs:
           python3 scripts/workflows/prepare_agent_workspace.py \
             --mode agent-pr-repair \
             --backend "${{ steps.repair.outputs.backend }}" \
-            --preserve-ci-scripts /tmp/ci-scripts
+            --preserve-ci-scripts "$CI_SCRIPTS_DIR"
           echo "workspace_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Append available helper scripts to prompt
         if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
         run: |
-          python3 /tmp/ci-scripts/render_helper_scripts_section.py >> /tmp/final-task.md
+          python3 "$CI_SCRIPTS_DIR/render_helper_scripts_section.py" >> "$FINAL_TASK_FILE"
 
       - name: Skip non-repairable failures
         if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route == 'skip'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          cat > /tmp/repair-comment.md <<EOF
+          cat > "$REPAIR_COMMENT_FILE" <<EOF
           ## Auto-repair Skipped
 
           - Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})
           - Reason: ${{ steps.repair.outputs.reason }}
           - Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
           EOF
-          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file /tmp/repair-comment.md
+          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file "$REPAIR_COMMENT_FILE"
 
       - name: Mark repair attempt
         if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
@@ -255,7 +261,7 @@ jobs:
           gh label create auto-repair-attempted --repo "${{ github.repository }}" --color "d4c5f9" 2>/dev/null || true
           gh label create needs-human --repo "${{ github.repository }}" --color "b60205" 2>/dev/null || true
           gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "auto-repair-attempted"
-          cat > /tmp/repair-comment.md <<EOF
+          cat > "$REPAIR_COMMENT_FILE" <<EOF
           ## Auto-repair Started
 
           - Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})
@@ -264,7 +270,7 @@ jobs:
           - Reason: ${{ steps.repair.outputs.reason }}
           - Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
           EOF
-          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file /tmp/repair-comment.md
+          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file "$REPAIR_COMMENT_FILE"
 
       - uses: dtolnay/rust-toolchain@stable
         if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
@@ -317,16 +323,16 @@ jobs:
         env:
           GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          python3 /tmp/ci-scripts/guard_backend_secrets.py \
+          python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" \
             --from-env GH_TOKEN_FOR_ACTIONS_READ \
             emit-masks
 
       - name: Snapshot git state before agent
         if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
         run: |
-          python3 /tmp/ci-scripts/git_activity_snapshot.py capture \
+          python3 "$CI_SCRIPTS_DIR/git_activity_snapshot.py" capture \
             --repo-root "$PWD" \
-            --output /tmp/git-activity-before.json
+            --output "$GIT_ACTIVITY_BEFORE_FILE"
 
       - name: Run repair agent
         if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
@@ -343,8 +349,8 @@ jobs:
           GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
           GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          python3 /tmp/ci-scripts/agent_logs.py watch \
-            --newer-than /tmp/final-task.md --interval 30 \
+          python3 "$CI_SCRIPTS_DIR/agent_logs.py" watch \
+            --newer-than "$FINAL_TASK_FILE" --interval 30 \
             --backend "${{ steps.backend.outputs.log_format }}" &
           WATCHER_PID=$!
 
@@ -355,25 +361,25 @@ jobs:
       - name: Snapshot agent outputs
         if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
         run: |
-          git status --short > /tmp/agent-status.txt || true
-          git log --oneline "${{ steps.workspace.outputs.workspace_sha }}"..HEAD > /tmp/agent-commits.txt || true
-          git diff --stat "${{ steps.workspace.outputs.workspace_sha }}" > /tmp/agent-recovery.stat || true
-          git diff "${{ steps.workspace.outputs.workspace_sha }}" > /tmp/agent-recovery.diff || true
-          git diff --binary "${{ steps.workspace.outputs.workspace_sha }}" > /tmp/agent-recovery.patch || true
+          git status --short > "$AGENT_STATUS_FILE" || true
+          git log --oneline "${{ steps.workspace.outputs.workspace_sha }}"..HEAD > "$AGENT_COMMITS_FILE" || true
+          git diff --stat "${{ steps.workspace.outputs.workspace_sha }}" > "$AGENT_RECOVERY_STAT_FILE" || true
+          git diff "${{ steps.workspace.outputs.workspace_sha }}" > "$AGENT_RECOVERY_DIFF_FILE" || true
+          git diff --binary "${{ steps.workspace.outputs.workspace_sha }}" > "$AGENT_RECOVERY_PATCH_FILE" || true
           python3 -c "
-          import sys; sys.path.insert(0, '/tmp/ci-scripts')
+          import os, sys; sys.path.insert(0, os.environ['CI_SCRIPTS_DIR'])
           from agent_logs import find_logfile
           from pathlib import Path
-          f = find_logfile(Path('/tmp/final-task.md'), '${{ steps.backend.outputs.log_format }}')
+          f = find_logfile(Path(os.environ['FINAL_TASK_FILE']), '${{ steps.backend.outputs.log_format }}')
           print(f or '')
-          " > /tmp/agent-logfile.txt 2>/dev/null || true
-          python3 /tmp/ci-scripts/git_activity_snapshot.py capture \
+          " > "$AGENT_LOGFILE_POINTER_FILE" 2>/dev/null || true
+          python3 "$CI_SCRIPTS_DIR/git_activity_snapshot.py" capture \
             --repo-root "$PWD" \
-            --output /tmp/git-activity-after.json || true
-          python3 /tmp/ci-scripts/git_activity_snapshot.py report \
-            --before /tmp/git-activity-before.json \
-            --after /tmp/git-activity-after.json \
-            --out-dir /tmp/git-activity || true
+            --output "$GIT_ACTIVITY_AFTER_FILE" || true
+          python3 "$CI_SCRIPTS_DIR/git_activity_snapshot.py" report \
+            --before "$GIT_ACTIVITY_BEFORE_FILE" \
+            --after "$GIT_ACTIVITY_AFTER_FILE" \
+            --out-dir "$AGENT_GIT_ACTIVITY_DIR" || true
 
       - name: Validate repair locally
         if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
@@ -383,7 +389,7 @@ jobs:
           NITROCOP_BIN: ${{ github.workspace }}/target/release/nitrocop
         run: |
           set +e
-          /tmp/repair-verify.sh 2>&1 | tee /tmp/repair-verify.log
+          "$REPAIR_VERIFY_SCRIPT" 2>&1 | tee "$REPAIR_VERIFY_LOG"
           STATUS=${PIPESTATUS[0]}
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           exit 0
@@ -407,8 +413,8 @@ jobs:
             git commit -m "Repair PR #${{ steps.pr.outputs.number }}: auto-repair (${{ steps.repair.outputs.backend }})"
           fi
 
-          git diff --binary "${{ steps.workspace.outputs.workspace_sha }}"..HEAD > /tmp/repair-apply.patch || true
-          if [ ! -s /tmp/repair-apply.patch ]; then
+          git diff --binary "${{ steps.workspace.outputs.workspace_sha }}"..HEAD > "$REPAIR_APPLY_PATCH_FILE" || true
+          if [ ! -s "$REPAIR_APPLY_PATCH_FILE" ]; then
             echo "result=no_changes" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -416,7 +422,7 @@ jobs:
           git switch --detach "${{ steps.prep.outputs.base_sha }}"
           git switch -C "repair-push-${{ github.run_id }}-${{ github.run_attempt }}"
 
-          if ! git apply --3way /tmp/repair-apply.patch; then
+          if ! git apply --3way "$REPAIR_APPLY_PATCH_FILE"; then
             echo "result=apply_failed" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -431,8 +437,8 @@ jobs:
 
           CURRENT_HEAD=$(git rev-parse HEAD)
           echo "head_sha=$CURRENT_HEAD" >> "$GITHUB_OUTPUT"
-          git diff --stat origin/main...HEAD > /tmp/final-pr-diff.stat || true
-          git diff origin/main...HEAD > /tmp/final-pr.diff || true
+          git diff --stat origin/main...HEAD > "$FINAL_PR_DIFF_STAT_FILE" || true
+          git diff origin/main...HEAD > "$FINAL_PR_DIFF_FILE" || true
 
           if git diff --quiet origin/main...HEAD; then
             echo "result=empty_pr" >> "$GITHUB_OUTPUT"
@@ -447,11 +453,11 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          python3 /tmp/ci-scripts/workflow_git.py configure \
+          python3 "$CI_SCRIPTS_DIR/workflow_git.py" configure \
             --repo "${{ github.repository }}" \
             --unset-extraheader
           git push origin HEAD:${{ steps.pr.outputs.head_branch }} --force
-          python3 /tmp/ci-scripts/workflow_git.py promote \
+          python3 "$CI_SCRIPTS_DIR/workflow_git.py" promote \
             --repo "${{ github.repository }}" \
             --branch "${{ steps.pr.outputs.head_branch }}" \
             --message "Repair PR #${{ steps.pr.outputs.number }}: auto-repair (${{ steps.repair.outputs.backend }})" \
@@ -474,8 +480,8 @@ jobs:
               echo ""
               echo "Auto-repair succeeded with backend \`${{ steps.repair.outputs.backend }}\`."
               echo ""
-              echo "Validated locally before push using \`/tmp/repair-verify.sh\`."
-            } > /tmp/repair-comment.md
+              echo "Validated locally before push using \`${REPAIR_VERIFY_SCRIPT}\`."
+            } > "$REPAIR_COMMENT_FILE"
           elif [ "$RESULT" = "no_changes" ]; then
             gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
             {
@@ -486,7 +492,7 @@ jobs:
               echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
               echo ""
               echo "The repair attempt completed local verification commands but produced no branch changes, so it was treated as unsuccessful."
-            } > /tmp/repair-comment.md
+            } > "$REPAIR_COMMENT_FILE"
           elif [ "$RESULT" = "empty_pr" ]; then
             gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
             {
@@ -497,7 +503,7 @@ jobs:
               echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
               echo ""
               echo "The repair would have reduced the PR to an empty diff against \`origin/main\`, which this workflow treats as an invalid blanket revert."
-            } > /tmp/repair-comment.md
+            } > "$REPAIR_COMMENT_FILE"
           elif [ "$RESULT" = "apply_failed" ]; then
             gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
             {
@@ -508,7 +514,7 @@ jobs:
               echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
               echo ""
               echo "The agent produced changes in the temporary workspace, but those changes could not be replayed cleanly onto the original PR head."
-            } > /tmp/repair-comment.md
+            } > "$REPAIR_COMMENT_FILE"
           elif [ "${{ steps.push.outcome }}" = "failure" ]; then
             gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
             {
@@ -519,7 +525,7 @@ jobs:
               echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
               echo ""
               echo "Local verification passed, but pushing the repair branch failed."
-            } > /tmp/repair-comment.md
+            } > "$REPAIR_COMMENT_FILE"
           else
             gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
             {
@@ -537,12 +543,12 @@ jobs:
               echo "<summary>Verification tail</summary>"
               echo ""
               echo '```'
-              tail -40 /tmp/repair-verify.log 2>/dev/null || echo "(no verification log)"
+              tail -40 "$REPAIR_VERIFY_LOG" 2>/dev/null || echo "(no verification log)"
               echo '```'
               echo "</details>"
-            } > /tmp/repair-comment.md
+            } > "$REPAIR_COMMENT_FILE"
           fi
-          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file /tmp/repair-comment.md
+          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file "$REPAIR_COMMENT_FILE"
 
       - name: Generate repair summary
         if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
@@ -567,10 +573,10 @@ jobs:
 
             echo "## Result"
             echo ""
-            if [ -s /tmp/agent-result.json ]; then
-              COST=$(jq -r '.total_cost_usd // "?"' /tmp/agent-result.json 2>/dev/null)
-              TURNS=$(jq -r '.num_turns // "?"' /tmp/agent-result.json 2>/dev/null)
-              RESULT=$(jq -r '.result // "no result"' /tmp/agent-result.json 2>/dev/null)
+            if [ -s "$AGENT_RESULT_FILE" ]; then
+              COST=$(jq -r '.total_cost_usd // "?"' "$AGENT_RESULT_FILE" 2>/dev/null)
+              TURNS=$(jq -r '.num_turns // "?"' "$AGENT_RESULT_FILE" 2>/dev/null)
+              RESULT=$(jq -r '.result // "no result"' "$AGENT_RESULT_FILE" 2>/dev/null)
               echo "| Metric | Value |"
               echo "|--------|-------|"
               echo "| Cost | \$$COST |"
@@ -589,70 +595,71 @@ jobs:
             echo "## Verification"
             echo ""
             echo '```'
-            tail -60 /tmp/repair-verify.log 2>/dev/null || echo "(no verification log)"
+            tail -60 "$REPAIR_VERIFY_LOG" 2>/dev/null || echo "(no verification log)"
             echo '```'
             echo ""
 
             echo "## Agent Changes"
             echo ""
-            if [ -s /tmp/agent-recovery.stat ]; then
+            if [ -s "$AGENT_RECOVERY_STAT_FILE" ]; then
               echo '```'
-              cat /tmp/agent-recovery.stat
+              cat "$AGENT_RECOVERY_STAT_FILE"
               echo '```'
             else
               echo "No agent changes captured."
             fi
             echo ""
 
-            if [ -s /tmp/final-pr-diff.stat ]; then
+            if [ -s "$FINAL_PR_DIFF_STAT_FILE" ]; then
               echo "## Final PR Diff"
               echo ""
               echo '```'
-              cat /tmp/final-pr-diff.stat
+              cat "$FINAL_PR_DIFF_STAT_FILE"
               echo '```'
               echo ""
             fi
 
-            if [ -s /tmp/git-activity/report.md ]; then
+            if [ -s "$AGENT_GIT_ACTIVITY_DIR/report.md" ]; then
               echo "<details>"
               echo "<summary>Additional git activity</summary>"
               echo ""
-              cat /tmp/git-activity/report.md
+              cat "$AGENT_GIT_ACTIVITY_DIR/report.md"
               echo ""
               echo "</details>"
               echo ""
             fi
 
-            LOGFILE=$(cat /tmp/agent-logfile.txt 2>/dev/null || true)
+            LOGFILE=$(cat "$AGENT_LOGFILE_POINTER_FILE" 2>/dev/null || true)
             if [ -n "$LOGFILE" ] && [ -f "$LOGFILE" ]; then
               echo "## Agent Conversation"
               echo ""
-              python3 /tmp/ci-scripts/agent_logs.py extract "$LOGFILE" --max-lines 120 2>/dev/null || true
+              python3 "$CI_SCRIPTS_DIR/agent_logs.py" extract "$LOGFILE" --max-lines 120 2>/dev/null || true
               echo ""
             fi
 
-            if [ -s /tmp/final-pr.diff ]; then
+            if [ -s "$FINAL_PR_DIFF_FILE" ]; then
               echo "<details>"
               echo "<summary>Final PR diff (first 200 lines)</summary>"
               echo ""
               echo '```diff'
-              head -200 /tmp/final-pr.diff
+              head -200 "$FINAL_PR_DIFF_FILE"
               echo '```'
               echo "</details>"
             fi
-          } > /tmp/repair-summary.md
+          } > "$REPAIR_SUMMARY_FILE"
 
-          cat /tmp/repair-summary.md >> "$GITHUB_STEP_SUMMARY"
+          cat "$REPAIR_SUMMARY_FILE" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build artifact manifest
         if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
         id: artifact_manifest
         run: |
-          python3 /tmp/ci-scripts/agent_artifacts.py agent-pr-repair \
-            --output /tmp/agent-artifacts.txt
+          python3 "$CI_SCRIPTS_DIR/agent_artifacts.py" agent-pr-repair \
+            --runtime-root "$AGENT_RUNTIME_ROOT" \
+            --output "$AGENT_ARTIFACT_MANIFEST_FILE"
           {
             echo "paths<<EOF"
-            cat /tmp/agent-artifacts.txt
+            cat "$AGENT_ARTIFACT_MANIFEST_FILE"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -665,14 +672,14 @@ jobs:
           CODEX_AUTH_JSON: ${{ steps.repair.outputs.backend == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
           GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          python3 /tmp/ci-scripts/guard_backend_secrets.py \
+          python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" \
             --ignore-missing \
             --from-env MINIMAX_API_KEY \
             --from-env ANTHROPIC_API_KEY \
             --from-env CODEX_AUTH_JSON \
             --from-env GH_TOKEN_FOR_ACTIONS_READ \
             scan-manifest \
-            /tmp/agent-artifacts.txt
+            "$AGENT_ARTIFACT_MANIFEST_FILE"
 
       - name: Upload repair logs
         if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip' && steps.leak_scan.outcome == 'success'

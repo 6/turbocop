@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Tests for prepare_pr_repair.py."""
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[3] / "scripts" / "workflows"))
@@ -101,10 +104,58 @@ def test_prompt_includes_route_and_failed_packet():
     assert "read-only token is available in `GH_TOKEN`" in prompt
 
 
+def test_prefetch_corpus_context_uses_runtime_env_paths():
+    original_standard = os.environ.get("REPAIR_CORPUS_STANDARD_FILE")
+    original_extended = os.environ.get("REPAIR_CORPUS_EXTENDED_FILE")
+    tmpdir = Path(tempfile.mkdtemp())
+    standard_target = tmpdir / "repair" / "corpus-standard.json"
+    extended_target = tmpdir / "repair" / "corpus-extended.json"
+    os.environ["REPAIR_CORPUS_STANDARD_FILE"] = str(standard_target)
+    os.environ["REPAIR_CORPUS_EXTENDED_FILE"] = str(extended_target)
+
+    copied = []
+
+    def fake_download(prefer: str):
+        return (Path(f"/source/{prefer}.json"), f"{prefer}-run", f"{prefer}-sha")
+
+    def fake_copy2(source, target):
+        copied.append((str(source), str(target)))
+        Path(target).parent.mkdir(parents=True, exist_ok=True)
+        Path(target).write_text("{}")
+
+    original_download = prepare_pr_repair._download_corpus
+    original_copy2 = prepare_pr_repair.shutil.copy2
+    prepare_pr_repair._download_corpus = fake_download
+    prepare_pr_repair.shutil.copy2 = fake_copy2
+    try:
+        contexts = prepare_pr_repair.prefetch_corpus_context("hard")
+    finally:
+        prepare_pr_repair._download_corpus = original_download
+        prepare_pr_repair.shutil.copy2 = original_copy2
+        if original_standard is None:
+            os.environ.pop("REPAIR_CORPUS_STANDARD_FILE", None)
+        else:
+            os.environ["REPAIR_CORPUS_STANDARD_FILE"] = original_standard
+        if original_extended is None:
+            os.environ.pop("REPAIR_CORPUS_EXTENDED_FILE", None)
+        else:
+            os.environ["REPAIR_CORPUS_EXTENDED_FILE"] = original_extended
+        if tmpdir.exists():
+            shutil.rmtree(tmpdir)
+
+    assert contexts["standard"]["path"] == str(standard_target)
+    assert contexts["extended"]["path"] == str(extended_target)
+    assert copied == [
+        ("/source/standard.json", str(standard_target)),
+        ("/source/extended.json", str(extended_target)),
+    ]
+
+
 if __name__ == "__main__":
     test_easy_linux_failure_routes_to_minimax()
     test_hard_cop_check_routes_to_codex()
     test_mixed_failures_escalate_to_hard()
     test_macos_only_failure_is_skipped()
     test_prompt_includes_route_and_failed_packet()
+    test_prefetch_corpus_context_uses_runtime_env_paths()
     print("All tests passed.")

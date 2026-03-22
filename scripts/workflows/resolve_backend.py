@@ -16,7 +16,7 @@ BACKENDS = {
     "minimax": {
         "cli": "claude",
         "setup_cmd": (
-            'python3 /tmp/ci-scripts/guard_backend_secrets.py '
+            'python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" '
             '--from-env MINIMAX_API_KEY '
             'emit-masks && '
             'curl -fsSL https://claude.ai/install.sh | bash'
@@ -26,9 +26,9 @@ BACKENDS = {
         "run_cmd": (
             'claude -p --dangerously-skip-permissions '
             '--output-format json '
-            '"$(cat /tmp/final-task.md)" '
-            '> /tmp/agent-result.json '
-            '2> >(tee /tmp/agent.log >&2) || true'
+            '"$(cat "$FINAL_TASK_FILE")" '
+            '> "$AGENT_RESULT_FILE" '
+            '2> >(tee "$AGENT_LOG_FILE" >&2) || true'
         ),
         "env": {
             "ANTHROPIC_BASE_URL": "https://api.minimax.io/anthropic",
@@ -45,7 +45,7 @@ BACKENDS = {
     "claude": {
         "cli": "claude",
         "setup_cmd": (
-            'python3 /tmp/ci-scripts/guard_backend_secrets.py '
+            'python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" '
             '--from-env ANTHROPIC_API_KEY '
             'emit-masks && '
             'curl -fsSL https://claude.ai/install.sh | bash'
@@ -55,9 +55,9 @@ BACKENDS = {
         "run_cmd": (
             'claude -p --dangerously-skip-permissions '
             '--output-format json '
-            '"$(cat /tmp/final-task.md)" '
-            '> /tmp/agent-result.json '
-            '2> >(tee /tmp/agent.log >&2) || true'
+            '"$(cat "$FINAL_TASK_FILE")" '
+            '> "$AGENT_RESULT_FILE" '
+            '2> >(tee "$AGENT_LOG_FILE" >&2) || true'
         ),
         "env": {
             "API_TIMEOUT_MS": "300000",
@@ -70,10 +70,10 @@ BACKENDS = {
     "codex": {
         "cli": "codex",
         "setup_cmd": (
-            'python3 /tmp/ci-scripts/guard_backend_secrets.py '
+            'python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" '
             '--from-env CODEX_AUTH_JSON '
             'emit-masks && '
-            'python3 /tmp/ci-scripts/validate_codex_auth.py '
+            'python3 "$CI_SCRIPTS_DIR/validate_codex_auth.py" '
             '--from-env CODEX_AUTH_JSON '
             '--max-age-days 7 && '
             'npm install -g @openai/codex@latest && '
@@ -88,15 +88,15 @@ BACKENDS = {
             '( codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 '
             '-c model_reasoning_effort=xhigh '
             '--json '
-            '-o /tmp/agent-last-message.txt '
-            '- < /tmp/final-task.md '
-            '> /tmp/agent-events.jsonl '
-            '2> >(tee /tmp/agent.log >&2); '
+            '-o "$AGENT_LAST_MESSAGE_FILE" '
+            '- < "$FINAL_TASK_FILE" '
+            '> "$AGENT_EVENTS_FILE" '
+            '2> >(tee "$AGENT_LOG_FILE" >&2); '
             'STATUS=$?; '
-            'python3 /tmp/ci-scripts/agent_logs.py summarize '
-            '/tmp/agent-events.jsonl '
-            '/tmp/agent-last-message.txt '
-            '> /tmp/agent-result.json || true; '
+            'python3 "$CI_SCRIPTS_DIR/agent_logs.py" summarize '
+            '"$AGENT_EVENTS_FILE" '
+            '"$AGENT_LAST_MESSAGE_FILE" '
+            '> "$AGENT_RESULT_FILE" || true; '
             'exit $STATUS ) || true'
         ),
         "env": {},

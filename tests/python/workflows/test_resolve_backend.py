@@ -53,8 +53,10 @@ def test_codex_uses_codex():
     assert "chmod 600 ~/.codex/auth.json" in config["setup_cmd"]
     assert "--dangerously-bypass-approvals-and-sandbox" in config["run_cmd"]
     assert "--json" in config["run_cmd"]
-    assert "/tmp/agent-events.jsonl" in config["run_cmd"]
-    assert "agent_logs.py summarize" in config["run_cmd"]
+    assert '"$AGENT_EVENTS_FILE"' in config["run_cmd"]
+    assert '"$FINAL_TASK_FILE"' in config["run_cmd"]
+    assert '"$AGENT_RESULT_FILE"' in config["run_cmd"]
+    assert '"$CI_SCRIPTS_DIR/agent_logs.py" summarize' in config["run_cmd"]
 
 
 def test_unknown_backend_exits():

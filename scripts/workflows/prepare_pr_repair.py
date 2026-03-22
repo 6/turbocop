@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import agent_runtime
 from shared.corpus_artifacts import download_corpus_results as _download_corpus
 
 ANSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
@@ -60,7 +61,7 @@ EASY_STEP_COMMANDS = {
 
 HARD_STEP_COMMANDS = {
     "Check cops against corpus baseline": (
-        "python3 scripts/dispatch-cops.py changed --base origin/main --head HEAD > /tmp/changed_cops.txt\n"
+        "python3 scripts/dispatch-cops.py changed --base origin/main --head HEAD > \"$REPAIR_CHANGED_COPS_FILE\"\n"
         "failed=0\n"
         "while IFS= read -r cop; do\n"
         "  [ -z \"$cop\" ] && continue\n"
@@ -71,7 +72,7 @@ HARD_STEP_COMMANDS = {
         "    echo \"FAIL: $cop regression detected\"\n"
         "    failed=$((failed + 1))\n"
         "  fi\n"
-        "done < /tmp/changed_cops.txt\n"
+        "done < \"$REPAIR_CHANGED_COPS_FILE\"\n"
         "test \"$failed\" -eq 0"
     ),
     "Run smoke test": "python3 scripts/corpus-smoke-test.py --binary target/release/nitrocop",
@@ -235,13 +236,14 @@ def prefetch_corpus_context(route: str) -> dict[str, dict[str, str]]:
     if route != "hard":
         return {}
 
+    runtime_paths = agent_runtime.current_paths("agent-pr-repair")
     contexts: dict[str, dict[str, str]] = {}
-    for prefer, target_name in (
-        ("standard", "/tmp/repair-corpus-standard.json"),
-        ("extended", "/tmp/repair-corpus-extended.json"),
+    for prefer, path_key in (
+        ("standard", "REPAIR_CORPUS_STANDARD_FILE"),
+        ("extended", "REPAIR_CORPUS_EXTENDED_FILE"),
     ):
         source_path, run_id, head_sha = _download_corpus(prefer=prefer)
-        target_path = Path(target_name)
+        target_path = Path(runtime_paths[path_key])
         shutil.copy2(source_path, target_path)
         contexts[prefer] = {
             "path": str(target_path),

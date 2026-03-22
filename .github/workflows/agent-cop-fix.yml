@@ -71,6 +71,11 @@ jobs:
           key: agent-target-${{ hashFiles('Cargo.lock') }}
           restore-keys: agent-target-
 
+      - name: Initialize runtime layout
+        run: |
+          python3 scripts/workflows/agent_runtime.py agent-cop-fix \
+            --runner-temp "${RUNNER_TEMP}" >> "$GITHUB_ENV"
+
       # --- Fast steps ---
 
       - name: Resolve backend config
@@ -187,20 +192,20 @@ jobs:
             "${{ github.event.inputs.cop }}" \
             --extended \
             --binary target/debug/nitrocop \
-            --output /tmp/task.md
+            --output "$TASK_FILE"
           echo "=== Task prompt stats ==="
-          wc -l /tmp/task.md
-          grep -c "CODE BUG\|CONFIG/CONTEXT\|CONFIRMED\|NOT REPRODUCED" /tmp/task.md || echo "no diagnostics"
+          wc -l "$TASK_FILE"
+          grep -c "CODE BUG\|CONFIG/CONTEXT\|CONFIRMED\|NOT REPRODUCED" "$TASK_FILE" || echo "no diagnostics"
 
           # Count code bugs vs config issues from pre-diagnostic
-          CODE_BUGS=$(grep -c "CODE BUG" /tmp/task.md || echo "0")
-          CONFIG_ISSUES=$(grep -c "CONFIG/CONTEXT" /tmp/task.md || echo "0")
+          CODE_BUGS=$(grep -c "CODE BUG" "$TASK_FILE" || echo "0")
+          CONFIG_ISSUES=$(grep -c "CONFIG/CONTEXT" "$TASK_FILE" || echo "0")
           echo "code_bugs=$CODE_BUGS" >> "$GITHUB_OUTPUT"
           echo "Code bugs: $CODE_BUGS, Config issues: $CONFIG_ISSUES"
 
           # Count tokens
           pip install -q tiktoken
-          TOKENS=$(python3 scripts/workflows/count_tokens.py /tmp/task.md 2>/dev/null || echo "?")
+          TOKENS=$(python3 scripts/workflows/count_tokens.py "$TASK_FILE" 2>/dev/null || echo "?")
           echo "tokens=$TOKENS" >> "$GITHUB_OUTPUT"
           echo "Tokens: $TOKENS"
         id: task
@@ -214,7 +219,7 @@ jobs:
         run: |
           python3 scripts/dispatch-cops.py prior-attempts \
             --cop "${{ github.event.inputs.cop }}" \
-            --output /tmp/prior_attempts.md
+            --output "$PRIOR_ATTEMPTS_FILE"
 
       - name: Close prior open PRs
         if: github.event.inputs.mode == 'retry' && steps.task.outputs.code_bugs != '0'
@@ -238,26 +243,26 @@ jobs:
       - name: Build final prompt
         if: steps.task.outputs.code_bugs != '0'
         run: |
-          cp /tmp/task.md /tmp/final-task.md
+          cp "$TASK_FILE" "$FINAL_TASK_FILE"
 
-          if [ -s /tmp/prior_attempts.md 2>/dev/null ]; then
-            echo "" >> /tmp/final-task.md
-            cat /tmp/prior_attempts.md >> /tmp/final-task.md
+          if [ -s "$PRIOR_ATTEMPTS_FILE" 2>/dev/null ]; then
+            echo "" >> "$FINAL_TASK_FILE"
+            cat "$PRIOR_ATTEMPTS_FILE" >> "$FINAL_TASK_FILE"
           fi
 
           if [ -n "${{ github.event.inputs.extra_context }}" ]; then
-            echo "" >> /tmp/final-task.md
-            echo "## Additional Instructions" >> /tmp/final-task.md
-            echo "${{ github.event.inputs.extra_context }}" >> /tmp/final-task.md
+            echo "" >> "$FINAL_TASK_FILE"
+            echo "## Additional Instructions" >> "$FINAL_TASK_FILE"
+            echo "${{ github.event.inputs.extra_context }}" >> "$FINAL_TASK_FILE"
           fi
 
           if [ "${{ github.event.inputs.mode }}" = "retry" ]; then
-            echo "" >> /tmp/final-task.md
-            echo "**CRITICAL:** Do NOT repeat approaches that already failed. Read the prior attempts carefully and try a DIFFERENT strategy." >> /tmp/final-task.md
+            echo "" >> "$FINAL_TASK_FILE"
+            echo "**CRITICAL:** Do NOT repeat approaches that already failed. Read the prior attempts carefully and try a DIFFERENT strategy." >> "$FINAL_TASK_FILE"
           fi
 
           echo "=== Final prompt ==="
-          wc -l /tmp/final-task.md
+          wc -l "$FINAL_TASK_FILE"
 
       - name: Update PR with task prompt
         if: steps.task.outputs.code_bugs != '0'
@@ -282,12 +287,12 @@ jobs:
             echo "<details>"
             echo "<summary>Task prompt (${TOKENS} tokens)</summary>"
             echo ""
-            cat /tmp/task.md
+            cat "$TASK_FILE"
             echo ""
             echo "</details>"
-          } > /tmp/claim-body.md
+          } > "$CLAIM_BODY_FILE"
 
-          gh pr edit "$PR_URL" --body-file /tmp/claim-body.md
+          gh pr edit "$PR_URL" --body-file "$CLAIM_BODY_FILE"
 
       - name: Skip if already fixed
         if: steps.task.outputs.code_bugs == '0'
@@ -320,7 +325,7 @@ jobs:
           DEPT_DIR="${{ steps.cop.outputs.filter }}"
           # cop::dept::name -> tests/fixtures/cops/dept/name
           FIXTURE_DIR="tests/fixtures/cops/$(echo "$DEPT_DIR" | sed 's|cop::||;s|::|/|g')"
-          python3 scripts/workflows/prepopulate_fixtures.py /tmp/task.md "$COP" "$FIXTURE_DIR"
+          python3 scripts/workflows/prepopulate_fixtures.py "$TASK_FILE" "$COP" "$FIXTURE_DIR"
 
       - name: Prepare clean workspace for agent
         if: steps.task.outputs.code_bugs != '0'
@@ -330,20 +335,20 @@ jobs:
           python3 scripts/workflows/prepare_agent_workspace.py \
             --mode agent-cop-fix \
             --backend "${{ github.event.inputs.backend }}" \
-            --preserve-ci-scripts /tmp/ci-scripts
+            --preserve-ci-scripts "$CI_SCRIPTS_DIR"
         id: prep
 
       - name: Append available helper scripts to prompt
         if: steps.task.outputs.code_bugs != '0'
         run: |
-          python3 /tmp/ci-scripts/render_helper_scripts_section.py >> /tmp/final-task.md
+          python3 "$CI_SCRIPTS_DIR/render_helper_scripts_section.py" >> "$FINAL_TASK_FILE"
 
       - name: Snapshot git state before agent
         if: steps.task.outputs.code_bugs != '0'
         run: |
-          python3 /tmp/ci-scripts/git_activity_snapshot.py capture \
+          python3 "$CI_SCRIPTS_DIR/git_activity_snapshot.py" capture \
             --repo-root "$PWD" \
-            --output /tmp/git-activity-before.json
+            --output "$GIT_ACTIVITY_BEFORE_FILE"
 
       # --- Install + run agent ---
 
@@ -360,7 +365,7 @@ jobs:
         env:
           GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          python3 /tmp/ci-scripts/guard_backend_secrets.py \
+          python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" \
             --from-env GH_TOKEN_FOR_ACTIONS_READ \
             emit-masks
 
@@ -381,8 +386,8 @@ jobs:
           GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
           # Background progress watcher
-          python3 /tmp/ci-scripts/agent_logs.py watch \
-            --newer-than /tmp/final-task.md --interval 30 \
+          python3 "$CI_SCRIPTS_DIR/agent_logs.py" watch \
+            --newer-than "$FINAL_TASK_FILE" --interval 30 \
             --backend "${{ steps.backend.outputs.log_format }}" &
           WATCHER_PID=$!
 
@@ -393,35 +398,35 @@ jobs:
 
           # Show summary
           echo "=== Agent Summary ==="
-          echo "Cost: $(jq -r '.total_cost_usd // "?"' /tmp/agent-result.json 2>/dev/null)"
-          echo "Turns: $(jq -r '.num_turns // "?"' /tmp/agent-result.json 2>/dev/null)"
-          echo "Result: $(jq -r '.result // "no result"' /tmp/agent-result.json 2>/dev/null | head -20)"
+          echo "Cost: $(jq -r '.total_cost_usd // "?"' "$AGENT_RESULT_FILE" 2>/dev/null)"
+          echo "Turns: $(jq -r '.num_turns // "?"' "$AGENT_RESULT_FILE" 2>/dev/null)"
+          echo "Result: $(jq -r '.result // "no result"' "$AGENT_RESULT_FILE" 2>/dev/null | head -20)"
 
       - name: Snapshot agent outputs
         if: always() && steps.task.outputs.code_bugs != '0'
         run: |
-          git status --short > /tmp/agent-status.txt || true
-          git log --oneline "${{ steps.prep.outputs.main_sha }}"..HEAD > /tmp/agent-commits.txt || true
+          git status --short > "$AGENT_STATUS_FILE" || true
+          git log --oneline "${{ steps.prep.outputs.main_sha }}"..HEAD > "$AGENT_COMMITS_FILE" || true
           git diff --stat "${{ steps.prep.outputs.main_sha }}" -- \
-            src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent-recovery.stat || true
+            src/cop/ tests/fixtures/cops/ bench/corpus/ > "$AGENT_RECOVERY_STAT_FILE" || true
           git diff "${{ steps.prep.outputs.main_sha }}" -- \
-            src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent-recovery.diff || true
+            src/cop/ tests/fixtures/cops/ bench/corpus/ > "$AGENT_RECOVERY_DIFF_FILE" || true
           git diff --binary "${{ steps.prep.outputs.main_sha }}" -- \
-            src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent-recovery.patch || true
+            src/cop/ tests/fixtures/cops/ bench/corpus/ > "$AGENT_RECOVERY_PATCH_FILE" || true
           python3 -c "
-          import sys; sys.path.insert(0, '/tmp/ci-scripts')
+          import os, sys; sys.path.insert(0, os.environ['CI_SCRIPTS_DIR'])
           from agent_logs import find_logfile
           from pathlib import Path
-          f = find_logfile(Path('/tmp/final-task.md'), '${{ steps.backend.outputs.log_format }}')
+          f = find_logfile(Path(os.environ['FINAL_TASK_FILE']), '${{ steps.backend.outputs.log_format }}')
           print(f or '')
-          " > /tmp/agent-logfile.txt 2>/dev/null || true
-          python3 /tmp/ci-scripts/git_activity_snapshot.py capture \
+          " > "$AGENT_LOGFILE_POINTER_FILE" 2>/dev/null || true
+          python3 "$CI_SCRIPTS_DIR/git_activity_snapshot.py" capture \
             --repo-root "$PWD" \
-            --output /tmp/git-activity-after.json || true
-          python3 /tmp/ci-scripts/git_activity_snapshot.py report \
-            --before /tmp/git-activity-before.json \
-            --after /tmp/git-activity-after.json \
-            --out-dir /tmp/git-activity || true
+            --output "$GIT_ACTIVITY_AFTER_FILE" || true
+          python3 "$CI_SCRIPTS_DIR/git_activity_snapshot.py" report \
+            --before "$GIT_ACTIVITY_BEFORE_FILE" \
+            --after "$GIT_ACTIVITY_AFTER_FILE" \
+            --out-dir "$AGENT_GIT_ACTIVITY_DIR" || true
 
       - name: Generate summary
         if: always() && steps.task.outputs.code_bugs != '0'
@@ -439,10 +444,10 @@ jobs:
             echo ""
 
             # Agent result summary
-            if [ -s /tmp/agent-result.json ]; then
-              COST=$(jq -r '.total_cost_usd // "?"' /tmp/agent-result.json 2>/dev/null)
-              TURNS=$(jq -r '.num_turns // "?"' /tmp/agent-result.json 2>/dev/null)
-              RESULT=$(jq -r '.result // "no result"' /tmp/agent-result.json 2>/dev/null)
+            if [ -s "$AGENT_RESULT_FILE" ]; then
+              COST=$(jq -r '.total_cost_usd // "?"' "$AGENT_RESULT_FILE" 2>/dev/null)
+              TURNS=$(jq -r '.num_turns // "?"' "$AGENT_RESULT_FILE" 2>/dev/null)
+              RESULT=$(jq -r '.result // "no result"' "$AGENT_RESULT_FILE" 2>/dev/null)
               echo "## Result"
               echo ""
               echo "| Metric | Value |"
@@ -465,22 +470,22 @@ jobs:
             # Changes summary
             echo "## Changes"
             echo ""
-            if [ -s /tmp/agent-recovery.stat ]; then
+            if [ -s "$AGENT_RECOVERY_STAT_FILE" ]; then
               echo '```'
-              cat /tmp/agent-recovery.stat
+              cat "$AGENT_RECOVERY_STAT_FILE"
               echo '```'
             else
               echo "No file changes detected."
             fi
             echo ""
 
-            if [ -s /tmp/agent-recovery.diff ]; then
-              DIFF_LINES=$(wc -l < /tmp/agent-recovery.diff 2>/dev/null || echo "0")
+            if [ -s "$AGENT_RECOVERY_DIFF_FILE" ]; then
+              DIFF_LINES=$(wc -l < "$AGENT_RECOVERY_DIFF_FILE" 2>/dev/null || echo "0")
               echo "<details>"
               echo "<summary>Full diff</summary>"
               echo ""
               echo '```diff'
-              sed -n '1,400p' /tmp/agent-recovery.diff
+              sed -n '1,400p' "$AGENT_RECOVERY_DIFF_FILE"
               if [ "${DIFF_LINES}" -gt 400 ]; then
                 echo ""
                 echo "... diff truncated after 400 lines ..."
@@ -490,11 +495,11 @@ jobs:
               echo ""
             fi
 
-            if [ -s /tmp/git-activity/report.md ]; then
+            if [ -s "$AGENT_GIT_ACTIVITY_DIR/report.md" ]; then
               echo "<details>"
               echo "<summary>Additional git activity</summary>"
               echo ""
-              cat /tmp/git-activity/report.md
+              cat "$AGENT_GIT_ACTIVITY_DIR/report.md"
               echo ""
               echo "</details>"
               echo ""
@@ -504,12 +509,12 @@ jobs:
             echo "## Task Prompt (first 30 lines)"
             echo ""
             echo '```markdown'
-            head -30 /tmp/task.md 2>/dev/null || echo "(task.md not found)"
+            head -30 "$TASK_FILE" 2>/dev/null || echo "(task.md not found)"
             echo '```'
             echo ""
 
             # Pre-diagnostic results
-            DIAG=$(grep -A 50 "## Pre-diagnostic Results" /tmp/task.md 2>/dev/null | head -50 || true)
+            DIAG=$(grep -A 50 "## Pre-diagnostic Results" "$TASK_FILE" 2>/dev/null | head -50 || true)
             if [ -n "$DIAG" ]; then
               echo "## Pre-diagnostic Results"
               echo ""
@@ -518,35 +523,36 @@ jobs:
             fi
 
             # Agent conversation log (extracted from JSONL)
-            LOGFILE=$(cat /tmp/agent-logfile.txt 2>/dev/null || true)
+            LOGFILE=$(cat "$AGENT_LOGFILE_POINTER_FILE" 2>/dev/null || true)
             if [ -n "$LOGFILE" ]; then
               echo "## Agent Conversation"
               echo ""
-              python3 /tmp/ci-scripts/agent_logs.py extract "$LOGFILE" 2>/dev/null || true
+              python3 "$CI_SCRIPTS_DIR/agent_logs.py" extract "$LOGFILE" 2>/dev/null || true
               echo ""
             fi
 
             # Agent stderr log tail
-            if [ -s /tmp/agent.log ]; then
+            if [ -s "$AGENT_LOG_FILE" ]; then
               echo "<details>"
               echo "<summary>Agent stderr (last 30 lines)</summary>"
               echo ""
               echo '```'
-              tail -30 /tmp/agent.log
+              tail -30 "$AGENT_LOG_FILE"
               echo '```'
               echo "</details>"
             fi
-          } > /tmp/summary.md
+          } > "$SUMMARY_FILE"
 
       - name: Build artifact manifest
         if: always() && steps.task.outputs.code_bugs != '0'
         id: artifact_manifest
         run: |
-          python3 /tmp/ci-scripts/agent_artifacts.py agent-cop-fix \
-            --output /tmp/agent-artifacts.txt
+          python3 "$CI_SCRIPTS_DIR/agent_artifacts.py" agent-cop-fix \
+            --runtime-root "$AGENT_RUNTIME_ROOT" \
+            --output "$AGENT_ARTIFACT_MANIFEST_FILE"
           {
             echo "paths<<EOF"
-            cat /tmp/agent-artifacts.txt
+            cat "$AGENT_ARTIFACT_MANIFEST_FILE"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -559,19 +565,19 @@ jobs:
           CODEX_AUTH_JSON: ${{ github.event.inputs.backend == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
           GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          python3 /tmp/ci-scripts/guard_backend_secrets.py \
+          python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" \
             --ignore-missing \
             --from-env MINIMAX_API_KEY \
             --from-env ANTHROPIC_API_KEY \
             --from-env CODEX_AUTH_JSON \
             --from-env GH_TOKEN_FOR_ACTIONS_READ \
             scan-manifest \
-            /tmp/agent-artifacts.txt
+            "$AGENT_ARTIFACT_MANIFEST_FILE"
 
       - name: Publish summary
         if: always() && steps.task.outputs.code_bugs != '0' && steps.leak_scan.outcome == 'success'
         run: |
-          cat /tmp/summary.md >> "$GITHUB_STEP_SUMMARY"
+          cat "$SUMMARY_FILE" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload agent log
         if: always() && steps.task.outputs.code_bugs != '0' && steps.leak_scan.outcome == 'success'
@@ -613,7 +619,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          python3 /tmp/ci-scripts/workflow_git.py configure \
+          python3 "$CI_SCRIPTS_DIR/workflow_git.py" configure \
             --repo "${{ github.repository }}" \
             --unset-extraheader
 
@@ -629,13 +635,13 @@ jobs:
 
           # Extract changes to allowed paths
           git diff "${{ steps.prep.outputs.main_sha }}" HEAD -- \
-            src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent.patch
+            src/cop/ tests/fixtures/cops/ bench/corpus/ > "$AGENT_PATCH_FILE"
 
           # Branch from the draft PR branch
           git fetch origin "$BRANCH"
           git checkout "$BRANCH"
 
-          if [ ! -s /tmp/agent.patch ]; then
+          if [ ! -s "$AGENT_PATCH_FILE" ]; then
             echo "No cop file changes found in agent output"
             echo "has_pr=false" >> "$GITHUB_OUTPUT"
             # Close the draft PR — agent produced nothing
@@ -643,7 +649,7 @@ jobs:
             exit 0
           fi
 
-          if git apply --3way /tmp/agent.patch; then
+          if git apply --3way "$AGENT_PATCH_FILE"; then
             echo "Patch applied cleanly"
           else
             echo "WARNING: patch had conflicts"
@@ -665,7 +671,7 @@ jobs:
           git push origin "$BRANCH" --force
 
           REPO="${{ github.repository }}"
-          eval "$(python3 /tmp/ci-scripts/workflow_git.py promote \
+          eval "$(python3 "$CI_SCRIPTS_DIR/workflow_git.py" promote \
             --repo "$REPO" \
             --branch "$BRANCH" \
             --message "Fix ${COP}: agent-generated fix${RETRY_NOTE} (${BACKEND})")"
@@ -679,14 +685,14 @@ jobs:
           fi
 
           # Build final PR body with agent results
-          TURNS=$(jq -r '.num_turns // "?"' /tmp/agent-result.json 2>/dev/null || echo "?")
+          TURNS=$(jq -r '.num_turns // "?"' "$AGENT_RESULT_FILE" 2>/dev/null || echo "?")
           DIFF_STAT=$(git diff --stat "${parent_sha}".."${signed_sha}" 2>/dev/null | tail -1 || echo "")
           if [ -z "$DIFF_STAT" ]; then
             DIFF_STAT=$(gh api "repos/${REPO}/compare/${parent_sha}...${signed_sha}" --jq '"  \(.files | length) files changed"' 2>/dev/null || echo "")
           fi
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          RESULT=$(jq -r '.result // "no result"' /tmp/agent-result.json 2>/dev/null || echo "no result")
-          LOGFILE=$(cat /tmp/agent-logfile.txt 2>/dev/null || true)
+          RESULT=$(jq -r '.result // "no result"' "$AGENT_RESULT_FILE" 2>/dev/null || echo "no result")
+          LOGFILE=$(cat "$AGENT_LOGFILE_POINTER_FILE" 2>/dev/null || true)
 
           {
             echo "Automated ${MODE} fix for \`${COP}\` corpus conformance."
@@ -717,7 +723,7 @@ jobs:
               echo "<details>"
               echo "<summary>Agent conversation excerpt</summary>"
               echo ""
-              python3 /tmp/ci-scripts/agent_logs.py extract "$LOGFILE" --max-lines 120 2>/dev/null || true
+              python3 "$CI_SCRIPTS_DIR/agent_logs.py" extract "$LOGFILE" --max-lines 120 2>/dev/null || true
               echo ""
               echo "</details>"
               echo ""
@@ -725,12 +731,12 @@ jobs:
             echo "<details>"
             echo "<summary>Task prompt (${{ steps.task.outputs.tokens }} tokens)</summary>"
             echo ""
-            cat /tmp/task.md
+            cat "$TASK_FILE"
             echo ""
             echo "</details>"
-          } > /tmp/pr-body.md
+          } > "$PR_BODY_FILE"
 
-          gh pr edit "$PR_URL" --body-file /tmp/pr-body.md
+          gh pr edit "$PR_URL" --body-file "$PR_BODY_FILE"
 
           # Mark PR as ready for review (no longer draft)
           gh pr ready "$PR_URL"
