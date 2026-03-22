@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Nitrocop
-  VERSION = "0.0.1.pre4"
+  VERSION = "0.0.1.pre5"
 
   # Returns the path to the precompiled nitrocop binary, or nil if
   # no binary is bundled (e.g. the base/fallback gem on an unsupported platform).
