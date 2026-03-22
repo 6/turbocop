@@ -59,7 +59,7 @@ def inspect_attempts(comments: list[dict], current_head_sha: str) -> dict[str, i
             backend = marker.get("backend", "")
             head_sha = marker.get("head_sha", "")
             if phase == "started":
-                if backend == "codex":
+                if backend.startswith("codex"):
                     prior_codex_attempts += 1
                 if current_head_sha and head_sha == current_head_sha:
                     prior_attempted_current_head = True
@@ -112,7 +112,7 @@ def apply_policy(
         return False, "This PR head has already had an automatic repair attempt", False
     if prior_pushes >= 2:
         return False, "PR already has 2 automatic repair pushes", True
-    if backend == "codex" and prior_codex_attempts >= 1:
+    if backend.startswith("codex") and prior_codex_attempts >= 1:
         return False, "PR already has a Codex automatic repair attempt", True
     return True, "", False
 

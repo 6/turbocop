@@ -220,11 +220,11 @@ def test_select_backend_for_entry_uses_issue_difficulty_when_present():
         prior_prs=[],
         issue_difficulty="simple",
     )
-    assert result["backend"] == "minimax"
+    assert result["backend"] == "codex-5.3"
     assert "issue difficulty label is simple" in result["reason"]
 
 
-def test_select_backend_for_entry_easy_cop_uses_minimax():
+def test_select_backend_for_entry_easy_cop_uses_codex_53():
     original = gct.diagnose_examples
     gct.diagnose_examples = lambda *args, **kwargs: (1, 0)
     try:
@@ -237,7 +237,7 @@ def test_select_backend_for_entry_easy_cop_uses_minimax():
         )
     finally:
         gct.diagnose_examples = original
-    assert result["backend"] == "minimax"
+    assert result["backend"] == "codex-5.3"
     assert result["easy"] is True
     assert result["code_bugs"] == 2
 
@@ -303,7 +303,7 @@ def test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue():
     ]
     gct.list_agent_fix_prs = lambda repo, state="all": []
     gct.select_backend_for_entry = lambda *args, **kwargs: {
-        "backend": "minimax",
+        "backend": "codex-5.3",
         "reason": "easy",
         "tier": 1,
         "code_bugs": 1,
@@ -383,7 +383,7 @@ if __name__ == "__main__":
     test_select_backend_for_entry_retry_forces_codex()
     test_has_failed_attempt_ignores_open_prs()
     test_select_backend_for_entry_uses_issue_difficulty_when_present()
-    test_select_backend_for_entry_easy_cop_uses_minimax()
+    test_select_backend_for_entry_easy_cop_uses_codex_53()
     test_choose_issue_state_preserves_blocked_without_open_pr()
     test_sorted_dispatch_candidates_orders_by_tier_then_total_then_cop()
     test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue()

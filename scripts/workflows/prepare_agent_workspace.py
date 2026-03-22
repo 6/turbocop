@@ -19,6 +19,12 @@ from pathlib import Path
 
 SCRIPT_ALLOWLISTS = {
     "agent-cop-fix": {
+        "codex-5.3": [
+            "scripts/check-cop.py",
+            "scripts/investigate-cop.py",
+            "scripts/verify-cop-locations.py",
+            "scripts/dispatch-cops.py",
+        ],
         "codex": [
             "scripts/check-cop.py",
             "scripts/investigate-cop.py",
@@ -27,6 +33,13 @@ SCRIPT_ALLOWLISTS = {
         ],
     },
     "agent-pr-repair": {
+        "codex-5.3": [
+            "scripts/check-cop.py",
+            "scripts/corpus-smoke-test.py",
+            "scripts/investigate-cop.py",
+            "scripts/verify-cop-locations.py",
+            "scripts/dispatch-cops.py",
+        ],
         "codex": [
             "scripts/check-cop.py",
             "scripts/corpus-smoke-test.py",
@@ -186,8 +199,8 @@ def main() -> int:
     parser.add_argument("--mode", choices=sorted(MODES), required=True)
     parser.add_argument(
         "--backend",
-        choices=["claude", "codex", "minimax"],
-        default="minimax",
+        choices=["claude", "codex", "codex-5.3", "minimax"],
+        default="codex",
         help="Agent backend; controls which helper scripts are kept",
     )
     parser.add_argument(

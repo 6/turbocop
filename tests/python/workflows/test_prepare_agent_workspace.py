@@ -82,12 +82,34 @@ def run_script(repo: Path, mode: str, backend: str) -> tuple[subprocess.Complete
     return result, preserved
 
 
+def test_agent_cop_fix_codex_53_keeps_allowlisted_scripts_only():
+    repo = make_repo()
+    result, preserved = run_script(repo, "agent-cop-fix", "codex-5.3")
+
+    assert "cleanup_sha=" in result.stdout
+    assert (repo / "AGENTS.md").read_text() == "minimal instructions\n"
+    assert (repo / "CLAUDE.md").read_text() == "minimal instructions\n"
+    assert "scripts/check-cop.py" in result.stdout
+    assert (repo / "scripts" / "check-cop.py").exists()
+    assert (repo / "scripts" / "dispatch-cops.py").exists()
+    assert (repo / "scripts" / "investigate-cop.py").exists()
+    assert (repo / "scripts" / "verify-cop-locations.py").exists()
+    assert not (repo / "scripts" / "corpus-smoke-test.py").exists()
+    assert not (repo / "scripts" / "noise.py").exists()
+    assert not (repo / "scripts" / "workflows").exists()
+    assert not (repo / ".github").exists()
+    assert not (repo / "docs").exists()
+    assert not (repo / "gem").exists()
+    assert (repo / "bench").exists()
+    assert (preserved / "helper.py").exists()
+    assert git(repo, "log", "--format=%s", "-1") == "tmp: clean workspace for agent"
+
+
 def test_agent_cop_fix_minimax_prunes_all_scripts():
     repo = make_repo()
     result, preserved = run_script(repo, "agent-cop-fix", "minimax")
 
     assert "cleanup_sha=" in result.stdout
-    assert "available_scripts=" in result.stdout
     assert (repo / "AGENTS.md").read_text() == "minimal instructions\n"
     assert (repo / "CLAUDE.md").read_text() == "minimal instructions\n"
     assert not (repo / "scripts").exists()
@@ -97,21 +119,6 @@ def test_agent_cop_fix_minimax_prunes_all_scripts():
     assert (repo / "bench").exists()
     assert (preserved / "helper.py").exists()
     assert git(repo, "log", "--format=%s", "-1") == "tmp: clean workspace for agent"
-
-
-def test_agent_cop_fix_codex_keeps_allowlisted_scripts_only():
-    repo = make_repo()
-    result, preserved = run_script(repo, "agent-cop-fix", "codex")
-
-    assert "scripts/check-cop.py" in result.stdout
-    assert (repo / "scripts" / "check-cop.py").exists()
-    assert (repo / "scripts" / "dispatch-cops.py").exists()
-    assert (repo / "scripts" / "investigate-cop.py").exists()
-    assert (repo / "scripts" / "verify-cop-locations.py").exists()
-    assert not (repo / "scripts" / "corpus-smoke-test.py").exists()
-    assert not (repo / "scripts" / "noise.py").exists()
-    assert not (repo / "scripts" / "workflows").exists()
-    assert (preserved / "helper.py").exists()
 
 
 def test_agent_pr_repair_codex_keeps_subset_scripts_and_bench():
@@ -137,7 +144,7 @@ def test_agent_pr_repair_codex_keeps_subset_scripts_and_bench():
 
 
 if __name__ == "__main__":
+    test_agent_cop_fix_codex_53_keeps_allowlisted_scripts_only()
     test_agent_cop_fix_minimax_prunes_all_scripts()
-    test_agent_cop_fix_codex_keeps_allowlisted_scripts_only()
     test_agent_pr_repair_codex_keeps_subset_scripts_and_bench()
     print("All tests passed.")

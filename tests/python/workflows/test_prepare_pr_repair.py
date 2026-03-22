@@ -15,7 +15,7 @@ def make_job(name: str, failed_steps: list[str], conclusion: str = "failure") ->
     return {"name": name, "conclusion": conclusion, "steps": steps, "databaseId": 1}
 
 
-def test_easy_linux_failure_routes_to_minimax():
+def test_easy_linux_failure_routes_to_codex():
     run = {
         "jobs": [
             make_job("build-and-test (ubuntu-24.04)", ["Clippy", "Test"]),
@@ -23,7 +23,7 @@ def test_easy_linux_failure_routes_to_minimax():
     }
     result = prepare_pr_repair.classify_run(run)
     assert result["route"] == "easy"
-    assert result["backend"] == "minimax"
+    assert result["backend"] == "codex"
     assert "cargo clippy --profile ci -- -D warnings" in result["verification_commands"]
     assert "cargo test" in result["verification_commands"]
 
@@ -152,7 +152,7 @@ def test_prefetch_corpus_context_uses_runtime_env_paths():
 
 
 if __name__ == "__main__":
-    test_easy_linux_failure_routes_to_minimax()
+    test_easy_linux_failure_routes_to_codex()
     test_hard_cop_check_routes_to_codex()
     test_mixed_failures_escalate_to_hard()
     test_macos_only_failure_is_skipped()

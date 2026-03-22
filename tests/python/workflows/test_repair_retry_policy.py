@@ -13,7 +13,7 @@ import repair_retry_policy
 def test_parse_marker_fields():
     body = (
         "hello\n"
-        "<!-- nitrocop-auto-repair: phase=started head_sha=abc backend=minimax checks_run_id=1 -->\n"
+        "<!-- nitrocop-auto-repair: phase=started head_sha=abc backend=codex-5.3 checks_run_id=1 -->\n"
         "<!-- nitrocop-auto-repair: phase=pushed head_sha=def backend=codex repair_commit=123 -->\n"
     )
     markers = repair_retry_policy.parse_marker_fields(body)
@@ -21,7 +21,7 @@ def test_parse_marker_fields():
         {
             "phase": "started",
             "head_sha": "abc",
-            "backend": "minimax",
+            "backend": "codex-5.3",
             "checks_run_id": "1",
         },
         {
@@ -46,7 +46,7 @@ def test_parse_linked_issue():
 def test_inspect_attempts_counts_pushes_and_codex():
     comments = [
         {
-            "body": "<!-- nitrocop-auto-repair: phase=started head_sha=head-a backend=minimax checks_run_id=11 -->"
+            "body": "<!-- nitrocop-auto-repair: phase=started head_sha=head-a backend=codex-5.3 checks_run_id=11 -->"
         },
         {
             "body": "<!-- nitrocop-auto-repair: phase=started head_sha=head-b backend=codex checks_run_id=12 -->"
@@ -57,7 +57,7 @@ def test_inspect_attempts_counts_pushes_and_codex():
     ]
     result = repair_retry_policy.inspect_attempts(comments, "head-b")
     assert result["prior_pushes"] == 1
-    assert result["prior_codex_attempts"] == 1
+    assert result["prior_codex_attempts"] == 2
     assert result["prior_attempted_current_head"] is True
 
 
@@ -79,7 +79,7 @@ def test_gate_pr_accepts_trusted_bot_pr():
 def test_policy_blocks_same_head_repeat():
     should_run, reason, needs_human = repair_retry_policy.apply_policy(
         route="easy",
-        backend="minimax",
+        backend="codex",
         force=False,
         prior_attempted_current_head=True,
         prior_pushes=0,
@@ -93,7 +93,7 @@ def test_policy_blocks_same_head_repeat():
 def test_policy_blocks_after_two_pushes():
     should_run, reason, needs_human = repair_retry_policy.apply_policy(
         route="easy",
-        backend="minimax",
+        backend="codex",
         force=False,
         prior_attempted_current_head=False,
         prior_pushes=2,

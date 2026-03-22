@@ -2,7 +2,7 @@
 """Resolve agent backend name to CLI, env vars, and log config.
 
 Backend names map to a CLI tool and its configuration. Multiple backends
-can share the same CLI (e.g., minimax and claude both use Claude Code).
+can share the same CLI (for example, both Codex variants use Codex CLI).
 
 Usage:
     python3 resolve_backend.py <backend>
@@ -11,6 +11,47 @@ Outputs KEY=VALUE lines suitable for sourcing in shell or appending to
 $GITHUB_OUTPUT. All values are shell-safe (no quoting needed).
 """
 import sys
+
+
+def codex_backend(model: str, reasoning_effort: str) -> dict:
+    return {
+        "cli": "codex",
+        "setup_cmd": (
+            'python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" '
+            '--from-env CODEX_AUTH_JSON '
+            'emit-masks && '
+            'python3 "$CI_SCRIPTS_DIR/validate_codex_auth.py" '
+            '--from-env CODEX_AUTH_JSON '
+            '--max-age-days 7 && '
+            'npm install -g @openai/codex@latest && '
+            'mkdir -p ~/.codex && '
+            'chmod 700 ~/.codex && '
+            'printf \'%s\' "$CODEX_AUTH_JSON" > ~/.codex/auth.json && '
+            'chmod 600 ~/.codex/auth.json'
+        ),
+        "log_format": "codex",
+        "log_pattern": "~/.codex/sessions/**/*.jsonl",
+        "run_cmd": (
+            f'( codex exec --dangerously-bypass-approvals-and-sandbox -m {model} '
+            f'-c model_reasoning_effort={reasoning_effort} '
+            '--json '
+            '-o "$AGENT_LAST_MESSAGE_FILE" '
+            '- < "$FINAL_TASK_FILE" '
+            '> "$AGENT_EVENTS_FILE" '
+            '2> >(tee "$AGENT_LOG_FILE" >&2); '
+            'STATUS=$?; '
+            'python3 "$CI_SCRIPTS_DIR/agent_logs.py" summarize '
+            '"$AGENT_EVENTS_FILE" '
+            '"$AGENT_LAST_MESSAGE_FILE" '
+            '> "$AGENT_RESULT_FILE" || true; '
+            'exit $STATUS ) || true'
+        ),
+        "env": {},
+        "secrets": {
+            "CODEX_AUTH_JSON": "CODEX_AUTH_JSON",
+        },
+    }
+
 
 BACKENDS = {
     "minimax": {
@@ -37,7 +78,6 @@ BACKENDS = {
             "API_TIMEOUT_MS": "300000",
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         },
-        # Secret name -> env var mapping (secrets resolved by the workflow)
         "secrets": {
             "MINIMAX_API_KEY": "ANTHROPIC_AUTH_TOKEN",
         },
@@ -67,43 +107,8 @@ BACKENDS = {
             "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY",
         },
     },
-    "codex": {
-        "cli": "codex",
-        "setup_cmd": (
-            'python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" '
-            '--from-env CODEX_AUTH_JSON '
-            'emit-masks && '
-            'python3 "$CI_SCRIPTS_DIR/validate_codex_auth.py" '
-            '--from-env CODEX_AUTH_JSON '
-            '--max-age-days 7 && '
-            'npm install -g @openai/codex@latest && '
-            'mkdir -p ~/.codex && '
-            'chmod 700 ~/.codex && '
-            'printf \'%s\' "$CODEX_AUTH_JSON" > ~/.codex/auth.json && '
-            'chmod 600 ~/.codex/auth.json'
-        ),
-        "log_format": "codex",
-        "log_pattern": "~/.codex/sessions/**/*.jsonl",
-        "run_cmd": (
-            '( codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 '
-            '-c model_reasoning_effort=xhigh '
-            '--json '
-            '-o "$AGENT_LAST_MESSAGE_FILE" '
-            '- < "$FINAL_TASK_FILE" '
-            '> "$AGENT_EVENTS_FILE" '
-            '2> >(tee "$AGENT_LOG_FILE" >&2); '
-            'STATUS=$?; '
-            'python3 "$CI_SCRIPTS_DIR/agent_logs.py" summarize '
-            '"$AGENT_EVENTS_FILE" '
-            '"$AGENT_LAST_MESSAGE_FILE" '
-            '> "$AGENT_RESULT_FILE" || true; '
-            'exit $STATUS ) || true'
-        ),
-        "env": {},
-        "secrets": {
-            "CODEX_AUTH_JSON": "CODEX_AUTH_JSON",
-        },
-    },
+    "codex-5.3": codex_backend("gpt-5.3-codex", "high"),
+    "codex": codex_backend("gpt-5.4", "xhigh"),
 }
 
 

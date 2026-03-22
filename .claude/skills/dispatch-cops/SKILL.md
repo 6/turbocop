@@ -44,7 +44,7 @@ This runs pre-diagnostic on every cop's FP/FN examples to classify them as
 code bugs (agent can fix) vs config/context issues (agent can't). Only shows
 cops with at least 1 real code bug.
 
-For MiniMax, filter to cops with 3-10 total FP+FN and mostly code bugs:
+For the lighter Codex lane, prefer cops with 3-10 total FP+FN and mostly code bugs:
 
 ```bash
 python3 scripts/dispatch-cops.py rank --min-bugs 2 --max-total 10
@@ -82,6 +82,7 @@ gh workflow run cop-issue-dispatch.yml -f max_active=5 -f dry_run=true
 If you need to force one backend across the dispatched issues:
 
 ```bash
+gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex-5.3
 gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex
 ```
 
@@ -119,7 +120,7 @@ Find cops with failed PRs:
 gh pr list --state open --search "status:failure" --limit 50
 ```
 
-Retry each with stronger model:
+Retry each with the stronger Codex model:
 
 ```bash
 gh workflow run agent-cop-fix.yml -f cop="Department/CopName" -f mode=retry
@@ -163,6 +164,7 @@ python3 scripts/dispatch-cops.py tiers --extended
 - The task prompt contains all context the agent needs
 - `workflow_dispatch` requires write access — safe on public repos
 - Retries auto-close stale PRs and include prior attempt context
-- `agent-cop-fix` now supports `backend=auto`; the selected backend comes from the shared dispatch-cops heuristics
+- `agent-cop-fix` now supports `backend=auto`; simple issue-backed fixes use `gpt-5.3-codex`, while harder fixes and repairs use `gpt-5.4`
+- `claude` and `minimax` manual overrides still exist for experiments, but do not use them as the default recommendation
 - Tracker issues should be created by the GitHub App (`6[bot]`), not manually
 - Monitor ChatGPT usage at chatgpt.com/codex/settings/usage — dispatch in small batches

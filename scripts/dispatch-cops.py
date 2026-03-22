@@ -1105,7 +1105,7 @@ def select_backend_for_entry(
     if issue_difficulty:
         if issue_difficulty == "simple":
             return {
-                "backend": "minimax",
+                "backend": "codex-5.3",
                 "reason": "issue difficulty label is simple",
                 "tier": tier,
                 "code_bugs": 0,
@@ -1165,7 +1165,7 @@ def select_backend_for_entry(
     config_issues = fn_cfg + fp_cfg
     if code_bugs >= min_bugs:
         return {
-            "backend": "minimax",
+            "backend": "codex-5.3",
             "reason": (
                 f"easy cop: total={total_for_entry(entry)}, matches={entry.get('matches', 0)}, "
                 f"diagnosed_code_bugs={code_bugs}"
@@ -1908,7 +1908,7 @@ def main():
     dispatch_issues = subparsers.add_parser("dispatch-issues", help="Dispatch backlog issues into agent-cop-fix")
     dispatch_issues.add_argument("--max-active", type=int, default=5)
     dispatch_issues.add_argument("--dry-run", action="store_true")
-    dispatch_issues.add_argument("--backend-override", choices=["auto", "minimax", "codex"], default="auto")
+    dispatch_issues.add_argument("--backend-override", choices=["auto", "codex-5.3", "codex", "claude", "minimax"], default="auto")
     dispatch_issues.add_argument(
         "--repo",
         default=os.environ.get("GITHUB_REPOSITORY", ""),

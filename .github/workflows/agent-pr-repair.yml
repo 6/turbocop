@@ -24,8 +24,10 @@ on:
         type: choice
         options:
           - auto
-          - minimax
+          - codex-5.3
           - codex
+          - claude
+          - minimax
         default: auto
       extra_context:
         description: "Additional instructions for the repair agent"
@@ -326,7 +328,7 @@ jobs:
         env:
           MINIMAX_API_KEY: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
           ANTHROPIC_API_KEY: ${{ steps.repair.outputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
-          CODEX_AUTH_JSON: ${{ steps.repair.outputs.backend == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
+          CODEX_AUTH_JSON: ${{ (steps.repair.outputs.backend == 'codex' || steps.repair.outputs.backend == 'codex-5.3') && secrets.CODEX_AUTH_JSON || '' }}
         run: ${{ steps.backend.outputs.setup_cmd }}
 
       - name: Mask read-only GitHub token
@@ -688,7 +690,7 @@ jobs:
         env:
           MINIMAX_API_KEY: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
           ANTHROPIC_API_KEY: ${{ steps.repair.outputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
-          CODEX_AUTH_JSON: ${{ steps.repair.outputs.backend == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
+          CODEX_AUTH_JSON: ${{ (steps.repair.outputs.backend == 'codex' || steps.repair.outputs.backend == 'codex-5.3') && secrets.CODEX_AUTH_JSON || '' }}
           GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
           python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" \

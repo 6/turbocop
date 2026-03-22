@@ -319,9 +319,12 @@ Use `/triage` to just view the ranked cop list without fixing. See `.claude/skil
 
 ### Remote Agent Dispatch
 
-Use `/dispatch-cops` to parallelize cop fixes at scale via AI agents running in GitHub Actions. The current flow is issue-backed: sync one tracker issue per diverging cop from the extended corpus, then dispatch a bounded queue of those issues into `agent-cop-fix`. Each agent fixes one cop and opens a PR validated by CI. Two backends available:
-- **Claude Code + MiniMax** (~$0.03/cop) — [docs/agent-dispatch-minimax.md](docs/agent-dispatch-minimax.md)
-- **Codex** ($200/mo flat rate) — [docs/agent-dispatch.md](docs/agent-dispatch.md)
+Use `/dispatch-cops` to parallelize cop fixes at scale via AI agents running in GitHub Actions. The current flow is issue-backed: sync one tracker issue per diverging cop from the extended corpus, then dispatch a bounded queue of those issues into `agent-cop-fix`. Each agent fixes one cop and opens a PR validated by CI. The recommended routing is Codex-first:
+- `difficulty:simple` backlog items default to `gpt-5.3-codex` with `high`
+- `difficulty:medium|complex`, retries, and PR repairs use `gpt-5.4` with `xhigh`
+- Legacy manual overrides for `claude` and `minimax` remain available for experiments, but are not recommended by default.
+
+See [docs/agent-dispatch.md](docs/agent-dispatch.md) for the setup and operator workflow.
 
 See `.claude/skills/dispatch-cops/SKILL.md` for the `/dispatch-cops` skill.
 

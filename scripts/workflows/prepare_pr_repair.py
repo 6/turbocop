@@ -186,7 +186,7 @@ def classify_run(run: dict) -> dict:
         backend = "codex"
     elif easy_jobs:
         route = "easy"
-        backend = "minimax"
+        backend = "codex"
     else:
         route = "skip"
         backend = ""
@@ -401,7 +401,7 @@ def main() -> None:
     parser.add_argument("--prompt-out", type=Path, required=True, help="Output markdown prompt")
     parser.add_argument("--verify-out", type=Path, required=True, help="Output shell script")
     parser.add_argument("--json-out", type=Path, required=True, help="Output JSON metadata")
-    parser.add_argument("--backend-override", choices=["auto", "minimax", "codex"], default="auto")
+    parser.add_argument("--backend-override", choices=["auto", "codex-5.3", "codex", "claude", "minimax"], default="auto")
     parser.add_argument("--extra-context", default="", help="Additional human instructions")
     args = parser.parse_args()
 

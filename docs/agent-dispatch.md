@@ -2,7 +2,10 @@
 
 Automated system for fixing corpus conformance gaps by dispatching Codex agents to fix one cop at a time. The current flow is issue-backed: sync one tracker issue per diverging cop from the extended corpus, then fill a bounded queue of those issues into `agent-cop-fix`. Each cop runs in a GitHub Actions runner with Codex CLI, which edits the code, validates with `cargo test`, and opens a PR.
 
-**Cheaper alternative:** See [agent-dispatch-minimax.md](agent-dispatch-minimax.md) for Claude Code + MiniMax M2.7 (~$0.03/cop vs $200/mo flat rate).
+The recommended workflow is Codex-first:
+- `gpt-5.3-codex` with `high` for `difficulty:simple` initial cop-fix issues
+- `gpt-5.4` with `xhigh` for `difficulty:medium|complex`, retries, and PR repairs
+- Legacy manual overrides for `claude` and `minimax` still exist, but are not recommended.
 
 ## Architecture
 
@@ -15,7 +18,8 @@ You (any machine with gh CLI)
 GitHub Actions (agent-cop-fix.yml)
   │  1. Checkout repo + build Rust (cached, ~1 min)
   │  2. dispatch-cops.py task → self-contained task prompt
-  │  3. codex exec --full-auto → Codex edits files in the GHA runner
+  │  3. codex exec --dangerously-bypass-approvals-and-sandbox
+  │     → auto-routed to gpt-5.3-codex or gpt-5.4
   │  4. cargo test --lib → validate the fix compiles + tests pass
   │  5. Commit, push branch, open PR
   ▼
@@ -88,6 +92,10 @@ gh workflow run cop-issue-dispatch.yml -f max_active=5 -f dry_run=true
 
 # Dispatch backlog issues into agent-cop-fix
 gh workflow run cop-issue-dispatch.yml -f max_active=5
+
+# Or force one Codex model across the queue
+gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex-5.3
+gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex
 ```
 
 Wait ~10-15 min (build + Codex agent + validation). Check the PR:

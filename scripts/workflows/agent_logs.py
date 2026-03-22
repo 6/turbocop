@@ -19,6 +19,7 @@ from typing import Optional
 LOG_PATTERNS = {
     "minimax": "~/.claude/projects/**/*.jsonl",
     "claude": "~/.claude/projects/**/*.jsonl",
+    "codex-5.3": "~/.codex/sessions/**/*.jsonl",
     "codex": "~/.codex/sessions/**/*.jsonl",
 }
 
@@ -45,10 +46,10 @@ def _set_meaningful_type(status: dict, type_name: str) -> None:
         status["last_type"] = type_name
 
 
-def find_logfile(newer_than: Path, backend: str = "minimax") -> Optional[str]:
+def find_logfile(newer_than: Path, backend: str = "codex") -> Optional[str]:
     """Find the most recent JSONL file newer than the reference file."""
     ref_mtime = newer_than.stat().st_mtime if newer_than.exists() else 0
-    pattern = LOG_PATTERNS.get(backend, LOG_PATTERNS["minimax"])
+    pattern = LOG_PATTERNS.get(backend, LOG_PATTERNS["codex"])
     candidates = glob.glob(os.path.expanduser(pattern), recursive=True)
     for f in sorted(candidates, key=os.path.getmtime, reverse=True):
         if os.path.getmtime(f) > ref_mtime:
@@ -179,7 +180,7 @@ def _parse_codex_event(ev: dict, status: dict) -> bool:
     return False
 
 
-def get_status(logfile: str, backend: str = "minimax") -> dict:
+def get_status(logfile: str, backend: str = "codex") -> dict:
     """Read the last few events and extract status info."""
     status = {
         "events": 0,
@@ -195,10 +196,11 @@ def get_status(logfile: str, backend: str = "minimax") -> dict:
         return status
 
     status["events"] = len(lines)
-    parser = _parse_codex_event if backend == "codex" else _parse_claude_event
+    is_codex_backend = backend in {"codex", "codex-5.3"}
+    parser = _parse_codex_event if is_codex_backend else _parse_claude_event
 
     # Scan recent lines for the most recent useful content.
-    lookback = CODEX_LOOKBACK_LINES if backend == "codex" else 10
+    lookback = CODEX_LOOKBACK_LINES if is_codex_backend else 10
     for line in reversed(lines[-lookback:]):
         try:
             ev = json.loads(line)
@@ -206,7 +208,7 @@ def get_status(logfile: str, backend: str = "minimax") -> dict:
             continue
 
         parser(ev, status)
-        if backend == "codex":
+        if is_codex_backend:
             if status["last_text"] and status["last_tool"]:
                 break
         elif status["last_text"] or status["last_tool"]:
@@ -434,7 +436,7 @@ def main():
     watch_parser = subparsers.add_parser("watch", help="Print live progress updates")
     watch_parser.add_argument("--newer-than", type=Path, required=True)
     watch_parser.add_argument("--interval", type=int, default=30)
-    watch_parser.add_argument("--backend", choices=["minimax", "claude", "codex"], default="minimax")
+    watch_parser.add_argument("--backend", choices=["minimax", "claude", "codex-5.3", "codex"], default="codex")
 
     extract_parser = subparsers.add_parser("extract", help="Render a conversation excerpt as markdown")
     extract_parser.add_argument("path", help="Path to JSONL session log")

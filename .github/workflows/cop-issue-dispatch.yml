@@ -19,8 +19,10 @@ on:
         type: choice
         options:
           - auto
-          - minimax
+          - codex-5.3
           - codex
+          - claude
+          - minimax
         default: auto
       dry_run:
         description: "Only print which issues would be dispatched"

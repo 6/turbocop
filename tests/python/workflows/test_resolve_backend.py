@@ -21,6 +21,17 @@ def test_all_backends_resolve():
         assert config["log_pattern"], f"{name}: missing log_pattern"
 
 
+def test_codex_53_uses_codex():
+    config = resolve_backend.resolve("codex-5.3")
+    assert config["cli"] == "codex"
+    assert config["log_format"] == "codex"
+    assert "guard_backend_secrets.py" in config["setup_cmd"]
+    assert "validate_codex_auth.py" in config["setup_cmd"]
+    assert "CODEX_AUTH_JSON" in config["setup_cmd"]
+    assert "-m gpt-5.3-codex" in config["run_cmd"]
+    assert "model_reasoning_effort=high" in config["run_cmd"]
+
+
 def test_minimax_uses_claude():
     config = resolve_backend.resolve("minimax")
     assert config["cli"] == "claude"
@@ -71,7 +82,7 @@ def test_unknown_backend_exits():
 def test_cli_output_format():
     """CLI should output key=value pairs."""
     result = subprocess.run(
-        [sys.executable, str(SCRIPT), "minimax"],
+        [sys.executable, str(SCRIPT), "codex-5.3"],
         capture_output=True, text=True,
     )
     assert result.returncode == 0
@@ -95,6 +106,7 @@ def test_no_args_exits():
 
 if __name__ == "__main__":
     test_all_backends_resolve()
+    test_codex_53_uses_codex()
     test_minimax_uses_claude()
     test_claude_uses_claude()
     test_codex_uses_codex()
