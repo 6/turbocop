@@ -21,6 +21,12 @@ use crate::parse::source::SourceFile;
 ///      like `\)`, `\(`, `\$` which are literal in regex
 /// - Fixed by porting the complete pattern from `start_with.rs` which already
 ///   handled all orientations and had proper escaped-char support.
+///
+/// Corpus investigation (2026-03): 2 FPs in net-imap repos caused by regex encoding
+/// flags (`/n` for ASCII-8BIT). Patterns like `/\r\n\z/n.match(str)` were flagged
+/// because `has_no_flags()` only checked behavioral flags (i, x, m, o) but missed
+/// encoding flags (/n, /u, /e, /s). RuboCop's NodePattern requires `(regopt)` — no
+/// flags at all. Fixed by adding encoding flag checks to `has_no_flags()`.
 pub struct EndWith;
 
 /// Check if regex content ends with \z (or $ when !safe_multiline) and the prefix is a simple literal.
@@ -126,9 +132,16 @@ fn extract_regex_node<'a>(
     node.as_regular_expression_node()
 }
 
-/// Check if a regex node has no flags (ignore_case, extended, multi_line, once).
+/// Check if a regex node has no flags (ignore_case, extended, multi_line, once, encoding).
 fn has_no_flags(regex: &ruby_prism::RegularExpressionNode<'_>) -> bool {
-    !regex.is_ignore_case() && !regex.is_extended() && !regex.is_multi_line() && !regex.is_once()
+    !regex.is_ignore_case()
+        && !regex.is_extended()
+        && !regex.is_multi_line()
+        && !regex.is_once()
+        && !regex.is_utf_8()
+        && !regex.is_euc_jp()
+        && !regex.is_ascii_8bit()
+        && !regex.is_windows_31j()
 }
 
 impl Cop for EndWith {

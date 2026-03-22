@@ -9,6 +9,12 @@ use crate::parse::source::SourceFile;
 /// skips all other cops. Prism's C FFI parses it fine, so nitrocop was analyzing it
 /// and correctly flagging `sub!(/\A\.\.\./, "")`. Fixed by adding a UTF-8 validity
 /// check in `linter.rs` to skip non-UTF-8 files, matching RuboCop's behavior.
+///
+/// Corpus investigation (2026-03): 2 FPs in godfat__rest-core caused by regex encoding
+/// flags (`/u` and `/n`). Patterns like `json.sub(/\A\xEF\xBB\xBF/u, '')` were flagged
+/// because the flag check only covered behavioral flags (i, x, m, o) but missed encoding
+/// flags (/n, /u, /e, /s). RuboCop's NodePattern requires `(regopt)` — no flags at all.
+/// Fixed by adding `is_utf_8()`, `is_euc_jp()`, `is_ascii()`, `is_windows_31j()` checks.
 pub struct DeletePrefix;
 
 fn is_start_anchored_literal(content: &[u8], safe_multiline: bool) -> bool {
@@ -165,11 +171,16 @@ impl Cop for DeletePrefix {
             None => return,
         };
 
-        // RuboCop requires (regopt) — no flags. Skip if any flags are present.
+        // RuboCop requires (regopt) — no flags at all. Skip if any flags are present,
+        // including encoding flags (/n, /u, /e, /s).
         if regex_node.is_ignore_case()
             || regex_node.is_extended()
             || regex_node.is_multi_line()
             || regex_node.is_once()
+            || regex_node.is_utf_8()
+            || regex_node.is_euc_jp()
+            || regex_node.is_ascii_8bit()
+            || regex_node.is_windows_31j()
         {
             return;
         }
