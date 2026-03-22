@@ -10,3 +10,7 @@ URI.decode('foo')
 obj.new
 Addressable::URI::Parser.new
 Something::Parser.new
+# URI::Parser.new with arguments creates a custom parser, not DEFAULT_PARSER
+URI::Parser.new(key: value)
+URI::Parser.new(:UNRESERVED => "\\-_.!~*'()a-zA-Z\\d" + "|")
+::URI::Parser.new(:UNRESERVED => URI::REGEXP::PATTERN::UNRESERVED + '|')

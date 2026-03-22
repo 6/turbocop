@@ -4,6 +4,9 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation: 2 FP from `URI::Parser.new(opts)` with custom options.
+/// RuboCop's NodePattern only matches `URI::Parser.new` with zero arguments.
+/// Fix: check `call.arguments().is_none()` before flagging.
 pub struct UriDefaultParser;
 
 impl Cop for UriDefaultParser {
@@ -33,8 +36,14 @@ impl Cop for UriDefaultParser {
             None => return,
         };
 
-        // Must be a call to `.new`
+        // Must be a call to `.new` with no arguments
         if call.name().as_slice() != b"new" {
+            return;
+        }
+
+        // URI::Parser.new with arguments creates a custom parser,
+        // not equivalent to URI::DEFAULT_PARSER
+        if call.arguments().is_some() {
             return;
         }
 
