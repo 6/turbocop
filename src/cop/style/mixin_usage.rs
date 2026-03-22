@@ -29,6 +29,11 @@ use crate::parse::source::SourceFile;
 /// matches exactly ONE `const` argument. Multi-argument mixin calls like `include A, B, C`
 /// don't match the pattern and are not flagged. nitrocop was incorrectly accepting any number
 /// of const arguments. Fixed by requiring exactly one argument in the const check.
+///
+/// Corpus investigation (round 5): 3 FPs from `include UtilityFunctions` inside `BEGIN { ... }`
+/// blocks in the linguistics corpus. Prism exposes these bodies under `PreExecutionNode`, but
+/// RuboCop does not consider `BEGIN` a transparent top-level wrapper. Fixed by treating
+/// `PreExecutionNode` as an opaque scope so only real top-level / begin / if / def wrappers match.
 pub struct MixinUsage;
 
 const MIXIN_METHODS: &[&[u8]] = &[b"include", b"extend", b"prepend"];
@@ -140,6 +145,13 @@ impl<'pr> Visit<'pr> for MixinUsageVisitor<'_> {
     }
 
     // === Opaque scopes (mixin calls inside these are NOT top-level) ===
+
+    fn visit_pre_execution_node(&mut self, node: &ruby_prism::PreExecutionNode<'pr>) {
+        let prev = self.in_opaque_scope;
+        self.in_opaque_scope = true;
+        ruby_prism::visit_pre_execution_node(self, node);
+        self.in_opaque_scope = prev;
+    }
 
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
         let prev = self.in_opaque_scope;
