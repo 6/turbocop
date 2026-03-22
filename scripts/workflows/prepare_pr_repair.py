@@ -183,10 +183,10 @@ def classify_run(run: dict) -> dict:
 
     if hard_jobs:
         route = "hard"
-        backend = "codex"
+        backend = "codex-hard"
     elif easy_jobs:
         route = "easy"
-        backend = "codex"
+        backend = "codex-hard"
     else:
         route = "skip"
         backend = ""
@@ -264,6 +264,14 @@ def build_prompt(
 ) -> str:
     route = classification["route"]
     backend = classification["backend"] or "none"
+    backend_label_map = {
+        "codex-normal": "codex / normal",
+        "codex-hard": "codex / hard",
+        "claude-normal": "claude / normal",
+        "claude-hard": "claude / hard",
+        "minimax": "minimax / normal",
+    }
+    backend_label = backend_label_map.get(backend, backend)
     lines = [
         f"# PR Repair Task: PR #{pr_meta['number']}",
         "",
@@ -279,7 +287,7 @@ def build_prompt(
         f"- Branch: `{pr_meta['headRefName']}`",
         f"- Checks run: #{run.get('number', '?')} ({run.get('workflowName', 'Checks')})",
         f"- Route: `{route}`",
-        f"- Selected backend: `{backend}`",
+        f"- Selected backend: `{backend_label}`",
         f"- Failure summary: {classification['reason']}",
         "",
         "## Required Outcome",
@@ -401,7 +409,18 @@ def main() -> None:
     parser.add_argument("--prompt-out", type=Path, required=True, help="Output markdown prompt")
     parser.add_argument("--verify-out", type=Path, required=True, help="Output shell script")
     parser.add_argument("--json-out", type=Path, required=True, help="Output JSON metadata")
-    parser.add_argument("--backend-override", choices=["auto", "codex-5.3", "codex", "claude", "minimax"], default="auto")
+    parser.add_argument(
+        "--backend-override",
+        choices=[
+            "auto",
+            "minimax",
+            "codex-normal",
+            "codex-hard",
+            "claude-normal",
+            "claude-hard",
+        ],
+        default="auto",
+    )
     parser.add_argument("--extra-context", default="", help="Additional human instructions")
     args = parser.parse_args()
 

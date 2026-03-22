@@ -13,14 +13,21 @@ on:
         required: true
         type: string
       backend:
-        description: 'Agent backend'
+        description: 'Backend family'
         type: choice
         options:
           - auto
-          - codex-5.3
           - codex
           - claude
           - minimax
+        default: auto
+      strength:
+        description: 'Model strength (used when backend is not auto)'
+        type: choice
+        options:
+          - auto
+          - normal
+          - hard
         default: auto
       mode:
         description: 'Mode: fix (fresh) or retry (with prior attempt context)'
@@ -89,7 +96,7 @@ jobs:
         id: cop
         run: |
           MODE="${{ github.event.inputs.mode }}"
-          echo "::notice::${MODE^} cop: ${{ github.event.inputs.cop }} (backend input: ${{ github.event.inputs.backend }})"
+          echo "::notice::${MODE^} cop: ${{ github.event.inputs.cop }} (backend input: ${{ github.event.inputs.backend }}, strength: ${{ github.event.inputs.strength }})"
           python3 -c "
           import re, sys
           cop = sys.argv[1]
@@ -223,6 +230,7 @@ jobs:
           GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
         run: |
           INPUT_BACKEND="${{ github.event.inputs.backend }}"
+          INPUT_STRENGTH="${{ github.event.inputs.strength }}"
           ISSUE_DIFFICULTY=""
           if [ -n "${{ github.event.inputs.issue_number }}" ]; then
             ISSUE_LABELS=$(gh issue view "${{ github.event.inputs.issue_number }}" \
@@ -251,8 +259,15 @@ jobs:
               "${ARGS[@]}" \
               >> "$GITHUB_OUTPUT"
           else
-            echo "backend=$INPUT_BACKEND" >> "$GITHUB_OUTPUT"
-            echo "reason=workflow input override" >> "$GITHUB_OUTPUT"
+            DEFAULT_STRENGTH="normal"
+            if [ "${{ github.event.inputs.mode }}" = "retry" ] && [ "$INPUT_BACKEND" = "codex" ]; then
+              DEFAULT_STRENGTH="hard"
+            fi
+            python3 scripts/workflows/resolve_backend.py choose \
+              "$INPUT_BACKEND" \
+              "$INPUT_STRENGTH" \
+              "$DEFAULT_STRENGTH" \
+              >> "$GITHUB_OUTPUT"
             echo "tier=3" >> "$GITHUB_OUTPUT"
             echo "code_bugs=0" >> "$GITHUB_OUTPUT"
             echo "config_issues=0" >> "$GITHUB_OUTPUT"
@@ -275,6 +290,8 @@ jobs:
           COP="${{ github.event.inputs.cop }}"
           MODE="${{ github.event.inputs.mode }}"
           BACKEND="${{ steps.selected_backend.outputs.backend }}"
+          BACKEND_LABEL="${{ steps.selected_backend.outputs.display_label }}"
+          MODEL_LABEL_TEXT="${{ steps.backend.outputs.model_label }}"
           BACKEND_REASON="${{ steps.selected_backend.outputs.reason }}"
           BRANCH="${{ steps.cop.outputs.branch }}"
           ISSUE_NUMBER="${{ github.event.inputs.issue_number }}"
@@ -310,7 +327,7 @@ jobs:
           {
             echo "> **Status:** Agent is working on this fix..."
             echo ">"
-            echo "> **Cop:** \`${COP}\` | **Backend:** ${BACKEND} | **Mode:** ${MODE}"
+            echo "> **Cop:** \`${COP}\` | **Backend:** ${BACKEND_LABEL} | **Model:** ${MODEL_LABEL_TEXT} | **Mode:** ${MODE}"
             echo "> **Backend reason:** ${BACKEND_REASON}"
             echo "> **Run:** ${RUN_URL}"
             echo ""
@@ -345,7 +362,8 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           COP="${{ github.event.inputs.cop }}"
-          BACKEND="${{ steps.selected_backend.outputs.backend }}"
+          BACKEND_LABEL="${{ steps.selected_backend.outputs.display_label }}"
+          MODEL_LABEL_TEXT="${{ steps.backend.outputs.model_label }}"
           MODE="${{ github.event.inputs.mode }}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PR_URL="${{ steps.claim.outputs.pr_url }}"
@@ -357,7 +375,7 @@ jobs:
           {
             echo "> **Status:** Agent is working on this fix..."
             echo ">"
-            echo "> **Cop:** \`${COP}\` | **Backend:** ${BACKEND} | **Mode:** ${MODE}"
+            echo "> **Cop:** \`${COP}\` | **Backend:** ${BACKEND_LABEL} | **Model:** ${MODEL_LABEL_TEXT} | **Mode:** ${MODE}"
             echo "> **Code bugs:** ${CODE_BUGS} | **Run:** ${RUN_URL}"
             echo ""
             if [ -n "$ISSUE_NUMBER" ]; then
@@ -454,8 +472,8 @@ jobs:
         if: steps.task.outputs.code_bugs != '0'
         env:
           MINIMAX_API_KEY: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ steps.selected_backend.outputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
-          CODEX_AUTH_JSON: ${{ (steps.selected_backend.outputs.backend == 'codex' || steps.selected_backend.outputs.backend == 'codex-5.3') && secrets.CODEX_AUTH_JSON || '' }}
+          ANTHROPIC_API_KEY: ${{ (steps.selected_backend.outputs.backend == 'claude-normal' || steps.selected_backend.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
+          CODEX_AUTH_JSON: ${{ (steps.selected_backend.outputs.backend == 'codex-normal' || steps.selected_backend.outputs.backend == 'codex-hard') && secrets.CODEX_AUTH_JSON || '' }}
         run: ${{ steps.backend.outputs.setup_cmd }}
 
       - name: Mask read-only GitHub token
@@ -474,7 +492,7 @@ jobs:
           # Static env vars from resolve_backend (secrets injected separately)
           ANTHROPIC_BASE_URL: ${{ steps.backend.outputs.env_ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ steps.selected_backend.outputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ (steps.selected_backend.outputs.backend == 'claude-normal' || steps.selected_backend.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
           ANTHROPIC_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_MODEL }}
           ANTHROPIC_SMALL_FAST_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_SMALL_FAST_MODEL }}
           API_TIMEOUT_MS: ${{ steps.backend.outputs.env_API_TIMEOUT_MS }}
@@ -659,8 +677,8 @@ jobs:
         id: leak_scan
         env:
           MINIMAX_API_KEY: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ steps.selected_backend.outputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
-          CODEX_AUTH_JSON: ${{ (steps.selected_backend.outputs.backend == 'codex' || steps.selected_backend.outputs.backend == 'codex-5.3') && secrets.CODEX_AUTH_JSON || '' }}
+          ANTHROPIC_API_KEY: ${{ (steps.selected_backend.outputs.backend == 'claude-normal' || steps.selected_backend.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
+          CODEX_AUTH_JSON: ${{ (steps.selected_backend.outputs.backend == 'codex-normal' || steps.selected_backend.outputs.backend == 'codex-hard') && secrets.CODEX_AUTH_JSON || '' }}
           GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
           python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" \
@@ -724,9 +742,12 @@ jobs:
           BRANCH="${{ steps.cop.outputs.branch }}"
           COP="${{ github.event.inputs.cop }}"
           BACKEND="${{ steps.selected_backend.outputs.backend }}"
+          BACKEND_LABEL="${{ steps.selected_backend.outputs.display_label }}"
+          MODEL_LABEL_TEXT="${{ steps.backend.outputs.model_label }}"
           MODE="${{ github.event.inputs.mode }}"
           PR_URL="${{ steps.claim.outputs.pr_url }}"
           ISSUE_NUMBER="${{ github.event.inputs.issue_number }}"
+          REPO="${{ github.repository }}"
 
           # Commit any uncommitted changes
           git add -A
@@ -747,7 +768,8 @@ jobs:
               {
                 echo "No fix PR was produced for \`${COP}\`."
                 echo ""
-                echo "- Backend: \`${BACKEND}\`"
+                echo "- Backend: \`${BACKEND_LABEL}\`"
+                echo "- Model: \`${MODEL_LABEL_TEXT}\`"
                 echo "- Mode: \`${MODE}\`"
                 echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                 echo ""
@@ -784,7 +806,6 @@ jobs:
           # Push changes, then replace with signed commit via API
           git push origin "$BRANCH" --force
 
-          REPO="${{ github.repository }}"
           eval "$(python3 "$CI_SCRIPTS_DIR/workflow_git.py" promote \
             --repo "$REPO" \
             --branch "$BRANCH" \
@@ -798,7 +819,8 @@ jobs:
               {
                 echo "No usable fix PR was produced for \`${COP}\`."
                 echo ""
-                echo "- Backend: \`${BACKEND}\`"
+                echo "- Backend: \`${BACKEND_LABEL}\`"
+                echo "- Model: \`${MODEL_LABEL_TEXT}\`"
                 echo "- Mode: \`${MODE}\`"
                 echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                 echo ""
@@ -837,7 +859,8 @@ jobs:
             echo "| | |"
             echo "|---|---|"
             echo "| **Cop** | \`${COP}\` |"
-            echo "| **Backend** | ${BACKEND} |"
+            echo "| **Backend** | ${BACKEND_LABEL} |"
+            echo "| **Model** | ${MODEL_LABEL_TEXT} |"
             echo "| **Mode** | ${MODE} |"
             echo "| **Turns** | ${TURNS} |"
             echo "| **Run** | [#${{ github.run_number }}](${RUN_URL}) |"
@@ -896,7 +919,8 @@ jobs:
             cat > "$CLAIM_BODY_FILE" <<EOF
           Agent fix failed before producing a usable PR for \`${{ github.event.inputs.cop }}\`.
 
-          - Backend: \`${{ steps.selected_backend.outputs.backend || github.event.inputs.backend }}\`
+          - Backend: \`${{ steps.selected_backend.outputs.display_label || github.event.inputs.backend }}\`
+          - Model: \`${{ steps.backend.outputs.model_label || 'n/a' }}\`
           - Mode: \`${{ github.event.inputs.mode }}\`
           - Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 

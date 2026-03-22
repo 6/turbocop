@@ -20,14 +20,21 @@ on:
         required: true
         type: string
       backend:
-        description: "Backend override"
+        description: "Backend family override"
         type: choice
         options:
           - auto
-          - codex-5.3
           - codex
           - claude
           - minimax
+        default: auto
+      strength:
+        description: "Model strength override"
+        type: choice
+        options:
+          - auto
+          - normal
+          - hard
         default: auto
       extra_context:
         description: "Additional instructions for the repair agent"
@@ -98,14 +105,16 @@ jobs:
           print(f"checks_url=https://github.com/{repo}/actions/runs/{run['id']}")
           print(f"head_sha={run['head_sha']}")
           print(f"head_branch={run['head_branch']}")
-          print("backend_override=auto")
+          print("backend_family_override=auto")
+          print("strength_override=auto")
           print("force=false")
           PY
           else
             echo "pr_number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
             echo "checks_run_id=${{ github.event.inputs.checks_run_id }}" >> "$GITHUB_OUTPUT"
             echo "checks_url=https://github.com/${{ github.repository }}/actions/runs/${{ github.event.inputs.checks_run_id }}" >> "$GITHUB_OUTPUT"
-            echo "backend_override=${{ github.event.inputs.backend }}" >> "$GITHUB_OUTPUT"
+            echo "backend_family_override=${{ github.event.inputs.backend }}" >> "$GITHUB_OUTPUT"
+            echo "strength_override=${{ github.event.inputs.strength }}" >> "$GITHUB_OUTPUT"
             echo "force=${{ github.event.inputs.force }}" >> "$GITHUB_OUTPUT"
           fi
 
@@ -168,6 +177,14 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
         run: |
+          BACKEND_OVERRIDE="auto"
+          if [ "${{ steps.target.outputs.backend_family_override }}" != "auto" ]; then
+            python3 scripts/workflows/resolve_backend.py choose \
+              "${{ steps.target.outputs.backend_family_override }}" \
+              "${{ steps.target.outputs.strength_override }}" \
+              "hard" > "$RUNNER_TEMP/repair-backend.env"
+            BACKEND_OVERRIDE=$(awk -F= '$1 == "backend" { print $2 }' "$RUNNER_TEMP/repair-backend.env")
+          fi
           python3 scripts/workflows/prepare_pr_repair.py \
             --repo "${{ github.repository }}" \
             --run-id "${{ steps.target.outputs.checks_run_id }}" \
@@ -179,7 +196,7 @@ jobs:
             --prompt-out "$FINAL_TASK_FILE" \
             --verify-out "$REPAIR_VERIFY_SCRIPT" \
             --json-out "$REPAIR_JSON_FILE" \
-            --backend-override "${{ steps.target.outputs.backend_override }}" \
+            --backend-override "$BACKEND_OVERRIDE" \
             --extra-context "${{ github.event.inputs.extra_context || '' }}" \
             >> "$GITHUB_OUTPUT"
         id: repair
@@ -195,6 +212,13 @@ jobs:
             ${{ steps.pr.outputs.prior_attempted_current_head == 'true' && '--prior-attempted-current-head' || '' }} \
             --prior-pushes "${{ steps.pr.outputs.prior_pushes }}" \
             --prior-codex-attempts "${{ steps.pr.outputs.prior_codex_attempts }}" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Resolve backend config
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        id: backend
+        run: |
+          python3 scripts/workflows/resolve_backend.py "${{ steps.repair.outputs.backend }}" \
             >> "$GITHUB_OUTPUT"
 
       - name: Prepare clean workspace for agent
@@ -230,7 +254,7 @@ jobs:
           Auto-repair skipped for linked PR #${{ steps.pr.outputs.number }}.
 
           - Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})
-          - Backend: \`${{ steps.repair.outputs.backend }}\`
+          - Backend: \`${{ steps.repair.outputs.backend || 'n/a' }}\`
           - Route: \`${{ steps.repair.outputs.route }}\`
           - Reason: ${{ steps.repair.outputs.reason }}
           - Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
@@ -255,7 +279,7 @@ jobs:
             Automatic PR repair stopped for linked PR #${{ steps.pr.outputs.number }}.
 
             - Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})
-            - Backend: \`${{ steps.repair.outputs.backend }}\`
+            - Backend: \`${{ steps.backend.outputs.display_label }}\`
             - Reason: ${{ steps.policy.outputs.skip_reason }}
             - Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
             EOF
@@ -277,7 +301,8 @@ jobs:
 
           - Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})
           - Route: \`${{ steps.repair.outputs.route }}\`
-          - Backend: \`${{ steps.repair.outputs.backend }}\`
+          - Backend: \`${{ steps.backend.outputs.display_label }}\`
+          - Model: \`${{ steps.backend.outputs.model_label }}\`
           - Reason: ${{ steps.repair.outputs.reason }}
           - Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
@@ -316,19 +341,12 @@ jobs:
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
 
-      - name: Resolve backend config
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        id: backend
-        run: |
-          python3 scripts/workflows/resolve_backend.py "${{ steps.repair.outputs.backend }}" \
-            >> "$GITHUB_OUTPUT"
-
       - name: Run backend setup
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
         env:
           MINIMAX_API_KEY: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ steps.repair.outputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
-          CODEX_AUTH_JSON: ${{ (steps.repair.outputs.backend == 'codex' || steps.repair.outputs.backend == 'codex-5.3') && secrets.CODEX_AUTH_JSON || '' }}
+          ANTHROPIC_API_KEY: ${{ (steps.repair.outputs.backend == 'claude-normal' || steps.repair.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
+          CODEX_AUTH_JSON: ${{ (steps.repair.outputs.backend == 'codex-normal' || steps.repair.outputs.backend == 'codex-hard') && secrets.CODEX_AUTH_JSON || '' }}
         run: ${{ steps.backend.outputs.setup_cmd }}
 
       - name: Mask read-only GitHub token
@@ -353,7 +371,7 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: ${{ steps.backend.outputs.env_ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ steps.repair.outputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ (steps.repair.outputs.backend == 'claude-normal' || steps.repair.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
           ANTHROPIC_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_MODEL }}
           ANTHROPIC_SMALL_FAST_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_SMALL_FAST_MODEL }}
           API_TIMEOUT_MS: ${{ steps.backend.outputs.env_API_TIMEOUT_MS }}
@@ -487,11 +505,12 @@ jobs:
               echo "## Auto-repair Succeeded"
               echo ""
               echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
-              echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
+              echo "- Backend: \`${{ steps.backend.outputs.display_label }}\`"
+              echo "- Model: \`${{ steps.backend.outputs.model_label }}\`"
               echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
               echo "- Repair commit: \`${{ steps.push.outputs.signed_sha || steps.assess.outputs.head_sha }}\`"
               echo ""
-              echo "Auto-repair succeeded with backend \`${{ steps.repair.outputs.backend }}\`."
+              echo "Auto-repair succeeded with backend \`${{ steps.backend.outputs.display_label }}\`."
               echo ""
               echo "Validated locally before push using \`${REPAIR_VERIFY_SCRIPT}\`."
               echo ""
@@ -503,7 +522,7 @@ jobs:
               echo "## Auto-repair Did Not Produce a Fix"
               echo ""
               echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
-              echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
+              echo "- Backend: \`${{ steps.backend.outputs.display_label }}\`"
               echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
               echo ""
               echo "The repair attempt completed local verification commands but produced no branch changes, so it was treated as unsuccessful."
@@ -514,7 +533,7 @@ jobs:
               echo "## Auto-repair Rejected"
               echo ""
               echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
-              echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
+              echo "- Backend: \`${{ steps.backend.outputs.display_label }}\`"
               echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
               echo ""
               echo "The repair would have reduced the PR to an empty diff against \`origin/main\`, which this workflow treats as an invalid blanket revert."
@@ -525,7 +544,7 @@ jobs:
               echo "## Auto-repair Could Not Materialize the Patch"
               echo ""
               echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
-              echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
+              echo "- Backend: \`${{ steps.backend.outputs.display_label }}\`"
               echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
               echo ""
               echo "The agent produced changes in the temporary workspace, but those changes could not be replayed cleanly onto the original PR head."
@@ -536,7 +555,7 @@ jobs:
               echo "## Auto-repair Push Failed"
               echo ""
               echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
-              echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
+              echo "- Backend: \`${{ steps.backend.outputs.display_label }}\`"
               echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
               echo ""
               echo "Local verification passed, but pushing the repair branch failed."
@@ -547,10 +566,10 @@ jobs:
               echo "## Auto-repair Failed Verification"
               echo ""
               echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
-              echo "- Backend: \`${{ steps.repair.outputs.backend }}\`"
+              echo "- Backend: \`${{ steps.backend.outputs.display_label }}\`"
               echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
               echo ""
-              echo "Auto-repair failed local verification with backend \`${{ steps.repair.outputs.backend }}\`."
+              echo "Auto-repair failed local verification with backend \`${{ steps.backend.outputs.display_label }}\`."
               echo ""
               echo "Reason: ${{ steps.repair.outputs.reason }}"
               echo ""
@@ -588,7 +607,7 @@ jobs:
             echo "# Agent PR Repair: PR #${{ steps.pr.outputs.number }}"
             echo ""
             echo "**Checks run:** [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
-            echo "**Route:** \`${{ steps.repair.outputs.route }}\` | **Backend:** \`${{ steps.repair.outputs.backend }}\` | **Outcome:** \`$FINAL_OUTCOME\`"
+            echo "**Route:** \`${{ steps.repair.outputs.route }}\` | **Backend:** \`${{ steps.backend.outputs.display_label || steps.repair.outputs.backend }}\` | **Outcome:** \`$FINAL_OUTCOME\`"
             echo "**Workflow:** [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
             echo ""
 
@@ -689,8 +708,8 @@ jobs:
         id: leak_scan
         env:
           MINIMAX_API_KEY: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ steps.repair.outputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
-          CODEX_AUTH_JSON: ${{ (steps.repair.outputs.backend == 'codex' || steps.repair.outputs.backend == 'codex-5.3') && secrets.CODEX_AUTH_JSON || '' }}
+          ANTHROPIC_API_KEY: ${{ (steps.repair.outputs.backend == 'claude-normal' || steps.repair.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
+          CODEX_AUTH_JSON: ${{ (steps.repair.outputs.backend == 'codex-normal' || steps.repair.outputs.backend == 'codex-hard') && secrets.CODEX_AUTH_JSON || '' }}
           GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
           python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" \

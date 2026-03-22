@@ -21,8 +21,8 @@ def test_all_backends_resolve():
         assert config["log_pattern"], f"{name}: missing log_pattern"
 
 
-def test_codex_53_uses_codex():
-    config = resolve_backend.resolve("codex-5.3")
+def test_codex_normal_uses_codex():
+    config = resolve_backend.resolve("codex-normal")
     assert config["cli"] == "codex"
     assert config["log_format"] == "codex"
     assert "guard_backend_secrets.py" in config["setup_cmd"]
@@ -42,8 +42,22 @@ def test_minimax_uses_claude():
     assert "claude.ai/install.sh" in config["setup_cmd"]
 
 
-def test_claude_uses_claude():
-    config = resolve_backend.resolve("claude")
+def test_choose_backend_outputs_family_strength_and_labels():
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "choose", "codex", "normal"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0
+    fields = dict(line.split("=", 1) for line in result.stdout.strip().splitlines())
+    assert fields["backend"] == "codex-normal"
+    assert fields["family"] == "codex"
+    assert fields["strength"] == "normal"
+    assert fields["display_label"] == "codex / normal"
+    assert fields["model_label"] == "gpt-5.3-codex (high)"
+
+
+def test_claude_normal_uses_claude():
+    config = resolve_backend.resolve("claude-normal")
     assert config["cli"] == "claude"
     assert config["log_format"] == "claude"
     assert "ANTHROPIC_BASE_URL" not in config["env"]
@@ -53,7 +67,7 @@ def test_claude_uses_claude():
 
 
 def test_codex_uses_codex():
-    config = resolve_backend.resolve("codex")
+    config = resolve_backend.resolve("codex-hard")
     assert config["cli"] == "codex"
     assert config["log_format"] == "codex"
     assert "CODEX_AUTH_JSON" in config["secrets"]
@@ -82,7 +96,7 @@ def test_unknown_backend_exits():
 def test_cli_output_format():
     """CLI should output key=value pairs."""
     result = subprocess.run(
-        [sys.executable, str(SCRIPT), "codex-5.3"],
+        [sys.executable, str(SCRIPT), "codex-normal"],
         capture_output=True, text=True,
     )
     assert result.returncode == 0
@@ -106,9 +120,10 @@ def test_no_args_exits():
 
 if __name__ == "__main__":
     test_all_backends_resolve()
-    test_codex_53_uses_codex()
+    test_codex_normal_uses_codex()
     test_minimax_uses_claude()
-    test_claude_uses_claude()
+    test_claude_normal_uses_claude()
+    test_choose_backend_outputs_family_strength_and_labels()
     test_codex_uses_codex()
     test_unknown_backend_exits()
     test_cli_output_format()

@@ -1054,6 +1054,26 @@ def total_for_entry(entry: dict) -> int:
     return entry.get("total", entry.get("fp", 0) + entry.get("fn", 0))
 
 
+def backend_family(backend: str) -> str:
+    if backend.startswith("codex-"):
+        return "codex"
+    if backend.startswith("claude-"):
+        return "claude"
+    if backend == "minimax":
+        return "minimax"
+    return backend
+
+
+def backend_strength(backend: str) -> str:
+    if backend.endswith("-hard"):
+        return "hard"
+    return "normal"
+
+
+def backend_display_label(backend: str) -> str:
+    return f"{backend_family(backend)} / {backend_strength(backend)}"
+
+
 def should_consider_easy_candidate(
     entry: dict, min_total: int = 3, max_total: int = 15, min_matches: int = 50,
 ) -> bool:
@@ -1084,7 +1104,7 @@ def select_backend_for_entry(
 
     if mode == "retry":
         return {
-            "backend": "codex",
+            "backend": "codex-hard",
             "reason": "retry mode uses codex",
             "tier": tier,
             "code_bugs": 0,
@@ -1094,7 +1114,7 @@ def select_backend_for_entry(
 
     if has_failed_attempt(prior_prs):
         return {
-            "backend": "codex",
+            "backend": "codex-hard",
             "reason": "cop has prior failed agent attempts",
             "tier": tier,
             "code_bugs": 0,
@@ -1105,7 +1125,7 @@ def select_backend_for_entry(
     if issue_difficulty:
         if issue_difficulty == "simple":
             return {
-                "backend": "codex-5.3",
+                "backend": "codex-normal",
                 "reason": "issue difficulty label is simple",
                 "tier": tier,
                 "code_bugs": 0,
@@ -1113,7 +1133,7 @@ def select_backend_for_entry(
                 "easy": True,
             }
         return {
-            "backend": "codex",
+            "backend": "codex-hard",
             "reason": f"issue difficulty label is {issue_difficulty}",
             "tier": tier,
             "code_bugs": 0,
@@ -1123,7 +1143,7 @@ def select_backend_for_entry(
 
     if not entry:
         return {
-            "backend": "codex",
+            "backend": "codex-hard",
             "reason": "cop is missing from corpus data",
             "tier": tier,
             "code_bugs": 0,
@@ -1138,7 +1158,7 @@ def select_backend_for_entry(
         min_matches=min_matches,
     ):
         return {
-            "backend": "codex",
+            "backend": "codex-hard",
             "reason": (
                 f"cop is outside easy thresholds (total={total_for_entry(entry)}, "
                 f"matches={entry.get('matches', 0)})"
@@ -1151,7 +1171,7 @@ def select_backend_for_entry(
 
     if not binary or not binary.exists():
         return {
-            "backend": "codex",
+            "backend": "codex-hard",
             "reason": "nitrocop binary unavailable for easy-cop prediagnosis",
             "tier": tier,
             "code_bugs": 0,
@@ -1165,7 +1185,7 @@ def select_backend_for_entry(
     config_issues = fn_cfg + fp_cfg
     if code_bugs >= min_bugs:
         return {
-            "backend": "codex-5.3",
+            "backend": "codex-normal",
             "reason": (
                 f"easy cop: total={total_for_entry(entry)}, matches={entry.get('matches', 0)}, "
                 f"diagnosed_code_bugs={code_bugs}"
@@ -1177,7 +1197,7 @@ def select_backend_for_entry(
         }
 
     return {
-        "backend": "codex",
+        "backend": "codex-hard",
         "reason": "prediagnosis did not confirm any code bugs for easy-cop routing",
         "tier": tier,
         "code_bugs": code_bugs,
@@ -1657,6 +1677,9 @@ def cmd_backend(args: argparse.Namespace) -> int:
         issue_difficulty=args.issue_difficulty,
     )
     print(f"backend={recommendation['backend']}")
+    print(f"family={backend_family(recommendation['backend'])}")
+    print(f"strength={backend_strength(recommendation['backend'])}")
+    print(f"display_label={backend_display_label(recommendation['backend'])}")
     print(f"reason={recommendation['reason']}")
     print(f"tier={recommendation['tier']}")
     print(f"code_bugs={recommendation['code_bugs']}")
@@ -1821,9 +1844,16 @@ def cmd_dispatch_issues(args: argparse.Namespace) -> int:
             continue
         fields = parse_marker_fields(issue.get("body", ""), TRACKER_RE)
         difficulty = fields.get("difficulty", "complex")
-        backend = args.backend_override
+        backend_family = args.backend_family_override
+        strength = args.strength_override
         result["selected"].append(
-            {"issue": issue["number"], "cop": cop, "difficulty": difficulty, "backend": backend}
+            {
+                "issue": issue["number"],
+                "cop": cop,
+                "difficulty": difficulty,
+                "backend_family": backend_family,
+                "strength": strength,
+            }
         )
         if args.dry_run:
             continue
@@ -1832,7 +1862,8 @@ def cmd_dispatch_issues(args: argparse.Namespace) -> int:
                 "gh", "workflow", "run", "agent-cop-fix.yml",
                 "--repo", repo,
                 "-f", f"cop={cop}",
-                "-f", f"backend={backend}",
+                "-f", f"backend={backend_family}",
+                "-f", f"strength={strength}",
                 "-f", "mode=fix",
                 "-f", f"issue_number={issue['number']}",
             ],
@@ -1908,7 +1939,16 @@ def main():
     dispatch_issues = subparsers.add_parser("dispatch-issues", help="Dispatch backlog issues into agent-cop-fix")
     dispatch_issues.add_argument("--max-active", type=int, default=5)
     dispatch_issues.add_argument("--dry-run", action="store_true")
-    dispatch_issues.add_argument("--backend-override", choices=["auto", "codex-5.3", "codex", "claude", "minimax"], default="auto")
+    dispatch_issues.add_argument(
+        "--backend-family-override",
+        choices=["auto", "codex", "claude", "minimax"],
+        default="auto",
+    )
+    dispatch_issues.add_argument(
+        "--strength-override",
+        choices=["auto", "normal", "hard"],
+        default="auto",
+    )
     dispatch_issues.add_argument(
         "--repo",
         default=os.environ.get("GITHUB_REPOSITORY", ""),

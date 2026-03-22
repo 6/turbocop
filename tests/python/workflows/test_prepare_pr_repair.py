@@ -23,7 +23,7 @@ def test_easy_linux_failure_routes_to_codex():
     }
     result = prepare_pr_repair.classify_run(run)
     assert result["route"] == "easy"
-    assert result["backend"] == "codex"
+    assert result["backend"] == "codex-hard"
     assert "cargo clippy --profile ci -- -D warnings" in result["verification_commands"]
     assert "cargo test" in result["verification_commands"]
 
@@ -36,7 +36,7 @@ def test_hard_cop_check_routes_to_codex():
     }
     result = prepare_pr_repair.classify_run(run)
     assert result["route"] == "hard"
-    assert result["backend"] == "codex"
+    assert result["backend"] == "codex-hard"
     assert any("scripts/check-cop.py" in command for command in result["verification_commands"])
 
 
@@ -49,7 +49,7 @@ def test_mixed_failures_escalate_to_hard():
     }
     result = prepare_pr_repair.classify_run(run)
     assert result["route"] == "hard"
-    assert result["backend"] == "codex"
+    assert result["backend"] == "codex-hard"
     assert any("cargo clippy" in command for command in result["verification_commands"])
     assert any("corpus-smoke-test.py" in command for command in result["verification_commands"])
 
@@ -69,7 +69,7 @@ def test_prompt_includes_route_and_failed_packet():
     run = {"number": 57, "workflowName": "Checks", "jobs": []}
     classification = {
         "route": "hard",
-        "backend": "codex",
+        "backend": "codex-hard",
         "reason": "cop-check: Check cops against corpus baseline",
         "verification_commands": ["cargo build --release", "python3 scripts/check-cop.py Foo/Bar"],
         "jobs": [
@@ -94,7 +94,7 @@ def test_prompt_includes_route_and_failed_packet():
         },
     )
     assert "PR #130" in prompt
-    assert "Selected backend: `codex`" in prompt
+    assert "Selected backend: `codex / hard`" in prompt
     assert "Check cops against corpus baseline" in prompt
     assert "Keep the patch narrow." in prompt
     assert "Do not repair this PR by reverting it back to `origin/main`" in prompt

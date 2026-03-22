@@ -94,8 +94,8 @@ gh workflow run cop-issue-dispatch.yml -f max_active=5 -f dry_run=true
 gh workflow run cop-issue-dispatch.yml -f max_active=5
 
 # Or force one Codex model across the queue
-gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex-5.3
-gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex
+gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex -f strength_override=normal
+gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex -f strength_override=hard
 ```
 
 Wait ~10-15 min (build + Codex agent + validation). Check the PR:

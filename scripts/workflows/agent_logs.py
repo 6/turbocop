@@ -18,9 +18,10 @@ from typing import Optional
 
 LOG_PATTERNS = {
     "minimax": "~/.claude/projects/**/*.jsonl",
-    "claude": "~/.claude/projects/**/*.jsonl",
-    "codex-5.3": "~/.codex/sessions/**/*.jsonl",
-    "codex": "~/.codex/sessions/**/*.jsonl",
+    "claude-normal": "~/.claude/projects/**/*.jsonl",
+    "claude-hard": "~/.claude/projects/**/*.jsonl",
+    "codex-normal": "~/.codex/sessions/**/*.jsonl",
+    "codex-hard": "~/.codex/sessions/**/*.jsonl",
 }
 
 CODEX_LOOKBACK_LINES = 50
@@ -46,10 +47,10 @@ def _set_meaningful_type(status: dict, type_name: str) -> None:
         status["last_type"] = type_name
 
 
-def find_logfile(newer_than: Path, backend: str = "codex") -> Optional[str]:
+def find_logfile(newer_than: Path, backend: str = "codex-hard") -> Optional[str]:
     """Find the most recent JSONL file newer than the reference file."""
     ref_mtime = newer_than.stat().st_mtime if newer_than.exists() else 0
-    pattern = LOG_PATTERNS.get(backend, LOG_PATTERNS["codex"])
+    pattern = LOG_PATTERNS.get(backend, LOG_PATTERNS["codex-hard"])
     candidates = glob.glob(os.path.expanduser(pattern), recursive=True)
     for f in sorted(candidates, key=os.path.getmtime, reverse=True):
         if os.path.getmtime(f) > ref_mtime:
@@ -180,7 +181,7 @@ def _parse_codex_event(ev: dict, status: dict) -> bool:
     return False
 
 
-def get_status(logfile: str, backend: str = "codex") -> dict:
+def get_status(logfile: str, backend: str = "codex-hard") -> dict:
     """Read the last few events and extract status info."""
     status = {
         "events": 0,
@@ -196,7 +197,7 @@ def get_status(logfile: str, backend: str = "codex") -> dict:
         return status
 
     status["events"] = len(lines)
-    is_codex_backend = backend in {"codex", "codex-5.3"}
+    is_codex_backend = backend.startswith("codex")
     parser = _parse_codex_event if is_codex_backend else _parse_claude_event
 
     # Scan recent lines for the most recent useful content.
@@ -436,7 +437,17 @@ def main():
     watch_parser = subparsers.add_parser("watch", help="Print live progress updates")
     watch_parser.add_argument("--newer-than", type=Path, required=True)
     watch_parser.add_argument("--interval", type=int, default=30)
-    watch_parser.add_argument("--backend", choices=["minimax", "claude", "codex-5.3", "codex"], default="codex")
+    watch_parser.add_argument(
+        "--backend",
+        choices=[
+            "minimax",
+            "claude-normal",
+            "claude-hard",
+            "codex-normal",
+            "codex-hard",
+        ],
+        default="codex-hard",
+    )
 
     extract_parser = subparsers.add_parser("extract", help="Render a conversation excerpt as markdown")
     extract_parser.add_argument("path", help="Path to JSONL session log")

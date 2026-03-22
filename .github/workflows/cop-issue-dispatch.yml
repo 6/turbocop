@@ -15,14 +15,21 @@ on:
         type: string
         default: "5"
       backend_override:
-        description: "Override backend for all dispatched issues"
+        description: "Override backend family for all dispatched issues"
         type: choice
         options:
           - auto
-          - codex-5.3
           - codex
           - claude
           - minimax
+        default: auto
+      strength_override:
+        description: "Override model strength for all dispatched issues"
+        type: choice
+        options:
+          - auto
+          - normal
+          - hard
         default: auto
       dry_run:
         description: "Only print which issues would be dispatched"
@@ -54,7 +61,8 @@ jobs:
           ARGS=(
             --repo "${{ github.repository }}"
             --max-active "${{ github.event.inputs.max_active }}"
-            --backend-override "${{ github.event.inputs.backend_override }}"
+            --backend-family-override "${{ github.event.inputs.backend_override }}"
+            --strength-override "${{ github.event.inputs.strength_override }}"
           )
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS+=(--dry-run)

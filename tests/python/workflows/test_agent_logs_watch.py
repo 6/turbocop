@@ -25,7 +25,7 @@ def test_get_status_text():
         write_jsonl(f.name, [
             make_assistant([{"type": "text", "text": "Investigating the bug."}]),
         ])
-        s = agent_logs.get_status(f.name)
+        s = agent_logs.get_status(f.name, backend="claude-normal")
     assert s["events"] == 1
     assert s["last_type"] == "assistant"
     assert "Investigating the bug" in s["last_text"]
@@ -41,7 +41,7 @@ def test_get_status_tool():
                 "input": {"command": "cargo test"},
             }]),
         ])
-        s = agent_logs.get_status(f.name)
+        s = agent_logs.get_status(f.name, backend="claude-normal")
     assert s["last_tool"] == "Bash"
 
 
@@ -55,7 +55,7 @@ def test_get_status_mixed():
                 {"type": "tool_use", "name": "Edit", "input": {"file_path": "foo.rs"}},
             ]),
         ])
-        s = agent_logs.get_status(f.name)
+        s = agent_logs.get_status(f.name, backend="claude-normal")
     assert s["events"] == 3
     assert s["last_tool"] == "Edit"
     assert "Running tests now" in s["last_text"]
@@ -65,7 +65,7 @@ def test_get_status_empty():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         f.write("")
         f.flush()
-        s = agent_logs.get_status(f.name)
+        s = agent_logs.get_status(f.name, backend="claude-normal")
     assert s["events"] == 0
     assert s["last_type"] == "?"
 
@@ -75,7 +75,7 @@ def test_get_status_malformed():
         f.write("not json\n")
         f.write(json.dumps(make_assistant([{"type": "text", "text": "OK"}])) + "\n")
         f.flush()
-        s = agent_logs.get_status(f.name)
+        s = agent_logs.get_status(f.name, backend="claude-normal")
     assert s["events"] == 2
     assert s["last_text"] == "OK"
 
@@ -85,7 +85,7 @@ def test_get_status_skips_empty_text():
         write_jsonl(f.name, [
             make_assistant([{"type": "text", "text": "   "}]),
         ])
-        s = agent_logs.get_status(f.name)
+        s = agent_logs.get_status(f.name, backend="claude-normal")
     assert s["last_text"] is None
 
 
@@ -94,7 +94,7 @@ def test_get_status_truncates_long_text():
         write_jsonl(f.name, [
             make_assistant([{"type": "text", "text": "x" * 500}]),
         ])
-        s = agent_logs.get_status(f.name)
+        s = agent_logs.get_status(f.name, backend="claude-normal")
     assert len(s["last_text"]) == 200
 
 
@@ -107,7 +107,7 @@ def test_codex_text_event():
                 "item": {"content": [{"type": "text", "text": "Fixing the cop now."}]},
             }},
         ])
-        s = agent_logs.get_status(f.name, backend="codex")
+        s = agent_logs.get_status(f.name, backend="codex-hard")
     assert "Fixing the cop now" in s["last_text"]
 
 
@@ -122,7 +122,7 @@ def test_codex_tool_event():
                 ]},
             }},
         ])
-        s = agent_logs.get_status(f.name, backend="codex")
+        s = agent_logs.get_status(f.name, backend="codex-hard")
     assert s["last_tool"] == "shell"
 
 
@@ -135,7 +135,7 @@ def test_codex_string_content():
                 "content": "Running cargo test now.",
             }},
         ])
-        s = agent_logs.get_status(f.name, backend="codex")
+        s = agent_logs.get_status(f.name, backend="codex-hard")
     assert "Running cargo test" in s["last_text"]
 
 
@@ -147,7 +147,7 @@ def test_codex_current_agent_message_event():
                 "item": {"type": "agent_message", "text": "Updating the fixture first."},
             },
         ])
-        s = agent_logs.get_status(f.name, backend="codex")
+        s = agent_logs.get_status(f.name, backend="codex-hard")
     assert s["last_type"] == "agent_message"
     assert "Updating the fixture first" in s["last_text"]
 
@@ -163,7 +163,7 @@ def test_codex_current_file_change_event():
                 },
             },
         ])
-        s = agent_logs.get_status(f.name, backend="codex")
+        s = agent_logs.get_status(f.name, backend="codex-hard")
     assert s["last_type"] == "file_change"
     assert s["last_tool"] == "file_change:mixin_usage.rs"
 
@@ -179,7 +179,7 @@ def test_codex_event_msg_agent_message():
                 },
             },
         ])
-        s = agent_logs.get_status(f.name, backend="codex")
+        s = agent_logs.get_status(f.name, backend="codex-hard")
     assert s["last_type"] == "agent_message"
     assert "Inspecting the latest session format" in s["last_text"]
 
@@ -196,7 +196,7 @@ def test_codex_response_item_function_call_sets_tool():
                 },
             },
         ])
-        s = agent_logs.get_status(f.name, backend="codex")
+        s = agent_logs.get_status(f.name, backend="codex-hard")
     assert s["last_type"] == "function_call"
     assert s["last_tool"] == "exec_command"
 
@@ -221,7 +221,7 @@ def test_codex_looks_past_token_count_noise():
                 },
             })
         write_jsonl(f.name, events)
-        s = agent_logs.get_status(f.name, backend="codex")
+        s = agent_logs.get_status(f.name, backend="codex-hard")
     assert s["last_type"] == "agent_message"
     assert "Useful status before token churn" in s["last_text"]
 
@@ -254,7 +254,7 @@ def test_codex_ignores_function_call_output_noise():
                 },
             },
         ])
-        s = agent_logs.get_status(f.name, backend="codex")
+        s = agent_logs.get_status(f.name, backend="codex-hard")
     assert s["last_type"] == "function_call"
     assert s["last_tool"] == "exec_command"
     assert "Planning the fix" in s["last_text"]

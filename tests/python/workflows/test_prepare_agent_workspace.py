@@ -82,9 +82,9 @@ def run_script(repo: Path, mode: str, backend: str) -> tuple[subprocess.Complete
     return result, preserved
 
 
-def test_agent_cop_fix_codex_53_keeps_allowlisted_scripts_only():
+def test_agent_cop_fix_codex_normal_keeps_allowlisted_scripts_only():
     repo = make_repo()
-    result, preserved = run_script(repo, "agent-cop-fix", "codex-5.3")
+    result, preserved = run_script(repo, "agent-cop-fix", "codex-normal")
 
     assert "cleanup_sha=" in result.stdout
     assert (repo / "AGENTS.md").read_text() == "minimal instructions\n"
@@ -123,7 +123,7 @@ def test_agent_cop_fix_minimax_prunes_all_scripts():
 
 def test_agent_pr_repair_codex_keeps_subset_scripts_and_bench():
     repo = make_repo()
-    result, preserved = run_script(repo, "agent-pr-repair", "codex")
+    result, preserved = run_script(repo, "agent-pr-repair", "codex-hard")
 
     assert "cleanup_sha=" in result.stdout
     assert (repo / "AGENTS.md").read_text() == "minimal instructions\n"
@@ -144,7 +144,7 @@ def test_agent_pr_repair_codex_keeps_subset_scripts_and_bench():
 
 
 if __name__ == "__main__":
-    test_agent_cop_fix_codex_53_keeps_allowlisted_scripts_only()
+    test_agent_cop_fix_codex_normal_keeps_allowlisted_scripts_only()
     test_agent_cop_fix_minimax_prunes_all_scripts()
     test_agent_pr_repair_codex_keeps_subset_scripts_and_bench()
     print("All tests passed.")

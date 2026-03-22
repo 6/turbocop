@@ -197,7 +197,7 @@ def test_select_backend_for_entry_retry_forces_codex():
         binary=None,
         prior_prs=[],
     )
-    assert result["backend"] == "codex"
+    assert result["backend"] == "codex-hard"
     assert "retry mode" in result["reason"]
 
 
@@ -220,11 +220,11 @@ def test_select_backend_for_entry_uses_issue_difficulty_when_present():
         prior_prs=[],
         issue_difficulty="simple",
     )
-    assert result["backend"] == "codex-5.3"
+    assert result["backend"] == "codex-normal"
     assert "issue difficulty label is simple" in result["reason"]
 
 
-def test_select_backend_for_entry_easy_cop_uses_codex_53():
+def test_select_backend_for_entry_easy_cop_uses_codex_normal():
     original = gct.diagnose_examples
     gct.diagnose_examples = lambda *args, **kwargs: (1, 0)
     try:
@@ -237,7 +237,7 @@ def test_select_backend_for_entry_easy_cop_uses_codex_53():
         )
     finally:
         gct.diagnose_examples = original
-    assert result["backend"] == "codex-5.3"
+    assert result["backend"] == "codex-normal"
     assert result["easy"] is True
     assert result["code_bugs"] == 2
 
@@ -303,7 +303,7 @@ def test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue():
     ]
     gct.list_agent_fix_prs = lambda repo, state="all": []
     gct.select_backend_for_entry = lambda *args, **kwargs: {
-        "backend": "codex-5.3",
+        "backend": "codex-normal",
         "reason": "easy",
         "tier": 1,
         "code_bugs": 1,
@@ -353,7 +353,13 @@ def test_cmd_dispatch_issues_respects_capacity_and_uses_auto_backend():
     try:
         with redirect_stdout(stdout):
             gct.cmd_dispatch_issues(
-                SimpleNamespace(repo="6/nitrocop", max_active=2, dry_run=True, backend_override="auto")
+                SimpleNamespace(
+                    repo="6/nitrocop",
+                    max_active=2,
+                    dry_run=True,
+                    backend_family_override="auto",
+                    strength_override="auto",
+                )
             )
     finally:
         gct.list_tracker_issues = original_list_tracker_issues
@@ -361,7 +367,15 @@ def test_cmd_dispatch_issues_respects_capacity_and_uses_auto_backend():
         gct.subprocess.run = original_run
     payload = json.loads(stdout.getvalue())
     assert payload["capacity"] == 1
-    assert payload["selected"] == [{"issue": 21, "cop": "Layout/Foo", "difficulty": "simple", "backend": "auto"}]
+    assert payload["selected"] == [
+        {
+            "issue": 21,
+            "cop": "Layout/Foo",
+            "difficulty": "simple",
+            "backend_family": "auto",
+            "strength": "auto",
+        }
+    ]
 
 
 if __name__ == "__main__":
@@ -383,7 +397,7 @@ if __name__ == "__main__":
     test_select_backend_for_entry_retry_forces_codex()
     test_has_failed_attempt_ignores_open_prs()
     test_select_backend_for_entry_uses_issue_difficulty_when_present()
-    test_select_backend_for_entry_easy_cop_uses_codex_53()
+    test_select_backend_for_entry_easy_cop_uses_codex_normal()
     test_choose_issue_state_preserves_blocked_without_open_pr()
     test_sorted_dispatch_candidates_orders_by_tier_then_total_then_cop()
     test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue()

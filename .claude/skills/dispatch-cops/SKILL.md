@@ -82,8 +82,8 @@ gh workflow run cop-issue-dispatch.yml -f max_active=5 -f dry_run=true
 If you need to force one backend across the dispatched issues:
 
 ```bash
-gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex-5.3
-gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex
+gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex -f strength_override=normal
+gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex -f strength_override=hard
 ```
 
 ### Phase 3: Review + Merge
