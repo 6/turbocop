@@ -181,8 +181,7 @@ jobs:
       - name: Set git identity
         if: steps.pr.outputs.should_run == 'true'
         run: |
-          git config user.name "6[bot]"
-          git config user.email "129682364+6[bot]@users.noreply.github.com"
+          python3 scripts/ci/workflow_git.py configure
           git fetch origin main
           echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           WORKSPACE_BRANCH="repair-workspace-${{ github.run_id }}-${{ github.run_attempt }}"
@@ -434,9 +433,11 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          python3 /tmp/ci-scripts/workflow_git.py configure \
+            --repo "${{ github.repository }}" \
+            --unset-extraheader
           git push origin HEAD:${{ steps.pr.outputs.head_branch }} --force
-          python3 scripts/ci/promote_branch_head_to_verified_commit.py \
+          python3 /tmp/ci-scripts/workflow_git.py promote \
             --repo "${{ github.repository }}" \
             --branch "${{ steps.pr.outputs.head_branch }}" \
             --message "Repair PR #${{ steps.pr.outputs.number }}: auto-repair (${{ steps.repair.outputs.backend }})" \

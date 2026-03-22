@@ -70,9 +70,9 @@ jobs:
           sed -i 's/^version = ".*"/version = "${{ steps.version.outputs.cargo }}"/' Cargo.toml
           sed -i 's/VERSION = ".*"/VERSION = "${{ steps.version.outputs.gem }}"/' gem/lib/nitrocop.rb
           cargo update -p nitrocop
-          git config user.name "6[bot]"
-          git config user.email "129682364+6[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          python3 scripts/ci/workflow_git.py configure \
+            --repo "${{ github.repository }}" \
+            --unset-extraheader
           git add Cargo.toml Cargo.lock gem/lib/nitrocop.rb
           COMMIT_MSG="Release v${{ steps.version.outputs.tag }}"
           git commit -m "$COMMIT_MSG"
@@ -81,13 +81,13 @@ jobs:
           gh api "repos/${{ github.repository }}/git/refs/tags/v${{ steps.version.outputs.tag }}" -X DELETE 2>/dev/null || true
           git push origin --delete "$BRANCH" 2>/dev/null || true
           git push origin "$BRANCH" --force
-          eval "$(python3 scripts/ci/promote_branch_head_to_verified_commit.py \
+          eval "$(python3 scripts/ci/workflow_git.py promote \
             --repo "${{ github.repository }}" \
             --branch "$BRANCH" \
             --message "$COMMIT_MSG")"
           gh api "repos/${{ github.repository }}/git/refs" \
             -f ref="refs/tags/v${{ steps.version.outputs.tag }}" \
-            -f sha="$SIGNED_SHA"
+            -f sha="$signed_sha"
           gh pr create --title "Release v${{ steps.version.outputs.tag }}" \
             --body "Version bump from release workflow. Auto-merges after CI passes." \
             --base main --head "$BRANCH"

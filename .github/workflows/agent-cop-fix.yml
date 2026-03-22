@@ -325,8 +325,7 @@ jobs:
       - name: Prepare clean workspace for agent
         if: steps.task.outputs.code_bugs != '0'
         run: |
-          git config user.name "6[bot]"
-          git config user.email "129682364+6[bot]@users.noreply.github.com"
+          python3 scripts/ci/workflow_git.py configure
           echo "main_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           python3 scripts/ci/prepare_agent_workspace.py \
             --mode agent-cop-fix \
@@ -607,7 +606,9 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          python3 /tmp/ci-scripts/workflow_git.py configure \
+            --repo "${{ github.repository }}" \
+            --unset-extraheader
 
           BRANCH="${{ steps.cop.outputs.branch }}"
           COP="${{ github.event.inputs.cop }}"
@@ -657,16 +658,16 @@ jobs:
           git push origin "$BRANCH" --force
 
           REPO="${{ github.repository }}"
-          eval "$(python3 scripts/ci/promote_branch_head_to_verified_commit.py \
+          eval "$(python3 /tmp/ci-scripts/workflow_git.py promote \
             --repo "$REPO" \
             --branch "$BRANCH" \
             --message "Fix ${COP}: agent-generated fix${RETRY_NOTE} (${BACKEND})")"
 
           # Build final PR body with agent results
           TURNS=$(jq -r '.num_turns // "?"' /tmp/agent-result.json 2>/dev/null || echo "?")
-          DIFF_STAT=$(git diff --stat "${PARENT_SHA}".."${SIGNED_SHA}" 2>/dev/null | tail -1 || echo "")
+          DIFF_STAT=$(git diff --stat "${parent_sha}".."${signed_sha}" 2>/dev/null | tail -1 || echo "")
           if [ -z "$DIFF_STAT" ]; then
-            DIFF_STAT=$(gh api "repos/${REPO}/compare/${PARENT_SHA}...${SIGNED_SHA}" --jq '"  \(.files | length) files changed"' 2>/dev/null || echo "")
+            DIFF_STAT=$(gh api "repos/${REPO}/compare/${parent_sha}...${signed_sha}" --jq '"  \(.files | length) files changed"' 2>/dev/null || echo "")
           fi
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           RESULT=$(jq -r '.result // "no result"' /tmp/agent-result.json 2>/dev/null || echo "no result")

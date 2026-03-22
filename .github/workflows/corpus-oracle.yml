@@ -572,10 +572,9 @@ jobs:
           fi
 
           BRANCH="corpus-oracle/update-$(date +%s)"
-          git config user.name "6[bot]"
-          git config user.email "129682364+6[bot]@users.noreply.github.com"
-          git config --local --unset-all http.https://github.com/.extraheader || true
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          python3 scripts/ci/workflow_git.py configure \
+            --repo "${{ github.repository }}" \
+            --unset-extraheader
           git checkout -B "$BRANCH"
 
           if [ "$IS_EXTENDED" = false ]; then
@@ -592,7 +591,7 @@ jobs:
 
           git commit -m "$COMMIT_MSG"
           git push origin "$BRANCH" --force
-          python3 scripts/ci/promote_branch_head_to_verified_commit.py \
+          python3 scripts/ci/workflow_git.py promote \
             --repo "${{ github.repository }}" \
             --branch "$BRANCH" \
             --message "$COMMIT_MSG"
