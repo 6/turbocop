@@ -1,0 +1,420 @@
+name: Agent PR Repair
+
+permissions:
+  contents: write
+  actions: read
+  pull-requests: write
+
+on:
+  workflow_run:
+    workflows: ["Checks"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Target PR number"
+        required: true
+        type: string
+      checks_run_id:
+        description: "Failed Checks workflow run ID"
+        required: true
+        type: string
+      backend:
+        description: "Backend override"
+        type: choice
+        options:
+          - auto
+          - minimax
+          - codex
+        default: auto
+      extra_context:
+        description: "Additional instructions for the repair agent"
+        required: false
+        type: string
+      force:
+        description: "Allow rerunning even if auto-repair-attempted label is already present"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  repair:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'failure' &&
+       github.event.workflow_run.event == 'pull_request')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      RUSTFLAGS: -C link-arg=-fuse-ld=mold
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Resolve target PR
+        id: target
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+
+          with open(os.environ["GITHUB_EVENT_PATH"]) as f:
+              event = json.load(f)
+
+          run = event["workflow_run"]
+          prs = run.get("pull_requests", [])
+          if not prs:
+              raise SystemExit("No pull request associated with workflow_run event")
+
+          print(f"pr_number={prs[0]['number']}")
+          print(f"checks_run_id={run['id']}")
+          print(f"head_sha={run['head_sha']}")
+          print(f"head_branch={run['head_branch']}")
+          print("backend_override=auto")
+          print("force=false")
+          PY
+          else
+            echo "pr_number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+            echo "checks_run_id=${{ github.event.inputs.checks_run_id }}" >> "$GITHUB_OUTPUT"
+            echo "backend_override=${{ github.event.inputs.backend }}" >> "$GITHUB_OUTPUT"
+            echo "force=${{ github.event.inputs.force }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Load PR metadata and gate repair
+        id: pr
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          PR_JSON=$(gh pr view "${{ steps.target.outputs.pr_number }}" \
+            --json number,title,url,state,author,headRefName,headRefOid,baseRefName,isCrossRepository,headRepository,labels)
+          python3 - <<'PY' "$PR_JSON" "${{ github.repository }}" "${{ steps.target.outputs.head_sha }}" "${{ steps.target.outputs.force }}" >> "$GITHUB_OUTPUT"
+          import json
+          import sys
+
+          pr = json.loads(sys.argv[1])
+          repo = sys.argv[2]
+          checks_head_sha = sys.argv[3]
+          force = sys.argv[4].lower() == "true"
+
+          labels = [label["name"] for label in pr.get("labels", [])]
+          head_repo = (pr.get("headRepository") or {}).get("nameWithOwner", "")
+          author_login = (pr.get("author") or {}).get("login", "")
+
+          should_run = True
+          reason = ""
+
+          if pr.get("state") != "OPEN":
+              should_run = False
+              reason = "PR is not open"
+          elif pr.get("baseRefName") != "main":
+              should_run = False
+              reason = "PR does not target main"
+          elif pr.get("isCrossRepository"):
+              should_run = False
+              reason = "Cross-repository PRs are not trusted for auto-repair"
+          elif head_repo and head_repo != repo:
+              should_run = False
+              reason = f"PR head repository {head_repo} does not match {repo}"
+          elif "agent-fix" not in labels:
+              should_run = False
+              reason = "PR is not labeled agent-fix"
+          elif author_login not in {"6[bot]", "app/6"}:
+              should_run = False
+              reason = f"PR author {author_login} is not trusted for auto-repair"
+          elif checks_head_sha and pr.get("headRefOid") and pr["headRefOid"] != checks_head_sha:
+              should_run = False
+              reason = "PR head moved after the failed Checks run"
+          elif "auto-repair-attempted" in labels and not force:
+              should_run = False
+              reason = "auto-repair-attempted label already present"
+
+          print(f"number={pr['number']}")
+          print(f"title={pr['title']}")
+          print(f"url={pr['url']}")
+          print(f"head_branch={pr['headRefName']}")
+          print(f"head_sha={pr['headRefOid']}")
+          print(f"should_run={'true' if should_run else 'false'}")
+          print(f"skip_reason={reason}")
+          PY
+
+      - name: Skip untrusted or stale PRs
+        if: steps.pr.outputs.should_run != 'true'
+        run: |
+          echo "::notice::Skipping auto-repair: ${{ steps.pr.outputs.skip_reason }}"
+
+      - uses: actions/checkout@v4
+        if: steps.pr.outputs.should_run == 'true'
+        with:
+          submodules: true
+          fetch-depth: 0
+          ref: ${{ steps.pr.outputs.head_branch }}
+          persist-credentials: false
+
+      - name: Set git identity
+        if: steps.pr.outputs.should_run == 'true'
+        run: |
+          git config user.name "6[bot]"
+          git config user.email "129682364+6[bot]@users.noreply.github.com"
+          git fetch origin main
+          echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        id: prep
+
+      - name: Capture current PR diff
+        if: steps.pr.outputs.should_run == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git diff --stat origin/main...HEAD > /tmp/pr-diff.stat
+          gh pr diff "${{ steps.pr.outputs.number }}" > /tmp/pr.diff
+
+      - name: Prepare repair packet
+        if: steps.pr.outputs.should_run == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          python3 scripts/ci/prepare_pr_repair.py \
+            --repo "${{ github.repository }}" \
+            --run-id "${{ steps.target.outputs.checks_run_id }}" \
+            --pr-number "${{ steps.pr.outputs.number }}" \
+            --pr-title "${{ steps.pr.outputs.title }}" \
+            --head-branch "${{ steps.pr.outputs.head_branch }}" \
+            --diff-stat /tmp/pr-diff.stat \
+            --diff /tmp/pr.diff \
+            --prompt-out /tmp/final-task.md \
+            --verify-out /tmp/repair-verify.sh \
+            --json-out /tmp/repair.json \
+            --backend-override "${{ steps.target.outputs.backend_override }}" \
+            --extra-context "${{ github.event.inputs.extra_context || '' }}" \
+            >> "$GITHUB_OUTPUT"
+        id: repair
+
+      - name: Skip non-repairable failures
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route == 'skip'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh pr comment "${{ steps.pr.outputs.number }}" --body \
+            "Auto-repair skipped for failed Checks run #${{ steps.target.outputs.checks_run_id }}.\n\nReason: ${{ steps.repair.outputs.reason }}"
+
+      - name: Mark repair attempt
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh label create auto-repair-attempted --color "d4c5f9" 2>/dev/null || true
+          gh label create needs-human --color "b60205" 2>/dev/null || true
+          gh pr edit "${{ steps.pr.outputs.number }}" --add-label "auto-repair-attempted"
+          gh pr comment "${{ steps.pr.outputs.number }}" --body \
+            "Auto-repair starting from failed Checks run #${{ steps.target.outputs.checks_run_id }}.\n\nRoute: \`${{ steps.repair.outputs.route }}\`\nBackend: \`${{ steps.repair.outputs.backend }}\`\nReason: ${{ steps.repair.outputs.reason }}"
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+
+      - uses: ruby/setup-ruby@v1
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        with:
+          ruby-version: '4.0'
+
+      - name: Cache corpus bundle
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        uses: actions/cache@v4
+        with:
+          path: bench/corpus/vendor/bundle
+          key: pr-repair-bundle-${{ hashFiles('bench/corpus/Gemfile.lock') }}
+
+      - name: Install corpus gems
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        run: |
+          cd bench/corpus
+          bundle config set --local path vendor/bundle
+          bundle install --jobs 4 --retry 3
+
+      - name: Install mold linker
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
+
+      - name: Resolve backend config
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        id: backend
+        run: |
+          cp -r scripts/ci /tmp/ci-scripts
+          python3 scripts/ci/resolve_backend.py "${{ steps.repair.outputs.backend }}" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Run backend setup
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        env:
+          MINIMAX_API_KEY: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ steps.repair.outputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+          CODEX_AUTH_JSON: ${{ steps.repair.outputs.backend == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
+        run: ${{ steps.backend.outputs.setup_cmd }}
+
+      - name: Run repair agent
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        timeout-minutes: 45
+        env:
+          ANTHROPIC_BASE_URL: ${{ steps.backend.outputs.env_ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ steps.repair.outputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+          ANTHROPIC_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_MODEL }}
+          ANTHROPIC_SMALL_FAST_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_SMALL_FAST_MODEL }}
+          API_TIMEOUT_MS: ${{ steps.backend.outputs.env_API_TIMEOUT_MS }}
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: ${{ steps.backend.outputs.env_CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC }}
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 /tmp/ci-scripts/watch_agent_progress.py \
+            --newer-than /tmp/final-task.md --interval 30 \
+            --backend "${{ steps.backend.outputs.log_format }}" &
+          WATCHER_PID=$!
+
+          eval '${{ steps.backend.outputs.run_cmd }}'
+
+          kill $WATCHER_PID 2>/dev/null || true
+
+      - name: Snapshot agent outputs
+        if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        run: |
+          git status --short > /tmp/agent-status.txt || true
+          git log --oneline "${{ steps.prep.outputs.base_sha }}"..HEAD > /tmp/agent-commits.txt || true
+          git diff --stat "${{ steps.prep.outputs.base_sha }}" > /tmp/agent-recovery.stat || true
+          git diff "${{ steps.prep.outputs.base_sha }}" > /tmp/agent-recovery.diff || true
+          git diff --binary "${{ steps.prep.outputs.base_sha }}" > /tmp/agent-recovery.patch || true
+          python3 -c "
+          import sys; sys.path.insert(0, '/tmp/ci-scripts')
+          from watch_agent_progress import find_logfile
+          from pathlib import Path
+          f = find_logfile(Path('/tmp/final-task.md'), '${{ steps.backend.outputs.log_format }}')
+          print(f or '')
+          " > /tmp/agent-logfile.txt 2>/dev/null || true
+
+      - name: Validate repair locally
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        id: verify
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          NITROCOP_BIN: ${{ github.workspace }}/target/release/nitrocop
+        run: |
+          set +e
+          /tmp/repair-verify.sh 2>&1 | tee /tmp/repair-verify.log
+          STATUS=${PIPESTATUS[0]}
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Push verified repair
+        if: steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip' && steps.verify.outputs.status == '0'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if git diff --quiet && [ "$(git rev-parse HEAD)" = "${{ steps.prep.outputs.base_sha }}" ]; then
+            echo "No repair changes to push"
+            exit 0
+          fi
+
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "Repair PR #${{ steps.pr.outputs.number }}: auto-repair (${{ steps.repair.outputs.backend }})"
+          fi
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git push origin HEAD:${{ steps.pr.outputs.head_branch }}
+
+      - name: Comment repair result
+        if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if [ "${{ steps.verify.outputs.status }}" = "0" ]; then
+            {
+              echo "Auto-repair succeeded with backend \`${{ steps.repair.outputs.backend }}\`."
+              echo ""
+              echo "Validated locally before push using \`/tmp/repair-verify.sh\`."
+            } > /tmp/repair-comment.md
+          else
+            gh pr edit "${{ steps.pr.outputs.number }}" --add-label "needs-human" 2>/dev/null || true
+            {
+              echo "Auto-repair failed local verification with backend \`${{ steps.repair.outputs.backend }}\`."
+              echo ""
+              echo "Reason: ${{ steps.repair.outputs.reason }}"
+              echo ""
+              echo "<details>"
+              echo "<summary>Verification tail</summary>"
+              echo ""
+              echo '```'
+              tail -40 /tmp/repair-verify.log 2>/dev/null || echo "(no verification log)"
+              echo '```'
+              echo "</details>"
+            } > /tmp/repair-comment.md
+          fi
+          gh pr comment "${{ steps.pr.outputs.number }}" --body-file /tmp/repair-comment.md
+
+      - name: Scan generated files for backend secret leakage
+        if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip'
+        id: leak_scan
+        env:
+          MINIMAX_API_KEY: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ steps.repair.outputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+          CODEX_AUTH_JSON: ${{ steps.repair.outputs.backend == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
+        run: |
+          python3 /tmp/ci-scripts/guard_backend_secrets.py \
+            --ignore-missing \
+            --from-env MINIMAX_API_KEY \
+            --from-env ANTHROPIC_API_KEY \
+            --from-env CODEX_AUTH_JSON \
+            scan-files \
+            /tmp/agent.log \
+            /tmp/agent-events.jsonl \
+            /tmp/agent-last-message.txt \
+            /tmp/agent-result.json \
+            /tmp/agent-status.txt \
+            /tmp/agent-commits.txt \
+            /tmp/agent-recovery.stat \
+            /tmp/agent-recovery.diff \
+            /tmp/agent-recovery.patch \
+            /tmp/agent-logfile.txt \
+            /tmp/pr-diff.stat \
+            /tmp/pr.diff \
+            /tmp/final-task.md \
+            /tmp/repair.json \
+            /tmp/repair-verify.sh \
+            /tmp/repair-verify.log \
+            '~/.claude/projects/**/*.jsonl' \
+            '~/.codex/sessions/**/*.jsonl'
+
+      - name: Upload repair logs
+        if: always() && steps.pr.outputs.should_run == 'true' && steps.repair.outputs.route != 'skip' && steps.leak_scan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-pr-repair-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/agent.log
+            /tmp/agent-events.jsonl
+            /tmp/agent-last-message.txt
+            /tmp/agent-result.json
+            /tmp/agent-status.txt
+            /tmp/agent-commits.txt
+            /tmp/agent-recovery.stat
+            /tmp/agent-recovery.diff
+            /tmp/agent-recovery.patch
+            /tmp/agent-logfile.txt
+            /tmp/pr-diff.stat
+            /tmp/pr.diff
+            /tmp/final-task.md
+            /tmp/repair.json
+            /tmp/repair-verify.sh
+            /tmp/repair-verify.log
+            ~/.claude/projects/**/*.jsonl
+            ~/.codex/sessions/**/*.jsonl
+          retention-days: 7

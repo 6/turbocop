@@ -395,10 +395,12 @@ def main():
 
     # Compute unique repo counts per cop (repos where RuboCop fires at least once)
     cop_repo_counts = defaultdict(int)
+    cop_activity_repos = defaultdict(list)
     for repo_id, cops in by_repo_cop.items():
         for cop_name, stats in cops.items():
             if stats["matches"] + stats["fn"] > 0:
                 cop_repo_counts[cop_name] += 1
+                cop_activity_repos[cop_name].append(repo_id)
 
     # Build per-cop table. When a full cop list is available from `--list-cops`,
     # include zero-activity cops so downstream reports can distinguish
@@ -517,6 +519,10 @@ def main():
         "by_department": by_department,
         "by_cop": by_cop,  # all cops (gen_tiers.py needs the full list)
         "by_repo": repo_results,
+        "cop_activity_repos": {
+            cop: sorted(repos)
+            for cop, repos in cop_activity_repos.items()
+        },
         "by_repo_cop": {
             repo: {cop: stats for cop, stats in cops.items() if stats["fp"] + stats["fn"] > 0}
             for repo, cops in by_repo_cop.items()

@@ -311,11 +311,29 @@ def load_manifest() -> dict[str, dict]:
     return repos
 
 
+def relevant_repos_for_cop(cop_name: str, data: dict) -> set[str]:
+    """Return the repos worth rerunning for a cop in quick mode.
+
+    This is the union of:
+    - repos where RuboCop fires for the cop (`cop_activity_repos`)
+    - repos with baseline divergence for the cop (`by_repo_cop`)
+
+    Older corpus artifacts may not have `cop_activity_repos`; in that case we
+    fall back to divergence-only behavior.
+    """
+    relevant = set(data.get("cop_activity_repos", {}).get(cop_name, []))
+    for repo_id, cops in data.get("by_repo_cop", {}).items():
+        if cop_name in cops:
+            relevant.add(repo_id)
+    return relevant
+
+
 def clone_repos_for_cop(cop_name: str, data: dict):
     """Clone only the corpus repos needed for a specific cop from the manifest.
 
-    Uses by_repo_cop data to identify repos with activity, then shallow-clones
-    them to vendor/corpus/. Skips repos that are already cloned.
+    Uses the quick-rerun repo set (baseline activity + baseline divergence),
+    then shallow-clones them to vendor/corpus/. Skips repos that are already
+    cloned.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -324,19 +342,15 @@ def clone_repos_for_cop(cop_name: str, data: dict):
         print("ERROR: manifest.jsonl not found", file=sys.stderr)
         sys.exit(1)
 
-    # Find repos with activity for this cop
-    by_repo_cop = data.get("by_repo_cop", {})
-    needed = set()
-    for repo_id, cops in by_repo_cop.items():
-        if cop_name in cops:
-            needed.add(repo_id)
+    CORPUS_DIR.mkdir(parents=True, exist_ok=True)
+
+    needed = relevant_repos_for_cop(cop_name, data)
 
     if not needed:
-        print(f"  No repos with activity for {cop_name} in corpus data", file=sys.stderr)
+        print(f"  No baseline activity or divergence for {cop_name}", file=sys.stderr)
         return
 
     # Filter to repos in manifest and not already cloned
-    CORPUS_DIR.mkdir(parents=True, exist_ok=True)
     to_clone = []
     for repo_id in sorted(needed):
         if repo_id in manifest and not (CORPUS_DIR / repo_id).exists():
@@ -415,9 +429,28 @@ def run_nitrocop_per_repo(cop_name: str, relevant_repos: set[str] | None = None)
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    if relevant_repos is not None and not relevant_repos:
+        print("  --quick: no baseline activity or divergence requires a local rerun", file=sys.stderr)
+        return {}
+
+    if not CORPUS_DIR.exists():
+        raise FileNotFoundError(
+            f"Local corpus checkout not found at {CORPUS_DIR}. "
+            "Pass --clone or run bench/corpus/clone_repos.sh."
+        )
+
     all_repos = sorted(d for d in CORPUS_DIR.iterdir() if d.is_dir())
     repos = all_repos
     if relevant_repos is not None:
+        available = {r.name for r in all_repos}
+        missing = sorted(relevant_repos - available)
+        if missing:
+            preview = ", ".join(missing[:5])
+            if len(missing) > 5:
+                preview += ", ..."
+            raise FileNotFoundError(
+                f"Missing {len(missing)} required corpus repo(s) under {CORPUS_DIR}: {preview}"
+            )
         repos = [r for r in all_repos if r.name in relevant_repos]
         skipped = len(all_repos) - len(repos)
         print(f"  --quick: running {len(repos)}/{len(all_repos)} repos "
@@ -525,6 +558,7 @@ def main():
     # Check if enriched per-repo-per-cop data is available in corpus results
     by_repo_cop = data.get("by_repo_cop", {})
     has_enriched = bool(by_repo_cop)
+    has_activity_index = bool(data.get("cop_activity_repos"))
 
     if args.verbose and has_enriched and not args.rerun:
         # Use baseline artifact data instead of re-running nitrocop.
@@ -583,18 +617,21 @@ def main():
                 # Fall back to per-repo subprocess mode
                 # --quick: only run repos where baseline has activity for this cop
                 relevant_repos = None
-                if args.quick and has_enriched:
-                    relevant_repos = set()
-                    for repo_id, cops in by_repo_cop.items():
-                        if args.cop in cops:
-                            relevant_repos.add(repo_id)
+                if args.quick:
+                    relevant_repos = relevant_repos_for_cop(args.cop, data)
+                    if not has_activity_index:
+                        print(
+                            "WARNING: corpus artifact lacks cop_activity_repos; "
+                            "quick rerun falls back to divergence-only data",
+                            file=sys.stderr,
+                        )
                 per_repo = run_nitrocop_per_repo(args.cop, relevant_repos=relevant_repos)
             save_cached_results(args.cop, per_repo)
 
-        # When --clone is used, we only have fresh data for diverging repos.
-        # Fill in CI baseline counts for repos we didn't run (they matched in CI,
-        # so nitrocop count = matches for this cop on those repos).
-        if args.clone and has_enriched:
+        # Older corpus artifacts do not include cop_activity_repos, so clone mode
+        # only reruns baseline-diverging repos. Preserve the synthetic CI-baseline
+        # fallback for those older artifacts.
+        if args.clone and has_enriched and not has_activity_index:
             cloned_repos = set(per_repo.keys())
             # For each repo NOT in per_repo, add its CI nitrocop count.
             # Repos in by_repo_cop have matches + FP - FN. Repos NOT in

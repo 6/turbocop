@@ -110,6 +110,8 @@ def test_end_to_end():
         assert by_cop["Style/FrozenStringLiteralComment"]["perfect_match"] is True
         assert by_cop["Layout/TrailingWhitespace"]["diverging"] is True
         assert by_cop["Lint/UnusedMethodArgument"]["exercised"] is False
+        assert data["cop_activity_repos"]["Style/FrozenStringLiteralComment"] == ["repo_a"]
+        assert "Layout/TrailingWhitespace" not in data["cop_activity_repos"]
 
         by_dept = {entry["department"]: entry for entry in data["by_department"]}
         assert by_dept["Style"]["perfect_cops"] == 1
