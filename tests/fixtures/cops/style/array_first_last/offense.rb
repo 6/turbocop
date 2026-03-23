@@ -30,7 +30,7 @@ colors[-1] ||= "red"
        ^^^^ Style/ArrayFirstLast: Use `last`.
 
 # Logical-and assignment on indexed access (IndexAndWriteNode)
-items[0] &&= transform(items[0])
+items[0] &&= transform(value)
      ^^^ Style/ArrayFirstLast: Use `first`.
 
 # Explicit method call syntax: arr.[](0)

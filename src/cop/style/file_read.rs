@@ -41,7 +41,7 @@ impl FileRead {
     fn is_read_mode(node: &ruby_prism::Node<'_>) -> Option<bool> {
         let s = node.as_string_node()?;
         let content = s.unescaped();
-        if READ_MODES.contains(&content.as_ref()) {
+        if READ_MODES.contains(&content) {
             Some(content.ends_with(b"b"))
         } else {
             None
