@@ -29,3 +29,6 @@ post.comments.to_a.count
 # Multi-statement block — .count is NOT the direct body, still flagged
 items.each { puts "hi"; [1, 2].count }
                                ^^^^^ Performance/Size: Use `size` instead of `count`.
+# .to_a.count nested inside hash inside array inside single-statement block
+data.map { |r| [r[:id], { 'count' => r['items'].to_a.count }] }
+                                                     ^^^^^ Performance/Size: Use `size` instead of `count`.

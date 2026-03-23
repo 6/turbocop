@@ -12,6 +12,13 @@ use crate::parse::source::SourceFile;
 ///   DETERMINISTIC_REGEX matches the full source, and `/` is in LITERAL_REGEX, so
 ///   `%r/pattern/` should be checked. Only `%r{pattern}` and other non-slash delimiters
 ///   are correctly skipped (braces, brackets, parens not in LITERAL_REGEX).
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus reported FP=9, FN=0. All 9 FPs from vendored gem files
+/// in repos cjstewart88__Tubalr (heroku/ruby/1.9.1/gems/rdoc-*) and
+/// liaoziyang__stackneveroverflow (vendor/bundle/ruby/2.3.0/gems/rdoc-*).
+/// File-exclusion infrastructure issue, not a cop logic bug.
 pub struct RedundantSplitRegexpArgument;
 
 /// Check if regex content is a simple literal that could be replaced by a string.
