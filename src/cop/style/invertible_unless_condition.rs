@@ -212,9 +212,7 @@ impl InvertibleUnlessCondition {
 
             if let Some(inv) = inverse_map.get(name_bytes) {
                 // Check if the method has arguments
-                let has_args = call
-                    .arguments()
-                    .is_some_and(|a| a.arguments().len() > 0);
+                let has_args = call.arguments().is_some_and(|a| a.arguments().len() > 0);
 
                 if has_args {
                     let args = call.arguments().unwrap();
