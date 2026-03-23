@@ -53,3 +53,43 @@ end
 include GravatarHelper, GravatarHelper::PublicMethods, ERB::Util
 extend A, B
 prepend X, Y, Z
+
+BEGIN {
+	base = File::dirname( File::dirname(File::expand_path(__FILE__)) )
+	$LOAD_PATH.unshift "#{base}/lib"
+
+	require "#{base}/utils.rb"
+	include UtilityFunctions
+}
+
+require 'linguistics'
+
+Linguistics::use( :en, :installProxy => true )
+array = %w{sheep shrew goose bear penguin barnacle sheep goose goose}
+
+BEGIN {
+	base = File::dirname( File::dirname(File::expand_path(__FILE__)) )
+	$LOAD_PATH.unshift "#{base}/lib"
+
+	require "#{base}/utils.rb"
+	include UtilityFunctions
+
+	require 'linguistics'
+}
+
+$yaml = false
+Linguistics::use( :en )
+
+BEGIN {
+	base = File::dirname( File::dirname(File::expand_path(__FILE__)) )
+	$LOAD_PATH.unshift "#{base}/lib"
+
+	require "#{base}/utils.rb"
+	include UtilityFunctions
+}
+
+require 'linguistics'
+
+Linguistics::use( :en, :classes => [String,Array] )
+
+module Linguistics::EN

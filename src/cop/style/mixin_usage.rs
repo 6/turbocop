@@ -29,6 +29,11 @@ use crate::parse::source::SourceFile;
 /// matches exactly ONE `const` argument. Multi-argument mixin calls like `include A, B, C`
 /// don't match the pattern and are not flagged. nitrocop was incorrectly accepting any number
 /// of const arguments. Fixed by requiring exactly one argument in the const check.
+///
+/// Corpus investigation (round 5): 3 FPs from `include UtilityFunctions` inside `BEGIN { ... }`
+/// hooks. RuboCop's `in_top_level_scope?` transparent wrapper list is only `{kwbegin begin if def}`;
+/// `BEGIN`/`END` hook nodes are not included, so mixin calls inside them are allowed. Prism models
+/// these as `PreExecutionNode`/`PostExecutionNode`, which we now treat as opaque scopes.
 pub struct MixinUsage;
 
 const MIXIN_METHODS: &[&[u8]] = &[b"include", b"extend", b"prepend"];
@@ -65,7 +70,8 @@ struct MixinUsageVisitor<'a> {
     /// True when we're inside a scope that is NOT considered "top level" by RuboCop.
     /// RuboCop's `in_top_level_scope?` only treats `begin`, `kwbegin`, `if`, and `def`
     /// as transparent wrappers. Everything else (class, module, block, while, until,
-    /// for, case, lambda, etc.) creates an opaque scope where mixin calls are allowed.
+    /// for, case, lambda, BEGIN/END hooks, etc.) creates an opaque scope where mixin
+    /// calls are allowed.
     in_opaque_scope: bool,
 }
 
@@ -218,6 +224,20 @@ impl<'pr> Visit<'pr> for MixinUsageVisitor<'_> {
         let prev = self.in_opaque_scope;
         self.in_opaque_scope = true;
         ruby_prism::visit_case_match_node(self, node);
+        self.in_opaque_scope = prev;
+    }
+
+    fn visit_pre_execution_node(&mut self, node: &ruby_prism::PreExecutionNode<'pr>) {
+        let prev = self.in_opaque_scope;
+        self.in_opaque_scope = true;
+        ruby_prism::visit_pre_execution_node(self, node);
+        self.in_opaque_scope = prev;
+    }
+
+    fn visit_post_execution_node(&mut self, node: &ruby_prism::PostExecutionNode<'pr>) {
+        let prev = self.in_opaque_scope;
+        self.in_opaque_scope = true;
+        ruby_prism::visit_post_execution_node(self, node);
         self.in_opaque_scope = prev;
     }
 }
