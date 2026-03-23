@@ -286,8 +286,41 @@ use crate::parse::source::SourceFile;
 /// The AssocNode handler already recurses into key and value, but when the
 /// value was an `ImplicitNode`, it fell through to `false` at the end of
 /// `node_references_var`. Fix: added `as_implicit_node()` handler that
-/// unwraps and recurses into the inner value. This fixes ~4 FNs from the
-/// stringer-rss corpus repo.
+/// unwraps and recurses into the inner value. This fixes ~6 FNs (stringer,
+/// gumroad, shoulda-matchers).
+///
+/// ## Remaining gaps (FP=3, FN=53 as of 2026-03-23)
+///
+/// **3 FP — infrastructure issues, not cop logic bugs:**
+/// - SubjectStub FP=2: corpus oracle artifact. nitrocop is correct; RuboCop
+///   1.85.1 + rubocop-rspec 3.9.0 also flags both lines (ubicloud). Oracle
+///   missed them — will self-resolve on next corpus oracle run.
+/// - ScatteredLet FP=1: que-rb uses minitest with minitest-hooks DSL that
+///   looks like RSpec. RuboCop can't load rubocop-rspec from que-rb's bundle
+///   so it skips RSpec cops. nitrocop has them compiled in. Fix requires
+///   infrastructure: check project Gemfile.lock for plugin gem presence.
+///
+/// **53 FN — require VariableForce implementation:**
+/// RuboCop's `VariableForce` (~800 LOC Ruby) is a per-assignment dataflow
+/// engine that tracks variable lifetime through all execution paths with
+/// branch-aware analysis. Our cop uses AST-walking heuristics instead.
+///
+/// Root causes of remaining FN:
+/// - `def self.method` + `.each` with nested example groups (~11 FN,
+///   DataDog/chef): `check_def_level_vars` collects assignments but the
+///   interaction between `.each` block scope and nested `context`/`it`
+///   blocks isn't tracked precisely enough.
+/// - Conditional write kills (~3 FN, fastlane): `before` hook writes
+///   variable inside `unless initialized` — flow analysis returns
+///   `WriteBeforeRead` (killing the outer value), but the write is
+///   conditional so the file-level value can still reach later `it` blocks.
+/// - Block-local scoping edge cases (~39 FN): variables captured across
+///   multiple nested blocks, rescue/ensure reassignment, `for` loop
+///   scoping differences, etc.
+///
+/// Building VariableForce in Rust means implementing a per-assignment
+/// reference tracker with branch-aware dataflow — a substantial effort
+/// but the right long-term path to close the remaining FN gap.
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
