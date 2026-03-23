@@ -41,6 +41,15 @@ assert_equal \
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/FirstArgumentIndentation: Indent the first argument one step more than the start of the previous line.
   new_command.result.join(" ")
 
+# Method call inside heredoc interpolation with wrong indentation
+content = <<~HTML
+  #{builder.attachment(
+      :image,
+      ^^ Layout/FirstArgumentIndentation: Indent the first argument one step more than the start of the previous line.
+      titled: true
+  )}
+HTML
+
 # Tab-indented code with wrong indentation (3 tabs instead of expected 4)
 		loader.inflector.inflect(
 			"csv" => "CSV",

@@ -61,9 +61,11 @@ use crate::parse::source::SourceFile;
 /// and spaces as 1 character. Fixed by replacing `indentation_of` (spaces only)
 /// with `leading_whitespace_count` (tabs + spaces) and removing the tab-skip guards.
 ///
-/// **Remaining FN (11):** Calls inside string interpolation in heredocs
-/// (puppetlabs 6, gumroad 4, autolab 1). The `in_interpolation` skip prevents
-/// FPs on heredoc interpolation where indentation context is meaningless.
+/// **FN fix (2026-03-23, 11 FNs):** Removed the blanket `in_interpolation`
+/// skip — RuboCop checks calls inside interpolation normally. The original FP
+/// that motivated the skip was actually caused by `previous_code_line_indent`
+/// treating `#{...}` lines as comments (because `#` is the first non-whitespace
+/// char). Fixed by not treating `#` as a comment when followed by `{`.
 pub struct FirstArgumentIndentation;
 
 impl Cop for FirstArgumentIndentation {
@@ -93,7 +95,6 @@ impl Cop for FirstArgumentIndentation {
             diagnostics: Vec::new(),
             // Stack of parent call info: (is_parenthesized, call_start_offset)
             parent_call_stack: Vec::new(),
-            in_interpolation: 0,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -110,8 +111,6 @@ struct FirstArgVisitor<'a> {
     /// call_node_start_col is the column of the start of the entire call expression
     /// (including receiver), matching RuboCop's node.source_range.begin_pos
     parent_call_stack: Vec<ParentCallInfo>,
-    /// Depth of string interpolation nesting — skip checks when > 0
-    in_interpolation: usize,
 }
 
 struct ParentCallInfo {
@@ -134,11 +133,6 @@ impl FirstArgVisitor<'_> {
         arguments: Option<ruby_prism::ArgumentsNode<'_>>,
         name: &str,
     ) {
-        // Skip calls inside string interpolation — indentation context is meaningless
-        if self.in_interpolation > 0 {
-            return;
-        }
-
         // Must have arguments (parenthesized or not)
         let args_node = match arguments {
             Some(a) => a,
@@ -335,12 +329,12 @@ fn previous_code_line_indent(source: &SourceFile, line_number: usize) -> usize {
             continue;
         }
         // Skip comment lines (lines where first non-whitespace is #)
-        let trimmed = line_bytes
+        // but NOT interpolation openings (#{...}) which appear in heredocs
+        let mut after_ws = line_bytes
             .iter()
             .skip_while(|&&b| b == b' ' || b == b'\t')
-            .copied()
-            .next();
-        if trimmed == Some(b'#') {
+            .copied();
+        if after_ws.next() == Some(b'#') && after_ws.next() != Some(b'{') {
             continue;
         }
         // Count all leading whitespace characters (tabs and spaces),
@@ -472,12 +466,6 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
         self.parent_call_stack.push(parent_info);
         ruby_prism::visit_super_node(self, node);
         self.parent_call_stack.pop();
-    }
-
-    fn visit_embedded_statements_node(&mut self, node: &ruby_prism::EmbeddedStatementsNode<'pr>) {
-        self.in_interpolation += 1;
-        ruby_prism::visit_embedded_statements_node(self, node);
-        self.in_interpolation -= 1;
     }
 }
 

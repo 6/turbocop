@@ -43,6 +43,12 @@ else
     ^ Layout/ArrayAlignment: Align the elements of an array literal if they span more than one line.
 end
 
+# Bracketed array inside multi-assignment with multiple RHS values —
+# the array's parent is the implicit RHS array, not the masgn itself
+res, ignored = [items.select { |f| !File.directory?(f) },
+items.select { |f| File.directory?(f) }], Dir.glob(".*")
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/ArrayAlignment: Align the elements of an array literal if they span more than one line.
+
 # Rescue exception list misaligned
 begin
   foo

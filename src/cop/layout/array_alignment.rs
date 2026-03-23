@@ -17,6 +17,14 @@ use ruby_prism::Visit;
 /// whose parent is a masgn, regardless of brackets. Fixed by moving array checking
 /// to a visitor that tracks parent context via `in_multi_write` flag.
 ///
+/// **FN root cause (2026-03-23):** When multi-write has multiple RHS values
+/// (e.g., `a, b = [x, y], z`), Prism wraps them in an implicit ArrayNode.
+/// The `in_multi_write` flag propagated into ALL children, skipping the nested
+/// bracketed `[x, y]` array. But RuboCop's `node.parent&.masgn_type?` check
+/// only skips arrays whose immediate parent is the masgn, not arrays nested
+/// inside the implicit RHS wrapper. Fixed by resetting `in_multi_write` before
+/// visiting array children.
+///
 /// **FN root cause (original):** RuboCop treats rescue exception lists as arrays
 /// for alignment. In Prism these are `RescueNode` with `exceptions()` list.
 /// Fixed by adding rescue node handling.
@@ -110,12 +118,20 @@ impl<'pr> Visit<'pr> for AlignmentVisitor<'_> {
 
     fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
         // RuboCop: `return if node.parent&.masgn_type?`
-        // Skip all arrays (bracketed or not) inside multi-assignments.
+        // Skip only the direct array child of MultiWriteNode (implicit or bracketed).
+        // Nested arrays within the multi-write value (e.g., `a, b = [x, y], z`
+        // where `[x, y]` is inside the implicit RHS array) ARE checked, since
+        // their parent is the implicit array, not the masgn itself.
         if !self.in_multi_write {
             self.cop
                 .check_array(self.source, node, self.config, self.diagnostics);
         }
+        // Reset in_multi_write before visiting children — only the direct
+        // array child of MultiWriteNode is skipped, not nested arrays.
+        let prev = self.in_multi_write;
+        self.in_multi_write = false;
         ruby_prism::visit_array_node(self, node);
+        self.in_multi_write = prev;
     }
 
     fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
