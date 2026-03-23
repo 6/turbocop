@@ -28,3 +28,35 @@ elsif !y
 else
   do_c
 end
+
+# Double negation should not be flagged
+if !!x
+  do_something
+else
+  do_another_thing
+end
+
+# != with multiple arguments should not be flagged
+if foo.!=(bar, baz)
+  do_a
+else
+  do_c
+end
+
+# Only part of the condition is negated
+if !x && y
+  do_something
+else
+  do_another_thing
+end
+
+# Empty else branch should not be flagged
+if !condition.nil?
+  foo = 42
+else
+end
+
+# Both branches empty should not be flagged
+if !condition.nil?
+else
+end
