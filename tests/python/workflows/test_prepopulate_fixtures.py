@@ -116,18 +116,18 @@ def make_fixtures(tmp: Path):
     (tmp / "no_offense.rb").write_text("# existing no-offenses\nbar\nbaz\nqux\nquux\nquuz\n")
 
 
-def test_fp_appended_to_no_offense():
+def test_fp_stays_in_task_context():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         make_fixtures(tmp)
         task = tmp / "task.md"
         task.write_text(TASK_WITH_FP)
         result = prepopulate_fixtures.prepopulate(task, "Lint/AmbiguousRange", tmp)
-        assert result["fp_added"] == 2
+        assert result["fp_context"] == 2
         assert result["fn_added"] == 0
         content = (tmp / "no_offense.rb").read_text()
-        assert "1.. ..1" in content
-        assert "@pos-1" in content
+        assert "1.. ..1" not in content
+        assert "@pos-1" not in content
         assert "Pre-populated from corpus" not in content
 
 
@@ -139,7 +139,7 @@ def test_fn_appended_to_offense():
         task.write_text(TASK_WITH_FN)
         result = prepopulate_fixtures.prepopulate(task, "Style/Foo", tmp)
         assert result["fn_added"] == 1
-        assert result["fp_added"] == 0
+        assert result["fp_context"] == 0
         content = (tmp / "offense.rb").read_text()
         assert "super { |x| x.foo }" in content
         assert "Style/Foo" in content
@@ -153,7 +153,7 @@ def test_config_only_no_changes():
         task = tmp / "task.md"
         task.write_text(TASK_WITH_CONFIG_ONLY)
         result = prepopulate_fixtures.prepopulate(task, "Style/Bar", tmp)
-        assert result["fp_added"] == 0
+        assert result["fp_context"] == 0
         assert result["fn_added"] == 0
 
 
@@ -164,9 +164,9 @@ def test_mixed_fp_and_fn():
         task = tmp / "task.md"
         task.write_text(TASK_MIXED)
         result = prepopulate_fixtures.prepopulate(task, "Lint/Baz", tmp)
-        assert result["fp_added"] == 1
+        assert result["fp_context"] == 1
         assert result["fn_added"] == 1
-        assert "safe_pattern_here" in (tmp / "no_offense.rb").read_text()
+        assert "safe_pattern_here" not in (tmp / "no_offense.rb").read_text()
         assert "some_pattern" in (tmp / "offense.rb").read_text()
 
 
@@ -177,30 +177,28 @@ def test_empty_task():
         task = tmp / "task.md"
         task.write_text("# Nothing here")
         result = prepopulate_fixtures.prepopulate(task, "Style/Foo", tmp)
-        assert result["fp_added"] == 0
+        assert result["fp_context"] == 0
         assert result["fn_added"] == 0
 
 
-def test_boundary_noise_is_trimmed_from_snippets():
+def test_fp_noise_is_not_written_into_no_offense():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         make_fixtures(tmp)
         task = tmp / "task.md"
         task.write_text(TASK_WITH_NOISY_BOUNDARIES)
         result = prepopulate_fixtures.prepopulate(task, "Style/MixinUsage", tmp)
-        assert result["fp_added"] == 1
+        assert result["fp_context"] == 1
         content = (tmp / "no_offense.rb").read_text()
-        assert "\n#\n\nBEGIN {" not in content
-        assert "BEGIN {\n  include UtilityFunctions\n}" in content
-        assert not content.rstrip().endswith("#")
+        assert "BEGIN {" not in content
         assert "Pre-populated from corpus" not in content
 
 
 if __name__ == "__main__":
-    test_fp_appended_to_no_offense()
+    test_fp_stays_in_task_context()
     test_fn_appended_to_offense()
     test_config_only_no_changes()
     test_mixed_fp_and_fn()
     test_empty_task()
-    test_boundary_noise_is_trimmed_from_snippets()
+    test_fp_noise_is_not_written_into_no_offense()
     print("All tests passed.")
