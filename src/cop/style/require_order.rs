@@ -23,6 +23,18 @@ use crate::parse::source::SourceFile;
 /// - FN root cause: files starting with UTF-8 BOM (bytes EF BB BF) caused `strip_prefix("require")`
 ///   to fail on line 1, so the first require wasn't recognized. Fixed by stripping BOM
 ///   from line content before processing.
+///
+/// Investigation findings (FP=8, FN=2):
+/// - FP: backslash line continuation (`require "path/" \`) — line-based parser split one
+///   require across two lines. Fixed by rejecting lines with non-standard trailing content
+///   after the closing quote.
+/// - FP: `require` inside `%(...)` / `%{...}` string literals — not real require calls.
+///   Fixed by checking CodeMap `is_not_string()` to skip lines inside string bodies.
+/// - FP: `require "x" rescue nil` — the rescue modifier wraps the require in a
+///   rescue_modifier AST node, so RuboCop doesn't see it as a simple require send.
+///   Fixed by rejecting lines with non-standard trailing content (rescue, backslash, etc.).
+/// - FP: `require` after `__END__` — data section, not code. Fixed by breaking the
+///   line loop at `__END__`.
 pub struct RequireOrder;
 
 impl Cop for RequireOrder {
@@ -105,11 +117,27 @@ impl Cop for RequireOrder {
                 continue;
             }
 
+            // Stop at __END__ — everything after is data, not code
+            let trimmed_raw = line_str.trim();
+            if trimmed_raw == "__END__" {
+                break;
+            }
+
+            // Skip lines inside string literals (e.g. %(...), %{...}, heredocs)
+            // The heredoc check above handles heredocs; this catches percent-string bodies.
+            if i < line_offsets.len() && !code_map.is_not_string(line_offsets[i]) {
+                // Line is inside a string literal — don't treat as require
+                if current_group.len() > 1 {
+                    groups.push(std::mem::take(&mut current_group));
+                } else {
+                    current_group.clear();
+                }
+                current_kind = "";
+                continue;
+            }
+
             // Strip UTF-8 BOM if present (common on first line of some files)
-            let trimmed = line_str
-                .trim()
-                .strip_prefix('\u{FEFF}')
-                .unwrap_or(line_str.trim());
+            let trimmed = trimmed_raw.strip_prefix('\u{FEFF}').unwrap_or(trimmed_raw);
             if let Some((path, kind)) = extract_require_path_and_kind(trimmed) {
                 // If the kind changed (require vs require_relative), start a new group
                 if !current_group.is_empty() && kind != current_kind {
@@ -192,6 +220,24 @@ fn extract_require_path_and_kind(line: &str) -> Option<(String, &'static str)> {
     let inner = &rest[1..end_pos];
     // Skip strings with interpolation — RuboCop only checks str_type? (not dstr)
     if inner.contains("#{") {
+        return None;
+    }
+    // Check for trailing content after closing quote (ignoring optional `)`, whitespace, comments)
+    let after_quote = &rest[end_pos + 1..];
+    let after_quote = after_quote.trim_start();
+    let after_quote = after_quote
+        .strip_prefix(')')
+        .unwrap_or(after_quote)
+        .trim_start();
+    // Allow: empty, comment, modifier conditionals (if/unless/while/until)
+    // Reject: `rescue nil`, backslash continuation, or other non-standard trailing content
+    if !after_quote.is_empty()
+        && !after_quote.starts_with('#')
+        && !after_quote.starts_with("if ")
+        && !after_quote.starts_with("unless ")
+        && !after_quote.starts_with("while ")
+        && !after_quote.starts_with("until ")
+    {
         return None;
     }
     Some((inner.to_string(), kind))
