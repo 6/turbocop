@@ -34,3 +34,7 @@ in [a_1, b_2]
 end
 value => result_1
 obj => { key: val_1 }
+# Rescue exception variables with normalcase numbers are fine
+begin
+rescue => error2
+end

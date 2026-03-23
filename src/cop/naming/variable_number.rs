@@ -8,8 +8,11 @@ use crate::cop::node_type::{
     LOCAL_VARIABLE_OPERATOR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE,
     MULTI_WRITE_NODE, REQUIRED_PARAMETER_NODE, SYMBOL_NODE,
 };
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 /// FN=160 investigation: nitrocop only handled simple write nodes (e.g.
@@ -81,8 +84,8 @@ use crate::parse::source::SourceFile;
 /// fires. In Prism, the same syntax creates `LocalVariableTargetNode`, which was
 /// registered as an interested node type. Fix: removed all `*TargetNode` types from
 /// interested_node_types and instead handle them through `MultiWriteNode` (multi-
-/// assignment) and `ForNode` (for-loop), which are the only non-pattern-matching
-/// contexts where target nodes appear.
+/// assignment), `ForNode` (for-loop), and `RescueNode` (rescue exception variable),
+/// which are the only non-pattern-matching contexts where target nodes appear.
 pub struct VariableNumber;
 
 const DEFAULT_ALLOWED: &[&str] = &[
@@ -359,6 +362,68 @@ impl Cop for VariableNumber {
             );
         }
     }
+
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        // Rescue exception variables (`rescue => error_2`) use *TargetNode types
+        // in Prism, same as pattern matching. But RuboCop's on_lvasgn fires for
+        // rescue variables (Parser creates lvasgn), not for pattern matching
+        // (Parser creates match_var). Prism's Visit trait calls visit_rescue_node
+        // directly from visit_begin_node, bypassing visit_branch_node_enter, so
+        // check_node never sees RescueNode. We handle them here with a visitor.
+        let enforced_style = config.get_str("EnforcedStyle", "normalcase");
+        let allowed = config.get_string_array("AllowedIdentifiers");
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
+        let allowed_ids: Vec<String> =
+            allowed.unwrap_or_else(|| DEFAULT_ALLOWED.iter().map(|s| s.to_string()).collect());
+        let allowed_pats: Vec<String> = allowed_patterns.unwrap_or_default();
+
+        let mut visitor = RescueRefVisitor {
+            cop: self,
+            source,
+            enforced_style,
+            allowed_ids: &allowed_ids,
+            allowed_pats: &allowed_pats,
+            diagnostics,
+        };
+        visitor.visit(&parse_result.node());
+    }
+}
+
+/// Visitor that finds rescue exception variables (`rescue => var_1`).
+/// Prism's visit_begin_node calls visit_rescue_node directly, bypassing
+/// visit_branch_node_enter, so RescueNode is invisible to check_node.
+struct RescueRefVisitor<'a> {
+    cop: &'a VariableNumber,
+    source: &'a SourceFile,
+    enforced_style: &'a str,
+    allowed_ids: &'a [String],
+    allowed_pats: &'a [String],
+    diagnostics: &'a mut Vec<Diagnostic>,
+}
+
+impl<'pr> ruby_prism::Visit<'pr> for RescueRefVisitor<'_> {
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        if let Some(reference) = node.reference() {
+            self.cop.check_target_variable(
+                self.source,
+                &reference,
+                self.enforced_style,
+                self.allowed_ids,
+                self.allowed_pats,
+                self.diagnostics,
+            );
+        }
+        // Continue walking children (subsequent rescue clauses, etc.)
+        ruby_prism::visit_rescue_node(self, node);
+    }
 }
 
 impl VariableNumber {
@@ -568,6 +633,17 @@ mod tests {
     fn global_var_implicit_param_name_is_offense() {
         let diags = crate::testutil::run_cop_full(&VariableNumber, b"$_1 = 1\n");
         assert_eq!(diags.len(), 1, "expected $_1 to be flagged");
+    }
+
+    #[test]
+    fn rescue_variable_with_number() {
+        let diags =
+            crate::testutil::run_cop_full(&VariableNumber, b"begin\nrescue => error_2\nend\n");
+        assert_eq!(
+            diags.len(),
+            1,
+            "expected rescue variable error_2 to be flagged"
+        );
     }
 
     #[test]
