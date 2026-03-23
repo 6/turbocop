@@ -419,6 +419,7 @@ jobs:
 
       - name: Run repair agent
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
+        id: agent
         timeout-minutes: 45
         env:
           ANTHROPIC_BASE_URL: ${{ steps.backend.outputs.env_ANTHROPIC_BASE_URL }}
@@ -478,9 +479,19 @@ jobs:
           exit 0
 
       - name: Assess repair result
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
+        if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
         id: assess
         run: |
+          if [ "${{ steps.agent.outcome }}" != "success" ]; then
+            echo "result=agent_failed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ steps.verify.outcome }}" = "skipped" ] || [ -z "${{ steps.verify.outputs.status }}" ]; then
+            echo "result=verify_not_run" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ "${{ steps.verify.outputs.status }}" != "0" ]; then
             echo "result=verify_failed" >> "$GITHUB_OUTPUT"
             exit 0
@@ -601,6 +612,28 @@ jobs:
               echo ""
               echo "The agent produced changes in the temporary workspace, but those changes could not be replayed cleanly onto the original PR head."
             } > "$REPAIR_COMMENT_FILE"
+          elif [ "$RESULT" = "agent_failed" ]; then
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            {
+              echo "## Auto-repair Agent Failed"
+              echo ""
+              echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
+              echo "- Backend: \`${{ steps.backend.outputs.display_label }}\`"
+              echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              echo ""
+              echo "The repair agent step failed before local verification ran."
+            } > "$REPAIR_COMMENT_FILE"
+          elif [ "$RESULT" = "verify_not_run" ]; then
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            {
+              echo "## Auto-repair Verification Did Not Run"
+              echo ""
+              echo "- Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})"
+              echo "- Backend: \`${{ steps.backend.outputs.display_label }}\`"
+              echo "- Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              echo ""
+              echo "The workflow reached assessment without a verification result, so no verification log was produced."
+            } > "$REPAIR_COMMENT_FILE"
           elif [ "${{ steps.push.outcome }}" = "failure" ]; then
             gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
             {
@@ -687,7 +720,11 @@ jobs:
             echo "## Verification"
             echo ""
             echo '```'
-            tail -60 "$REPAIR_VERIFY_LOG" 2>/dev/null || echo "(no verification log)"
+            if [ -f "$REPAIR_VERIFY_LOG" ]; then
+              tail -60 "$REPAIR_VERIFY_LOG"
+            else
+              echo "(verification did not run)"
+            fi
             echo '```'
             echo ""
 

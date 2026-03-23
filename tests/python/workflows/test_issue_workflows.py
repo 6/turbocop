@@ -42,6 +42,17 @@ def test_agent_pr_repair_checks_out_repo_before_running_local_scripts():
     assert checkout_index < pr_state_index
 
 
+def test_agent_pr_repair_distinguishes_agent_failure_from_verify_failure():
+    content = AGENT_PR_REPAIR.read_text()
+    assert "id: agent" in content
+    assert 'if: always() && steps.pr.outputs.should_run == \'true\'' in content
+    assert 'if [ "${{ steps.agent.outcome }}" != "success" ]; then' in content
+    assert 'echo "result=agent_failed" >> "$GITHUB_OUTPUT"' in content
+    assert "## Auto-repair Agent Failed" in content
+    assert "## Auto-repair Verification Did Not Run" in content
+    assert "(verification did not run)" in content
+
+
 def test_issue_sync_workflow_uses_app_token_and_dispatch_script():
     content = COP_ISSUE_SYNC.read_text()
     assert "actions/create-github-app-token@v1" in content
@@ -67,6 +78,7 @@ if __name__ == "__main__":
     test_agent_cop_fix_supports_issue_linking_and_auto_backend()
     test_agent_pr_repair_reads_linked_issue_and_can_update_it()
     test_agent_pr_repair_checks_out_repo_before_running_local_scripts()
+    test_agent_pr_repair_distinguishes_agent_failure_from_verify_failure()
     test_issue_sync_workflow_uses_app_token_and_dispatch_script()
     test_issue_dispatch_workflow_uses_app_token_and_dispatch_script()
     test_investigate_regression_workflow_uses_script()
