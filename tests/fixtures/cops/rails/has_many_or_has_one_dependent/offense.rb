@@ -71,3 +71,32 @@ class Widget < ApplicationRecord
   has_one :config, **opts
   ^^^^^^^ Rails/HasManyOrHasOneDependent: Specify a `:dependent` option.
 end
+
+# has_many with block AND extra args inside with_options (RuboCop doesn't
+# recognize association extension blocks when extra args are present)
+class KiwiUser < ApplicationRecord
+  with_options dependent: :destroy do
+    has_many :access_logs, class_name: "Kiwi::AccessLog" do
+    ^^^^^^^^ Rails/HasManyOrHasOneDependent: Specify a `:dependent` option.
+      def uniq_histories(max: 100)
+      end
+    end
+  end
+end
+
+# has_many with explicit hash literal before lambda (not recognized as options)
+class Contact < ActiveRecord::Base
+  has_many :photos, {dependent: :destroy}, -> { order(created_at: :asc) }
+  ^^^^^^^^ Rails/HasManyOrHasOneDependent: Specify a `:dependent` option.
+end
+
+# has_many inside intermediate block within with_options
+# (with_options context does not propagate through non-with_options blocks)
+class Vendor < ApplicationRecord
+  with_options dependent: :destroy do
+    ["orders", "products"].each do |model|
+      has_many model.pluralize.to_sym
+      ^^^^^^^^ Rails/HasManyOrHasOneDependent: Specify a `:dependent` option.
+    end
+  end
+end

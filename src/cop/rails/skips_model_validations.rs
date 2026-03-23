@@ -54,6 +54,22 @@ use crate::parse::source::SourceFile;
 /// Examples that were incorrectly exempted:
 /// - `array.insert(1, { "zero" => "zero2" })` — hash with string key
 /// - `obj.insert(6, 'search' => {...}, 'visible' => false)` — hash-rocket string-keyed args
+///
+/// ## Investigation (2026-03-23)
+///
+/// **FP root cause (3 FP, extended corpus):** All 3 FPs were `insert` calls with a block
+/// argument (`&block`, `&bl`, or bare `&`). In RuboCop's AST, `block_pass` nodes are part of
+/// the arguments list, so `good_insert?` pattern `(call _ {:insert :insert!} _ ...)` sees
+/// them as the second argument (which is not a hash → exempt). In Prism, `&block` lives in
+/// `call.block()` as a `BlockArgumentNode`, separate from `call.arguments()`. Our
+/// `good_insert?` check only counted positional args from `call.arguments()`, missing the
+/// block argument entirely. Fixed by including `call.block()` block arguments in the
+/// effective argument count.
+///
+/// Examples:
+/// - `operand.insert(*args, &bl)` — 1 positional + block_arg = 2 effective args
+/// - `insert(node, &block)` — 1 positional + block_arg = 2 effective args
+/// - `dataset.insert_conflict(opts).insert(*values, &)` — 1 positional + block_arg = 2 effective args
 pub struct SkipsModelValidations;
 
 const SKIP_METHODS: &[&[u8]] = &[
@@ -167,18 +183,33 @@ impl Cop for SkipsModelValidations {
         // This means: skip if 2+ args AND second arg is not a hash, OR is a hash where
         // at least one key is NOT :returning/:unique_by (i.e., not purely AR-specific keys).
         // Uses `call` (matches both send and csend).
+        //
+        // In RuboCop's AST, `&block` (block_pass) is part of the arguments list,
+        // but in Prism it lives in `call.block()` as a BlockArgumentNode. We must
+        // include it in the effective argument count for parity.
         if method_name == b"insert" || method_name == b"insert!" {
+            let has_block_arg = call
+                .block()
+                .is_some_and(|b| b.as_block_argument_node().is_some());
             if let Some(args) = call.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
-                if arg_list.len() >= 2 {
-                    let second = &arg_list[1];
-                    let is_good = if let Some(hash) = second.as_hash_node() {
-                        // It's a hash — "good" (not AR) if at least one key is NOT :returning/:unique_by
-                        hash_has_non_ar_key(hash.elements().iter())
-                    } else if let Some(kw_hash) = second.as_keyword_hash_node() {
-                        kw_hash_has_non_ar_key(kw_hash.elements().iter())
+                let effective_len = arg_list.len() + usize::from(has_block_arg);
+                if effective_len >= 2 {
+                    // The "second arg" in RuboCop's pattern — if it's the block_pass
+                    // (i.e., only 1 positional arg), it's definitely not a hash.
+                    let is_good = if arg_list.len() >= 2 {
+                        let second = &arg_list[1];
+                        if let Some(hash) = second.as_hash_node() {
+                            // It's a hash — "good" (not AR) if at least one key is NOT :returning/:unique_by
+                            hash_has_non_ar_key(hash.elements().iter())
+                        } else if let Some(kw_hash) = second.as_keyword_hash_node() {
+                            kw_hash_has_non_ar_key(kw_hash.elements().iter())
+                        } else {
+                            true // Not a hash at all — not an AR insert (e.g., String#insert)
+                        }
                     } else {
-                        true // Not a hash at all — not an AR insert (e.g., String#insert)
+                        // Only 1 positional arg + block_arg — block_pass is not a hash
+                        true
                     };
                     if is_good {
                         return;

@@ -50,6 +50,32 @@ use ruby_prism::Visit;
 /// `fixtures/ashared/models/user.rb` which doesn't match Include.
 ///
 /// Fixed by enabling `follow_links(true)` in `src/fs.rs` WalkBuilder.
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus reported FP=0, FN=4 across 3 repos. Three root causes:
+///
+/// 7. **Association extension block with extra args inside `with_options`** --
+///    RuboCop's `association_extension_block?` pattern only matches
+///    `(block (send nil? :has_many _) ...)` i.e. exactly one argument.
+///    When extra keyword args are present (e.g., `has_many :foo, class_name: 'X' do...end`),
+///    the pattern fails and RuboCop does not walk up to find the enclosing
+///    `with_options`. Fixed by checking if the association call has both a block
+///    and extra arguments; if so, `with_options` context is not applied.
+///    (akicho8__shogi-extend, 2 FNs)
+///
+/// 8. **Explicit hash literal before lambda** -- `has_many :photos, {dependent: :destroy},
+///    -> { order(...) }` places a HashNode in a non-last argument position. RuboCop's
+///    `association_with_options?` pattern requires `(hash ...)` as the last child.
+///    Fixed by only checking explicit HashNode arguments when they are the last
+///    argument in the call. (jamesknelson__memamug-server, 1 FN)
+///
+/// 9. **Intermediate blocks break `with_options` context** -- `has_many` inside
+///    an `.each do...end` block within a `with_options` block. RuboCop only walks
+///    up through `begin` nodes and recognized association extension blocks, not
+///    through arbitrary block boundaries. Fixed by clearing the `with_options`
+///    stack when entering non-association, non-with_options block bodies.
+///    (spree__spree_multi_vendor, 1 FN)
 pub struct HasManyOrHasOneDependent;
 
 impl Cop for HasManyOrHasOneDependent {
@@ -205,18 +231,113 @@ impl DependentVisitor<'_> {
         false
     }
 
+    /// Check if the association call has more than one argument (i.e., has keyword
+    /// options or extra positional args beyond the association name).
+    fn has_extra_args(call: &ruby_prism::CallNode<'_>) -> bool {
+        let Some(args) = call.arguments() else {
+            return false;
+        };
+        args.arguments().len() > 1
+    }
+
+    /// Check if a HashNode argument is the last argument in the call.
+    /// Explicit hash literals like `{dependent: :destroy}` that are NOT the last
+    /// argument should not be treated as the options hash (matching RuboCop behavior).
+    fn has_keyword_arg_not_nil_strict(call: &ruby_prism::CallNode<'_>, key: &[u8]) -> bool {
+        let Some(args) = call.arguments() else {
+            return false;
+        };
+        let args_list: Vec<_> = args.arguments().iter().collect();
+        let last_idx = args_list.len().saturating_sub(1);
+        for (i, arg) in args_list.iter().enumerate() {
+            // Direct keyword hash pairs in arguments (always valid)
+            if let Some(kw) = arg.as_keyword_hash_node() {
+                for elem in kw.elements().iter() {
+                    if let Some(assoc) = elem.as_assoc_node() {
+                        if let Some(sym) = assoc.key().as_symbol_node() {
+                            if sym.unescaped() == key && assoc.value().as_nil_node().is_none() {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            // Hash literal -- only check if it's the last argument
+            if i == last_idx {
+                if let Some(hash) = arg.as_hash_node() {
+                    for elem in hash.elements().iter() {
+                        if let Some(assoc) = elem.as_assoc_node() {
+                            if let Some(sym) = assoc.key().as_symbol_node() {
+                                if sym.unescaped() == key && assoc.value().as_nil_node().is_none() {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn has_keyword_arg_any_strict(call: &ruby_prism::CallNode<'_>, key: &[u8]) -> bool {
+        let Some(args) = call.arguments() else {
+            return false;
+        };
+        let args_list: Vec<_> = args.arguments().iter().collect();
+        let last_idx = args_list.len().saturating_sub(1);
+        for (i, arg) in args_list.iter().enumerate() {
+            if let Some(kw) = arg.as_keyword_hash_node() {
+                for elem in kw.elements().iter() {
+                    if let Some(assoc) = elem.as_assoc_node() {
+                        if let Some(sym) = assoc.key().as_symbol_node() {
+                            if sym.unescaped() == key {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            // Hash literal -- only check if it's the last argument
+            if i == last_idx {
+                if let Some(hash) = arg.as_hash_node() {
+                    for elem in hash.elements().iter() {
+                        if let Some(assoc) = elem.as_assoc_node() {
+                            if let Some(sym) = assoc.key().as_symbol_node() {
+                                if sym.unescaped() == key {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
     fn check_association(&mut self, call: &ruby_prism::CallNode<'_>) {
         // Skip if :through is specified with non-nil value (directly or via with_options)
-        let has_through = Self::has_keyword_arg_not_nil(call, b"through")
+        let has_through = Self::has_keyword_arg_not_nil_strict(call, b"through")
             || self.with_options_stack.iter().any(|ctx| ctx.has_through);
         if has_through {
             return;
         }
 
-        // Skip if :dependent is specified (directly, via with_options, or via **{dependent: ...})
-        let has_dependent = Self::has_keyword_arg_any(call, b"dependent")
-            || Self::has_dependent_in_kwsplat(call)
-            || self.with_options_stack.iter().any(|ctx| ctx.has_dependent);
+        // Skip if :dependent is specified (directly or via **{dependent: ...})
+        let has_dependent = Self::has_keyword_arg_any_strict(call, b"dependent")
+            || Self::has_dependent_in_kwsplat(call);
+
+        // with_options context only applies when the association call does NOT have
+        // a block with extra arguments. RuboCop's association_extension_block? pattern
+        // only matches `has_many :name` (exactly one arg), so when extra args are
+        // present with a block, RuboCop fails to walk up to with_options.
+        let with_options_applies =
+            !(call.block().is_some() && Self::has_extra_args(call));
+
+        let has_dependent = has_dependent
+            || (with_options_applies
+                && self.with_options_stack.iter().any(|ctx| ctx.has_dependent));
         if has_dependent {
             return;
         }
@@ -289,7 +410,17 @@ impl<'pr> Visit<'pr> for DependentVisitor<'_> {
             self.visit(&args.as_node());
         }
         if let Some(block) = node.block() {
-            self.visit(&block);
+            // Non-with_options blocks (e.g., `each do...end`, `tap do...end`)
+            // break the with_options context chain. RuboCop only walks up
+            // through begin nodes and association extension blocks, not through
+            // arbitrary block boundaries. Save and clear the stack for the block body.
+            if !self.with_options_stack.is_empty() && !Self::is_association_call(node) {
+                let saved = std::mem::take(&mut self.with_options_stack);
+                self.visit(&block);
+                self.with_options_stack = saved;
+            } else {
+                self.visit(&block);
+            }
         }
     }
 }
