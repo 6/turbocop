@@ -11,11 +11,19 @@ static DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Normalize a cop name from disable comments.
 ///
-/// RuboCop accepts `Department::CopName` (Ruby constant path style) as equivalent
-/// to `Department/CopName` in inline directive comments. Normalize to `/` form.
+/// RuboCop's `DIRECTIVE_COMMENT_REGEXP` uses `COP_NAME_PATTERN` =
+/// `([A-Za-z]\w+/)*(?:[A-Za-z]\w+)`, which splits on `/` only — `:` is not
+/// part of `\w`.  When a user writes `Department::CopName`, the regex captures
+/// only `Department` (the part before `::`), and the `::CopName` suffix falls
+/// outside the match.  RuboCop then treats `Department` as a department-level
+/// disable that suppresses every cop in that department.
+///
+/// We replicate this by stripping the `::…` suffix and returning just the
+/// department token, so the range is stored under the department key and
+/// `is_disabled` matches via the department check.
 fn normalize_directive_cop_name(name: &str) -> String {
-    if let Some((dept, cop)) = name.split_once("::") {
-        format!("{dept}/{cop}")
+    if let Some((dept, _cop)) = name.split_once("::") {
+        dept.to_string()
     } else {
         name.to_string()
     }
@@ -1004,15 +1012,17 @@ mod tests {
     }
 
     #[test]
-    fn double_colon_separator_normalized_to_slash() {
-        // RuboCop accepts `Department::CopName` as equivalent to `Department/CopName`.
-        // Both block and inline forms should be normalized.
+    fn double_colon_separator_treated_as_department_disable() {
+        // RuboCop's COP_NAME_PATTERN = `([A-Za-z]\w+/)*(?:[A-Za-z]\w+)` splits
+        // on `/` only — `:` is not `\w`. So `Department::CopName` captures only
+        // `Department`, and RuboCop treats it as a department-level disable.
+        // Both block and inline forms should work.
         let mut dr = disabled_ranges(
             "# rubocop:disable Rails::SkipsModelValidations\nfoo.update_attribute(:x, y)\n# rubocop:enable Rails::SkipsModelValidations\n",
         );
         assert!(
             dr.check_and_mark_used("Rails/SkipsModelValidations", 2),
-            "Rails::SkipsModelValidations should suppress Rails/SkipsModelValidations"
+            "Rails::SkipsModelValidations should suppress Rails/SkipsModelValidations via department"
         );
 
         // Inline form
@@ -1021,7 +1031,21 @@ mod tests {
         );
         assert!(
             dr2.check_and_mark_used("Rails/SkipsModelValidations", 1),
-            "inline Rails::SkipsModelValidations should suppress Rails/SkipsModelValidations"
+            "inline Rails::SkipsModelValidations should suppress Rails/SkipsModelValidations via department"
+        );
+    }
+
+    #[test]
+    fn double_colon_old_cop_name_suppresses_via_department() {
+        // `Naming::PredicateName` (old cop name with `::` separator) should
+        // suppress Naming/PredicatePrefix because `:` is not part of \w in
+        // RuboCop's regex, so only `Naming` is captured → department disable.
+        let mut dr = disabled_ranges(
+            "def has_tag?(s) # rubocop:disable Naming::PredicateName\n  true\nend\n",
+        );
+        assert!(
+            dr.check_and_mark_used("Naming/PredicatePrefix", 1),
+            "Naming::PredicateName should suppress Naming/PredicatePrefix via department"
         );
     }
 
