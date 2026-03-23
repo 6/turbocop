@@ -14,6 +14,10 @@ impl Cop for MultilineIfThen {
         &[IF_NODE, UNLESS_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for MultilineIfThen {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle `if ... then` (multi-line)
         if let Some(if_node) = node.as_if_node() {
@@ -83,12 +87,29 @@ impl Cop for MultilineIfThen {
 
             let keyword_name = if kw_text == b"elsif" { "elsif" } else { "if" };
             let (line, column) = source.offset_to_line_col(then_loc.start_offset());
-            diagnostics.push(self.diagnostic(
+            let mut diag = self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Do not use `then` for multi-line `{}`.", keyword_name),
-            ));
+            );
+            // Autocorrect: remove ` then` (including preceding whitespace)
+            if let Some(ref mut corr) = corrections {
+                let src = source.as_bytes();
+                let mut remove_start = then_loc.start_offset();
+                while remove_start > 0 && src[remove_start - 1] == b' ' {
+                    remove_start -= 1;
+                }
+                corr.push(crate::correction::Correction {
+                    start: remove_start,
+                    end: then_loc.end_offset(),
+                    replacement: String::new(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
 
         // Handle `unless ... then` (multi-line)
@@ -123,12 +144,28 @@ impl Cop for MultilineIfThen {
             }
 
             let (line, column) = source.offset_to_line_col(then_loc.start_offset());
-            diagnostics.push(self.diagnostic(
+            let mut diag = self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not use `then` for multi-line `unless`.".to_string(),
-            ));
+            );
+            if let Some(ref mut corr) = corrections {
+                let src = source.as_bytes();
+                let mut remove_start = then_loc.start_offset();
+                while remove_start > 0 && src[remove_start - 1] == b' ' {
+                    remove_start -= 1;
+                }
+                corr.push(crate::correction::Correction {
+                    start: remove_start,
+                    end: then_loc.end_offset(),
+                    replacement: String::new(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
     }
 }
@@ -137,4 +174,5 @@ impl Cop for MultilineIfThen {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(MultilineIfThen, "cops/style/multiline_if_then");
+    crate::cop_autocorrect_fixture_tests!(MultilineIfThen, "cops/style/multiline_if_then");
 }

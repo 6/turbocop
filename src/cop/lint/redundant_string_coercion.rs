@@ -53,6 +53,10 @@ impl Cop for RedundantStringCoercion {
         ]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -60,30 +64,30 @@ impl Cop for RedundantStringCoercion {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         if let Some(interp) = node.as_interpolated_string_node() {
-            self.check_interpolation(source, &interp.parts(), diagnostics);
+            self.check_interpolation(source, &interp.parts(), diagnostics, &mut corrections);
             return;
         }
 
         if let Some(interp) = node.as_interpolated_regular_expression_node() {
-            self.check_interpolation(source, &interp.parts(), diagnostics);
+            self.check_interpolation(source, &interp.parts(), diagnostics, &mut corrections);
             return;
         }
 
         if let Some(interp) = node.as_interpolated_x_string_node() {
-            self.check_interpolation(source, &interp.parts(), diagnostics);
+            self.check_interpolation(source, &interp.parts(), diagnostics, &mut corrections);
             return;
         }
 
         if let Some(interp) = node.as_interpolated_symbol_node() {
-            self.check_interpolation(source, &interp.parts(), diagnostics);
+            self.check_interpolation(source, &interp.parts(), diagnostics, &mut corrections);
             return;
         }
 
         if let Some(call) = node.as_call_node() {
-            self.check_print_call(source, call, diagnostics);
+            self.check_print_call(source, call, diagnostics, &mut corrections);
         }
     }
 }
@@ -94,6 +98,7 @@ impl RedundantStringCoercion {
         source: &SourceFile,
         parts: &ruby_prism::NodeList<'_>,
         diagnostics: &mut Vec<Diagnostic>,
+        corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
     ) {
         for part in parts {
             let embedded = match part.as_embedded_statements_node() {
@@ -138,7 +143,32 @@ impl RedundantStringCoercion {
             } else {
                 "Redundant use of `Object#to_s` in interpolation.".to_string()
             };
-            diagnostics.push(self.diagnostic(source, line, column, message));
+            let mut diag = self.diagnostic(source, line, column, message);
+            // Autocorrect: remove `.to_s` or replace bare `to_s` with `self`
+            if let Some(corr) = corrections {
+                if implicit_receiver {
+                    // Replace `to_s` with `self`
+                    corr.push(crate::correction::Correction {
+                        start: call.location().start_offset(),
+                        end: call.location().end_offset(),
+                        replacement: "self".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                } else {
+                    // Remove `.to_s` (from the dot before `to_s` to end)
+                    let receiver = call.receiver().unwrap();
+                    corr.push(crate::correction::Correction {
+                        start: receiver.location().end_offset(),
+                        end: call.location().end_offset(),
+                        replacement: String::new(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                }
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
     }
 
@@ -147,6 +177,7 @@ impl RedundantStringCoercion {
         source: &SourceFile,
         call: ruby_prism::CallNode<'_>,
         diagnostics: &mut Vec<Diagnostic>,
+        corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only bare calls (no receiver) — matches RuboCop's `return if node.receiver`
         if call.receiver().is_some() {
@@ -188,7 +219,29 @@ impl RedundantStringCoercion {
             } else {
                 format!("Redundant use of `Object#to_s` in `{method_name_str}`.")
             };
-            diagnostics.push(self.diagnostic(source, line, column, message));
+            let mut diag = self.diagnostic(source, line, column, message);
+            if let Some(corr) = corrections {
+                if implicit_receiver {
+                    corr.push(crate::correction::Correction {
+                        start: arg_call.location().start_offset(),
+                        end: arg_call.location().end_offset(),
+                        replacement: "self".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                } else {
+                    let receiver = arg_call.receiver().unwrap();
+                    corr.push(crate::correction::Correction {
+                        start: receiver.location().end_offset(),
+                        end: arg_call.location().end_offset(),
+                        replacement: String::new(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                }
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
     }
 }
@@ -197,6 +250,10 @@ impl RedundantStringCoercion {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(
+        RedundantStringCoercion,
+        "cops/lint/redundant_string_coercion"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         RedundantStringCoercion,
         "cops/lint/redundant_string_coercion"
     );

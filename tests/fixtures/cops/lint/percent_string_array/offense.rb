@@ -4,3 +4,7 @@
 ^^^^^^^^^^^^^^^^ Lint/PercentStringArray: Within `%w`/`%W`, quotes and ',' are unnecessary and may be unwanted in the resulting strings.
 %W('baz' 'qux')
 ^^^^^^^^^^^^^^^^ Lint/PercentStringArray: Within `%w`/`%W`, quotes and ',' are unnecessary and may be unwanted in the resulting strings.
+%w["name", "role"]
+^^^^^^^^^^^^^^^^^^ Lint/PercentStringArray: Within `%w`/`%W`, quotes and ',' are unnecessary and may be unwanted in the resulting strings.
+%w('active', 'pending', 'done')
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/PercentStringArray: Within `%w`/`%W`, quotes and ',' are unnecessary and may be unwanted in the resulting strings.
