@@ -6,7 +6,7 @@ use crate::cop::node_type::{
     INSTANCE_VARIABLE_OPERATOR_WRITE_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE,
     INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_AND_WRITE_NODE,
     LOCAL_VARIABLE_OPERATOR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE,
-    MULTI_WRITE_NODE, REQUIRED_PARAMETER_NODE, SYMBOL_NODE,
+    MULTI_WRITE_NODE, REQUIRED_PARAMETER_NODE,
 };
 use ruby_prism::Visit;
 
@@ -86,6 +86,18 @@ use crate::parse::source::SourceFile;
 /// interested_node_types and instead handle them through `MultiWriteNode` (multi-
 /// assignment), `ForNode` (for-loop), and `RescueNode` (rescue exception variable),
 /// which are the only non-pattern-matching contexts where target nodes appear.
+///
+/// ## Corpus investigation (2026-03-23) — extended corpus, batch 2
+///
+/// Extended corpus reported FP=1 on `halostatue__color__3299b65` for
+/// `weight => k_1:, k_2:, k_l:` (pattern matching deconstruction).
+/// In Prism, hash pattern keys like `k_1:` are SymbolNode inside HashPatternNode.
+/// In Parser gem, these become `match_var` nodes, so RuboCop's `on_sym` never fires.
+/// The previous fix removed `*TargetNode` types but still processed SymbolNode in
+/// `check_node`, which has no parent context to detect pattern matching.
+/// Fix: moved symbol checking from `check_node` to the `check_source` visitor, which
+/// overrides `visit_hash_pattern_node` to skip SymbolNode keys while still visiting
+/// assoc values.
 pub struct VariableNumber;
 
 const DEFAULT_ALLOWED: &[&str] = &[
@@ -127,7 +139,6 @@ impl Cop for VariableNumber {
             LOCAL_VARIABLE_WRITE_NODE,
             MULTI_WRITE_NODE,
             REQUIRED_PARAMETER_NODE,
-            SYMBOL_NODE,
         ]
     }
 
@@ -142,7 +153,6 @@ impl Cop for VariableNumber {
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "normalcase");
         let check_method_names = config.get_bool("CheckMethodNames", true);
-        let check_symbols = config.get_bool("CheckSymbols", true);
         let allowed = config.get_string_array("AllowedIdentifiers");
         let allowed_patterns = config.get_string_array("AllowedPatterns");
 
@@ -244,48 +254,6 @@ impl Cop for VariableNumber {
             }
         }
 
-        // Check symbols
-        if check_symbols {
-            if let Some(sym) = node.as_symbol_node() {
-                let name = sym.unescaped();
-                let name_str = std::str::from_utf8(name).unwrap_or("");
-                // Skip standalone empty symbols (:'' and :""). In Parser gem
-                // with TargetRubyVersion >= 4.0, these are :dsym (not :sym),
-                // so RuboCop's on_sym never fires. Only hash-key empty symbols
-                // ("": val) become :sym in Parser 4.0. In Prism, standalone
-                // symbols have a colon-prefix opening (`:` or `:`), while
-                // hash-key symbols don't.
-                if name_str.is_empty() {
-                    let is_standalone = sym
-                        .opening_loc()
-                        .is_some_and(|loc| loc.as_slice().starts_with(b":"));
-                    if is_standalone {
-                        return;
-                    }
-                }
-                if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
-                    // For empty-value symbols like :"", value_loc() may return
-                    // a zero-length range at an incorrect offset. Use the full
-                    // symbol location instead when value_loc has zero length.
-                    let loc = match sym.value_loc() {
-                        Some(vloc) if !vloc.as_slice().is_empty() => vloc,
-                        _ => sym.location(),
-                    };
-                    if let Some(diag) = check_number_style(
-                        self,
-                        source,
-                        name_str,
-                        &loc,
-                        enforced_style,
-                        "symbol",
-                        true,
-                    ) {
-                        diagnostics.push(diag);
-                    }
-                }
-            }
-        }
-
         // Check method parameters
         if let Some(param) = node.as_required_parameter_node() {
             let name = param.name().as_slice();
@@ -372,23 +340,29 @@ impl Cop for VariableNumber {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Rescue exception variables (`rescue => error_2`) use *TargetNode types
-        // in Prism, same as pattern matching. But RuboCop's on_lvasgn fires for
-        // rescue variables (Parser creates lvasgn), not for pattern matching
-        // (Parser creates match_var). Prism's Visit trait calls visit_rescue_node
-        // directly from visit_begin_node, bypassing visit_branch_node_enter, so
-        // check_node never sees RescueNode. We handle them here with a visitor.
+        // This visitor handles two cases that require tree-walking context:
+        //
+        // 1. Rescue exception variables (`rescue => error_2`): Prism's Visit trait
+        //    calls visit_rescue_node directly from visit_begin_node, bypassing
+        //    visit_branch_node_enter, so check_node never sees RescueNode.
+        //
+        // 2. Symbol checking: In pattern matching (`value => k_1:, k_2:`), Prism
+        //    creates SymbolNode keys inside HashPatternNode. Parser gem creates
+        //    match_var nodes instead, so RuboCop's on_sym never fires. The visitor
+        //    skips SymbolNode children of HashPatternNode to avoid false positives.
         let enforced_style = config.get_str("EnforcedStyle", "normalcase");
+        let check_symbols = config.get_bool("CheckSymbols", true);
         let allowed = config.get_string_array("AllowedIdentifiers");
         let allowed_patterns = config.get_string_array("AllowedPatterns");
         let allowed_ids: Vec<String> =
             allowed.unwrap_or_else(|| DEFAULT_ALLOWED.iter().map(|s| s.to_string()).collect());
         let allowed_pats: Vec<String> = allowed_patterns.unwrap_or_default();
 
-        let mut visitor = RescueRefVisitor {
+        let mut visitor = VariableNumberVisitor {
             cop: self,
             source,
             enforced_style,
+            check_symbols,
             allowed_ids: &allowed_ids,
             allowed_pats: &allowed_pats,
             diagnostics,
@@ -397,19 +371,26 @@ impl Cop for VariableNumber {
     }
 }
 
-/// Visitor that finds rescue exception variables (`rescue => var_1`).
-/// Prism's visit_begin_node calls visit_rescue_node directly, bypassing
-/// visit_branch_node_enter, so RescueNode is invisible to check_node.
-struct RescueRefVisitor<'a> {
+/// Visitor that handles rescue exception variables and symbol checking.
+///
+/// Rescue: Prism's visit_begin_node calls visit_rescue_node directly,
+/// bypassing visit_branch_node_enter, so RescueNode is invisible to check_node.
+///
+/// Symbols: In pattern matching (`value => k_1:`), Prism creates SymbolNode
+/// keys inside HashPatternNode. Parser gem creates match_var nodes instead,
+/// so RuboCop's on_sym never fires. This visitor skips HashPatternNode
+/// subtrees entirely for symbol checking to match RuboCop behavior.
+struct VariableNumberVisitor<'a> {
     cop: &'a VariableNumber,
     source: &'a SourceFile,
     enforced_style: &'a str,
+    check_symbols: bool,
     allowed_ids: &'a [String],
     allowed_pats: &'a [String],
     diagnostics: &'a mut Vec<Diagnostic>,
 }
 
-impl<'pr> ruby_prism::Visit<'pr> for RescueRefVisitor<'_> {
+impl<'pr> ruby_prism::Visit<'pr> for VariableNumberVisitor<'_> {
     fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
         if let Some(reference) = node.reference() {
             self.cop.check_target_variable(
@@ -423,6 +404,73 @@ impl<'pr> ruby_prism::Visit<'pr> for RescueRefVisitor<'_> {
         }
         // Continue walking children (subsequent rescue clauses, etc.)
         ruby_prism::visit_rescue_node(self, node);
+    }
+
+    fn visit_symbol_node(&mut self, node: &ruby_prism::SymbolNode<'pr>) {
+        if !self.check_symbols {
+            return;
+        }
+        let name = node.unescaped();
+        let name_str = std::str::from_utf8(name).unwrap_or("");
+        // Skip standalone empty symbols (:'' and :""). In Parser gem
+        // with TargetRubyVersion >= 4.0, these are :dsym (not :sym),
+        // so RuboCop's on_sym never fires. Only hash-key empty symbols
+        // ("": val) become :sym in Parser 4.0. In Prism, standalone
+        // symbols have a colon-prefix opening, while hash-key symbols don't.
+        if name_str.is_empty() {
+            let is_standalone = node
+                .opening_loc()
+                .is_some_and(|loc| loc.as_slice().starts_with(b":"));
+            if is_standalone {
+                return;
+            }
+        }
+        if !is_allowed(name_str, self.allowed_ids, self.allowed_pats) {
+            // For empty-value symbols like :"", value_loc() may return
+            // a zero-length range at an incorrect offset. Use the full
+            // symbol location instead when value_loc has zero length.
+            let loc = match node.value_loc() {
+                Some(vloc) if !vloc.as_slice().is_empty() => vloc,
+                _ => node.location(),
+            };
+            if let Some(diag) = check_number_style(
+                self.cop,
+                self.source,
+                name_str,
+                &loc,
+                self.enforced_style,
+                "symbol",
+                true,
+            ) {
+                self.diagnostics.push(diag);
+            }
+        }
+        // SymbolNode is a leaf — no children to visit.
+    }
+
+    fn visit_hash_pattern_node(&mut self, node: &ruby_prism::HashPatternNode<'pr>) {
+        // In pattern matching (`value => k_1:, k_2:`), Prism creates SymbolNode
+        // keys inside HashPatternNode. Parser gem creates match_var nodes instead,
+        // so RuboCop's on_sym never fires for pattern matching hash keys.
+        // Skip recursing into HashPatternNode to avoid false positives on symbols.
+        // We still need to visit the value side of assocs (which may contain
+        // other patterns with rescue/symbol nodes), but NOT the key symbols.
+        for assoc in node.elements().iter() {
+            if let Some(assoc_node) = assoc.as_assoc_node() {
+                // Skip the key (SymbolNode in pattern matching) — visit only the value.
+                let value = assoc_node.value();
+                self.visit(&value);
+            } else if let Some(splat) = assoc.as_assoc_splat_node() {
+                // **rest pattern — visit the expression
+                if let Some(value) = splat.value() {
+                    self.visit(&value);
+                }
+            }
+        }
+        // Visit the rest node if present (e.g., `in { **rest }`)
+        if let Some(rest) = node.rest() {
+            self.visit(&rest);
+        }
     }
 }
 

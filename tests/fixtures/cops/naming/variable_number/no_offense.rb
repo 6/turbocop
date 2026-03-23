@@ -34,6 +34,14 @@ in [a_1, b_2]
 end
 value => result_1
 obj => { key: val_1 }
+# Pattern matching hash keys — in Parser gem, `k_1:` in `value => k_1:`
+# creates match_var nodes (not sym), so RuboCop's on_sym never fires.
+case value
+in { k_1:, k_2: }
+  k_1
+end
+weight = 1.0
+weight => k_1:, k_2:, k_l:
 # Rescue exception variables with normalcase numbers are fine
 begin
 rescue => error2
