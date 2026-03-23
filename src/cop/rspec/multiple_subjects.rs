@@ -5,6 +5,18 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 /// RSpec/MultipleSubjects: Flag multiple `subject` declarations in the same example group.
+///
+/// This cop recursively searches within if/case branches to find all subject
+/// declarations in an example group, not just direct statements. This handles
+/// cases like:
+///
+///   describe Foo do
+///     if condition
+///       subject { ... }
+///     else
+///       subject { ... }
+///     end
+///   end
 pub struct MultipleSubjects;
 
 impl Cop for MultipleSubjects {
@@ -61,19 +73,12 @@ impl Cop for MultipleSubjects {
             None => return,
         };
 
-        // Collect subject declarations in this group's direct body
-        let mut subject_calls: Vec<(usize, usize, usize)> = Vec::new(); // (line, col, end_offset)
+        // Collect subject declarations in this group's body, recursively searching
+        // into if/case branches
+        let mut subject_calls: Vec<(usize, usize)> = Vec::new(); // (line, col)
 
         for stmt in stmts.body().iter() {
-            if let Some(c) = stmt.as_call_node() {
-                let m = c.name().as_slice();
-                if (m == b"subject" || m == b"subject!") && c.receiver().is_none() {
-                    let loc = c.location();
-                    let (line, col) = source.offset_to_line_col(loc.start_offset());
-                    let end_off = loc.end_offset();
-                    subject_calls.push((line, col, end_off));
-                }
-            }
+            find_subjects_in_node(source, &stmt, &mut subject_calls);
         }
 
         if subject_calls.len() <= 1 {
@@ -81,13 +86,74 @@ impl Cop for MultipleSubjects {
         }
 
         // Flag all except the last one
-        for &(line, col, _end_off) in &subject_calls[..subject_calls.len() - 1] {
+        for &(line, col) in &subject_calls[..subject_calls.len() - 1] {
             diagnostics.push(self.diagnostic(
                 source,
                 line,
                 col,
                 "Do not set more than one subject per example group".to_string(),
             ));
+        }
+    }
+}
+
+/// Recursively find subject declarations in a node, recursing into if/case branches
+/// but stopping at nested example groups.
+fn find_subjects_in_node(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    subject_calls: &mut Vec<(usize, usize)>,
+) {
+    // Check if this node is a subject call
+    if let Some(c) = node.as_call_node() {
+        let m = c.name().as_slice();
+        if (m == b"subject" || m == b"subject!") && c.receiver().is_none() {
+            let loc = c.location();
+            let (line, col) = source.offset_to_line_col(loc.start_offset());
+            subject_calls.push((line, col));
+        }
+        // Don't recurse into blocks attached to calls - we've already handled the call itself
+        return;
+    }
+
+    // Recurse into if/elsif/else branches
+    if let Some(if_node) = node.as_if_node() {
+        if let Some(stmts) = if_node.statements() {
+            for stmt in stmts.body().iter() {
+                find_subjects_in_node(source, &stmt, subject_calls);
+            }
+        }
+        if let Some(subsequent) = if_node.subsequent() {
+            find_subjects_in_node(source, &subsequent, subject_calls);
+        }
+        return;
+    }
+
+    // Recurse into case/when branches
+    if let Some(case_node) = node.as_case_node() {
+        for cond in case_node.conditions().iter() {
+            if let Some(when_node) = cond.as_when_node() {
+                if let Some(stmts) = when_node.statements() {
+                    for stmt in stmts.body().iter() {
+                        find_subjects_in_node(source, &stmt, subject_calls);
+                    }
+                }
+            }
+        }
+        if let Some(else_clause) = case_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                for stmt in stmts.body().iter() {
+                    find_subjects_in_node(source, &stmt, subject_calls);
+                }
+            }
+        }
+        return;
+    }
+
+    // For other node types, try to find statements to recurse into
+    if let Some(stmts) = node.as_statements_node() {
+        for stmt in stmts.body().iter() {
+            find_subjects_in_node(source, &stmt, subject_calls);
         }
     }
 }
