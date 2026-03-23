@@ -41,6 +41,7 @@ def build_paths_from_root(workflow: str, root: Path) -> dict[str, str]:
                 "CLAIM_BODY_FILE": str(root / "context" / "claim-body.md"),
                 "PR_BODY_FILE": str(root / "context" / "pr-body.md"),
                 "PRIOR_ATTEMPTS_FILE": str(root / "context" / "prior-attempts.md"),
+                "STANDARD_COP_CHECK_LOG": str(root / "context" / "standard-cop-check.log"),
             }
         )
     elif workflow == "agent-pr-repair":

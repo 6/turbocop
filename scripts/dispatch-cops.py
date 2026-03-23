@@ -278,8 +278,15 @@ def get_corpus_data(cop: str, input_path: Path | None, extended: bool) -> dict:
             input_path, _, _ = _download_corpus(prefer=prefer)
         except Exception as e:
             print(f"Warning: could not download corpus data: {e}", file=sys.stderr)
-            return {"fp": 0, "fn": 0, "matches": 0,
-                    "fp_examples": [], "fn_examples": [], "repo_breakdown": {}}
+            return {
+                "fp": 0,
+                "fn": 0,
+                "matches": 0,
+                "fp_examples": [],
+                "fn_examples": [],
+                "repo_breakdown": {},
+                "available": False,
+            }
 
     data = json.loads(input_path.read_text())
     by_cop = data.get("by_cop", [])
@@ -287,8 +294,15 @@ def get_corpus_data(cop: str, input_path: Path | None, extended: bool) -> dict:
     cop_entry = next((e for e in by_cop if e["cop"] == cop), None)
 
     if cop_entry is None:
-        return {"fp": 0, "fn": 0, "matches": 0,
-                "fp_examples": [], "fn_examples": [], "repo_breakdown": {}}
+        return {
+            "fp": 0,
+            "fn": 0,
+            "matches": 0,
+            "fp_examples": [],
+            "fn_examples": [],
+            "repo_breakdown": {},
+            "available": True,
+        }
 
     repo_breakdown = {}
     for repo_id, cops in by_repo_cop.items():
@@ -307,7 +321,21 @@ def get_corpus_data(cop: str, input_path: Path | None, extended: bool) -> dict:
         "fp_examples": cop_entry.get("fp_examples", []),
         "fn_examples": cop_entry.get("fn_examples", []),
         "repo_breakdown": repo_breakdown,
+        "available": True,
     }
+
+
+def safe_get_corpus_data(
+    cop: str,
+    *,
+    input_path: Path | None = None,
+    extended: bool = False,
+) -> dict | None:
+    try:
+        return get_corpus_data(cop, input_path, extended)
+    except Exception as exc:
+        print(f"Warning: could not load {'extended' if extended else 'standard'} corpus data: {exc}", file=sys.stderr)
+        return None
 
 
 def _normalize_example(ex) -> tuple[str, str, list[str] | None]:
@@ -416,6 +444,125 @@ def build_start_here_section(cop: str, corpus: dict) -> str:
             msg_suffix = f" — {msg}" if msg else ""
             lines.append(f"- `{loc}`{msg_suffix}")
         lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def corpus_total(corpus: dict | None) -> int:
+    if not corpus:
+        return 0
+    return corpus.get("fp", 0) + corpus.get("fn", 0)
+
+
+def affected_repo_count(corpus: dict | None) -> int:
+    if not corpus:
+        return 0
+    return sum(
+        1
+        for counts in corpus.get("repo_breakdown", {}).values()
+        if counts.get("fp", 0) > 0 or counts.get("fn", 0) > 0
+    )
+
+
+def assess_cross_corpus_risk(
+    primary_corpus: dict,
+    *,
+    extended: bool,
+    standard_corpus: dict | None,
+) -> dict[str, object]:
+    primary_total = corpus_total(primary_corpus)
+    primary_repos = affected_repo_count(primary_corpus)
+
+    standard_available = bool(standard_corpus and standard_corpus.get("available", True))
+    standard_matches = (
+        0 if not standard_available else int(standard_corpus.get("matches", 0))
+    )
+    standard_total = None if not standard_available else corpus_total(standard_corpus)
+    standard_perfect = bool(
+        standard_total is not None and standard_matches > 0 and standard_total == 0
+    )
+    extended_only_edge_case = bool(extended and primary_total > 0 and standard_perfect)
+    concentrated = primary_repos <= 3 if primary_repos else False
+
+    if extended_only_edge_case:
+        reason = (
+            "extended corpus diverges while the standard corpus baseline is already perfect"
+        )
+        if primary_repos:
+            reason += f" ({primary_repos} affected repo{'s' if primary_repos != 1 else ''})"
+        risk_class = "extended_only_edge_case"
+    else:
+        reason = "no special cross-corpus risk detected"
+        risk_class = "normal"
+
+    return {
+        "risk_class": risk_class,
+        "extended_only_edge_case": extended_only_edge_case,
+        "requires_standard_quick_gate": extended_only_edge_case,
+        "standard_total": standard_total,
+        "standard_available": standard_available,
+        "standard_matches": standard_matches,
+        "standard_perfect": standard_perfect,
+        "affected_repos": primary_repos,
+        "concentrated": concentrated,
+        "reason": reason,
+    }
+
+
+def build_cross_corpus_risk_section(
+    primary_corpus: dict,
+    *,
+    extended: bool,
+    standard_corpus: dict | None,
+    risk: dict[str, object],
+) -> str:
+    if not extended:
+        return ""
+
+    standard_label = "(unavailable)"
+    if standard_corpus is not None and standard_corpus.get("available", True):
+        standard_label = (
+            f"{standard_corpus.get('matches', 0):,} matches, "
+            f"{standard_corpus.get('fp', 0)} FP, {standard_corpus.get('fn', 0)} FN"
+        )
+
+    primary_repos = int(risk.get("affected_repos", 0) or 0)
+    lines = [
+        "## Cross-Corpus Risk",
+        "",
+        f"- Standard corpus: {standard_label}",
+        (
+            f"- Extended corpus: {primary_corpus.get('matches', 0):,} matches, "
+            f"{primary_corpus.get('fp', 0)} FP, {primary_corpus.get('fn', 0)} FN"
+        ),
+    ]
+    if primary_repos:
+        lines.append(
+            f"- Extended divergence currently touches {primary_repos} repo{'s' if primary_repos != 1 else ''}"
+        )
+
+    if risk.get("extended_only_edge_case"):
+        lines.extend(
+            [
+                "",
+                "**Risk class:** extended-only edge case against a standard-perfect baseline.",
+                "",
+                "Treat the extended examples as a narrow edge case, not proof that the broad pattern is safe.",
+                "Any carve-out that reduces the extended FP/FN count but regresses the standard corpus is a bad fix.",
+                "Prefer the smallest context-specific change you can justify from RuboCop behavior and the vendor spec.",
+            ]
+        )
+        if risk.get("concentrated"):
+            lines.append(
+                "This is concentrated in only a few repos, which increases the risk of overfitting to one local shape."
+            )
+    else:
+        lines.extend(
+            [
+                "",
+                "Use the extended examples to guide the fix, but still avoid broad carve-outs that change the cop's general semantics.",
+            ]
+        )
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -888,6 +1035,12 @@ def generate_task(
 
     offense_fixture, no_offense_fixture = find_fixtures(dept, snake)
     corpus = get_corpus_data(cop, input_path, extended)
+    standard_corpus = safe_get_corpus_data(cop, extended=False) if extended else None
+    cross_corpus_risk = assess_cross_corpus_risk(
+        corpus,
+        extended=extended,
+        standard_corpus=standard_corpus,
+    )
 
     # Run pre-diagnostic if binary is available
     diagnostics = None
@@ -924,6 +1077,15 @@ def generate_task(
 
     # Header
     parts.append(f"# Fix {cop} — {corpus['fp']} FP, {corpus['fn']} FN\n")
+
+    cross_corpus_section = build_cross_corpus_risk_section(
+        corpus,
+        extended=extended,
+        standard_corpus=standard_corpus,
+        risk=cross_corpus_risk,
+    )
+    if cross_corpus_section:
+        parts.append(cross_corpus_section)
 
     # Instructions
     focus = "FP" if corpus["fp"] > corpus["fn"] else "FN" if corpus["fn"] > corpus["fp"] else "both FP and FN"
@@ -1210,6 +1372,8 @@ def select_backend_for_entry(
     *,
     mode: str,
     binary: Path | None,
+    extended: bool = False,
+    standard_entry: dict | None = None,
     prior_prs: list[dict] | None = None,
     issue_difficulty: str | None = None,
     min_total: int = 3,
@@ -1220,6 +1384,25 @@ def select_backend_for_entry(
     prior_prs = prior_prs or []
     total = total_for_entry(entry or {})
     tier = tier_for_total(total) if total else 3
+    primary_corpus = {
+        "fp": (entry or {}).get("fp", 0),
+        "fn": (entry or {}).get("fn", 0),
+        "matches": (entry or {}).get("matches", 0),
+        "repo_breakdown": (entry or {}).get("repo_breakdown", {}),
+    }
+    standard_corpus = None
+    if standard_entry is not None:
+        standard_corpus = {
+            "fp": standard_entry.get("fp", 0),
+            "fn": standard_entry.get("fn", 0),
+            "matches": standard_entry.get("matches", 0),
+            "repo_breakdown": standard_entry.get("repo_breakdown", {}),
+        }
+    risk = assess_cross_corpus_risk(
+        primary_corpus,
+        extended=extended,
+        standard_corpus=standard_corpus,
+    )
 
     if mode == "retry":
         return {
@@ -1229,6 +1412,9 @@ def select_backend_for_entry(
             "code_bugs": 0,
             "config_issues": 0,
             "easy": False,
+            "risk_class": risk["risk_class"],
+            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
+            "extended_only_edge_case": risk["extended_only_edge_case"],
         }
 
     if has_failed_attempt(prior_prs):
@@ -1239,6 +1425,25 @@ def select_backend_for_entry(
             "code_bugs": 0,
             "config_issues": 0,
             "easy": False,
+            "risk_class": risk["risk_class"],
+            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
+            "extended_only_edge_case": risk["extended_only_edge_case"],
+        }
+
+    if risk["extended_only_edge_case"]:
+        return {
+            "backend": "codex-hard",
+            "reason": (
+                "extended-only edge case against a standard-perfect baseline; "
+                "avoid broad regressions"
+            ),
+            "tier": tier,
+            "code_bugs": 0,
+            "config_issues": 0,
+            "easy": False,
+            "risk_class": risk["risk_class"],
+            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
+            "extended_only_edge_case": risk["extended_only_edge_case"],
         }
 
     if issue_difficulty:
@@ -1250,6 +1455,9 @@ def select_backend_for_entry(
                 "code_bugs": 0,
                 "config_issues": 0,
                 "easy": True,
+                "risk_class": risk["risk_class"],
+                "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
+                "extended_only_edge_case": risk["extended_only_edge_case"],
             }
         return {
             "backend": "codex-hard",
@@ -1258,6 +1466,9 @@ def select_backend_for_entry(
             "code_bugs": 0,
             "config_issues": 0,
             "easy": False,
+            "risk_class": risk["risk_class"],
+            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
+            "extended_only_edge_case": risk["extended_only_edge_case"],
         }
 
     if not entry:
@@ -1268,6 +1479,9 @@ def select_backend_for_entry(
             "code_bugs": 0,
             "config_issues": 0,
             "easy": False,
+            "risk_class": risk["risk_class"],
+            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
+            "extended_only_edge_case": risk["extended_only_edge_case"],
         }
 
     if not should_consider_easy_candidate(
@@ -1286,6 +1500,9 @@ def select_backend_for_entry(
             "code_bugs": 0,
             "config_issues": 0,
             "easy": False,
+            "risk_class": risk["risk_class"],
+            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
+            "extended_only_edge_case": risk["extended_only_edge_case"],
         }
 
     if not binary or not binary.exists():
@@ -1296,6 +1513,9 @@ def select_backend_for_entry(
             "code_bugs": 0,
             "config_issues": 0,
             "easy": False,
+            "risk_class": risk["risk_class"],
+            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
+            "extended_only_edge_case": risk["extended_only_edge_case"],
         }
 
     fn_bugs, fn_cfg = diagnose_examples(binary, cop, entry.get("fn_examples", []), "fn")
@@ -1313,6 +1533,9 @@ def select_backend_for_entry(
             "code_bugs": code_bugs,
             "config_issues": config_issues,
             "easy": True,
+            "risk_class": risk["risk_class"],
+            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
+            "extended_only_edge_case": risk["extended_only_edge_case"],
         }
 
     return {
@@ -1322,10 +1545,15 @@ def select_backend_for_entry(
         "code_bugs": code_bugs,
         "config_issues": config_issues,
         "easy": False,
+        "risk_class": risk["risk_class"],
+        "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
+        "extended_only_edge_case": risk["extended_only_edge_case"],
     }
 
 
 def classify_issue_difficulty(entry: dict, recommendation: dict[str, object]) -> str:
+    if recommendation.get("extended_only_edge_case"):
+        return "complex"
     if recommendation.get("easy"):
         return "simple"
     if tier_for_total(total_for_entry(entry)) >= 3:
@@ -1782,9 +2010,22 @@ def fetch_corpus_for_sync(input_path: Path | None, extended: bool) -> tuple[dict
     return json.loads(path.read_text()), str(run_id), head_sha
 
 
+def try_load_standard_dispatch_data() -> dict | None:
+    try:
+        return load_dispatch_corpus(None, False)
+    except Exception as exc:
+        print(f"Warning: could not load standard corpus data for cross-corpus risk checks: {exc}", file=sys.stderr)
+        return None
+
+
 def cmd_backend(args: argparse.Namespace) -> int:
     data = load_dispatch_corpus(args.input, args.extended)
     entry = build_entry_index(data).get(args.cop)
+    standard_entry = None
+    if args.extended:
+        standard_data = try_load_standard_dispatch_data()
+        if standard_data is not None:
+            standard_entry = build_entry_index(standard_data).get(args.cop)
     prior_prs = index_prs_by_cop(list_agent_fix_prs(args.repo, state="all")).get(args.cop, [])
     binary = args.binary.resolve() if args.binary else None
     recommendation = select_backend_for_entry(
@@ -1792,6 +2033,8 @@ def cmd_backend(args: argparse.Namespace) -> int:
         entry,
         mode=args.mode,
         binary=binary,
+        extended=args.extended,
+        standard_entry=standard_entry,
         prior_prs=prior_prs,
         issue_difficulty=args.issue_difficulty,
     )
@@ -1804,6 +2047,15 @@ def cmd_backend(args: argparse.Namespace) -> int:
     print(f"code_bugs={recommendation['code_bugs']}")
     print(f"config_issues={recommendation['config_issues']}")
     print(f"easy={'true' if recommendation['easy'] else 'false'}")
+    print(
+        "requires_standard_quick_gate="
+        f"{'true' if recommendation['requires_standard_quick_gate'] else 'false'}"
+    )
+    print(
+        "extended_only_edge_case="
+        f"{'true' if recommendation['extended_only_edge_case'] else 'false'}"
+    )
+    print(f"risk_class={recommendation['risk_class']}")
     return 0
 
 
@@ -1821,6 +2073,11 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
         for cop, prs in prs_by_cop.items()
     }
     binary = args.binary.resolve() if args.binary else None
+    standard_entries = {}
+    if args.extended:
+        standard_data = try_load_standard_dispatch_data()
+        if standard_data is not None:
+            standard_entries = build_entry_index(standard_data)
     diverging_cops = {cop for cop, entry in entries.items() if total_for_entry(entry) > 0}
 
     created = updated = reopened = closed = 0
@@ -1833,6 +2090,8 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
             entry,
             mode="fix",
             binary=binary,
+            extended=args.extended,
+            standard_entry=standard_entries.get(cop),
             prior_prs=prior_prs,
         )
         difficulty = classify_issue_difficulty(entry, recommendation)

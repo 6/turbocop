@@ -25,6 +25,11 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "docs/agent-ci.md" in content
     assert "Switch to claimed PR branch" in content
     assert "validate_agent_changes.py" in content
+    assert "Run local standard quick corpus gate" in content
+    assert "requires_standard_quick_gate" in content
+    assert "Keep draft PR when local standard gate fails" in content
+    assert "bundle check || bundle install" in content
+    assert 'python3 scripts/check-cop.py "${{ github.event.inputs.cop }}"' in content
     assert 'gh pr merge "$PR_URL" --auto --squash --delete-branch' in content
     assert "prepare_agent_workspace.py" not in content
     assert "CI_SCRIPTS_DIR" not in content

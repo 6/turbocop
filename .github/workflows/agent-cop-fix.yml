@@ -276,6 +276,20 @@ jobs:
             echo "code_bugs=0" >> "$GITHUB_OUTPUT"
             echo "config_issues=0" >> "$GITHUB_OUTPUT"
             echo "easy=false" >> "$GITHUB_OUTPUT"
+            RISK_ARGS=(
+              --repo "${{ github.repository }}"
+              --cop "${{ github.event.inputs.cop }}"
+              --mode "${{ github.event.inputs.mode }}"
+              --extended
+              --binary target/debug/nitrocop
+            )
+            if [ -n "$ISSUE_DIFFICULTY" ]; then
+              RISK_ARGS+=(--issue-difficulty "$ISSUE_DIFFICULTY")
+            fi
+            python3 scripts/dispatch-cops.py backend \
+              "${RISK_ARGS[@]}" \
+              | grep -E '^(requires_standard_quick_gate|extended_only_edge_case|risk_class)=' \
+              >> "$GITHUB_OUTPUT"
           fi
 
       - name: Resolve backend config
@@ -798,7 +812,7 @@ jobs:
           gh pr close "$PR_URL" --comment "Agent edited files outside the allowed scope." --delete-branch
           exit 1
 
-      - name: Finalize PR branch and mark ready
+      - name: Finalize PR branch
         if: steps.changes.outputs.has_changes == 'true' && steps.file_guard.outputs.valid == 'true'
         id: pr
         env:
@@ -926,11 +940,76 @@ jobs:
           } > "$PR_BODY_FILE"
 
           gh pr edit "$PR_URL" --body-file "$PR_BODY_FILE"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "has_pr=true" >> "$GITHUB_OUTPUT"
+
+      - name: Run local standard quick corpus gate
+        if: steps.pr.outputs.has_pr == 'true' && steps.selected_backend.outputs.requires_standard_quick_gate == 'true'
+        id: standard_gate
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
+          GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
+        run: |
+          set -o pipefail
+          echo "::notice::Running local standard quick corpus gate for a high-risk extended-only edge case"
+          cargo build --release --bin nitrocop
+
+          (
+            cd bench/corpus
+            export BUNDLE_PATH=vendor/bundle
+            bundle check || bundle install --jobs 4 --retry 3
+          )
+
+          NITROCOP_BIN="$PWD/target/release/nitrocop" \
+            python3 scripts/check-cop.py "${{ github.event.inputs.cop }}" \
+              --verbose --rerun --quick --clone \
+              2>&1 | tee "$STANDARD_COP_CHECK_LOG"
+
+      - name: Keep draft PR when local standard gate fails
+        if: steps.pr.outputs.has_pr == 'true' && steps.standard_gate.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          PR_URL="${{ steps.pr.outputs.pr_url }}"
+          ISSUE_NUMBER="${{ github.event.inputs.issue_number }}"
+          REPO="${{ github.repository }}"
+          COP="${{ github.event.inputs.cop }}"
+
+          {
+            echo "## Local Standard Corpus Gate Failed"
+            echo ""
+            echo "This cop was classified as a high-risk extended-only edge case, so the workflow reran a local standard quick gate before making the PR ready."
+            echo ""
+            echo "The local standard gate failed, so this PR is staying in draft instead of enabling auto-merge."
+            echo "CI can still run on the pushed branch, and \`agent-pr-repair\` can continue from this PR if the standard corpus regression is reproducible there."
+            echo ""
+            echo "- Cop: \`${COP}\`"
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo ""
+            echo "<details>"
+            echo "<summary>Local standard quick gate output</summary>"
+            echo ""
+            echo '```'
+            tail -120 "$STANDARD_COP_CHECK_LOG" 2>/dev/null || echo "(no local standard gate log)"
+            echo '```'
+            echo "</details>"
+          } > "$CLAIM_BODY_FILE"
+
+          gh pr comment "$PR_URL" --repo "$REPO" --body-file "$CLAIM_BODY_FILE"
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file "$CLAIM_BODY_FILE"
+          fi
+
+      - name: Mark PR ready and enable auto-merge
+        if: steps.pr.outputs.has_pr == 'true' && (steps.selected_backend.outputs.requires_standard_quick_gate != 'true' || steps.standard_gate.outcome == 'success')
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          PR_URL="${{ steps.pr.outputs.pr_url }}"
 
           # Mark PR as ready for review (no longer draft)
           gh pr ready "$PR_URL"
-          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-          echo "has_pr=true" >> "$GITHUB_OUTPUT"
           echo "PR ready: $PR_URL"
 
           # Enable auto-merge (squash).

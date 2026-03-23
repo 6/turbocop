@@ -28,6 +28,7 @@ WORKFLOW_RELATIVE = {
         "context/task.md",
         "context/final-task.md",
         "context/summary.md",
+        "context/standard-cop-check.log",
     ],
     "agent-pr-repair": [
         "context/pr-diff.stat",

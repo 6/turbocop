@@ -22,6 +22,7 @@ def test_build_paths_for_agent_cop_fix():
     paths = agent_runtime.build_paths("agent-cop-fix", runner_temp)
     assert paths["AGENT_RUNTIME_ROOT"] == "/tmp/runner/agent-cop-fix"
     assert paths["SUMMARY_FILE"].endswith("/agent-cop-fix/context/summary.md")
+    assert paths["STANDARD_COP_CHECK_LOG"].endswith("/agent-cop-fix/context/standard-cop-check.log")
     assert paths["AGENT_SCOPE_REPORT_FILE"].endswith("/agent-cop-fix/recovery/scope.md")
     assert "REPAIR_SUMMARY_FILE" not in paths
 
