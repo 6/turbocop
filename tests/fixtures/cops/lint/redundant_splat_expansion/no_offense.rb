@@ -48,3 +48,8 @@ tmux.send_keys(*Array.new(110) { rev ? :Down : :Up })
 CopyTextToFileInContainer.const_get("Call").new(*Array.new(10))
 obj.call(*Array.new(5) { [] })
 send(method, *Array.new(foo))
+
+# Array.new in parenthesized method call with outer assignment — not flagged
+# The `=` is before the enclosing `(`, so it's the outer assignment context, not the splat's context
+escaped = Authentication::AuthnK8s::CopyTextToFileInContainer.const_get("Call").new(*Array.new(10)).send(:bash_script, path, content, mode)
+result = obj.call(*Array.new(5) { [] })
