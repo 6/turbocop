@@ -14,10 +14,11 @@ def test_all_backends_resolve():
     """Every registered backend should resolve without error."""
     for name in resolve_backend.BACKENDS:
         config = resolve_backend.resolve(name)
-        assert config["cli"] in ("claude", "codex"), f"{name}: unexpected cli"
+        assert config["cli"] in ("claude", "codex", "claude-action"), f"{name}: unexpected cli"
         assert config["log_format"] in ("claude", "codex"), f"{name}: unexpected log_format"
         assert config["setup_cmd"], f"{name}: missing setup_cmd"
-        assert config["run_cmd"], f"{name}: missing run_cmd"
+        if not config.get("action"):
+            assert config["run_cmd"], f"{name}: missing run_cmd"
         assert config["log_pattern"], f"{name}: missing log_pattern"
 
 
@@ -84,6 +85,56 @@ def test_codex_uses_codex():
     assert "scripts/workflows/agent_logs.py summarize" in config["run_cmd"]
 
 
+def test_claude_oauth_normal():
+    config = resolve_backend.resolve("claude-oauth-normal")
+    assert config["cli"] == "claude-action"
+    assert config["action"] is True
+    assert config["log_format"] == "claude"
+    assert config["run_cmd"] == ""
+    assert "CLAUDE_CODE_OAUTH_TOKEN" in config["setup_cmd"]
+    assert "ANTHROPIC_API_KEY" not in config["setup_cmd"]
+    assert "claude.ai/install.sh" not in config["setup_cmd"]
+    assert config["env"]["ANTHROPIC_MODEL"] == "sonnet"
+    assert "CLAUDE_CODE_OAUTH_TOKEN" in config["secrets"]
+
+
+def test_claude_oauth_hard():
+    config = resolve_backend.resolve("claude-oauth-hard")
+    assert config["cli"] == "claude-action"
+    assert config["action"] is True
+    assert config["env"]["ANTHROPIC_MODEL"] == "opus"
+    assert config["model_label"] == "Claude Opus (OAuth)"
+
+
+def test_choose_claude_oauth():
+    backend, strength, reason = resolve_backend.choose_backend("claude-oauth", "normal")
+    assert backend == "claude-oauth-normal"
+    assert strength == "normal"
+
+    backend, strength, reason = resolve_backend.choose_backend("claude-oauth", "hard")
+    assert backend == "claude-oauth-hard"
+    assert strength == "hard"
+
+
+def test_cli_output_includes_action_flag():
+    """CLI should emit action=true for oauth backends, action=false for others."""
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "claude-oauth-normal"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0
+    fields = dict(line.split("=", 1) for line in result.stdout.strip().splitlines())
+    assert fields["action"] == "true"
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "claude-normal"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0
+    fields = dict(line.split("=", 1) for line in result.stdout.strip().splitlines())
+    assert fields["action"] == "false"
+
+
 def test_unknown_backend_exits():
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "unknown"],
@@ -123,6 +174,10 @@ if __name__ == "__main__":
     test_codex_normal_uses_codex()
     test_minimax_uses_claude()
     test_claude_normal_uses_claude()
+    test_claude_oauth_normal()
+    test_claude_oauth_hard()
+    test_choose_claude_oauth()
+    test_cli_output_includes_action_flag()
     test_choose_backend_outputs_family_strength_and_labels()
     test_codex_uses_codex()
     test_unknown_backend_exits()

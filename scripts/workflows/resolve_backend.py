@@ -163,8 +163,43 @@ CLAUDE_HARD_BACKEND = {
 }
 
 
+def claude_oauth_backend(strength: str, model: str, display_label: str, model_label: str) -> dict:
+    return {
+        "family": "claude-oauth",
+        "strength": strength,
+        "model": model,
+        "reasoning_effort": "",
+        "display_label": display_label,
+        "model_label": model_label,
+        "cli": "claude-action",
+        "action": True,
+        "setup_cmd": (
+            'python3 scripts/workflows/guard_backend_secrets.py '
+            '--from-env CLAUDE_CODE_OAUTH_TOKEN '
+            'emit-masks'
+        ),
+        "log_format": "claude",
+        "log_pattern": "~/.claude/projects/**/*.jsonl",
+        "run_cmd": "",
+        "env": {
+            "ANTHROPIC_MODEL": model,
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        },
+        "secrets": {
+            "CLAUDE_CODE_OAUTH_TOKEN": "CLAUDE_CODE_OAUTH_TOKEN",
+        },
+    }
+
+
 CODEX_53_HIGH_BACKEND = codex_backend("gpt-5.3-codex", "high", "normal")
 CODEX_54_XHIGH_BACKEND = codex_backend("gpt-5.4", "xhigh", "hard")
+
+CLAUDE_OAUTH_NORMAL_BACKEND = claude_oauth_backend(
+    "normal", "sonnet", "claude-oauth / normal", "Claude Sonnet (OAuth)",
+)
+CLAUDE_OAUTH_HARD_BACKEND = claude_oauth_backend(
+    "hard", "opus", "claude-oauth / hard", "Claude Opus (OAuth)",
+)
 
 
 BACKENDS = {
@@ -173,6 +208,8 @@ BACKENDS = {
     "claude-hard": CLAUDE_HARD_BACKEND,
     "codex-normal": CODEX_53_HIGH_BACKEND,
     "codex-hard": CODEX_54_XHIGH_BACKEND,
+    "claude-oauth-normal": CLAUDE_OAUTH_NORMAL_BACKEND,
+    "claude-oauth-hard": CLAUDE_OAUTH_HARD_BACKEND,
 }
 
 
@@ -193,6 +230,10 @@ def choose_backend(family: str, strength: str, default_strength: str = "normal")
 
     if family == "claude":
         backend = "claude-hard" if resolved_strength == "hard" else "claude-normal"
+        return backend, resolved_strength, f"workflow override ({family}/{resolved_strength})"
+
+    if family == "claude-oauth":
+        backend = "claude-oauth-hard" if resolved_strength == "hard" else "claude-oauth-normal"
         return backend, resolved_strength, f"workflow override ({family}/{resolved_strength})"
 
     raise ValueError(f"unknown backend family: {family}")
@@ -244,6 +285,7 @@ def main():
     print(f"reasoning_effort={config['reasoning_effort']}")
     print(f"display_label={config['display_label']}")
     print(f"model_label={config['model_label']}")
+    print(f"action={'true' if config.get('action') else 'false'}")
 
     # Output env vars
     for key, val in config["env"].items():
