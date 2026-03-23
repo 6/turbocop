@@ -221,3 +221,40 @@ class << record.response
   def body; 2; end
   ^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `response.body` is defined at both test.rb:197 and test.rb:198.
 end
+
+# def ConstName.method where constant is NOT in scope (no class/module ancestor)
+# RuboCop's lookup_constant returns the node itself when no ancestor matches,
+# producing a key based on the full AST dump. Two identical defs match.
+def FakeModel.calling_let!(*_args); end
+def FakeModel.calling_let!(*_args); end
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `FakeModel.calling_let!` is defined at both test.rb:204 and test.rb:205.
+
+# def ConstName.method at top level — same constant, same body
+def VCR.version
+  "2.0.0"
+end
+def VCR.version
+^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `VCR.version` is defined at both test.rb:208 and test.rb:211.
+  "2.0.0"
+end
+
+# Reopened class << @ivar.call — two separate sclass blocks with same send-type expression
+class << record.response
+  def content_type; 1; end
+end
+class << record.response
+  def content_type; 2; end
+  ^^^^^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `response.content_type` is defined at both test.rb:217 and test.rb:220.
+end
+
+# def inside sclass expression (pry-style): Class.new block within sclass expr
+# RuboCop's found_sclass_method catches defs inside the expression via ancestor traversal
+class << Object.new
+  def pry_meth; 1; end
+end
+class << Class.new {
+  def pry_meth; 1; end
+  ^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `new.pry_meth` is defined at both test.rb:226 and test.rb:229.
+}.new
+  def placeholder; end
+end

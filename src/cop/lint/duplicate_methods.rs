@@ -140,12 +140,26 @@ use ruby_prism::Visit;
 ///   and pushing it as a singleton scope. Methods inside are now tracked (e.g., `def body`
 ///   inside `class << response` becomes `response.body`).
 ///
-/// Remaining FN not addressed (edge cases):
-/// - `def VCR.version` at top level in Rake tasks — constant not in scope stack
-///   (defined in separate module, no class/module ancestor wrapping the def).
-///   RuboCop's `lookup_constant` also returns nil here (no class/module ancestors).
-/// - `def FakeModel.calling_let!` inside test describe blocks — same issue:
-///   constant is not an enclosing class/module in the AST ancestor chain.
+///
+/// ### Round 10 (FP=0, FN=4 standard)
+/// Root causes of FN:
+/// - `def ConstName.method` where constant is NOT in the scope stack (no enclosing
+///   class/module/casgn ancestor defines it). Previously skipped when `lookup_constant`
+///   returned None. However, RuboCop's `lookup_constant` has a quirk: `each_ancestor`
+///   with a block returns the receiver (the node itself) when the block never executes
+///   (no matching ancestors). So `qualified` becomes the node's AST dump. Two identical
+///   defs produce the same AST dump key and are detected; different bodies produce
+///   different keys. Fixed by using the def's source text as the dedup key when
+///   `lookup_constant` returns None, matching this behavior. (FN1: seedbank, FN4: vcr)
+/// - `def meth` inside `Class.new { }` block within a `class << call_expr` expression
+///   was not visited because only the sclass body was visited, not the expression.
+///   RuboCop catches these via `found_sclass_method` which uses ancestor traversal
+///   to find the enclosing sclass. Fixed by scanning the sclass expression for DefNode
+///   descendants and registering them in the sclass scope. (FN2: pry)
+/// - Reopened `class << call_expr` blocks (e.g., two separate
+///   `class << @reflex.controller.response` blocks) already worked correctly since
+///   both push the same scope name and share the global definitions map. (FN3:
+///   stimulus_reflex was already handled)
 pub struct DuplicateMethods;
 
 impl Cop for DuplicateMethods {
@@ -378,6 +392,42 @@ impl DupMethodVisitor<'_, '_> {
                     let keyword_offset = node.def_keyword_loc().start_offset();
                     self.found_method(name, true, def_line, keyword_offset);
                     self.scope_stack = saved_scopes;
+                } else {
+                    // Constant not in scope stack. RuboCop's lookup_constant returns the
+                    // defs node itself (as a Ruby object) due to `each_ancestor` returning
+                    // the receiver when the block never executes. This means the "qualified"
+                    // name becomes the AST dump of the full def node. Two defs with identical
+                    // AST (same receiver, params, body) produce the same key and are detected
+                    // as duplicates; defs with different bodies produce different keys.
+                    //
+                    // We replicate this by using the source text of the def node as the
+                    // dedup key, but producing a clean `ConstName.method` message format.
+                    let loc = node.location();
+                    let start = loc.start_offset();
+                    let end_off = loc.end_offset();
+                    let source_bytes = self.source.as_bytes();
+                    if end_off <= source_bytes.len() {
+                        let def_source =
+                            std::str::from_utf8(&source_bytes[start..end_off]).unwrap_or("");
+                        // Use source text as the dedup key but const_name for the message
+                        let qualified = format!("{const_name}.{name}");
+                        let key = self.method_key(&format!("{def_source}.{name}"));
+
+                        if let Some(first_def) = self.definitions.get(&key) {
+                            let first_line = first_def.line;
+                            let path = self.source.path_str();
+                            let keyword_offset = node.def_keyword_loc().start_offset();
+                            let (line, column) = self.source.offset_to_line_col(keyword_offset);
+                            let message = format!(
+                                "Method `{qualified}` is defined at both \
+                                 {path}:{first_line} and {path}:{line}."
+                            );
+                            let diag = self.cop.diagnostic(self.source, line, column, message);
+                            self.diagnostics.push(diag);
+                        } else {
+                            self.definitions.insert(key, DefLocation { line: def_line });
+                        }
+                    }
                 }
             } else {
                 // def expr.method (non-const, non-self receiver) — not tracked
@@ -421,6 +471,57 @@ impl DupMethodVisitor<'_, '_> {
             }
         }
         None
+    }
+
+    /// Collect def nodes from a sclass expression and register them in the current scope.
+    ///
+    /// RuboCop's `found_sclass_method` catches defs inside the sclass expression
+    /// (not just the body) because it uses `each_ancestor(:sclass_type?)` which
+    /// finds the enclosing sclass even when the def is inside a block within the
+    /// expression. For example:
+    ///   `class << Class.new { def meth; 1; end }.new`
+    /// The `def meth` is inside `Class.new { }` block in the expression, but
+    /// RuboCop still tracks it as `new.meth` via the sclass ancestor.
+    ///
+    /// We replicate this by recursively scanning the expression for DefNode
+    /// descendants (without receivers) and registering them. The current scope
+    /// should already be set to the sclass scope before calling this method.
+    fn collect_defs_from_sclass_expr(&mut self, node: &ruby_prism::Node<'_>) {
+        // Use the Visit trait to find all DefNode descendants
+        struct DefCollector<'a> {
+            defs: Vec<(String, usize, usize)>, // (name, def_line, keyword_offset)
+            source: &'a SourceFile,
+        }
+        impl<'pr> Visit<'pr> for DefCollector<'_> {
+            fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+                // Only collect instance methods (no receiver) — matching RuboCop's
+                // found_sclass_method which calls found_instance_method
+                if node.receiver().is_none() {
+                    let name = std::str::from_utf8(node.name().as_slice())
+                        .unwrap_or("")
+                        .to_string();
+                    let (def_line, _) = self
+                        .source
+                        .offset_to_line_col(node.location().start_offset());
+                    let keyword_offset = node.def_keyword_loc().start_offset();
+                    self.defs.push((name, def_line, keyword_offset));
+                }
+                // Don't recurse into the def body — nested defs are separate
+            }
+        }
+
+        let mut collector = DefCollector {
+            defs: Vec::new(),
+            source: self.source,
+        };
+        collector.visit(node);
+
+        for (name, def_line, keyword_offset) in collector.defs {
+            // The scope is already set to the sclass call scope (e.g., "new")
+            // and is_singleton is true, so this will produce e.g., "new.meth"
+            let is_singleton = self.in_singleton_scope();
+            self.found_method(&name, is_singleton, def_line, keyword_offset);
+        }
     }
 
     /// Process an alias node.
@@ -953,6 +1054,13 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
             if let Some(body) = node.body() {
                 self.visit(&body);
             }
+            // Also scan the sclass expression for DefNodes. RuboCop's
+            // `found_sclass_method` catches defs inside the expression (e.g.,
+            // `class << Class.new { def meth; end }.new`) because `parent_module_name`
+            // returns nil and the sclass is found as an ancestor. We replicate this
+            // by extracting def names from the expression and registering them
+            // in the sclass scope.
+            self.collect_defs_from_sclass_expr(&expr);
             self.scope_stack = saved_scopes;
         } else {
             // `class << @some_ivar` or other non-call, non-const, non-self expressions.
