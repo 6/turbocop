@@ -402,3 +402,24 @@ def write_database(connection, table_name, if_table_exists)
   end
 end
 
+# FN fix: multi-assign var in if-branch, block nested in 2 blocks in multi-stmt else
+# (corpus: sup-heliotrope/sup bin/sup-add:61)
+# Else branch has multiple statements, so the choose block is NOT if.else_branch.
+# Inner each block's parent is choose block ≠ if.else_branch → not suppressed.
+def get_login_info_multi(sources, uri)
+  unless sources.empty?
+    if force_account
+      host, username, password = sources.find { |h, u, p| h == target }
+      use(host, username, password)
+    else
+      say "Would you like to use the same account for #{uri}?"
+      choose do |menu|
+        sources.each do |host, olduser, oldpw|
+                         ^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `host`.
+          menu.choice(olduser, host)
+        end
+      end
+    end
+  end
+end
+

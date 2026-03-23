@@ -215,6 +215,29 @@ use ruby_prism::Visit;
 /// block boundaries. When the enclosing block IS the else_branch of
 /// the if, `variable_node == if.else_branch` is true, so RuboCop
 /// suppresses (not an offense).
+///
+/// ## Corpus fix (2026-03-23): FN=1 fix (sup-heliotrope/sup)
+///
+/// Fixed 1 FN by tightening inherited conditional context propagation:
+///
+/// 1. **single_stmt guard on inherited_cond_branch**: The inherited
+///    conditional context was being set whenever a block had conditional
+///    context, regardless of whether the block was a direct child of the
+///    conditional branch. In Parser gem, `variable_node` =
+///    `variable.scope.node.parent` — for the inherited check to match
+///    `variable_node == if.else_branch`, the enclosing block must BE
+///    the branch content (only possible when branch has a single stmt).
+///    Multi-statement branches wrap in `begin`, so the block's parent
+///    is never the branch node. Added `bctx.single_stmt` guard to
+///    only propagate `inherited_cond_branch` when the block is the
+///    sole statement in its conditional branch.
+///    Fixes sup-heliotrope/sup FN: `host` from multi-assign in
+///    if-branch, `|host|` in block nested 2 deep in multi-stmt else.
+///
+/// Remaining FP (2): opal/opal Thread.new(value) { |value| } and
+/// trogdoro/xiki nested block `|k|` shadowing — both appear to be
+/// genuine offenses that RuboCop should flag; likely corpus oracle
+/// anomalies or version differences.
 pub struct ShadowingOuterLocalVariable;
 
 impl Cop for ShadowingOuterLocalVariable {
@@ -915,7 +938,15 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         let saved_inherited = self.inherited_cond_branch;
         // Use the current block's conditional context if available, otherwise
         // keep the already-inherited context from an outer block.
-        if bctx.cond_branch.is_some() {
+        // Only propagate when the block is a direct child of the conditional
+        // branch (single_stmt = true). In Parser gem, `variable_node` is
+        // `variable.scope.node.parent` — for the inherited check to work,
+        // the enclosing block must BE the conditional's branch content
+        // (e.g., `if.else_branch`). This only happens when the branch body
+        // has a single statement (the block). Multi-statement branches wrap
+        // in `begin`, so the block is NOT the branch content and inner
+        // blocks should not benefit from inherited conditional suppression.
+        if bctx.cond_branch.is_some() && bctx.single_stmt {
             self.inherited_cond_branch = bctx.cond_branch;
         }
         ruby_prism::visit_block_node(self, node);
@@ -964,7 +995,8 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         let saved_cond_stack = std::mem::take(&mut self.conditional_branch_stack);
         let saved_when_body = self.in_when_body_of_case.take();
         let saved_inherited = self.inherited_cond_branch;
-        if bctx.cond_branch.is_some() {
+        // Same single_stmt guard as visit_block_node — see comment there.
+        if bctx.cond_branch.is_some() && bctx.single_stmt {
             self.inherited_cond_branch = bctx.cond_branch;
         }
         ruby_prism::visit_lambda_node(self, node);
