@@ -34,7 +34,11 @@ enum ScopeKind {
     Class,
     /// Inside a `module` — trivial accessors are skipped here
     Module,
-    /// Top level (not inside class/module)
+    /// Inside an `instance_eval` block — trivial accessors are skipped here
+    InstanceEval,
+    /// Inside a regular block (describe, context, Class.new, etc.) — transparent
+    Block,
+    /// Top level (not inside any class/module/block)
     TopLevel,
 }
 
@@ -87,18 +91,36 @@ struct TrivialAccessorsVisitor<'a> {
 }
 
 impl<'a> TrivialAccessorsVisitor<'a> {
-    fn current_scope(&self) -> ScopeKind {
-        *self.scope_stack.last().unwrap_or(&ScopeKind::TopLevel)
+    /// Walk the scope stack from nearest to farthest, looking for the nearest
+    /// relevant scope. Blocks are transparent (keep walking).
+    ///
+    /// Matches RuboCop's `in_module_or_instance_eval?` + `top_level_node?`:
+    /// - Class/SingletonClass → check (return true)
+    /// - Module → skip (return false)
+    /// - InstanceEval → skip (return false)
+    /// - Block → transparent, keep walking
+    /// - TopLevel → skip unless we've seen a block (methods inside blocks
+    ///   are not "top level" in RuboCop's sense)
+    fn should_check_def(&self) -> bool {
+        let mut seen_block = false;
+        for scope in self.scope_stack.iter().rev() {
+            match scope {
+                ScopeKind::Class => return true,
+                ScopeKind::Module => return false,
+                ScopeKind::InstanceEval => return false,
+                ScopeKind::Block => {
+                    seen_block = true;
+                }
+                ScopeKind::TopLevel => {
+                    return seen_block;
+                }
+            }
+        }
+        false
     }
 
     fn check_def(&mut self, def_node: &ruby_prism::DefNode<'_>) {
-        // Skip if we're at top level (not inside any class/module)
-        if self.current_scope() == ScopeKind::TopLevel {
-            return;
-        }
-
-        // Skip if we're inside a module (vendor's in_module_or_instance_eval? check)
-        if self.current_scope() == ScopeKind::Module {
+        if !self.should_check_def() {
             return;
         }
 
@@ -254,6 +276,30 @@ impl<'pr> Visit<'pr> for TrivialAccessorsVisitor<'_> {
         self.scope_stack.pop();
     }
 
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        // Detect instance_eval blocks: `something.instance_eval do ... end`
+        if let Some(block) = node.block() {
+            let method_name = node.name();
+            if method_name.as_slice() == b"instance_eval" {
+                self.scope_stack.push(ScopeKind::InstanceEval);
+                if let Some(block_node) = block.as_block_node() {
+                    if let Some(body) = block_node.body() {
+                        self.visit(&body);
+                    }
+                }
+                self.scope_stack.pop();
+                return;
+            }
+
+            // Regular block (describe, context, Class.new, etc.)
+            self.scope_stack.push(ScopeKind::Block);
+            ruby_prism::visit_call_node(self, node);
+            self.scope_stack.pop();
+        } else {
+            ruby_prism::visit_call_node(self, node);
+        }
+    }
+
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         self.check_def(node);
         // Don't recurse into nested defs — they have their own scope
@@ -269,6 +315,14 @@ mod tests {
     fn block_scope_reader() {
         let source = b"describe \"something\" do\n  def app\n    @app\n  end\nend\n";
         let diagnostics = crate::testutil::run_cop_full(&TrivialAccessors, source);
+        eprintln!("DEBUG: diagnostics = {:?}", diagnostics);
+
+        // Also test with class wrapper to confirm baseline works
+        let class_source =
+            b"class Foo\n  def app\n    @app\n  end\nend\n";
+        let class_diagnostics = crate::testutil::run_cop_full(&TrivialAccessors, class_source);
+        eprintln!("DEBUG class: diagnostics = {:?}", class_diagnostics);
+
         assert_eq!(
             diagnostics.len(),
             1,
