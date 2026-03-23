@@ -3,6 +3,20 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Layout/SpaceBeforeFirstArg checks for extra space between a method name
+/// and the first argument in calls without parentheses.
+///
+/// ## Investigation findings (2026-03-23)
+///
+/// The original implementation had a 15% match rate (95 matches, 537 FNs)
+/// because it treated `AllowForAlignment: true` as unconditionally allowing
+/// any extra space. RuboCop's behavior is more nuanced: it only allows
+/// extra space when the first argument's column is actually aligned with
+/// a token boundary on an adjacent line (using `aligned_with_something?`
+/// from `PrecedingFollowingAlignment`). The fix implements alignment
+/// checking: look at the preceding and following non-blank lines and
+/// verify that the argument column has a `\s\S` boundary (space followed
+/// by non-space) at the same position, indicating intentional alignment.
 pub struct SpaceBeforeFirstArg;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
@@ -17,6 +31,116 @@ fn is_operator_method(name: &[u8]) -> bool {
 fn is_setter_method(name: &[u8]) -> bool {
     // Setter methods end with `=` but are not comparison operators
     name.len() >= 2 && name.last() == Some(&b'=') && !is_operator_method(name)
+}
+
+/// Check if the argument at `arg_col` (0-indexed byte column) is aligned with
+/// a token boundary on an adjacent line. Mirrors RuboCop's `aligned_with_something?`
+/// from `PrecedingFollowingAlignment`, simplified for this cop's needs.
+///
+/// Checks preceding and following non-blank, non-comment lines for:
+/// - Mode 1: space-then-non-space at `arg_col - 1` (token boundary alignment)
+/// - Mode 2: exact token text match at `arg_col`
+fn is_aligned_with_adjacent(source: &SourceFile, line: usize, arg_col: usize) -> bool {
+    let lines: Vec<&[u8]> = source.lines().collect();
+    let current_line_idx = line - 1; // Convert 1-indexed to 0-indexed
+
+    // Extract the token starting at arg_col on the current line for Mode 2
+    let current_line = lines.get(current_line_idx).copied().unwrap_or(&[]);
+    let current_token = extract_token_at(current_line, arg_col);
+
+    // Check preceding lines (up to 2 non-blank, non-comment lines)
+    let mut checked = 0;
+    let mut idx = current_line_idx;
+    while idx > 0 && checked < 2 {
+        idx -= 1;
+        let adj = lines[idx];
+        if is_blank_or_comment(adj) {
+            continue;
+        }
+        checked += 1;
+        if check_alignment_at(adj, arg_col, current_token) {
+            return true;
+        }
+    }
+
+    // Check following lines (up to 2 non-blank, non-comment lines)
+    checked = 0;
+    idx = current_line_idx;
+    while idx + 1 < lines.len() && checked < 2 {
+        idx += 1;
+        let adj = lines[idx];
+        if is_blank_or_comment(adj) {
+            continue;
+        }
+        checked += 1;
+        if check_alignment_at(adj, arg_col, current_token) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if there's a token boundary at `col` on the given line,
+/// mirroring RuboCop's `aligned_words?`.
+fn check_alignment_at(adj_line: &[u8], col: usize, current_token: &[u8]) -> bool {
+    if col >= adj_line.len() {
+        return false;
+    }
+
+    // Mode 1: space + non-space at the same column (token boundary)
+    if adj_line[col] != b' '
+        && adj_line[col] != b'\t'
+        && col > 0
+        && (adj_line[col - 1] == b' ' || adj_line[col - 1] == b'\t')
+    {
+        return true;
+    }
+
+    // Mode 2: exact token match at the same position
+    if !current_token.is_empty()
+        && col + current_token.len() <= adj_line.len()
+        && &adj_line[col..col + current_token.len()] == current_token
+    {
+        return true;
+    }
+
+    false
+}
+
+/// Extract a token-like string starting at the given byte column.
+fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
+    if col >= line.len() {
+        return &[];
+    }
+    let ch = line[col];
+    if ch.is_ascii_alphanumeric() || ch == b'_' || ch == b':' {
+        let end = line[col..]
+            .iter()
+            .position(|&b| !b.is_ascii_alphanumeric() && b != b'_' && b != b':')
+            .map_or(line.len(), |p| col + p);
+        &line[col..end]
+    } else if ch == b'"' || ch == b'\'' {
+        if let Some(close_pos) = line[col + 1..].iter().position(|&b| b == ch) {
+            &line[col..col + 1 + close_pos + 1]
+        } else {
+            &line[col..col + 1]
+        }
+    } else if ch == b' ' || ch == b'\t' {
+        &[]
+    } else {
+        &line[col..col + 1]
+    }
+}
+
+/// Check if a line is blank or a comment-only line.
+fn is_blank_or_comment(line: &[u8]) -> bool {
+    let trimmed = line.iter().skip_while(|&&b| b == b' ' || b == b'\t');
+    match trimmed.clone().next() {
+        None => true,        // blank line
+        Some(&b'#') => true, // comment line
+        _ => false,
+    }
 }
 
 impl Cop for SpaceBeforeFirstArg {
@@ -99,16 +223,21 @@ impl Cop for SpaceBeforeFirstArg {
         }
 
         if gap > 1 {
-            // When AllowForAlignment is true (default), extra spaces are allowed
-            // because they may be used for vertical alignment with adjacent lines.
-            if allow_for_alignment {
-                return;
-            }
-
             // More than one space between method name and first arg
             let bytes = source.as_bytes();
             let between = &bytes[method_end..arg_start];
             if between.iter().all(|&b| b == b' ') {
+                // When AllowForAlignment is true (default), check if the argument
+                // is actually aligned with a token on an adjacent line.
+                if allow_for_alignment {
+                    // Compute the byte column of the first argument on its line
+                    let line_start = source.line_start_offset(method_line);
+                    let arg_byte_col = arg_start - line_start;
+                    if is_aligned_with_adjacent(source, method_line, arg_byte_col) {
+                        return;
+                    }
+                }
+
                 let (line, column) = source.offset_to_line_col(method_end);
                 diagnostics.push(self.diagnostic(
                     source,

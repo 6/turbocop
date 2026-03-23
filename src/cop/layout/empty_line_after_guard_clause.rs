@@ -241,13 +241,31 @@ impl Cop for EmptyLineAfterGuardClause {
                     }
                     return;
                 }
-                // Skip block-form if/else (no elsif) — RuboCop's guard_clause_node
-                // returns nil for `if...else...end` without elsif. But
-                // `if...elsif...end` CAN be a guard if all branches return.
+                // Block-form if/else/end: RuboCop suppresses the offense when the
+                // `if` node has no right_sibling (i.e., it's embedded in an assignment
+                // like `ret = if...else...end`). We approximate this by checking if the
+                // `if` keyword is NOT the first non-whitespace on its line — if there's
+                // code before it (like `ret = `), it's an embedded expression and should
+                // be skipped.
                 if if_node.end_keyword_loc().is_some() {
                     if let Some(subsequent) = if_node.subsequent() {
                         if subsequent.as_else_node().is_some() {
-                            return;
+                            // Check if `if` keyword is preceded by code on the same line
+                            if let Some(kw) = if_node.if_keyword_loc() {
+                                let (kw_line, kw_col) = source.offset_to_line_col(kw.start_offset());
+                                let lines_vec: Vec<&[u8]> = source.lines().collect();
+                                if let Some(line_content) = lines_vec.get(kw_line.saturating_sub(1)) {
+                                    // Check if all chars before the `if` keyword are whitespace
+                                    // Use byte offset: compute bytes before the keyword
+                                    let line_start_offset = source.line_col_to_offset(kw_line, 0).unwrap_or(0);
+                                    let kw_byte_offset = kw.start_offset();
+                                    let prefix = &source.as_bytes()[line_start_offset..kw_byte_offset];
+                                    let has_code_before = prefix.iter().any(|&b| b != b' ' && b != b'\t');
+                                    if has_code_before {
+                                        return;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -362,9 +380,16 @@ impl Cop for EmptyLineAfterGuardClause {
         // same line (e.g. `arr.each { |x| return x if cond }`). If there is
         // non-comment code after the if node on the same line, skip.
         // Only check this for non-heredoc guards (heredoc guards span multiple lines).
+        // Use byte offsets directly to avoid UTF-8 character/byte mismatch.
         if heredoc_end_line.is_none() {
             if let Some(cur_line) = lines.get(if_end_line.saturating_sub(1)) {
-                let after_pos = end_col + 1;
+                // Compute the byte position within the line where the if node ends.
+                // effective_end_offset is a byte offset into the file; subtract the
+                // line's start byte offset to get the position within the line.
+                let line_start_byte =
+                    source.line_col_to_offset(if_end_line, 0).unwrap_or(0);
+                let end_byte_in_line = effective_end_offset.saturating_sub(line_start_byte);
+                let after_pos = end_byte_in_line + 1;
                 if after_pos < cur_line.len() {
                     let rest = &cur_line[after_pos..];
                     if let Some(idx) = rest
@@ -1262,9 +1287,82 @@ fn contains_modifier_guard(content: &[u8]) -> bool {
         return false;
     }
     for keyword in GUARD_METHODS {
-        if contains_word_at_top_level(content, keyword) {
+        // Use the receiver-aware check: `::Kernel.raise` should NOT match
+        // because `raise` is a method call on a receiver, not a bare guard.
+        if contains_guard_keyword_at_top_level(content, keyword) {
             return true;
         }
+    }
+    false
+}
+
+/// Like `contains_word_at_top_level` but also rejects matches where the guard
+/// keyword is immediately preceded by `.` (dot), indicating it's a method call
+/// on a receiver (e.g., `::Kernel.raise`, `Foo.fail`). RuboCop's
+/// `match_guard_clause?` requires `(send nil? {:raise :fail} ...)` — a bare
+/// call with no receiver.
+fn contains_guard_keyword_at_top_level(haystack: &[u8], word: &[u8]) -> bool {
+    let plen = word.len();
+    if haystack.len() < plen {
+        return false;
+    }
+
+    let mut depth: i32 = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut i = 0;
+
+    while i < haystack.len() {
+        let b = haystack[i];
+
+        if in_single_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'\'' {
+                in_single_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_double_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'"' {
+                in_double_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        match b {
+            b'\'' => {
+                in_single_quote = true;
+                i += 1;
+                continue;
+            }
+            b'"' => {
+                in_double_quote = true;
+                i += 1;
+                continue;
+            }
+            b'(' | b'{' | b'[' => depth += 1,
+            b')' | b'}' | b']' => depth -= 1,
+            _ => {}
+        }
+
+        if depth == 0 && i + plen <= haystack.len() && &haystack[i..i + plen] == word {
+            let before_ok = i == 0 || !is_ident_char(haystack[i - 1]);
+            let after_ok = i + plen >= haystack.len() || !is_ident_char(haystack[i + plen]);
+            // Reject if preceded by `.` (method call on receiver)
+            let not_method_call = i == 0 || haystack[i - 1] != b'.';
+            if before_ok && after_ok && not_method_call {
+                return true;
+            }
+        }
+        i += 1;
     }
     false
 }
@@ -1370,7 +1468,7 @@ fn contains_word(haystack: &[u8], word: &[u8]) -> bool {
 }
 
 fn is_ident_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_'
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'!' || b == b'?'
 }
 
 /// Check if a line is an "allowed directive comment" per RuboCop's definition.
