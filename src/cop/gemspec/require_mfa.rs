@@ -21,6 +21,10 @@ impl Cop for RequireMfa {
         "Gemspec/RequireMFA"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn default_include(&self) -> &'static [&'static str] {
         &["**/*.gemspec"]
     }
@@ -32,15 +36,89 @@ impl Cop for RequireMfa {
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = GemSpecVisitor {
             cop: self,
             source,
             diagnostics: Vec::new(),
+            correction_info: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        diagnostics.extend(visitor.diagnostics);
+
+        if let Some(ref mut corr) = corrections {
+            for (diag, info) in visitor
+                .diagnostics
+                .iter()
+                .zip(visitor.correction_info.iter())
+            {
+                let mut d = diag.clone();
+                if let Some(correction) = info.to_correction(source, self.name()) {
+                    corr.push(correction);
+                    d.corrected = true;
+                }
+                diagnostics.push(d);
+            }
+        } else {
+            diagnostics.extend(visitor.diagnostics);
+        }
+    }
+}
+
+/// Describes the correction needed for a RequireMfa offense.
+enum CorrectionInfo {
+    /// Replace 'false' with 'true' at the given byte offset range.
+    ReplaceFalse { start: usize, end: usize },
+    /// Insert `spec.metadata['rubygems_mfa_required'] = 'true'\n` before `end` of block.
+    InsertBeforeEnd {
+        block_end_offset: usize,
+        block_param: Vec<u8>,
+    },
+}
+
+impl CorrectionInfo {
+    fn to_correction(
+        &self,
+        source: &SourceFile,
+        cop_name: &'static str,
+    ) -> Option<crate::correction::Correction> {
+        match self {
+            CorrectionInfo::ReplaceFalse { start, end } => Some(crate::correction::Correction {
+                start: *start,
+                end: *end,
+                replacement: "'true'".to_string(),
+                cop_name,
+                cop_index: 0,
+            }),
+            CorrectionInfo::InsertBeforeEnd {
+                block_end_offset,
+                block_param,
+            } => {
+                let bytes = source.as_bytes();
+                // Find the start of the `end` keyword line to insert before it.
+                let mut insert_pos = *block_end_offset;
+                while insert_pos > 0 && bytes[insert_pos - 1] != b'\n' {
+                    insert_pos -= 1;
+                }
+                // Determine indentation from the `end` line
+                let end_line = &bytes[insert_pos..*block_end_offset];
+                let indent: String = end_line
+                    .iter()
+                    .take_while(|&&b| b == b' ' || b == b'\t')
+                    .map(|&b| b as char)
+                    .collect();
+                let param = std::str::from_utf8(block_param).unwrap_or("spec");
+                let line =
+                    format!("{indent}  {param}.metadata['rubygems_mfa_required'] = 'true'\n");
+                Some(crate::correction::Correction {
+                    start: insert_pos,
+                    end: insert_pos,
+                    replacement: line,
+                    cop_name,
+                    cop_index: 0,
+                })
+            }
+        }
     }
 }
 
@@ -48,6 +126,7 @@ struct GemSpecVisitor<'a> {
     cop: &'a RequireMfa,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
+    correction_info: Vec<CorrectionInfo>,
 }
 
 impl GemSpecVisitor<'_> {
@@ -167,6 +246,44 @@ impl GemSpecVisitor<'_> {
         None
     }
 
+    /// Find the byte range of the `'false'` (or `"false"`) value for replacement.
+    fn find_false_value_byte_range(
+        &self,
+        start_offset: usize,
+        end_offset: usize,
+    ) -> Option<(usize, usize)> {
+        let bytes = self.source.as_bytes();
+        let block_bytes = &bytes[start_offset..end_offset.min(bytes.len())];
+        let block_str = match std::str::from_utf8(block_bytes) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        let mut current_offset = start_offset;
+        for line_str in block_str.lines() {
+            let trimmed = line_str.trim();
+            if (trimmed.contains("metadata['rubygems_mfa_required']")
+                || trimmed.contains("metadata[\"rubygems_mfa_required\"]")
+                || trimmed.contains("'rubygems_mfa_required'")
+                || trimmed.contains("\"rubygems_mfa_required\""))
+                && !trimmed.contains("'true'")
+                && !trimmed.contains("\"true\"")
+            {
+                for pattern in &["'false'", "\"false\""] {
+                    if let Some(pos) = line_str.find(pattern) {
+                        let abs_start = current_offset + pos;
+                        return Some((abs_start, abs_start + pattern.len()));
+                    }
+                }
+            }
+            current_offset += line_str.len();
+            if current_offset < end_offset && bytes.get(current_offset) == Some(&b'\n') {
+                current_offset += 1;
+            }
+        }
+        None
+    }
+
     /// Find the byte offset of the `'false'` (or `"false"`) value on the line
     /// containing `rubygems_mfa_required` within the given range.
     fn find_false_value_location(
@@ -248,6 +365,13 @@ impl<'pr> Visit<'pr> for GemSpecVisitor<'_> {
                                             col,
                                             MSG.to_string(),
                                         ));
+                                        // Correction: replace 'false' with 'true'
+                                        if let Some((start, end)) =
+                                            self.find_false_value_byte_range(block_start, block_end)
+                                        {
+                                            self.correction_info
+                                                .push(CorrectionInfo::ReplaceFalse { start, end });
+                                        }
                                     }
                                 }
                                 None => {
@@ -263,6 +387,19 @@ impl<'pr> Visit<'pr> for GemSpecVisitor<'_> {
                                         0,
                                         MSG.to_string(),
                                     ));
+                                    // Correction: insert metadata line before block end
+                                    let block_param = block_node
+                                        .parameters()
+                                        .and_then(|p| p.as_block_parameters_node())
+                                        .and_then(|bp| bp.parameters())
+                                        .and_then(|params| params.requireds().iter().next())
+                                        .and_then(|r| r.as_required_parameter_node())
+                                        .map(|r| r.name().as_slice().to_vec())
+                                        .unwrap_or_else(|| b"spec".to_vec());
+                                    self.correction_info.push(CorrectionInfo::InsertBeforeEnd {
+                                        block_end_offset: block_end,
+                                        block_param,
+                                    });
                                 }
                             }
                         }
@@ -290,4 +427,46 @@ mod tests {
         dynamic_metadata_then_bracket = "dynamic_metadata_then_bracket.rb",
         dynamic_mfa_value = "dynamic_mfa_value.rb",
     );
+
+    #[test]
+    fn autocorrect_false_to_true() {
+        let input = b"Gem::Specification.new do |spec|\n  spec.metadata['rubygems_mfa_required'] = 'false'\nend\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&RequireMfa, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(
+            corrected,
+            b"Gem::Specification.new do |spec|\n  spec.metadata['rubygems_mfa_required'] = 'true'\nend\n"
+        );
+    }
+
+    #[test]
+    fn autocorrect_insert_missing_mfa() {
+        let input = b"Gem::Specification.new do |spec|\n  spec.name = 'example'\nend\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&RequireMfa, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(
+            corrected,
+            b"Gem::Specification.new do |spec|\n  spec.name = 'example'\n  spec.metadata['rubygems_mfa_required'] = 'true'\nend\n"
+        );
+    }
+
+    #[test]
+    fn autocorrect_insert_with_different_param_name() {
+        let input = b"Gem::Specification.new do |s|\n  s.name = 'example'\nend\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&RequireMfa, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(
+            corrected,
+            b"Gem::Specification.new do |s|\n  s.name = 'example'\n  s.metadata['rubygems_mfa_required'] = 'true'\nend\n"
+        );
+    }
 }

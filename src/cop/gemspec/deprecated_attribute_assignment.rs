@@ -26,6 +26,10 @@ impl Cop for DeprecatedAttributeAssignment {
         "Gemspec/DeprecatedAttributeAssignment"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn default_include(&self) -> &'static [&'static str] {
         &["**/*.gemspec"]
     }
@@ -37,15 +41,49 @@ impl Cop for DeprecatedAttributeAssignment {
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = GemspecVisitor {
             cop: self,
             source,
             diagnostics: Vec::new(),
+            found_assignments: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        diagnostics.extend(visitor.diagnostics);
+
+        if let Some(ref mut corr) = corrections {
+            let bytes = source.as_bytes();
+            for (diag, found) in visitor
+                .diagnostics
+                .iter()
+                .zip(visitor.found_assignments.iter())
+            {
+                // Find the full line range to delete (including leading whitespace and newline).
+                let mut line_start = found.stmt_start;
+                while line_start > 0 && bytes[line_start - 1] != b'\n' {
+                    line_start -= 1;
+                }
+                let mut line_end = found.stmt_end;
+                while line_end < bytes.len() && bytes[line_end] != b'\n' {
+                    line_end += 1;
+                }
+                if line_end < bytes.len() && bytes[line_end] == b'\n' {
+                    line_end += 1;
+                }
+                corr.push(crate::correction::Correction {
+                    start: line_start,
+                    end: line_end,
+                    replacement: String::new(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                let mut d = diag.clone();
+                d.corrected = true;
+                diagnostics.push(d);
+            }
+        } else {
+            diagnostics.extend(visitor.diagnostics);
+        }
     }
 }
 
@@ -53,6 +91,7 @@ struct GemspecVisitor<'a> {
     cop: &'a DeprecatedAttributeAssignment,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
+    found_assignments: Vec<FoundAssignment>,
 }
 
 impl GemspecVisitor<'_> {
@@ -96,6 +135,7 @@ impl<'pr> Visit<'pr> for GemspecVisitor<'_> {
                             found.column,
                             format!("Do not set `{}` in gemspec.", found.attribute),
                         ));
+                        self.found_assignments.push(found);
                     }
                 }
             }
@@ -108,6 +148,9 @@ struct FoundAssignment {
     line: usize,
     column: usize,
     attribute: &'static str,
+    /// Byte offset of the entire statement (for autocorrect line deletion).
+    stmt_start: usize,
+    stmt_end: usize,
 }
 
 struct DeprecatedAssignmentFinder<'a> {
@@ -125,15 +168,22 @@ impl DeprecatedAssignmentFinder<'_> {
         recv.name().as_slice() == self.block_param.as_slice()
     }
 
-    fn record_from_loc(&mut self, loc: ruby_prism::Location<'_>, attribute: &'static str) {
+    fn record_from_loc(
+        &mut self,
+        msg_loc: ruby_prism::Location<'_>,
+        stmt_loc: ruby_prism::Location<'_>,
+        attribute: &'static str,
+    ) {
         if self.found.is_some() {
             return;
         }
-        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+        let (line, column) = self.source.offset_to_line_col(msg_loc.start_offset());
         self.found = Some(FoundAssignment {
             line,
             column,
             attribute,
+            stmt_start: stmt_loc.start_offset(),
+            stmt_end: stmt_loc.end_offset(),
         });
     }
 }
@@ -143,7 +193,11 @@ impl<'pr> Visit<'pr> for DeprecatedAssignmentFinder<'_> {
         if self.found.is_none() && self.receiver_matches_block_param(node.receiver()) {
             if let Some(method_name) = node.name().as_slice().strip_suffix(b"=") {
                 if let Some(attribute) = deprecated_attribute_name(method_name) {
-                    self.record_from_loc(node.message_loc().unwrap_or(node.location()), attribute);
+                    self.record_from_loc(
+                        node.message_loc().unwrap_or(node.location()),
+                        node.location(),
+                        attribute,
+                    );
                 }
             }
         }
@@ -155,7 +209,11 @@ impl<'pr> Visit<'pr> for DeprecatedAssignmentFinder<'_> {
     fn visit_call_operator_write_node(&mut self, node: &ruby_prism::CallOperatorWriteNode<'pr>) {
         if self.found.is_none() && self.receiver_matches_block_param(node.receiver()) {
             if let Some(attribute) = deprecated_attribute_name(node.read_name().as_slice()) {
-                self.record_from_loc(node.message_loc().unwrap_or(node.location()), attribute);
+                self.record_from_loc(
+                    node.message_loc().unwrap_or(node.location()),
+                    node.location(),
+                    attribute,
+                );
             }
         }
         if self.found.is_none() {
@@ -166,7 +224,11 @@ impl<'pr> Visit<'pr> for DeprecatedAssignmentFinder<'_> {
     fn visit_call_or_write_node(&mut self, node: &ruby_prism::CallOrWriteNode<'pr>) {
         if self.found.is_none() && self.receiver_matches_block_param(node.receiver()) {
             if let Some(attribute) = deprecated_attribute_name(node.read_name().as_slice()) {
-                self.record_from_loc(node.message_loc().unwrap_or(node.location()), attribute);
+                self.record_from_loc(
+                    node.message_loc().unwrap_or(node.location()),
+                    node.location(),
+                    attribute,
+                );
             }
         }
         if self.found.is_none() {
@@ -177,7 +239,11 @@ impl<'pr> Visit<'pr> for DeprecatedAssignmentFinder<'_> {
     fn visit_call_and_write_node(&mut self, node: &ruby_prism::CallAndWriteNode<'pr>) {
         if self.found.is_none() && self.receiver_matches_block_param(node.receiver()) {
             if let Some(attribute) = deprecated_attribute_name(node.read_name().as_slice()) {
-                self.record_from_loc(node.message_loc().unwrap_or(node.location()), attribute);
+                self.record_from_loc(
+                    node.message_loc().unwrap_or(node.location()),
+                    node.location(),
+                    attribute,
+                );
             }
         }
         if self.found.is_none() {
@@ -218,4 +284,23 @@ mod tests {
         DeprecatedAttributeAssignment,
         "cops/gemspec/deprecated_attribute_assignment"
     );
+    crate::cop_autocorrect_fixture_tests!(
+        DeprecatedAttributeAssignment,
+        "cops/gemspec/deprecated_attribute_assignment"
+    );
+
+    #[test]
+    fn autocorrect_removes_deprecated_line() {
+        let input = b"Gem::Specification.new do |s|\n  s.name = 'foo'\n  s.test_files = ['a']\n  s.version = '1.0'\nend\n";
+        let (diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&DeprecatedAttributeAssignment, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(
+            corrected,
+            b"Gem::Specification.new do |s|\n  s.name = 'foo'\n  s.version = '1.0'\nend\n"
+        );
+    }
 }
