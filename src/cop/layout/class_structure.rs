@@ -26,6 +26,23 @@ use crate::parse::source::SourceFile;
 ///
 /// **Remaining gaps:** None known for default config. Custom `Categories` /
 /// `ExpectedOrder` configs may reveal edge cases in the category lookup.
+///
+/// ## Investigation findings (2026-03-23)
+///
+/// **Root cause of 312 FNs:** `private :method_name` and `protected :method_name`
+/// (inline visibility declarations with symbol args) were not affecting the
+/// classification of the corresponding `def` node. In RuboCop,
+/// `VisibilityHelp#node_visibility_from_visibility_inline_on_method_name` looks
+/// at right siblings of a `def` node for matching `private/protected :name`
+/// declarations, making the def classified as `private_methods` or
+/// `protected_methods`. Added `find_inline_visibility()` to replicate this.
+///
+/// **Root cause of 1 FP:** Send nodes with a receiver (e.g. `singleton_class.prepend`)
+/// were not being classified. RuboCop classifies ALL send nodes by `method_name`
+/// regardless of receiver. Removed the `receiver().is_none()` gate from the
+/// category-lookup path in `classify_statement`, so e.g. `singleton_class.prepend`
+/// is classified as `module_inclusion` (matching RuboCop). This prevents the
+/// ordering tracker from missing intermediate classifications.
 pub struct ClassStructure;
 
 /// Default expected order (matches vendor/rubocop/config/default.yml).

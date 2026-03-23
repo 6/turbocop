@@ -184,3 +184,46 @@ expect(client.search body: [
          { index: 'foo', query: { match_all: {} } },
          { index: 'bar', query: { match: { foo: 'bar' } } }
 ])
+
+# FP fix: First element on same line as [ — skip closing bracket check
+tests = [ 'tests/resource/file/content_attribute.rb',
+          'tests/language/functions_in_puppet_language.rb',
+          'tests/resource/service/puppet_service_management.rb'
+        ]
+
+# FP fix: First element on same line as [ with .each chain
+["if /* comment */\nif",
+  "if /* comment\n */\nif",
+  "if /*\n comment\n */\nif",
+  ].each do |source|
+  something(source)
+end
+
+# FP fix: First element on same line as [ with .join chain
+expect(result).to eq([ 'path: [0] value: 1',
+          'path: [1] value: 2',
+          ''
+          ].join("\n"))
+
+# FP fix: %w{ with first element on same line — closing } check skipped
+equivalent = %w{ http://example.com/
+                    http://exa%6Dple.com/
+                    http://example.com:80/
+                  }
+
+# FP fix: Hash value array with first element on same line as [
+[{ "organization" => { "name" => "non-admin-member" } },
+ { "organization" => { "name" => "solo-admin-member" } },
+]
+
+# FP fix: First element on same line with .freeze
+SUBCATEGORIES = %w(
+                    Token\ Right\ Adjusted\ Events
+                    User\ Account\ Management
+                   ).freeze
+
+# FP fix: Single-pair hash value with paren-relative — closing bracket flagged
+# (This is a no-offense because closing bracket is at paren_col + 1)
+FactoryBot.create(:limited_admin, :groups => [
+                                    FactoryBot.create(:google_admin_group),
+                                  ])

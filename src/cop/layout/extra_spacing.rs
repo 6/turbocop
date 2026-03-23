@@ -539,8 +539,12 @@ fn check_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> bool {
 }
 
 /// Extract a "token-like" string starting at the given column.
-/// For operator/punctuation characters, returns just that character.
-/// For alphanumeric/underscore characters, returns the full identifier.
+/// This mirrors RuboCop's `range.source` for token comparison in `aligned_words?`.
+///
+/// - Alphanumeric/underscore: returns the full identifier.
+/// - `.` followed by a letter/underscore: returns `.method_name` (method call).
+/// - `"` or `'`: returns the full quoted string to avoid coincidental single-char matches.
+/// - Other operator/punctuation: returns just that character.
 fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
     if col >= line.len() {
         return &[];
@@ -555,6 +559,26 @@ fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
         &line[col..end]
     } else if ch == b' ' || ch == b'\t' {
         &[]
+    } else if ch == b'.'
+        && col + 1 < line.len()
+        && (line[col + 1].is_ascii_alphabetic() || line[col + 1] == b'_')
+    {
+        // Dot followed by identifier: extract `.method_name`
+        let end = line[col + 1..]
+            .iter()
+            .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
+            .map_or(line.len(), |p| col + 1 + p);
+        &line[col..end]
+    } else if ch == b'"' || ch == b'\'' {
+        // String delimiter: extract the full quoted string to avoid coincidental
+        // single-character alignment. This matches RuboCop's behavior where
+        // `range.source` for a string token is the full string text.
+        if let Some(close_pos) = line[col + 1..].iter().position(|&b| b == ch) {
+            &line[col..col + 1 + close_pos + 1]
+        } else {
+            // No closing quote found on same line — return just the quote
+            &line[col..col + 1]
+        }
     } else {
         // Operator/punctuation: just the single character
         &line[col..col + 1]
