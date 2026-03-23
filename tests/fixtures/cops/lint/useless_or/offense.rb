@@ -10,3 +10,5 @@ to_s || "fallback"
      ^^^^^^^^^^^^^ Lint/UselessOr: `"fallback"` will never evaluate because `to_s` always returns a truthy value.
 to_i || 0
      ^^^^ Lint/UselessOr: `0` will never evaluate because `to_i` always returns a truthy value.
+a || (default_val || x.to_s)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/UselessOr: `(default_val || x.to_s)` will never evaluate because `x.to_s` always returns a truthy value.

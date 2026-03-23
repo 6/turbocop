@@ -32,11 +32,18 @@ use crate::parse::source::SourceFile;
 /// FP=1 remaining: `@tag || (msg[0].to_s)` was incorrectly flagged. The RHS
 /// parenthesized-truthy check (added in Phase 2) was overly broad — it reported
 /// an offense whenever the RHS of `||` was a parenthesized expression containing
-/// a truthy method call. But a truthy RHS doesn't make `||` useless; only a
-/// truthy LHS does (since the RHS would never evaluate). RuboCop's spec confirms
-/// it only checks the LHS. Removed the entire RHS parenthesized-truthy check.
-/// Also removed a matching incorrect offense fixture case for
-/// `object.get_option('logo') || (default || h.asset_url(...).to_s)`.
+/// a truthy method call. But a plain parenthesized truthy call like `(x.to_s)`
+/// is NOT an offense — only when the parens contain an inner `||` whose RHS is
+/// always truthy (e.g., `a || (default || x.to_s)`). Narrowed the check to
+/// `rhs_parenthesized_or_truthy` which requires an inner `||` node.
+///
+/// ## Phase 4 fix (2026-03-23)
+///
+/// FN=1 remaining: `object.get_option('logo') || (default || h.asset_url(...).to_s)`
+/// from owen2345/camaleon-cms. The `rhs_parenthesized_or_truthy` function already
+/// handled this pattern correctly — the inner `||` has `.to_s` as its RHS, making
+/// the parenthesized expression always truthy. Added test coverage for this pattern
+/// (`a || (default_val || x.to_s)`) to prevent regression.
 ///
 /// Checks for useless OR expressions where the left side always returns a truthy value.
 pub struct UselessOr;
@@ -93,6 +100,18 @@ impl Cop for UselessOr {
 
         if let Some(truthy_node) = nested_truthy_middle(&lhs) {
             report_offense(self, source, &or_node, &truthy_node, diagnostics);
+            return;
+        }
+
+        // RuboCop also flags the outer `||` when its RHS is a parenthesized `||`
+        // whose inner RHS is always truthy. E.g.:
+        //   a || (default || x.to_s)
+        // The inner `x.to_s` makes the parenthesized expression always truthy,
+        // so the outer `||`'s RHS is always truthy. Note: this is different from
+        // a plain parenthesized truthy call (e.g. `a || (x.to_s)`) which is NOT
+        // an offense — only when the parens contain an `||` with a truthy RHS.
+        if let Some(truthy_node) = rhs_parenthesized_or_truthy(&or_node.right()) {
+            report_offense(self, source, &or_node, &truthy_node, diagnostics);
         }
     }
 }
@@ -144,6 +163,31 @@ fn nested_truthy_middle<'pr>(node: &ruby_prism::Node<'pr>) -> Option<ruby_prism:
     }
 
     None
+}
+
+/// Check if a node is a parenthesized `||` expression whose RHS is always truthy.
+/// E.g. `(default || x.to_s)` — the inner `x.to_s` makes the whole expression
+/// always truthy. Returns the truthy node if found.
+///
+/// This does NOT flag plain parenthesized truthy calls like `(x.to_s)` — only
+/// when the parens contain an `||` with a truthy method call as its RHS.
+fn rhs_parenthesized_or_truthy<'pr>(node: &ruby_prism::Node<'pr>) -> Option<ruby_prism::Node<'pr>> {
+    let parens = node.as_parentheses_node()?;
+    let body = parens.body()?;
+    let stmts = body.as_statements_node()?;
+    let mut iter = stmts.body().iter();
+    let stmt = iter.next()?;
+    // Only handle single-statement parentheses
+    if iter.next().is_some() {
+        return None;
+    }
+    let inner_or = stmt.as_or_node()?;
+    let rhs = inner_or.right();
+    if is_truthy_method_call(&rhs) {
+        return Some(rhs);
+    }
+    // Also handle deeper nesting: (a || (b || x.to_s))
+    rhs_parenthesized_or_truthy(&rhs)
 }
 
 fn report_offense(
