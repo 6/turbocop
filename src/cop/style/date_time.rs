@@ -78,7 +78,7 @@ impl Cop for DateTime {
 
             // Skip historic dates: last arg is Date::XXX or ::Date::XXX
             // Matches vendor pattern: (send _ _ _ (const (const {nil? (cbase)} :Date) _))
-            if is_historic_date(call) {
+            if is_historic_date(&call) {
                 return;
             }
 
@@ -135,8 +135,7 @@ fn is_historic_date(call: &ruby_prism::CallNode<'_>) -> bool {
             }
             if let Some(parent_path) = parent.as_constant_path_node() {
                 // ::Date::ITALY — parent_path is ::Date (ConstantPathNode with no parent)
-                let name =
-                    std::str::from_utf8(parent_path.name_loc().as_slice()).unwrap_or("");
+                let name = std::str::from_utf8(parent_path.name_loc().as_slice()).unwrap_or("");
                 if name == "Date" && parent_path.parent().is_none() {
                     return true;
                 }
