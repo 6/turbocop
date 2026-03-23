@@ -49,6 +49,10 @@ begin
 ensure
   cleanup
 end
+# `BEGIN` (PreExecutionNode) is opaque for Style/MixinUsage
+BEGIN {
+  include UtilityFunctions
+}
 # Multiple constant arguments: RuboCop's pattern matches only a single const
 include GravatarHelper, GravatarHelper::PublicMethods, ERB::Util
 extend A, B
