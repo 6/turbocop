@@ -18,6 +18,7 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "issue_number:" in content
     assert "- auto" in content
     assert "scripts/dispatch-cops.py backend" in content
+    assert "cargo test --test integration offense_fixtures_have_no_unannotated_blocks" in content
     assert "Closes #${ISSUE_NUMBER}" in content
     assert "<!-- nitrocop-cop-issue: number=${ISSUE_NUMBER} cop=${COP} -->" in content
     assert 'gh issue comment "${{ github.event.inputs.issue_number }}"' in content

@@ -797,6 +797,9 @@ jobs:
           # Auto-format Rust files (agent often skips this)
           cargo fmt
 
+          # Reject vacuous offense fixture edits before opening/readying the PR.
+          cargo test --test integration offense_fixtures_have_no_unannotated_blocks
+
           git add src/cop/ tests/fixtures/cops/ bench/corpus/
 
           RETRY_NOTE=""
