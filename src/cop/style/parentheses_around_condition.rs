@@ -236,6 +236,36 @@ fn should_skip(
     false
 }
 
+/// Add corrections to remove opening and closing parentheses.
+fn add_paren_corrections(
+    cop: &ParenthesesAroundCondition,
+    paren: &ruby_prism::ParenthesesNode<'_>,
+    corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
+    diag: &mut Diagnostic,
+) {
+    if let Some(corr) = corrections {
+        let open_loc = paren.opening_loc();
+        let close_loc = paren.closing_loc();
+        // Remove opening paren
+        corr.push(crate::correction::Correction {
+            start: open_loc.start_offset(),
+            end: open_loc.end_offset(),
+            replacement: String::new(),
+            cop_name: cop.name(),
+            cop_index: 0,
+        });
+        // Remove closing paren
+        corr.push(crate::correction::Correction {
+            start: close_loc.start_offset(),
+            end: close_loc.end_offset(),
+            replacement: String::new(),
+            cop_name: cop.name(),
+            cop_index: 0,
+        });
+        diag.corrected = true;
+    }
+}
+
 impl Cop for ParenthesesAroundCondition {
     fn name(&self) -> &'static str {
         "Style/ParenthesesAroundCondition"
@@ -245,6 +275,10 @@ impl Cop for ParenthesesAroundCondition {
         &[IF_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -252,7 +286,7 @@ impl Cop for ParenthesesAroundCondition {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_safe_assignment = config.get_bool("AllowSafeAssignment", true);
         let allow_multiline = config.get_bool("AllowInMultilineConditions", false);
@@ -281,12 +315,14 @@ impl Cop for ParenthesesAroundCondition {
                 };
                 let open_loc = paren.opening_loc();
                 let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Don't use parentheses around the condition of an `{keyword}`."),
-                ));
+                );
+                add_paren_corrections(self, &paren, &mut corrections, &mut diag);
+                diagnostics.push(diag);
             }
         } else if let Some(unless_node) = node.as_unless_node() {
             if let Some(paren) = unless_node.predicate().as_parentheses_node() {
@@ -301,12 +337,14 @@ impl Cop for ParenthesesAroundCondition {
                 }
                 let open_loc = paren.opening_loc();
                 let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     "Don't use parentheses around the condition of an `unless`.".to_string(),
-                ));
+                );
+                add_paren_corrections(self, &paren, &mut corrections, &mut diag);
+                diagnostics.push(diag);
             }
         } else if let Some(while_node) = node.as_while_node() {
             // Skip `begin...end while (cond)` form (RuboCop's while_post node type).
@@ -324,12 +362,14 @@ impl Cop for ParenthesesAroundCondition {
                 }
                 let open_loc = paren.opening_loc();
                 let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     "Don't use parentheses around the condition of a `while`.".to_string(),
-                ));
+                );
+                add_paren_corrections(self, &paren, &mut corrections, &mut diag);
+                diagnostics.push(diag);
             }
         } else if let Some(until_node) = node.as_until_node() {
             // Skip `begin...end until (cond)` form (RuboCop's until_post node type).
@@ -347,12 +387,14 @@ impl Cop for ParenthesesAroundCondition {
                 }
                 let open_loc = paren.opening_loc();
                 let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     "Don't use parentheses around the condition of an `until`.".to_string(),
-                ));
+                );
+                add_paren_corrections(self, &paren, &mut corrections, &mut diag);
+                diagnostics.push(diag);
             }
         }
     }
@@ -364,6 +406,10 @@ mod tests {
     use crate::testutil::{run_cop_full, run_cop_full_with_config};
 
     crate::cop_fixture_tests!(
+        ParenthesesAroundCondition,
+        "cops/style/parentheses_around_condition"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         ParenthesesAroundCondition,
         "cops/style/parentheses_around_condition"
     );

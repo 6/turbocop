@@ -1,0 +1,5 @@
+x.nil?
+
+y.nil?
+
+z.nil?

@@ -14,6 +14,10 @@ impl Cop for NilComparison {
         &[CALL_NODE, NIL_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for NilComparison {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "predicate");
 
@@ -60,12 +64,28 @@ impl Cop for NilComparison {
                 .message_loc()
                 .unwrap_or_else(|| call_node.location());
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            diagnostics.push(self.diagnostic(
+            let mut diag = self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer the use of the `nil?` predicate.".to_string(),
-            ));
+            );
+            // Autocorrect: replace `x == nil` with `x.nil?`
+            // We need to replace from the space before the operator to the end of `nil`
+            if let Some(ref mut corr) = corrections {
+                let receiver = call_node.receiver().unwrap();
+                let receiver_end = receiver.location().end_offset();
+                let call_end = call_node.location().end_offset();
+                corr.push(crate::correction::Correction {
+                    start: receiver_end,
+                    end: call_end,
+                    replacement: ".nil?".to_string(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         } else {
             // comparison style: flag `x.nil?`
             if method_bytes != b"nil?" {
@@ -76,12 +96,27 @@ impl Cop for NilComparison {
                 .message_loc()
                 .unwrap_or_else(|| call_node.location());
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            diagnostics.push(self.diagnostic(
+            let mut diag = self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer the use of the `==` comparison.".to_string(),
-            ));
+            );
+            // Autocorrect: replace `x.nil?` with `x == nil`
+            if let Some(ref mut corr) = corrections {
+                let receiver = call_node.receiver().unwrap();
+                let receiver_end = receiver.location().end_offset();
+                let call_end = call_node.location().end_offset();
+                corr.push(crate::correction::Correction {
+                    start: receiver_end,
+                    end: call_end,
+                    replacement: " == nil".to_string(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
     }
 }
@@ -90,4 +125,5 @@ impl Cop for NilComparison {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(NilComparison, "cops/style/nil_comparison");
+    crate::cop_autocorrect_fixture_tests!(NilComparison, "cops/style/nil_comparison");
 }
