@@ -68,10 +68,20 @@ use ruby_prism::Visit;
 /// ## Corpus investigation (2026-03-23) — extended corpus
 ///
 /// Extended corpus reported FP=6 (all vendor-path repos), FN=1.
-/// FN=1: `def self.String(s)` in skylight/vendor/cli/highline. The
-/// `has_class_emitter_in_scope` check may be incorrectly allowing this because
-/// `HighLine::String` is referenced in the method body. Needs deeper investigation
-/// of the emitter scope logic. Deferred (1 FN in vendored code).
+/// FP=6: all from 3 repos (Tubalr, stackneveroverflow, supply_drop) with massive
+/// systemic divergence (2k-9k FP each across all cops). Root cause: repos without
+/// `.rubocop.yml` had no default AllCops.Exclude patterns applied. Fixed in
+/// `config/mod.rs` by applying `fallback_default_excludes()` in the no-config case.
+///
+/// FN=1: `def self.String(s)` in skylight/vendor/cli/highline/string_extensions.rb.
+/// Unit tests confirm the `has_class_emitter_in_scope` logic correctly flags
+/// `def self.String` when no `class String` sibling exists. The FN likely stems
+/// from a more complex file structure in the actual corpus file (possibly a
+/// `class String < ::String` defined later in the same class body, which nitrocop
+/// correctly recognizes as an emitter but RuboCop may handle differently in
+/// `c.loc.name.is?(name.to_s)` due to inheritance syntax). Cannot reproduce
+/// without the actual source file (extended-corpus-only repo). Deferred (1 FN
+/// in vendored code, 100.0% match rate on 28,934 offenses).
 pub struct MethodName;
 
 /// Bundles config values needed for method name checking.
@@ -820,6 +830,30 @@ mod tests {
         assert!(
             !diags2.is_empty(),
             "Non-matching camelCase should still be flagged"
+        );
+    }
+
+    #[test]
+    fn class_emitter_without_class_sibling_is_flagged() {
+        // def self.String without a class String sibling should be flagged
+        let source =
+            b"class HighLine\n  def self.String(s)\n    HighLine::String.new(s)\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&MethodName, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "def self.String without class String sibling should be flagged"
+        );
+    }
+
+    #[test]
+    fn class_emitter_with_class_sibling_is_allowed() {
+        // def self.String WITH a class String sibling should be allowed
+        let source = b"class HighLine\n  def self.String(s)\n    String.new(s)\n  end\n  class String < ::String\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&MethodName, source);
+        assert!(
+            diags.is_empty(),
+            "def self.String with class String sibling should be allowed"
         );
     }
 }
