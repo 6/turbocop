@@ -653,45 +653,49 @@ impl Cop for FirstArrayElementIndentation {
             let first_loc = first_element.location();
             let (elem_line, elem_col) = source.offset_to_line_col(first_loc.start_offset());
 
-            // Skip if first element is on same line as opening bracket
-            if elem_line != open_line {
-                let expected_elem = indent_base + width;
+            // Skip entire check (elements + closing bracket) if first element is
+            // on the same line as the opening bracket. RuboCop's `check` method
+            // returns early with `same_line?(first_elem, left_bracket)`.
+            if elem_line == open_line {
+                return;
+            }
 
-                if elem_col != expected_elem {
-                    // Check if indentation matches hash-key-relative style.
-                    // RuboCop accepts elements indented relative to the parent
-                    // hash key when the array is a hash value in a multi-pair hash.
-                    let matches_hash_key = hash_key_col.is_some_and(|key_col| {
-                        elem_col == key_col + width
-                            && hash_key_byte_col.is_some_and(|key_bc| {
-                                is_multi_pair_hash(
-                                    source.as_bytes(),
-                                    closing_end_offset,
-                                    open_line_bytes,
-                                    key_bc,
-                                )
-                            })
-                    });
-                    if !matches_hash_key {
-                        let base_description = match base_type {
-                            IndentBaseType::LeftBracket => "the position of the opening bracket",
-                            IndentBaseType::FirstColumnAfterLeftParenthesis => {
-                                "the first position after the preceding left parenthesis"
-                            }
-                            IndentBaseType::StartOfLine => {
-                                "the start of the line where the left square bracket is"
-                            }
-                        };
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            elem_line,
-                            elem_col,
-                            format!(
-                                "Use {} spaces for indentation in an array, relative to {}.",
-                                width, base_description
-                            ),
-                        ));
-                    }
+            let expected_elem = indent_base + width;
+
+            if elem_col != expected_elem {
+                // Check if indentation matches hash-key-relative style.
+                // RuboCop accepts elements indented relative to the parent
+                // hash key when the array is a hash value in a multi-pair hash.
+                let matches_hash_key = hash_key_col.is_some_and(|key_col| {
+                    elem_col == key_col + width
+                        && hash_key_byte_col.is_some_and(|key_bc| {
+                            is_multi_pair_hash(
+                                source.as_bytes(),
+                                closing_end_offset,
+                                open_line_bytes,
+                                key_bc,
+                            )
+                        })
+                });
+                if !matches_hash_key {
+                    let base_description = match base_type {
+                        IndentBaseType::LeftBracket => "the position of the opening bracket",
+                        IndentBaseType::FirstColumnAfterLeftParenthesis => {
+                            "the first position after the preceding left parenthesis"
+                        }
+                        IndentBaseType::StartOfLine => {
+                            "the start of the line where the left square bracket is"
+                        }
+                    };
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        elem_line,
+                        elem_col,
+                        format!(
+                            "Use {} spaces for indentation in an array, relative to {}.",
+                            width, base_description
+                        ),
+                    ));
                 }
             }
         }

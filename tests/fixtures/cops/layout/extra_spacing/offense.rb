@@ -46,11 +46,11 @@ check_c_patterns   # comment C
 
 # Extra spaces inside empty %w() word arrays
 mandatory = %w(  )
-              ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+               ^ Layout/ExtraSpacing: Unnecessary spacing detected.
 
 # Extra spaces inside empty %i() symbol arrays
 syms = %i(  )
-         ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+          ^ Layout/ExtraSpacing: Unnecessary spacing detected.
 
 # Double space in method call argument
 say_status  "DONE"
