@@ -226,7 +226,13 @@ fn is_ruby_file(path: &Path) -> bool {
     false
 }
 
+/// Ruby interpreter names recognized in shebang lines.
+/// Matches RuboCop's `AllCops.RubyInterpreters` default: ruby, macruby, rake, jruby, rbx.
+const RUBY_INTERPRETERS: &[&str] = &["ruby", "macruby", "rake", "jruby", "rbx"];
+
 /// Check if a file starts with a Ruby shebang line (e.g. `#!/usr/bin/env ruby`).
+/// Recognizes all interpreters in `RUBY_INTERPRETERS` (matching RuboCop's
+/// `AllCops.RubyInterpreters`), not just `ruby`.
 /// Only reads the first line to avoid expensive I/O during file discovery.
 fn has_ruby_shebang(path: &Path) -> bool {
     use std::io::{BufRead, BufReader};
@@ -241,7 +247,15 @@ fn has_ruby_shebang(path: &Path) -> bool {
     }
     // Match standard shebangs (#!) and malformed ones with extra leading hashes (##!).
     let trimmed = first_line.trim_start_matches('#');
-    trimmed.starts_with('!') && first_line.contains("ruby")
+    if !trimmed.starts_with('!') {
+        return false;
+    }
+    // Check if any recognized Ruby interpreter appears in the shebang line.
+    // For shebangs like `#!/usr/bin/env ruby` or `#!/usr/bin/ruby`, the
+    // interpreter name appears as a whitespace-delimited token or path component.
+    RUBY_INTERPRETERS
+        .iter()
+        .any(|interp| first_line.contains(interp))
 }
 
 #[cfg(test)]
@@ -391,6 +405,79 @@ mod tests {
         assert!(names.contains(&"console".to_string()));
         assert!(names.contains(&"server".to_string()));
         assert!(!names.contains(&"setup".to_string()));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn has_ruby_shebang_recognizes_all_interpreters() {
+        use std::io::Write;
+
+        let dir = setup_dir("shebang_interpreters");
+        fs::create_dir_all(&dir).unwrap();
+
+        // All RubyInterpreters from RuboCop's default config should be recognized
+        let cases = [
+            ("script_ruby", "#!/usr/bin/env ruby\nputs 'hi'\n", true),
+            ("script_rbx", "#!/usr/bin/env rbx\nputs 'hi'\n", true),
+            ("script_jruby", "#!/usr/bin/env jruby\nputs 'hi'\n", true),
+            (
+                "script_macruby",
+                "#!/usr/bin/env macruby\nputs 'hi'\n",
+                true,
+            ),
+            ("script_rake", "#!/usr/bin/env rake\nputs 'hi'\n", true),
+            ("script_bash", "#!/bin/bash\necho hi\n", false),
+            (
+                "script_python",
+                "#!/usr/bin/env python\nprint('hi')\n",
+                false,
+            ),
+            (
+                "script_direct_rbx",
+                "#!/usr/local/bin/rbx\nputs 'hi'\n",
+                true,
+            ),
+        ];
+
+        for (name, content, expected) in &cases {
+            let path = dir.join(name);
+            let mut f = std::fs::File::create(&path).unwrap();
+            f.write_all(content.as_bytes()).unwrap();
+            assert_eq!(
+                has_ruby_shebang(&path),
+                *expected,
+                "has_ruby_shebang({name}) should be {expected}"
+            );
+        }
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn discovers_rbx_shebang_files() {
+        // Regression test for brixen/poetics FN: bin/poetics with #!/usr/bin/env rbx
+        let dir = setup_dir("shebang_rbx");
+        let bin = dir.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(bin.join("poetics"), "#!/usr/bin/env rbx\nputs 'hi'\n").unwrap();
+        fs::write(bin.join("setup"), "#!/bin/bash\necho hi\n").unwrap();
+
+        let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
+        let discovered = discover_files(&[dir.clone()], &config).unwrap();
+
+        let names: Vec<_> = discovered
+            .files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
+            .collect();
+        assert!(
+            names.contains(&"poetics".to_string()),
+            "Should discover bin/poetics with rbx shebang; found: {names:?}"
+        );
+        assert!(
+            !names.contains(&"setup".to_string()),
+            "Should not discover bin/setup with bash shebang"
+        );
         fs::remove_dir_all(&dir).ok();
     }
 

@@ -93,10 +93,18 @@ use crate::parse::source::SourceFile;
 /// Extended corpus reported FP=2 (1 vendor, 1 genuine), FN=1.
 /// FP=1 (genuine): `@automatic_inverse_of ||= ...` in `def inverse_name` at
 /// samvera/active_fedora. The `||=` is deeply nested inside `options.fetch(:inverse_of) do
-/// if @automatic_inverse_of == false ... else ... end`. RuboCop likely doesn't consider
-/// this as a memoization pattern because it's not the top-level return.
-/// FN=1: `@script ||= rest.first` in `def options` at brixen/poetics (a bin/ script).
-/// Both edge cases need deeper investigation of the memoization pattern matching logic.
+/// if @automatic_inverse_of == false ... else ... end`. RuboCop's `body.children.last`
+/// returns the block body (an if-node), which is not equal to the `or_asgn` node, so
+/// RuboCop does NOT flag this. Nitrocop correctly skips it via the CallNode block handler
+/// in `get_last_child_or_write` which only matches single-statement block bodies directly.
+/// Already covered in no_offense.rb fixture (`def inverse_name`).
+///
+/// FN=1: `@script ||= rest.first` in `def options` at brixen/poetics (`bin/poetics`).
+/// Root cause: NOT a cop logic issue — the cop correctly flags `||=` as the last statement
+/// of a multi-statement method body. The FN was caused by file discovery: `bin/poetics`
+/// has shebang `#!/usr/bin/env rbx` (Rubinius), and `has_ruby_shebang()` in `fs.rs` only
+/// checked for "ruby" in the shebang line. Fix: expanded `has_ruby_shebang()` to recognize
+/// all interpreters from RuboCop's `AllCops.RubyInterpreters` (ruby, macruby, rake, jruby, rbx).
 pub struct MemoizedInstanceVariableName;
 
 impl MemoizedInstanceVariableName {
@@ -975,6 +983,36 @@ mod tests {
             diags.len(),
             2,
             "Should flag both @attr_accessible ||= [] instances (structural equality)"
+        );
+    }
+
+    #[test]
+    fn multi_stmt_body_last_is_or_write_mismatch() {
+        // Corpus FN=1: brixen/poetics — method `options` with multiple statements,
+        // last statement is `@script ||= rest.first`. RuboCop flags it because
+        // `body.children.last` (== the last statement of the begin wrapper) is the ||= node.
+        let source = b"def options\n  options.doc \"\"\n  rest = options.parse(argv)\n  @script ||= rest.first\nend\n";
+        let diags = crate::testutil::run_cop_full(&MemoizedInstanceVariableName, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag @script ||= in multi-statement body where last stmt is ||= with mismatched name"
+        );
+    }
+
+    #[test]
+    fn multi_stmt_body_with_blocks_last_is_or_write_mismatch() {
+        // Corpus FN=1: brixen/poetics — method `options` has block calls
+        // (`options.on ... do ... end`) before `@script ||= rest.first` as
+        // the last statement. The cop logic is correct; the actual FN was
+        // caused by file discovery not recognizing `#!/usr/bin/env rbx`
+        // (Rubinius) shebangs. Fixed in fs.rs has_ruby_shebang().
+        let source = b"def options(argv=ARGV)\n  options = Rubinius::Options.new \"Usage\", 20\n\n  options.on \"-e\", \"CODE\", \"Execute CODE\" do |e|\n    @evals << e\n  end\n\n  options.on \"-h\", \"--help\", \"Display this help\" do\n    puts options\n    exit 0\n  end\n\n  options.doc \"\"\n\n  rest = options.parse(argv)\n  @script ||= rest.first\nend\n";
+        let diags = crate::testutil::run_cop_full(&MemoizedInstanceVariableName, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag @script ||= in method with block calls before it"
         );
     }
 
