@@ -32,14 +32,6 @@ a = *Array.new(3) { 42 }
 a = *::Array.new(3) { 42 }
     ^^^^^^^^^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
 
-# Array.new splat in method argument
-obj.call(*Array.new(5) { [] })
-         ^^^^^^^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
-
-# Array.new without block
-send(method, *Array.new(foo))
-             ^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
-
 # Single-element array literal with Array.new
 [*Array.new(foo)]
  ^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.

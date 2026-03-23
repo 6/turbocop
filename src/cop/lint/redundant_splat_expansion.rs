@@ -69,6 +69,17 @@ use crate::parse::source::SourceFile;
 /// Paren-free method calls and other non-assignment contexts are exempt.
 /// FN=1 is `NoteSet[*Array.new(n) { ... }]` — a `[]` method call already
 /// exempted by the prior FP=36 fix; accepted as tradeoff.
+///
+/// ## Corpus fix (2026-03-23): FP=6→0
+///
+/// Remaining 6 FPs were `*Array.new(...)` inside parenthesized method calls
+/// (e.g., `super(*Array.new(9))`, `diagonal(*Array.new(n, value))`,
+/// `tmux.send_keys(*Array.new(110) { ... })`). The grandparent check
+/// exempted `[]` method call brackets and no-bracket contexts, but not `(`
+/// brackets. Refactored to use a match on `find_enclosing_bracket`: `(`
+/// brackets are always exempt (method call args), `[` method call brackets
+/// are exempt, no-bracket without `=` is exempt. Only `[` array literals
+/// and no-bracket with `=` (assignment) are flagged.
 pub struct RedundantSplatExpansion;
 
 impl Cop for RedundantSplatExpansion {
@@ -151,22 +162,32 @@ impl Cop for RedundantSplatExpansion {
             // Since we don't have AST parent pointers, we exempt *Array.new
             // inside [] method calls entirely — the corpus has 36 FPs from
             // this pattern and 0 cases where it should be flagged.
-            if let Some((b'[', bracket_pos)) = find_enclosing_bracket(bytes, start) {
-                if is_method_call_bracket(bytes, bracket_pos) {
-                    return;
+            // RuboCop's grandparent check: `return if grandparent &&
+            // !ASSIGNMENT_TYPES.include?(grandparent.type)`. The grandparent
+            // is only an assignment type for `x = *Array.new(...)`. In all
+            // other contexts (method call args, [] method calls, paren-free
+            // calls), the grandparent is a non-assignment node and the cop
+            // does not fire.
+            match find_enclosing_bracket(bytes, start) {
+                Some((b'[', bracket_pos)) => {
+                    if is_method_call_bracket(bytes, bracket_pos) {
+                        return; // exempt: Foo[*Array.new(n)]
+                    }
+                    // Inside array literal — fall through to flag
                 }
-            }
-
-            // RuboCop's grandparent check: *Array.new is only flagged when
-            // the grandparent is an assignment type. When there is no
-            // enclosing bracket and no preceding keyword, we're in a
-            // paren-free method call context (e.g., `include *Array.new(3)`,
-            // `yield *Array.new(n)`). Exempt these — only flag when
-            // preceded by `=` (assignment) or inside brackets.
-            if find_enclosing_bracket(bytes, start).is_none()
-                && !is_preceded_by_assignment(bytes, start)
-            {
-                return;
+                Some((b'(', _)) => {
+                    if !is_preceded_by_assignment(bytes, start) {
+                        return; // exempt: method(*Array.new(n)) not in assignment
+                    }
+                    // assignment context like `a = method(*Array.new(n))` — flag
+                }
+                None => {
+                    if !is_preceded_by_assignment(bytes, start) {
+                        return; // exempt: paren-free method call
+                    }
+                    // Preceded by = — fall through to flag
+                }
+                _ => return, // other bracket types
             }
 
             let loc = splat.location();
