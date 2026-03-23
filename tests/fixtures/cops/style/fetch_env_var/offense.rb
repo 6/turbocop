@@ -12,7 +12,7 @@ end
 # ENV['X'] in && chain in condition: should be flagged (not a bare flag)
 if ENV['A'] && ENV['B'] && other
    ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('A', nil)` instead of `ENV['A']`.
-              ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('B', nil)` instead of `ENV['B']`.
+               ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('B', nil)` instead of `ENV['B']`.
   do_something
 end
 # case/when: both should be flagged
