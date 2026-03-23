@@ -397,3 +397,37 @@ def process_items(items)
     item_info
   end
 end
+
+# FP fix (round 7): (!!expr) in parentheses inside conditional in multi-statement
+# method body. RuboCop's find_parent_not_enumerable finds the parens (begin_type?),
+# and the same-line check trivially passes — so !! is allowed.
+def share_folders(folders, transient)
+  defs = []
+  warn_user_symlink = false
+  folders.each do |id, data|
+    hostpath = data[:hostpath]
+    enable_symlink_create = true
+    unless data[:SharedFoldersEnableSymlinksCreate].nil?
+      enable_symlink_create = data[:SharedFoldersEnableSymlinksCreate]
+    end
+    warn_user_symlink ||= enable_symlink_create
+    if (!!data[:transient]) == transient
+      defs << {
+        name: id,
+        hostpath: hostpath.to_s,
+        transient: transient,
+      }
+    end
+  end
+  driver.share_folders(defs)
+end
+
+# FP fix (round 7): (!!expr) in ternary condition inside multi-statement method body
+# The ternary is an IfNode conditional ancestor; parens make begin_type? parent.
+def deliver
+  notification = (!!evaluate_option(:silent)) ? notification_class.silent : notification_class
+  notification
+    .with_apple(evaluate_option(:with_apple))
+    .with_google(evaluate_option(:with_google))
+    .deliver_later_to(evaluate_option(:devices))
+end
