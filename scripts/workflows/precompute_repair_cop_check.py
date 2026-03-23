@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+REPO_OFFENSE_RE = re.compile(r"^\s*\d+\s+([^\s]+)\s*$")
 
 
 def tail_lines(text: str, max_lines: int = 220) -> str:
@@ -22,7 +26,54 @@ def tail_lines(text: str, max_lines: int = 220) -> str:
     )
 
 
-def render_packet(results: list[dict[str, object]]) -> str:
+def extract_top_repo_ids(output: str, limit: int = 5) -> list[str]:
+    repo_ids: list[str] = []
+    in_repo_block = False
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Repos with offenses "):
+            in_repo_block = True
+            continue
+        if not in_repo_block:
+            continue
+        if not stripped:
+            break
+        if stripped.startswith("... and "):
+            break
+        match = REPO_OFFENSE_RE.match(line)
+        if match:
+            repo_ids.append(match.group(1))
+            if len(repo_ids) >= limit:
+                break
+    return repo_ids
+
+
+def render_start_here(
+    cop: str,
+    top_repos: list[str],
+    *,
+    standard_corpus: Path | None,
+    corpus_dir: Path,
+) -> list[str]:
+    lines = [
+        "Start here:",
+        f"- Re-run after edits: `python3 scripts/check-cop.py {cop} --verbose --rerun --quick --clone`",
+    ]
+    if standard_corpus is not None:
+        lines.append(
+            f"- Baseline corpus context: `python3 scripts/investigate-cop.py {cop} --input {standard_corpus} --repos-only`"
+        )
+    for repo_id in top_repos:
+        lines.append(f"- Inspect repo: `{corpus_dir / repo_id}`")
+    return lines
+
+
+def render_packet(
+    results: list[dict[str, object]],
+    *,
+    standard_corpus: Path | None = None,
+    corpus_dir: Path = Path("vendor/corpus"),
+) -> str:
     lines = [
         "",
         "## Local Cop-Check Diagnosis",
@@ -50,9 +101,17 @@ def render_packet(results: list[dict[str, object]]) -> str:
     )
 
     for result in results:
+        top_repos = extract_top_repo_ids(str(result["output"]))
         lines.extend(
             [
                 f"### {result['cop']}",
+                "",
+                *render_start_here(
+                    str(result["cop"]),
+                    top_repos,
+                    standard_corpus=standard_corpus,
+                    corpus_dir=corpus_dir,
+                ),
                 "",
                 "```bash",
                 result["command"],
@@ -88,6 +147,7 @@ def main() -> int:
     args = parser.parse_args()
 
     repo_root = args.repo_root.resolve()
+    standard_corpus = os.environ.get("REPAIR_CORPUS_STANDARD_FILE")
     changed_result = run_capture(
         [
             sys.executable,
@@ -138,7 +198,13 @@ def main() -> int:
         )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(render_packet(results))
+    args.output.write_text(
+        render_packet(
+            results,
+            standard_corpus=Path(standard_corpus) if standard_corpus else None,
+            corpus_dir=repo_root / "vendor" / "corpus",
+        )
+    )
     failed = sum(1 for result in results if isinstance(result["status"], int) and result["status"] != 0)
     print(f"changed_cops={sum(1 for result in results if result['cop'] != '(changed-cops detection failed)')}")
     print(f"failed_cops={failed}")
