@@ -120,11 +120,17 @@ impl<'pr> Visit<'pr> for OptionHashVisitor<'_> {
                         let name = opt_param.name();
                         let name_str = std::str::from_utf8(name.as_slice()).unwrap_or("");
                         if self.suspicious_names.iter().any(|s| s == name_str) {
-                            // Check if default value is an empty hash
+                            // Check if default value is an empty hash.
+                            // RuboCop only flags `(hash)` which is an empty hash literal.
+                            // Non-empty hashes like `{key: val}` are not flagged.
                             let value = opt_param.value();
-                            if value.as_hash_node().is_some()
-                                || value.as_keyword_hash_node().is_some()
-                            {
+                            let is_empty_hash = value
+                                .as_hash_node()
+                                .is_some_and(|h| h.elements().is_empty())
+                                || value
+                                    .as_keyword_hash_node()
+                                    .is_some_and(|h| h.elements().is_empty());
+                            if is_empty_hash {
                                 let loc = opt_param.location();
                                 let (line, column) =
                                     self.source.offset_to_line_col(loc.start_offset());
