@@ -205,9 +205,8 @@ fn is_magic_comment(line: &str) -> bool {
             let token = token.trim();
             for kw in emacs_keywords {
                 // Token format is "keyword: value" or "keyword : value"
-                if token.starts_with(kw) {
-                    let rest = &token[kw.len()..].trim_start();
-                    if rest.starts_with(':') {
+                if let Some(rest) = token.strip_prefix(kw) {
+                    if rest.trim_start().starts_with(':') {
                         return true;
                     }
                 }
@@ -227,9 +226,8 @@ fn is_magic_comment(line: &str) -> bool {
             let lower_tokens = tokens_str.to_lowercase();
             for token in lower_tokens.split(',') {
                 let token = token.trim();
-                if token.starts_with("fileencoding") {
-                    let rest = token["fileencoding".len()..].trim_start();
-                    if rest.starts_with('=') {
+                if let Some(rest) = token.strip_prefix("fileencoding") {
+                    if rest.trim_start().starts_with('=') {
                         return true;
                     }
                 }
@@ -320,14 +318,10 @@ fn is_utf8_encoding_comment(line: &str) -> bool {
         for token in inner.split(';') {
             let token = token.trim();
             // Match (en)?coding : TOKEN pattern
-            let kw = if token.starts_with("encoding") {
-                Some(&token["encoding".len()..])
-            } else if token.starts_with("coding") {
-                Some(&token["coding".len()..])
-            } else {
-                None
-            };
-            if let Some(rest) = kw {
+            let after_kw = token
+                .strip_prefix("encoding")
+                .or_else(|| token.strip_prefix("coding"));
+            if let Some(rest) = after_kw {
                 let rest = rest.trim_start();
                 if let Some(value) = rest.strip_prefix(':') {
                     let value = value.trim();

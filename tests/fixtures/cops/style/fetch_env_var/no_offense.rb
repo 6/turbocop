@@ -56,3 +56,29 @@ unless ENV.key?('KEY')
 else
   puts ENV['KEY']
 end
+# ::ENV (fully qualified) is not matched by RuboCop
+::ENV['X']
+::ENV["Y"]
+x = ::ENV['Z']
+# === is a comparison method
+allowed === ENV['DATABASE_URL']
+# Quote mismatch: condition uses double quotes, body uses single quotes
+if ENV["KEY"]
+  puts ENV['KEY']
+end
+# Guard with different quote style
+if ENV.key?("KEY")
+  puts ENV['KEY']
+end
+# Condition with ENV['X'] == comparison, body uses same key with different quotes
+if ENV["X"] == foo
+  puts ENV['X']
+end
+# ENV['X'].in? predicate method in condition
+if ENV["X"].in?(%w[A B C])
+  puts ENV["X"]
+end
+# %w[...].include?(ENV['X']) in condition
+if %w[A B C].include?(ENV["X"])
+  puts ENV["X"]
+end

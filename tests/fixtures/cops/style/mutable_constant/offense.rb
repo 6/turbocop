@@ -9,13 +9,13 @@ CONST3 = "hello"
 
 # ||= assignment is also flagged
 CONST4 ||= [1, 2, 3]
-            ^^^^^^^^^ Style/MutableConstant: Freeze mutable objects assigned to constants.
+           ^^^^^^^^^ Style/MutableConstant: Freeze mutable objects assigned to constants.
 
 CONST5 ||= { a: 1, b: 2 }
-            ^^^^^^^^^^^^^^ Style/MutableConstant: Freeze mutable objects assigned to constants.
+           ^^^^^^^^^^^^^^ Style/MutableConstant: Freeze mutable objects assigned to constants.
 
 CONST6 ||= 'str'
-            ^^^^^ Style/MutableConstant: Freeze mutable objects assigned to constants.
+           ^^^^^ Style/MutableConstant: Freeze mutable objects assigned to constants.
 
 # %w and %i array literals
 CONST7 = %w[a b c]
@@ -40,4 +40,4 @@ RUBY
 
 # Module::CONST ||= value
 Mod::CONST12 ||= [1]
-                  ^^^ Style/MutableConstant: Freeze mutable objects assigned to constants.
+                 ^^^ Style/MutableConstant: Freeze mutable objects assigned to constants.
