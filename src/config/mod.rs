@@ -1001,10 +1001,17 @@ pub fn load_config(
             let base_dir = config_dir
                 .canonicalize()
                 .unwrap_or_else(|_| config_dir.clone());
+            // Even without a config file, apply RuboCop's default AllCops.Exclude
+            // patterns (vendor/**/* etc.). RuboCop always loads config/default.yml
+            // which includes these excludes, regardless of whether a project has
+            // .rubocop.yml. Without this, repos without config files get zero file
+            // exclusion, causing false positives on vendored code.
+            let defaults = fallback_default_excludes();
             return Ok(ResolvedConfig {
                 config_dir: Some(config_dir.clone()),
                 dir_overrides: load_dir_overrides(&config_dir),
                 base_dir: Some(base_dir),
+                global_excludes: defaults.global_excludes,
                 ..ResolvedConfig::empty()
             });
         }
@@ -4083,13 +4090,25 @@ mod tests {
     }
 
     #[test]
-    fn no_config_found_returns_empty() {
+    fn no_config_found_applies_default_excludes() {
         let dir = std::env::temp_dir().join("nitrocop_test_no_config");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
         let config = load_config(None, Some(&dir), None).unwrap();
-        assert!(config.global_excludes().is_empty());
+        // Even without a config file, RuboCop's default AllCops.Exclude
+        // patterns are applied (vendor/**/* etc.), matching RuboCop's behavior.
+        assert!(
+            !config.global_excludes().is_empty(),
+            "default excludes should be present even without config file"
+        );
+        assert!(
+            config
+                .global_excludes()
+                .iter()
+                .any(|e| e.contains("vendor")),
+            "vendor/**/* should be in default excludes"
+        );
         assert!(config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
 
         fs::remove_dir_all(&dir).ok();
