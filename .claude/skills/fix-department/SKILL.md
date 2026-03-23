@@ -147,7 +147,7 @@ Ephemeral cloud VMs typically run as `root` or a CI-specific user, not `vscode`.
      cp "${CARGO_TARGET_DIR}/release/nitrocop" "/tmp/nitrocop-${target_name}"
      export NITROCOP_BIN="/tmp/nitrocop-${target_name}"
      ```
-     All Python scripts (`check-cop.py`, `verify-cop-locations.py`, `corpus_smoke_test.py`,
+     All Python scripts (`check-cop.py`, `verify-cop-locations.py`, `corpus-smoke-test.py`,
      `reduce-mismatch.py`) honor `NITROCOP_BIN` to find the binary. Copying to `/tmp/`
      prevents other agents' builds from overwriting it. Rebuild and re-copy after code
      changes (Phase 4 verification).
@@ -358,7 +358,7 @@ if the prompt/examples require local corpus source context.
    CARGO_TARGET_DIR="target-${target_name}" cargo build --release
    cp "${CARGO_TARGET_DIR}/release/nitrocop" "/tmp/nitrocop-${target_name}"
    export NITROCOP_BIN="/tmp/nitrocop-${target_name}"
-   python3 scripts/corpus_smoke_test.py --binary "$NITROCOP_BIN"
+   python3 scripts/corpus-smoke-test.py --binary "$NITROCOP_BIN"
    ```
 
    Run the corpus smoke test once per batch, not after every cop. It is the cheap
@@ -468,7 +468,7 @@ When the generated target row is at 100% and Linux CI agrees:
    cargo fmt
    cargo clippy --release -- -D warnings
    cargo test --release
-   python3 scripts/corpus_smoke_test.py --binary target/release/nitrocop
+   python3 scripts/corpus-smoke-test.py --binary target/release/nitrocop
    ```
 
 2. Report to the user:

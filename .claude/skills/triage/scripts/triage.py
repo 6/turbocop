@@ -27,7 +27,7 @@ from pathlib import Path
 # Allow importing from the main scripts/ directory
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT / "scripts"))
-from corpus_download import download_corpus_results as download_latest_corpus_results
+from shared.corpus_artifacts import download_corpus_results as download_latest_corpus_results
 
 
 def get_fixed_cops_from_git(oracle_sha: str) -> set[str]:

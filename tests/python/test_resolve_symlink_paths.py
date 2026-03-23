@@ -2,7 +2,6 @@
 """Tests for resolve_symlink_paths.py."""
 
 import json
-import os
 import subprocess
 import sys
 import tempfile

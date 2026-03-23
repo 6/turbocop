@@ -144,4 +144,8 @@ correct behavior. If your change causes them to fail, the change is too aggressi
 - `ruby_prism::ParseResult` is `!Send + !Sync` — parsing happens per-thread
 - Cop trait is `Send + Sync` — no mutable state on the cop struct
 - Edition 2024 (Rust 1.85+)
+- In workflow runs, work only in the current checkout. Do NOT create extra git worktrees or side
+  branches.
 - Do NOT use `git stash` — commit work-in-progress instead
+- When asked to commit, commit directly on the current branch. If you accidentally create extra git
+  refs or worktrees, leave them intact so the workflow can snapshot them for recovery artifacts.

@@ -1,20 +1,25 @@
 # Agent Dispatch for Corpus Conformance (Codex)
 
-Automated system for fixing corpus conformance gaps by dispatching Codex agents to fix one cop at a time. Each cop runs in a GitHub Actions runner with Codex CLI, which edits the code, validates with `cargo test`, and opens a PR.
+Automated system for fixing corpus conformance gaps by dispatching Codex agents to fix one cop at a time. The current flow is issue-backed: sync one tracker issue per diverging cop from the extended corpus, then fill a bounded queue of those issues into `agent-cop-fix`. Each cop runs in a GitHub Actions runner with Codex CLI, which edits the code, validates with `cargo test`, and opens a PR.
 
-**Cheaper alternative:** See [agent-dispatch-minimax.md](agent-dispatch-minimax.md) for Claude Code + MiniMax M2.7 (~$0.03/cop vs $200/mo flat rate).
+The recommended workflow is Codex-first:
+- `gpt-5.3-codex` with `high` for `difficulty:simple` initial cop-fix issues
+- `gpt-5.4` with `xhigh` for `difficulty:medium|complex`, retries, and PR repairs
+- Legacy manual overrides for `claude` and `minimax` still exist, but are not recommended.
 
 ## Architecture
 
 ```
 You (any machine with gh CLI)
   │
-  │  gh workflow run agent-cop-fix.yml -f cop="Style/NegatedWhile"
+  │  gh workflow run cop-issue-sync.yml -f corpus=extended
+  │  gh workflow run cop-issue-dispatch.yml -f max_active=5
   ▼
 GitHub Actions (agent-cop-fix.yml)
   │  1. Checkout repo + build Rust (cached, ~1 min)
-  │  2. generate-cop-task.py → self-contained task prompt
-  │  3. codex exec --full-auto → Codex edits files in the GHA runner
+  │  2. dispatch-cops.py task → self-contained task prompt
+  │  3. codex exec --dangerously-bypass-approvals-and-sandbox
+  │     → auto-routed to gpt-5.3-codex or gpt-5.4
   │  4. cargo test --lib → validate the fix compiles + tests pass
   │  5. Commit, push branch, open PR
   ▼
@@ -72,20 +77,25 @@ Go to **Settings > Rules > Rulesets > New ruleset**:
 
 ## Operator Workflow
 
-### Phase 1: Triage (5 min)
+### Phase 1: Triage / Issue Sync (5 min)
 
 ```bash
-python3 scripts/agent/tier_cops.py --extended
+python3 scripts/dispatch-cops.py tiers --extended
+gh workflow run cop-issue-sync.yml -f corpus=extended
 ```
 
-### Phase 2: Pilot (10 cops)
+### Phase 2: Dispatch
 
 ```bash
-# Inspect a task packet first
-python3 scripts/agent/generate-cop-task.py Style/VariableInterpolation --extended
+# Dry run the bounded queue first
+gh workflow run cop-issue-dispatch.yml -f max_active=5 -f dry_run=true
 
-# Dispatch one cop
-gh workflow run agent-cop-fix.yml -f cop="Style/VariableInterpolation"
+# Dispatch backlog issues into agent-cop-fix
+gh workflow run cop-issue-dispatch.yml -f max_active=5
+
+# Or force one Codex model across the queue
+gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex -f strength_override=normal
+gh workflow run cop-issue-dispatch.yml -f max_active=5 -f backend_override=codex -f strength_override=hard
 ```
 
 Wait ~10-15 min (build + Codex agent + validation). Check the PR:
@@ -99,20 +109,7 @@ gh pr list --search "Fix in:title" --state open
 - Is the fix correct (read the diff)?
 - Did it add a test case + doc comment?
 
-If ≥7/10 pilot cops produce usable PRs, scale to Phase 3.
-
-### Phase 3: Batch Dispatch
-
-```bash
-python3 scripts/agent/tier_cops.py --extended --tier 1 --names | while read cop; do
-  gh workflow run agent-cop-fix.yml -f cop="$cop"
-  sleep 5
-done
-```
-
-GHA runs these in parallel (up to your concurrency limit, typically 20 for free/pro plans).
-
-### Phase 4: Retry Failures
+### Phase 3: Retry Failures
 
 ```bash
 gh workflow run agent-cop-fix.yml -f cop="Style/VariableInterpolation" -f mode=retry
@@ -120,9 +117,9 @@ gh workflow run agent-cop-fix.yml -f cop="Style/VariableInterpolation" \
   -f mode=retry -f extra_context="The FN is a global variable interpolation"
 ```
 
-Retry mode auto-discovers all prior failed PRs, includes their diffs and CI failure logs in the prompt, and closes stale PRs before dispatching.
+Retry mode auto-discovers all prior failed PRs, includes their diffs and CI failure logs in the prompt, and closes stale PRs before dispatching. `agent-pr-repair.yml` also reacts automatically to failed deterministic PR checks.
 
-### Phase 5: Validate
+### Phase 4: Validate
 
 After merging ~20-50 PRs:
 
@@ -134,7 +131,7 @@ gh workflow run corpus-oracle.yml -f corpus_size=extended
 
 ### Task Packet
 
-`generate-cop-task.py` produces a markdown prompt containing:
+`dispatch-cops.py task` produces a markdown prompt containing:
 - Focused instructions (TDD workflow, fixture format)
 - The cop's Rust source
 - RuboCop's Ruby implementation (ground truth)
@@ -169,17 +166,16 @@ On the PR, two additional workflows run:
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/agent/generate-cop-task.py` | Produces self-contained task prompt per cop |
-| `scripts/agent/tier_cops.py` | Classifies cops by difficulty tier |
-| `scripts/agent/detect_changed_cops.py` | Maps git diff to cop names (CI) |
-| `scripts/agent/collect_prior_attempts.py` | Gathers diffs + logs from prior failed PRs |
+| `scripts/dispatch-cops.py` | Dispatch helper CLI: task generation, tiers, changed cops, prior attempts, issue sync, issue dispatch, and backend routing |
 
 ## Workflows
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
+| `cop-issue-sync.yml` | `workflow_dispatch` | Sync/update one tracker issue per diverging cop from corpus |
+| `cop-issue-dispatch.yml` | `workflow_dispatch` | Fill bounded queue from tracker issues into `agent-cop-fix` |
 | `agent-cop-fix.yml` | `workflow_dispatch` | Generate prompt → agent fixes → validate → PR (mode: fix/retry) |
-| `agent-cop-check.yml` | PR (cop file changes) | Validate changed cops against corpus |
+| `agent-pr-repair.yml` | failed `Checks` / `workflow_dispatch` | Repair existing bot PRs after deterministic CI failures |
 | `agent-build-cache.yml` | `workflow_dispatch` | Pre-build Rust cache (optional optimization) |
 
 ## Security

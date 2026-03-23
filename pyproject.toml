@@ -1,0 +1,17 @@
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+extend-exclude = [
+  "vendor",
+  "target",
+  "target-linux",
+  "bench/corpus/vendor",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E402", "E501"]

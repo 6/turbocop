@@ -14,7 +14,7 @@ Use this when the user wants commits from one or more branches landed onto
 **Run the script first.** The happy path is fully automated:
 
 ```bash
-scripts/land-branch-commits.sh <branch1> [branch2 ...]
+./scripts/land_branch_commits.sh <branch1> [branch2 ...]
 ```
 
 The script handles:

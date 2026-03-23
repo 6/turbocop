@@ -219,8 +219,8 @@ def test_conformance_includes_fp():
 
         updated = readme_path.read_text()
         assert "94.1% conformance" in updated, (
-            f"Expected 94.1% (includes FP in denominator, floored), got: "
-            + next(l for l in updated.splitlines() if "conformance" in l)
+            "Expected 94.1% (includes FP in denominator, floored), got: "
+            + next(line for line in updated.splitlines() if "conformance" in line)
         )
         assert "95.2% conformance" not in updated
 

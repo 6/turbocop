@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Investigate a repo's conformance from the corpus oracle data.
 
 Answers "why is repo X at Y%?" by showing the top diverging cops for that repo.
@@ -21,12 +22,9 @@ import math
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-# Allow importing corpus_download from the same directory
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from corpus_download import download_corpus_results as _download_corpus
+from shared.corpus_artifacts import download_corpus_results as _download_corpus
 
 
 def download_corpus_results(prefer: str = "standard") -> tuple[Path, str]:
@@ -103,7 +101,7 @@ def find_repo(by_repo: list[dict], by_repo_cop: dict, query: str) -> str | None:
         print(f"Multiple repos match '{query}':", file=sys.stderr)
         for m in matches:
             print(f"  {m}", file=sys.stderr)
-        print(f"Be more specific.", file=sys.stderr)
+        print("Be more specific.", file=sys.stderr)
         sys.exit(1)
 
     return None
@@ -299,7 +297,7 @@ def main():
     repo_id = find_repo(by_repo, by_repo_cop, args.repo)
     if repo_id is None:
         print(f"No repo matching '{args.repo}' found in corpus results", file=sys.stderr)
-        print(f"Use --list to see all available repos", file=sys.stderr)
+        print("Use --list to see all available repos", file=sys.stderr)
         sys.exit(1)
 
     effective_limit = args.limit if args.limit > 0 else len(by_repo_cop.get(repo_id, {}))

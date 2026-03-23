@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Check a single cop against the corpus for aggregate count regressions.
 
 Compares nitrocop's aggregate offense count against the RuboCop baseline from
@@ -22,17 +23,13 @@ Usage:
 """
 
 import argparse
-import hashlib
 import json
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-# Allow importing corpus_download from the same directory
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from corpus_download import download_corpus_results as _download_corpus
+from shared.corpus_artifacts import download_corpus_results as _download_corpus
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
@@ -615,7 +612,7 @@ def main():
         # Reconstruct per-repo counts from by_repo_cop
         # nitrocop count = rubocop count + FP - FN per repo
         by_repo = data.get("by_repo", [])
-        repo_by_id = {r["repo"]: r for r in by_repo if r.get("status") == "ok"}
+        {r["repo"]: r for r in by_repo if r.get("status") == "ok"}
 
         repos_with_offenses = {}
         for repo_id, cops in by_repo_cop.items():
@@ -647,7 +644,7 @@ def main():
         cached = None if args.rerun else get_cached_results(args.cop)
 
         if cached is not None:
-            print(f"Using cached nitrocop results (pass --rerun to re-execute)", file=sys.stderr)
+            print("Using cached nitrocop results (pass --rerun to re-execute)", file=sys.stderr)
             per_repo = cached
         else:
             ensure_binary_fresh()
@@ -676,7 +673,7 @@ def main():
         # only reruns baseline-diverging repos. Preserve the synthetic CI-baseline
         # fallback for those older artifacts.
         if args.clone and has_enriched and not has_activity_index:
-            cloned_repos = set(per_repo.keys())
+            set(per_repo.keys())
             # For each repo NOT in per_repo, add its CI nitrocop count.
             # Repos in by_repo_cop have matches + FP - FN. Repos NOT in
             # by_repo_cop matched exactly, but we don't have per-repo counts
@@ -740,9 +737,9 @@ def main():
     # CI nitrocop baseline: the offense count CI's nitrocop produced on
     # RuboCop-inspected files. Our local count should be close to this.
     ci_nitrocop_total = baseline_matches + baseline_fp
-    ci_delta = nitrocop_total - ci_nitrocop_total
+    nitrocop_total - ci_nitrocop_total
 
-    print(f"Results:")
+    print("Results:")
     print(f"  Expected (RuboCop):   {expected_rubocop:>10,}")
     print(f"  Actual (nitrocop):    {nitrocop_total:>10,}")
     print(f"  CI nitrocop baseline: {ci_nitrocop_total:>10,}")
@@ -791,7 +788,7 @@ def main():
                 parts.append(f"FP={adjusted_excess:,} (CI had {baseline_fp:,})")
             if missing > 0:
                 parts.append(f"FN={missing:,} (CI had {baseline_fn:,})")
-            print(f"PASS: no regression vs CI baseline")
+            print("PASS: no regression vs CI baseline")
             if parts:
                 print(f"  Current: {', '.join(parts)}")
         if missing > 0:

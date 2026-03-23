@@ -44,8 +44,8 @@ for gem, depts in GEM_DEPARTMENTS.items():
         DEPT_TO_GEM[dept] = gem
 
 
-from corpus_download import download_corpus_results as download_latest_corpus_results
-from corpus_download import get_synthetic_results_path
+from shared.corpus_artifacts import download_corpus_results as download_latest_corpus_results
+from shared.corpus_artifacts import get_synthetic_results_path
 
 
 def get_fixed_cops_from_git(oracle_sha: str) -> set[str]:

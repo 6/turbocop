@@ -20,9 +20,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# Allow importing corpus_download from the same directory
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from corpus_download import download_corpus_results
+from shared.corpus_artifacts import download_corpus_results
 
 
 def find_project_root() -> Path:

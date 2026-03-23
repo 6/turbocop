@@ -1,0 +1,80 @@
+name: Investigate Regression
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+  pull-requests: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      corpus:
+        description: "Corpus variant to compare"
+        type: choice
+        options:
+          - standard
+          - extended
+        default: standard
+      before_run:
+        description: "Older corpus-oracle run ID (optional; defaults to previous successful run)"
+        required: false
+        type: string
+      after_run:
+        description: "Newer corpus-oracle run ID (optional; defaults to latest successful run)"
+        required: false
+        type: string
+      action:
+        description: "What to do after identifying regressions"
+        type: choice
+        options:
+          - report
+          - reopen
+          - dispatch-simple
+        default: report
+
+jobs:
+  investigate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Investigate regression
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ARGS=(
+            --repo "${{ github.repository }}"
+            --corpus "${{ github.event.inputs.corpus }}"
+            --action "${{ github.event.inputs.action }}"
+            --output regression-report.md
+            --json-output regression-report.json
+          )
+          if [ -n "${{ github.event.inputs.before_run }}" ]; then
+            ARGS+=(--before-run "${{ github.event.inputs.before_run }}")
+          fi
+          if [ -n "${{ github.event.inputs.after_run }}" ]; then
+            ARGS+=(--after-run "${{ github.event.inputs.after_run }}")
+          fi
+          python3 scripts/investigate-regression.py "${ARGS[@]}"
+          cat regression-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload regression report
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-investigation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            regression-report.md
+            regression-report.json
+          retention-days: 7

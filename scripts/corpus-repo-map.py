@@ -36,7 +36,7 @@ def find_corpus_results() -> dict | None:
 
     # Try downloading via investigate-cop.py's download logic
     try:
-        result = subprocess.run(
+        subprocess.run(
             [sys.executable, str(PROJECT_ROOT / "scripts" / "investigate-cop.py"),
              "Style/FrozenStringLiteralComment", "--repos-only"],
             capture_output=True, text=True, timeout=60

@@ -1,0 +1,70 @@
+name: Cop Issue Dispatch
+
+permissions:
+  actions: write
+  contents: read
+  issues: read
+  pull-requests: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_active:
+        description: "Maximum active bot PRs / in-flight cop-fix runs"
+        required: false
+        type: string
+        default: "5"
+      backend_override:
+        description: "Override backend family for all dispatched issues"
+        type: choice
+        options:
+          - auto
+          - codex
+          - claude
+          - minimax
+        default: auto
+      strength_override:
+        description: "Override model strength for all dispatched issues"
+        type: choice
+        options:
+          - auto
+          - normal
+          - hard
+        default: auto
+      dry_run:
+        description: "Only print which issues would be dispatched"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Dispatch backlog issues
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ARGS=(
+            --repo "${{ github.repository }}"
+            --max-active "${{ github.event.inputs.max_active }}"
+            --backend-family-override "${{ github.event.inputs.backend_override }}"
+            --strength-override "${{ github.event.inputs.strength_override }}"
+          )
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          python3 scripts/dispatch-cops.py dispatch-issues "${ARGS[@]}"

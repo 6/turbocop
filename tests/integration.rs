@@ -1865,6 +1865,165 @@ fn all_cops_have_fixture_files() {
     );
 }
 
+/// Every top-level block in an offense.rb fixture must have at least one annotation.
+///
+/// Catches "dead" fixture code — Ruby code added to offense.rb without `^` annotations,
+/// which passes tests vacuously (the cop doesn't detect it but no annotation expects it to).
+/// This was the failure mode in PR #135 where a minimax agent added 3 unannotated describe blocks.
+///
+/// Splits files into regions at blank lines following a top-level `end`. Each region with
+/// ≥5 source lines must contain at least one annotation.
+#[test]
+fn offense_fixtures_have_no_unannotated_blocks() {
+    let testdata = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cops");
+    let registry = CopRegistry::default_registry();
+
+    let stub_cops: &[&str] = &[
+        "Lint/RedundantCopDisableDirective",
+        "Lint/Syntax",
+        "Lint/ItWithoutArgumentsInBlock",
+        "Lint/NonDeterministicRequireOrder",
+        "Lint/NumberedParameterAssignment",
+        "Lint/UselessElseWithoutRescue",
+        "Security/YAMLLoad",
+    ];
+
+    let mut failures = Vec::new();
+
+    for cop_name in registry.names() {
+        if stub_cops.contains(&cop_name) {
+            continue;
+        }
+        let parts: Vec<&str> = cop_name.split('/').collect();
+        let dept = parts[0].to_lowercase();
+        let name = to_snake_case(parts[1]);
+
+        let dir = testdata.join(&dept).join(&name);
+        let dir_alt = testdata.join(&dept).join(format!("{name}_cop"));
+        let effective_dir = if dir.exists() {
+            &dir
+        } else if dir_alt.exists() {
+            &dir_alt
+        } else {
+            continue;
+        };
+
+        let mut offense_files: Vec<PathBuf> = Vec::new();
+        let offense_dir = effective_dir.join("offense");
+        if offense_dir.is_dir() {
+            for entry in fs::read_dir(&offense_dir).unwrap() {
+                let entry = entry.unwrap();
+                if entry.path().extension().map_or(false, |e| e == "rb") {
+                    offense_files.push(entry.path());
+                }
+            }
+        } else {
+            let f = effective_dir.join("offense.rb");
+            if f.exists() {
+                offense_files.push(f);
+            }
+        }
+
+        for file_path in &offense_files {
+            let content = fs::read_to_string(file_path).unwrap();
+            if let Some(desc) = find_unannotated_region(&content) {
+                let rel = file_path.strip_prefix(&testdata).unwrap_or(file_path);
+                failures.push(format!("{cop_name} ({}): {desc}", rel.display()));
+            }
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "Offense fixtures with unannotated code blocks (missing ^ annotations):\n{}",
+        failures.join("\n")
+    );
+}
+
+/// Split an offense fixture into regions at blank lines that follow a top-level `end`,
+/// then check that each region with ≥5 source lines has at least one annotation.
+fn find_unannotated_region(content: &str) -> Option<String> {
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.is_empty() {
+        return None;
+    }
+
+    // Split into regions: a blank line after a top-level `end` starts a new region.
+    let mut regions: Vec<Vec<&str>> = Vec::new();
+    let mut current: Vec<&str> = Vec::new();
+
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            // Check if the last non-blank, non-annotation source line is "end" at col 0
+            let last_source = current.iter().rev().find_map(|prev| {
+                let pt = prev.trim();
+                if !pt.is_empty() && !is_annotation_line(pt) {
+                    Some(*prev)
+                } else {
+                    None
+                }
+            });
+            if let Some(ls) = last_source {
+                if ls.trim() == "end" && !ls.starts_with(' ') && !ls.starts_with('\t') {
+                    regions.push(current);
+                    current = Vec::new();
+                    continue;
+                }
+            }
+        }
+        current.push(line);
+    }
+    if !current.is_empty() {
+        regions.push(current);
+    }
+
+    // Check each region
+    let mut line_offset = 0usize;
+    for region in &regions {
+        let mut has_annotation = false;
+        let mut source_lines = 0usize;
+        let mut first_source_line: Option<(usize, &str)> = None;
+
+        for (j, line) in region.iter().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if is_annotation_line(trimmed) {
+                has_annotation = true;
+            } else {
+                source_lines += 1;
+                if first_source_line.is_none() {
+                    first_source_line = Some((line_offset + j + 1, trimmed));
+                }
+            }
+        }
+
+        if !has_annotation && source_lines >= 5 {
+            if let Some((lineno, first)) = first_source_line {
+                let display = if first.len() > 60 {
+                    format!("{}...", &first[..60])
+                } else {
+                    first.to_string()
+                };
+                return Some(format!(
+                    "unannotated block at line {lineno} with {source_lines} source lines ('{display}')"
+                ));
+            }
+        }
+
+        line_offset += region.len();
+    }
+
+    None
+}
+
+fn is_annotation_line(trimmed: &str) -> bool {
+    (trimmed.starts_with('^') && trimmed.contains(": ") && trimmed.contains('/'))
+        || trimmed.starts_with("# nitrocop-expect: ")
+}
+
 // ---------- M3 integration tests ----------
 
 #[test]

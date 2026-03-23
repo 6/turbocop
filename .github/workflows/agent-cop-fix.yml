@@ -13,12 +13,22 @@ on:
         required: true
         type: string
       backend:
-        description: 'Agent backend'
+        description: 'Backend family'
         type: choice
         options:
-          - minimax
+          - auto
           - codex
-        default: minimax
+          - claude
+          - minimax
+        default: auto
+      strength:
+        description: 'Model strength (used when backend is not auto)'
+        type: choice
+        options:
+          - auto
+          - normal
+          - hard
+        default: auto
       mode:
         description: 'Mode: fix (fresh) or retry (with prior attempt context)'
         type: choice
@@ -26,6 +36,10 @@ on:
           - fix
           - retry
         default: fix
+      issue_number:
+        description: 'Optional linked cop tracker issue number'
+        required: false
+        type: string
       extra_context:
         description: 'Additional instructions for the agent (optional)'
         required: false
@@ -71,19 +85,18 @@ jobs:
           key: agent-target-${{ hashFiles('Cargo.lock') }}
           restore-keys: agent-target-
 
-      # --- Fast steps ---
-
-      - name: Resolve backend config
-        id: backend
+      - name: Initialize runtime layout
         run: |
-          python3 scripts/ci/resolve_backend.py "${{ github.event.inputs.backend }}" \
-            >> "$GITHUB_OUTPUT"
+          python3 scripts/workflows/agent_runtime.py agent-cop-fix \
+            --runner-temp "${RUNNER_TEMP}" >> "$GITHUB_ENV"
+
+      # --- Fast steps ---
 
       - name: Compute identifiers
         id: cop
         run: |
           MODE="${{ github.event.inputs.mode }}"
-          echo "::notice::${MODE^} cop: ${{ github.event.inputs.cop }} (backend: ${{ github.event.inputs.backend }})"
+          echo "::notice::${MODE^} cop: ${{ github.event.inputs.cop }} (backend input: ${{ github.event.inputs.backend }}, strength: ${{ github.event.inputs.strength }})"
           python3 -c "
           import re, sys
           cop = sys.argv[1]
@@ -108,54 +121,16 @@ jobs:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
-      # --- Dedup guard + claim PR upfront ---
-      - name: Create draft PR (claim)
-        id: claim
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          COP="${{ github.event.inputs.cop }}"
-          MODE="${{ github.event.inputs.mode }}"
-          BACKEND="${{ github.event.inputs.backend }}"
-          BRANCH="${{ steps.cop.outputs.branch }}"
-          RETRY_NOTE=""
-          if [ "$MODE" = "retry" ]; then RETRY_NOTE=" (retry)"; fi
-
-          # Check for existing open PR
-          EXISTING=$(gh pr list --state open --search "[bot] Fix ${COP} in:title" --json number,title --jq '.[0].number // empty')
-          if [ -n "$EXISTING" ]; then
-            echo "::error::Skipping ${COP} — PR #${EXISTING} already open"
-            exit 1
-          fi
-
-          # Create empty branch via API (signed commit)
-          REPO="${{ github.repository }}"
-          PARENT_SHA=$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')
-          TREE_SHA=$(gh api "repos/${REPO}/git/commits/${PARENT_SHA}" --jq '.tree.sha')
-          COMMIT_SHA=$(gh api "repos/${REPO}/git/commits" \
-            -f message="[bot] Fix ${COP}: in progress [skip ci]" \
-            -f tree="$TREE_SHA" \
-            -f "parents[]=$PARENT_SHA" \
-            --jq '.sha')
-          gh api "repos/${REPO}/git/refs" \
-            -f ref="refs/heads/${BRANCH}" \
-            -f sha="$COMMIT_SHA"
-
-          MODEL_LABEL="model:${BACKEND}"
-          gh label create agent-fix --color "0e8a16" 2>/dev/null || true
-          gh label create "$MODEL_LABEL" --color "c2e0c6" 2>/dev/null || true
-
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          printf -v DRAFT_BODY '> **Status:** Agent is working on this fix...\n>\n> **Cop:** `%s` | **Backend:** %s | **Mode:** %s\n> **Run:** %s' "$COP" "$BACKEND" "$MODE" "$RUN_URL"
-          PR_URL=$(gh pr create \
-            --draft \
-            --base main \
-            --head "$BRANCH" \
-            --label "agent-fix,${MODEL_LABEL}" \
-            --title "[bot] Fix ${COP}${RETRY_NOTE}" \
-            --body "$DRAFT_BODY")
-          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-          echo "Created draft PR: $PR_URL"
+      - name: Generate read-only GitHub token
+        id: actions-read-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-metadata: read
+          permission-pull-requests: read
 
       # --- Build (before task generation for pre-diagnostic) ---
 
@@ -170,26 +145,26 @@ jobs:
 
       - name: Generate task prompt
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          python3 scripts/agent/generate-cop-task.py \
+          python3 scripts/dispatch-cops.py task \
             "${{ github.event.inputs.cop }}" \
             --extended \
             --binary target/debug/nitrocop \
-            --output /tmp/task.md
+            --output "$TASK_FILE"
           echo "=== Task prompt stats ==="
-          wc -l /tmp/task.md
-          grep -c "CODE BUG\|CONFIG/CONTEXT\|CONFIRMED\|NOT REPRODUCED" /tmp/task.md || echo "no diagnostics"
+          wc -l "$TASK_FILE"
+          grep -c "CODE BUG\|CONFIG/CONTEXT\|CONFIRMED\|NOT REPRODUCED" "$TASK_FILE" || echo "no diagnostics"
 
           # Count code bugs vs config issues from pre-diagnostic
-          CODE_BUGS=$(grep -c "CODE BUG" /tmp/task.md || echo "0")
-          CONFIG_ISSUES=$(grep -c "CONFIG/CONTEXT" /tmp/task.md || echo "0")
+          CODE_BUGS=$(grep -c "CODE BUG" "$TASK_FILE" || echo "0")
+          CONFIG_ISSUES=$(grep -c "CONFIG/CONTEXT" "$TASK_FILE" || echo "0")
           echo "code_bugs=$CODE_BUGS" >> "$GITHUB_OUTPUT"
           echo "Code bugs: $CODE_BUGS, Config issues: $CONFIG_ISSUES"
 
           # Count tokens
           pip install -q tiktoken
-          TOKENS=$(python3 scripts/ci/count_tokens.py /tmp/task.md 2>/dev/null || echo "?")
+          TOKENS=$(python3 scripts/workflows/count_tokens.py "$TASK_FILE" 2>/dev/null || echo "?")
           echo "tokens=$TOKENS" >> "$GITHUB_OUTPUT"
           echo "Tokens: $TOKENS"
         id: task
@@ -199,11 +174,11 @@ jobs:
       - name: Collect prior attempts
         if: github.event.inputs.mode == 'retry' && steps.task.outputs.code_bugs != '0'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          python3 scripts/agent/collect_prior_attempts.py \
+          python3 scripts/dispatch-cops.py prior-attempts \
             --cop "${{ github.event.inputs.cop }}" \
-            --output /tmp/prior_attempts.md
+            --output "$PRIOR_ATTEMPTS_FILE"
 
       - name: Close prior open PRs
         if: github.event.inputs.mode == 'retry' && steps.task.outputs.code_bugs != '0'
@@ -227,26 +202,159 @@ jobs:
       - name: Build final prompt
         if: steps.task.outputs.code_bugs != '0'
         run: |
-          cp /tmp/task.md /tmp/final-task.md
+          cp "$TASK_FILE" "$FINAL_TASK_FILE"
 
-          if [ -s /tmp/prior_attempts.md 2>/dev/null ]; then
-            echo "" >> /tmp/final-task.md
-            cat /tmp/prior_attempts.md >> /tmp/final-task.md
+          if [ -s "$PRIOR_ATTEMPTS_FILE" 2>/dev/null ]; then
+            echo "" >> "$FINAL_TASK_FILE"
+            cat "$PRIOR_ATTEMPTS_FILE" >> "$FINAL_TASK_FILE"
           fi
 
           if [ -n "${{ github.event.inputs.extra_context }}" ]; then
-            echo "" >> /tmp/final-task.md
-            echo "## Additional Instructions" >> /tmp/final-task.md
-            echo "${{ github.event.inputs.extra_context }}" >> /tmp/final-task.md
+            echo "" >> "$FINAL_TASK_FILE"
+            echo "## Additional Instructions" >> "$FINAL_TASK_FILE"
+            echo "${{ github.event.inputs.extra_context }}" >> "$FINAL_TASK_FILE"
           fi
 
           if [ "${{ github.event.inputs.mode }}" = "retry" ]; then
-            echo "" >> /tmp/final-task.md
-            echo "**CRITICAL:** Do NOT repeat approaches that already failed. Read the prior attempts carefully and try a DIFFERENT strategy." >> /tmp/final-task.md
+            echo "" >> "$FINAL_TASK_FILE"
+            echo "**CRITICAL:** Do NOT repeat approaches that already failed. Read the prior attempts carefully and try a DIFFERENT strategy." >> "$FINAL_TASK_FILE"
           fi
 
           echo "=== Final prompt ==="
-          wc -l /tmp/final-task.md
+          wc -l "$FINAL_TASK_FILE"
+
+      - name: Select backend
+        if: steps.task.outputs.code_bugs != '0'
+        id: selected_backend
+        env:
+          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
+        run: |
+          INPUT_BACKEND="${{ github.event.inputs.backend }}"
+          INPUT_STRENGTH="${{ github.event.inputs.strength }}"
+          ISSUE_DIFFICULTY=""
+          if [ -n "${{ github.event.inputs.issue_number }}" ]; then
+            ISSUE_LABELS=$(gh issue view "${{ github.event.inputs.issue_number }}" \
+              --repo "${{ github.repository }}" \
+              --json labels --jq '.labels[].name' 2>/dev/null || true)
+            if echo "$ISSUE_LABELS" | grep -qx 'difficulty:simple'; then
+              ISSUE_DIFFICULTY="simple"
+            elif echo "$ISSUE_LABELS" | grep -qx 'difficulty:medium'; then
+              ISSUE_DIFFICULTY="medium"
+            elif echo "$ISSUE_LABELS" | grep -qx 'difficulty:complex'; then
+              ISSUE_DIFFICULTY="complex"
+            fi
+          fi
+          if [ "$INPUT_BACKEND" = "auto" ]; then
+            ARGS=(
+              --repo "${{ github.repository }}"
+              --cop "${{ github.event.inputs.cop }}"
+              --mode "${{ github.event.inputs.mode }}"
+              --extended
+              --binary target/debug/nitrocop
+            )
+            if [ -n "$ISSUE_DIFFICULTY" ]; then
+              ARGS+=(--issue-difficulty "$ISSUE_DIFFICULTY")
+            fi
+            python3 scripts/dispatch-cops.py backend \
+              "${ARGS[@]}" \
+              >> "$GITHUB_OUTPUT"
+          else
+            DEFAULT_STRENGTH="normal"
+            if [ "${{ github.event.inputs.mode }}" = "retry" ] && [ "$INPUT_BACKEND" = "codex" ]; then
+              DEFAULT_STRENGTH="hard"
+            fi
+            python3 scripts/workflows/resolve_backend.py choose \
+              "$INPUT_BACKEND" \
+              "$INPUT_STRENGTH" \
+              "$DEFAULT_STRENGTH" \
+              >> "$GITHUB_OUTPUT"
+            echo "tier=3" >> "$GITHUB_OUTPUT"
+            echo "code_bugs=0" >> "$GITHUB_OUTPUT"
+            echo "config_issues=0" >> "$GITHUB_OUTPUT"
+            echo "easy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve backend config
+        if: steps.task.outputs.code_bugs != '0'
+        id: backend
+        run: |
+          python3 scripts/workflows/resolve_backend.py "${{ steps.selected_backend.outputs.backend }}" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Create draft PR (claim)
+        if: steps.task.outputs.code_bugs != '0'
+        id: claim
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          COP="${{ github.event.inputs.cop }}"
+          MODE="${{ github.event.inputs.mode }}"
+          BACKEND="${{ steps.selected_backend.outputs.backend }}"
+          BACKEND_LABEL="${{ steps.selected_backend.outputs.display_label }}"
+          MODEL_LABEL_TEXT="${{ steps.backend.outputs.model_label }}"
+          BACKEND_REASON="${{ steps.selected_backend.outputs.reason }}"
+          BRANCH="${{ steps.cop.outputs.branch }}"
+          ISSUE_NUMBER="${{ github.event.inputs.issue_number }}"
+          RETRY_NOTE=""
+          if [ "$MODE" = "retry" ]; then RETRY_NOTE=" (retry)"; fi
+
+          EXISTING=$(gh pr list --state open --search "[bot] Fix ${COP} in:title" --json number,title,url --jq '.[0].url // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "::error::Skipping ${COP} — PR already open: ${EXISTING}"
+            exit 1
+          fi
+
+          REPO="${{ github.repository }}"
+          PARENT_SHA=$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')
+          TREE_SHA=$(gh api "repos/${REPO}/git/commits/${PARENT_SHA}" --jq '.tree.sha')
+          COMMIT_SHA=$(gh api "repos/${REPO}/git/commits" \
+            -f message="[bot] Fix ${COP}: in progress [skip ci]" \
+            -f tree="$TREE_SHA" \
+            -f "parents[]=$PARENT_SHA" \
+            --jq '.sha')
+          gh api "repos/${REPO}/git/refs" \
+            -f ref="refs/heads/${BRANCH}" \
+            -f sha="$COMMIT_SHA"
+
+          MODEL_LABEL="model:${BACKEND}"
+          gh label create agent-fix --repo "${REPO}" --color "0e8a16" 2>/dev/null || true
+          gh label create "$MODEL_LABEL" --repo "${REPO}" --color "c2e0c6" 2>/dev/null || true
+          gh label create state:backlog --repo "${REPO}" --color "fbca04" 2>/dev/null || true
+          gh label create state:pr-open --repo "${REPO}" --color "0e8a16" 2>/dev/null || true
+          gh label create state:blocked --repo "${REPO}" --color "b60205" 2>/dev/null || true
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          {
+            echo "> **Status:** Agent is working on this fix..."
+            echo ">"
+            echo "> **Cop:** \`${COP}\` | **Backend:** ${BACKEND_LABEL} | **Model:** ${MODEL_LABEL_TEXT} | **Mode:** ${MODE}"
+            echo "> **Backend reason:** ${BACKEND_REASON}"
+            echo "> **Run:** ${RUN_URL}"
+            echo ""
+            if [ -n "$ISSUE_NUMBER" ]; then
+              echo "Closes #${ISSUE_NUMBER}"
+              echo ""
+              echo "<!-- nitrocop-cop-issue: number=${ISSUE_NUMBER} cop=${COP} -->"
+              echo ""
+            fi
+          } > "$CLAIM_BODY_FILE"
+
+          PR_URL=$(gh pr create \
+            --draft \
+            --base main \
+            --head "$BRANCH" \
+            --label "agent-fix,${MODEL_LABEL}" \
+            --title "[bot] Fix ${COP}${RETRY_NOTE}" \
+            --body-file "$CLAIM_BODY_FILE")
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "Created draft PR: $PR_URL"
+
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue edit "$ISSUE_NUMBER" \
+              --repo "${REPO}" \
+              --remove-label "state:backlog,state:blocked" \
+              --add-label "state:pr-open" 2>/dev/null || true
+          fi
 
       - name: Update PR with task prompt
         if: steps.task.outputs.code_bugs != '0'
@@ -254,35 +362,59 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           COP="${{ github.event.inputs.cop }}"
-          BACKEND="${{ github.event.inputs.backend }}"
+          BACKEND_LABEL="${{ steps.selected_backend.outputs.display_label }}"
+          MODEL_LABEL_TEXT="${{ steps.backend.outputs.model_label }}"
           MODE="${{ github.event.inputs.mode }}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PR_URL="${{ steps.claim.outputs.pr_url }}"
           CODE_BUGS="${{ steps.task.outputs.code_bugs }}"
+          ISSUE_NUMBER="${{ github.event.inputs.issue_number }}"
 
           TOKENS="${{ steps.task.outputs.tokens }}"
 
           {
             echo "> **Status:** Agent is working on this fix..."
             echo ">"
-            echo "> **Cop:** \`${COP}\` | **Backend:** ${BACKEND} | **Mode:** ${MODE}"
+            echo "> **Cop:** \`${COP}\` | **Backend:** ${BACKEND_LABEL} | **Model:** ${MODEL_LABEL_TEXT} | **Mode:** ${MODE}"
             echo "> **Code bugs:** ${CODE_BUGS} | **Run:** ${RUN_URL}"
             echo ""
+            if [ -n "$ISSUE_NUMBER" ]; then
+              echo "Closes #${ISSUE_NUMBER}"
+              echo ""
+              echo "<!-- nitrocop-cop-issue: number=${ISSUE_NUMBER} cop=${COP} -->"
+              echo ""
+            fi
             echo "<details>"
             echo "<summary>Task prompt (${TOKENS} tokens)</summary>"
             echo ""
-            cat /tmp/task.md
+            cat "$TASK_FILE"
             echo ""
             echo "</details>"
-          } > /tmp/claim-body.md
+          } > "$CLAIM_BODY_FILE"
 
-          gh pr edit "$PR_URL" --body-file /tmp/claim-body.md
+          gh pr edit "$PR_URL" --body-file "$CLAIM_BODY_FILE"
 
       - name: Skip if already fixed
         if: steps.task.outputs.code_bugs == '0'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           echo "::warning::No code bugs found — cop appears already fixed. Skipping agent."
           echo "All FP/FN examples are config/context issues or already detected."
+          if [ -n "${{ github.event.inputs.issue_number }}" ]; then
+            cat > "$CLAIM_BODY_FILE" <<EOF
+          No fix PR was created for \`${{ github.event.inputs.cop }}\`.
+
+          Pre-diagnostic found no reproducible code bugs in the current corpus examples, so the workflow skipped agent execution.
+
+          - Backend input: \`${{ github.event.inputs.backend }}\`
+          - Mode: \`${{ github.event.inputs.mode }}\`
+          - Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+            gh issue comment "${{ github.event.inputs.issue_number }}" \
+              --repo "${{ github.repository }}" \
+              --body-file "$CLAIM_BODY_FILE"
+          fi
 
       - name: Install Ruby (for agent debugging)
         if: steps.task.outputs.code_bugs != '0'
@@ -309,36 +441,49 @@ jobs:
           DEPT_DIR="${{ steps.cop.outputs.filter }}"
           # cop::dept::name -> tests/fixtures/cops/dept/name
           FIXTURE_DIR="tests/fixtures/cops/$(echo "$DEPT_DIR" | sed 's|cop::||;s|::|/|g')"
-          python3 scripts/ci/prepopulate_fixtures.py /tmp/task.md "$COP" "$FIXTURE_DIR"
+          python3 scripts/workflows/prepopulate_fixtures.py "$TASK_FILE" "$COP" "$FIXTURE_DIR"
 
       - name: Prepare clean workspace for agent
         if: steps.task.outputs.code_bugs != '0'
         run: |
-          git config user.name "6[bot]"
-          git config user.email "129682364+6[bot]@users.noreply.github.com"
+          python3 scripts/workflows/workflow_git.py configure
           echo "main_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          # Preserve CI scripts before cleanup
-          cp -r scripts/ci /tmp/ci-scripts
-          # Replace full CLAUDE.md/AGENTS.md with minimal agent reference
-          cp AGENTS.minimal.md CLAUDE.md
-          cp AGENTS.minimal.md AGENTS.md
-          git rm -r --quiet \
-            AGENTS.minimal.md \
-            .claude/ .agents/ .devcontainer/ .github/ gem/ scripts/ \
-            2>/dev/null || true
-          git add CLAUDE.md AGENTS.md
-          git commit -m "tmp: clean workspace for agent"
+          python3 scripts/workflows/prepare_agent_workspace.py \
+            --mode agent-cop-fix \
+            --backend "${{ steps.selected_backend.outputs.backend }}" \
+            --preserve-ci-scripts "$CI_SCRIPTS_DIR"
         id: prep
+
+      - name: Append available helper scripts to prompt
+        if: steps.task.outputs.code_bugs != '0'
+        run: |
+          python3 "$CI_SCRIPTS_DIR/render_helper_scripts_section.py" >> "$FINAL_TASK_FILE"
+
+      - name: Snapshot git state before agent
+        if: steps.task.outputs.code_bugs != '0'
+        run: |
+          python3 "$CI_SCRIPTS_DIR/git_activity_snapshot.py" capture \
+            --repo-root "$PWD" \
+            --output "$GIT_ACTIVITY_BEFORE_FILE"
 
       # --- Install + run agent ---
 
       - name: Run backend setup
         if: steps.task.outputs.code_bugs != '0'
         env:
-          MINIMAX_API_KEY: ${{ github.event.inputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ github.event.inputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
-          CODEX_AUTH_JSON: ${{ github.event.inputs.backend == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
+          MINIMAX_API_KEY: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ (steps.selected_backend.outputs.backend == 'claude-normal' || steps.selected_backend.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
+          CODEX_AUTH_JSON: ${{ (steps.selected_backend.outputs.backend == 'codex-normal' || steps.selected_backend.outputs.backend == 'codex-hard') && secrets.CODEX_AUTH_JSON || '' }}
         run: ${{ steps.backend.outputs.setup_cmd }}
+
+      - name: Mask read-only GitHub token
+        if: steps.task.outputs.code_bugs != '0'
+        env:
+          GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
+        run: |
+          python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" \
+            --from-env GH_TOKEN_FOR_ACTIONS_READ \
+            emit-masks
 
       - name: Run agent
         if: steps.task.outputs.code_bugs != '0'
@@ -346,17 +491,19 @@ jobs:
         env:
           # Static env vars from resolve_backend (secrets injected separately)
           ANTHROPIC_BASE_URL: ${{ steps.backend.outputs.env_ANTHROPIC_BASE_URL }}
-          ANTHROPIC_AUTH_TOKEN: ${{ github.event.inputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ github.event.inputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+          ANTHROPIC_AUTH_TOKEN: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ (steps.selected_backend.outputs.backend == 'claude-normal' || steps.selected_backend.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
           ANTHROPIC_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_MODEL }}
           ANTHROPIC_SMALL_FAST_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_SMALL_FAST_MODEL }}
           API_TIMEOUT_MS: ${{ steps.backend.outputs.env_API_TIMEOUT_MS }}
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: ${{ steps.backend.outputs.env_CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC }}
           CARGO_INCREMENTAL: "1"
+          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
+          GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
           # Background progress watcher
-          python3 /tmp/ci-scripts/watch_agent_progress.py \
-            --newer-than /tmp/final-task.md --interval 30 \
+          python3 "$CI_SCRIPTS_DIR/agent_logs.py" watch \
+            --newer-than "$FINAL_TASK_FILE" --interval 30 \
             --backend "${{ steps.backend.outputs.log_format }}" &
           WATCHER_PID=$!
 
@@ -367,35 +514,42 @@ jobs:
 
           # Show summary
           echo "=== Agent Summary ==="
-          echo "Cost: $(jq -r '.total_cost_usd // "?"' /tmp/agent-result.json 2>/dev/null)"
-          echo "Turns: $(jq -r '.num_turns // "?"' /tmp/agent-result.json 2>/dev/null)"
-          echo "Result: $(jq -r '.result // "no result"' /tmp/agent-result.json 2>/dev/null | head -20)"
+          echo "Cost: $(jq -r '.total_cost_usd // "?"' "$AGENT_RESULT_FILE" 2>/dev/null)"
+          echo "Turns: $(jq -r '.num_turns // "?"' "$AGENT_RESULT_FILE" 2>/dev/null)"
+          echo "Result: $(jq -r '.result // "no result"' "$AGENT_RESULT_FILE" 2>/dev/null | head -20)"
 
       - name: Snapshot agent outputs
         if: always() && steps.task.outputs.code_bugs != '0'
         run: |
-          git status --short > /tmp/agent-status.txt || true
-          git log --oneline "${{ steps.prep.outputs.main_sha }}"..HEAD > /tmp/agent-commits.txt || true
+          git status --short > "$AGENT_STATUS_FILE" || true
+          git log --oneline "${{ steps.prep.outputs.main_sha }}"..HEAD > "$AGENT_COMMITS_FILE" || true
           git diff --stat "${{ steps.prep.outputs.main_sha }}" -- \
-            src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent-recovery.stat || true
+            src/cop/ tests/fixtures/cops/ bench/corpus/ > "$AGENT_RECOVERY_STAT_FILE" || true
           git diff "${{ steps.prep.outputs.main_sha }}" -- \
-            src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent-recovery.diff || true
+            src/cop/ tests/fixtures/cops/ bench/corpus/ > "$AGENT_RECOVERY_DIFF_FILE" || true
           git diff --binary "${{ steps.prep.outputs.main_sha }}" -- \
-            src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent-recovery.patch || true
+            src/cop/ tests/fixtures/cops/ bench/corpus/ > "$AGENT_RECOVERY_PATCH_FILE" || true
           python3 -c "
-          import sys; sys.path.insert(0, '/tmp/ci-scripts')
-          from watch_agent_progress import find_logfile
+          import os, sys; sys.path.insert(0, os.environ['CI_SCRIPTS_DIR'])
+          from agent_logs import find_logfile
           from pathlib import Path
-          f = find_logfile(Path('/tmp/final-task.md'), '${{ steps.backend.outputs.log_format }}')
+          f = find_logfile(Path(os.environ['FINAL_TASK_FILE']), '${{ steps.backend.outputs.log_format }}')
           print(f or '')
-          " > /tmp/agent-logfile.txt 2>/dev/null || true
+          " > "$AGENT_LOGFILE_POINTER_FILE" 2>/dev/null || true
+          python3 "$CI_SCRIPTS_DIR/git_activity_snapshot.py" capture \
+            --repo-root "$PWD" \
+            --output "$GIT_ACTIVITY_AFTER_FILE" || true
+          python3 "$CI_SCRIPTS_DIR/git_activity_snapshot.py" report \
+            --before "$GIT_ACTIVITY_BEFORE_FILE" \
+            --after "$GIT_ACTIVITY_AFTER_FILE" \
+            --out-dir "$AGENT_GIT_ACTIVITY_DIR" || true
 
       - name: Generate summary
         if: always() && steps.task.outputs.code_bugs != '0'
         run: |
           set +e
           COP="${{ github.event.inputs.cop }}"
-          BACKEND="${{ github.event.inputs.backend }}"
+          BACKEND="${{ steps.selected_backend.outputs.backend }}"
           MODE="${{ github.event.inputs.mode }}"
 
           {
@@ -406,10 +560,10 @@ jobs:
             echo ""
 
             # Agent result summary
-            if [ -s /tmp/agent-result.json ]; then
-              COST=$(jq -r '.total_cost_usd // "?"' /tmp/agent-result.json 2>/dev/null)
-              TURNS=$(jq -r '.num_turns // "?"' /tmp/agent-result.json 2>/dev/null)
-              RESULT=$(jq -r '.result // "no result"' /tmp/agent-result.json 2>/dev/null)
+            if [ -s "$AGENT_RESULT_FILE" ]; then
+              COST=$(jq -r '.total_cost_usd // "?"' "$AGENT_RESULT_FILE" 2>/dev/null)
+              TURNS=$(jq -r '.num_turns // "?"' "$AGENT_RESULT_FILE" 2>/dev/null)
+              RESULT=$(jq -r '.result // "no result"' "$AGENT_RESULT_FILE" 2>/dev/null)
               echo "## Result"
               echo ""
               echo "| Metric | Value |"
@@ -432,22 +586,22 @@ jobs:
             # Changes summary
             echo "## Changes"
             echo ""
-            if [ -s /tmp/agent-recovery.stat ]; then
+            if [ -s "$AGENT_RECOVERY_STAT_FILE" ]; then
               echo '```'
-              cat /tmp/agent-recovery.stat
+              cat "$AGENT_RECOVERY_STAT_FILE"
               echo '```'
             else
               echo "No file changes detected."
             fi
             echo ""
 
-            if [ -s /tmp/agent-recovery.diff ]; then
-              DIFF_LINES=$(wc -l < /tmp/agent-recovery.diff 2>/dev/null || echo "0")
+            if [ -s "$AGENT_RECOVERY_DIFF_FILE" ]; then
+              DIFF_LINES=$(wc -l < "$AGENT_RECOVERY_DIFF_FILE" 2>/dev/null || echo "0")
               echo "<details>"
               echo "<summary>Full diff</summary>"
               echo ""
               echo '```diff'
-              sed -n '1,400p' /tmp/agent-recovery.diff
+              sed -n '1,400p' "$AGENT_RECOVERY_DIFF_FILE"
               if [ "${DIFF_LINES}" -gt 400 ]; then
                 echo ""
                 echo "... diff truncated after 400 lines ..."
@@ -457,16 +611,26 @@ jobs:
               echo ""
             fi
 
+            if [ -s "$AGENT_GIT_ACTIVITY_DIR/report.md" ]; then
+              echo "<details>"
+              echo "<summary>Additional git activity</summary>"
+              echo ""
+              cat "$AGENT_GIT_ACTIVITY_DIR/report.md"
+              echo ""
+              echo "</details>"
+              echo ""
+            fi
+
             # Task prompt excerpt
             echo "## Task Prompt (first 30 lines)"
             echo ""
             echo '```markdown'
-            head -30 /tmp/task.md 2>/dev/null || echo "(task.md not found)"
+            head -30 "$TASK_FILE" 2>/dev/null || echo "(task.md not found)"
             echo '```'
             echo ""
 
             # Pre-diagnostic results
-            DIAG=$(grep -A 50 "## Pre-diagnostic Results" /tmp/task.md 2>/dev/null | head -50 || true)
+            DIAG=$(grep -A 50 "## Pre-diagnostic Results" "$TASK_FILE" 2>/dev/null | head -50 || true)
             if [ -n "$DIAG" ]; then
               echo "## Pre-diagnostic Results"
               echo ""
@@ -475,82 +639,68 @@ jobs:
             fi
 
             # Agent conversation log (extracted from JSONL)
-            LOGFILE=$(cat /tmp/agent-logfile.txt 2>/dev/null || true)
+            LOGFILE=$(cat "$AGENT_LOGFILE_POINTER_FILE" 2>/dev/null || true)
             if [ -n "$LOGFILE" ]; then
               echo "## Agent Conversation"
               echo ""
-              python3 /tmp/ci-scripts/extract_agent_log.py "$LOGFILE" 2>/dev/null || true
+              python3 "$CI_SCRIPTS_DIR/agent_logs.py" extract "$LOGFILE" 2>/dev/null || true
               echo ""
             fi
 
             # Agent stderr log tail
-            if [ -s /tmp/agent.log ]; then
+            if [ -s "$AGENT_LOG_FILE" ]; then
               echo "<details>"
               echo "<summary>Agent stderr (last 30 lines)</summary>"
               echo ""
               echo '```'
-              tail -30 /tmp/agent.log
+              tail -30 "$AGENT_LOG_FILE"
               echo '```'
               echo "</details>"
             fi
-          } > /tmp/summary.md
+          } > "$SUMMARY_FILE"
+
+      - name: Build artifact manifest
+        if: always() && steps.task.outputs.code_bugs != '0'
+        id: artifact_manifest
+        run: |
+          python3 "$CI_SCRIPTS_DIR/agent_artifacts.py" agent-cop-fix \
+            --runtime-root "$AGENT_RUNTIME_ROOT" \
+            --output "$AGENT_ARTIFACT_MANIFEST_FILE"
+          {
+            echo "paths<<EOF"
+            cat "$AGENT_ARTIFACT_MANIFEST_FILE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Scan generated files for backend secret leakage
         if: always() && steps.task.outputs.code_bugs != '0'
         id: leak_scan
         env:
-          MINIMAX_API_KEY: ${{ github.event.inputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ github.event.inputs.backend == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
-          CODEX_AUTH_JSON: ${{ github.event.inputs.backend == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
+          MINIMAX_API_KEY: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ (steps.selected_backend.outputs.backend == 'claude-normal' || steps.selected_backend.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
+          CODEX_AUTH_JSON: ${{ (steps.selected_backend.outputs.backend == 'codex-normal' || steps.selected_backend.outputs.backend == 'codex-hard') && secrets.CODEX_AUTH_JSON || '' }}
+          GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          python3 /tmp/ci-scripts/guard_backend_secrets.py \
+          python3 "$CI_SCRIPTS_DIR/guard_backend_secrets.py" \
             --ignore-missing \
             --from-env MINIMAX_API_KEY \
             --from-env ANTHROPIC_API_KEY \
             --from-env CODEX_AUTH_JSON \
-            scan-files \
-            /tmp/agent.log \
-            /tmp/agent-events.jsonl \
-            /tmp/agent-last-message.txt \
-            /tmp/agent-result.json \
-            /tmp/agent-status.txt \
-            /tmp/agent-commits.txt \
-            /tmp/agent-recovery.stat \
-            /tmp/agent-recovery.diff \
-            /tmp/agent-recovery.patch \
-            /tmp/agent-logfile.txt \
-            /tmp/task.md \
-            /tmp/final-task.md \
-            /tmp/summary.md \
-            '~/.claude/projects/**/*.jsonl' \
-            '~/.codex/sessions/**/*.jsonl'
+            --from-env GH_TOKEN_FOR_ACTIONS_READ \
+            scan-manifest \
+            "$AGENT_ARTIFACT_MANIFEST_FILE"
 
       - name: Publish summary
         if: always() && steps.task.outputs.code_bugs != '0' && steps.leak_scan.outcome == 'success'
         run: |
-          cat /tmp/summary.md >> "$GITHUB_STEP_SUMMARY"
+          cat "$SUMMARY_FILE" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload agent log
         if: always() && steps.task.outputs.code_bugs != '0' && steps.leak_scan.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: agent-log-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            /tmp/agent.log
-            /tmp/agent-events.jsonl
-            /tmp/agent-last-message.txt
-            /tmp/agent-result.json
-            /tmp/agent-status.txt
-            /tmp/agent-commits.txt
-            /tmp/agent-recovery.stat
-            /tmp/agent-recovery.diff
-            /tmp/agent-recovery.patch
-            /tmp/agent-logfile.txt
-            /tmp/task.md
-            /tmp/final-task.md
-            /tmp/summary.md
-            ~/.claude/projects/**/*.jsonl
-            ~/.codex/sessions/**/*.jsonl
+          path: ${{ steps.artifact_manifest.outputs.paths }}
           retention-days: 7
 
       # --- Validate + PR ---
@@ -585,13 +735,19 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          python3 "$CI_SCRIPTS_DIR/workflow_git.py" configure \
+            --repo "${{ github.repository }}" \
+            --unset-extraheader
 
           BRANCH="${{ steps.cop.outputs.branch }}"
           COP="${{ github.event.inputs.cop }}"
-          BACKEND="${{ github.event.inputs.backend }}"
+          BACKEND="${{ steps.selected_backend.outputs.backend }}"
+          BACKEND_LABEL="${{ steps.selected_backend.outputs.display_label }}"
+          MODEL_LABEL_TEXT="${{ steps.backend.outputs.model_label }}"
           MODE="${{ github.event.inputs.mode }}"
           PR_URL="${{ steps.claim.outputs.pr_url }}"
+          ISSUE_NUMBER="${{ github.event.inputs.issue_number }}"
+          REPO="${{ github.repository }}"
 
           # Commit any uncommitted changes
           git add -A
@@ -599,21 +755,37 @@ jobs:
 
           # Extract changes to allowed paths
           git diff "${{ steps.prep.outputs.main_sha }}" HEAD -- \
-            src/cop/ tests/fixtures/cops/ bench/corpus/ > /tmp/agent.patch
+            src/cop/ tests/fixtures/cops/ bench/corpus/ > "$AGENT_PATCH_FILE"
 
           # Branch from the draft PR branch
           git fetch origin "$BRANCH"
           git checkout "$BRANCH"
 
-          if [ ! -s /tmp/agent.patch ]; then
+          if [ ! -s "$AGENT_PATCH_FILE" ]; then
             echo "No cop file changes found in agent output"
             echo "has_pr=false" >> "$GITHUB_OUTPUT"
+            if [ -n "$ISSUE_NUMBER" ]; then
+              {
+                echo "No fix PR was produced for \`${COP}\`."
+                echo ""
+                echo "- Backend: \`${BACKEND_LABEL}\`"
+                echo "- Model: \`${MODEL_LABEL_TEXT}\`"
+                echo "- Mode: \`${MODE}\`"
+                echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                echo ""
+                echo "The agent produced no cop-file changes after replay."
+              } > "$CLAIM_BODY_FILE"
+              gh issue comment "$ISSUE_NUMBER" --repo "${REPO}" --body-file "$CLAIM_BODY_FILE"
+              gh issue edit "$ISSUE_NUMBER" --repo "${REPO}" \
+                --remove-label "state:pr-open" \
+                --add-label "state:backlog" 2>/dev/null || true
+            fi
             # Close the draft PR — agent produced nothing
             gh pr close "$PR_URL" --comment "Agent produced no changes." --delete-branch
             exit 0
           fi
 
-          if git apply --3way /tmp/agent.patch; then
+          if git apply --3way "$AGENT_PATCH_FILE"; then
             echo "Patch applied cleanly"
           else
             echo "WARNING: patch had conflicts"
@@ -625,6 +797,9 @@ jobs:
           # Auto-format Rust files (agent often skips this)
           cargo fmt
 
+          # Reject vacuous offense fixture edits before opening/readying the PR.
+          cargo test --test integration offense_fixtures_have_no_unannotated_blocks
+
           git add src/cop/ tests/fixtures/cops/ bench/corpus/
 
           RETRY_NOTE=""
@@ -634,37 +809,61 @@ jobs:
           # Push changes, then replace with signed commit via API
           git push origin "$BRANCH" --force
 
-          REPO="${{ github.repository }}"
-          UNSIGNED_SHA=$(gh api "repos/${REPO}/git/ref/heads/${BRANCH}" --jq '.object.sha')
-          TREE_SHA=$(gh api "repos/${REPO}/git/commits/${UNSIGNED_SHA}" --jq '.tree.sha')
-          PARENT_SHA=$(gh api "repos/${REPO}/git/commits/${UNSIGNED_SHA}" --jq '.parents[0].sha')
-          SIGNED_SHA=$(gh api "repos/${REPO}/git/commits" \
-            -f message="Fix ${COP}: agent-generated fix${RETRY_NOTE} (${BACKEND})" \
-            -f tree="$TREE_SHA" \
-            -f "parents[]=$PARENT_SHA" \
-            --jq '.sha')
-          gh api "repos/${REPO}/git/refs/heads/${BRANCH}" \
-            -X PATCH -f sha="$SIGNED_SHA" -F force=true
+          eval "$(python3 "$CI_SCRIPTS_DIR/workflow_git.py" promote \
+            --repo "$REPO" \
+            --branch "$BRANCH" \
+            --message "Fix ${COP}: agent-generated fix${RETRY_NOTE} (${BACKEND})")"
+
+          FINAL_CHANGED_FILES=$(gh api "repos/${REPO}/compare/main...${signed_sha}" --jq '(.files | length) // 0' 2>/dev/null || true)
+          if [ -n "${FINAL_CHANGED_FILES}" ] && [ "${FINAL_CHANGED_FILES}" = "0" ]; then
+            echo "Final PR diff is empty after replay/push"
+            echo "has_pr=false" >> "$GITHUB_OUTPUT"
+            if [ -n "$ISSUE_NUMBER" ]; then
+              {
+                echo "No usable fix PR was produced for \`${COP}\`."
+                echo ""
+                echo "- Backend: \`${BACKEND_LABEL}\`"
+                echo "- Model: \`${MODEL_LABEL_TEXT}\`"
+                echo "- Mode: \`${MODE}\`"
+                echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                echo ""
+                echo "The workflow rejected the result because replay/push collapsed to an empty PR."
+              } > "$CLAIM_BODY_FILE"
+              gh issue comment "$ISSUE_NUMBER" --repo "${REPO}" --body-file "$CLAIM_BODY_FILE"
+              gh issue edit "$ISSUE_NUMBER" --repo "${REPO}" \
+                --remove-label "state:pr-open" \
+                --add-label "state:backlog" 2>/dev/null || true
+            fi
+            gh pr close "$PR_URL" --comment "Agent fix produced an empty PR after replay/push." --delete-branch
+            exit 0
+          fi
 
           # Build final PR body with agent results
-          TURNS=$(jq -r '.num_turns // "?"' /tmp/agent-result.json 2>/dev/null || echo "?")
-          DIFF_STAT=$(git diff --stat "${PARENT_SHA}".."${SIGNED_SHA}" 2>/dev/null | tail -1 || echo "")
+          TURNS=$(jq -r '.num_turns // "?"' "$AGENT_RESULT_FILE" 2>/dev/null || echo "?")
+          DIFF_STAT=$(git diff --stat "${parent_sha}".."${signed_sha}" 2>/dev/null | tail -1 || echo "")
           if [ -z "$DIFF_STAT" ]; then
-            DIFF_STAT=$(gh api "repos/${REPO}/compare/${PARENT_SHA}...${SIGNED_SHA}" --jq '"  \(.files | length) files changed"' 2>/dev/null || echo "")
+            DIFF_STAT=$(gh api "repos/${REPO}/compare/${parent_sha}...${signed_sha}" --jq '"  \(.files | length) files changed"' 2>/dev/null || echo "")
           fi
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          RESULT=$(jq -r '.result // "no result"' /tmp/agent-result.json 2>/dev/null || echo "no result")
-          LOGFILE=$(cat /tmp/agent-logfile.txt 2>/dev/null || true)
+          RESULT=$(jq -r '.result // "no result"' "$AGENT_RESULT_FILE" 2>/dev/null || echo "no result")
+          LOGFILE=$(cat "$AGENT_LOGFILE_POINTER_FILE" 2>/dev/null || true)
 
           {
             echo "Automated ${MODE} fix for \`${COP}\` corpus conformance."
             echo ""
+            if [ -n "$ISSUE_NUMBER" ]; then
+              echo "Closes #${ISSUE_NUMBER}"
+              echo ""
+              echo "<!-- nitrocop-cop-issue: number=${ISSUE_NUMBER} cop=${COP} -->"
+              echo ""
+            fi
             echo "## Details"
             echo ""
             echo "| | |"
             echo "|---|---|"
             echo "| **Cop** | \`${COP}\` |"
-            echo "| **Backend** | ${BACKEND} |"
+            echo "| **Backend** | ${BACKEND_LABEL} |"
+            echo "| **Model** | ${MODEL_LABEL_TEXT} |"
             echo "| **Mode** | ${MODE} |"
             echo "| **Turns** | ${TURNS} |"
             echo "| **Run** | [#${{ github.run_number }}](${RUN_URL}) |"
@@ -685,7 +884,7 @@ jobs:
               echo "<details>"
               echo "<summary>Agent conversation excerpt</summary>"
               echo ""
-              python3 /tmp/ci-scripts/extract_agent_log.py "$LOGFILE" --max-lines 120 2>/dev/null || true
+              python3 "$CI_SCRIPTS_DIR/agent_logs.py" extract "$LOGFILE" --max-lines 120 2>/dev/null || true
               echo ""
               echo "</details>"
               echo ""
@@ -693,12 +892,12 @@ jobs:
             echo "<details>"
             echo "<summary>Task prompt (${{ steps.task.outputs.tokens }} tokens)</summary>"
             echo ""
-            cat /tmp/task.md
+            cat "$TASK_FILE"
             echo ""
             echo "</details>"
-          } > /tmp/pr-body.md
+          } > "$PR_BODY_FILE"
 
-          gh pr edit "$PR_URL" --body-file /tmp/pr-body.md
+          gh pr edit "$PR_URL" --body-file "$PR_BODY_FILE"
 
           # Mark PR as ready for review (no longer draft)
           gh pr ready "$PR_URL"
@@ -719,3 +918,40 @@ jobs:
           gh pr close "${{ steps.claim.outputs.pr_url }}" \
             --comment "Agent failed. See run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --delete-branch
+          if [ -n "${{ github.event.inputs.issue_number }}" ]; then
+            cat > "$CLAIM_BODY_FILE" <<EOF
+          Agent fix failed before producing a usable PR for \`${{ github.event.inputs.cop }}\`.
+
+          - Backend: \`${{ steps.selected_backend.outputs.display_label || github.event.inputs.backend }}\`
+          - Model: \`${{ steps.backend.outputs.model_label || 'n/a' }}\`
+          - Mode: \`${{ github.event.inputs.mode }}\`
+          - Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          See the workflow summary and uploaded artifacts for the agent result and recovery patch.
+          EOF
+            gh issue comment "${{ github.event.inputs.issue_number }}" \
+              --repo "${{ github.repository }}" \
+              --body-file "$CLAIM_BODY_FILE"
+            gh issue edit "${{ github.event.inputs.issue_number }}" \
+              --repo "${{ github.repository }}" \
+              --remove-label "state:pr-open" \
+              --add-label "state:backlog" 2>/dev/null || true
+          fi
+
+      - name: Comment linked issue on failure before PR claim
+        if: failure() && !steps.claim.outputs.pr_url && github.event.inputs.issue_number != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          cat > "$CLAIM_BODY_FILE" <<EOF
+          Agent fix failed before it could create a draft PR for \`${{ github.event.inputs.cop }}\`.
+
+          - Backend input: \`${{ github.event.inputs.backend }}\`
+          - Mode: \`${{ github.event.inputs.mode }}\`
+          - Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Review the failed workflow run for details.
+          EOF
+          gh issue comment "${{ github.event.inputs.issue_number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file "$CLAIM_BODY_FILE"

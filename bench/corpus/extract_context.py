@@ -105,8 +105,8 @@ def main():
 
     # Find diverging offenses (FP and FN only — not matches).
     # Context is most valuable for divergences, not agreements.
-    tc_set = {(f, l, c) for f, l, c in tc_offenses}
-    rc_set = {(f, l, c) for f, l, c in rc_offenses}
+    tc_set = {(filepath, line, cop) for filepath, line, cop in tc_offenses}
+    rc_set = {(filepath, line, cop) for filepath, line, cop in rc_offenses}
     fp_offenses = tc_set - rc_set  # nitrocop-only
     fn_offenses = rc_set - tc_set  # rubocop-only
     diverging = list(fp_offenses) + list(fn_offenses)

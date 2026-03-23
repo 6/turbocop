@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Delta reducer for corpus mismatches.
 
 Takes a cop + corpus file with a known FP/FN and automatically shrinks it to
@@ -22,9 +23,9 @@ import sys
 import time
 from pathlib import Path
 
-# Allow importing from the same directory
+# Allow importing from scripts/shared
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rubocop_cache import cached_rubocop_run
+from shared.rubocop_cache import cached_rubocop_run
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
@@ -65,7 +66,7 @@ class RubocopRunner:
     server — requests would block waiting for the server lock, causing the
     reducer to appear stalled for 50+ minutes. Using --no-server avoids this
     at the cost of ~1s extra startup per invocation (mitigated by the result
-    cache in rubocop_cache.py).
+    cache in shared/rubocop_cache.py).
     """
 
     def __init__(self):

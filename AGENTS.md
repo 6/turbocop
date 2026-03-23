@@ -14,6 +14,12 @@ This repo is developed simultaneously on macOS (native) and Linux (devcontainer)
 
 Python scripts in `scripts/` resolve the binary path via `os.environ.get("CARGO_TARGET_DIR", "target")` so they work on both platforms automatically.
 
+Top-level Python files under `scripts/` are stable public CLI entrypoints and
+use kebab-case names. Workflow-only internals live under
+`scripts/workflows/`, shared importable helpers live under `scripts/shared/`,
+and skill-private helpers live next to the skill that owns them. Internal
+Python modules should use `snake_case` filenames.
+
 ## Commands
 
 ```
@@ -38,6 +44,17 @@ cargo test --release
 ```
 
 If the change is non-Rust only (for example `docs/`, fixtures under `tests/fixtures/`, or skill markdown/scripts), these Rust checks are optional and should not be run by default.
+
+## Python Checks
+
+When your change touches Python files under `scripts/`, `tests/python/`, or `bench/corpus/`, run Ruff on the smallest relevant set of files or directories before committing:
+
+```bash
+python3 -m ruff check --fix path/to/changed.py
+python3 -m ruff check path/to/changed.py
+```
+
+If you changed multiple related Python files, run Ruff on the narrowest relevant directory set. Do not run `ruff --fix` across the whole repo unless you are doing a dedicated lint cleanup.
 
 **Important:** Run `cargo fmt` on the specific Rust files you edited (not `cargo fmt` with no args, which formats everything). Run `cargo clippy` which leverages incremental compilation and is fast when few files changed. Do NOT use `git diff` to discover changed files — multiple agents may be working on main concurrently.
 
@@ -302,19 +319,23 @@ Use `/triage` to just view the ranked cop list without fixing. See `.claude/skil
 
 ### Remote Agent Dispatch
 
-Use `/dispatch-cops` to parallelize cop fixes at scale via AI agents running in GitHub Actions. Each agent fixes one cop and opens a PR validated by CI. Two backends available:
-- **Claude Code + MiniMax** (~$0.03/cop) — [docs/agent-dispatch-minimax.md](docs/agent-dispatch-minimax.md)
-- **Codex** ($200/mo flat rate) — [docs/agent-dispatch.md](docs/agent-dispatch.md)
+Use `/dispatch-cops` to parallelize cop fixes at scale via AI agents running in GitHub Actions. The current flow is issue-backed: sync one tracker issue per diverging cop from the extended corpus, then dispatch a bounded queue of those issues into `agent-cop-fix`. Each agent fixes one cop and opens a PR validated by CI. The recommended routing is Codex-first:
+- `difficulty:simple` backlog items default to `gpt-5.3-codex` with `high`
+- `difficulty:medium|complex`, retries, and PR repairs use `gpt-5.4` with `xhigh`
+- Legacy manual overrides for `claude` and `minimax` remain available for experiments, but are not recommended by default.
+
+See [docs/agent-dispatch.md](docs/agent-dispatch.md) for the setup and operator workflow.
 
 See `.claude/skills/dispatch-cops/SKILL.md` for the `/dispatch-cops` skill.
 
 ```
-/dispatch-cops              # start from triage
-/dispatch-cops pilot        # 10-cop pilot
-/dispatch-cops tier1        # batch dispatch Tier 1 (~319 cops)
+/dispatch-cops              # start from issue sync + bounded dispatch
+/dispatch-cops sync         # sync/update cop tracker issues from extended corpus
+/dispatch-cops dispatch     # fill the active queue from backlog issues
 /dispatch-cops retry        # retry failed cops with stronger model
 /dispatch-cops status       # check PR status
 /dispatch-cops validate     # trigger corpus oracle
+/investigate-regression     # compare corpus runs and surface repair vs revert candidates
 ```
 
 ## Corpus Investigation

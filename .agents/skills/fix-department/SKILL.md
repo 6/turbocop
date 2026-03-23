@@ -256,7 +256,7 @@ After all cops in the batch are fixed:
 cargo fmt
 cargo clippy --release -- -D warnings
 cargo test --release
-python3 scripts/corpus_smoke_test.py --binary target/release/nitrocop
+python3 scripts/corpus-smoke-test.py --binary target/release/nitrocop
 ```
 
 Run the corpus smoke test once per batch, not after every cop. It is the cheap

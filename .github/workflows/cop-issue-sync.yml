@@ -1,0 +1,57 @@
+name: Cop Issue Sync
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+  pull-requests: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      corpus:
+        description: "Corpus artifact to sync from"
+        type: choice
+        options:
+          - extended
+          - standard
+        default: extended
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      RUSTFLAGS: -C link-arg=-fuse-ld=mold
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Build nitrocop binary
+        run: cargo build
+
+      - name: Sync tracker issues
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ARGS=()
+          if [ "${{ github.event.inputs.corpus }}" = "extended" ]; then
+            ARGS+=(--extended)
+          fi
+          python3 scripts/dispatch-cops.py issues-sync \
+            --repo "${{ github.repository }}" \
+            --binary target/debug/nitrocop \
+            "${ARGS[@]}"
