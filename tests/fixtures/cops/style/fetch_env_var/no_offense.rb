@@ -82,3 +82,14 @@ end
 if %w[A B C].include?(ENV["X"])
   puts ENV["X"]
 end
+# ENV in condition with && (2 elements) — ENV is direct child, body suppressed
+if ENV['X'] && other
+  puts ENV['X']
+end
+# ENV['X'] == value condition with body usage
+if ENV['X'] == 'production'
+  puts ENV['X']
+end
+if ENV["X"] != 'test'
+  puts ENV["X"]
+end

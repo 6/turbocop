@@ -44,3 +44,12 @@ end
 # Interpolation
 "#{ENV['X']}"
    ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('X', nil)` instead of `ENV['X']`.
+# ENV in body of &&-chain predicate condition should be flagged
+if ENV['A'].present? && ENV['B'].present?
+  config = ENV['A']
+           ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('A', nil)` instead of `ENV['A']`.
+end
+# ENV in && condition chain (3+ elements): deeply nested ones flagged, direct child not
+if ENV['A'] && ENV['B'] && ENV['C']
+   ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('A', nil)` instead of `ENV['A']`.
+               ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('B', nil)` instead of `ENV['B']`.

@@ -303,15 +303,20 @@ impl FetchEnvVar {
             }
         }
 
-        // For `&&` and `||` conditions, check DIRECT children only
-        // (matching RuboCop's condition.child_nodes.any?)
+        // For `&&` and `||` conditions, check ONLY direct children for bare
+        // ENV['X'] calls. RuboCop's `condition.child_nodes.any?(node)` only
+        // matches when the body node is structurally equal to a direct child.
+        // For `(and ENV['X'] other)`, ENV['X'] is a direct child, so body
+        // ENV['X'] matches. For `(and (and ENV['X'] ENV['Y']) other)`, ENV['X']
+        // is NOT a direct child (it's nested), so body ENV['X'] doesn't match.
+        // We do NOT recurse deeper into nested `&&`/`||` — only one level.
         if let Some(and_node) = condition.as_and_node() {
-            keys.extend(Self::extract_condition_keys(source, &and_node.left()));
-            keys.extend(Self::extract_condition_keys(source, &and_node.right()));
+            Self::extract_env_key_from_node(source, &and_node.left(), &mut keys);
+            Self::extract_env_key_from_node(source, &and_node.right(), &mut keys);
         }
         if let Some(or_node) = condition.as_or_node() {
-            keys.extend(Self::extract_condition_keys(source, &or_node.left()));
-            keys.extend(Self::extract_condition_keys(source, &or_node.right()));
+            Self::extract_env_key_from_node(source, &or_node.left(), &mut keys);
+            Self::extract_env_key_from_node(source, &or_node.right(), &mut keys);
         }
 
         // For parenthesized conditions like `if (x = ENV['X'])`, the condition
@@ -435,6 +440,35 @@ impl FetchEnvVar {
         // Parenthesized assignment `if (x = ENV['X'])` — do NOT suppress
     }
 
+    /// Extract the normalized ENV key from a node if it's a bare `ENV['X']` call.
+    /// Does NOT extract from `ENV['X'].method` or `ENV.key?('X')` — those have
+    /// different child_nodes that don't structurally match body `ENV['X']`.
+    fn extract_env_key_from_node(
+        source: &[u8],
+        node: &ruby_prism::Node<'_>,
+        keys: &mut HashSet<Vec<u8>>,
+    ) {
+        if let Some(call) = node.as_call_node() {
+            if call.name().as_slice() == b"[]" {
+                if let Some(receiver) = call.receiver() {
+                    if Self::is_env_receiver(&receiver) {
+                        if let Some(args) = call.arguments() {
+                            let arg_list: Vec<_> = args.arguments().iter().collect();
+                            if arg_list.len() == 1 {
+                                let loc = arg_list[0].location();
+                                keys.insert(Self::normalize_key(
+                                    source,
+                                    loc.start_offset(),
+                                    loc.end_offset(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// If the node is an ENV['X'] call, add its start offset to the suppressed set.
     fn suppress_if_env_bracket(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<usize>) {
         if Self::is_env_bracket_call(node) {
@@ -507,8 +541,7 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
         self.visit(&predicate);
 
         // Then push condition keys and visit body/else.
-        let keys =
-            FetchEnvVar::extract_condition_keys(self.source.as_bytes(), &predicate);
+        let keys = FetchEnvVar::extract_condition_keys(self.source.as_bytes(), &predicate);
         self.condition_keys.push(keys);
 
         if let Some(body) = node.statements() {
@@ -527,8 +560,7 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
         FetchEnvVar::collect_suppressed_in_condition(&predicate, &mut self.suppressed_offsets);
         self.visit(&predicate);
 
-        let keys =
-            FetchEnvVar::extract_condition_keys(self.source.as_bytes(), &predicate);
+        let keys = FetchEnvVar::extract_condition_keys(self.source.as_bytes(), &predicate);
         self.condition_keys.push(keys);
 
         if let Some(body) = node.statements() {
