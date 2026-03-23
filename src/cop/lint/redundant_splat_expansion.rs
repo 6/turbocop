@@ -57,6 +57,18 @@ use crate::parse::source::SourceFile;
 /// grandparent is the method chain or def node (NOT assignment), so
 /// RuboCop skips it. Fix: exempt `*Array.new(...)` when the enclosing
 /// bracket is a `[]` method call.
+///
+/// ## Corpus investigation (2026-03-23)
+///
+/// FP=10, FN=1. All 10 FPs are `*Array.new(...)` in paren-free method
+/// call contexts (e.g., `include *Array.new(3, SomeClass)`,
+/// `*Array.new(10) { ... }` inside array literal in method args). RuboCop's
+/// grandparent check exempts these because the grandparent is a method
+/// def/call node, not an assignment type. Fix: when `find_enclosing_bracket`
+/// returns None for `*Array.new`, only flag if preceded by `=` (assignment).
+/// Paren-free method calls and other non-assignment contexts are exempt.
+/// FN=1 is `NoteSet[*Array.new(n) { ... }]` — a `[]` method call already
+/// exempted by the prior FP=36 fix; accepted as tradeoff.
 pub struct RedundantSplatExpansion;
 
 impl Cop for RedundantSplatExpansion {
@@ -143,6 +155,18 @@ impl Cop for RedundantSplatExpansion {
                 if is_method_call_bracket(bytes, bracket_pos) {
                     return;
                 }
+            }
+
+            // RuboCop's grandparent check: *Array.new is only flagged when
+            // the grandparent is an assignment type. When there is no
+            // enclosing bracket and no preceding keyword, we're in a
+            // paren-free method call context (e.g., `include *Array.new(3)`,
+            // `yield *Array.new(n)`). Exempt these — only flag when
+            // preceded by `=` (assignment) or inside brackets.
+            if find_enclosing_bracket(bytes, start).is_none()
+                && !is_preceded_by_assignment(bytes, start)
+            {
+                return;
             }
 
             let loc = splat.location();
@@ -351,6 +375,31 @@ fn is_preceded_by_keyword(bytes: &[u8], pos: usize) -> bool {
     trimmed.starts_with(b"when ")
         || trimmed.starts_with(b"rescue ")
         || trimmed.starts_with(b"rescue\t")
+}
+
+/// Check if the `*` at `pos` is preceded (on the same line) by an assignment
+/// operator (`=`), indicating `x = *Array.new(...)` context.
+fn is_preceded_by_assignment(bytes: &[u8], pos: usize) -> bool {
+    let mut i = pos;
+    while i > 0 {
+        i -= 1;
+        match bytes[i] {
+            b'\n' => break,
+            b'=' => {
+                // Make sure it's not `==`, `!=`, `<=`, `>=`, `=>`
+                if i > 0 && matches!(bytes[i - 1], b'=' | b'!' | b'<' | b'>') {
+                    continue;
+                }
+                // Make sure the next char isn't `=` or `>` (for `==` or `=>`)
+                if i + 1 < bytes.len() && matches!(bytes[i + 1], b'=' | b'>') {
+                    continue;
+                }
+                return true;
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 fn trim_leading_whitespace(bytes: &[u8]) -> &[u8] {
