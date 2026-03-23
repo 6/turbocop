@@ -1,7 +1,7 @@
 use crate::cop::node_type::{
-    ARRAY_NODE, BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE,
-    FLOAT_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, OR_NODE, REGULAR_EXPRESSION_NODE,
-    SELF_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE,
+    AND_NODE, ARRAY_NODE, BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE,
+    FALSE_NODE, FLOAT_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, OR_NODE,
+    REGULAR_EXPRESSION_NODE, SELF_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE, X_STRING_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -52,6 +52,19 @@ use ruby_prism::Visit;
 /// Exception: `respond_to?` with a nil-specific method argument (:to_a, :to_i,
 /// :to_s, :to_f, :to_h) is NOT flagged even in conditions, because nil does
 /// respond to those methods.
+///
+/// ## Corpus investigation (2026-03-23) — Standalone &&/|| and backtick receivers
+///
+/// FN=30: Many FNs were `&.is_a?` / `&.respond_to?` calls in `&&`/`||` expressions
+/// that are NOT inside `if`/`unless` predicates (e.g., standalone boolean expressions
+/// used as return values, assignments, or ternary conditions). RuboCop's `on_csend`
+/// checks `allow_operator?` which returns true for ANY `&&`/`||` context, not just
+/// `if` predicates. Fixed by adding `visit_and_node` and `visit_or_node` to the
+/// visitor impl, so AllowedMethods in any `&&`/`||` context are flagged.
+///
+/// Also fixed: backtick literals (`` `cmd` ``) as receivers. Backtick always returns
+/// a String (non-nil), so `&.` after backtick is redundant. Added `XStringNode` to
+/// `is_non_nil_literal` check.
 pub struct RedundantSafeNavigation;
 
 /// Methods guaranteed to exist on every instance (their receivers can't be nil)
@@ -78,6 +91,7 @@ impl Cop for RedundantSafeNavigation {
 
     fn interested_node_types(&self) -> &'static [u8] {
         &[
+            AND_NODE,
             ARRAY_NODE,
             BLOCK_NODE,
             CALL_NODE,
@@ -94,6 +108,7 @@ impl Cop for RedundantSafeNavigation {
             STRING_NODE,
             SYMBOL_NODE,
             TRUE_NODE,
+            X_STRING_NODE,
         ]
     }
 
@@ -413,6 +428,20 @@ impl<'a> Visit<'a> for ConditionalAllowedMethodVisitor<'a> {
             self.visit_statements_node(&stmts);
         }
     }
+
+    fn visit_and_node(&mut self, node: &ruby_prism::AndNode<'a>) {
+        // Any &.allowed_method inside && is in a boolean/conditional context
+        self.visit_conditional_subtree(&node.left());
+        self.visit_conditional_subtree(&node.right());
+        // Don't call default visit — we already recursed into both operands
+    }
+
+    fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'a>) {
+        // Any &.allowed_method inside || is in a boolean/conditional context
+        self.visit_conditional_subtree(&node.left());
+        self.visit_conditional_subtree(&node.right());
+        // Don't call default visit — we already recursed into both operands
+    }
 }
 
 fn is_empty_hash(node: &ruby_prism::Node<'_>) -> bool {
@@ -488,6 +517,7 @@ fn is_non_nil_literal(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_true_node().is_some()
         || node.as_false_node().is_some()
         || node.as_regular_expression_node().is_some()
+        || node.as_x_string_node().is_some()
 }
 
 fn is_guaranteed_instance_receiver(node: &ruby_prism::Node<'_>) -> bool {

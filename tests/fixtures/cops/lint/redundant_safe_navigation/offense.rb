@@ -84,3 +84,18 @@ end
 # equal? in condition
 do_something if foo&.equal?(bar)
                    ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
+
+# AllowedMethods in standalone && / || expressions (not inside if/unless)
+user&.is_a?(Admin) && user.respond_to?(:roles)
+    ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
+
+options[:min]&.is_a?(Proc) && options[:max]&.is_a?(Proc)
+             ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
+                                           ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
+
+condition&.respond_to?(:method) || fallback
+         ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
+
+# Backtick literal receiver — always returns String, &. is redundant
+`cat /tmp/pid`&.strip
+              ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
