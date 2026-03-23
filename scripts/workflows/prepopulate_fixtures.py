@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Pre-populate cop test fixtures with failing corpus examples.
+"""Pre-populate offense fixtures with failing corpus FN examples.
 
-For confirmed FP code bugs: appends source context to no_offense.rb
-For confirmed FN code bugs: appends test snippet to offense.rb
+Confirmed FN code bugs append ready-made test snippets to offense.rb.
+Confirmed FP code bugs stay in task.md as source context for the agent
+to distill into a clean no_offense.rb case manually.
 
-This gives the agent a workspace where `cargo test` already fails,
-so it only needs to fix the code — no need to write test cases.
+This gives the agent a workspace where `cargo test` already fails for
+known FN bugs, without committing raw corpus snippets into no_offense.rb.
 
 Usage:
     python3 prepopulate_fixtures.py <task.md> <cop> <fixture_dir>
 
 Reads pre-diagnostic results from task.md, extracts confirmed code bug
-examples, and appends them to the fixture files.
+examples, and appends only FN snippets to offense.rb.
 """
 import re
 import sys
@@ -76,29 +77,17 @@ def normalize_fixture_snippet(source: str) -> str:
 
 
 def prepopulate(task_path: Path, cop: str, fixture_dir: Path) -> dict:
-    """Append confirmed code bug examples to fixture files.
+    """Append confirmed FN code bug examples to offense.rb.
 
-    Returns {"fp_added": int, "fn_added": int}."""
+    Returns {"fp_context": int, "fn_added": int}."""
     diagnostics = extract_diagnostics_from_task(task_path)
     if not diagnostics:
-        return {"fp_added": 0, "fn_added": 0}
+        return {"fp_context": 0, "fn_added": 0}
 
     offense_path = fixture_dir / "offense.rb"
-    no_offense_path = fixture_dir / "no_offense.rb"
-
-    fp_added = 0
     fn_added = 0
 
-    # Append FP examples to no_offense.rb
     fp_examples = [d for d in diagnostics if d["kind"] == "fp"]
-    if fp_examples and no_offense_path.exists():
-        with open(no_offense_path, "a") as f:
-            for ex in fp_examples:
-                snippet = normalize_fixture_snippet(ex["source"])
-                if not snippet:
-                    continue
-                f.write(f"\n{snippet}\n")
-                fp_added += 1
 
     # Append FN examples to offense.rb
     fn_examples = [d for d in diagnostics if d["kind"] == "fn"]
@@ -111,7 +100,7 @@ def prepopulate(task_path: Path, cop: str, fixture_dir: Path) -> dict:
                 f.write(f"\n{snippet}\n")
                 fn_added += 1
 
-    return {"fp_added": fp_added, "fn_added": fn_added}
+    return {"fp_context": len(fp_examples), "fn_added": fn_added}
 
 
 def main():
@@ -132,7 +121,9 @@ def main():
         sys.exit(1)
 
     result = prepopulate(task_path, cop, fixture_dir)
-    print(f"Added {result['fp_added']} FP examples to no_offense.rb")
+    print(
+        f"Left {result['fp_context']} FP examples in task.md for manual no_offense.rb distillation"
+    )
     print(f"Added {result['fn_added']} FN examples to offense.rb")
 
 

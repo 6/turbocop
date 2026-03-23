@@ -434,7 +434,7 @@ jobs:
           gem install "rubocop:$V_RC" "rubocop-performance:$V_PERF" \
             "rubocop-rails:$V_RAILS" "rubocop-rspec:$V_RSPEC" prism --no-document
 
-      - name: Pre-populate fixtures with corpus examples
+      - name: Pre-populate offense fixtures with FN corpus examples
         if: steps.task.outputs.code_bugs != '0'
         run: |
           COP="${{ github.event.inputs.cop }}"

@@ -32,6 +32,13 @@ def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
     assert '--add-label "state:blocked"' in content
 
 
+def test_agent_pr_repair_checks_out_repo_before_running_local_scripts():
+    content = AGENT_PR_REPAIR.read_text()
+    checkout_index = content.index("uses: actions/checkout@v4")
+    pr_state_index = content.index("python3 scripts/workflows/repair_retry_policy.py pr-state")
+    assert checkout_index < pr_state_index
+
+
 def test_issue_sync_workflow_uses_app_token_and_dispatch_script():
     content = COP_ISSUE_SYNC.read_text()
     assert "actions/create-github-app-token@v1" in content
@@ -56,6 +63,7 @@ def test_investigate_regression_workflow_uses_script():
 if __name__ == "__main__":
     test_agent_cop_fix_supports_issue_linking_and_auto_backend()
     test_agent_pr_repair_reads_linked_issue_and_can_update_it()
+    test_agent_pr_repair_checks_out_repo_before_running_local_scripts()
     test_issue_sync_workflow_uses_app_token_and_dispatch_script()
     test_issue_dispatch_workflow_uses_app_token_and_dispatch_script()
     test_investigate_regression_workflow_uses_script()

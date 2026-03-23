@@ -118,6 +118,11 @@ jobs:
             echo "force=${{ github.event.inputs.force }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Load PR metadata and gate repair
         id: pr
         env:
