@@ -139,3 +139,11 @@ def check_roles?(roles)
   user&.is_a?(Admin) && user.respond_to?(:roles)
       ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
 end
+
+# rescue => self&.foo — self is never nil, &. is redundant
+begin
+  something
+rescue => self&.captured_error
+              ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
+  handle
+end

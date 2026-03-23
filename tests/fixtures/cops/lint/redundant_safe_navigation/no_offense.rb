@@ -40,3 +40,9 @@ do_something if foo&.respond_to?(:to_h)
 result = foo&.is_a?(String)
 x = foo&.eql?(bar)
 y = foo&.equal?(baz)
+
+# Parentheses around &.is_a? in || — RuboCop's check? sees parent as `begin`
+# (parens), not `||`, so it is NOT flagged.
+if @commentable.is_a?(Tag) || (@comment&.parent&.is_a?(Tag))
+  do_something
+end
