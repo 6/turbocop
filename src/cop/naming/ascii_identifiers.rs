@@ -45,6 +45,14 @@ use crate::parse::source::SourceFile;
 /// `opening_loc`, while `alias foo bar` produces SymbolNodes without opening.
 /// Fix: skip alias name nodes that have an `opening_loc` (explicit symbol
 /// notation).
+///
+/// ## Corpus investigation (2026-03-23) — extended corpus, round 2
+///
+/// FP=2 remaining, both from Pluvie/italian-ruby: method calls `è_un_commento?`
+/// and `è_una_stringa?`. Ruby's lexer produces `tFID` tokens for identifiers
+/// ending in `?` or `!`, not `tIDENTIFIER`. RuboCop only checks `tIDENTIFIER`
+/// and `tCONSTANT`, so these are never flagged. Fix: skip identifiers ending
+/// with `?` or `!` in the byte scanner.
 pub struct AsciiIdentifiers;
 
 impl Cop for AsciiIdentifiers {
@@ -119,6 +127,16 @@ impl Cop for AsciiIdentifiers {
                 // Skip prefixed identifiers (ivars, cvars, gvars, symbols)
                 if is_prefixed {
                     continue;
+                }
+
+                // Skip identifiers ending with ? or ! — these are tFID tokens
+                // in Ruby's lexer. RuboCop only checks tIDENTIFIER and tCONSTANT
+                // tokens, not tFID. This covers both method calls (è_un_commento?)
+                // and method definitions (def è_un_commento?).
+                if let Some(&last) = ident.last() {
+                    if last == b'?' || last == b'!' {
+                        continue;
+                    }
                 }
 
                 // Check if identifier has non-ASCII characters
