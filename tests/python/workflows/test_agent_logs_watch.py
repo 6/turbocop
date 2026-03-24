@@ -3,6 +3,7 @@
 import json
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 # Import the module directly for unit testing get_status
@@ -266,9 +267,10 @@ def test_find_logfile_uses_backend_family_resolution():
         tmp_path = Path(tmp)
         ref = tmp_path / "task.md"
         ref.write_text("task\n")
+        # Ensure log has a strictly newer mtime than ref
+        time.sleep(0.05)
         log = tmp_path / "session.jsonl"
         log.write_text("{}\n")
-        log.touch()
 
         original_patterns = dict(agent_logs.LOG_FORMAT_PATTERNS)
         try:

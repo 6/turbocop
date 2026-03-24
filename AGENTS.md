@@ -68,12 +68,15 @@ cargo test --lib -- cop::style::while_until_modifier
 cargo test --lib -- cop::style::
 ```
 
-When you touch Python under `scripts/`, `tests/python/`, or `bench/corpus/`, run Ruff on the smallest relevant scope:
+When you touch Python under `scripts/`, `tests/python/`, or `bench/corpus/`, run Ruff **and** the Python test suite:
 
 ```bash
-python3 -m ruff check --fix path/to/changed.py
-python3 -m ruff check path/to/changed.py
+uv run ruff check --fix path/to/changed.py
+uv run ruff check path/to/changed.py
+uv run pytest tests/python/ --tb=short
 ```
+
+Use `uv run` as the preferred way to invoke Python tools (`ruff`, `pytest`, etc.) — it manages the virtualenv automatically. Do not use bare `python3 -m` or `pip install`.
 
 ## Repo Layout
 
