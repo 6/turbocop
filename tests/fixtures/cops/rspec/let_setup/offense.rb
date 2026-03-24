@@ -110,3 +110,22 @@ describe Widget do
     expect(true).to be true
   end
 end
+
+# let! inside an else branch should still be detected
+describe EmbargoService do
+  if valkyrie_enabled?
+    it 'uses the valkyrie path' do
+      expect(true).to be true
+    end
+  else
+    let!(:work_with_released_embargo) { create(:embargoed_work) }
+    let!(:work_with_embargo_in_effect) { create(:embargoed_work) }
+    let!(:work_without_embargo) { create(:generic_work) }
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LetSetup: Do not use `let!` to setup objects not referenced in tests.
+
+    it 'uses the embargoed works' do
+      expect(work_with_released_embargo).to be_present
+      expect(work_with_embargo_in_effect).to be_present
+    end
+  end
+end

@@ -26,6 +26,9 @@ use std::collections::HashSet;
 ///   (e.g., `[].each do ... end`) to find `let!` calls, matching RuboCop's
 ///   `ExampleGroup#find_all_in_scope` behavior which stops only at scope changes
 ///   (other example groups) and examples.
+/// - FN fix: Prism wraps `if ... else` bodies in `ElseNode`. The in-scope `let!`
+///   declaration walk handled `IfNode` but not `ElseNode`, so unused `let!`
+///   defined under `else` branches were skipped entirely.
 pub struct LetSetup;
 
 impl Cop for LetSetup {
@@ -151,6 +154,14 @@ impl<'pr> LetSetupVisitor<'_> {
         }
         if let Some(unless_node) = node.as_unless_node() {
             if let Some(stmts) = unless_node.statements() {
+                for stmt in stmts.body().iter() {
+                    self.collect_let_bangs_in_scope(&stmt, decls, scope_names);
+                }
+            }
+            return;
+        }
+        if let Some(else_node) = node.as_else_node() {
+            if let Some(stmts) = else_node.statements() {
                 for stmt in stmts.body().iter() {
                     self.collect_let_bangs_in_scope(&stmt, decls, scope_names);
                 }
