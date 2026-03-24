@@ -78,6 +78,14 @@ use crate::parse::source::SourceFile;
 /// never sees RescueNode. Fixed by adding a `check_source` implementation
 /// with a custom `RescueRefVisitor` that overrides `visit_rescue_node`
 /// to check rescue reference variables.
+///
+/// ## Corpus investigation (2026-03-24) — extended corpus
+///
+/// Extended corpus reported FP=3, FN=0 across 2 repos:
+/// - cjstewart88/Tubalr (2 FP), liaoziyang/stackneveroverflow (1 FP).
+/// All FPs from `@OP = IRB::SLex.new` in vendor/heroku gem paths. Both
+/// repos are systemic-noise repos with 2k-9k total FP+FN across hundreds
+/// of cops. No cop-specific bug.
 pub struct VariableName;
 
 impl Cop for VariableName {

@@ -9,6 +9,14 @@ use crate::parse::source::SourceFile;
 /// RuboCop still suppresses `Naming/AccessorMethodName` for that moved legacy
 /// name because the short name stayed `AccessorMethodName`. Fixed centrally in
 /// `parse/directives.rs`.
+///
+/// ## Corpus investigation (2026-03-24) — extended corpus
+///
+/// Extended corpus reported FP=6, FN=0 across 2 repos:
+/// - liaoziyang/stackneveroverflow (4 FP), cjstewart88/Tubalr (2 FP).
+/// All FPs from `get_byte`, `get_readed`, `set_failed_rule` in vendor/heroku
+/// gem paths. Both repos are systemic-noise repos with 2k-9k total FP+FN
+/// across hundreds of cops. No cop-specific bug.
 pub struct AccessorMethodName;
 
 impl Cop for AccessorMethodName {

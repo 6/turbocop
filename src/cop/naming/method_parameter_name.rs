@@ -36,6 +36,16 @@ pub struct MethodParameterName;
 /// All 12 FNs were post-splat required parameters (e.g., `def m(*args, a, b)`).
 /// These live in `params.posts()` in Prism's AST, which was not iterated.
 /// Fix: add `params.posts()` iteration alongside `params.requireds()`.
+///
+/// ## Corpus investigation (2026-03-24) — extended corpus
+///
+/// Extended corpus reported FP=34, FN=0 across 3 repos:
+/// - pitluga/supply_drop (18 FP), cjstewart88/Tubalr (10 FP),
+///   liaoziyang/stackneveroverflow (6 FP).
+/// All three are systemic-noise repos with 2k-9k total FP+FN across hundreds
+/// of cops (file discovery, encoding, or parser differences). No cop-specific
+/// bug. These FPs are not actionable without fixing the systemic repo-level
+/// divergence.
 const DEFAULT_ALLOWED: &[&str] = &[
     "as", "at", "by", "cc", "db", "id", "if", "in", "io", "ip", "of", "on", "os", "pp", "to",
 ];

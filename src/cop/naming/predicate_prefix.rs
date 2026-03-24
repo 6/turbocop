@@ -45,8 +45,9 @@ use crate::parse::source::SourceFile;
 /// Fix: changed `normalize_directive_cop_name` to return just the department
 /// token (the part before `::`) instead of converting `::` to `/`.
 ///
-/// FP=2 (vendor-path): `is_utf8?` in noosfero/noosfero `vendor/` dir.
-/// Systemic vendor-path config/exclusion noise, not a cop bug.
+/// FP=2→1 (vendor-path): `is_utf8?` in noosfero/noosfero `vendor/plugins/` dir.
+/// Systemic vendor-path config/exclusion noise, not a cop bug. noosfero has
+/// 4,612 FP across 114 diverging cops — systemic repo-level divergence.
 pub struct PredicatePrefix;
 
 impl PredicatePrefix {
