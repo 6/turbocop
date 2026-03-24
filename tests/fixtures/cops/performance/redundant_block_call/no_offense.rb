@@ -55,3 +55,9 @@ end
 def method(&block)
   block.call { _1.do_something }
 end
+
+# block reassigned via multi-write / destructuring
+def system(*cmd, &block)
+  exe, pars, printable, block = prepare_command(cmd, &block)
+  block.call(1, 2, 3)
+end

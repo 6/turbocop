@@ -18,11 +18,12 @@ use crate::parse::source::SourceFile;
 ///   (e.g., `def open(timing: block_given?, &block)`). Fixed by scanning OptionalKeywordParameterNode
 ///   and OptionalParameterNode default values in addition to the body.
 ///
-/// ## Extended corpus investigation (2026-03-23)
+/// ## Extended corpus investigation (2026-03-24)
 ///
-/// Extended corpus reported FP=6, FN=0. All 6 FPs from vendored gem files
-/// with out-of-tree scan paths. Fixed by scan_roots support in CopFilterSet
-/// for AllCops.Exclude path matching (commit 1f2f67c).
+/// Extended corpus reported FP=6, FN=0. All 6 FPs from files containing
+/// invalid multibyte regex escapes that crash RuboCop's parser, causing all
+/// other cops to be skipped. Not a cop logic issue. Fixed by adding the
+/// affected files to `repo_excludes.json`.
 pub struct BlockGivenWithExplicitBlock;
 
 impl Cop for BlockGivenWithExplicitBlock {
@@ -212,6 +213,31 @@ impl<'pr> Visit<'pr> for ReassignFinder<'_> {
             self.found = true;
         }
         ruby_prism::visit_local_variable_and_write_node(self, node);
+    }
+
+    fn visit_multi_write_node(&mut self, node: &ruby_prism::MultiWriteNode<'pr>) {
+        // Check multi-assignment targets: `x, y, block = ...`
+        for target in node.lefts().iter() {
+            if let Some(local) = target.as_local_variable_target_node() {
+                if local.name().as_slice() == self.name {
+                    self.found = true;
+                    return;
+                }
+            }
+        }
+        if let Some(rest) = node.rest() {
+            if let Some(splat) = rest.as_splat_node() {
+                if let Some(expr) = splat.expression() {
+                    if let Some(local) = expr.as_local_variable_target_node() {
+                        if local.name().as_slice() == self.name {
+                            self.found = true;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        ruby_prism::visit_multi_write_node(self, node);
     }
 
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {

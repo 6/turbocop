@@ -12,5 +12,36 @@
     "exclude": [
       "test/logger/test_logger.rb"
     ]
+  },
+  "cjstewart88__Tubalr__f6956c8": {
+    "comment": "Invalid multibyte escape /[\\x80-\\xFF]/ in vendored rdoc ruby_lex.rb crashes RuboCop parser, causing all other cops to be skipped for those files",
+    "exclude": [
+      "heroku/ruby/1.9.1/gems/rdoc-3.8/lib/rdoc/ruby_lex.rb",
+      "heroku/ruby/1.9.1/gems/rdoc-3.9.4/lib/rdoc/ruby_lex.rb"
+    ]
+  },
+  "liaoziyang__stackneveroverflow__8f4dce2": {
+    "comment": "Invalid multibyte escape /[\\x80-\\xFF]/ in vendored rdoc ruby_lex.rb crashes RuboCop parser",
+    "exclude": [
+      "vendor/bundle/ruby/2.3.0/gems/rdoc-4.3.0/lib/rdoc/ruby_lex.rb"
+    ]
+  },
+  "infochimps-labs__wukong__437eff1": {
+    "comment": "Too short escaped multibyte character /\\xc3[\\xa0-\\xa5]/ in asciize.rb crashes RuboCop parser",
+    "exclude": [
+      "old/wukong/encoding/asciize.rb"
+    ]
+  },
+  "pitluga__supply_drop__d64c50c": {
+    "comment": "Invalid multibyte escape /[\\x80-\\xFF]/ in vendored puppet zaml.rb crashes RuboCop parser",
+    "exclude": [
+      "examples/vendored-puppet/vendor/puppet-2.7.8/lib/puppet/util/zaml.rb"
+    ]
+  },
+  "databasically__lowdown__d593927": {
+    "comment": "Invalid multibyte escape /[\\x00-\\x08...\\177-\\377]/ in vendored rails quoting.rb crashes RuboCop parser",
+    "exclude": [
+      "vendor/rails/actionmailer/lib/action_mailer/quoting.rb"
+    ]
   }
 }

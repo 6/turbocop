@@ -15,14 +15,17 @@ use ruby_prism::Visit;
 /// ## Extended corpus FP fix (2026-03-22)
 ///
 /// 1 FP in extended corpus (Albacore__albacore repo, `lib/albacore/cross_platform_cmd.rb:111`).
-/// Root cause: RuboCop's `calls_to_report` uses `return []` (not `next`) inside `map`
-/// when checking `args_include_block_pass?`. This means if ANY `block.call(...)` in the
-/// method has a `&block_pass` argument, ALL offenses for that method are suppressed.
-/// Our implementation was checking per-call (`node.block().is_none()`) which only
-/// suppressed the specific call with the block argument. Fixed by adding a
-/// `BlockPassFinder` pre-scan that checks if any `block.call` in the method body has
-/// a block argument (block_pass or block literal), and if so, skips all reporting
-/// for that method. Pending corpus confirmation.
+/// Root cause: the `&block` parameter is reassigned via multi-write destructuring:
+/// `exe, pars, printable, block = prepare_command(cmd, &block)`. After this
+/// reassignment, `block` is no longer the original `&block` parameter. RuboCop
+/// detects multi-write reassignment and suppresses the offense; our `ReassignFinder`
+/// only handled `LocalVariableWriteNode`, not `MultiWriteNode` targets.
+/// Fixed by adding `visit_multi_write_node` to `ReassignFinder` to check for
+/// `LocalVariableTargetNode` in multi-write left-hand side.
+///
+/// Previous BlockPassFinder fix (2026-03-22) also retained: if ANY `block.call` in
+/// the method has a `&block_pass` argument, all offenses for that method are
+/// suppressed, matching RuboCop's `calls_to_report` behavior.
 pub struct RedundantBlockCall;
 
 impl Cop for RedundantBlockCall {
@@ -180,6 +183,33 @@ impl<'pr> Visit<'pr> for ReassignFinder<'_> {
             self.found = true;
         }
         ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+
+    fn visit_multi_write_node(&mut self, node: &ruby_prism::MultiWriteNode<'pr>) {
+        // Check multi-assignment targets: `x, y, block = ...`
+        // In Prism, each target in a multi-write is a LocalVariableTargetNode.
+        for target in node.lefts().iter() {
+            if let Some(local) = target.as_local_variable_target_node() {
+                if local.name().as_slice() == self.name {
+                    self.found = true;
+                    return;
+                }
+            }
+        }
+        // Also check the rest target (*block = ...)
+        if let Some(rest) = node.rest() {
+            if let Some(splat) = rest.as_splat_node() {
+                if let Some(expr) = splat.expression() {
+                    if let Some(local) = expr.as_local_variable_target_node() {
+                        if local.name().as_slice() == self.name {
+                            self.found = true;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        ruby_prism::visit_multi_write_node(self, node);
     }
 }
 
