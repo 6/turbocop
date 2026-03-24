@@ -487,6 +487,8 @@ def main():
         sys.stdout.write("\n")
         return
 
+    summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+    summary_started = False
     time.sleep(10)
     while True:
         now = datetime.now().strftime("%H:%M:%S")
@@ -495,13 +497,24 @@ def main():
             status = get_status(logfile, args.backend)
             tool = status["last_tool"] or "n/a"
             text = status["last_text"] or "(none)"
-            print(
-                f"[progress] {now} | {status['events']} events | "
-                f"type: {status['last_type']} | tool: {tool} | text: {text}",
-                flush=True,
+            msg = (
+                f"{now} | {status['events']} events | "
+                f"type: {status['last_type']} | tool: {tool} | text: {text}"
             )
         else:
-            print(f"[progress] {now} | waiting for session to start...", flush=True)
+            msg = f"{now} | waiting for session to start..."
+        print(f"[progress] {msg}", flush=True)
+        # Append to GHA step summary so progress is visible even when
+        # running as a background process (whose stdout is not displayed).
+        if summary_file:
+            try:
+                with open(summary_file, "a") as f:
+                    if not summary_started:
+                        f.write("\n<details><summary>Agent progress</summary>\n\n```\n")
+                        summary_started = True
+                    f.write(f"{msg}\n")
+            except OSError:
+                pass
         time.sleep(args.interval)
 
 
