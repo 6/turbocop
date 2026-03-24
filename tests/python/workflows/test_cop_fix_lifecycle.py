@@ -93,7 +93,7 @@ def test_init_retry_mode(tmp_path):
         capture_output=True, text=True, env=env,
     )
     assert result.returncode == 0
-    assert "Retry cop:" in result.stdout
+    assert "Retry cop:" in result.stderr
 
 
 # ── build-prompt ────────────────────────────────────────────────────────

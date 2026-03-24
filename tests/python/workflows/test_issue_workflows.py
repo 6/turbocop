@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[3]
 AGENT_COP_FIX = ROOT / ".github" / "workflows" / "agent-cop-fix.yml"
+COP_FIX_LIFECYCLE = ROOT / "scripts" / "workflows" / "cop_fix_lifecycle.py"
 AGENT_PR_REPAIR = ROOT / ".github" / "workflows" / "agent-pr-repair.yml"
 COP_ISSUE_SYNC = ROOT / ".github" / "workflows" / "cop-issue-sync.yml"
 COP_ISSUE_DISPATCH = ROOT / ".github" / "workflows" / "cop-issue-dispatch.yml"
@@ -15,27 +16,34 @@ CORPUS_ORACLE = ROOT / ".github" / "workflows" / "corpus-oracle.yml"
 
 
 def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
-    content = AGENT_COP_FIX.read_text()
-    assert "issue_number:" in content
-    assert "- auto" in content
-    assert "scripts/dispatch-cops.py backend" in content
-    assert "cargo test --test integration offense_fixtures_have_no_unannotated_blocks" in content
-    assert "Closes #${ISSUE_NUMBER}" in content
-    assert "<!-- nitrocop-cop-issue: number=${ISSUE_NUMBER} cop=${COP} -->" in content
-    assert 'gh issue comment "${{ github.event.inputs.issue_number }}"' in content
-    assert "docs/agent-ci.md" in content
-    assert "Switch to claimed PR branch" in content
-    assert "validate_agent_changes.py" in content
-    assert "Run local standard quick corpus gate" in content
-    assert "requires_standard_quick_gate" in content
-    assert "Keep draft PR when local standard gate fails" in content
-    assert "bundle check || bundle install" in content
-    assert 'python3 scripts/check-cop.py "${{ github.event.inputs.cop }}"' in content
-    assert 'gh pr merge "$PR_URL" --auto --squash --delete-branch' in content
-    assert "prepare_agent_workspace.py" not in content
-    assert "CI_SCRIPTS_DIR" not in content
-    assert "tmp: clean workspace" not in content
-    assert "git apply --3way" not in content
+    yml = AGENT_COP_FIX.read_text()
+    py = COP_FIX_LIFECYCLE.read_text()
+
+    # Workflow inputs and orchestrator calls
+    assert "issue_number:" in yml
+    assert "- auto" in yml
+    assert "cop_fix_lifecycle.py select-backend" in yml
+    assert "cop_fix_lifecycle.py claim-pr" in yml
+    assert "cop_fix_lifecycle.py finalize" in yml
+    assert "requires_standard_quick_gate" in yml
+
+    # Logic now lives in cop_fix_lifecycle.py
+    assert "dispatch-cops.py" in py
+    assert "offense_fixtures_have_no_unannotated_blocks" in py
+    assert "Closes #{" in py
+    assert "nitrocop-cop-issue" in py
+    assert '"gh", "issue", "comment"' in py
+    assert "docs/agent-ci.md" in py
+    assert "validate_agent_changes.py" in py
+    assert "bundle check" in py
+    assert "check-cop.py" in py
+    assert '"gh", "pr", "merge"' in py
+
+    # Removed patterns should not appear in either
+    assert "prepare_agent_workspace.py" not in yml
+    assert "CI_SCRIPTS_DIR" not in yml
+    assert "tmp: clean workspace" not in yml
+    assert "git apply --3way" not in yml
 
 
 def test_agent_pr_repair_reads_linked_issue_and_can_update_it():

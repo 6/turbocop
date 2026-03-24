@@ -44,6 +44,11 @@ def _opt_env(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
 
 
+def _log(msg: str) -> None:
+    """Print an informational message to stderr (safe when stdout → $GITHUB_OUTPUT)."""
+    print(msg, file=sys.stderr)
+
+
 def _output(key: str, value: str) -> None:
     """Write a key=value pair to $GITHUB_OUTPUT and stdout."""
     output_file = os.environ.get("GITHUB_OUTPUT")
@@ -67,15 +72,15 @@ def _output_multiline(key: str, value: str) -> None:
 
 
 def _notice(msg: str) -> None:
-    print(f"::notice::{msg}")
+    print(f"::notice::{msg}", file=sys.stderr)
 
 
 def _error(msg: str) -> None:
-    print(f"::error::{msg}")
+    print(f"::error::{msg}", file=sys.stderr)
 
 
 def _warning(msg: str) -> None:
-    print(f"::warning::{msg}")
+    print(f"::warning::{msg}", file=sys.stderr)
 
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
@@ -293,7 +298,7 @@ def cmd_skip_fixed(args: list[str]) -> int:
     opts = p.parse_args(args)
 
     _warning("No code bugs found — cop appears already fixed. Skipping agent.")
-    print("All FP/FN examples are config/context issues or already detected.")
+    _log("All FP/FN examples are config/context issues or already detected.")
 
     if opts.issue_number:
         body = (
@@ -366,7 +371,7 @@ def cmd_build_prompt(args: list[str]) -> int:
         for pr_num in pr_numbers:
             pr_num = pr_num.strip()
             if pr_num:
-                print(f"Closing stale PR #{pr_num}")
+                _log(f"Closing stale PR #{pr_num}")
                 _run_ok(["gh", "pr", "close", pr_num, "--comment", "Superseded by retry attempt."])
 
     if opts.extra_context:
@@ -380,7 +385,7 @@ def cmd_build_prompt(args: list[str]) -> int:
 
     final_content = "\n".join(parts)
     write_and_read(final_task_file, final_content)
-    print(f"=== Final prompt ===\n{len(final_content.splitlines())} lines")
+    _log(f"=== Final prompt ===\n{len(final_content.splitlines())} lines")
     return 0
 
 
@@ -526,7 +531,7 @@ def cmd_claim_pr(args: list[str]) -> int:
     ])
     pr_url = r.stdout.strip()
     _output("pr_url", pr_url)
-    print(f"Created draft PR: {pr_url}")
+    _log(f"Created draft PR: {pr_url}")
 
     # Transition issue label
     if opts.issue_number:
@@ -830,11 +835,11 @@ def cmd_snapshot(args: list[str]) -> int:
     if agent_result_file.exists() and agent_result_file.stat().st_size > 0:
         try:
             data = json.loads(agent_result_file.read_text())
-            print("=== Agent Summary ===")
-            print(f"Cost: {data.get('total_cost_usd', '?')}")
-            print(f"Turns: {data.get('num_turns', '?')}")
+            _log("=== Agent Summary ===")
+            _log(f"Cost: {data.get('total_cost_usd', '?')}")
+            _log(f"Turns: {data.get('num_turns', '?')}")
             result_text = str(data.get("result", "no result"))
-            print(f"Result: {result_text[:200]}")
+            _log(f"Result: {result_text[:200]}")
         except json.JSONDecodeError:
             pass
 
@@ -944,7 +949,7 @@ def _build_final_pr_body(
     if not diff_stat:
         r2 = _run_ok([
             "gh", "api", f"repos/{repo}/compare/{parent_sha}...{signed_sha}",
-            "--jq", '"\(.files | length) files changed"',
+            "--jq", r'"\(.files | length) files changed"',
         ])
         if r2.returncode == 0:
             diff_stat = f"  {r2.stdout.strip()}"
@@ -1048,7 +1053,7 @@ def cmd_finalize(args: list[str]) -> int:
     has_changes = diff_check.returncode != 0 or head_sha != opts.base_sha
 
     if not has_changes:
-        print("No changes made")
+        _log("No changes made")
         _close_pr_no_changes(
             opts.pr_url, opts.cop, opts.backend_label, opts.model_label,
             opts.mode, opts.run_url, opts.issue_number, opts.repo,
@@ -1057,13 +1062,13 @@ def cmd_finalize(args: list[str]) -> int:
         _output("has_pr", "false")
         return 0
 
-    print("Changes detected on claimed branch")
+    _log("Changes detected on claimed branch")
     r = _git("log", "--oneline", f"{opts.base_sha}..HEAD", check=False)
     if r.stdout.strip():
-        print(r.stdout.rstrip())
+        _log(r.stdout.rstrip())
     r = _git("diff", "--stat", check=False)
     if r.stdout.strip():
-        print(r.stdout.rstrip())
+        _log(r.stdout.rstrip())
 
     # 2. Validate scope
     r = _run([
@@ -1137,7 +1142,7 @@ def cmd_finalize(args: list[str]) -> int:
     ])
     file_count = r.stdout.strip() if r.returncode == 0 else ""
     if file_count == "0":
-        print("Final PR diff is empty after replay/push")
+        _log("Final PR diff is empty after replay/push")
         _close_pr_no_changes(
             opts.pr_url, opts.cop, opts.backend_label, opts.model_label,
             opts.mode, opts.run_url, opts.issue_number, opts.repo,
@@ -1207,7 +1212,7 @@ def cmd_finalize(args: list[str]) -> int:
 
     # 11. Mark PR ready + auto-merge
     _run(["gh", "pr", "ready", opts.pr_url])
-    print(f"PR ready: {opts.pr_url}")
+    _log(f"PR ready: {opts.pr_url}")
     _run(["gh", "pr", "merge", opts.pr_url, "--auto", "--squash", "--delete-branch"])
 
     _output("result", "success")
