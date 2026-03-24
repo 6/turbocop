@@ -353,13 +353,9 @@ impl Cop for EmptyLineAfterGuardClause {
         // `operator_keyword? ? rhs : self` — so only the `rhs` (the guard part) needs
         // to be single-line, not the entire `or` expression.
         {
-            let check_node = guard_clause_check_node(first_stmt);
-            let stmt_start_line = source
-                .offset_to_line_col(check_node.location().start_offset())
-                .0;
-            let stmt_end_line = source
-                .offset_to_line_col(check_node.location().end_offset().saturating_sub(1))
-                .0;
+            let (check_start, check_end) = guard_clause_check_location(first_stmt);
+            let stmt_start_line = source.offset_to_line_col(check_start).0;
+            let stmt_end_line = source.offset_to_line_col(check_end.saturating_sub(1)).0;
             if stmt_start_line != stmt_end_line {
                 // For modifier form, check if the multi-line span is due to a heredoc.
                 // Heredoc guards are valid despite spanning multiple lines.
@@ -696,17 +692,20 @@ fn find_heredoc_end_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Op
     finder.max_end_line
 }
 
-/// For `and`/`or` operator nodes, return the RHS (the guard part).
-/// For other nodes, return the node itself. This mirrors RuboCop's
-/// `guard_clause?` which checks `operator_keyword? ? rhs : self`.
-fn guard_clause_check_node<'a>(node: &'a ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
+/// For `and`/`or` operator nodes, return the location of the RHS (the guard part).
+/// For other nodes, return the node's own location. This mirrors RuboCop's
+/// `guard_clause?` which checks `operator_keyword? ? rhs : self` and then
+/// requires `single_line?` on the result.
+fn guard_clause_check_location<'a>(node: &'a ruby_prism::Node<'a>) -> (usize, usize) {
     if let Some(and_node) = node.as_and_node() {
-        return guard_clause_check_node(&and_node.right());
+        let right = and_node.right();
+        return guard_clause_check_location(&right);
     }
     if let Some(or_node) = node.as_or_node() {
-        return guard_clause_check_node(&or_node.right());
+        let right = or_node.right();
+        return guard_clause_check_location(&right);
     }
-    node.clone()
+    (node.location().start_offset(), node.location().end_offset())
 }
 
 fn is_guard_stmt(node: &ruby_prism::Node<'_>) -> bool {
@@ -902,8 +901,7 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
             .map(|end| &trimmed_bytes[..=end])
             .unwrap_or(trimmed_bytes);
 
-        let arg_continuation =
-            stripped.ends_with(b",") || stripped.ends_with(b"+") || depth > 0;
+        let arg_continuation = stripped.ends_with(b",") || stripped.ends_with(b"+") || depth > 0;
         let line_continuation = stripped.ends_with(b"\\");
 
         if arg_continuation {

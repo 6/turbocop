@@ -309,3 +309,29 @@ def delete_disk(number)
 
   true
 end
+
+# FN fix: block-form if/else/end with multi-line `or raise` — RuboCop checks
+# the RHS of the `or` node for single_line?, not the whole expression
+def accept(t, pat, &block)
+  if pat
+    pat.respond_to?(:match) ||
+      raise(TypeError, "has no `match'")
+  else
+    pat = t if t.respond_to?(:match)
+  end
+
+  unless block
+    block = pat.method(:convert).to_proc
+  end
+end
+
+# FN fix: guard followed by multi-line raise with `+` continuation in next
+# sibling — multi-line raise is NOT single_line?, so not a valid guard for suppression
+def times(number)
+  raise "times(N) accepts integers >= 1 only" if !number.is_a?(Integer)
+
+  if @responses_sequences.empty?
+    raise "Invalid WebMock stub declaration." +
+      " times(N) can be declared only after response declaration."
+  end
+end
