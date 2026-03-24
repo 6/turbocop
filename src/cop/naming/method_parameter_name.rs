@@ -46,6 +46,17 @@ pub struct MethodParameterName;
 /// of cops (file discovery, encoding, or parser differences). No cop-specific
 /// bug. These FPs are not actionable without fixing the systemic repo-level
 /// divergence.
+///
+/// ## CI check-cop false alarm (2026-03-24) — standard corpus
+///
+/// check-cop reports +7 FP (11,960 vs 11,952 expected). This is NOT a cop
+/// logic regression. Root cause: the corpus oracle lacks `nitro_total_unfiltered`
+/// for this cop, so check-cop falls back to comparing against the filtered
+/// RuboCop count. The 8 extra offenses are on files where RuboCop crashed or
+/// was excluded (parser errors) but nitrocop ran successfully. This gap is
+/// constant and pre-existing — it only surfaces when check-cop re-runs the cop
+/// (triggered by any file touch, including doc-comment-only changes).
+/// Fix: update corpus oracle to emit `nitro_total_unfiltered` for all cops.
 const DEFAULT_ALLOWED: &[&str] = &[
     "as", "at", "by", "cc", "db", "id", "if", "in", "io", "ip", "of", "on", "os", "pp", "to",
 ];
