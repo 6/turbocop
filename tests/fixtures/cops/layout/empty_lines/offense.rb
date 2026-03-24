@@ -50,25 +50,21 @@ d = 4
 more docs
 =end
 
-# Consecutive blank lines inside =begin/=end block
+# Blank lines inside =begin/=end are NOT flagged (Parser gem has no embdoc tokens)
 e = 5
 =begin
 some documentation
 
 
-^ Layout/EmptyLines: Extra blank line detected.
 more documentation
 =end
 f = 6
 
-# Multiple consecutive blank lines inside =begin/=end
 g = 7
 =begin
 docs here
 
 
-^ Layout/EmptyLines: Extra blank line detected.
 
-^ Layout/EmptyLines: Extra blank line detected.
 more docs here
 =end

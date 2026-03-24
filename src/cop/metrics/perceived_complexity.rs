@@ -111,6 +111,16 @@ use crate::parse::source::SourceFile;
 /// Affected repos: SquareSquash/web (bin/setup:149), discourse (config.rb:105),
 /// huginn (switch_to_json_serialization.rb:45), optcarrot (apu.rb:559).
 /// All 4 FPs had score 9 vs threshold 8, overcounted by exactly 1.
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus (5592 repos) reported FP=31, FN=0. Standard corpus is 0/0.
+///
+/// FP=31 root cause: same cross-cutting file-level issue as CyclomaticComplexity.
+/// 27/31 FP from the same 2 repos (Tubalr and stackneveroverflow) with vendored
+/// gems that RuboCop cannot parse but Prism handles. Remaining 4 FP from auth0 (2),
+/// gisiahq (1), pitluga (1) — likely config resolution differences.
+/// No cop-level fix needed; requires infrastructure fix.
 pub struct PerceivedComplexity;
 
 /// Known iterating method names that make blocks count toward complexity.

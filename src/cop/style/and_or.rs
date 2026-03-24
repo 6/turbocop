@@ -21,6 +21,10 @@ impl Cop for AndOr {
         ]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -28,13 +32,28 @@ impl Cop for AndOr {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "conditionals");
 
         if enforced_style == "always" {
             // In "always" mode, flag every `and` and `or` keyword
-            diagnostics.extend(check_and_or_node(self, source, node));
+            if let Some((diag, op_start, op_end, replacement)) =
+                check_and_or_node(self, source, node).into_iter().next()
+            {
+                let mut d = diag;
+                if let Some(ref mut corr) = corrections {
+                    corr.push(crate::correction::Correction {
+                        start: op_start,
+                        end: op_end,
+                        replacement: replacement.to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    d.corrected = true;
+                }
+                diagnostics.push(d);
+            }
             return;
         }
 
@@ -52,36 +71,47 @@ impl Cop for AndOr {
         };
 
         // Walk the condition tree for and/or nodes
-        collect_and_or_in_condition(self, source, &condition, diagnostics);
+        collect_and_or_in_condition(self, source, &condition, diagnostics, &mut corrections);
     }
 }
 
 /// Check if a single node is an `and`/`or` keyword and report it.
+/// Returns (Diagnostic, op_start, op_end, replacement) tuples.
 fn check_and_or_node(
     cop: &AndOr,
     source: &SourceFile,
     node: &ruby_prism::Node<'_>,
-) -> Vec<Diagnostic> {
+) -> Vec<(Diagnostic, usize, usize, &'static str)> {
     if let Some(and_node) = node.as_and_node() {
         let op_loc = and_node.operator_loc();
         if op_loc.as_slice() == b"and" {
             let (line, column) = source.offset_to_line_col(op_loc.start_offset());
-            return vec![cop.diagnostic(
-                source,
-                line,
-                column,
-                "Use `&&` instead of `and`.".to_string(),
+            return vec![(
+                cop.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `&&` instead of `and`.".to_string(),
+                ),
+                op_loc.start_offset(),
+                op_loc.end_offset(),
+                "&&",
             )];
         }
     } else if let Some(or_node) = node.as_or_node() {
         let op_loc = or_node.operator_loc();
         if op_loc.as_slice() == b"or" {
             let (line, column) = source.offset_to_line_col(op_loc.start_offset());
-            return vec![cop.diagnostic(
-                source,
-                line,
-                column,
-                "Use `||` instead of `or`.".to_string(),
+            return vec![(
+                cop.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `||` instead of `or`.".to_string(),
+                ),
+                op_loc.start_offset(),
+                op_loc.end_offset(),
+                "||",
             )];
         }
     }
@@ -94,35 +124,58 @@ fn collect_and_or_in_condition(
     source: &SourceFile,
     node: &ruby_prism::Node<'_>,
     diagnostics: &mut Vec<Diagnostic>,
+    corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
 ) {
     if let Some(and_node) = node.as_and_node() {
         let op_loc = and_node.operator_loc();
         if op_loc.as_slice() == b"and" {
             let (line, column) = source.offset_to_line_col(op_loc.start_offset());
-            diagnostics.push(cop.diagnostic(
+            let mut diag = cop.diagnostic(
                 source,
                 line,
                 column,
                 "Use `&&` instead of `and`.".to_string(),
-            ));
+            );
+            if let Some(corr) = corrections {
+                corr.push(crate::correction::Correction {
+                    start: op_loc.start_offset(),
+                    end: op_loc.end_offset(),
+                    replacement: "&&".to_string(),
+                    cop_name: cop.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
         // Recurse into both sides
-        collect_and_or_in_condition(cop, source, &and_node.left(), diagnostics);
-        collect_and_or_in_condition(cop, source, &and_node.right(), diagnostics);
+        collect_and_or_in_condition(cop, source, &and_node.left(), diagnostics, corrections);
+        collect_and_or_in_condition(cop, source, &and_node.right(), diagnostics, corrections);
     } else if let Some(or_node) = node.as_or_node() {
         let op_loc = or_node.operator_loc();
         if op_loc.as_slice() == b"or" {
             let (line, column) = source.offset_to_line_col(op_loc.start_offset());
-            diagnostics.push(cop.diagnostic(
+            let mut diag = cop.diagnostic(
                 source,
                 line,
                 column,
                 "Use `||` instead of `or`.".to_string(),
-            ));
+            );
+            if let Some(corr) = corrections {
+                corr.push(crate::correction::Correction {
+                    start: op_loc.start_offset(),
+                    end: op_loc.end_offset(),
+                    replacement: "||".to_string(),
+                    cop_name: cop.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
         // Recurse into both sides
-        collect_and_or_in_condition(cop, source, &or_node.left(), diagnostics);
-        collect_and_or_in_condition(cop, source, &or_node.right(), diagnostics);
+        collect_and_or_in_condition(cop, source, &or_node.left(), diagnostics, corrections);
+        collect_and_or_in_condition(cop, source, &or_node.right(), diagnostics, corrections);
     }
     // For other node types, don't recurse further — and/or at the top level of
     // a condition is what we're looking for.
@@ -132,4 +185,5 @@ fn collect_and_or_in_condition(
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(AndOr, "cops/style/and_or");
+    crate::cop_autocorrect_fixture_tests!(AndOr, "cops/style/and_or");
 }

@@ -164,6 +164,50 @@ use crate::parse::source::SourceFile;
 /// - A correct future fix needs repo-level identification of those new excess
 ///   offenses first; do not reland the reverted boundary-tightening approach
 ///   without isolating the regressions.
+///
+/// ## Corpus investigation (2026-03-23)
+///
+/// Corpus oracle reported FP=1, FN=28.
+///
+/// FP=1: `if raise_error ... else ... end` with `or raise` in the if-branch
+/// was treated as a guard clause. RuboCop's `guard_clause_node` returns nil
+/// for `if...else...end` without elsif (regular if/else is never a guard).
+/// Fix: skip block-form if nodes that have a direct else clause (not elsif).
+///
+/// FN=28: Various modifier guard patterns (return/next/break if) followed by
+/// code without a blank line. Not addressed in this batch — requires deeper
+/// investigation of the text-based next-sibling classification.
+///
+/// ## Corpus investigation (2026-03-23, batch 2: FP=0, FN=45)
+///
+/// Three root causes identified for FN:
+///
+/// 1. **`is_ident_char` excluded `!` and `?`**: Ruby method names can end in
+///    `!` or `?` (e.g., `next!`, `fail!`, `include?`). The word boundary check
+///    treated `!`/`?` as non-ident characters, so `next` matched in `next!` and
+///    `fail` matched in `fail!`. The next-sibling guard-line classification then
+///    falsely suppressed the offense. Fix: include `!` and `?` in `is_ident_char`.
+///
+/// 2. **Qualified receiver calls like `::Kernel.raise`**: `contains_modifier_guard`
+///    matched `raise` inside `::Kernel.raise ... if cond` because `.` was a valid
+///    word boundary. RuboCop's `match_guard_clause?` requires `(send nil? ...)` —
+///    bare calls with no receiver. Fix: added `contains_guard_keyword_at_top_level`
+///    which rejects matches preceded by `.`.
+///
+/// 3. **UTF-8 byte/char offset mismatch**: The embedded-expression check used
+///    `end_col` (UTF-8 character count from `offset_to_line_col`) as a byte index
+///    into the raw line. For lines with multi-byte characters (emojis like `✅`,
+///    `✓`, CJK characters), the character count is smaller than the byte offset,
+///    causing the cop to think there was code after the guard on the same line and
+///    skip real offenses. Fix: compute byte position using `effective_end_offset`
+///    minus the line's start byte offset.
+///
+/// 4. **Block-form `if...else...end` skip was too broad**: The previous FP=1 fix
+///    blanket-skipped all `if...else...end` nodes. But RuboCop DOES flag
+///    `if...raise...else...end` as guard clauses (it checks `if_branch.guard_clause?`,
+///    not whether there's an else). The suppression only applies when the `if` node
+///    has no right_sibling (embedded in assignment like `ret = if...else...end`).
+///    Fix: only skip when the `if` keyword has code before it on the same line.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -200,55 +244,86 @@ impl Cop for EmptyLineAfterGuardClause {
     ) {
         // Extract body statements, the overall location, and whether it's block form.
         // We handle both modifier and block-form if/unless, plus ternaries.
-        let (body_stmts, loc, end_keyword_loc, is_ternary) =
-            if let Some(if_node) = node.as_if_node() {
-                // Skip elsif nodes
-                if let Some(kw) = if_node.if_keyword_loc() {
-                    if kw.as_slice() == b"elsif" {
-                        return;
+        let (body_stmts, loc, end_keyword_loc, is_ternary) = if let Some(if_node) =
+            node.as_if_node()
+        {
+            // Skip elsif nodes
+            if let Some(kw) = if_node.if_keyword_loc() {
+                if kw.as_slice() == b"elsif" {
+                    return;
+                }
+            }
+            // Ternary: no if_keyword_loc, has else branch
+            if if_node.if_keyword_loc().is_none() {
+                // Ternary guard: check if either branch contains a guard
+                if if_node.subsequent().is_some() {
+                    // Has else branch — check if the if-branch is a guard
+                    if let Some(stmts) = if_node.statements() {
+                        let body: Vec<_> = stmts.body().iter().collect();
+                        if body.len() == 1 && is_guard_stmt(&body[0]) {
+                            // Ternary with guard in if-branch
+                            return self.check_ternary_guard(
+                                source,
+                                &if_node.location(),
+                                diagnostics,
+                                &mut corrections,
+                            );
+                        }
                     }
                 }
-                // Ternary: no if_keyword_loc, has else branch
-                if if_node.if_keyword_loc().is_none() {
-                    // Ternary guard: check if either branch contains a guard
-                    if if_node.subsequent().is_some() {
-                        // Has else branch — check if the if-branch is a guard
-                        if let Some(stmts) = if_node.statements() {
-                            let body: Vec<_> = stmts.body().iter().collect();
-                            if body.len() == 1 && is_guard_stmt(&body[0]) {
-                                // Ternary with guard in if-branch
-                                return self.check_ternary_guard(
-                                    source,
-                                    &if_node.location(),
-                                    diagnostics,
-                                    &mut corrections,
-                                );
+                return;
+            }
+            // Block-form if/else/end: RuboCop suppresses the offense when the
+            // `if` node has no right_sibling (i.e., it's embedded in an assignment
+            // like `ret = if...else...end`). We approximate this by checking if the
+            // `if` keyword is NOT the first non-whitespace on its line — if there's
+            // code before it (like `ret = `), it's an embedded expression and should
+            // be skipped.
+            if if_node.end_keyword_loc().is_some() {
+                if let Some(subsequent) = if_node.subsequent() {
+                    if subsequent.as_else_node().is_some() {
+                        // Check if `if` keyword is preceded by code on the same line
+                        if let Some(kw) = if_node.if_keyword_loc() {
+                            let kw_line = source.offset_to_line_col(kw.start_offset()).0;
+                            let lines_vec: Vec<&[u8]> = source.lines().collect();
+                            if lines_vec.get(kw_line.saturating_sub(1)).is_some() {
+                                // Check if all chars before the `if` keyword are whitespace
+                                // Use byte offset: compute bytes before the keyword
+                                let line_start_offset =
+                                    source.line_col_to_offset(kw_line, 0).unwrap_or(0);
+                                let kw_byte_offset = kw.start_offset();
+                                let prefix = &source.as_bytes()[line_start_offset..kw_byte_offset];
+                                let has_code_before =
+                                    prefix.iter().any(|&b| b != b' ' && b != b'\t');
+                                if has_code_before {
+                                    return;
+                                }
                             }
                         }
                     }
-                    return;
                 }
-                match if_node.statements() {
-                    Some(s) => (s, if_node.location(), if_node.end_keyword_loc(), false),
-                    None => return,
-                }
-            } else if let Some(unless_node) = node.as_unless_node() {
-                // Skip unless/else forms
-                if unless_node.else_clause().is_some() {
-                    return;
-                }
-                match unless_node.statements() {
-                    Some(s) => (
-                        s,
-                        unless_node.location(),
-                        unless_node.end_keyword_loc(),
-                        false,
-                    ),
-                    None => return,
-                }
-            } else {
+            }
+            match if_node.statements() {
+                Some(s) => (s, if_node.location(), if_node.end_keyword_loc(), false),
+                None => return,
+            }
+        } else if let Some(unless_node) = node.as_unless_node() {
+            // Skip unless/else forms
+            if unless_node.else_clause().is_some() {
                 return;
-            };
+            }
+            match unless_node.statements() {
+                Some(s) => (
+                    s,
+                    unless_node.location(),
+                    unless_node.end_keyword_loc(),
+                    false,
+                ),
+                None => return,
+            }
+        } else {
+            return;
+        };
 
         let is_modifier = end_keyword_loc.is_none() && !is_ternary;
 
@@ -273,13 +348,14 @@ impl Cop for EmptyLineAfterGuardClause {
         // or `return "\n...\n" if cond` is not a guard — the raise/fail/return call itself
         // must be single-line. Exception: heredoc arguments make the statement multi-line
         // in Prism's AST but RuboCop still treats them as valid guard clauses.
+        //
+        // For `and`/`or` operator nodes (e.g., `expr || raise(...)`), RuboCop checks
+        // `operator_keyword? ? rhs : self` — so only the `rhs` (the guard part) needs
+        // to be single-line, not the entire `or` expression.
         {
-            let stmt_start_line = source
-                .offset_to_line_col(first_stmt.location().start_offset())
-                .0;
-            let stmt_end_line = source
-                .offset_to_line_col(first_stmt.location().end_offset().saturating_sub(1))
-                .0;
+            let (check_start, check_end) = guard_clause_check_location(first_stmt);
+            let stmt_start_line = source.offset_to_line_col(check_start).0;
+            let stmt_end_line = source.offset_to_line_col(check_end.saturating_sub(1)).0;
             if stmt_start_line != stmt_end_line {
                 // For modifier form, check if the multi-line span is due to a heredoc.
                 // Heredoc guards are valid despite spanning multiple lines.
@@ -304,7 +380,7 @@ impl Cop for EmptyLineAfterGuardClause {
             loc.end_offset().saturating_sub(1)
         };
 
-        let (if_end_line, end_col) = source.offset_to_line_col(effective_end_offset);
+        let if_end_line = source.offset_to_line_col(effective_end_offset).0;
 
         // Check for heredoc arguments — if present, the "end line" is after the
         // heredoc closing delimiter, not after the if node's source range.
@@ -339,9 +415,15 @@ impl Cop for EmptyLineAfterGuardClause {
         // same line (e.g. `arr.each { |x| return x if cond }`). If there is
         // non-comment code after the if node on the same line, skip.
         // Only check this for non-heredoc guards (heredoc guards span multiple lines).
+        // Use byte offsets directly to avoid UTF-8 character/byte mismatch.
         if heredoc_end_line.is_none() {
             if let Some(cur_line) = lines.get(if_end_line.saturating_sub(1)) {
-                let after_pos = end_col + 1;
+                // Compute the byte position within the line where the if node ends.
+                // effective_end_offset is a byte offset into the file; subtract the
+                // line's start byte offset to get the position within the line.
+                let line_start_byte = source.line_col_to_offset(if_end_line, 0).unwrap_or(0);
+                let end_byte_in_line = effective_end_offset.saturating_sub(line_start_byte);
+                let after_pos = end_byte_in_line + 1;
                 if after_pos < cur_line.len() {
                     let rest = &cur_line[after_pos..];
                     if let Some(idx) = rest
@@ -610,6 +692,22 @@ fn find_heredoc_end_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Op
     finder.max_end_line
 }
 
+/// For `and`/`or` operator nodes, return the location of the RHS (the guard part).
+/// For other nodes, return the node's own location. This mirrors RuboCop's
+/// `guard_clause?` which checks `operator_keyword? ? rhs : self` and then
+/// requires `single_line?` on the result.
+fn guard_clause_check_location<'a>(node: &'a ruby_prism::Node<'a>) -> (usize, usize) {
+    if let Some(and_node) = node.as_and_node() {
+        let right = and_node.right();
+        return guard_clause_check_location(&right);
+    }
+    if let Some(or_node) = node.as_or_node() {
+        let right = or_node.right();
+        return guard_clause_check_location(&right);
+    }
+    (node.location().start_offset(), node.location().end_offset())
+}
+
 fn is_guard_stmt(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
         let name = call.name().as_slice();
@@ -756,9 +854,17 @@ fn is_guard_line_with_continuations(content: &[u8], lines: &[&[u8]], line_idx: u
 
 /// Check if the line at `line_idx` starts a multi-line modifier guard clause.
 /// Scans forward through continuation lines looking for `if`/`unless` keyword.
+///
+/// RuboCop requires `single_line?` on the guard statement (the raise/fail/return/etc.
+/// call). If the guard's arguments span multiple lines (comma or `+` continuation),
+/// the guard is NOT single-line and should NOT suppress the preceding offense.
+/// However, if the continuation is only `\` (backslash line wrap), the guard
+/// arguments may still be single-line — the `if`/`unless` modifier is just on
+/// the next line.
 fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
     let mut depth: i32 = 0; // track paren/brace nesting
     let mut is_first = true;
+    let mut guard_args_multiline = false;
     for line in &lines[line_idx..] {
         let trimmed_bytes = line
             .iter()
@@ -773,7 +879,9 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
             && depth <= 0
             && (contains_word(trimmed_bytes, b"if") || contains_word(trimmed_bytes, b"unless"))
         {
-            return true;
+            // If the guard's arguments span multiple lines (comma/plus/open-paren
+            // continuation), the guard fails RuboCop's `single_line?` check.
+            return !guard_args_multiline;
         }
         is_first = false;
 
@@ -793,10 +901,14 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
             .map(|end| &trimmed_bytes[..=end])
             .unwrap_or(trimmed_bytes);
 
-        let continues = stripped.ends_with(b"\\")
-            || stripped.ends_with(b",")
-            || stripped.ends_with(b"+")
-            || depth > 0;
+        let arg_continuation = stripped.ends_with(b",") || stripped.ends_with(b"+") || depth > 0;
+        let line_continuation = stripped.ends_with(b"\\");
+
+        if arg_continuation {
+            guard_args_multiline = true;
+        }
+
+        let continues = arg_continuation || line_continuation;
 
         if !continues {
             break;
@@ -965,7 +1077,11 @@ fn is_bare_guard_in_block(trimmed: &[u8], lines: &[&[u8]], line_idx: usize) -> b
         .map(|end| &trimmed[..=end])
         .unwrap_or(trimmed);
 
-    if stripped.ends_with(b"\\") || stripped.ends_with(b",") {
+    if stripped.ends_with(b"\\")
+        || stripped.ends_with(b",")
+        || stripped.ends_with(b"+")
+        || stripped.ends_with(b".")
+    {
         return false;
     }
 
@@ -1239,9 +1355,82 @@ fn contains_modifier_guard(content: &[u8]) -> bool {
         return false;
     }
     for keyword in GUARD_METHODS {
-        if contains_word_at_top_level(content, keyword) {
+        // Use the receiver-aware check: `::Kernel.raise` should NOT match
+        // because `raise` is a method call on a receiver, not a bare guard.
+        if contains_guard_keyword_at_top_level(content, keyword) {
             return true;
         }
+    }
+    false
+}
+
+/// Like `contains_word_at_top_level` but also rejects matches where the guard
+/// keyword is immediately preceded by `.` (dot), indicating it's a method call
+/// on a receiver (e.g., `::Kernel.raise`, `Foo.fail`). RuboCop's
+/// `match_guard_clause?` requires `(send nil? {:raise :fail} ...)` — a bare
+/// call with no receiver.
+fn contains_guard_keyword_at_top_level(haystack: &[u8], word: &[u8]) -> bool {
+    let plen = word.len();
+    if haystack.len() < plen {
+        return false;
+    }
+
+    let mut depth: i32 = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut i = 0;
+
+    while i < haystack.len() {
+        let b = haystack[i];
+
+        if in_single_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'\'' {
+                in_single_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_double_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'"' {
+                in_double_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        match b {
+            b'\'' => {
+                in_single_quote = true;
+                i += 1;
+                continue;
+            }
+            b'"' => {
+                in_double_quote = true;
+                i += 1;
+                continue;
+            }
+            b'(' | b'{' | b'[' => depth += 1,
+            b')' | b'}' | b']' => depth -= 1,
+            _ => {}
+        }
+
+        if depth == 0 && i + plen <= haystack.len() && &haystack[i..i + plen] == word {
+            let before_ok = i == 0 || !is_ident_char(haystack[i - 1]);
+            let after_ok = i + plen >= haystack.len() || !is_ident_char(haystack[i + plen]);
+            // Reject if preceded by `.` (method call on receiver)
+            let not_method_call = i == 0 || haystack[i - 1] != b'.';
+            if before_ok && after_ok && not_method_call {
+                return true;
+            }
+        }
+        i += 1;
     }
     false
 }
@@ -1347,7 +1536,7 @@ fn contains_word(haystack: &[u8], word: &[u8]) -> bool {
 }
 
 fn is_ident_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_'
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'!' || b == b'?'
 }
 
 /// Check if a line is an "allowed directive comment" per RuboCop's definition.

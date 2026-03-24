@@ -16,3 +16,17 @@
     end
   end
 end
+
+# def inside if block — the ||= find_by is the sole body of the def,
+# so RuboCop's on_def fires (which doesn't check if ancestors)
+if Rails.env.development?
+  def gavin
+    @gavin ||= hooli.users.find_by(email: "gavin@hooli.com")
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FindByOrAssignmentMemoization: Avoid memoizing `find_by` results with `||=`.
+  end
+
+  def hooli
+    @hooli ||= Organization.find_by(name: "Hooli")
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FindByOrAssignmentMemoization: Avoid memoizing `find_by` results with `||=`.
+  end
+end

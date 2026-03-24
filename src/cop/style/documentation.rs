@@ -129,15 +129,32 @@ pub(crate) fn has_documentation_comment(source: &SourceFile, keyword_offset: usi
     }
     let lines: Vec<&[u8]> = source.lines().collect();
 
-    // Walk backward from the line before the keyword
+    // Walk backward from the line before the keyword.
+    // RuboCop associates all preceding comments (even across blank lines) with the
+    // node via `ast_with_comments`, then checks if ANY is real documentation. To
+    // match this, when the block immediately above the keyword is all directives
+    // (e.g., `# rubocop:disable ...`), we skip one blank line and continue looking
+    // for real doc comments above it.
     let mut line_idx = node_line - 2; // 0-indexed previous line
     let mut found_doc_comment = false;
+    let mut seen_any_comment = false;
 
     while let Some(line) = lines.get(line_idx) {
         let trimmed = trim_bytes(line);
 
         if trimmed.is_empty() {
-            // Blank line — any comments before this don't count as documentation
+            if found_doc_comment {
+                break;
+            }
+            if seen_any_comment {
+                // First block was all directives — skip blank and look above
+                seen_any_comment = false;
+                if line_idx == 0 {
+                    break;
+                }
+                line_idx -= 1;
+                continue;
+            }
             break;
         }
 
@@ -147,6 +164,7 @@ pub(crate) fn has_documentation_comment(source: &SourceFile, keyword_offset: usi
         }
 
         // It's a comment line — check if it's a "real" documentation comment
+        seen_any_comment = true;
         let comment_text = std::str::from_utf8(trimmed).unwrap_or("");
         if !is_annotation_or_directive(comment_text) {
             found_doc_comment = true;

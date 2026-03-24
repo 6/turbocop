@@ -22,3 +22,30 @@
   "y", # a comment
 
 ]
+
+# Heredoc as last element with trailing comma (FN fix)
+# nitrocop-expect: 24:14 Style/TrailingCommaInArrayLiteral: Avoid comma after the last item of an array.
+x = [
+  "foo",
+  <<~STR.chomp,
+    content here
+  STR
+]
+
+# Heredoc as last element with trailing comma (no method chain)
+# nitrocop-expect: 32:8 Style/TrailingCommaInArrayLiteral: Avoid comma after the last item of an array.
+y = [
+  "bar",
+  <<~STR,
+    more content
+  STR
+]
+
+# Heredoc with squiggly heredoc and trailing comma
+# nitrocop-expect: 40:12 Style/TrailingCommaInArrayLiteral: Avoid comma after the last item of an array.
+z = [
+  "baz",
+  <<~HEREDOC,
+    some text
+  HEREDOC
+]

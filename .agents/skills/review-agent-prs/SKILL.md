@@ -1,6 +1,12 @@
+---
+name: review-agent-prs
+description: Review PRs created by the agent cop fix workflow and approve, fix, or close them.
+allowed-tools: Bash(*), Read, Write, Edit, Grep, Glob
+---
+
 # review-agent-prs
 
-Review PRs created by the agent cop fix workflow. Approve good ones (auto-merge handles the rest), fix minor issues, or close bad ones.
+Review PRs created by the agent cop fix workflow. Approve good ones so workflow auto-merge can land them, fix minor issues, or close bad ones.
 
 ## Trigger
 
@@ -42,7 +48,7 @@ For each PR, do exactly one of:
 ```bash
 gh pr review <number> --approve --body "Reviewed: logic correct, tests adequate."
 ```
-Auto-merge will land it once CI passes.
+The workflow enables squash auto-merge, so approval is enough.
 
 **Fix then approve** — code is correct but has quality nits:
 1. Check out the PR branch
@@ -62,11 +68,11 @@ gh pr close <number> --comment "Closing: [reason]. [Specific issues found.]" --d
 
 Show a table of actions taken:
 ```
-| PR   | Cop                         | Action          |
-|------|-----------------------------|-----------------|
-| #102 | Style/VariableInterpolation | Approved        |
-| #105 | Lint/EmptyBlock             | Fixed + approved|
-| #106 | Layout/SpaceBeforeComment   | Closed (reason) |
+| PR   | Cop                         | Action           |
+|------|-----------------------------|------------------|
+| #102 | Style/VariableInterpolation | Approved         |
+| #105 | Lint/EmptyBlock             | Fixed + approved |
+| #106 | Layout/SpaceBeforeComment   | Closed (reason)  |
 ```
 
 ## Rules

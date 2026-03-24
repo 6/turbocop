@@ -282,18 +282,45 @@ def find_or_create_item(page)
   record
 end
 
-# FP fix: Thread.new(value) passes value as argument — intentional shadowing
-def threaded_or_sequential(lib, &block)
-  if use_threads?
-    Thread.new { block.call(lib) }
+# FP fix: variable in if-branch, block nested in another block in else-branch
+# (e.g., active-hash pluck pattern: column_name in if, column_names.map { |column_name| } in else)
+def pluck(*column_names)
+  if column_names.length == 1
+    column_name = column_names.first
+    all.map { |r| r.send(column_name) }
   else
-    value = block.call(lib)
-    Thread.new(value) { |value| value }
+    all.map { |r| column_names.map { |column_name| r.send(column_name) } }
   end
 end
 
-# FP fix: Thread.new with splat args — intentional shadowing
-def start_thread(*args)
-  Thread.new(*args) { |*args| process(*args) }
+# FP fix: same pattern — variable in if-branch, block in else via map (neo4j/activegraph)
+def pluck_results(columns, result)
+  if columns.size == 1
+    column = columns[0]
+    result.map { |row| row[column] }
+  else
+    result.map { |row| columns.map { |column| row[column] } }
+  end
+end
+
+
+# Corrected: block nested inside another block in else-branch of if.
+# RuboCop's variable_node(variable) returns variable.scope.node.parent
+# which is the choose block. The choose block IS if.else_branch, so
+# same_conditions_node_different_branch? returns true → suppressed.
+# Previously incorrectly classified as an offense.
+def get_login_info(sources)
+  username, password = nil, nil
+  unless sources.empty?
+    if force_account
+      host, username, password = sources.find { |h, u, p| h == target }
+    else
+      choose do |menu|
+        sources.each do |host, olduser, oldpw|
+          menu.choice(olduser, host)
+        end
+      end
+    end
+  end
 end
 

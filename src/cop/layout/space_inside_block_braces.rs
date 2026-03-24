@@ -1,3 +1,8 @@
+use crate::cop::node_type::{BLOCK_NODE, LAMBDA_NODE};
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::Diagnostic;
+use crate::parse::source::SourceFile;
+
 /// Layout/SpaceInsideBlockBraces checks that block braces have or don't have
 /// surrounding space inside them based on configuration.
 ///
@@ -13,11 +18,10 @@
 ///    should flag "Space between { and | missing." but was instead falling through
 ///    to the generic "Space missing inside {." check, which has a different message
 ///    and location.
-use crate::cop::node_type::BLOCK_NODE;
-use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::Diagnostic;
-use crate::parse::source::SourceFile;
-
+/// 4. Lambda literals (`-> { }`) parse as `LambdaNode` in Prism, not `BlockNode`.
+///    The cop was not handling `LambdaNode` at all, causing 743 FNs across the
+///    corpus. Repos like graphql-ruby (255 FNs), natalie (82), vagrant (43), and
+///    danbooru (34) use lambda blocks heavily. Fixed by also handling `LAMBDA_NODE`.
 pub struct SpaceInsideBlockBraces;
 
 impl Cop for SpaceInsideBlockBraces {
@@ -26,7 +30,7 @@ impl Cop for SpaceInsideBlockBraces {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE]
+        &[BLOCK_NODE, LAMBDA_NODE]
     }
 
     fn supports_autocorrect(&self) -> bool {
@@ -42,13 +46,27 @@ impl Cop for SpaceInsideBlockBraces {
         diagnostics: &mut Vec<Diagnostic>,
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let block = match node.as_block_node() {
-            Some(b) => b,
-            None => return,
-        };
-
-        let opening = block.opening_loc();
-        let closing = block.closing_loc();
+        // Extract opening/closing/body/parameters from either BlockNode or LambdaNode
+        let (opening, closing, block_body_empty, has_params, params_location) =
+            if let Some(block) = node.as_block_node() {
+                (
+                    block.opening_loc(),
+                    block.closing_loc(),
+                    block.body().is_none(),
+                    block.parameters().is_some(),
+                    block.parameters().map(|p| p.location()),
+                )
+            } else if let Some(lambda) = node.as_lambda_node() {
+                (
+                    lambda.opening_loc(),
+                    lambda.closing_loc(),
+                    lambda.body().is_none(),
+                    lambda.parameters().is_some(),
+                    lambda.parameters().map(|p| p.location()),
+                )
+            } else {
+                return;
+            };
 
         // Only check { } blocks, not do...end
         if opening.as_slice() != b"{" {
@@ -66,11 +84,8 @@ impl Cop for SpaceInsideBlockBraces {
         let (close_line, _) = source.offset_to_line_col(closing.start_offset());
         let is_multiline = open_line != close_line;
 
-        // Determine if block is empty (no body)
-        let block_body_empty = block.body().is_none();
-
         // Handle empty blocks: {} or { } or {   }
-        if block_body_empty {
+        if block_body_empty && !has_params {
             // Skip multiline empty blocks entirely (matches RuboCop behavior)
             if is_multiline {
                 return;
@@ -130,12 +145,16 @@ impl Cop for SpaceInsideBlockBraces {
         }
 
         // For blocks with content: check left brace and parameters
-        let has_params = block.parameters().is_some();
-
         // Check left brace / space before block parameters
-        if has_params {
-            let params = block.parameters().unwrap();
-            let pipe_start = params.location().start_offset();
+        // Only enter the pipe-checking branch if params are inside the braces
+        // (e.g., `{ |x| ... }`). Lambda params with `()` come before the brace
+        // (e.g., `->(x) { ... }`) and should use the no-params branch.
+        let params_inside_braces = has_params
+            && params_location
+                .as_ref()
+                .is_some_and(|loc| loc.start_offset() >= open_end);
+        if params_inside_braces {
+            let pipe_start = params_location.as_ref().unwrap().start_offset();
             let space_after_open = open_end < pipe_start && bytes.get(open_end) == Some(&b' ');
 
             if space_after_open {

@@ -69,3 +69,38 @@ class VisibilityCascade
   def second_protected
   end
 end
+
+# Inline visibility declaration: `private :method_name` makes the def private
+# for ordering purposes, so a subsequent public method triggers an offense.
+class InlinePrivateDeclaration
+  def validate_back_url(back_url)
+    back_url
+  end
+  private :validate_back_url
+
+  def redirect_to_referer_or
+  ^^^ Layout/ClassStructure: `public_methods` is supposed to appear before `private_methods`.
+  end
+end
+
+# Inline protected declaration: `protected :method_name` makes the def protected
+class InlineProtectedDeclaration
+  def scm_entries(path = nil)
+    path
+  end
+  protected :scm_entries
+
+  def entries(path = nil)
+  ^^^ Layout/ClassStructure: `public_methods` is supposed to appear before `protected_methods`.
+    path
+  end
+end
+
+# Receiver-having call should still be classified (e.g. singleton_class.prepend)
+class ReceiverCalls
+  def some_method
+    1
+  end
+  singleton_class.prepend SomeModule
+  ^^^^^^^^^^^^^^^ Layout/ClassStructure: `module_inclusion` is supposed to appear before `public_methods`.
+end

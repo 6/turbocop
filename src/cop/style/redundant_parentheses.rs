@@ -163,6 +163,9 @@ struct ParentInfo {
     is_operator: bool,
     is_endless_def: bool,
     is_assignment_parent: bool,
+    /// For Call parents, the start offset of the receiver node (if any).
+    /// Used to implement RuboCop's `begin_node.chained?` check.
+    call_receiver_start_offset: Option<usize>,
 }
 
 struct RedundantParensVisitor<'a> {
@@ -414,25 +417,24 @@ impl RedundantParensVisitor<'_> {
             return;
         }
 
+        // RuboCop's `begin_node.chained?` — if the ParenthesesNode is the receiver
+        // of a parent Call (including operators and unary calls), skip logical,
+        // comparison, and method-call/unary checks.
+        let is_receiver = self.is_receiver_of_parent_call(node, parent);
+
         // Logical expression
         if inner.as_and_node().is_some() || inner.as_or_node().is_some() {
-            if let Some(msg) = check_logical(&self.source.content, node, inner, parent) {
+            if let Some(msg) = check_logical(&self.source.content, node, inner, parent, is_receiver)
+            {
                 self.add_offense(node, msg);
                 return;
             }
         }
 
-        // Comparison expression — only flagged at program top-level.
-        // RuboCop checks `begin_node.parent.nil?`, which means the parenthesized
-        // expression is a direct child of the program/top-level statements.
-        // We detect top-level by checking the parent stack depth: at top level
-        // it's exactly 3 (Program, Statements, Parens).
         // Comparison expression — only flagged when parent is nil (truly top-level).
         // RuboCop checks `begin_node.parent.nil?`.
-        // In our stack, top-level means the parent entry (at len-2) is Other
-        // (from ProgramNode or StatementsNode) and stack.len() <= 3.
-        // But even at depth 3, if parent is And/Or/Call etc, it's not top-level.
         if is_comparison(inner)
+            && !is_receiver
             && !is_chained(&self.source.content, node)
             && self.parent_stack.len() <= 3
             && parent.is_none_or(|p| matches!(p.kind, ParentKind::Other))
@@ -443,7 +445,9 @@ impl RedundantParensVisitor<'_> {
 
         // Method call (includes unary operations)
         if inner.as_call_node().is_some() {
-            if let Some(msg) = check_method_call(&self.source.content, node, inner, parent) {
+            if let Some(msg) =
+                check_method_call(&self.source.content, node, inner, parent, is_receiver)
+            {
                 self.add_offense(node, msg);
             }
         }
@@ -756,7 +760,25 @@ impl RedundantParensVisitor<'_> {
             is_operator: false,
             is_endless_def: false,
             is_assignment_parent: false,
+            call_receiver_start_offset: None,
         });
+    }
+
+    /// RuboCop's `begin_node.chained?`: true when the ParenthesesNode is the
+    /// receiver of its parent Call (including operators and unary calls).
+    fn is_receiver_of_parent_call(
+        &self,
+        node: &ruby_prism::ParenthesesNode<'_>,
+        parent: Option<&ParentInfo>,
+    ) -> bool {
+        if let Some(p) = parent {
+            if matches!(p.kind, ParentKind::Call) {
+                if let Some(recv_start) = p.call_receiver_start_offset {
+                    return node.location().start_offset() == recv_start;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -765,8 +787,9 @@ fn check_logical<'a>(
     paren_node: &ruby_prism::ParenthesesNode<'_>,
     inner: &ruby_prism::Node<'_>,
     parent: Option<&ParentInfo>,
+    is_receiver: bool,
 ) -> Option<&'a str> {
-    if is_chained(content, paren_node) {
+    if is_receiver || is_chained(content, paren_node) {
         return None;
     }
 
@@ -812,15 +835,16 @@ fn check_method_call<'a>(
     paren_node: &ruby_prism::ParenthesesNode<'_>,
     inner: &ruby_prism::Node<'_>,
     parent: Option<&ParentInfo>,
+    is_receiver: bool,
 ) -> Option<&'a str> {
     let call = inner.as_call_node()?;
 
     // Check for unary operations first: !x, ~x, -x, +x
     if is_unary_operation(&call) {
-        return check_unary(content, paren_node, inner, parent);
+        return check_unary(content, paren_node, inner, parent, is_receiver);
     }
 
-    if is_chained(content, paren_node) {
+    if is_receiver || is_chained(content, paren_node) {
         return None;
     }
 
@@ -884,8 +908,10 @@ fn check_unary<'a>(
     paren_node: &ruby_prism::ParenthesesNode<'_>,
     inner: &ruby_prism::Node<'_>,
     parent: Option<&ParentInfo>,
+    is_receiver: bool,
 ) -> Option<&'a str> {
-    if is_chained(content, paren_node) {
+    // RuboCop: `return if begin_node.chained?`
+    if is_receiver || is_chained(content, paren_node) {
         return None;
     }
 
@@ -946,19 +972,18 @@ fn check_unary<'a>(
         }
     }
 
-    // RuboCop's check_unary unwraps nested unary ops, then checks
-    // method_call_with_redundant_parentheses? on the result.
-    // If the final receiver isn't a method call (e.g., it's a parens node
-    // wrapping an assignment like !(x = expr)), don't flag.
-    // RuboCop's check_unary unwraps nested unary ops, then checks
-    // method_call_with_redundant_parentheses? on the result.
-    // If the final receiver is a parens node wrapping a non-method-call
-    // (e.g., !(x = expr)), the parens around the assignment are needed.
+    // RuboCop's check_unary unwraps nested unary ops (except prefix_not),
+    // then calls method_call_with_redundant_parentheses? on the result.
+    // Only flag if the unwrapped base is actually a method call
+    // (send/super/yield/defined?). If the base is a variable, literal,
+    // or parens node, don't flag.
     if let Some(recv) = call.receiver() {
         // Unwrap nested unary operations to find the base receiver
+        // (RuboCop: `node = node.children.first while suspect_unary?(node)`)
         let mut current = recv;
         while let Some(inner_call) = current.as_call_node() {
-            if is_unary_operation(&inner_call) {
+            // suspect_unary? is send_type? && unary_operation? && !prefix_not?
+            if is_unary_operation(&inner_call) && inner_call.name().as_slice() != b"!" {
                 if let Some(r) = inner_call.receiver() {
                     current = r;
                     continue;
@@ -966,11 +991,20 @@ fn check_unary<'a>(
             }
             break;
         }
-        // If the base receiver is a ParenthesesNode (begin node), the outer
-        // parens around the unary is needed only if the inner expression isn't
-        // a simple method call. E.g., (!(x = expr)) — inner is (x = expr),
-        // which is a paren around assignment, so the outer paren is needed.
+        // If the base is a ParenthesesNode (begin node), the outer
+        // parens are needed (e.g., (!(x = expr))).
         if current.as_parentheses_node().is_some() {
+            return None;
+        }
+        // RuboCop's method_call_with_redundant_parentheses? requires the node
+        // to be a call/super/yield/defined?. If the base is a variable, literal,
+        // constant, or anything else, don't flag. E.g., (-num) % 4, +(-v).
+        if current.as_call_node().is_none()
+            && current.as_super_node().is_none()
+            && current.as_forwarding_super_node().is_none()
+            && current.as_yield_node().is_none()
+            && current.as_defined_node().is_none()
+        {
             return None;
         }
     }
@@ -1004,13 +1038,23 @@ fn call_chain_starts_with_int(node: &ruby_prism::Node<'_>) -> bool {
 
 fn is_chained(content: &[u8], paren_node: &ruby_prism::ParenthesesNode<'_>) -> bool {
     let end_offset = paren_node.location().end_offset();
-    if end_offset < content.len() {
-        let next_byte = content[end_offset];
-        if next_byte == b'.' || next_byte == b'&' {
+    // Skip whitespace (including newlines) after the closing paren to find `.` or `&.`.
+    // This handles multiline chains like:
+    //   (expr)
+    //     .method
+    let mut i = end_offset;
+    while i < content.len() && matches!(content[i], b' ' | b'\t' | b'\n' | b'\r') {
+        i += 1;
+    }
+    if i < content.len() {
+        // `.method` (dot chaining)
+        if content[i] == b'.' {
             return true;
         }
-        // Also check for ** (exponentiation) — chained exponentiation
-        // Not exactly chaining but prevents removing necessary parens
+        // `&.method` (safe navigation) — must be `&.` not `&&` or `&` alone
+        if content[i] == b'&' && i + 1 < content.len() && content[i + 1] == b'.' {
+            return true;
+        }
     }
     false
 }
@@ -1262,6 +1306,7 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
             top.call_parenthesized = node.opening_loc().is_some_and(|loc| loc.as_slice() == b"(");
             top.call_arg_count = node.arguments().map(|a| a.arguments().len()).unwrap_or(0);
             top.is_operator = is_operator_method(node);
+            top.call_receiver_start_offset = node.receiver().map(|r| r.location().start_offset());
         }
         ruby_prism::visit_call_node(self, node);
     }

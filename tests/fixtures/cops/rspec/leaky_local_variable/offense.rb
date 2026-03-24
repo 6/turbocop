@@ -263,18 +263,6 @@ describe SomeClass do
   its('groups') { should include root_group }
 end
 
-# Variable used as argument to nested describe (ConstantPathNode)
-RSpec.describe(SomeClass) do
-  result = described_class
-  ^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
-
-  describe result::Success do
-    it "works" do
-      expect(true).to be true
-    end
-  end
-end
-
 # Variable assigned in if-condition, used in let block
 describe SomeClass do
   specs.each do |spec|
@@ -304,5 +292,36 @@ describe SomeClass do
     end
 
     spec.run
+  end
+end
+
+# Ruby 3.1 keyword shorthand: `method(url:)` is shorthand for `method(url: url)`
+# Prism wraps the value in an ImplicitNode containing a LocalVariableReadNode.
+describe "Feed importing" do
+  url = "feed02/feed.xml"
+  ^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  it "imports stories" do
+    server = create_server(url:)
+  end
+end
+
+# Ruby 3.1 keyword shorthand with multiple shorthand args
+describe "#update" do
+  headers = { "CONTENT_TYPE" => "application/json" }
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  it "marks a story as read" do
+    put("/stories/#{story.id}", headers:)
+  end
+end
+
+# Ruby 3.1 keyword shorthand in before hook
+describe "fetching" do
+  last_fetched = Time.parse("2014-08-12T00:01:00Z")
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  before do
+    create_feed(last_fetched:)
   end
 end

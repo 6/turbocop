@@ -166,6 +166,31 @@ class Config
   end
 end
 
+# include/extend inside begin/rescue — rescue terminates the block
+class Generator
+  def initialize
+    begin
+      mixin = self.class.const_get(name)
+      extend mixin
+    rescue NameError
+      raise ArgumentError, "Unsupported"
+    end
+  end
+end
+
+# include inside begin/rescue at class level
+begin
+  require 'optional_dep'
+  include REXML
+rescue LoadError
+  puts "missing gem"
+end
+
+# single-line class with semicolons followed by blank line
+class Wrapper; extend Mixin; run_setup; end
+
+class OtherWrapper; extend Mixin; run_setup; end
+
 module Lexer
   prepend :classname do
     rule %r/x/, Text

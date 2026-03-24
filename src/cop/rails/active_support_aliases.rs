@@ -3,6 +3,15 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-23)
+///
+/// Extended corpus oracle reported FP=1, FN=1 (same file, yegor256__0pdd model/linear.rb).
+///
+/// FP=1 at line 71, FN=1 at line 81: Root cause is a multiline array receiver
+/// spanning lines 71–80 with `.append(label)` on line 81. Using `node.location()`
+/// reports at the array start (line 71), creating a phantom FP on 71 and missing
+/// the real offense at line 81 (FN). Fixed by using `call.message_loc()` to report
+/// at the method name position, matching RuboCop's `node.loc.selector` behavior.
 pub struct ActiveSupportAliases;
 
 /// Check if the receiver is a string literal node.
@@ -64,7 +73,7 @@ impl Cop for ActiveSupportAliases {
 
         let original = std::str::from_utf8(name).unwrap_or("?");
 
-        let loc = node.location();
+        let loc = call.message_loc().unwrap_or(node.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,

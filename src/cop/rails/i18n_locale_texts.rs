@@ -32,23 +32,50 @@ use crate::parse::source::SourceFile;
 /// RuboCop's `$str` pattern matches them. Fixed by checking unescaped string content for
 /// `\n` instead of comparing source line numbers — this correctly excludes strings with
 /// real newlines while including `\` continuation strings.
+///
+/// **FP root cause (2 FPs, fixed 2026-03-23):** `flash(:category)[:key] = 'string'`
+/// from the Scorched framework was being flagged. RuboCop's pattern `(send nil? :flash)`
+/// only matches `flash` with NO arguments. Scorched's `flash(:animals)` passes a
+/// category argument. Fixed by adding `call.arguments().is_none()` check in
+/// `is_flash_receiver`.
+///
+/// **FN root cause (1 FN, fixed 2026-03-23):** Single-line strings with `\r\n` escape
+/// sequences (e.g. `"Thank you!\r\nMore text"`) contain `\n` in unescaped content but
+/// are single-line in source. The Parser gem treats them as `str` (not `dstr`). The
+/// previous `is_string_literal` check rejected any string with `\n` in content. Fixed
+/// by only excluding strings that BOTH span multiple source lines AND contain `\n` in
+/// their unescaped content.
 pub struct I18nLocaleTexts;
 
 const MSG: &str = "Move locale texts to the locale files in the `config/locales` directory.";
 
-/// Check if a node is a plain string literal (not a symbol, not interpolated) whose
-/// content does not contain actual newline characters.
+/// Check if a node is a plain string literal (not a symbol, not interpolated) that
+/// the Parser gem would classify as a `str` (not `dstr`).
 ///
-/// Multi-line string literals whose content contains newlines are excluded because the
-/// Parser gem (used by RuboCop) parses them as `dstr` (dynamic string) nodes even without
-/// interpolation, so RuboCop's `$str` NodePattern does not match them. However, strings
-/// using `\` line continuation do NOT have newlines in their content — the Parser gem
-/// treats them as plain `str` nodes, so RuboCop DOES match them. We check the unescaped
-/// content rather than source line span to correctly handle both cases.
-fn is_string_literal(_source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
+/// The Parser gem treats multi-line string literals (those with real newline characters
+/// in the source) as `dstr` nodes even without interpolation, so RuboCop's `$str`
+/// NodePattern does not match them. However:
+/// - `\` line continuation strings span multiple source lines but do NOT have newlines
+///   in their unescaped content — Parser treats them as `str`, so we flag them.
+/// - Single-line strings with `\n` or `\r\n` escape sequences have newlines in their
+///   unescaped content but NOT in the source — Parser treats them as `str`, so we flag them.
+///
+/// The correct check is: exclude only when the string BOTH spans multiple source lines
+/// AND has newlines in its unescaped content.
+fn is_string_literal(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
     if let Some(s) = node.as_string_node() {
-        // Exclude strings with actual newlines in content: Parser gem treats them as `dstr`
-        return !s.unescaped().contains(&b'\n');
+        let has_newline_in_content = s.unescaped().contains(&b'\n');
+        if has_newline_in_content {
+            // Only exclude if the string also spans multiple source lines.
+            // Single-line strings with \n escape sequences should still be flagged.
+            let loc = s.location();
+            let (start_line, _) = source.offset_to_line_col(loc.start_offset());
+            let (end_line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+            if start_line != end_line {
+                return false;
+            }
+        }
+        return true;
     }
     false
 }
@@ -253,19 +280,25 @@ impl Cop for I18nLocaleTexts {
 
 /// Check if a node is `flash` or `flash.now` (method call only, not local variable).
 /// RuboCop's pattern matches `(send nil? :flash)` and `(send (send nil? :flash) :now)`,
-/// which only matches `flash` as a method call (implicit receiver). When `flash` is
-/// assigned as a local variable, RuboCop does not flag it.
+/// which only matches `flash` as a method call with no receiver AND no arguments.
+/// `flash(:category)` (e.g. Scorched framework) has arguments and should not match.
 fn is_flash_receiver(node: &ruby_prism::Node<'_>) -> bool {
-    // Direct `flash` call
+    // Direct `flash` call (no receiver, no arguments)
     if let Some(call) = node.as_call_node() {
-        if call.name().as_slice() == b"flash" && call.receiver().is_none() {
+        if call.name().as_slice() == b"flash"
+            && call.receiver().is_none()
+            && call.arguments().is_none()
+        {
             return true;
         }
         // `flash.now`
         if call.name().as_slice() == b"now" {
             if let Some(recv) = call.receiver() {
                 if let Some(inner_call) = recv.as_call_node() {
-                    if inner_call.name().as_slice() == b"flash" && inner_call.receiver().is_none() {
+                    if inner_call.name().as_slice() == b"flash"
+                        && inner_call.receiver().is_none()
+                        && inner_call.arguments().is_none()
+                    {
                         return true;
                     }
                 }

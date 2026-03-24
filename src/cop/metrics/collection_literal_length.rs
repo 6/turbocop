@@ -3,6 +3,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus (5592 repos) reported FP=1, FN=0. Standard corpus is 0/0.
+///
+/// FP=1 from noosfero (vendor/plugins/xss_terminate/lib/html5lib_sanitize.rb:154).
+/// Same cross-cutting file-level issue: vendored file that RuboCop does not
+/// process but nitrocop does. No cop-level fix needed.
 pub struct CollectionLiteralLength;
 
 impl Cop for CollectionLiteralLength {

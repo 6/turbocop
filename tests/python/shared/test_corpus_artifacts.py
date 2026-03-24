@@ -272,6 +272,11 @@ class TestTryCorpusMd(unittest.TestCase):
         docs.mkdir()
         (docs / "corpus.md").write_text(content)
 
+    def _write_corpus_extended_md(self, tmpdir: str, content: str) -> None:
+        docs = Path(tmpdir) / "docs"
+        docs.mkdir(exist_ok=True)
+        (docs / "corpus_extended.md").write_text(content)
+
     @patch("shared.corpus_artifacts._find_project_root")
     @patch("shared.corpus_artifacts.subprocess.run")
     def test_parses_diverging_cops(self, mock_run, mock_root):
@@ -342,6 +347,22 @@ class TestTryCorpusMd(unittest.TestCase):
             data = json.loads(result[0].read_text())
             self.assertIn("docs/corpus.md", data.get("_source", ""))
 
+    @patch("shared.corpus_artifacts._find_project_root")
+    @patch("shared.corpus_artifacts.subprocess.run")
+    def test_prefers_extended_corpus_md_for_extended(self, mock_run, mock_root):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_corpus_md(tmpdir, self.SAMPLE_MD.replace("1000", "1111", 1))
+            self._write_corpus_extended_md(tmpdir, self.SAMPLE_MD.replace("1000", "5592", 1))
+            mock_root.return_value = Path(tmpdir)
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+
+            result = cd._try_corpus_md(prefer="extended")
+            self.assertIsNotNone(result)
+            data = json.loads(result[0].read_text())
+
+            self.assertEqual(data["summary"]["total_repos"], 5592)
+            self.assertIn("docs/corpus_extended.md", data.get("_source", ""))
+
 
 class TestDownloadCorpusResults(unittest.TestCase):
     """Tests for the main download_corpus_results() entry point."""
@@ -390,6 +411,21 @@ class TestDownloadCorpusResults(unittest.TestCase):
         path, run_id, sha = cd.download_corpus_results()
         self.assertEqual(path, fake_path)
         self.assertEqual(run_id, 0)
+        mock_clean.assert_called_once()
+
+    @patch("shared.corpus_artifacts._clean_stale_local")
+    @patch("shared.corpus_artifacts._try_corpus_md")
+    @patch("shared.corpus_artifacts._try_curl_api", return_value=None)
+    @patch("shared.corpus_artifacts._try_gh", return_value=None)
+    @patch("shared.corpus_artifacts._detect_github_repo", return_value="owner/repo")
+    def test_passes_prefer_to_corpus_md_fallback(self, _repo, _gh, _curl, mock_md, mock_clean):
+        fake_path = Path("/tmp/fake4.json")
+        mock_md.return_value = (fake_path, 0, "")
+        path, run_id, sha = cd.download_corpus_results(prefer="extended")
+        self.assertEqual(path, fake_path)
+        self.assertEqual(run_id, 0)
+        self.assertEqual(sha, "")
+        mock_md.assert_called_once_with(prefer="extended")
         mock_clean.assert_called_once()
 
 

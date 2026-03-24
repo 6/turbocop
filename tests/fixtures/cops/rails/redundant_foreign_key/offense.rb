@@ -77,3 +77,19 @@ class Account
           foreign_key: :account_id
           ^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RedundantForeignKey: Specifying the default value for `foreign_key` is redundant.
 end
+
+# belongs_to with trailing block — RuboCop still flags these
+belongs_to :layer_group, resource: GroupResource, writable: false, foreign_key: :layer_group_id do
+                                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RedundantForeignKey: Specifying the default value for `foreign_key` is redundant.
+  assign do |_groups, _layer_groups|
+  end
+end
+
+# has_many inside ClassName.class_eval — RuboCop resolves the class from the receiver
+Organization.class_eval do
+  has_many :ai_models,
+    class_name: "CustomAiModel",
+    foreign_key: "organization_id",
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RedundantForeignKey: Specifying the default value for `foreign_key` is redundant.
+    limited_by_pricing_plans: { limit_key: :ai_models }
+end

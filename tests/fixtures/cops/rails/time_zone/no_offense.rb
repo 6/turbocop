@@ -70,3 +70,13 @@ Time.new(2005, 10, 30, 0, 0, 0, Time.zone)
 Time.new(2019, 1, 1, 0, 0, 0, "+03:00")
 Time.new(2010, 1, 1, 0, 0, 0, "+10:00")
 Time.new(1988, 3, 15, 3, 0, 0, "-05:00")
+
+# Chain with bracket indexing before safe method — scanner must skip [...]
+Time.now.year.to_s[0..1].to_i
+Time.now.to_a[0..5].reverse.to_i
+
+# Time.current inside dangerous enclosing Time call — current is a good method in flexible mode
+Time.zone.at(event.dig(uri, :ts) || Time.current)
+
+# Time.utc inside dangerous enclosing Time call — utc is an accepted method in flexible mode
+Time.zone.parse(Time.utc(date_string).to_s).beginning_of_day

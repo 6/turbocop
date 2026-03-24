@@ -55,3 +55,26 @@ end
 # output call inside a rescue modifier expression
 value = do_something rescue (puts "fallback")
                              ^^^^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
+# output call inside string interpolation that is a call argument
+assert false, "Expected #{pp(act)} to be valid JSON"
+                          ^^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
+# output call with splat: *p passes no-arg p result
+Ironfan.noop(self, __method__, *p)
+                                ^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
+# output call inside else branch of case that is a call argument
+puts case response
+^^^^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
+     when Net::HTTPOK then "ok"
+     else puts "error"
+          ^^^^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
+end
+# output call inside if/else that is a call argument
+foo(if cond
+      puts "yes"
+      ^^^^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.
+    else
+      "no"
+    end)
+# output call inside a begin block that is a call argument
+foo(begin; puts "x"; rescue; end)
+           ^^^^ Rails/Output: Do not write to stdout. Use Rails's logger if you want to log.

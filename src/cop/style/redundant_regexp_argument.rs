@@ -5,20 +5,30 @@ use crate::parse::source::SourceFile;
 
 /// Style/RedundantRegexpArgument flags regexp arguments that could be strings.
 ///
-/// ## Investigation findings (2026-03-18)
+/// ## Investigation findings (2026-03-18, updated 2026-03-23)
 ///
-/// ### FP root cause fixed:
-/// - `%r{...}` percent-r regex syntax was being flagged. RuboCop's implementation
-///   checks `regexp_node.source` against DETERMINISTIC_REGEX which naturally excludes
-///   `%r{...}` because `{`/`}` are not in the literal character set. In Prism, we
-///   check `content_loc` (inner content only), so we need to explicitly check the
-///   opening delimiter and skip non-slash regexps (e.g., `%r{`, `%r|`, `%r(`, etc.).
+/// ### Root cause: blocklist vs whitelist mismatch
+/// RuboCop checks the regexp node's full source (including delimiters like `/`)
+/// against `DETERMINISTIC_REGEX = /\A(?:LITERAL_REGEX)+\Z/` where
+/// `LITERAL_REGEX = /[\w\s\-,"'!#%&<>=;:`~/]|\\[^AbBdDgGhHkpPRwWXsSzZ0-9]/`.
 ///
-/// ### FN root cause fixed:
-/// - `is_deterministic_regexp` rejected ALL backslash escapes. RuboCop's
-///   LITERAL_REGEX allows `\` followed by non-special chars (e.g., `\.`, `\/`, `\-`).
-///   Only regex-specific escapes like `\d`, `\w`, `\s`, `\b`, `\A`, etc. make a
-///   regexp non-deterministic. Updated to match RuboCop's LITERAL_REGEX behavior.
+/// Previous implementation used a blocklist (reject known metacharacters, allow
+/// everything else), which caused:
+/// - **FP (50):** Characters like `@`, `$`, non-ASCII (`ß`, `⌘`) are not regex
+///   metacharacters but also not in RuboCop's LITERAL_REGEX whitelist. The blocklist
+///   allowed them, producing false positives on patterns like `/@/`, `/ß/`.
+/// - **FN (127):** Empty regexp `//` was rejected (empty content check). Also, ALL
+///   `%r` variants were skipped, but RuboCop flags `%r/foo/` and `%r!foo!` because
+///   `/` and `!` are in the LITERAL_REGEX whitelist (while `{`, `(`, `[`, `|` are not).
+///
+/// ### Fix: whitelist approach matching RuboCop's LITERAL_REGEX
+/// Switched to a whitelist that checks the full source (delimiters + content) against
+/// exactly the same character set as RuboCop. This naturally handles all edge cases:
+/// - `//` — two `/` chars in whitelist — deterministic (flagged)
+/// - `/@/` — `@` not in whitelist — not deterministic (not flagged)
+/// - `%r{foo}` — `{` not in whitelist — not deterministic (not flagged)
+/// - `%r/foo/` — all chars in whitelist — deterministic (flagged)
+/// - `%r!foo!` — all chars in whitelist — deterministic (flagged)
 pub struct RedundantRegexpArgument;
 
 /// Methods where a regexp argument can be replaced with a string.
@@ -75,35 +85,33 @@ impl Cop for RedundantRegexpArgument {
             return;
         }
 
-        // First argument must be a slash-delimited regexp literal (/regex/, not %r{regex})
+        // First argument must be a regexp literal
         let regex = match arg_list[0].as_regular_expression_node() {
             Some(r) => r,
             None => return,
         };
 
-        // Skip %r{...} syntax — only flag slash-delimited /regex/
-        let opening = regex.opening_loc().as_slice();
-        if !opening.starts_with(b"/") {
-            return;
-        }
-
-        // Check if the regex is deterministic (no special regex chars)
-        let content = regex.content_loc().as_slice();
-        if !is_deterministic_regexp(content) {
+        // Skip if regexp has flags (e.g., /foo/i, /foo/x)
+        let closing = regex.closing_loc();
+        let close_bytes = closing.as_slice();
+        // For /regex/, closing is "/" (len 1). For /regex/i, closing is "/i" (len > 1).
+        // For %r/regex/, closing is "/" (len 1). For %r/regex/i, closing is "/i" (len > 1).
+        // For %r{regex}, closing is "}" (len 1). For %r{regex}i, closing is "}i" (len > 1).
+        if close_bytes.len() > 1 {
             return;
         }
 
         // Skip single space regexps: / / is idiomatic
+        let content = regex.content_loc().as_slice();
         if content == b" " {
             return;
         }
 
-        // Check for flags by looking at the closing loc
-        // If the regexp has flags like /foo/i, skip
-        let closing = regex.closing_loc();
-        let close_bytes = closing.as_slice();
-        // Closing should just be "/" with no trailing flags
-        if close_bytes.len() > 1 {
+        // Check if the regexp source is deterministic using the full source
+        // (including delimiters), matching RuboCop's DETERMINISTIC_REGEX behavior.
+        let full_loc = arg_list[0].location();
+        let full_source = &source.as_bytes()[full_loc.start_offset()..full_loc.end_offset()];
+        if !is_deterministic_regexp_source(full_source) {
             return;
         }
 
@@ -118,12 +126,15 @@ impl Cop for RedundantRegexpArgument {
     }
 }
 
-/// Check if regexp content is deterministic (matches a fixed string).
-/// Matches RuboCop's DETERMINISTIC_REGEX which uses LITERAL_REGEX:
+/// Check if the full regexp source is deterministic (matches a fixed string).
+/// Matches RuboCop's DETERMINISTIC_REGEX = /\A(?:LITERAL_REGEX)+\Z/ where:
 ///   LITERAL_REGEX = /[\w\s\-,"'!#%&<>=;:`~\/]|\\[^AbBdDgGhHkpPRwWXsSzZ0-9]/
-/// Each character must be either a literal char or a backslash-escaped literal char.
-fn is_deterministic_regexp(content: &[u8]) -> bool {
-    if content.is_empty() {
+///
+/// This checks the full source including delimiters (e.g., `/foo/` or `%r/foo/`),
+/// which is how RuboCop applies its regex. The delimiters themselves must also be
+/// in the literal character set, which naturally excludes `%r{...}`, `%r(...)`, etc.
+fn is_deterministic_regexp_source(source: &[u8]) -> bool {
+    if source.is_empty() {
         return false;
     }
 
@@ -131,32 +142,40 @@ fn is_deterministic_regexp(content: &[u8]) -> bool {
     const REGEX_ESCAPE_SPECIALS: &[u8] = b"AbBdDgGhHkpPRwWXsSzZ0123456789";
 
     let mut i = 0;
-    while i < content.len() {
-        let b = content[i];
+    while i < source.len() {
+        let b = source[i];
         if b == b'\\' {
             // Backslash escape: next char must not be a regex-special escape
             i += 1;
-            if i >= content.len() {
+            if i >= source.len() {
                 return false; // trailing backslash
             }
-            if REGEX_ESCAPE_SPECIALS.contains(&content[i]) {
+            if REGEX_ESCAPE_SPECIALS.contains(&source[i]) {
                 return false;
             }
             // Escaped literal char — this is fine (e.g., \., \/, \-)
+        } else if is_literal_char(b) {
+            // Character is in the LITERAL_REGEX whitelist
         } else {
-            // Unescaped character must be in the literal set
-            // RuboCop allows: \w (word chars), \s (whitespace), and specific punctuation
-            match b {
-                // Regex metacharacters that are NOT literal
-                b'.' | b'*' | b'+' | b'?' | b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'^'
-                | b'$' | b'|' => return false,
-                // Everything else is literal (alphanumeric, underscore, space, punctuation)
-                _ => {}
-            }
+            return false;
         }
         i += 1;
     }
     true
+}
+
+/// Check if a byte is in RuboCop's LITERAL_REGEX unescaped character set:
+/// [\w\s\-,"'!#%&<>=;:`~/]
+/// This is: word chars (a-z, A-Z, 0-9, _), whitespace (space, \t, \n, \r, \f, \v),
+/// and specific punctuation: - , " ' ! # % & < > = ; : ` ~ /
+#[inline]
+fn is_literal_char(b: u8) -> bool {
+    matches!(b,
+        b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_'  // \w
+        | b' ' | b'\t' | b'\n' | b'\r' | 0x0C | 0x0B      // \s (space, tab, newline, CR, FF, VT)
+        | b'-' | b',' | b'"' | b'\'' | b'!' | b'#' | b'%' | b'&'
+        | b'<' | b'>' | b'=' | b';' | b':' | b'`' | b'~' | b'/'
+    )
 }
 
 #[cfg(test)]

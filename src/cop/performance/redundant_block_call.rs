@@ -12,16 +12,17 @@ use ruby_prism::Visit;
 /// Our previous implementation was more correct (detected shadowing in all inner blocks)
 /// but caused FNs vs RuboCop. Now we match RuboCop's limited shadowing check exactly.
 ///
-/// ## FP fix (2026-03-22)
+/// ## Extended corpus FP fix (2026-03-22)
 ///
-/// 1 FP in extended corpus (Albacore repo). Root cause: RuboCop's `calls_to_report`
-/// uses `return []` (not `next`) inside `map` when checking `args_include_block_pass?`.
-/// This means if ANY `block.call(...)` in the method has a `&block_pass` argument,
-/// ALL offenses for that method are suppressed. Our implementation was checking per-call
-/// (`node.block().is_none()`) which only suppressed the specific call with the block
-/// argument. Fixed by adding a `BlockPassFinder` pre-scan that checks if any
-/// `block.call` in the method body has a block argument (block_pass or block literal),
-/// and if so, skips all reporting for that method.
+/// 1 FP in extended corpus (Albacore__albacore repo, `lib/albacore/cross_platform_cmd.rb:111`).
+/// Root cause: RuboCop's `calls_to_report` uses `return []` (not `next`) inside `map`
+/// when checking `args_include_block_pass?`. This means if ANY `block.call(...)` in the
+/// method has a `&block_pass` argument, ALL offenses for that method are suppressed.
+/// Our implementation was checking per-call (`node.block().is_none()`) which only
+/// suppressed the specific call with the block argument. Fixed by adding a
+/// `BlockPassFinder` pre-scan that checks if any `block.call` in the method body has
+/// a block argument (block_pass or block literal), and if so, skips all reporting
+/// for that method. Pending corpus confirmation.
 pub struct RedundantBlockCall;
 
 impl Cop for RedundantBlockCall {

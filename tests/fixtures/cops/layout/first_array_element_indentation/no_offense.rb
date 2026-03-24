@@ -179,8 +179,60 @@ result = (flag ? [
       { token: 'admin', email: 'admin@test.com' }
     ]) }
 
-# FP fix: Single-pair hash value — closing bracket at line indent accepted
+# FP fix: First element on same line as [ — skip closing bracket check
+tests = [ 'tests/resource/file/content_attribute.rb',
+          'tests/language/functions_in_puppet_language.rb',
+          'tests/resource/service/puppet_service_management.rb'
+        ]
+
+# FP fix: First element on same line as [ with .each chain
+["if /* comment */\nif",
+  "if /* comment\n */\nif",
+  "if /*\n comment\n */\nif",
+  ].each do |source|
+  something(source)
+end
+
+# FP fix: First element on same line as [ with .join chain
+expect(result).to eq([ 'path: [0] value: 1',
+          'path: [1] value: 2',
+          ''
+          ].join("\n"))
+
+# FP fix: %w{ with first element on same line — closing } check skipped
+equivalent = %w{ http://example.com/
+                    http://exa%6Dple.com/
+                    http://example.com:80/
+                  }
+
+# FP fix: Hash value array with first element on same line as [
+[{ "organization" => { "name" => "non-admin-member" } },
+ { "organization" => { "name" => "solo-admin-member" } },
+]
+
+# FP fix: First element on same line with .freeze
+WIN_AUDIT_SUBCATEGORIES = ["Account Lockout",
+                                 "Sensitive Privilege Use",
+                                 "User Account Management",
+                                ].freeze
+
+# FP fix: Single-pair hash value with paren-relative — no intermediate method call
+# paren_col=17, indent_base=18, element_col=20(=18+2), close_col=18
+FactoryBot.create(:limited_admin, :groups => [
+                    FactoryBot.create(:google_admin_group),
+                  ])
+
+# FP fix: Ternary ? in preceding argument, not grouping operator
+@product = create(:product, recommendable ? :recommendable : nil, recurrence_price_values: [
+                    {
+                      BasePrice::Recurrence::MONTHLY => { enabled: true, price: 3 },
+                    },
+                  ])
+
+# FP fix: Single-pair hash value with intermediate method call (`.`)
+# expect(client.search body: [...]) — paren is from expect(), not search
+# RuboCop uses line-relative (on_array path), so closing bracket at line indent is OK
 expect(client.search body: [
-         { index: 'foo', query: { match_all: {} } },
-         { index: 'bar', query: { match: { foo: 'bar' } } }
+  { index: 'foo', query: { match_all: {} } },
+  { index: 'bar', query: { match: { foo: 'bar' } } }
 ])

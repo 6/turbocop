@@ -3004,7 +3004,6 @@ fn ruby_version_gates() {
         "Performance/DeleteSuffix",
         "Performance/MapCompact",
         "Performance/RedundantEqualityComparisonBlock",
-        "Performance/RegexpMatch",
         "Performance/SelectMap",
         "Performance/Sum",
         "Performance/UnfreezeString",

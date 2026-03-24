@@ -30,3 +30,6 @@ hash = {a: 1, b: 2}
 check_a_pattern_result # comment A
 check_b # comment B
 check_c_patterns # comment C
+
+# Extra spaces inside empty word arrays (RuboCop flags these)
+a = %w( )

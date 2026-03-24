@@ -23,3 +23,6 @@ expect(<<~HTML.chomp.process.first).to eq(<<~TEXT.chomp)
 HTML
   This is a very long text line inside the second heredoc that exceeds the default maximum line length of one hundred and twenty characters without issue
 TEXT
+
+# AllowURI: URL with embedded URL in query params — the first URL starts before max and extends to end of line
+      "oembed_get_request" => "http://www.flickr.com/services/oembed/?format=json&frame=1&iframe=1&maxheight=420&maxwidth=420&url=http://www.flickr.com/photos/bees/2341623661",

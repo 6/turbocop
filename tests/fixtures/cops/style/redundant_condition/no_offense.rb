@@ -31,3 +31,119 @@ x.nil? ? "yes" : "no"
 
 # Non-predicate condition with true is not flagged
 x ? true : y
+
+# hash key assignment in else — vendor skips these (use_hash_key_assignment?)
+if @cache[key]
+  @cache[key]
+else
+  @cache[key] = heavy_load[key]
+end
+
+# ternary in else branch — vendor skips (use_if_branch?)
+if @options[:id_param]
+  @options[:id_param]
+else
+  parent? ? :"#{name}_id" : :id
+end
+
+# predicate with non-true branch is not flagged
+if a.zero?
+  false
+else
+  a
+end
+
+# predicate with number branch is not flagged
+if a.zero?
+  1
+else
+  a
+end
+
+# predicate with string branch
+if a.zero?
+  'true'
+else
+  a
+end
+
+# no-else branch, condition does NOT match true branch
+if do_something
+  something_else
+end
+
+# unless without else is not flagged
+unless b
+  y(x, z)
+end
+
+# unless where condition does not match else
+unless a
+  b
+else
+  c
+end
+
+# modifier if/unless not flagged
+bar if bar
+bar unless bar
+
+# predicate with non-call condition (local var, ivar, etc)
+variable = do_something
+if variable
+  true
+else
+  a
+end
+
+if @variable
+  true
+else
+  a
+end
+
+# predicate+true where condition is not a method call (bracket access)
+if a[:key]
+  true
+else
+  a
+end
+
+# true branch is true but else branch is also true — not flagged
+a.zero? ? true : true
+
+# Assignment branches with DIFFERENT target variables — not flagged
+if foo
+  @foo = foo
+else
+  @baz = 'quux'
+end
+
+# Method branches with different receivers — not flagged
+if x
+  X.find(x)
+else
+  Y.find(y)
+end
+
+# hash key access in method branches — not flagged
+if foo
+  bar[foo]
+else
+  bar[1]
+end
+
+# predicate with no else body
+if a.zero?
+  true
+else
+end
+
+# predicate with no true body
+if a.zero?
+else
+  a
+end
+
+# ternary with different condition and branches
+a.zero? ? a : b

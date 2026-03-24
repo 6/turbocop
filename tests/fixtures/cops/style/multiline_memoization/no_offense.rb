@@ -24,3 +24,6 @@ foo ||= begin
   bar
   baz
 end
+
+@secure_group_ids ||=
+  (self.category.secure_group_ids if self.category && self.category.read_restricted?)

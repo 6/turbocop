@@ -34,6 +34,10 @@ impl Cop for RedundantSortBy {
         ]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -41,7 +45,7 @@ impl Cop for RedundantSortBy {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
@@ -158,7 +162,20 @@ impl Cop for RedundantSortBy {
             .message_loc()
             .unwrap_or_else(|| call_node.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, message));
+        let mut diag = self.diagnostic(source, line, column, message);
+        // Autocorrect: replace `sort_by { |x| x }` with `sort`
+        if let Some(ref mut corr) = corrections {
+            // Replace from `sort_by` to end of block with just `sort`
+            corr.push(crate::correction::Correction {
+                start: msg_loc.start_offset(),
+                end: node.location().end_offset(),
+                replacement: "sort".to_string(),
+                cop_name: self.name(),
+                cop_index: 0,
+            });
+            diag.corrected = true;
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -166,4 +183,5 @@ impl Cop for RedundantSortBy {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(RedundantSortBy, "cops/style/redundant_sort_by");
+    crate::cop_autocorrect_fixture_tests!(RedundantSortBy, "cops/style/redundant_sort_by");
 }

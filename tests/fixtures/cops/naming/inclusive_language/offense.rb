@@ -47,3 +47,8 @@ end
 # Bare symbols inside string interpolation are tSYMBOL in parser gem (CheckSymbols: true)
 opts << "dsn=#{@opts[:slave_monitor_dsn]}"
                       ^^^^^ Naming/InclusiveLanguage: Use inclusive language instead of `slave`. Suggested alternatives: `replica`, `secondary`, `follower`.
+
+# undef arguments are tIDENTIFIER in parser gem (CheckIdentifiers: true)
+undef new_slave, new_safe_slave
+      ^^^^^^^^^ Naming/InclusiveLanguage: Use inclusive language instead of `slave`. Suggested alternatives: `replica`, `secondary`, `follower`.
+                 ^^^^^^^^^^^^^^ Naming/InclusiveLanguage: Use inclusive language instead of `slave`. Suggested alternatives: `replica`, `secondary`, `follower`.

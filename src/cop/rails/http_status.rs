@@ -33,19 +33,18 @@ use crate::parse::source::SourceFile;
 /// it. Fix: when a string status contains whitespace, validate that it exactly matches a known
 /// Rack "code reason-phrase" pair. Strings with unknown/custom reason phrases are not flagged.
 ///
-/// ## Corpus investigation (2026-03-19)
+/// ## Corpus investigation (2026-03-19, updated 2026-03-23)
 ///
 /// Corpus oracle reported FP=21, FN=0.
 ///
-/// FP=21: All 21 FPs are `head status: NNN` patterns in 4 repos. An attempted fix
-/// (removing keyword arg checking for head/assert_response) was reverted because it
-/// caused ~2,000 FN regression. The NodePattern analysis was correct — RuboCop's
-/// `http_status` pattern does NOT match keyword args for head/assert_response — but
-/// the corpus data shows RuboCop DOES flag these in most repos. Investigation shows
-/// the 21 FPs are from file-exclusion issues: repos with vendored paths
-/// (vendor/rails/, heroku/ruby/) where RuboCop's AllCops.Exclude skips the files
-/// but nitrocop's path resolution doesn't relativize correctly. The cop logic is
-/// correct; the FPs are in the file-exclusion infrastructure.
+/// **FP root cause (21 FP, 2026-03-23):** RuboCop's `http_status` NodePattern for
+/// `head` and `assert_response` is `(send nil? {:head :assert_response} ${int sym} ...)`
+/// which only matches direct positional args (`head 200`, `head :ok`), NOT keyword hash
+/// args like `head status: 204`. The `$hash`/`status_code` pattern is only used for
+/// `render`, `redirect_to`, and `assert_redirected_to`. Nitrocop was incorrectly checking
+/// keyword `status:` for all methods. Fix: skip keyword arg lookup for `head` and
+/// `assert_response` (the `DIRECT_STATUS_METHODS`), matching RuboCop's NodePattern exactly.
+/// The previous investigation incorrectly attributed these FPs to file-exclusion issues.
 pub struct HttpStatus;
 
 fn status_code_to_symbol(code: i64) -> Option<&'static str> {
@@ -307,8 +306,15 @@ impl Cop for HttpStatus {
 
         let method_name = call.name().as_slice();
 
-        // Try keyword arg first, then direct arg for head/assert_response
-        let keyword_status = keyword_arg_value(&call, b"status");
+        // RuboCop's NodePattern for head/assert_response only matches direct positional
+        // args: `(send nil? {:head :assert_response} ${int sym} ...)`. It does NOT match
+        // keyword hash args like `head status: 204`. Only render, redirect_to, and
+        // assert_redirected_to use the `$hash` pattern that checks keyword `status:`.
+        let keyword_status = if DIRECT_STATUS_METHODS.contains(&method_name) {
+            None
+        } else {
+            keyword_arg_value(&call, b"status")
+        };
 
         let check_status = |status_value: &ruby_prism::Node<'_>| -> Option<Diagnostic> {
             match style {

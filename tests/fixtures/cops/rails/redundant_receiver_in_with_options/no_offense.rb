@@ -50,3 +50,18 @@ with_options :if => :password_required? do |v|
   v.validates_confirmation_of :password
   v.validates_length_of       :password, :within => Devise.password_length, :allow_blank => true
 end
+
+# Lambda in hash argument — RuboCop skips blocks containing lambdas
+with_options(:allow_blank => true) do |o|
+  o.validates_numericality_of :var_value, only_integer: true, :if => -> { meta.var_type == :integer }
+  o.validates_numericality_of :var_value,                     :if => -> { meta.var_type == :float   }
+end
+
+# Control flow (unless) inside with_options block — sends inside conditionals
+# use non-param receivers, so RuboCop does not flag
+with_options(association_options) do |m|
+  m.has_many   :thumbnails, :class_name => "Thumb"
+  unless reflect_on_association(:parent) || options[:thumbnails].empty?
+    m.belongs_to :parent, :class_name => "Base", optional: true
+  end
+end

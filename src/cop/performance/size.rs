@@ -17,8 +17,18 @@ use ruby_prism::Visit;
 /// where the return value is used as the block's value). In Parser AST, a
 /// single-statement block has the statement as a direct child of the block node,
 /// while multi-statement blocks wrap in `begin`. In Prism, the body is always a
-/// `StatementsNode`, so we check statement count and set a flag only for the
-/// sole statement in a single-statement block body.
+/// `StatementsNode`, so we check statement count and compare the byte offset of
+/// the sole statement against the `count` call's offset — only skipping if the
+/// `count` call IS the direct sole statement (not deeply nested within it).
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus reported FP=0, FN=1. Root cause: the `parent_is_block` flag
+/// was propagating through all children of a single-statement block body (array,
+/// hash, etc.), causing deeply nested `.to_a.count` to be incorrectly skipped.
+/// Fixed by switching from a boolean flag to an offset comparison — only the
+/// call node at the exact byte offset of the sole block body statement is
+/// suppressed.
 pub struct Size;
 
 impl Cop for Size {
@@ -43,7 +53,7 @@ impl Cop for Size {
             cop: self,
             source,
             diagnostics: Vec::new(),
-            parent_is_block: false,
+            block_body_stmt_range: None,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -54,22 +64,34 @@ struct SizeVisitor<'a, 'src> {
     cop: &'a Size,
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
-    /// True when the current node is the sole statement in a block body
-    /// (matching RuboCop's `node.parent&.block_type?` for single-statement blocks).
-    parent_is_block: bool,
+    /// Byte range (start, end) of the sole statement in a block body, if any.
+    /// Used to match RuboCop's `node.parent&.block_type?` — only the call node
+    /// spanning this exact range is suppressed, not chained or nested children.
+    /// Chained calls like `[].count.should` share the same start_offset but
+    /// differ in end_offset, so comparing both is necessary.
+    block_body_stmt_range: Option<(usize, usize)>,
 }
 
 impl SizeVisitor<'_, '_> {
-    /// Visit a block-like node's body, setting parent_is_block for the sole
-    /// statement if the body has exactly one statement.
+    /// Visit a block-like node's body, recording the sole statement's offset
+    /// so that only a `count` call at that exact position is suppressed.
     fn visit_block_body(&mut self, body: &ruby_prism::Node<'_>) {
-        let is_single_stmt = body
-            .as_statements_node()
-            .is_some_and(|s| s.body().iter().count() == 1);
-        let prev = self.parent_is_block;
-        self.parent_is_block = is_single_stmt;
+        let prev = self.block_body_stmt_range;
+        if let Some(stmts) = body.as_statements_node() {
+            let mut iter = stmts.body().iter();
+            if let Some(first) = iter.next() {
+                if iter.next().is_none() {
+                    // Single statement — record its full byte range
+                    let loc = first.location();
+                    self.block_body_stmt_range = Some((
+                        loc.start_offset(),
+                        loc.start_offset() + loc.as_slice().len(),
+                    ));
+                }
+            }
+        }
         self.visit(body);
-        self.parent_is_block = prev;
+        self.block_body_stmt_range = prev;
     }
 }
 
@@ -78,37 +100,40 @@ impl<'pr> Visit<'pr> for SizeVisitor<'_, '_> {
         if node.name().as_slice() == b"count"
             && node.arguments().is_none()
             && node.block().is_none()
-            && !self.parent_is_block
         {
-            if let Some(recv) = node.receiver() {
-                if is_array_or_hash_receiver(&recv) {
-                    let loc = node.message_loc().unwrap_or(node.location());
-                    let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Use `size` instead of `count`.".to_string(),
-                    ));
+            // RuboCop: skip when `node.parent&.block_type?` — the `count` call
+            // is the direct sole statement of a block body. We check by comparing
+            // both start and end byte offsets: only the call spanning the exact
+            // range of the sole block body statement is suppressed. Chained calls
+            // like `[].count.should` share the same start_offset but differ in
+            // end_offset, so comparing both is necessary.
+            let node_loc = node.location();
+            let node_end = node_loc.start_offset() + node_loc.as_slice().len();
+            let is_direct_block_body = self
+                .block_body_stmt_range
+                .is_some_and(|(start, end)| start == node_loc.start_offset() && end == node_end);
+            if !is_direct_block_body {
+                if let Some(recv) = node.receiver() {
+                    if is_array_or_hash_receiver(&recv) {
+                        let loc = node.message_loc().unwrap_or(node.location());
+                        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                        self.diagnostics.push(self.cop.diagnostic(
+                            self.source,
+                            line,
+                            column,
+                            "Use `size` instead of `count`.".to_string(),
+                        ));
+                    }
                 }
             }
         }
-        // Clear the flag for children — they are not direct block body statements.
-        let prev = self.parent_is_block;
-        self.parent_is_block = false;
         ruby_prism::visit_call_node(self, node);
-        self.parent_is_block = prev;
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
-        // Visit parameters normally
         if let Some(params) = node.parameters() {
-            let prev = self.parent_is_block;
-            self.parent_is_block = false;
             self.visit(&params);
-            self.parent_is_block = prev;
         }
-        // Visit body — set parent_is_block only for single-statement bodies
         if let Some(body) = node.body() {
             self.visit_block_body(&body);
         }
@@ -116,10 +141,7 @@ impl<'pr> Visit<'pr> for SizeVisitor<'_, '_> {
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
         if let Some(params) = node.parameters() {
-            let prev = self.parent_is_block;
-            self.parent_is_block = false;
             self.visit(&params);
-            self.parent_is_block = prev;
         }
         if let Some(body) = node.body() {
             self.visit_block_body(&body);

@@ -36,8 +36,9 @@ Config = %w[a b c].each_with_object({}) do |item, hash|
   hash[item] = true
 end
 
-# Lambda literals — in Parser AST these are :block type, which RuboCop allows
-Positive = ->{ _1 > 0 }
+# Lambda literals — in Parser AST these are :block type, which RuboCop allows.
+# Note: lambdas with numbered params (_1) are :numblock in Parser, not :block,
+# so they are NOT allowed — see offense.rb for that case.
 Noop = ->(reply) { reply }
 MyHandler = ->(data, &block) do
   block.call(data)

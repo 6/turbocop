@@ -47,3 +47,13 @@ $_1 = 1
 # and the normalcase regex fails on empty strings
 {"": true}
  ^^ Naming/VariableNumber: Use normalcase for symbol numbers.
+
+# Rescue exception variables
+begin
+rescue => error_2
+          ^^^^^^^ Naming/VariableNumber: Use normalcase for variable numbers.
+end
+begin
+rescue NoMethodError => pre_cucumber_0_4
+                        ^^^^^^^^^^^^^^^^ Naming/VariableNumber: Use normalcase for variable numbers.
+end

@@ -112,3 +112,8 @@ MyRange = (1..5).freeze
 # Array literal with block argument (&:sym) — NOT a block node
 Fields = %w[name email].map(&:to_sym)
 ^^^^^^ Naming/ConstantName: Use SCREAMING_SNAKE_CASE for constants.
+
+# Lambda with numbered parameters (_1) — Parser creates :numblock, not :block
+# RuboCop's allowed_assignment? only includes :block, not :numblock
+Positive = ->{ _1 > 0 }
+^^^^^^^^ Naming/ConstantName: Use SCREAMING_SNAKE_CASE for constants.

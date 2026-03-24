@@ -16,6 +16,13 @@ use crate::parse::source::SourceFile;
 /// FP=3: Fixed by adding `default_enabled() -> false`. The vendor rubocop config
 /// has `Enabled: pending` for this cop (added v1.84), so rubocop doesn't enable
 /// it unless explicitly configured. The corpus baseline config doesn't list it.
+///
+/// Corpus investigation (2026-03-23):
+/// FP=3, FN=0. All 3 FPs were `reverse.find(&block)` or `reverse.detect(&block)`
+/// where the block argument is a local variable, not a symbol literal. RuboCop's
+/// NodePattern `(block_pass sym)?` only matches `&:symbol`, not `&variable`.
+/// Fix: when `call.block()` is a `BlockArgumentNode`, check that its expression
+/// is a `SymbolNode` before flagging.
 pub struct ReverseFind;
 
 impl Cop for ReverseFind {
@@ -87,9 +94,22 @@ impl Cop for ReverseFind {
         }
 
         // Must have a block or block argument
-        if call.block().is_none() {
-            return;
+        let block = match call.block() {
+            Some(b) => b,
+            None => return,
+        };
+
+        // If it's a BlockArgumentNode (&expr), only flag when expr is a symbol (&:sym)
+        // RuboCop's pattern is (block_pass sym)? — only matches &:symbol, not &variable
+        if let Some(block_arg) = block.as_block_argument_node() {
+            if let Some(expr) = block_arg.expression() {
+                if expr.as_symbol_node().is_none() {
+                    return;
+                }
+            }
+            // bare & (no expression) or &:symbol — continue to flag
         }
+        // Otherwise it's a BlockNode (regular block) — continue to flag
 
         let loc = recv_call
             .message_loc()

@@ -304,20 +304,101 @@ def schema_example(value)
   end
 end
 
-# FN fix: multi-assign inside unless body, block in nested block in else of inner if
-def get_login_info(sources)
-  username, password = nil, nil
-  unless sources.empty?
-    if force_account
-      host, username, password = sources.find { |h, u, p| h == target }
-    else
-      choose do |menu|
-        sources.each do |host, olduser, oldpw|
-                         ^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `host`.
-          menu.choice(olduser, host)
-        end
-      end
+# FN fix: Thread.new(value) — RuboCop only suppresses Ractor.new, not Thread.new
+def threaded_or_sequential(lib, &block)
+  if use_threads?
+    Thread.new { block.call(lib) }
+  else
+    value = block.call(lib)
+    Thread.new(value) { |value| value }
+                         ^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `value`.
+  end
+end
+
+# FN fix: Thread.new with splat args — not suppressed (only Ractor.new is special)
+def start_thread(*args)
+  Thread.new(*args) { |*args| process(*args) }
+                       ^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `args`.
+end
+
+# FN fix: reduce with call arg matching block param — not suppressed by RuboCop
+def apply_filters(content, filters)
+  filters.reduce(content) { |content, filter| filter.apply(content) }
+                             ^^^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `content`.
+end
+
+# FN fix: File.open with call arg matching block param
+def overwrite_file(file, new_content)
+  File.open(file, "w") { |file| file.puts new_content }
+                          ^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `file`.
+end
+
+# FN fix: inject with call arg matching block param (corpus: elasticsearch-ruby)
+def execute(client, test = nil)
+  @definition.each.inject(client) do |client, (method_chain, args)|
+                                      ^^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `client`.
+    chain = method_chain.split('.')
+    client
+  end
+end
+
+# FN fix: each_with_object with arg matching block param (corpus: locomotivecms)
+def extract_exposures(exposures, hash = {}, prefix = nil)
+  exposures.each_with_object(hash) do |exposure, hash|
+                                                 ^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `hash`.
+    key = "#{prefix}#{exposure}"
+    hash[key.to_sym] = exposure
+  end
+end
+
+# FN fix: Dir.chdir with arg matching block param (corpus: foreman)
+def mkchdir(dir)
+  FileUtils.mkdir_p(dir)
+  Dir.chdir(dir) do |dir|
+                     ^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `dir`.
+    yield(File.expand_path(dir))
+  end
+end
+
+# FN fix: Find.find with arg matching block param (corpus: fpm)
+def remove_compiled_files(path)
+  Find.find(path) do |path|
+                      ^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `path`.
+    FileUtils.rm(path) if path.end_with?('.pyc')
+  end
+end
+
+# FN fix: custom method with arg matching block param (corpus: ransack)
+def initialize(reflection, children, polymorphic_class = nil)
+  swapping_reflection_klass(reflection, polymorphic_class) do |reflection|
+                                                               ^^^^^^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `reflection`.
+    super(reflection, children)
+  end
+end
+
+# FN fix: Zip::File.open with arg matching block param (corpus: oxml_xxe)
+def read_rels(zipfile, fil_r)
+  Zip::File.open(zipfile) do |zipfile|
+                              ^^^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `zipfile`.
+    zipfile.read(fil_r)
+  end
+end
+
+# FN fix: lambda param shadowed by reduce block param (corpus: moneta)
+def make_encoder(transforms)
+  lambda do |value|
+    transforms.reduce(value) do |value, transform|
+                                 ^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `value`.
+      transform.encode(value)
     end
+  end
+end
+
+# FN fix: method param shadowed via with_connection block (corpus: ruby-polars)
+def write_database(connection, table_name, if_table_exists)
+  with_connection(connection) do |connection|
+                                  ^^^^^^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `connection`.
+    connection.table_exists?(table_name)
   end
 end
 

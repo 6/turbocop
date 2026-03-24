@@ -248,3 +248,90 @@ def display_name(first_name, last_name, login)
 
   "#{first_name} #{last_name}"
 end
+
+# FN fix: guard followed by `::Kernel.raise` (qualified receiver) — NOT a guard clause
+# The next line should NOT suppress the offense because `::Kernel.raise` has
+# a receiver, so it doesn't match RuboCop's (send nil? {:raise :fail} ...).
+def dirname(path, level = 1)
+  return path if level == 0
+
+  ::Kernel.raise ::ArgumentError, "level can't be negative" if level < 0
+end
+
+# FN fix: guard followed by line with `next!` method call — NOT a guard keyword
+# `next!` is a method name, not the `next` keyword.
+def advance_draft_sequence
+  return if topic.blank?
+
+  DraftSequence.next!(last_editor_id, topic.draft_key) if last_editor_id
+end
+
+# FN fix: guard followed by line with `fail!` method call — NOT a guard keyword
+def check_thread_exists(params, channel)
+  return if params.thread_id.blank?
+
+  fail!("Thread not found") if !channel.threads.exists?(id: params.thread_id)
+end
+
+# FN fix: guard with UTF-8 characters (multi-byte) followed by code
+def result_emoji
+  return "✅" if success?
+
+  ""
+end
+
+# FN fix: guard with UTF-8 in condition followed by code
+def ignore_searx
+  return unless params[:utf8] == "✓"
+
+  @search = Search.new({results_count: 0}, nil)
+end
+
+# FN fix: block-form if/else/end where if-branch is a raise guard
+def add_disk(size)
+  if @disk_change == :deleted
+    raise RuntimeError, "Can't add a disk w/o saving changes or reloading"
+  else
+    load_unless_loaded!
+  end
+
+  true
+end
+
+# FN fix: block-form if/else/end with `or raise` in if-branch as guard
+def delete_disk(number)
+  if @disk_change == :added
+    raise RuntimeError, "Can't delete a disk w/o saving changes or reloading"
+  else
+    load_unless_loaded!
+    @disk_change = :deleted
+  end
+
+  true
+end
+
+# FN fix: block-form if/else/end with multi-line `or raise` — RuboCop checks
+# the RHS of the `or` node for single_line?, not the whole expression
+def accept(t, pat, &block)
+  if pat
+    pat.respond_to?(:match) ||
+      raise(TypeError, "has no `match'")
+  else
+    pat = t if t.respond_to?(:match)
+  end
+
+  unless block
+    block = pat.method(:convert).to_proc
+  end
+end
+
+# FN fix: guard followed by multi-line raise with `+` continuation in next
+# sibling — multi-line raise is NOT single_line?, so not a valid guard for suppression
+def times(number)
+  raise "times(N) accepts integers >= 1 only" if !number.is_a?(Integer)
+
+  if @responses_sequences.empty?
+    raise "Invalid WebMock stub declaration." +
+      " times(N) can be declared only after response declaration."
+  end
+end

@@ -293,3 +293,18 @@ class << Multiton
   def foo; 1; end
   def bar; 2; end
 end
+
+# Different methods in class << call_expr are fine
+class << Object.new
+  def foo; 1; end
+  def bar; 2; end
+end
+
+# def ConstName.method with different bodies — NOT detected by RuboCop
+# because lookup_constant returns the full AST node (including body) as key
+def VCR.version
+  "1.0"
+end
+def VCR.version
+  "2.0"
+end

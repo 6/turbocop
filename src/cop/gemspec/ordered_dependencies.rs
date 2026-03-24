@@ -15,13 +15,22 @@ const DEP_METHODS: &[&str] = &[
 
 struct DepEntry {
     gem_name: String,
+    sort_key: String,
     line_num: usize,
     col: usize,
+    /// Byte offset of the start of the line (inclusive).
+    line_start: usize,
+    /// Byte offset past the end of the line including newline (exclusive).
+    line_end: usize,
 }
 
 impl Cop for OrderedDependencies {
     fn name(&self) -> &'static str {
         "Gemspec/OrderedDependencies"
+    }
+
+    fn supports_autocorrect(&self) -> bool {
+        true
     }
 
     fn default_include(&self) -> &'static [&'static str] {
@@ -33,29 +42,123 @@ impl Cop for OrderedDependencies {
         source: &SourceFile,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let treat_comments_as_separators = config.get_bool("TreatCommentsAsGroupSeparators", true);
         let consider_punctuation = config.get_bool("ConsiderPunctuation", false);
 
+        let bytes = source.as_bytes();
         let mut current_method: Option<String> = None;
         let mut group: Vec<DepEntry> = Vec::new();
+
+        // Compute line byte ranges
+        let mut line_offsets: Vec<(usize, usize)> = Vec::new();
+        {
+            let mut offset = 0;
+            for line in source.lines() {
+                let start = offset;
+                offset += line.len();
+                if offset < bytes.len() && bytes[offset] == b'\n' {
+                    offset += 1;
+                }
+                line_offsets.push((start, offset));
+            }
+        }
+
+        let flush_group_autocorrect = |group: &mut Vec<DepEntry>,
+                                       diagnostics: &mut Vec<Diagnostic>,
+                                       source: &SourceFile,
+                                       cop: &OrderedDependencies,
+                                       _consider_punctuation: bool,
+                                       corrections: &mut Option<
+            &mut Vec<crate::correction::Correction>,
+        >,
+                                       bytes: &[u8]| {
+            if group.len() < 2 {
+                group.clear();
+                return;
+            }
+
+            // Report diagnostics
+            for i in 1..group.len() {
+                let prev_key = &group[i - 1].sort_key;
+                let curr_key = &group[i].sort_key;
+                if *curr_key < *prev_key {
+                    let prev_name = &group[i - 1].gem_name;
+                    let curr_name = &group[i].gem_name;
+                    let mut diag = cop.diagnostic(
+                            source,
+                            group[i].line_num,
+                            group[i].col,
+                            format!(
+                                "Dependencies should be sorted in an alphabetical order within their section of the gemspec. Dependency `{curr_name}` should appear before `{prev_name}`."
+                            ),
+                        );
+                    if corrections.is_some() {
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
+                }
+            }
+
+            // Generate correction if needed
+            if let Some(corr) = corrections {
+                let is_sorted = group.windows(2).all(|w| w[0].sort_key <= w[1].sort_key);
+                if !is_sorted {
+                    let group_start = group.first().unwrap().line_start;
+                    let group_end = group.last().unwrap().line_end;
+                    let mut indices: Vec<usize> = (0..group.len()).collect();
+                    indices.sort_by(|&a, &b| group[a].sort_key.cmp(&group[b].sort_key));
+                    let sorted: Vec<&[u8]> = indices
+                        .iter()
+                        .map(|&i| &bytes[group[i].line_start..group[i].line_end])
+                        .collect();
+                    let replacement: Vec<u8> = sorted.concat();
+                    corr.push(crate::correction::Correction {
+                        start: group_start,
+                        end: group_end,
+                        replacement: String::from_utf8_lossy(&replacement).to_string(),
+                        cop_name: "Gemspec/OrderedDependencies",
+                        cop_index: 0,
+                    });
+                }
+            }
+
+            group.clear();
+        };
 
         let lines: Vec<&[u8]> = source.lines().collect();
         for (line_idx, line) in lines.iter().enumerate() {
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s,
                 Err(_) => {
-                    flush_group(&mut group, diagnostics, source, self, consider_punctuation);
+                    flush_group_autocorrect(
+                        &mut group,
+                        diagnostics,
+                        source,
+                        self,
+                        consider_punctuation,
+                        &mut corrections,
+                        bytes,
+                    );
                     current_method = None;
                     continue;
                 }
             };
             let trimmed = line_str.trim();
+            let (line_start, line_end) = line_offsets[line_idx];
 
             // Blank lines act as group separators
             if trimmed.is_empty() {
-                flush_group(&mut group, diagnostics, source, self, consider_punctuation);
+                flush_group_autocorrect(
+                    &mut group,
+                    diagnostics,
+                    source,
+                    self,
+                    consider_punctuation,
+                    &mut corrections,
+                    bytes,
+                );
                 current_method = None;
                 continue;
             }
@@ -63,7 +166,15 @@ impl Cop for OrderedDependencies {
             // Check if this is a comment line
             if trimmed.starts_with('#') {
                 if treat_comments_as_separators {
-                    flush_group(&mut group, diagnostics, source, self, consider_punctuation);
+                    flush_group_autocorrect(
+                        &mut group,
+                        diagnostics,
+                        source,
+                        self,
+                        consider_punctuation,
+                        &mut corrections,
+                        bytes,
+                    );
                     current_method = None;
                 }
                 continue;
@@ -78,19 +189,25 @@ impl Cop for OrderedDependencies {
                     if let Some(gem_name) = extract_gem_name(after) {
                         if current_method.as_deref() != Some(method) {
                             // Different dependency type, flush previous group
-                            flush_group(
+                            flush_group_autocorrect(
                                 &mut group,
                                 diagnostics,
                                 source,
                                 self,
                                 consider_punctuation,
+                                &mut corrections,
+                                bytes,
                             );
                             current_method = Some(method.to_string());
                         }
+                        let sk = sort_key(&gem_name, consider_punctuation);
                         group.push(DepEntry {
                             gem_name,
+                            sort_key: sk,
                             line_num: line_idx + 1,
                             col: pos + 1, // after the dot
+                            line_start,
+                            line_end,
                         });
                         found_dep = true;
                     }
@@ -99,46 +216,30 @@ impl Cop for OrderedDependencies {
             }
 
             if !found_dep && !trimmed.is_empty() {
-                flush_group(&mut group, diagnostics, source, self, consider_punctuation);
+                flush_group_autocorrect(
+                    &mut group,
+                    diagnostics,
+                    source,
+                    self,
+                    consider_punctuation,
+                    &mut corrections,
+                    bytes,
+                );
                 current_method = None;
             }
         }
 
         // Flush remaining group
-        flush_group(&mut group, diagnostics, source, self, consider_punctuation);
+        flush_group_autocorrect(
+            &mut group,
+            diagnostics,
+            source,
+            self,
+            consider_punctuation,
+            &mut corrections,
+            bytes,
+        );
     }
-}
-
-fn flush_group(
-    group: &mut Vec<DepEntry>,
-    diagnostics: &mut Vec<Diagnostic>,
-    source: &SourceFile,
-    cop: &OrderedDependencies,
-    consider_punctuation: bool,
-) {
-    if group.len() < 2 {
-        group.clear();
-        return;
-    }
-
-    for i in 1..group.len() {
-        let prev_name = &group[i - 1].gem_name;
-        let curr_name = &group[i].gem_name;
-        let prev_key = sort_key(prev_name, consider_punctuation);
-        let curr_key = sort_key(curr_name, consider_punctuation);
-        if prev_key > curr_key {
-            diagnostics.push(cop.diagnostic(
-                source,
-                group[i].line_num,
-                group[i].col,
-                format!(
-                    "Dependencies should be sorted in an alphabetical order within their section of the gemspec. Dependency `{curr_name}` should appear before `{prev_name}`."
-                ),
-            ));
-        }
-    }
-
-    group.clear();
 }
 
 fn sort_key(name: &str, consider_punctuation: bool) -> String {
@@ -221,4 +322,34 @@ fn parse_percent_string_with_len(s: &str) -> Option<(String, usize)> {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(OrderedDependencies, "cops/gemspec/ordered_dependencies");
+    crate::cop_autocorrect_fixture_tests!(OrderedDependencies, "cops/gemspec/ordered_dependencies");
+
+    #[test]
+    fn autocorrect_simple_swap() {
+        let input = b"Gem::Specification.new do |s|\n  s.add_dependency 'zoo'\n  s.add_dependency 'alpha'\nend\n";
+        let (diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&OrderedDependencies, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(
+            corrected,
+            b"Gem::Specification.new do |s|\n  s.add_dependency 'alpha'\n  s.add_dependency 'zoo'\nend\n"
+        );
+    }
+
+    #[test]
+    fn autocorrect_preserves_group_separators() {
+        let input = b"Gem::Specification.new do |s|\n  s.add_dependency 'b'\n  s.add_dependency 'a'\n\n  s.add_development_dependency 'd'\n  s.add_development_dependency 'c'\nend\n";
+        let (diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&OrderedDependencies, input);
+        assert_eq!(diags.len(), 2);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(
+            corrected,
+            b"Gem::Specification.new do |s|\n  s.add_dependency 'a'\n  s.add_dependency 'b'\n\n  s.add_development_dependency 'c'\n  s.add_development_dependency 'd'\nend\n"
+        );
+    }
 }

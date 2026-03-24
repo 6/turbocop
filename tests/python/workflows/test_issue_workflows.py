@@ -11,6 +11,7 @@ AGENT_PR_REPAIR = ROOT / ".github" / "workflows" / "agent-pr-repair.yml"
 COP_ISSUE_SYNC = ROOT / ".github" / "workflows" / "cop-issue-sync.yml"
 COP_ISSUE_DISPATCH = ROOT / ".github" / "workflows" / "cop-issue-dispatch.yml"
 INVESTIGATE_REGRESSION = ROOT / ".github" / "workflows" / "investigate-regression.yml"
+CORPUS_ORACLE = ROOT / ".github" / "workflows" / "corpus-oracle.yml"
 
 
 def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
@@ -25,6 +26,12 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "docs/agent-ci.md" in content
     assert "Switch to claimed PR branch" in content
     assert "validate_agent_changes.py" in content
+    assert "Run local standard quick corpus gate" in content
+    assert "requires_standard_quick_gate" in content
+    assert "Keep draft PR when local standard gate fails" in content
+    assert "bundle check || bundle install" in content
+    assert 'python3 scripts/check-cop.py "${{ github.event.inputs.cop }}"' in content
+    assert 'gh pr merge "$PR_URL" --auto --squash --delete-branch' in content
     assert "prepare_agent_workspace.py" not in content
     assert "CI_SCRIPTS_DIR" not in content
     assert "tmp: clean workspace" not in content
@@ -95,6 +102,16 @@ def test_investigate_regression_workflow_uses_script():
     assert "dispatch-simple" in content
 
 
+def test_corpus_oracle_workflow_uses_dynamic_pr_renderer():
+    content = CORPUS_ORACLE.read_text()
+    assert "scripts/workflows/render_corpus_oracle_pr.py" in content
+    assert "COMMIT_MSG=$(printf '%s' \"$PR_META\" | jq -r '.commit_message')" in content
+    assert "PR_TITLE=$(printf '%s' \"$PR_META\" | jq -r '.pr_title')" in content
+    assert "gh pr create \\" in content
+    assert "--title \"$PR_TITLE\" \\" in content
+    assert "--body-file \"$PR_BODY_FILE\" \\" in content
+
+
 if __name__ == "__main__":
     test_agent_cop_fix_supports_issue_linking_and_auto_backend()
     test_agent_pr_repair_reads_linked_issue_and_can_update_it()
@@ -103,4 +120,5 @@ if __name__ == "__main__":
     test_issue_sync_workflow_uses_app_token_and_dispatch_script()
     test_issue_dispatch_workflow_uses_app_token_and_dispatch_script()
     test_investigate_regression_workflow_uses_script()
+    test_corpus_oracle_workflow_uses_dynamic_pr_renderer()
     print("All tests passed.")

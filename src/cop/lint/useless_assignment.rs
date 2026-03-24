@@ -42,8 +42,14 @@ use ruby_prism::Visit;
 /// - FP fix: `class << expr` now correctly analyzes the expression as a read.
 ///   Previously `obj = Object.new; class << obj; end` flagged `obj` as useless
 ///   because the singleton class expression was not traversed for variable reads.
+/// - FP fix: Rescue clauses now see writes from inside the begin body, not just
+///   pre-begin writes. Previously `counter = 0; begin; counter += 1; rescue;
+///   retry if counter < 3; end` flagged `counter += 1` as useless because the
+///   rescue clause started from pre-body state and couldn't see the body write.
+///   This fixes ~180-240 FPs from retry counters, boolean flags, and timing
+///   variables written in begin bodies and read in rescue clauses.
 ///
-/// ## Remaining gaps (821 FP, 1425 FN as of investigation)
+/// ## Remaining gaps (758 FP, 1366 FN as of corpus investigation)
 ///
 /// - FP: Multi-write targets (`a, b = expr`) where one target is unused —
 ///   RuboCop's VariableForce has more nuanced handling of multi-writes.
@@ -1174,10 +1180,25 @@ impl ScopeAnalyzer {
             self.analyze_statements(&body, state);
         }
 
-        // Rescue clauses — each is an optional branch from the begin body
+        // Rescue clauses — each is an optional branch from the begin body.
+        // The rescue starting state must include writes from the begin body,
+        // because any statement in the body can raise and the rescue clause
+        // may read variables that were written before the exception. Using
+        // `before` alone (the pre-body state) causes FPs on patterns like:
+        //   counter = 0; begin; counter += 1; work; rescue; retry if counter < 3; end
+        // where the rescue reads a variable written inside the begin body.
+        // We merge post-body state (primary) with pre-body state (fallback for
+        // variables not touched in the body), so rescue sees all writes.
         if let Some(rescue_node) = node.rescue_clause() {
+            let mut rescue_start = state.clone();
+            // Add any pre-body writes for variables NOT written in the body
+            for (name, &offset) in &before.live_writes {
+                if !rescue_start.live_writes.contains_key(name) {
+                    rescue_start.live_writes.insert(name.clone(), offset);
+                }
+            }
             self.protect_live_writes(&before);
-            self.analyze_rescue_chain(&rescue_node, &before, state);
+            self.analyze_rescue_chain(&rescue_node, &rescue_start, state);
         }
 
         // Else clause (runs if no exception)

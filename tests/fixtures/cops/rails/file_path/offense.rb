@@ -51,3 +51,9 @@ Pathname.new(Rails.root).join("db", "migrate_sql")
 
 "#{path.relative_path_from(Rails.root)}.png"
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FilePath: Prefer `Rails.root.join('path/to')`.
+
+File.join((Rails.root || "."), "config", "textcaptcha.yml")
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FilePath: Prefer `Rails.root.join('path/to').to_s`.
+
+File.join(::Rails.root || '', 'config')
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FilePath: Prefer `Rails.root.join('path/to').to_s`.

@@ -1,4 +1,4 @@
-use crate::cop::node_type::CALL_NODE;
+use crate::cop::node_type::{CALL_NODE, CALL_OPERATOR_WRITE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -205,6 +205,36 @@ use crate::parse::source::SourceFile;
 /// (`zone`, `zone_default`, `find_zone`, `find_zone!`). Also affects patterns like
 /// `Time.new(2019, 1, 1, 0, 0, 0, "+03:00")` which already passed via the 7-arg
 /// check, and `Time.new(2010, 1, 1, 0, 0, 0, "+10:00")` similarly.
+///
+/// ## Investigation (2026-03-23): FP=3, FN=4 (extended corpus)
+///
+/// **FP1: Bracket indexing breaks chain scanner (1 FP — FIXED):**
+/// `Time.now.year.to_s[0..1].to_i` — `chain_contains_tz_safe_method` stopped at
+/// `[` because it only followed `.method` patterns. The `[0..1]` bracket indexing
+/// is not a method call separator but shouldn't break the chain. Added bracket
+/// skipping (`[...]`) in the chain scanner loop so `.to_i` after `[0..1]` is found.
+///
+/// **FP2-3: ACCEPTED_METHODS inside dangerous Time context (2 FP — FIXED):**
+/// `Time.zone.at(... || Time.current)` and `Time.zone.parse(Time.utc(...).to_s)` —
+/// `in_dangerous_time_context()` found the enclosing dangerous Time call and flagged
+/// the inner `Time.current`/`Time.utc`. But in RuboCop's flexible mode, `good_methods`
+/// includes `GOOD_METHODS + [:current] + ACCEPTED_METHODS`. The inner method being
+/// `current` or `utc` makes `not_danger_chain?` return true. Fix: in the
+/// `!is_unsafe_method` branch, skip `in_dangerous_time_context()` when the inner method
+/// is in ACCEPTED_METHODS or is `:current` (in flexible mode).
+///
+/// **FN1-3: Splat breaks chain walk (3 FN — FIXED):**
+/// `Time.new(*Time.now.to_a[0..5].reverse[0..4]).to_i` — RuboCop's chain walk from
+/// `Time.now` stops at the `*` splat (not `send_type?`), never reaching `Time.new` or
+/// `.to_i`. But `enclosing_call_is_safe` found the outer `Time.new(` and chain `.to_i`,
+/// incorrectly suppressing. Fix: detect `*` between `(` and the inner call position in
+/// `enclosing_call_is_safe_recursive`; when present, return false (chain is broken).
+///
+/// **FN4: CallOperatorWriteNode (1 FN — FIXED):**
+/// `Time.now += secs` — Prism parses this as `CallOperatorWriteNode`, not `CallNode`.
+/// The cop only handled `CALL_NODE`. Fix: added `CALL_OPERATOR_WRITE_NODE` to
+/// `interested_node_types` and handling for `read_name()` == dangerous method with
+/// `Time` receiver.
 pub struct TimeZone;
 
 impl Cop for TimeZone {
@@ -217,7 +247,7 @@ impl Cop for TimeZone {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE]
+        &[CALL_NODE, CALL_OPERATOR_WRITE_NODE]
     }
 
     fn check_node(
@@ -229,6 +259,43 @@ impl Cop for TimeZone {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // Handle CallOperatorWriteNode (e.g., `Time.now += secs`).
+        // In Prism, `a.b += c` is a CallOperatorWriteNode with read_name=b, receiver=a.
+        // RuboCop fires on the "read" part (`Time.now`) as a regular send node, because
+        // `a.b += c` expands to `a.b = a.b + c` and `a.b` is a send node.
+        if let Some(op_write) = node.as_call_operator_write_node() {
+            let method = op_write.read_name().as_slice();
+            if matches!(method, b"now" | b"parse" | b"at" | b"new" | b"local") {
+                if let Some(recv) = op_write.receiver() {
+                    let is_time = if let Some(cr) = recv.as_constant_read_node() {
+                        cr.name().as_slice() == b"Time"
+                    } else if let Some(cp) = recv.as_constant_path_node() {
+                        cp.parent().is_none() && cp.name().map(|n| n.as_slice()) == Some(b"Time")
+                    } else {
+                        false
+                    };
+                    if is_time {
+                        let loc = match op_write.message_loc() {
+                            Some(l) => l,
+                            None => op_write.location(),
+                        };
+                        let (line, column) = source.offset_to_line_col(loc.start_offset());
+                        diagnostics.push(self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            format!(
+                                "Use `Time.zone.{}` instead of `Time.{}`.",
+                                String::from_utf8_lossy(method),
+                                String::from_utf8_lossy(method)
+                            ),
+                        ));
+                    }
+                }
+            }
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -307,6 +374,31 @@ impl Cop for TimeZone {
                 method,
                 b"zone" | b"zone_default" | b"find_zone" | b"find_zone!"
             ) {
+                return;
+            }
+            // In flexible mode, ACCEPTED_METHODS and :current also neutralize danger.
+            // RuboCop's good_methods in flexible mode includes GOOD_METHODS + [:current]
+            // + ACCEPTED_METHODS. If the inner method is one of these, not_danger_chain?
+            // returns true and the offense is suppressed.
+            let style = config.get_str("EnforcedStyle", "flexible");
+            if style == "flexible"
+                && matches!(
+                    method,
+                    b"current"
+                        | b"utc"
+                        | b"gm"
+                        | b"mktime"
+                        | b"in_time_zone"
+                        | b"getlocal"
+                        | b"xmlschema"
+                        | b"iso8601"
+                        | b"jisx0301"
+                        | b"rfc3339"
+                        | b"httpdate"
+                        | b"to_i"
+                        | b"to_f"
+                )
+            {
                 return;
             }
             let bytes = source.as_bytes();
@@ -544,6 +636,23 @@ fn enclosing_call_is_safe_recursive(bytes: &[u8], start: usize, max_depth: u8) -
         Some(p) => p,
         None => return false,
     };
+
+    // Check for splat `*` between the opening paren and the inner call position.
+    // A splat argument (e.g., `Time.new(*Time.now.to_a...)`) creates a `splat` AST
+    // node which is NOT `send_type?`, so RuboCop's chain walk stops at the splat
+    // boundary and never reaches the outer call or its subsequent chain.
+    // Scan backward from `start` to `paren_pos` looking for `*` that indicates splat.
+    {
+        let mut j = start.saturating_sub(1);
+        // Skip whitespace
+        while j > paren_pos && bytes[j].is_ascii_whitespace() {
+            j -= 1;
+        }
+        // Skip past comma-separated earlier args to find `*` right before our position
+        if j > paren_pos && bytes[j] == b'*' && (j == 0 || bytes[j - 1] != b'*') {
+            return false;
+        }
+    }
 
     if paren_pos == 0 {
         return false;
@@ -983,6 +1092,24 @@ fn chain_contains_tz_safe_method(bytes: &[u8], start: usize) -> bool {
         // Skip whitespace first
         while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
             pos += 1;
+        }
+        // Skip bracket indexing like [0..1] — these are not method calls but
+        // should not break the chain. E.g., Time.now.to_a[0..5].to_i
+        while pos < bytes.len() && bytes[pos] == b'[' {
+            let mut depth = 1u32;
+            pos += 1;
+            while pos < bytes.len() && depth > 0 {
+                match bytes[pos] {
+                    b'[' => depth += 1,
+                    b']' => depth -= 1,
+                    _ => {}
+                }
+                pos += 1;
+            }
+            // Skip whitespace after ]
+            while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
+                pos += 1;
+            }
         }
         let has_args = if pos < bytes.len() && bytes[pos] == b'(' {
             let mut depth = 1u32;

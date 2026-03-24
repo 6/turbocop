@@ -258,3 +258,43 @@ class CommentLineHeredoc
     42
   end
 end
+
+# rubocop:disable directive between doc comment and def should not suppress docs.
+# RuboCop sees the doc comment above the blank line via ast_with_comments.
+
+# Create a meaningful operation name from the semantic convention
+# @see https://opentelemetry.io/docs/specs/semconv/general/trace/
+
+# rubocop:disable Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+def method_with_rubocop_disable_after_doc
+  42
+end
+
+# Converts a value from database input to the appropriate ruby type.
+#
+# @param value [String] value to deserialize
+#
+# @return [Object] deserialized value
+
+# rubocop:disable Style/RescueModifier
+def method_with_rubocop_disable_after_yard_doc
+  42
+end
+
+# It accepts an array of coordinates
+# and an optional radius
+
+# rubocop:disable Metrics/MethodLength
+def method_with_rubocop_disable_after_short_doc
+  42
+end
+
+# Inline prefix containing `private` makes method non-public (no docs needed)
+memoized internal private def memoized_private_method
+  42
+end
+
+# protected in a mixed inline prefix also makes method non-public
+some_decorator protected def decorated_protected_method
+  42
+end

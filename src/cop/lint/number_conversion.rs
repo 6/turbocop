@@ -49,6 +49,11 @@ use crate::parse::source::SourceFile;
 /// ["Time", "DateTime"]. But RuboCop uses `const_name` which returns the full
 /// qualified name "Core::Utils::Time" — this does NOT match "Time" so it's
 /// flagged. Fix: use full source text of the root constant for comparison.
+///
+/// FP=10: All from rooted constant paths like `::Time.now.to_f`. The
+/// `is_ignored_class` function compared the full source text `::Time` against
+/// IgnoredClasses `["Time", "DateTime"]` — the `::` prefix prevented matching.
+/// Fix: strip leading `::` before comparing against IgnoredClasses.
 pub struct NumberConversion;
 
 const CONVERSION_METHODS: &[(&[u8], &str)] = &[
@@ -293,7 +298,8 @@ fn is_ignored_class(node: &ruby_prism::Node<'_>, ignored_classes: &[String]) -> 
     if node.as_constant_read_node().is_some() || node.as_constant_path_node().is_some() {
         let name_bytes = node.location().as_slice();
         if let Ok(name) = std::str::from_utf8(name_bytes) {
-            return ignored_classes.iter().any(|c| c == name);
+            let stripped = name.strip_prefix("::").unwrap_or(name);
+            return ignored_classes.iter().any(|c| c == stripped);
         }
         return false;
     }

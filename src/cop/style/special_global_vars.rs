@@ -64,6 +64,10 @@ impl Cop for SpecialGlobalVars {
         &[GLOBAL_VARIABLE_READ_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -71,7 +75,7 @@ impl Cop for SpecialGlobalVars {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let require_english = config.get_bool("RequireEnglish", true);
         let enforced_style = config.get_str("EnforcedStyle", "use_english_names");
@@ -89,12 +93,23 @@ impl Cop for SpecialGlobalVars {
                 if let Some(perl) = english_to_perl(var_name) {
                     let english_name = std::str::from_utf8(var_name).unwrap_or("$?");
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line,
                         column,
                         format!("Prefer `{}` over `{}`.", perl, english_name),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: loc.start_offset(),
+                            end: loc.end_offset(),
+                            replacement: perl.to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
             _ => {
@@ -110,7 +125,18 @@ impl Cop for SpecialGlobalVars {
                     } else {
                         format!("Prefer `{}` over `{}`.", english, perl_name)
                     };
-                    diagnostics.push(self.diagnostic(source, line, column, msg));
+                    let mut diag = self.diagnostic(source, line, column, msg);
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: loc.start_offset(),
+                            end: loc.end_offset(),
+                            replacement: english.to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -123,6 +149,7 @@ mod tests {
     use crate::testutil::run_cop_full;
 
     crate::cop_fixture_tests!(SpecialGlobalVars, "cops/style/special_global_vars");
+    crate::cop_autocorrect_fixture_tests!(SpecialGlobalVars, "cops/style/special_global_vars");
 
     #[test]
     fn regular_global_is_ignored() {

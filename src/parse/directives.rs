@@ -11,11 +11,19 @@ static DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Normalize a cop name from disable comments.
 ///
-/// RuboCop accepts `Department::CopName` (Ruby constant path style) as equivalent
-/// to `Department/CopName` in inline directive comments. Normalize to `/` form.
+/// RuboCop's `DIRECTIVE_COMMENT_REGEXP` uses `COP_NAME_PATTERN` =
+/// `([A-Za-z]\w+/)*(?:[A-Za-z]\w+)`, which splits on `/` only — `:` is not
+/// part of `\w`.  When a user writes `Department::CopName`, the regex captures
+/// only `Department` (the part before `::`), and the `::CopName` suffix falls
+/// outside the match.  RuboCop then treats `Department` as a department-level
+/// disable that suppresses every cop in that department.
+///
+/// We replicate this by stripping the `::…` suffix and returning just the
+/// department token, so the range is stored under the department key and
+/// `is_disabled` matches via the department check.
 fn normalize_directive_cop_name(name: &str) -> String {
-    if let Some((dept, cop)) = name.split_once("::") {
-        format!("{dept}/{cop}")
+    if let Some((dept, _cop)) = name.split_once("::") {
+        dept.to_string()
     } else {
         name.to_string()
     }
@@ -415,6 +423,13 @@ impl DisabledRanges {
         // RuboCop normalizes cop names via Badge.parse which applies camel_case,
         // so `Rspec/AnyInstance` matches `RSpec/AnyInstance`. We do a simple
         // case-insensitive comparison as fallback.
+        //
+        // WARNING: Do NOT tighten this to require exact case on the cop name
+        // portion (after /). An attempt was made (commit 1afa9f6f, reverted in
+        // 3783900b) to only allow department-prefix case differences, which
+        // caused +292 FP across 6 Metrics cops. Real-world rubocop:disable
+        // directives frequently use variant casing (e.g. Metrics/Abcsize vs
+        // Metrics/AbcSize) and RuboCop's qualify_badge fallback resolves them.
         for (stored_key, ranges) in &self.ranges {
             if stored_key.eq_ignore_ascii_case(key) && stored_key != key {
                 for &(start, end) in ranges {
@@ -1004,15 +1019,17 @@ mod tests {
     }
 
     #[test]
-    fn double_colon_separator_normalized_to_slash() {
-        // RuboCop accepts `Department::CopName` as equivalent to `Department/CopName`.
-        // Both block and inline forms should be normalized.
+    fn double_colon_separator_treated_as_department_disable() {
+        // RuboCop's COP_NAME_PATTERN = `([A-Za-z]\w+/)*(?:[A-Za-z]\w+)` splits
+        // on `/` only — `:` is not `\w`. So `Department::CopName` captures only
+        // `Department`, and RuboCop treats it as a department-level disable.
+        // Both block and inline forms should work.
         let mut dr = disabled_ranges(
             "# rubocop:disable Rails::SkipsModelValidations\nfoo.update_attribute(:x, y)\n# rubocop:enable Rails::SkipsModelValidations\n",
         );
         assert!(
             dr.check_and_mark_used("Rails/SkipsModelValidations", 2),
-            "Rails::SkipsModelValidations should suppress Rails/SkipsModelValidations"
+            "Rails::SkipsModelValidations should suppress Rails/SkipsModelValidations via department"
         );
 
         // Inline form
@@ -1021,7 +1038,21 @@ mod tests {
         );
         assert!(
             dr2.check_and_mark_used("Rails/SkipsModelValidations", 1),
-            "inline Rails::SkipsModelValidations should suppress Rails/SkipsModelValidations"
+            "inline Rails::SkipsModelValidations should suppress Rails/SkipsModelValidations via department"
+        );
+    }
+
+    #[test]
+    fn double_colon_old_cop_name_suppresses_via_department() {
+        // `Naming::PredicateName` (old cop name with `::` separator) should
+        // suppress Naming/PredicatePrefix because `:` is not part of \w in
+        // RuboCop's regex, so only `Naming` is captured → department disable.
+        let mut dr = disabled_ranges(
+            "def has_tag?(s) # rubocop:disable Naming::PredicateName\n  true\nend\n",
+        );
+        assert!(
+            dr.check_and_mark_used("Naming/PredicatePrefix", 1),
+            "Naming::PredicateName should suppress Naming/PredicatePrefix via department"
         );
     }
 

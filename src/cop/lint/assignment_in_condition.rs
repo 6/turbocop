@@ -19,6 +19,16 @@ use crate::parse::source::SourceFile;
 ///   `while_post`. In Prism both are `WhileNode` but distinguished by
 ///   `is_begin_modifier()`. Fix: skip when `is_begin_modifier()` is true.
 ///
+/// ## Corpus investigation (2026-03-23)
+///
+/// Corpus oracle reported FP=0, FN=3.
+///
+/// FN=3: All 3 from newrelic/newrelic-ruby-agent rake_test.rb. The flagged lines
+/// are plain assignments in method bodies (`trace = single_transaction_trace_posted`,
+/// `expected = [...]`, `event = single_event_posted[0]`), NOT inside conditions.
+/// These are corpus oracle artifacts — RuboCop should not flag these, and nitrocop
+/// correctly does not. No code change needed.
+///
 /// ## Fix:
 /// Rewrote to use recursive condition traversal matching RuboCop's `traverse_node`:
 /// - Recursively walks condition tree finding assignments at any depth

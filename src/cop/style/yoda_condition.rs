@@ -5,11 +5,25 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (FP=7, FN=27):
+/// - FP: RationalNode (3r) and ImaginaryNode (1i) were not recognized as literals.
+///   ArrayNode with all-literal elements (e.g. [[1,2],[3,4]]) also not recognized.
+///   Both sides being constant means no Yoda offense — fixed by adding these to
+///   is_constant_portion().
+/// - FN: XStringNode (backtick `cmd`), InterpolatedSymbolNode (:"#{x}="),
+///   InterpolatedXStringNode, and RegularExpressionNode/InterpolatedRegularExpressionNode
+///   are all treated as literal? by RuboCop's Parser gem but were missing from
+///   is_constant_portion(). Added all of these node types.
 pub struct YodaCondition;
 
 /// RuboCop's `constant_portion?` checks `node.literal? || node.const_type?`.
 /// This means constants like `CONST` and `Foo::BAR` are treated as
 /// "constant portions" for Yoda condition detection, just like literals.
+///
+/// In Parser gem, `literal?` returns true for: int, float, str, sym, nil, true,
+/// false, rational, complex/imaginary, regexp, xstr (backtick), dsym (interpolated
+/// symbol), dstr, dregexp, array (if all elements are literal), hash (if all
+/// elements are literal), and range (if both endpoints are literal).
 fn is_constant_portion(node: &ruby_prism::Node<'_>) -> bool {
     node.as_integer_node().is_some()
         || node.as_float_node().is_some()
@@ -20,6 +34,24 @@ fn is_constant_portion(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_false_node().is_some()
         || node.as_constant_read_node().is_some()
         || node.as_constant_path_node().is_some()
+        || node.as_rational_node().is_some()
+        || node.as_imaginary_node().is_some()
+        || node.as_x_string_node().is_some()
+        || node.as_interpolated_x_string_node().is_some()
+        || node.as_interpolated_symbol_node().is_some()
+        || node.as_regular_expression_node().is_some()
+        || node.as_interpolated_regular_expression_node().is_some()
+        || is_literal_array(node)
+}
+
+/// Check if a node is an array where all elements are constant portions
+/// (matching RuboCop's recursive `literal?` check for arrays).
+fn is_literal_array(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(array) = node.as_array_node() {
+        array.elements().iter().all(|el| is_constant_portion(&el))
+    } else {
+        false
+    }
 }
 
 impl Cop for YodaCondition {

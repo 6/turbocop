@@ -39,6 +39,7 @@ def test_agent_cop_fix_manifest_contains_common_and_summary_paths():
     assert any(line.endswith("/agent-cop-fix/recovery/scope.md") for line in lines)
     assert any(line.endswith("/agent-cop-fix/context/task.md") for line in lines)
     assert any(line.endswith("/agent-cop-fix/context/summary.md") for line in lines)
+    assert any(line.endswith("/agent-cop-fix/context/standard-cop-check.log") for line in lines)
     assert not any(line.endswith("/repair/summary.md") for line in lines)
     assert lines[-1].endswith("manifest.txt")
 

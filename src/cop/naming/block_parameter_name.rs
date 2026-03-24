@@ -1,6 +1,6 @@
 use crate::cop::node_type::{
-    BLOCK_NODE, BLOCK_PARAMETERS_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE,
-    REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE,
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, LAMBDA_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE,
+    OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -10,6 +10,13 @@ use crate::parse::source::SourceFile;
 /// (RequiredKeywordParameterNode, OptionalKeywordParameterNode) which were not
 /// iterated. Fixed by adding `params_node.keywords()` iteration matching the
 /// pattern used in Naming/MethodParameterName.
+///
+/// ## Corpus investigation (2026-03-23) — extended corpus
+///
+/// Extended corpus reported FN=22 across 5 repos. All FNs from lambda parameters
+/// (`->(locationID) { ... }`, `-> (Foo) { ... }`). In Prism, `->` creates a
+/// `LambdaNode` (not `BlockNode`), so lambda parameters were not checked.
+/// Fix: added `LAMBDA_NODE` to interested_node_types with matching handler.
 pub struct BlockParameterName;
 
 impl Cop for BlockParameterName {
@@ -21,6 +28,7 @@ impl Cop for BlockParameterName {
         &[
             BLOCK_NODE,
             BLOCK_PARAMETERS_NODE,
+            LAMBDA_NODE,
             OPTIONAL_KEYWORD_PARAMETER_NODE,
             OPTIONAL_PARAMETER_NODE,
             REQUIRED_KEYWORD_PARAMETER_NODE,
@@ -42,22 +50,24 @@ impl Cop for BlockParameterName {
         let _allowed_names = config.get_string_array("AllowedNames");
         let _forbidden_names = config.get_string_array("ForbiddenNames");
 
-        let block = match node.as_block_node() {
-            Some(b) => b,
-            None => return,
+        // Extract the parameters node from either BlockNode or LambdaNode.
+        // LambdaNode (`-> (params) { }`) uses the same BlockParametersNode
+        // structure as BlockNode (`foo { |params| }`).
+        let params_node = if let Some(block) = node.as_block_node() {
+            block
+                .parameters()
+                .and_then(|p| p.as_block_parameters_node())
+                .and_then(|bp| bp.parameters())
+        } else if let Some(lambda) = node.as_lambda_node() {
+            lambda
+                .parameters()
+                .and_then(|p| p.as_block_parameters_node())
+                .and_then(|bp| bp.parameters())
+        } else {
+            None
         };
 
-        let params = match block.parameters() {
-            Some(p) => p,
-            None => return,
-        };
-
-        let block_params = match params.as_block_parameters_node() {
-            Some(bp) => bp,
-            None => return,
-        };
-
-        let params_node = match block_params.parameters() {
+        let params_node = match params_node {
             Some(p) => p,
             None => return,
         };

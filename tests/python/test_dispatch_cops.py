@@ -242,6 +242,69 @@ def test_select_backend_for_entry_easy_cop_uses_codex_normal():
     assert result["code_bugs"] == 2
 
 
+def test_assess_cross_corpus_risk_flags_extended_only_edge_case():
+    risk = gct.assess_cross_corpus_risk(
+        {
+            "fp": 3,
+            "fn": 0,
+            "matches": 100,
+            "repo_breakdown": {"foo__bar__abc": {"fp": 3, "fn": 0}},
+        },
+        extended=True,
+        standard_corpus={"fp": 0, "fn": 0, "matches": 540, "repo_breakdown": {}},
+    )
+    assert risk["extended_only_edge_case"] is True
+    assert risk["requires_standard_quick_gate"] is True
+    assert risk["risk_class"] == "extended_only_edge_case"
+
+
+def test_build_cross_corpus_risk_section_warns_about_standard_perfect_baseline():
+    section = gct.build_cross_corpus_risk_section(
+        {"fp": 3, "fn": 0, "matches": 100, "repo_breakdown": {"foo__bar__abc": {"fp": 3, "fn": 0}}},
+        extended=True,
+        standard_corpus={"fp": 0, "fn": 0, "matches": 540, "repo_breakdown": {}},
+        risk={
+            "extended_only_edge_case": True,
+            "requires_standard_quick_gate": True,
+            "risk_class": "extended_only_edge_case",
+            "affected_repos": 1,
+            "concentrated": True,
+        },
+    )
+    assert "## Cross-Corpus Risk" in section
+    assert "Standard corpus: 540 matches, 0 FP, 0 FN" in section
+    assert "extended-only edge case against a standard-perfect baseline" in section
+    assert "risk of overfitting" in section
+
+
+def test_select_backend_for_entry_forces_codex_hard_for_extended_only_edge_case():
+    result = gct.select_backend_for_entry(
+        "Style/MixinUsage",
+        {"cop": "Style/MixinUsage", "fp": 3, "fn": 0, "matches": 100, "repo_breakdown": {"foo__bar__abc": {"fp": 3, "fn": 0}}},
+        mode="fix",
+        binary=Path(__file__),
+        extended=True,
+        standard_entry={"cop": "Style/MixinUsage", "fp": 0, "fn": 0, "matches": 540, "repo_breakdown": {}},
+        prior_prs=[],
+        issue_difficulty="simple",
+    )
+    assert result["backend"] == "codex-hard"
+    assert result["requires_standard_quick_gate"] is True
+    assert result["extended_only_edge_case"] is True
+    assert "standard-perfect baseline" in result["reason"]
+
+
+def test_classify_issue_difficulty_escalates_extended_only_edge_case():
+    difficulty = gct.classify_issue_difficulty(
+        {"cop": "Style/MixinUsage", "fp": 3, "fn": 0, "matches": 100},
+        {
+            "easy": False,
+            "extended_only_edge_case": True,
+        },
+    )
+    assert difficulty == "complex"
+
+
 def test_build_start_here_section_uses_repo_hotspots_and_examples():
     corpus = {
         "repo_breakdown": {
@@ -430,6 +493,10 @@ if __name__ == "__main__":
     test_has_failed_attempt_ignores_open_prs()
     test_select_backend_for_entry_uses_issue_difficulty_when_present()
     test_select_backend_for_entry_easy_cop_uses_codex_normal()
+    test_assess_cross_corpus_risk_flags_extended_only_edge_case()
+    test_build_cross_corpus_risk_section_warns_about_standard_perfect_baseline()
+    test_select_backend_for_entry_forces_codex_hard_for_extended_only_edge_case()
+    test_classify_issue_difficulty_escalates_extended_only_edge_case()
     test_build_start_here_section_uses_repo_hotspots_and_examples()
     test_build_start_here_section_empty_when_no_corpus_examples()
     test_choose_issue_state_preserves_blocked_without_open_pr()

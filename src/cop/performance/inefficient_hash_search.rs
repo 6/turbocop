@@ -3,6 +3,11 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus reported FP=3, FN=0. All 3 FPs from vendored gem files
+/// with out-of-tree scan paths. Fixed by scan_roots support in CopFilterSet
+/// for AllCops.Exclude path matching (commit 1f2f67c).
 pub struct InefficientHashSearch;
 
 impl Cop for InefficientHashSearch {

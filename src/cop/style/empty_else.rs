@@ -24,6 +24,10 @@ impl Cop for EmptyElse {
         &[CASE_NODE, ELSE_NODE, IF_NODE, NIL_NODE, UNLESS_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -31,7 +35,7 @@ impl Cop for EmptyElse {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "both");
         let allow_comments = config.get_bool("AllowComments", false);
@@ -51,13 +55,15 @@ impl Cop for EmptyElse {
             }
 
             // Walk the chain to find the else
-            diagnostics.extend(self.check_if_chain_for_else(
+            let results = self.check_if_chain_for_else(
                 source,
                 &if_node,
                 check_empty,
                 check_nil,
                 allow_comments,
-            ));
+                &mut corrections,
+            );
+            diagnostics.extend(results);
         }
 
         if let Some(unless_node) = node.as_unless_node() {
@@ -68,6 +74,7 @@ impl Cop for EmptyElse {
                     check_empty,
                     check_nil,
                     allow_comments,
+                    &mut corrections,
                 ));
             }
             return;
@@ -81,6 +88,7 @@ impl Cop for EmptyElse {
                     check_empty,
                     check_nil,
                     allow_comments,
+                    &mut corrections,
                 ));
             }
         }
@@ -95,6 +103,7 @@ impl EmptyElse {
         check_empty: bool,
         check_nil: bool,
         allow_comments: bool,
+        corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
     ) -> Vec<Diagnostic> {
         // Walk subsequent chain
         let mut current_subsequent = if_node.subsequent();
@@ -107,6 +116,7 @@ impl EmptyElse {
                     check_empty,
                     check_nil,
                     allow_comments,
+                    corrections,
                 );
             }
             // If it's another IfNode (elsif), continue the chain
@@ -126,10 +136,11 @@ impl EmptyElse {
         check_empty: bool,
         check_nil: bool,
         allow_comments: bool,
+        corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
     ) -> Vec<Diagnostic> {
         let kw_loc = else_node.else_keyword_loc();
 
-        match else_node.statements() {
+        let is_offense = match else_node.statements() {
             None => {
                 // Empty else clause
                 if check_empty {
@@ -146,28 +157,56 @@ impl EmptyElse {
                             }
                         }
                     }
-                    let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                    return vec![self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Redundant `else`-clause.".to_string(),
-                    )];
+                    true
+                } else {
+                    false
                 }
             }
             Some(stmts) => {
                 // Check if the only statement is `nil`
                 let body: Vec<_> = stmts.body().iter().collect();
-                if body.len() == 1 && body[0].as_nil_node().is_some() && check_nil {
-                    let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                    return vec![self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Redundant `else`-clause.".to_string(),
-                    )];
+                body.len() == 1 && body[0].as_nil_node().is_some() && check_nil
+            }
+        };
+
+        if is_offense {
+            let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+            let mut diag =
+                self.diagnostic(source, line, column, "Redundant `else`-clause.".to_string());
+            // Autocorrect: remove else clause. Remove from the end of the line
+            // before `else` to the end of the line before `end`.
+            // For `...statement\nelse\n  nil\nend` → `...statement\nend`
+            if let Some(corr) = corrections {
+                if let Some(end_kw) = else_node.end_keyword_loc() {
+                    let src = source.as_bytes();
+                    // Find the newline before `else` keyword line
+                    let mut pos = kw_loc.start_offset();
+                    while pos > 0 && src[pos - 1] != b'\n' {
+                        pos -= 1;
+                    }
+                    // pos is now at start of else line; the newline is at pos-1
+                    let remove_start = if pos > 0 { pos - 1 } else { 0 };
+                    // Find the newline before `end` keyword line
+                    let mut pos2 = end_kw.start_offset();
+                    while pos2 > 0 && src[pos2 - 1] != b'\n' {
+                        pos2 -= 1;
+                    }
+                    let remove_end = if pos2 > 0 {
+                        pos2 - 1
+                    } else {
+                        end_kw.start_offset()
+                    };
+                    corr.push(crate::correction::Correction {
+                        start: remove_start,
+                        end: remove_end,
+                        replacement: String::new(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
                 }
             }
+            return vec![diag];
         }
 
         Vec::new()
@@ -181,6 +220,7 @@ mod tests {
     use crate::testutil::run_cop_full_with_config;
 
     crate::cop_fixture_tests!(EmptyElse, "cops/style/empty_else");
+    crate::cop_autocorrect_fixture_tests!(EmptyElse, "cops/style/empty_else");
 
     fn allow_comments_config() -> CopConfig {
         use std::collections::HashMap;

@@ -28,6 +28,10 @@ impl Cop for RedundantWithObject {
         &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -35,7 +39,7 @@ impl Cop for RedundantWithObject {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -70,12 +74,28 @@ impl Cop for RedundantWithObject {
         if redundant_block_signature(&block_node) {
             let msg_loc = call.message_loc().unwrap_or(call.location());
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Redundant `with_object`.".to_string(),
-            ));
+            let mut diag =
+                self.diagnostic(source, line, column, "Redundant `with_object`.".to_string());
+            // Autocorrect: replace `each_with_object(arg)` with `each`
+            if let Some(ref mut corr) = corrections {
+                // Replace method name and remove arguments
+                let args_end = call.arguments().unwrap().location().end_offset();
+                // Find closing paren after args
+                let src = source.as_bytes();
+                let mut end = args_end;
+                if end < src.len() && src[end] == b')' {
+                    end += 1;
+                }
+                corr.push(crate::correction::Correction {
+                    start: msg_loc.start_offset(),
+                    end,
+                    replacement: "each".to_string(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
     }
 }
@@ -110,4 +130,5 @@ fn redundant_block_signature(block: &ruby_prism::BlockNode<'_>) -> bool {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(RedundantWithObject, "cops/lint/redundant_with_object");
+    crate::cop_autocorrect_fixture_tests!(RedundantWithObject, "cops/lint/redundant_with_object");
 }

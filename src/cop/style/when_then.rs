@@ -27,6 +27,10 @@ impl Cop for WhenThen {
         &[WHEN_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -34,7 +38,7 @@ impl Cop for WhenThen {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let when_node = match node.as_when_node() {
             Some(w) => w,
@@ -51,6 +55,7 @@ impl Cop for WhenThen {
                         source,
                         &when_node,
                         then_loc.start_offset(),
+                        &mut corrections,
                     ));
                 }
                 return;
@@ -104,7 +109,12 @@ impl Cop for WhenThen {
             }
             if !in_comment && b == b';' {
                 let abs_offset = last_cond_end + i;
-                diagnostics.extend(self.flag_semicolon(source, &when_node, abs_offset));
+                diagnostics.extend(self.flag_semicolon(
+                    source,
+                    &when_node,
+                    abs_offset,
+                    &mut corrections,
+                ));
                 return;
             }
             i += 1;
@@ -118,6 +128,7 @@ impl WhenThen {
         source: &SourceFile,
         when_node: &ruby_prism::WhenNode<'_>,
         semi_offset: usize,
+        corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
     ) -> Vec<Diagnostic> {
         // RuboCop skips multiline `when` nodes entirely.
         let when_loc = when_node.location();
@@ -138,7 +149,7 @@ impl WhenThen {
         let when_text = conditions_text.join(", ");
 
         let (line, column) = source.offset_to_line_col(semi_offset);
-        vec![self.diagnostic(
+        let mut diag = self.diagnostic(
             source,
             line,
             column,
@@ -146,7 +157,19 @@ impl WhenThen {
                 "Do not use `when {};`. Use `when {} then` instead.",
                 when_text, when_text
             ),
-        )]
+        );
+        // Autocorrect: replace `;` with ` then`
+        if let Some(corr) = corrections {
+            corr.push(crate::correction::Correction {
+                start: semi_offset,
+                end: semi_offset + 1,
+                replacement: " then".to_string(),
+                cop_name: self.name(),
+                cop_index: 0,
+            });
+            diag.corrected = true;
+        }
+        vec![diag]
     }
 }
 
@@ -155,6 +178,7 @@ mod tests {
     use super::*;
     use crate::testutil::run_cop_full;
     crate::cop_fixture_tests!(WhenThen, "cops/style/when_then");
+    crate::cop_autocorrect_fixture_tests!(WhenThen, "cops/style/when_then");
 
     #[test]
     fn inline_test_semicolon() {

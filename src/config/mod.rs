@@ -203,6 +203,14 @@ impl CopFilterSet {
         //   - other configs → current working directory
         // This handles absolute file paths (e.g., `/abs/path/vendor/foo.rb`
         // needs to match a pattern like `vendor/**`).
+        // NOTE: Do NOT add a "scan_roots" fallback that resolves AllCops.Exclude
+        // patterns relative to CLI target directories. RuboCop resolves these
+        // patterns relative to the config file's directory (base_dir/config_dir),
+        // not the scan target. Adding scan_roots caused smoke test regressions:
+        // when `--config bench/corpus/baseline.yml /tmp/repo` was used, patterns
+        // like `vendor/**/*` incorrectly excluded `/tmp/repo/vendor/` files that
+        // RuboCop still lints (since RuboCop resolves relative to the config dir).
+        // See commit a44c8fc2 (reverted) for the failed attempt.
         for dir in [&self.base_dir, &self.config_dir].into_iter().flatten() {
             if let Ok(rel) = path.strip_prefix(dir) {
                 if self.matches_global_exclude_glob(rel) {
@@ -948,10 +956,17 @@ pub fn load_config(
             let base_dir = config_dir
                 .canonicalize()
                 .unwrap_or_else(|_| config_dir.clone());
+            // Even without a config file, apply RuboCop's default AllCops.Exclude
+            // patterns (vendor/**/* etc.). RuboCop always loads config/default.yml
+            // which includes these excludes, regardless of whether a project has
+            // .rubocop.yml. Without this, repos without config files get zero file
+            // exclusion, causing false positives on vendored code.
+            let defaults = fallback_default_excludes();
             return Ok(ResolvedConfig {
                 config_dir: Some(config_dir.clone()),
                 dir_overrides: load_dir_overrides(&config_dir),
                 base_dir: Some(base_dir),
+                global_excludes: defaults.global_excludes,
                 ..ResolvedConfig::empty()
             });
         }
@@ -1164,6 +1179,21 @@ pub fn load_config(
 ///
 /// Also returns the set of all cop names found in the installed gem's config,
 /// used for core cop version awareness (cops not in the installed gem don't exist).
+/// RuboCop's built-in AllCops.Exclude defaults. Used as a fallback when the
+/// rubocop gem can't be found (e.g., corpus repos without their own bundle).
+/// These match the patterns in rubocop's `config/default.yml`.
+/// Minimal set of patterns matching rubocop's config/default.yml AllCops.Exclude.
+fn fallback_default_excludes() -> ConfigLayer {
+    let mut layer = ConfigLayer::empty();
+    layer.global_excludes = vec![
+        "node_modules/**/*".to_string(),
+        "tmp/**/*".to_string(),
+        "vendor/**/*".to_string(),
+        ".git/**/*".to_string(),
+    ];
+    layer
+}
+
 fn try_load_rubocop_defaults(
     working_dir: &Path,
     gem_cache: Option<&HashMap<String, PathBuf>>,
@@ -1173,18 +1203,18 @@ fn try_load_rubocop_defaults(
     } else {
         match gem_path::resolve_gem_path("rubocop", working_dir) {
             Ok(p) => p,
-            Err(_) => return (ConfigLayer::empty(), HashSet::new()),
+            Err(_) => return (fallback_default_excludes(), HashSet::new()),
         }
     };
 
     let default_config = gem_root.join("config").join("default.yml");
     if !default_config.exists() {
-        return (ConfigLayer::empty(), HashSet::new());
+        return (fallback_default_excludes(), HashSet::new());
     }
 
     let contents = match std::fs::read_to_string(&default_config) {
         Ok(c) => c,
-        Err(_) => return (ConfigLayer::empty(), HashSet::new()),
+        Err(_) => return (fallback_default_excludes(), HashSet::new()),
     };
 
     // Strip Ruby-specific YAML tags (e.g., !ruby/regexp) that serde_yml can't handle
@@ -1197,7 +1227,7 @@ fn try_load_rubocop_defaults(
                 "warning: failed to parse rubocop default config {}: {e}",
                 default_config.display()
             );
-            return (ConfigLayer::empty(), HashSet::new());
+            return (fallback_default_excludes(), HashSet::new());
         }
     };
 
@@ -3155,9 +3185,15 @@ mod tests {
             "AllCops:\n  Exclude:\n    - 'vendor/**'\n    - 'tmp/**'\n",
         );
         let config = load_config(Some(&path), None, None).unwrap();
-        assert_eq!(
-            config.global_excludes(),
-            &["vendor/**".to_string(), "tmp/**".to_string()]
+        let excludes = config.global_excludes();
+        // User patterns must be present (merged with rubocop defaults / fallback)
+        assert!(
+            excludes.iter().any(|e| e == "vendor/**"),
+            "vendor/** missing: {excludes:?}"
+        );
+        assert!(
+            excludes.iter().any(|e| e == "tmp/**"),
+            "tmp/** missing: {excludes:?}"
         );
         fs::remove_dir_all(&dir).ok();
     }
@@ -3682,15 +3718,18 @@ mod tests {
     #[test]
     fn allcops_exclude_override_replaces() {
         // When inherit_mode explicitly overrides Exclude, AllCops.Exclude
-        // should replace instead of merge.
+        // from inherit_from is replaced (not merged). However, rubocop's own
+        // built-in defaults (vendor/**/*, etc.) are always present — the
+        // override only affects the inherit chain, not the built-in layer.
         let dir = std::env::temp_dir().join("nitrocop_test_allcops_exclude_override");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
+        // base.yml has a CUSTOM pattern (spec/fixtures/**/*)
         write_yaml(
             &dir,
             "base.yml",
-            "AllCops:\n  Exclude:\n    - 'vendor/**/*'\n    - 'tmp/**/*'\n",
+            "AllCops:\n  Exclude:\n    - 'spec/fixtures/**/*'\n",
         );
         let path = write_yaml(
             &dir,
@@ -3700,14 +3739,12 @@ mod tests {
 
         let config = load_config(Some(&path), None, None).unwrap();
         let excludes = config.global_excludes();
+        // The inherit_from base's custom pattern should be overridden
         assert!(
-            !excludes.iter().any(|e| e == "vendor/**/*"),
-            "vendor exclude should be replaced: {excludes:?}"
+            !excludes.iter().any(|e| e == "spec/fixtures/**/*"),
+            "inherited custom exclude should be replaced: {excludes:?}"
         );
-        assert!(
-            !excludes.iter().any(|e| e == "tmp/**/*"),
-            "tmp exclude should be replaced: {excludes:?}"
-        );
+        // The local override pattern should be present
         assert!(
             excludes.iter().any(|e| e == "coverage/**/*"),
             "local coverage exclude missing: {excludes:?}"
@@ -4005,13 +4042,25 @@ mod tests {
     }
 
     #[test]
-    fn no_config_found_returns_empty() {
+    fn no_config_found_applies_default_excludes() {
         let dir = std::env::temp_dir().join("nitrocop_test_no_config");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
         let config = load_config(None, Some(&dir), None).unwrap();
-        assert!(config.global_excludes().is_empty());
+        // Even without a config file, RuboCop's default AllCops.Exclude
+        // patterns are applied (vendor/**/* etc.), matching RuboCop's behavior.
+        assert!(
+            !config.global_excludes().is_empty(),
+            "default excludes should be present even without config file"
+        );
+        assert!(
+            config
+                .global_excludes()
+                .iter()
+                .any(|e| e.contains("vendor")),
+            "vendor/**/* should be in default excludes"
+        );
         assert!(config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
 
         fs::remove_dir_all(&dir).ok();

@@ -17,11 +17,24 @@ use ruby_prism::Visit;
 /// was too aggressive, swinging from FN=162 to FP=212. The location-only fix
 /// was separated out as the safe first step.
 ///
-/// ### Remaining gaps
-/// FN from missing intermediate chain walk: RuboCop's `each_node(:call)` walks
-/// through non-block intermediate calls (e.g., `.foo.bar do...end` where `.foo`
-/// has no block). This needs careful implementation to avoid the over-detection
-/// seen in the reverted commit.
+/// ### Fix (2026-03-23): Location + intermediate chain walk
+/// Two root causes for FP=150, FN=304:
+///
+/// 1. **Location mismatch (~150 FP + ~150 FN):** nitrocop reported at the dot
+///    operator (`.`) which is often on the line after `end`/`}`. RuboCop reports
+///    at the closing delimiter of the receiver block (`end`/`}`). When the dot
+///    is on a new line after `end`, nitrocop's line was off by 1 from RuboCop,
+///    creating paired FP/FN entries. Fix: report at the end offset of the
+///    receiver block's closing delimiter (the `end`/`}` position).
+///
+/// 2. **Missing intermediate chain walk (~154 FN):** For patterns like
+///    `a do..end.c1.c2 do..end`, RuboCop's `send_node.each_node(:call)` walks
+///    through ALL call nodes in the send chain, finding that `.c1`'s receiver
+///    is the multiline block. nitrocop only checked the immediate receiver of
+///    the outer call. Fix: walk the receiver chain through non-block intermediate
+///    CallNodes until we find a call whose receiver is a multiline block. We
+///    stop (break) on the first match, matching RuboCop's `break` after
+///    `add_offense`.
 pub struct MultilineBlockChain;
 
 /// Visitor that checks for multiline block chains.
@@ -55,55 +68,85 @@ impl<'pr> Visit<'pr> for BlockChainVisitor<'_> {
 }
 
 impl BlockChainVisitor<'_> {
-    fn check_receiver_chain(&mut self, node: &ruby_prism::CallNode<'_>) {
-        let receiver = match node.receiver() {
-            Some(r) => r,
-            None => return,
-        };
-
-        let recv_call = match receiver.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
-
-        // Does the receiver call have a real block (do..end or {..})?
-        let recv_block = match recv_call.block() {
-            Some(b) => b,
-            None => return,
-        };
-        if recv_block.as_block_node().is_none() {
-            return;
+    /// Check if a node is a multiline block (do..end or {..}).
+    fn is_multiline_block(&self, block: &ruby_prism::Node<'_>) -> bool {
+        if block.as_block_node().is_none() {
+            return false;
         }
-
-        // Is the receiver's block multiline?
-        let block_loc = recv_block.location();
+        let block_loc = block.location();
         let (block_start, _) = self.source.offset_to_line_col(block_loc.start_offset());
         let (block_end, _) = self
             .source
             .offset_to_line_col(block_loc.end_offset().saturating_sub(1));
+        block_start != block_end
+    }
 
-        if block_start == block_end {
-            return;
+    fn check_receiver_chain(&mut self, node: &ruby_prism::CallNode<'_>) {
+        // RuboCop: node.send_node.each_node(:call) walks through ALL call nodes
+        // in the method chain. For each, it checks if the receiver is a multiline
+        // block. We walk the receiver chain iteratively.
+        //
+        // For `a do..end.c1.c2 do..end`, the chain from `.c2` is:
+        //   .c2 -> receiver .c1 -> receiver (a do..end)
+        // We check: does .c2's receiver (.c1) have a multiline block? No.
+        // Then: does .c1's receiver (a do..end) have a multiline block? Check if
+        // (a do..end) is a call with a multiline block receiver... Actually no,
+        // `a` is the call, and it has a block. We need to check if `.c1`'s
+        // receiver is any_block_type AND multiline.
+        //
+        // In Prism, `a do..end` is a CallNode with a block. The receiver of `.c1`
+        // is this CallNode. We need to check if that CallNode's block is multiline.
+
+        let mut current_call = node.receiver();
+        while let Some(recv_node) = current_call {
+            if let Some(recv_call) = recv_node.as_call_node() {
+                // Does this call have a multiline block?
+                if let Some(block) = recv_call.block() {
+                    if self.is_multiline_block(&block) {
+                        // Found a multiline block in the chain.
+                        // RuboCop reports at receiver.loc.end.begin_pos — the closing
+                        // delimiter of the block (end/}). We report at the end_offset
+                        // of the block minus the closing keyword length to get its start.
+                        let block_loc = block.location();
+                        let end_offset = block_loc.end_offset();
+                        // Find the start of the closing delimiter. For `end` it's 3 bytes
+                        // back, for `}` it's 1 byte back. We can check the source byte.
+                        let closing_start = self.find_block_closing_start(end_offset);
+                        let (line, column) = self.source.offset_to_line_col(closing_start);
+                        self.diagnostics.push(Diagnostic {
+                            path: self.source.path_str().to_string(),
+                            location: Location { line, column },
+                            severity: Severity::Convention,
+                            cop_name: self.cop_name.to_string(),
+                            message: "Avoid multi-line chains of blocks.".to_string(),
+                            corrected: false,
+                        });
+                        // Done — if there are more blocks in the chain, they will be
+                        // found by subsequent on_block (visit_call_node) calls.
+                        return;
+                    }
+                }
+                // No multiline block on this call — continue walking up the chain
+                current_call = recv_call.receiver();
+            } else {
+                // Not a call node — stop walking
+                return;
+            }
         }
+    }
 
-        // Multiline block chain: receiver has a multiline block,
-        // and current node also has a block.
-        // RuboCop reports at the dot (call operator) before the method name,
-        // not at the method name itself. Fall back to message_loc if no dot.
-        let loc = node
-            .call_operator_loc()
-            .or_else(|| node.message_loc())
-            .unwrap_or_else(|| node.location());
-        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-        self.diagnostics.push(Diagnostic {
-            path: self.source.path_str().to_string(),
-            location: Location { line, column },
-            severity: Severity::Convention,
-            cop_name: self.cop_name.to_string(),
-            message: "Avoid multi-line chains of blocks.".to_string(),
-
-            corrected: false,
-        });
+    /// Find the start offset of the block's closing delimiter (`end` or `}`).
+    /// The block's end_offset points just past the closing delimiter.
+    fn find_block_closing_start(&self, end_offset: usize) -> usize {
+        let src = self.source.as_bytes();
+        if end_offset >= 3 && &src[end_offset - 3..end_offset] == b"end" {
+            end_offset - 3
+        } else if end_offset >= 1 && src[end_offset - 1] == b'}' {
+            end_offset - 1
+        } else {
+            // Fallback: shouldn't normally happen
+            end_offset.saturating_sub(1)
+        }
     }
 }
 

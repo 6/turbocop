@@ -56,6 +56,19 @@ use ruby_prism::Visit;
 /// These are file-exclusion issues — RuboCop's AllCops.Exclude covers these
 /// paths but nitrocop's path resolution doesn't relativize correctly.
 /// The cop logic is correct; no code fix needed for FPs.
+///
+/// ## Corpus investigation (2026-03-23)
+///
+/// FP=15, FN=7 (extended). FPs confirmed as vendor-path exclusion issues (not cop logic).
+/// FN root cause: `parent_is_call` flag leaked through non-CallNode intermediate nodes
+/// that appeared as call arguments. RuboCop checks `node.parent&.call_type?` which only
+/// matches when the DIRECT parent is a call node. Intermediate nodes like SplatNode,
+/// CaseNode, IfNode, BeginNode, InterpolatedStringNode, and ParenthesesNode need to
+/// reset the flag so nested output calls are detected. Corpus FN patterns:
+/// - `*p` as splat argument: SplatNode wraps the `p` call
+/// - `puts` inside `case/else` branch that is a call argument: CaseNode wraps branches
+/// - `pp(act)` inside `#{}` interpolation in a call argument string
+/// - `puts` inside `if/else` branch that is a call argument
 pub struct Output;
 
 const MSG: &str = "Do not write to stdout. Use Rails's logger if you want to log.";
@@ -252,6 +265,61 @@ impl<'pr> Visit<'pr> for OutputVisitor<'_> {
         let was = self.parent_is_call;
         self.parent_is_call = false;
         ruby_prism::visit_hash_node(self, node);
+        self.parent_is_call = was;
+    }
+
+    // Splat nodes reset parent_is_call so that `*p` inside a call argument
+    // detects the `p` call (RuboCop's parent of `p` is the splat, not the call).
+    fn visit_splat_node(&mut self, node: &ruby_prism::SplatNode<'pr>) {
+        let was = self.parent_is_call;
+        self.parent_is_call = false;
+        ruby_prism::visit_splat_node(self, node);
+        self.parent_is_call = was;
+    }
+
+    // Case expressions reset parent_is_call so that output calls inside
+    // when/else branches are detected even when the case is a call argument.
+    fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
+        let was = self.parent_is_call;
+        self.parent_is_call = false;
+        ruby_prism::visit_case_node(self, node);
+        self.parent_is_call = was;
+    }
+
+    // If/unless expressions reset parent_is_call so that output calls inside
+    // branches are detected even when the if is a call argument.
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        let was = self.parent_is_call;
+        self.parent_is_call = false;
+        ruby_prism::visit_if_node(self, node);
+        self.parent_is_call = was;
+    }
+
+    // Begin/rescue blocks reset parent_is_call so that output calls inside
+    // begin blocks that are call arguments are detected.
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        let was = self.parent_is_call;
+        self.parent_is_call = false;
+        ruby_prism::visit_begin_node(self, node);
+        self.parent_is_call = was;
+    }
+
+    // Interpolated strings reset parent_is_call so that output calls inside
+    // string interpolation (e.g., `"#{pp(x)}"`) are detected even when the
+    // string is a call argument.
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        let was = self.parent_is_call;
+        self.parent_is_call = false;
+        ruby_prism::visit_interpolated_string_node(self, node);
+        self.parent_is_call = was;
+    }
+
+    // Parentheses reset parent_is_call so that output calls inside
+    // parenthesized expressions that are call arguments are detected.
+    fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'pr>) {
+        let was = self.parent_is_call;
+        self.parent_is_call = false;
+        ruby_prism::visit_parentheses_node(self, node);
         self.parent_is_call = was;
     }
 }

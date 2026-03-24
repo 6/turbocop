@@ -7,3 +7,7 @@ var.is_a?(String)
 var.is_a?(Numeric)
 
 x.respond_to?(:foo)
+
+is_a?(Date)
+
+is_a?(Integer)

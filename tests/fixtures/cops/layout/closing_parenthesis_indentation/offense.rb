@@ -15,3 +15,9 @@ other_method(
   y
         )
         ^ Layout/ClosingParenthesisIndentation: Indent `)` to column 0 (not 8).
+
+# Grouped expression with hanging )
+w = x * (
+  y + z
+  )
+  ^ Layout/ClosingParenthesisIndentation: Indent `)` to column 0 (not 2).

@@ -6,16 +6,37 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Investigation findings (2026-03-18)
 ///
-/// ### FP root cause fixed:
+/// ### FP root cause fixed (round 1):
 /// - Non-magic comment lines (e.g., `# This is a description`) on line 1 or 2
 ///   should stop magic comment processing. Previously we checked the first 3 lines
 ///   regardless; now we match RuboCop's behavior of only processing contiguous
 ///   magic comment lines (frozen_string_literal, encoding, shareable_constant_value,
 ///   typed, rbs_inline). Regular comments terminate the search.
 ///
-/// ### FN root cause fixed:
+/// ### FN root cause fixed (round 1):
 /// - `# coding: utf-8` format was already handled but lacked fixture coverage.
 ///   Added coding_format.rb scenario.
+///
+/// ## Investigation findings (2026-03-23)
+///
+/// ### FP root causes fixed (58 FP):
+/// 1. `# vim:fileencoding=utf-8` (44 FP, resque-scheduler): Vim comments with only
+///    one token should NOT detect encoding. RuboCop's VimComment#encoding returns nil
+///    when tokens.size <= 1, making valid? false and stopping magic comment processing.
+/// 2. `# encoding:utf-8` / `#coding:utf-8` (12 FP, catarse/gollum/padrino/piotrmurach):
+///    RuboCop's SimpleComment encoding regex requires `: ` (colon + space) after the
+///    keyword. `encoding:utf-8` (no space) is NOT a valid magic comment.
+/// 3. `# -*- Mode: Ruby; tab-width: 2 -*-` (1 FP, juvia) and `# -*- rspec -*-` (1 FP, ffi):
+///    Emacs comments with unrecognized keywords (Mode, tab-width, rspec) are NOT valid
+///    magic comments. RuboCop checks `any?` which requires encoding/frozen_string_literal/
+///    shareable_constant_value/typed/rbs_inline to be specified. Previously we treated
+///    ALL emacs-style comments as valid.
+///
+/// ### FN root cause fixed (494 FN):
+/// - `# -*- coding: utf-8 -*- #` (all 494 from rouge-ruby/rouge): Emacs comments
+///   with trailing content after `-*-` were not matched. RuboCop's Emacs regex
+///   `-*-(?<token>.+)-*-` greedily matches between first and last `-*-` occurrences,
+///   ignoring trailing text. Fixed by using `rfind("-*-")` instead of `ends_with("-*-")`.
 pub struct Encoding;
 
 impl Cop for Encoding {
@@ -95,12 +116,145 @@ impl Cop for Encoding {
     }
 }
 
+/// Extract the inner content from an emacs-style comment: `-*- ... -*-`.
+/// Returns the content between the first `-*-` and the last `-*-`, or None
+/// if the line doesn't contain an emacs-style magic comment.
+/// RuboCop's regex: `/-\*-(?<token>.+)-\*-/` matches greedily between first
+/// and last occurrence, so `# -*- coding: utf-8 -*- #` is valid (trailing `#`).
+fn extract_emacs_inner(line: &str) -> Option<&str> {
+    let start = line.find("-*-")?;
+    let after_start = start + 3;
+    let rest = line.get(after_start..)?;
+    let end = rest.rfind("-*-")?;
+    if end == 0 {
+        return None; // No content between markers
+    }
+    Some(rest[..end].trim())
+}
+
+/// Extract the token content from a vim-style comment: `# vim: ...` or `# vim:...`.
+/// RuboCop's regex: `/#\s*vim:\s*(?<token>.+)/`
+fn extract_vim_tokens(line: &str) -> Option<&str> {
+    let lower = line.to_lowercase();
+    // Find "vim:" after "#"
+    let hash_pos = lower.find('#')?;
+    let after_hash = lower[hash_pos + 1..].trim_start();
+    if let Some(rest) = after_hash.strip_prefix("vim:") {
+        let content = rest.trim_start();
+        if content.is_empty() {
+            return None;
+        }
+        // Return from original line at the corresponding position
+        // We need to work with the original line for the tokens
+        // Find "vim:" in the original line (case-insensitive)
+        let orig_after_hash = line[hash_pos + 1..].trim_start();
+        // Skip "vim:" (4 chars) case-insensitively
+        let orig_rest = &orig_after_hash[4..];
+        let orig_content = orig_rest.trim_start();
+        if orig_content.is_empty() {
+            return None;
+        }
+        return Some(orig_content);
+    }
+    None
+}
+
+/// Count tokens in a vim comment (comma-separated).
+fn vim_token_count(tokens_str: &str) -> usize {
+    tokens_str
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .count()
+}
+
 /// Check if a comment line is a valid Ruby magic comment.
 /// Matches RuboCop's MagicComment.parse(line).valid? behavior:
-/// recognized types are encoding/coding, frozen_string_literal, shareable_constant_value,
-/// typed (Sorbet), and rbs_inline.
+/// valid? = starts_with('#') && any?
+/// any? checks encoding_specified? || frozen_string_literal_specified? ||
+///   rbs_inline_specified? || shareable_constant_value_specified? || typed_specified?
+///
+/// Key differences from previous implementation:
+/// - Emacs comments: only valid if they contain a recognized magic keyword
+///   (encoding/coding, frozen_string_literal, shareable_constant_value, typed, rbs_inline)
+/// - Vim comments: encoding (fileencoding) only detected with 2+ tokens;
+///   vim comments can't specify frozen_string_literal/shareable_constant_value/typed/rbs_inline
+/// - Simple comments: require ": " (colon + space) after keyword
 fn is_magic_comment(line: &str) -> bool {
     let lower = line.to_lowercase();
+
+    // Must start with #
+    if !lower.trim_start().starts_with('#') {
+        return false;
+    }
+
+    // Emacs style: try to extract -*- ... -*- content
+    if let Some(inner) = extract_emacs_inner(&lower) {
+        // Split by ';' to get tokens, check if any is a recognized magic keyword
+        let emacs_keywords = &[
+            "encoding",
+            "coding", // encoding/coding
+            "frozen_string_literal",
+            "frozen-string-literal",
+            "shareable_constant_value",
+            "shareable-constant-value",
+            "typed",
+            "rbs_inline",
+        ];
+        for token in inner.split(';') {
+            let token = token.trim();
+            for kw in emacs_keywords {
+                // Token format is "keyword: value" or "keyword : value"
+                if let Some(rest) = token.strip_prefix(kw) {
+                    if rest.trim_start().starts_with(':') {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Vim style: # vim: ...
+    if let Some(tokens_str) = extract_vim_tokens(line) {
+        // Vim comments can only specify fileencoding.
+        // fileencoding is only detected when there are 2+ tokens.
+        // So a vim comment is only "valid" (has any recognized keyword) if:
+        // - it has 2+ tokens AND one of them starts with "fileencoding="
+        let count = vim_token_count(tokens_str);
+        if count >= 2 {
+            let lower_tokens = tokens_str.to_lowercase();
+            for token in lower_tokens.split(',') {
+                let token = token.trim();
+                if let Some(rest) = token.strip_prefix("fileencoding") {
+                    if rest.trim_start().starts_with('=') {
+                        return true;
+                    }
+                }
+            }
+        }
+        // Vim comments with single token or without fileencoding: not valid
+        return false;
+    }
+
+    // Simple magic comment keywords (case-insensitive)
+    // RuboCop's SimpleComment requires "# keyword: value" with ": " (colon + space)
+    // The regex patterns are like: /\A\s*#\s*(?:en)?coding:\s*TOKEN/io
+    // Note: the colon is part of the keyword regex, and \s* allows space after colon.
+    // But the key point: the keyword MUST be followed by ": " (colon then optional space
+    // is fine for matching, but the keyword itself uses ":").
+    // Actually re-reading: /\A\s*#\s*(?:en)?coding: (TOKEN)/io - that ": " is
+    // "colon space" literally. So "# encoding:utf-8" (no space) does NOT match.
+    // But /\A\s*#\s*frozen[_-]string[_-]literal:\s*TOKEN\s*\z/io uses ":\s*" so
+    // it DOES allow no space after colon for frozen_string_literal.
+    //
+    // For encoding specifically (SimpleComment#encoding):
+    //   /\A\s*\#\s*(frozen_string_literal:\s*(true|false))?\s*(?:en)?coding: (TOKEN)/io
+    // The ": " after coding requires a space. So "# encoding:utf-8" is NOT valid.
+    //
+    // For other keywords, the pattern is :\s* which allows no space.
+    // But for is_magic_comment, we only care about valid? = any? which checks
+    // if any keyword is specified. So we need to match what RuboCop actually accepts.
 
     // Extract content after # (with optional space)
     let content = if let Some(rest) = lower.strip_prefix("# ") {
@@ -111,23 +265,22 @@ fn is_magic_comment(line: &str) -> bool {
         return false;
     };
 
-    // Emacs style: -*- ... -*-
-    if content.starts_with("-*-") && content.ends_with("-*-") {
-        // Any emacs-style magic comment is valid
-        return true;
-    }
+    // encoding/coding: requires ": " (colon + space) for SimpleComment
+    // Actually let me re-check: SimpleComment#encoding regex is:
+    //   /\A\s*\#\s*(frozen_string_literal:\s*(true|false))?\s*(?:en)?coding: (TOKEN)/io
+    // The " " after "coding:" is a literal space in the regex. So "coding:utf-8" won't match.
+    //
+    // But frozen_string_literal regex is:
+    //   /\A\s*#\s*frozen[_-]string[_-]literal:\s*TOKEN\s*\z/io
+    // Here ":\s*" allows no space. So "frozen_string_literal:true" WOULD match.
+    //
+    // For is_magic_comment, we need: does any keyword match => valid? = true
+    let simple_magic_prefixes_with_colon_space = &[
+        "encoding: ", // requires space after colon
+        "coding: ",   // requires space after colon
+    ];
 
-    // Vim style: vim: ...
-    if content.starts_with("vim:") || content.starts_with("vim :") {
-        return true;
-    }
-
-    // Simple magic comment keywords (case-insensitive)
-    // encoding/coding, frozen_string_literal/frozen-string-literal,
-    // shareable_constant_value/shareable-constant-value, typed, rbs_inline
-    let magic_prefixes = &[
-        "encoding:",
-        "coding:",
+    let simple_magic_prefixes_colon_optional_space = &[
         "frozen_string_literal:",
         "frozen-string-literal:",
         "shareable_constant_value:",
@@ -136,7 +289,13 @@ fn is_magic_comment(line: &str) -> bool {
         "rbs_inline:",
     ];
 
-    for prefix in magic_prefixes {
+    for prefix in simple_magic_prefixes_with_colon_space {
+        if content.starts_with(prefix) {
+            return true;
+        }
+    }
+
+    for prefix in simple_magic_prefixes_colon_optional_space {
         if content.starts_with(prefix) {
             return true;
         }
@@ -146,69 +305,91 @@ fn is_magic_comment(line: &str) -> bool {
 }
 
 /// Check if a comment line is a UTF-8 encoding magic comment.
+/// Must match RuboCop's behavior precisely:
+/// - SimpleComment: `# encoding: utf-8` or `# coding: utf-8` (requires space after colon)
+/// - EmacsComment: `# -*- coding: utf-8 -*-` (may have trailing content after -\*-)
+/// - VimComment: `# vim: filetype=ruby, fileencoding=utf-8` (requires 2+ tokens)
 fn is_utf8_encoding_comment(line: &str) -> bool {
     let lower = line.to_lowercase();
 
-    // Standard magic comment formats:
-    // # encoding: utf-8
-    // # coding: utf-8
-    // # -*- encoding: utf-8 -*-
-    // # -*- coding: utf-8 -*-
-    // # vim:fileencoding=utf-8
-    // # vim: fileencoding=utf-8
-
-    // Check for standard Ruby encoding/coding magic comment
-    if let Some(rest) = lower.strip_prefix("# ").or_else(|| lower.strip_prefix("#")) {
-        let rest = rest.trim();
-
-        // Emacs style: -*- encoding: utf-8 -*- or -*- coding: utf-8 -*-
-        if rest.starts_with("-*-") && rest.ends_with("-*-") {
-            let inner = &rest[3..rest.len() - 3].trim();
-            // Check if it contains encoding or coding with utf-8
-            let inner_lower = inner.to_lowercase();
-            if (inner_lower.contains("encoding") || inner_lower.contains("coding"))
-                && contains_utf8(&inner_lower)
-            {
-                return true;
+    // Emacs style: extract content between first and last -*-
+    if let Some(inner) = extract_emacs_inner(&lower) {
+        // Check each semicolon-separated token for encoding/coding with utf-8 value
+        for token in inner.split(';') {
+            let token = token.trim();
+            // Match (en)?coding : TOKEN pattern
+            let after_kw = token
+                .strip_prefix("encoding")
+                .or_else(|| token.strip_prefix("coding"));
+            if let Some(rest) = after_kw {
+                let rest = rest.trim_start();
+                if let Some(value) = rest.strip_prefix(':') {
+                    let value = value.trim();
+                    if value.eq_ignore_ascii_case("utf-8") {
+                        return true;
+                    }
+                }
             }
-            return false;
         }
+        return false;
+    }
 
-        // vim style: vim:fileencoding=utf-8 or vim: fileencoding=utf-8
-        if rest.starts_with("vim:") || rest.starts_with("vim :") {
-            if contains_utf8(&lower) {
-                return true;
+    // Vim style: fileencoding=utf-8 with 2+ tokens
+    if let Some(tokens_str) = extract_vim_tokens(line) {
+        let count = vim_token_count(tokens_str);
+        if count >= 2 {
+            let lower_tokens = tokens_str.to_lowercase();
+            for token in lower_tokens.split(',') {
+                let token = token.trim();
+                if let Some(rest) = token.strip_prefix("fileencoding") {
+                    let rest = rest.trim_start();
+                    if let Some(value) = rest.strip_prefix('=') {
+                        let value = value.trim();
+                        if value == "utf-8" {
+                            return true;
+                        }
+                    }
+                }
             }
-            return false;
         }
+        return false;
+    }
 
-        // Standard format: encoding: utf-8, coding: utf-8
-        // Also handle: Encoding: UTF-8
-        if let Some(after) = strip_encoding_prefix(rest) {
-            let value = after.trim();
-            if value.eq_ignore_ascii_case("utf-8") {
-                return true;
-            }
+    // Simple format: # encoding: utf-8 or # coding: utf-8
+    // Requires space after colon per RuboCop's SimpleComment regex.
+    // Extract content after # (with optional whitespace)
+    let content = if let Some(rest) = lower.strip_prefix("# ") {
+        rest.trim()
+    } else if let Some(rest) = lower.strip_prefix('#') {
+        rest.trim()
+    } else {
+        return false;
+    };
+
+    // RuboCop SimpleComment#encoding regex:
+    // /\A\s*\#\s*(frozen_string_literal:\s*(true|false))?\s*(?:en)?coding: (TOKEN)/io
+    // This allows optional frozen_string_literal prefix. We handle the simple case.
+    // The key: "coding: " requires colon + space.
+    if let Some(after) = strip_encoding_prefix_with_space(content) {
+        let value = after.trim();
+        if value.eq_ignore_ascii_case("utf-8") {
+            return true;
         }
     }
 
     false
 }
 
-/// Strip the encoding/coding prefix and colon, returning the value part.
-fn strip_encoding_prefix(s: &str) -> Option<&str> {
+/// Strip the encoding/coding prefix with colon+space, returning the value part.
+/// Matches RuboCop's SimpleComment requirement of ": " (colon followed by space).
+fn strip_encoding_prefix_with_space(s: &str) -> Option<&str> {
     let lower = s.to_lowercase();
-    for prefix in &["encoding:", "coding:"] {
+    for prefix in &["encoding: ", "coding: "] {
         if lower.starts_with(prefix) {
             return Some(&s[prefix.len()..]);
         }
     }
     None
-}
-
-/// Check if a string contains "utf-8" (case insensitive).
-fn contains_utf8(s: &str) -> bool {
-    s.contains("utf-8")
 }
 
 #[cfg(test)]
@@ -221,6 +402,8 @@ mod tests {
         mixed_case = "mixed_case.rb",
         after_shebang = "after_shebang.rb",
         coding_format = "coding_format.rb",
+        emacs_with_trailing = "emacs_with_trailing.rb",
+        emacs_encoding = "emacs_encoding.rb",
     );
 
     #[test]
@@ -276,6 +459,98 @@ mod tests {
             diags.is_empty(),
             "Should NOT flag encoding after non-magic comment: {:?}",
             diags
+        );
+    }
+
+    #[test]
+    fn no_fp_vim_single_token_fileencoding() {
+        // # vim:fileencoding=utf-8 with only one token is NOT detected by RuboCop.
+        // VimComment.encoding returns nil when tokens.size == 1,
+        // so encoding_specified? is false, valid? is false, processing stops.
+        let input = b"# vim:fileencoding=utf-8\ndef foo; end\n";
+        let diags = crate::testutil::run_cop_full(&Encoding, input);
+        assert!(
+            diags.is_empty(),
+            "Should NOT flag vim:fileencoding=utf-8 with single token: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_fp_encoding_no_space_after_colon() {
+        // # encoding:utf-8 (no space after colon) is NOT a valid magic comment in RuboCop.
+        // SimpleComment encoding regex requires ": " (colon + space).
+        let input = b"# encoding:utf-8\ndef foo; end\n";
+        let diags = crate::testutil::run_cop_full(&Encoding, input);
+        assert!(
+            diags.is_empty(),
+            "Should NOT flag # encoding:utf-8 (no space): {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_fp_coding_no_space_after_colon() {
+        // #coding:utf-8 (no space after colon) is NOT a valid magic comment in RuboCop.
+        let input = b"#coding:utf-8\ndef foo; end\n";
+        let diags = crate::testutil::run_cop_full(&Encoding, input);
+        assert!(
+            diags.is_empty(),
+            "Should NOT flag #coding:utf-8 (no space): {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_fp_emacs_non_encoding_keywords() {
+        // # -*- Mode: Ruby; tab-width: 2 -*- is an emacs comment with non-encoding keywords.
+        // RuboCop's MagicComment checks encoding_specified?, frozen_string_literal_specified?, etc.
+        // None of these match Mode/tab-width, so valid? returns false, processing stops.
+        let input =
+            b"# -*- Mode: Ruby; tab-width: 2 -*-\n# -*- encoding: utf-8 -*-\ndef foo; end\n";
+        let diags = crate::testutil::run_cop_full(&Encoding, input);
+        assert!(
+            diags.is_empty(),
+            "Should NOT flag encoding after non-magic emacs comment: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_fp_emacs_rspec_comment() {
+        // # -*- rspec -*- is an emacs comment with unrecognized keyword.
+        // valid? returns false, processing stops, encoding on line 2 is not checked.
+        let input = b"# -*- rspec -*-\n# encoding: utf-8\ndef foo; end\n";
+        let diags = crate::testutil::run_cop_full(&Encoding, input);
+        assert!(
+            diags.is_empty(),
+            "Should NOT flag encoding after non-magic emacs comment: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn flags_emacs_encoding_with_trailing() {
+        // # -*- coding: utf-8 -*- # has trailing content after -*-
+        // RuboCop still matches this because the regex is -*-(.+)-*- which greedily captures.
+        let input = b"# -*- coding: utf-8 -*- #\nmodule Foo; end\n";
+        let diags = crate::testutil::run_cop_full(&Encoding, input);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag emacs encoding with trailing content"
+        );
+    }
+
+    #[test]
+    fn flags_vim_fileencoding_multi_token() {
+        // # vim: filetype=ruby, fileencoding=utf-8 has 2+ tokens, so encoding is detected
+        let input = b"# vim: filetype=ruby, fileencoding=utf-8\ndef foo; end\n";
+        let diags = crate::testutil::run_cop_full(&Encoding, input);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag vim fileencoding with multiple tokens"
         );
     }
 

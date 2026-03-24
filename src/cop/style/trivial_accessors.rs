@@ -3,6 +3,25 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Style/TrivialAccessors — flags trivial reader/writer methods that could use
+/// `attr_reader`/`attr_writer`.
+///
+/// ## Investigation notes (2026-03-23)
+///
+/// **FN root cause (84 offenses):** Methods inside blocks (`describe`, `context`,
+/// `Class.new do...end`, etc.) were not checked because the visitor only recognized
+/// `class`/`sclass` scopes. RuboCop's `in_module_or_instance_eval?` walks ancestors
+/// and only skips methods in `module` or `instance_eval` blocks — regular blocks are
+/// transparent, so methods inside them are checked. Fixed by adding `Block` and
+/// `InstanceEval` scope kinds and making blocks transparent when walking the scope
+/// stack.
+///
+/// **FP root cause (5 offenses):**
+/// 1. Methods inside `instance_eval` blocks were not skipped (4 FP from activeagents).
+///    Fixed by detecting `instance_eval` calls and pushing `InstanceEval` scope.
+/// 2. Reader with keyword rest params (`def errors(**_args); @errors; end`) was
+///    flagged as trivial (1 FP from trailblazer). Fixed by checking `keyword_rest`
+///    in the parameter validation.
 pub struct TrivialAccessors;
 
 /// Default AllowedMethods from vendor config (to_ary, to_a, to_c, ... to_sym).
@@ -34,7 +53,11 @@ enum ScopeKind {
     Class,
     /// Inside a `module` — trivial accessors are skipped here
     Module,
-    /// Top level (not inside class/module)
+    /// Inside an `instance_eval` block — trivial accessors are skipped here
+    InstanceEval,
+    /// Inside a regular block (describe, context, Class.new, etc.) — transparent
+    Block,
+    /// Top level (not inside any class/module/block)
     TopLevel,
 }
 
@@ -87,18 +110,36 @@ struct TrivialAccessorsVisitor<'a> {
 }
 
 impl<'a> TrivialAccessorsVisitor<'a> {
-    fn current_scope(&self) -> ScopeKind {
-        *self.scope_stack.last().unwrap_or(&ScopeKind::TopLevel)
+    /// Walk the scope stack from nearest to farthest, looking for the nearest
+    /// relevant scope. Blocks are transparent (keep walking).
+    ///
+    /// Matches RuboCop's `in_module_or_instance_eval?` + `top_level_node?`:
+    /// - Class/SingletonClass → check (return true)
+    /// - Module → skip (return false)
+    /// - InstanceEval → skip (return false)
+    /// - Block → transparent, keep walking
+    /// - TopLevel → skip unless we've seen a block (methods inside blocks
+    ///   are not "top level" in RuboCop's sense)
+    fn should_check_def(&self) -> bool {
+        let mut seen_block = false;
+        for scope in self.scope_stack.iter().rev() {
+            match scope {
+                ScopeKind::Class => return true,
+                ScopeKind::Module => return false,
+                ScopeKind::InstanceEval => return false,
+                ScopeKind::Block => {
+                    seen_block = true;
+                }
+                ScopeKind::TopLevel => {
+                    return seen_block;
+                }
+            }
+        }
+        false
     }
 
     fn check_def(&mut self, def_node: &ruby_prism::DefNode<'_>) {
-        // Skip if we're at top level (not inside any class/module)
-        if self.current_scope() == ScopeKind::TopLevel {
-            return;
-        }
-
-        // Skip if we're inside a module (vendor's in_module_or_instance_eval? check)
-        if self.current_scope() == ScopeKind::Module {
+        if !self.should_check_def() {
             return;
         }
 
@@ -150,11 +191,15 @@ impl<'a> TrivialAccessorsVisitor<'a> {
             let ivar_bytes = ivar_name.as_slice();
             let ivar_without_at = &ivar_bytes[1..];
 
-            // Skip if method has parameters
+            // Skip if method has any parameters (requireds, optionals, rest,
+            // keyword rest, block, etc.)
             if let Some(params) = def_node.parameters() {
                 if !params.requireds().is_empty()
                     || !params.optionals().is_empty()
                     || params.rest().is_some()
+                    || !params.keywords().is_empty()
+                    || params.keyword_rest().is_some()
+                    || params.block().is_some()
                 {
                     return;
                 }
@@ -252,6 +297,30 @@ impl<'pr> Visit<'pr> for TrivialAccessorsVisitor<'_> {
             self.visit(&body);
         }
         self.scope_stack.pop();
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        // Detect instance_eval blocks: `something.instance_eval do ... end`
+        if let Some(block) = node.block() {
+            let method_name = node.name();
+            if method_name.as_slice() == b"instance_eval" {
+                self.scope_stack.push(ScopeKind::InstanceEval);
+                if let Some(block_node) = block.as_block_node() {
+                    if let Some(body) = block_node.body() {
+                        self.visit(&body);
+                    }
+                }
+                self.scope_stack.pop();
+                return;
+            }
+
+            // Regular block (describe, context, Class.new, etc.)
+            self.scope_stack.push(ScopeKind::Block);
+            ruby_prism::visit_call_node(self, node);
+            self.scope_stack.pop();
+        } else {
+            ruby_prism::visit_call_node(self, node);
+        }
     }
 
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {

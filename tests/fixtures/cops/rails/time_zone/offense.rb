@@ -109,3 +109,11 @@ ActiveSupport::Duration.build(params.to_time - Time.now).seconds.to_i
 # Non-dangerous Time method inside dangerous enclosing Time call
 Time.zone.local(year, month, Time.days_in_month(month))
                                   ^^^^^^^^^^^^^^ Rails/TimeZone: Use `Time.zone.local` instead of `Time.local`.
+
+# Splat argument breaks chain walk — inner Time.now not saved by outer .to_i
+Time.new(*Time.now.to_a[0..5].reverse[0..4]).to_i
+               ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.
+
+# Operator assignment — Time.now is still flagged
+Time.now += secs
+     ^^^ Rails/TimeZone: Use `Time.zone.now` instead of `Time.now`.

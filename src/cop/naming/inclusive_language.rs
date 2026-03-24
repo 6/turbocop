@@ -3,6 +3,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use ruby_prism::Visit;
 
+use crate::cop::node_type::UNDEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
@@ -87,6 +88,16 @@ use crate::parse::source::SourceFile;
 /// interpolation, it fell through to `check_strings` (false by default) instead of
 /// `check_symbols` (true). Fixed by adding a `symbol_ranges` check in the `!in_code`
 /// branch of the interpolation path.
+///
+/// ## Corpus investigation (2026-03-23) — extended corpus
+///
+/// Extended corpus reported FN=2 from `undef new_slave, new_safe_slave` in ruby/tk.
+/// In Prism, `undef foo` creates `UndefNode` with `SymbolNode` children. The CodeMap
+/// marks ALL SymbolNodes as non-code, so the `check_source` scanner classifies `undef`
+/// method names as symbols/non-code, following `check_strings` (false by default) instead
+/// of `check_identifiers` (true). RuboCop tokenizes `undef` arguments as `tIDENTIFIER`,
+/// so they follow `check_identifiers`. Fix: added `check_node` handler for `UndefNode`
+/// that iterates undef argument names and checks them under `CheckIdentifiers`.
 pub struct InclusiveLanguage;
 
 /// Global cache of compiled flagged terms, keyed by CopConfig pointer.
@@ -251,6 +262,61 @@ impl Cop for InclusiveLanguage {
 
             // Advance line_byte_start past this line + newline character
             line_byte_start += line.len() + 1;
+        }
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[UNDEF_NODE]
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        // Handle `undef new_slave, new_safe_slave` — Prism represents undef
+        // arguments as SymbolNodes, which the CodeMap marks as non-code. But
+        // RuboCop tokenizes them as tIDENTIFIER (checked under CheckIdentifiers).
+        let check_identifiers = config.get_bool("CheckIdentifiers", true);
+        if !check_identifiers {
+            return;
+        }
+        let undef_node = match node.as_undef_node() {
+            Some(u) => u,
+            None => return,
+        };
+        let terms = get_or_build_terms(config);
+        if terms.is_empty() {
+            return;
+        }
+        for name_node in undef_node.names().iter() {
+            let sym = match name_node.as_symbol_node() {
+                Some(s) => s,
+                None => continue,
+            };
+            let name_bytes = sym.unescaped();
+            let name_str = match std::str::from_utf8(name_bytes) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let name_lower = name_str.to_lowercase();
+            for term in terms.iter() {
+                let matched = if let Some(ref re) = term.regex {
+                    re.is_match(&name_lower).unwrap_or(false)
+                } else {
+                    find_term(&name_lower, term).is_some()
+                };
+                if matched {
+                    let loc = sym.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    let msg = format_message(&term.name, &term.suggestions);
+                    diagnostics.push(self.diagnostic(source, line, column, msg));
+                }
+            }
         }
     }
 }

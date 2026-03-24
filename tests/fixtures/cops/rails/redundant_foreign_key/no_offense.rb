@@ -58,3 +58,25 @@ class Post
     end
   end
 end
+
+# has_many inside with_options block — RuboCop's parent_module_name returns nil
+# because the with_options block is an ancestor of the send node
+class Game
+  with_options dependent: :destroy do
+    has_many :challenges, inverse_of: :game, foreign_key: 'game_id'
+  end
+end
+
+# has_many inside a class that is itself inside a block (e.g., RSpec test)
+describe "test" do
+  class Paz < ActiveRecord::Base
+    has_many :other_zaps, :class_name => "Zap", :foreign_key => :paz_id
+  end
+end
+
+# has_many inside any non-class_eval block, even when redundant
+class Usergroup
+  concern do
+    has_many :cached_usergroup_members, :foreign_key => 'usergroup_id'
+  end
+end

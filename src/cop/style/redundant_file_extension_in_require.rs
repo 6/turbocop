@@ -14,6 +14,10 @@ impl Cop for RedundantFileExtensionInRequire {
         &[CALL_NODE, STRING_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for RedundantFileExtensionInRequire {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -59,12 +63,23 @@ impl Cop for RedundantFileExtensionInRequire {
             let content_loc = str_node.content_loc();
             let ext_start = content_loc.start_offset() + content.len() - 3;
             let (line, column) = source.offset_to_line_col(ext_start);
-            diagnostics.push(self.diagnostic(
+            let mut diag = self.diagnostic(
                 source,
                 line,
                 column,
                 "Redundant `.rb` file extension detected.".to_string(),
-            ));
+            );
+            if let Some(ref mut corr) = corrections {
+                corr.push(crate::correction::Correction {
+                    start: ext_start,
+                    end: ext_start + 3,
+                    replacement: String::new(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
     }
 }
@@ -73,6 +88,10 @@ impl Cop for RedundantFileExtensionInRequire {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(
+        RedundantFileExtensionInRequire,
+        "cops/style/redundant_file_extension_in_require"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         RedundantFileExtensionInRequire,
         "cops/style/redundant_file_extension_in_require"
     );

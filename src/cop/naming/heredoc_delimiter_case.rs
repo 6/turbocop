@@ -10,6 +10,10 @@ impl Cop for HeredocDelimiterCase {
         "Naming/HeredocDelimiterCase"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[
             INTERPOLATED_STRING_NODE,
@@ -25,36 +29,30 @@ impl Cop for HeredocDelimiterCase {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "uppercase");
 
         // Extract opening and closing locations based on node type.
-        // InterpolatedStringNode / StringNode have Option<Location> for opening/closing.
-        // InterpolatedXStringNode has Location (non-optional) for both.
-        let (opening_start, opening_end, closing_start) =
+        let (opening_start, opening_end, closing_loc) =
             if let Some(interp) = node.as_interpolated_string_node() {
                 let open = match interp.opening_loc() {
                     Some(loc) => loc,
                     None => return,
                 };
-                let close_start = interp.closing_loc().map(|l| l.start_offset());
-                (open.start_offset(), open.end_offset(), close_start)
+                let close = interp.closing_loc();
+                (open.start_offset(), open.end_offset(), close)
             } else if let Some(s) = node.as_string_node() {
                 let open = match s.opening_loc() {
                     Some(loc) => loc,
                     None => return,
                 };
-                let close_start = s.closing_loc().map(|l| l.start_offset());
-                (open.start_offset(), open.end_offset(), close_start)
+                let close = s.closing_loc();
+                (open.start_offset(), open.end_offset(), close)
             } else if let Some(x) = node.as_interpolated_x_string_node() {
                 let open = x.opening_loc();
                 let close = x.closing_loc();
-                (
-                    open.start_offset(),
-                    open.end_offset(),
-                    Some(close.start_offset()),
-                )
+                (open.start_offset(), open.end_offset(), Some(close))
             } else {
                 return;
             };
@@ -69,13 +67,14 @@ impl Cop for HeredocDelimiterCase {
 
         // Extract delimiter name (skip <<, ~, -, and quotes)
         let after_arrows = &opening[2..];
-        let after_prefix = if after_arrows.starts_with(b"~") || after_arrows.starts_with(b"-") {
-            &after_arrows[1..]
+        let prefix_len = if after_arrows.starts_with(b"~") || after_arrows.starts_with(b"-") {
+            1
         } else {
-            after_arrows
+            0
         };
+        let after_prefix = &after_arrows[prefix_len..];
 
-        let delimiter = if after_prefix.starts_with(b"'")
+        let (delimiter, delim_offset_in_opening, _is_quoted) = if after_prefix.starts_with(b"'")
             || after_prefix.starts_with(b"\"")
             || after_prefix.starts_with(b"`")
         {
@@ -84,7 +83,11 @@ impl Cop for HeredocDelimiterCase {
                 .iter()
                 .position(|&b| b == quote)
                 .unwrap_or(after_prefix.len() - 1);
-            &after_prefix[1..1 + end]
+            (
+                &after_prefix[1..1 + end],
+                2 + prefix_len + 1, // <<, ~/-?, quote
+                true,
+            )
         } else {
             // Unquoted delimiter: take only word characters (alphanumeric + underscore)
             let end = after_prefix
@@ -94,16 +97,18 @@ impl Cop for HeredocDelimiterCase {
             if end == 0 {
                 return;
             }
-            &after_prefix[..end]
+            (
+                &after_prefix[..end],
+                2 + prefix_len, // <<, ~/-?
+                false,          // not quoted
+            )
         };
 
         if delimiter.is_empty() {
             return;
         }
 
-        // Skip delimiters with no alphabetic characters — case checking is meaningless
-        // for purely non-alpha delimiters like `.,.,` or `---` or `+`.
-        // This matches RuboCop which checks /^\w+$/ before applying case rules.
+        // Skip delimiters with no alphabetic characters
         if !delimiter.iter().any(|b| b.is_ascii_alphabetic()) {
             return;
         }
@@ -122,15 +127,67 @@ impl Cop for HeredocDelimiterCase {
         };
 
         if offense {
-            // RuboCop reports at the closing delimiter (node.loc.heredoc_end)
+            let closing_start = closing_loc.as_ref().map(|l| l.start_offset());
             let offset = closing_start.unwrap_or(opening_start + 2);
             let (line, column) = source.offset_to_line_col(offset);
-            diagnostics.push(self.diagnostic(
+            let mut diag = self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Use {enforced_style} heredoc delimiters."),
-            ));
+            );
+
+            if let Some(ref mut corr) = corrections {
+                let transformed: String = match enforced_style {
+                    "uppercase" => delimiter
+                        .iter()
+                        .map(|&b| b.to_ascii_uppercase() as char)
+                        .collect(),
+                    "lowercase" => delimiter
+                        .iter()
+                        .map(|&b| b.to_ascii_lowercase() as char)
+                        .collect(),
+                    _ => return,
+                };
+
+                // Replace delimiter in opening
+                let open_delim_start = opening_start + delim_offset_in_opening;
+                let open_delim_end = open_delim_start + delimiter.len();
+                corr.push(crate::correction::Correction {
+                    start: open_delim_start,
+                    end: open_delim_end,
+                    replacement: transformed.clone(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+
+                // Replace delimiter in closing
+                if let Some(close_loc) = &closing_loc {
+                    let close_bytes = &bytes[close_loc.start_offset()..close_loc.end_offset()];
+                    // The closing delimiter may have leading whitespace (for <<~)
+                    // and a trailing newline. Find the actual delimiter text within it.
+                    let close_str = std::str::from_utf8(close_bytes).unwrap_or("");
+                    let trimmed = close_str.trim();
+                    if let Some(pos) = close_str.find(trimmed) {
+                        let close_delim_start = close_loc.start_offset() + pos;
+                        let close_delim_end = close_delim_start + trimmed.len();
+                        // Don't add if it would overlap with the opening correction
+                        if close_delim_start >= open_delim_end {
+                            corr.push(crate::correction::Correction {
+                                start: close_delim_start,
+                                end: close_delim_end,
+                                replacement: transformed,
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                        }
+                    }
+                }
+
+                diag.corrected = true;
+            }
+
+            diagnostics.push(diag);
         }
     }
 }
@@ -140,4 +197,44 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(HeredocDelimiterCase, "cops/naming/heredoc_delimiter_case");
+    crate::cop_autocorrect_fixture_tests!(
+        HeredocDelimiterCase,
+        "cops/naming/heredoc_delimiter_case"
+    );
+
+    #[test]
+    fn autocorrect_lowercase_to_uppercase() {
+        let input = b"x = <<~sql\n  SELECT 1\nsql\n";
+        let (diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&HeredocDelimiterCase, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = <<~SQL\n  SELECT 1\nSQL\n");
+    }
+
+    #[test]
+    fn autocorrect_quoted_delimiter() {
+        let input = b"x = <<~'sql'\n  SELECT 1\nsql\n";
+        let (diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&HeredocDelimiterCase, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = <<~'SQL'\n  SELECT 1\nSQL\n");
+    }
+
+    #[test]
+    fn autocorrect_mixed_case() {
+        let input = b"x = <<-\"Sql\"\n  foo\nSql\n";
+        let (diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&HeredocDelimiterCase, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = <<-\"SQL\"\n  foo\nSQL\n");
+    }
 }

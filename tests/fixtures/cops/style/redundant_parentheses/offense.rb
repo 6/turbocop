@@ -34,18 +34,6 @@ x = (foo.bar(1))
 x =~ (%r{/\.{0,2}$})
      ^^^^^^^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a literal.
 
-(!x)
-^^^^ Style/RedundantParentheses: Don't use parentheses around a unary operation.
-
-(~x)
-^^^^ Style/RedundantParentheses: Don't use parentheses around a unary operation.
-
-(-x)
-^^^^ Style/RedundantParentheses: Don't use parentheses around a unary operation.
-
-(+x)
-^^^^ Style/RedundantParentheses: Don't use parentheses around a unary operation.
-
 (-> { x })
 ^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around an expression.
 

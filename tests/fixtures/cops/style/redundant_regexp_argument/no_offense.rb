@@ -21,3 +21,14 @@ match_rule_quoted = Regexp.quote(match_rule).gsub(%r{\\\*}, '.*')
 'foo'.sub(%r{bar}, 'baz')
 'foo'.split(%r{,})
 'foo'.gsub(%r{\.}, '-')
+
+# @ is not in RuboCop's LITERAL_REGEX whitelist
+var.to_s.gsub(/@/, '')
+'foo'.scan(/@/)
+
+# Non-ASCII chars are not in whitelist
+str.gsub(/ß/, 'ss')
+str.gsub(/⌘/, 'cmd')
+
+# $ is not in whitelist
+url.scan(/\$@\$/)

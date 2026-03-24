@@ -24,3 +24,12 @@ MAX_SIZE >= count
 
 Config::LIMIT != total
 ^^^^^^^^^^^^^^^^^^^^^^ Style/YodaCondition: Prefer non-Yoda conditions.
+
+`cmd` == value
+^^^^^^^^^^^^^^ Style/YodaCondition: Prefer non-Yoda conditions.
+
+:"#{name}=" == method_name
+^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/YodaCondition: Prefer non-Yoda conditions.
+
+/pattern/ == text
+^^^^^^^^^^^^^^^^^ Style/YodaCondition: Prefer non-Yoda conditions.

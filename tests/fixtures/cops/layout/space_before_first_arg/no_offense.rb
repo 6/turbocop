@@ -5,10 +5,13 @@ foo(x)
 bar(1, 2)
 something.method x
 
-# Extra spaces are allowed for alignment (AllowForAlignment: true default)
-foo  x
-bar  1, 2
-baz   "hello"
+# Aligned extra spaces are allowed (AllowForAlignment: true default)
+# The arguments :full_name, :password, :zip_code etc align vertically
+form.inline_input   :full_name,     as: :string
+form.disabled_input :password,      as: :passwd
+form.masked_input   :zip_code,      as: :string
+form.masked_input   :email_address, as: :email
+form.masked_input   :phone_number,  as: :tel
 
 # Operator methods should not be flagged
 2**128
@@ -16,3 +19,14 @@ x + 1
 a << b
 arr[0]
 x != y
+
+# Setter methods should not be flagged
+something.x = y
+
+# Multiple spaces containing line break
+something \
+  x
+
+# Method call across lines
+something x,
+          y

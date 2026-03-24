@@ -25,6 +25,16 @@ use crate::parse::source::SourceFile;
 /// - FN fix: Directive regex in `directives.rs` was not anchored, causing nested
 ///   comments like `#   # rubocop:disable all` (YARD doc examples) to suppress
 ///   offenses for entire files.
+///
+/// ## Corpus investigation (2026-03-23)
+///
+/// Corpus oracle reported FP=0, FN=1.
+///
+/// FN=1: github-linguist/linguist `samples/Ruby/rexpl:4` — a Ruby script without
+/// the `.rb` extension. nitrocop discovers files by `.rb` extension, so this file
+/// is never processed. This is a file discovery limitation, not a cop logic bug.
+/// No code change needed for the cop itself.
+///
 /// - FN fix (3 FNs in thor encoding_other.thor): Non-UTF-8 files with encoding
 ///   magic comments (e.g., `# encoding: iso-8859-7`) were skipping `check_source`
 ///   and `check_node` because the linter gated these on `code_map` being `Some`

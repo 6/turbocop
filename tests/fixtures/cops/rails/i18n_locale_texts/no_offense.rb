@@ -25,3 +25,8 @@ line two")
 flash = {}
 flash[:error] = "This should not be flagged"
 flash[:notice] = "Not flagged when flash is a local var"
+
+# FP fix: flash(:category) with arguments is Scorched-specific, not Rails flash
+# RuboCop's pattern matches (send nil? :flash) which means NO arguments
+flash(:animals)[:cat] = 'meow'
+flash(:names)[:jeff] = 'male'

@@ -413,3 +413,37 @@ def begin_rescue_used_both_paths
   end
   process(data)
 end
+
+# Retry counter incremented in begin body, checked in rescue
+def retry_with_counter
+  counter = 0
+  begin
+    counter += 1
+    perform_work
+  rescue
+    retry if counter < 3
+  end
+end
+
+# Boolean flag set in begin body, read in rescue
+def flag_set_in_begin_body
+  success = false
+  begin
+    do_work
+    success = true
+  rescue => e
+    log_failure(e) unless success
+  end
+end
+
+# Timestamp captured in begin body, read in rescue
+def timing_in_begin_rescue
+  started = Time.now
+  begin
+    started = Time.now
+    slow_operation
+  rescue => e
+    elapsed = Time.now - started
+    report_timeout(e, elapsed)
+  end
+end

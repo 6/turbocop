@@ -20,6 +20,10 @@ impl Cop for InsecureProtocolSource {
         Severity::Warning
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn default_include(&self) -> &'static [&'static str] {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
@@ -29,7 +33,7 @@ impl Cop for InsecureProtocolSource {
         source: &SourceFile,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_http = config.get_bool("AllowHttpProtocol", true);
 
@@ -48,7 +52,7 @@ impl Cop for InsecureProtocolSource {
                 if trimmed.contains(sym) {
                     // Find column of the symbol
                     let col = line_str.find(sym).unwrap_or(0);
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line_num,
                         col,
@@ -56,7 +60,22 @@ impl Cop for InsecureProtocolSource {
                             "The source `{}` is deprecated because HTTP requests are insecure. Please change your source to 'https://rubygems.org' if possible, or 'http://rubygems.org' if not.",
                             sym
                         ),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        if let Some(line_start) = source.line_col_to_offset(line_num, 0) {
+                            let sym_start = line_start + col;
+                            let sym_end = sym_start + sym.len();
+                            corr.push(crate::correction::Correction {
+                                start: sym_start,
+                                end: sym_end,
+                                replacement: "'https://rubygems.org'".to_string(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                    }
+                    diagnostics.push(diag);
                 }
             }
 
@@ -71,12 +90,28 @@ impl Cop for InsecureProtocolSource {
                     let url = &rest[..url_end];
                     let https_url = url.replacen("http://", "https://", 1);
                     let col = line_str.find("'http://").unwrap_or(0);
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line_num,
                         col,
                         format!("Use `{}` instead of `{}`.", https_url, url),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        if let Some(line_start) = source.line_col_to_offset(line_num, 0) {
+                            // Replace just "http://" with "https://" inside the URL
+                            let http_col = line_str.find("http://").unwrap_or(0);
+                            let abs_start = line_start + http_col;
+                            corr.push(crate::correction::Correction {
+                                start: abs_start,
+                                end: abs_start + 7, // "http://" is 7 bytes
+                                replacement: "https://".to_string(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                    }
+                    diagnostics.push(diag);
                 } else if let Some(http_idx) = trimmed.find("\"http://") {
                     let url_start = http_idx + 1;
                     let rest = &trimmed[url_start..];
@@ -84,12 +119,27 @@ impl Cop for InsecureProtocolSource {
                     let url = &rest[..url_end];
                     let https_url = url.replacen("http://", "https://", 1);
                     let col = line_str.find("\"http://").unwrap_or(0);
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line_num,
                         col,
                         format!("Use `{}` instead of `{}`.", https_url, url),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        if let Some(line_start) = source.line_col_to_offset(line_num, 0) {
+                            let http_col = line_str.find("http://").unwrap_or(0);
+                            let abs_start = line_start + http_col;
+                            corr.push(crate::correction::Correction {
+                                start: abs_start,
+                                end: abs_start + 7,
+                                replacement: "https://".to_string(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                    }
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -103,4 +153,55 @@ mod tests {
         InsecureProtocolSource,
         "cops/bundler/insecure_protocol_source"
     );
+    crate::cop_autocorrect_fixture_tests!(
+        InsecureProtocolSource,
+        "cops/bundler/insecure_protocol_source"
+    );
+
+    #[test]
+    fn autocorrect_deprecated_symbol() {
+        let input = b"source :rubygems\n";
+        let (diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&InsecureProtocolSource, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"source 'https://rubygems.org'\n");
+    }
+
+    #[test]
+    fn autocorrect_all_deprecated_symbols() {
+        let input = b"source :gemcutter\nsource :rubyforge\n";
+        let (diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&InsecureProtocolSource, input);
+        assert_eq!(diags.len(), 2);
+        assert!(diags.iter().all(|d| d.corrected));
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(
+            corrected,
+            b"source 'https://rubygems.org'\nsource 'https://rubygems.org'\n"
+        );
+    }
+
+    #[test]
+    fn autocorrect_http_url() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([("AllowHttpProtocol".into(), serde_yml::Value::Bool(false))]),
+            ..CopConfig::default()
+        };
+        let input = b"source 'http://rubygems.org'\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect_with_config(
+            &InsecureProtocolSource,
+            input,
+            config,
+        );
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"source 'https://rubygems.org'\n");
+    }
 }

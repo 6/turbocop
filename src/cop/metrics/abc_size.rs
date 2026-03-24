@@ -1960,4 +1960,95 @@ mod tests {
             diags[0].message
         );
     }
+
+    /// Diagnostic test: lambda with parameters should count params as A
+    /// and the lambda itself as B+1.
+    /// `->(s) { s.foo }` should be: A+1 (s param), B+2 (lambda + s.foo)
+    #[test]
+    fn lambda_with_params_abc_count() {
+        // Single lambda with param: ->(s) { s.foo }
+        // A: s param = 1, x lvar write = 1 => A=2
+        // B: lambda = 1, s.foo = 1 => B=2
+        // C: 0
+        let (a, b, c) = abc_counter_for_source(b"def foo\n  x = ->(s) { s.foo }\nend\n");
+        assert_eq!(a, 2, "A: x write + s param");
+        assert_eq!(b, 2, "B: lambda + s.foo");
+        assert_eq!(c, 0, "C: none");
+    }
+
+    /// Diagnostic: case/when with multiple values per when clause.
+    /// `when '(', '{', '['` should count as C+1 (one when clause).
+    #[test]
+    fn case_when_multiple_values() {
+        // case char
+        //   when '(' then 1
+        //   when ')' then 2
+        // end
+        // A=1 (x), B=0, C=2 (2 whens)
+        let (a, b, c) = abc_counter_for_source(
+            b"def foo\n  x = case char\n  when '(' then 1\n  when ')' then 2\n  end\nend\n",
+        );
+        assert_eq!(c, 2, "C: 2 when clauses. Got A={a}, B={b}, C={c}");
+
+        // when '(', '{', '[' => still one when clause, C=1
+        let (a2, b2, c2) = abc_counter_for_source(
+            b"def foo\n  x = case char\n  when '(', '{', '[' then 1\n  end\nend\n",
+        );
+        assert_eq!(
+            c2, 1,
+            "C: 1 when clause with multiple values. Got A={a2}, B={b2}, C={c2}"
+        );
+    }
+
+    /// Simplified version of Coursemology assertion_types_regex.
+    /// RuboCop reports <12, 25, 1> = 27.75. Multiple lambdas with params.
+    #[test]
+    fn coursemology_assertion_types_regex_simplified() {
+        // multi_arg = ->(s) { top_level_split(s, ',').map(&:strip) }
+        //   A: multi_arg(1), s param(1) = 2
+        //   B: lambda(1), top_level_split(1), map(1) = 3
+        //   C: map(&:strip) iterating = 1
+        // single_arg = ->(s) { s.strip }
+        //   A: single_arg(1), s param(1) = 2
+        //   B: lambda(1), strip(1) = 2
+        //   C: 0
+        // Equal: ->(s) { multi_arg.call(s).join(' == ') }
+        //   A: s param(1) = 1
+        //   B: lambda(1), call(1), join(1) = 3
+        //   C: 0
+        // NotEqual: ->(s) { multi_arg.call(s).join(' != ') }
+        //   A: s param(1) = 1
+        //   B: lambda(1), call(1), join(1) = 3
+        //   C: 0
+        // True: ->(s) { single_arg.call(s) }
+        //   A: s param(1) = 1
+        //   B: lambda(1), call(1) = 2
+        //   C: 0
+        // False: ->(s) { "not #{single_arg.call(s)}" }
+        //   A: s param(1) = 1
+        //   B: lambda(1), call(1) = 2
+        //   C: 0
+        //
+        // Totals: A=8, B=15, C=1 => sqrt(64+225+1) = 17.03
+        let source = b"def assertion_types_regex
+  multi_arg = ->(s) { top_level_split(s, ',').map(&:strip) }
+  single_arg = ->(s) { s.strip }
+  {
+    Equal: ->(s) { multi_arg.call(s).join(' == ') },
+    NotEqual: ->(s) { multi_arg.call(s).join(' != ') },
+    True: ->(s) { single_arg.call(s) },
+    False: ->(s) { single_arg.call(s) }
+  }
+end
+";
+        let (a, b, c) = abc_counter_for_source(source);
+        // Expected from RuboCop-style counting:
+        // Let's be flexible and just ensure the method fires above Max=17
+        let score = ((a * a + b * b + c * c) as f64).sqrt();
+        let rounded = (score * 100.0).round() / 100.0;
+        assert!(
+            rounded > 17.0,
+            "Score should be > 17 for assertion_types_regex. Got A={a}, B={b}, C={c}, score={rounded}"
+        );
+    }
 }

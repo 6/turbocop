@@ -19,6 +19,24 @@ use crate::parse::source::SourceFile;
 /// Local corpus rerun delta vs unchanged baseline binary was repo-local and
 /// isolated to the target file (`3 -> 2` offenses in ransack), with no other
 /// repo-level count changes.
+///
+/// ## Failed fix attempt: inline rubocop:disable dedup (2026-03-23, reverted)
+///
+/// Commit 003b2a06 tried to fix 1 extended-corpus FN by changing how
+/// inline `# rubocop:disable Metrics/BlockNesting` interacts with the
+/// descendant-offense dedup pass. The idea: RuboCop's `ignore_node` is
+/// only called when an offense is actually emitted (not suppressed by a
+/// directive), so child offenses inside a disabled parent should still
+/// fire. The fix made the visitor always recurse and collect ALL offenses,
+/// then dedup only when the parent offense was NOT directive-suppressed.
+///
+/// This caused +7 FN in the standard corpus (Metrics went from 100% to
+/// 99.6%). The dedup logic is tightly coupled to how directives interact
+/// with nesting depth — changing it without full directive-aware testing
+/// across the corpus is risky. A correct fix needs to reproduce the
+/// specific extended-corpus case (GoogleCloudPlatform/inspec-gcp-cis-benchmark
+/// controls/1.01-iam.rb:79) and verify against the full standard corpus
+/// with `check-cop.py --rerun` before merging.
 pub struct BlockNesting;
 
 impl Cop for BlockNesting {

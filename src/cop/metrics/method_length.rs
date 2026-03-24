@@ -153,6 +153,19 @@ use crate::parse::source::SourceFile;
 /// FN=2: chef (single-heredoc body) and jruby (=begin/=end block comment
 /// file). Both are file-drop noise — nitrocop cannot process these files
 /// due to missing project structure (no Gemfile/lockfile). Not cop logic bugs.
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus (5592 repos) reported FP=76, FN=2. Standard corpus is 0/0.
+///
+/// FP=76 root cause: cross-cutting file-level issue. 54/76 FP from Tubalr (32)
+/// and stackneveroverflow (22) with vendored gems that RuboCop cannot parse.
+/// Remaining 22 FP from 12 repos — likely config resolution differences (custom
+/// Max values, AllowedMethods) or vendor path exclusion edge cases.
+///
+/// FN=2 from brixen/poetics (bin/poetics:21) — extensionless file that nitrocop
+/// does not discover. This is a file discovery issue (shebang detection), not a
+/// cop logic bug. RuboCop discovers and lints these files.
 pub struct MethodLength;
 
 /// Parsed config values for MethodLength.

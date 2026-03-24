@@ -183,6 +183,19 @@ use crate::parse::source::SourceFile;
 /// jruby 1, natalie 1). RuboCop's `properly_quoted_symbol?` only checks for
 /// `:"` and `:'` prefixes, never `%s`. Fix: removed `%s` opening support
 /// from `check_symbol_node`.
+///
+/// ## FN fix (2026-03-23)
+///
+/// Corpus oracle reported FP=0, FN=1. The single FN is `%s"test"` from
+/// rouge-ruby/rouge — a `%s` symbol literal using double-quote delimiters.
+///
+/// Root cause: the previous revert of `%s` support was too broad. RuboCop's
+/// `properly_quoted?` returns true early when `!source.match?(/['"]/)` — so
+/// `%s(...)` (no quotes) is skipped, but `%s"..."` and `%s'...'` (quote
+/// delimiters) ARE flagged because they contain quote characters.
+///
+/// Fix: accept `%s"` and `%s'` as valid opening patterns in `check_symbol_node`,
+/// while still rejecting `%s(`, `%s[`, and other non-quote delimiters.
 pub struct SymbolConversion;
 
 const BARE_OPERATOR_SYMBOLS: &[&[u8]] = &[
@@ -611,12 +624,17 @@ impl SymbolConversion {
         }
 
         // For standalone symbols or rocket-style hash keys/values:
-        // Check if the symbol is unnecessarily quoted
-        // Opening must be :" or :' (quoted symbol syntax).
-        // Note: %s() percent-literal symbols are NOT checked — RuboCop's
-        // `properly_quoted_symbol?` only checks `:"` and `:'` prefixes.
+        // Check if the symbol is unnecessarily quoted.
+        // Opening must be :" or :' (quoted symbol syntax), OR %s with a
+        // quote delimiter (%s"..." or %s'...'). RuboCop's `properly_quoted?`
+        // checks `source.match?(/['"]/)` — so %s with quote delimiters IS
+        // flagged, but %s with non-quote delimiters (parens, brackets) is not.
+        let is_percent_s_quote = matches!(opening, Some(o) if o.starts_with(b"%s")
+            && o.len() == 3
+            && (o[2] == b'"' || o[2] == b'\''));
         match opening {
             Some(b":\"" | b":'") => {}
+            _ if is_percent_s_quote => {}
             _ => return,
         }
 

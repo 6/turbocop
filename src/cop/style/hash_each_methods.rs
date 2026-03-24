@@ -1,3 +1,5 @@
+use ruby_prism::Visit;
+
 use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -10,6 +12,18 @@ use crate::parse::source::SourceFile;
 /// (e.g., `Resque::Failure.each(0, count, queue) { |_, item| }`). RuboCop's NodePattern
 /// `(call _ :each)` only matches when `.each` has no arguments — just a block. Fixed by
 /// checking `call.arguments().is_none()` before entering the unused-block-arg path.
+///
+/// Additional FP fixes:
+/// - `keys.each(&block)` / `values.each(&method(:x))`: RuboCop's `kv_each_with_block_pass`
+///   only matches `(block_pass (sym _))` — symbol-to-proc. Non-symbol block_pass args like
+///   `&blk`, `&block`, `&method(:x)` are skipped. Fixed by checking that block_pass expression
+///   is a symbol node before flagging.
+/// - `hash.keys.each { |k| hash[k] = ... }`: RuboCop's `handleable?` skips when the hash
+///   receiver is mutated with `[]=` inside the block. Fixed by walking the block body to detect
+///   `[]=` calls on the root receiver.
+/// - `.each { |k, _v| use(_v) }`: RuboCop checks actual lvar usage in the body, not just `_`
+///   prefix. A `_`-prefixed param that IS referenced in the body is not considered unused.
+///   Fixed by walking the block body for `LocalVariableReadNode` matching the param name.
 pub struct HashEachMethods;
 
 impl Cop for HashEachMethods {
@@ -56,6 +70,31 @@ impl Cop for HashEachMethods {
                 && recv_call.receiver().is_some()
                 && recv_call.arguments().is_none()
             {
+                // If the .each call has a block_pass (e.g., `keys.each(&blk)`),
+                // RuboCop only flags it when the block_pass wraps a symbol
+                // (`keys.each(&:to_s)`). Skip non-symbol block_pass args like
+                // `&block`, `&blk`, `&method(:x)`.
+                if let Some(block) = call.block() {
+                    if let Some(block_arg) = block.as_block_argument_node() {
+                        let is_symbol = block_arg
+                            .expression()
+                            .is_some_and(|e| e.as_symbol_node().is_some());
+                        if !is_symbol {
+                            return;
+                        }
+                    }
+                }
+
+                // RuboCop's `handleable?` checks for hash mutation (`[]=`) on the
+                // root receiver inside the block body. For patterns like
+                // `hash.keys.each { |k| hash[k] = ... }`, the iteration is done
+                // over keys specifically to allow safe mutation, so skip these.
+                if let Some(root_recv) = recv_call.receiver() {
+                    if block_mutates_receiver(&call, &root_recv) {
+                        return;
+                    }
+                }
+
                 let is_keys = recv_method == b"keys";
                 let replacement = if is_keys { "each_key" } else { "each_value" };
                 let original = if is_keys { "keys.each" } else { "values.each" };
@@ -99,7 +138,7 @@ impl Cop for HashEachMethods {
 
 impl HashEachMethods {
     /// Check `.each { |k, v| ... }` blocks where one argument is unused.
-    /// An argument is considered unused if it starts with `_`.
+    /// RuboCop checks actual lvar usage in the body, not just `_` prefix.
     ///
     /// FP fix: RuboCop only matches `(call _ :each)` with no method arguments.
     /// Calls like `Failure.each(0, count, queue) { |_, item| }` pass arguments
@@ -182,8 +221,15 @@ impl HashEachMethods {
 
         let key_name = key_param.name().as_slice();
         let value_name = value_param.name().as_slice();
-        let key_unused = key_name.starts_with(b"_");
-        let value_unused = value_name.starts_with(b"_");
+
+        // RuboCop checks actual lvar usage in the block body, not just `_` prefix.
+        // A `_`-prefixed param that IS referenced in the body is not considered unused.
+        let body = match block_node.body() {
+            Some(b) => b,
+            None => return, // empty block body — RuboCop skips (nil body)
+        };
+        let key_unused = !body_references_lvar(&body, key_name);
+        let value_unused = !body_references_lvar(&body, value_name);
 
         // Both unused — skip (RuboCop skips too)
         if key_unused && value_unused {
@@ -194,7 +240,6 @@ impl HashEachMethods {
             return;
         }
 
-        let _bytes = source.as_bytes();
         let unused_code = if value_unused {
             std::str::from_utf8(value_name).unwrap_or("_")
         } else {
@@ -218,6 +263,83 @@ impl HashEachMethods {
             column,
             format!("Use `{replacement}` instead of `each` and remove the unused `{unused_code}` block argument."),
         ));
+    }
+}
+
+/// Check if a block body references a local variable by name.
+/// Used to determine actual usage vs. just `_` prefix convention.
+fn body_references_lvar(body: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
+    let mut finder = LvarReferenceFinder { found: false, name };
+    finder.visit(body);
+    finder.found
+}
+
+/// Visitor that searches for `LocalVariableReadNode` matching a given name.
+struct LvarReferenceFinder<'a> {
+    found: bool,
+    name: &'a [u8],
+}
+
+impl<'pr> Visit<'pr> for LvarReferenceFinder<'_> {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+        if node.name().as_slice() == self.name {
+            self.found = true;
+        }
+    }
+}
+
+/// Check if the block body of a `.keys.each` / `.values.each` call mutates
+/// the root receiver with `[]=`. RuboCop's `handleable?` skips these cases.
+fn block_mutates_receiver(
+    call: &ruby_prism::CallNode<'_>,
+    root_recv: &ruby_prism::Node<'_>,
+) -> bool {
+    // Get the block body
+    let block = match call.block() {
+        Some(b) => b,
+        None => return false,
+    };
+    let block_node = match block.as_block_node() {
+        Some(b) => b,
+        None => return false,
+    };
+    let body = match block_node.body() {
+        Some(b) => b,
+        None => return false,
+    };
+
+    // Extract the receiver's source bytes for comparison
+    let recv_source = root_recv.location().as_slice();
+
+    let mut finder = BracketAssignFinder {
+        found: false,
+        recv_source,
+    };
+    finder.visit(&body);
+    finder.found
+}
+
+/// Visitor that searches for `[]=` calls on a receiver whose source text
+/// matches the root receiver of the `keys.each` / `values.each` chain.
+struct BracketAssignFinder<'a> {
+    found: bool,
+    recv_source: &'a [u8],
+}
+
+impl<'pr> Visit<'pr> for BracketAssignFinder<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if node.name().as_slice() == b"[]=" {
+            if let Some(recv) = node.receiver() {
+                // Compare source text of the `[]=` receiver with the root
+                // receiver of the `keys.each` chain. For patterns like
+                // `hash.keys.each { |k| hash[k] = ... }`, both are `hash`.
+                if recv.location().as_slice() == self.recv_source {
+                    self.found = true;
+                }
+            }
+        }
+        // Continue visiting children
+        ruby_prism::visit_call_node(self, node);
     }
 }
 

@@ -4,6 +4,10 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// FN investigation (2026-03-23): Missed `attribute :x, default: proc(&::Kind::ID)` pattern.
+/// Prism stores `&arg` as a `BlockArgumentNode` in `call.block()`, not as a `BlockNode`.
+/// The original check `c.block().is_none()` excluded these because `block()` was `Some`.
+/// Fix: only skip when `block()` is a real `BlockNode`; flag `BlockArgumentNode` (block-pass).
 pub struct AttributeDefaultBlockValue;
 
 impl Cop for AttributeDefaultBlockValue {
@@ -48,8 +52,15 @@ impl Cop for AttributeDefaultBlockValue {
         // String/symbol/integer/float literals and constants are accepted.
         // Calls that already have a block (e.g., `lambda { }`, `proc { }`) are
         // NOT flagged because the block already provides lazy evaluation.
+        // However, calls with a block-argument (`proc(&symbol)`) ARE flagged
+        // because RuboCop expects `-> { ... }` form instead. In Prism,
+        // `&arg` is a BlockArgumentNode stored in `call.block()`, distinct
+        // from a `BlockNode` which represents `do...end` / `{ ... }`.
         let is_mutable_call = match default_value.as_call_node() {
-            Some(c) => c.block().is_none(),
+            Some(c) => match c.block() {
+                None => true,
+                Some(b) => b.as_block_argument_node().is_some(),
+            },
             None => false,
         };
         let is_mutable = default_value.as_array_node().is_some()

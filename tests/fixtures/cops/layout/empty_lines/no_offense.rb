@@ -30,6 +30,17 @@ more documentation
 =end
 x = 1
 
+# Consecutive blank lines inside =begin/=end are NOT flagged
+# (Parser gem doesn't produce tokens for embdoc content).
+=begin
+
+
+lots of space
+
+
+=end
+y = 2
+
 # Single blank line between code and comment is fine.
 puts "last code"
 

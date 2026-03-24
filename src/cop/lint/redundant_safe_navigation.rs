@@ -1,7 +1,8 @@
 use crate::cop::node_type::{
-    ARRAY_NODE, BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE,
-    FLOAT_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, OR_NODE, REGULAR_EXPRESSION_NODE,
-    SELF_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE,
+    AND_NODE, ARRAY_NODE, BLOCK_NODE, CALL_NODE, CALL_TARGET_NODE, CONSTANT_PATH_NODE,
+    CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE,
+    OR_NODE, REGULAR_EXPRESSION_NODE, SELF_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE,
+    X_STRING_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -52,6 +53,47 @@ use ruby_prism::Visit;
 /// Exception: `respond_to?` with a nil-specific method argument (:to_a, :to_i,
 /// :to_s, :to_f, :to_h) is NOT flagged even in conditions, because nil does
 /// respond to those methods.
+///
+/// ## Corpus investigation (2026-03-23) — Standalone &&/|| and backtick receivers
+///
+/// FN=30: Many FNs were `&.is_a?` / `&.respond_to?` calls in `&&`/`||` expressions
+/// that are NOT inside `if`/`unless` predicates (e.g., standalone boolean expressions
+/// used as return values, assignments, or ternary conditions). RuboCop's `on_csend`
+/// checks `allow_operator?` which returns true for ANY `&&`/`||` context, not just
+/// `if` predicates. Fixed by adding `visit_and_node` and `visit_or_node` to the
+/// visitor impl, so AllowedMethods in any `&&`/`||` context are flagged.
+///
+/// Also fixed: backtick literals (`` `cmd` ``) as receivers. Backtick always returns
+/// a String (non-nil), so `&.` after backtick is redundant. Added `XStringNode` to
+/// `is_non_nil_literal` check.
+///
+/// ## Corpus investigation (2026-03-23) — StatementsNode in parenthesized conditions
+///
+/// FN=30 remaining: `visit_conditional_subtree` did not handle `StatementsNode`, which
+/// is the body of `ParenthesesNode` in Prism. Parenthesized `&&`/`||` expressions like
+/// `(user&.is_a?(Admin) && ...)` have the structure Parens → StatementsNode → AndNode.
+/// Without handling StatementsNode, the recursion stopped at the StatementsNode and
+/// never reached the inner `&&`/`||` or `CallNode`. Fixed by adding StatementsNode
+/// handling to `visit_conditional_subtree`. Remaining FNs likely from project-specific
+/// config (custom AllowedMethods, InferNonNilReceiver: true) or niche patterns like
+/// `rescue => self&.foo`.
+///
+/// ## Corpus investigation (2026-03-23) — FP=2, FN=1 final fixes
+///
+/// FP (otwarchive): `if @commentable.is_a?(Tag) || (@comment&.parent&.is_a?(Tag))` —
+/// parentheses around the csend break the direct-parent chain. RuboCop's `check?`
+/// requires the csend's IMMEDIATE parent to be a conditional, `&&`/`||`, or `!`.
+/// When wrapped in parens, the parent is `begin` (not `||`), so RuboCop does not flag.
+/// Fixed by adding a `direct` context parameter to `visit_conditional_subtree`;
+/// parentheses reset `direct` to false, while `&&`/`||`/`!` restore it to true.
+///
+/// FP (discourse): `mail[:cc]&.element&.addresses&.to_h { ... } || {}` — already
+/// fixed in a prior commit (stale corpus data).
+///
+/// FN (natalie): `rescue => self&.captured_error` — Prism parses this as a
+/// `CallTargetNode` (not `CallNode`). Added `CALL_TARGET_NODE` to interested node
+/// types and handling in `check_node` for `CallTargetNode` with `&.` and non-nil
+/// receiver (self, constant, literal).
 pub struct RedundantSafeNavigation;
 
 /// Methods guaranteed to exist on every instance (their receivers can't be nil)
@@ -78,9 +120,11 @@ impl Cop for RedundantSafeNavigation {
 
     fn interested_node_types(&self) -> &'static [u8] {
         &[
+            AND_NODE,
             ARRAY_NODE,
             BLOCK_NODE,
             CALL_NODE,
+            CALL_TARGET_NODE,
             CONSTANT_PATH_NODE,
             CONSTANT_READ_NODE,
             FALSE_NODE,
@@ -94,6 +138,7 @@ impl Cop for RedundantSafeNavigation {
             STRING_NODE,
             SYMBOL_NODE,
             TRUE_NODE,
+            X_STRING_NODE,
         ]
     }
 
@@ -109,6 +154,27 @@ impl Cop for RedundantSafeNavigation {
         // Case 6: conversion with default literal (foo&.to_h || {})
         if let Some(or_node) = node.as_or_node() {
             self.check_conversion_with_default(source, &or_node, diagnostics);
+            return;
+        }
+
+        // Case 7: CallTargetNode (rescue => self&.foo) — self is never nil
+        if let Some(ct) = node.as_call_target_node() {
+            if ct.is_safe_navigation() {
+                let receiver = ct.receiver();
+                if receiver.as_self_node().is_some()
+                    || is_camel_case_const(&receiver)
+                    || is_non_nil_literal(&receiver)
+                {
+                    let op_loc = ct.call_operator_loc();
+                    let (line, column) = source.offset_to_line_col(op_loc.start_offset());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Redundant safe navigation detected, use `.` instead.".to_string(),
+                    ));
+                }
+            }
             return;
         }
 
@@ -320,17 +386,27 @@ impl<'a> ConditionalAllowedMethodVisitor<'a> {
         ));
     }
 
-    /// Visit all CallNodes within a node tree (recursive), checking for offenses
-    fn visit_conditional_subtree(&mut self, node: &ruby_prism::Node<'_>) {
+    /// Visit all CallNodes within a node tree (recursive), checking for offenses.
+    ///
+    /// `direct` tracks whether the current node is a direct operand of a conditional,
+    /// boolean operator (`&&`/`||`), or negation (`!`). RuboCop only flags AllowedMethods
+    /// when their immediate parent is one of these; parentheses break the chain.
+    /// For example, `if (foo&.is_a?(X))` is NOT flagged (parens wrap the csend),
+    /// but `if foo&.is_a?(X)` IS flagged.
+    fn visit_conditional_subtree(&mut self, node: &ruby_prism::Node<'_>, direct: bool) {
         if let Some(call) = node.as_call_node() {
-            self.check_call_in_conditional(&call);
-            // Also recurse into receiver and arguments of this call
+            if direct {
+                self.check_call_in_conditional(&call);
+            }
+            // Recurse into receiver for negation patterns (e.g., !foo&.is_a?(X))
             if let Some(recv) = call.receiver() {
-                self.visit_conditional_subtree(&recv);
+                // If this call is a negation (!), the receiver is in direct context
+                let is_negation = call.name().as_slice() == b"!";
+                self.visit_conditional_subtree(&recv, is_negation);
             }
             if let Some(args) = call.arguments() {
                 for arg in args.arguments().iter() {
-                    self.visit_conditional_subtree(&arg);
+                    self.visit_conditional_subtree(&arg, false);
                 }
             }
             return;
@@ -338,28 +414,29 @@ impl<'a> ConditionalAllowedMethodVisitor<'a> {
 
         // Recurse through boolean operators (&&, ||, and, or)
         if let Some(and_node) = node.as_and_node() {
-            self.visit_conditional_subtree(&and_node.left());
-            self.visit_conditional_subtree(&and_node.right());
+            self.visit_conditional_subtree(&and_node.left(), true);
+            self.visit_conditional_subtree(&and_node.right(), true);
             return;
         }
         if let Some(or_node) = node.as_or_node() {
-            self.visit_conditional_subtree(&or_node.left());
-            self.visit_conditional_subtree(&or_node.right());
+            self.visit_conditional_subtree(&or_node.left(), true);
+            self.visit_conditional_subtree(&or_node.right(), true);
             return;
         }
 
-        // Recurse through parentheses
+        // Recurse through parentheses — parens break the direct context
         if let Some(parens) = node.as_parentheses_node() {
             if let Some(body) = parens.body() {
-                self.visit_conditional_subtree(&body);
+                self.visit_conditional_subtree(&body, false);
             }
             return;
         }
 
-        // Recurse through prefix ! (not)
-        if let Some(prefix) = node.as_call_node() {
-            // Already handled above
-            let _ = prefix;
+        // Recurse through statements (body of parentheses)
+        if let Some(stmts) = node.as_statements_node() {
+            for stmt in stmts.body().iter() {
+                self.visit_conditional_subtree(&stmt, false);
+            }
         }
     }
 }
@@ -368,7 +445,7 @@ impl<'a> Visit<'a> for ConditionalAllowedMethodVisitor<'a> {
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'a>) {
         // Visit the predicate in conditional context
         let predicate = node.predicate();
-        self.visit_conditional_subtree(&predicate);
+        self.visit_conditional_subtree(&predicate, true);
 
         // Visit body normally (not in conditional context)
         if let Some(stmts) = node.statements() {
@@ -386,7 +463,7 @@ impl<'a> Visit<'a> for ConditionalAllowedMethodVisitor<'a> {
 
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'a>) {
         let predicate = node.predicate();
-        self.visit_conditional_subtree(&predicate);
+        self.visit_conditional_subtree(&predicate, true);
 
         if let Some(stmts) = node.statements() {
             self.visit_statements_node(&stmts);
@@ -398,7 +475,7 @@ impl<'a> Visit<'a> for ConditionalAllowedMethodVisitor<'a> {
 
     fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'a>) {
         let predicate = node.predicate();
-        self.visit_conditional_subtree(&predicate);
+        self.visit_conditional_subtree(&predicate, true);
 
         if let Some(stmts) = node.statements() {
             self.visit_statements_node(&stmts);
@@ -407,11 +484,25 @@ impl<'a> Visit<'a> for ConditionalAllowedMethodVisitor<'a> {
 
     fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'a>) {
         let predicate = node.predicate();
-        self.visit_conditional_subtree(&predicate);
+        self.visit_conditional_subtree(&predicate, true);
 
         if let Some(stmts) = node.statements() {
             self.visit_statements_node(&stmts);
         }
+    }
+
+    fn visit_and_node(&mut self, node: &ruby_prism::AndNode<'a>) {
+        // Any &.allowed_method inside && is in a boolean/conditional context
+        self.visit_conditional_subtree(&node.left(), true);
+        self.visit_conditional_subtree(&node.right(), true);
+        // Don't call default visit — we already recursed into both operands
+    }
+
+    fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'a>) {
+        // Any &.allowed_method inside || is in a boolean/conditional context
+        self.visit_conditional_subtree(&node.left(), true);
+        self.visit_conditional_subtree(&node.right(), true);
+        // Don't call default visit — we already recursed into both operands
     }
 }
 
@@ -488,6 +579,7 @@ fn is_non_nil_literal(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_true_node().is_some()
         || node.as_false_node().is_some()
         || node.as_regular_expression_node().is_some()
+        || node.as_x_string_node().is_some()
 }
 
 fn is_guaranteed_instance_receiver(node: &ruby_prism::Node<'_>) -> bool {

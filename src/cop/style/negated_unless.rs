@@ -14,6 +14,10 @@ impl Cop for NegatedUnless {
         &[CALL_NODE, UNLESS_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for NegatedUnless {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "both");
         let unless_node = match node.as_unless_node() {
@@ -58,12 +62,38 @@ impl Cop for NegatedUnless {
                 }
                 let kw_loc = unless_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     "Favor `if` over `unless` for negative conditions.".to_string(),
-                ));
+                );
+                // Autocorrect: replace `unless` with `if`, remove `!` from condition
+                if let Some(ref mut corr) = corrections {
+                    // 1. Replace `unless` with `if`
+                    corr.push(crate::correction::Correction {
+                        start: kw_loc.start_offset(),
+                        end: kw_loc.end_offset(),
+                        replacement: "if".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    // 2. Replace negated predicate with inner expression
+                    if let Some(inner) = call.receiver() {
+                        let inner_src = std::str::from_utf8(inner.location().as_slice())
+                            .unwrap_or("")
+                            .to_string();
+                        corr.push(crate::correction::Correction {
+                            start: predicate.location().start_offset(),
+                            end: predicate.location().end_offset(),
+                            replacement: inner_src,
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                    }
+                    diag.corrected = true;
+                }
+                diagnostics.push(diag);
             }
         }
     }
@@ -73,4 +103,5 @@ impl Cop for NegatedUnless {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(NegatedUnless, "cops/style/negated_unless");
+    crate::cop_autocorrect_fixture_tests!(NegatedUnless, "cops/style/negated_unless");
 }

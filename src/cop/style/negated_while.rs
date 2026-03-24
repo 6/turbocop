@@ -70,6 +70,61 @@ fn is_single_negation(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
+/// Get the inner expression from a negation node (`!expr` → `expr`).
+fn get_negation_inner<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"!" {
+            return call.receiver();
+        }
+    }
+    None
+}
+
+/// Add corrections for negated loop: swap keyword and remove negation.
+fn add_negated_loop_corrections(
+    cop: &NegatedWhile,
+    kw_loc: &ruby_prism::Location<'_>,
+    predicate: &ruby_prism::Node<'_>,
+    unwrapped: &ruby_prism::Node<'_>,
+    replacement_keyword: &str,
+    corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
+    diag: &mut Diagnostic,
+) {
+    if let Some(corr) = corrections {
+        // 1. Replace keyword
+        corr.push(crate::correction::Correction {
+            start: kw_loc.start_offset(),
+            end: kw_loc.end_offset(),
+            replacement: replacement_keyword.to_string(),
+            cop_name: cop.name(),
+            cop_index: 0,
+        });
+        // 2. Replace predicate with inner expression (without negation/parens)
+        if let Some(inner) = get_negation_inner(unwrapped) {
+            let inner_src = std::str::from_utf8(inner.location().as_slice())
+                .unwrap_or("")
+                .to_string();
+            let pred_start = predicate.location().start_offset();
+            let pred_end = predicate.location().end_offset();
+            // Add space if keyword and predicate are adjacent (no space)
+            let needs_space = pred_start == kw_loc.end_offset();
+            let replacement = if needs_space {
+                format!(" {inner_src}")
+            } else {
+                inner_src
+            };
+            corr.push(crate::correction::Correction {
+                start: pred_start,
+                end: pred_end,
+                replacement,
+                cop_name: cop.name(),
+                cop_index: 0,
+            });
+        }
+        diag.corrected = true;
+    }
+}
+
 impl Cop for NegatedWhile {
     fn name(&self) -> &'static str {
         "Style/NegatedWhile"
@@ -79,6 +134,10 @@ impl Cop for NegatedWhile {
         &[CALL_NODE, WHILE_NODE, UNTIL_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -86,7 +145,7 @@ impl Cop for NegatedWhile {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle WhileNode: `while !cond` -> suggest `until`
         if let Some(while_node) = node.as_while_node() {
@@ -98,12 +157,22 @@ impl Cop for NegatedWhile {
             let unwrapped = unwrap_parentheses(predicate);
             if is_single_negation(&unwrapped) {
                 let (line, column) = source.offset_to_line_col(node.location().start_offset());
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     "Favor `until` over `while` for negative conditions.".to_string(),
-                ));
+                );
+                add_negated_loop_corrections(
+                    self,
+                    &while_node.keyword_loc(),
+                    &while_node.predicate(),
+                    &unwrapped,
+                    "until",
+                    &mut corrections,
+                    &mut diag,
+                );
+                diagnostics.push(diag);
             }
             return;
         }
@@ -118,12 +187,22 @@ impl Cop for NegatedWhile {
             let unwrapped = unwrap_parentheses(predicate);
             if is_single_negation(&unwrapped) {
                 let (line, column) = source.offset_to_line_col(node.location().start_offset());
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     "Favor `while` over `until` for negative conditions.".to_string(),
-                ));
+                );
+                add_negated_loop_corrections(
+                    self,
+                    &until_node.keyword_loc(),
+                    &until_node.predicate(),
+                    &unwrapped,
+                    "while",
+                    &mut corrections,
+                    &mut diag,
+                );
+                diagnostics.push(diag);
             }
         }
     }
@@ -134,6 +213,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(NegatedWhile, "cops/style/negated_while");
+    crate::cop_autocorrect_fixture_tests!(NegatedWhile, "cops/style/negated_while");
 
     #[test]
     fn parenthesized_negation() {

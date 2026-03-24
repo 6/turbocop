@@ -35,6 +35,24 @@ use crate::parse::source::SourceFile;
 /// with SymbolNode children. The CodeMap marks SymbolNodes as non-code, so the
 /// check_source scanner skips them. Fix: added check_node for AliasMethodNode
 /// to inspect the bare method name symbols directly.
+///
+/// ## Corpus investigation (2026-03-23) — extended corpus
+///
+/// Extended corpus reported FP=10 from Pluvie/italian-ruby. All FPs from
+/// `alias :non_è_nullo? :esiste?` — explicit `:` symbol notation in alias
+/// statements. RuboCop only checks `tIDENTIFIER` and `tCONSTANT` tokens, not
+/// `tSYMBOL`. In Prism, `alias :foo :bar` produces SymbolNodes with `:` in
+/// `opening_loc`, while `alias foo bar` produces SymbolNodes without opening.
+/// Fix: skip alias name nodes that have an `opening_loc` (explicit symbol
+/// notation).
+///
+/// ## Corpus investigation (2026-03-23) — extended corpus, round 2
+///
+/// FP=2 remaining, both from Pluvie/italian-ruby: method calls `è_un_commento?`
+/// and `è_una_stringa?`. Ruby's lexer produces `tFID` tokens for identifiers
+/// ending in `?` or `!`, not `tIDENTIFIER`. RuboCop only checks `tIDENTIFIER`
+/// and `tCONSTANT`, so these are never flagged. Fix: skip identifiers ending
+/// with `?` or `!` in the byte scanner.
 pub struct AsciiIdentifiers;
 
 impl Cop for AsciiIdentifiers {
@@ -111,6 +129,16 @@ impl Cop for AsciiIdentifiers {
                     continue;
                 }
 
+                // Skip identifiers ending with ? or ! — these are tFID tokens
+                // in Ruby's lexer. RuboCop only checks tIDENTIFIER and tCONSTANT
+                // tokens, not tFID. This covers both method calls (è_un_commento?)
+                // and method definitions (def è_un_commento?).
+                if let Some(&last) = ident.last() {
+                    if last == b'?' || last == b'!' {
+                        continue;
+                    }
+                }
+
                 // Check if identifier has non-ASCII characters
                 if ident.iter().all(|&b| b.is_ascii()) {
                     continue;
@@ -176,6 +204,13 @@ impl Cop for AsciiIdentifiers {
                 Some(s) => s,
                 None => continue,
             };
+            // Skip explicit symbol notation (alias :foo :bar). RuboCop only
+            // checks tIDENTIFIER/tCONSTANT tokens, not tSYMBOL tokens.
+            // In Prism, `alias foo bar` has no opening_loc on the SymbolNode,
+            // while `alias :foo :bar` has `:` as opening_loc.
+            if sym.opening_loc().is_some() {
+                continue;
+            }
             let name_bytes = sym.unescaped();
             if name_bytes.iter().all(|&b| b.is_ascii()) {
                 continue;

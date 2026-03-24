@@ -197,6 +197,18 @@ def group
   end
 end
 
+# NOT memoization: ||= deeply nested inside fetch block with if/else
+# Parser's body.children.last stops at the block body (if-node), not the or_asgn
+def inverse_name
+  options.fetch(:inverse_of) do
+    if @automatic_inverse_of == false
+      nil
+    else
+      @automatic_inverse_of ||= automatic_inverse_of
+    end
+  end
+end
+
 # NOT memoization: ||= inside multi-statement block within self.included
 def self.included(base)
   base.setup do

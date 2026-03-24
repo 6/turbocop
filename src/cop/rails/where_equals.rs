@@ -16,6 +16,16 @@ use crate::parse::source::SourceFile;
 ///    receiver (common in scopes, class methods, and blocks) was rejected by the
 ///    `receiver().is_none()` guard. RuboCop flags these. The `not` method still requires
 ///    a `where` receiver (`where.not(...)`).
+///
+/// ## Investigation findings (2026-03-23)
+///
+/// Extended corpus: FP=3, FN=0. All 3 FPs are from `discourse/mini_sql`, a non-Rails
+/// SQL builder library. RuboCop reports 0 offenses for this cop in that repo because
+/// the repo does not load `rubocop-rails` — the cop is never activated. nitrocop fires
+/// because it runs all cops unconditionally. Both RuboCop and nitrocop use the same
+/// pattern matching (any receiver on `.where`), so the cop logic itself is correct.
+/// These FPs are not fixable at the cop level; they require config-level awareness of
+/// which plugin cops are enabled per-project.
 pub struct WhereEquals;
 
 impl Cop for WhereEquals {

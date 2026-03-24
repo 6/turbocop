@@ -77,6 +77,27 @@ use std::ops::Range;
 /// - Word/symbol array ranges (%w/%i/%W/%I) are ignored (spacing is element separation)
 /// - ForceEqualSignAlignment is read from config but not yet implemented (produces
 ///   a different offense message)
+///
+/// ## Investigation findings (2026-03-23)
+///
+/// 8. **Single-tab FPs (fixed)**: The scanner flagged any whitespace run containing
+///    a tab character, even single tabs. RuboCop's token-based approach counts the
+///    number of characters in the gap between tokens, not visual column width. A
+///    single tab is 1 character of whitespace and is NOT extra spacing. Changed
+///    the condition from `space_count > 1 || has_tab` to just `space_count > 1`.
+///    Fixes ~80 FPs from repos using tabs for alignment (louismullie__treat,
+///    pluosi__app-host, github-linguist__linguist, zammad, etc.).
+///
+/// 9. **Empty word/symbol array FNs (fixed)**: The `%w(  )` and `%i(  )` interior
+///    ranges were unconditionally ignored, even for empty arrays where the spaces
+///    are NOT element separators. Added a check that only ignores non-empty arrays.
+///    Fixes ~8 FNs from browsermedia__browsercms and ruby-formatter__rufo.
+///
+/// 10. **Quote-character alignment FNs (fixed)**: `extract_token_at` returned only
+///     a single `"` or `'` character for string delimiters, causing coincidental
+///     Mode 2 alignment matches. RuboCop's `range.source` returns the full string
+///     token. Extended `extract_token_at` to extract the full quoted string, and
+///     also improved `.method_name` extraction for dot-method calls.
 pub struct ExtraSpacing;
 
 impl Cop for ExtraSpacing {
@@ -132,23 +153,33 @@ impl Cop for ExtraSpacing {
             }
 
             // Now scan for extra whitespace within the line.
-            // We detect both multi-space runs AND whitespace runs containing tabs.
-            // A single tab between tokens is extra spacing (it takes >1 column),
-            // just like multiple spaces.
+            // We detect runs of 2+ whitespace characters (spaces and/or tabs).
+            // A single space or tab between tokens is normal; only multi-char
+            // gaps are extra spacing, matching RuboCop's character-count approach.
             while i < line.len() {
                 if line[i] == b' ' || line[i] == b'\t' {
                     let space_start = i;
-                    let mut has_tab = line[i] == b'\t';
                     while i < line.len() && (line[i] == b' ' || line[i] == b'\t') {
-                        if line[i] == b'\t' {
-                            has_tab = true;
-                        }
                         i += 1;
                     }
                     let space_count = i - space_start;
 
-                    // Flag if: multiple characters, or any tabs (a tab is always >1 col)
-                    if (space_count > 1 || has_tab) && i < line.len() {
+                    // Flag if: multiple whitespace characters (2+ spaces/tabs).
+                    // A single tab is 1 whitespace character and is NOT extra spacing,
+                    // matching RuboCop's token-based approach which counts characters
+                    // in the gap between tokens, not visual column width.
+                    if space_count > 1 && i < line.len() {
+                        // Skip spacing before backslash line continuation at end of line.
+                        // RuboCop's token-based approach doesn't see `\` as a token, so
+                        // the space between the last token and `\` is never flagged.
+                        if line[i] == b'\\'
+                            && line[i + 1..]
+                                .iter()
+                                .all(|&b| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r')
+                        {
+                            continue;
+                        }
+
                         // Get the byte offset in the full source
                         let abs_offset = line_start_offset + space_start;
 
@@ -307,13 +338,17 @@ impl<'pr> Visit<'pr> for WordArrayCollector {
                 || opener.starts_with(b"%i")
                 || opener.starts_with(b"%I")
             {
-                // Mark the interior (between opening and closing delimiters) as ignored
-                let start = opening.end_offset();
-                let end = node
-                    .closing_loc()
-                    .map_or(node.location().end_offset(), |c| c.start_offset());
-                if end > start {
-                    self.ranges.push(start..end);
+                // Only ignore interior of non-empty word/symbol arrays.
+                // Empty arrays like %w(  ) or %i(  ) should still have
+                // their extra spaces flagged, matching RuboCop behavior.
+                if !node.elements().is_empty() {
+                    let start = opening.end_offset();
+                    let end = node
+                        .closing_loc()
+                        .map_or(node.location().end_offset(), |c| c.start_offset());
+                    if end > start {
+                        self.ranges.push(start..end);
+                    }
                 }
             }
         }
@@ -521,8 +556,12 @@ fn check_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> bool {
 }
 
 /// Extract a "token-like" string starting at the given column.
-/// For operator/punctuation characters, returns just that character.
-/// For alphanumeric/underscore characters, returns the full identifier.
+/// This mirrors RuboCop's `range.source` for token comparison in `aligned_words?`.
+///
+/// - Alphanumeric/underscore: returns the full identifier.
+/// - `.` followed by a letter/underscore: returns `.method_name` (method call).
+/// - `"` or `'`: returns the full quoted string to avoid coincidental single-char matches.
+/// - Other operator/punctuation: returns just that character.
 fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
     if col >= line.len() {
         return &[];
@@ -537,6 +576,26 @@ fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
         &line[col..end]
     } else if ch == b' ' || ch == b'\t' {
         &[]
+    } else if ch == b'.'
+        && col + 1 < line.len()
+        && (line[col + 1].is_ascii_alphabetic() || line[col + 1] == b'_')
+    {
+        // Dot followed by identifier: extract `.method_name`
+        let end = line[col + 1..]
+            .iter()
+            .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
+            .map_or(line.len(), |p| col + 1 + p);
+        &line[col..end]
+    } else if ch == b'"' || ch == b'\'' {
+        // String delimiter: extract the full quoted string to avoid coincidental
+        // single-character alignment. This matches RuboCop's behavior where
+        // `range.source` for a string token is the full string text.
+        if let Some(close_pos) = line[col + 1..].iter().position(|&b| b == ch) {
+            &line[col..col + 1 + close_pos + 1]
+        } else {
+            // No closing quote found on same line — return just the quote
+            &line[col..col + 1]
+        }
     } else {
         // Operator/punctuation: just the single character
         &line[col..col + 1]
@@ -945,6 +1004,26 @@ mod tests {
             diags.is_empty(),
             "Should not flag spaces inside %i(), got {} offenses",
             diags.len()
+        );
+    }
+
+    #[test]
+    fn empty_percent_i_array_flagged() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // Empty %i(  ) should flag the extra spaces (not element separators)
+        let src = b"x = 1\nsyms = %i(  )\ny = 2\n";
+        let diags = run_cop_full(&cop, src);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag extra spaces in empty %i(), got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("L{}:C{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
         );
     }
 

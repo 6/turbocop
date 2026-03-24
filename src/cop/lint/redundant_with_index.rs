@@ -30,6 +30,10 @@ impl Cop for RedundantWithIndex {
         &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -37,7 +41,7 @@ impl Cop for RedundantWithIndex {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -74,12 +78,33 @@ impl Cop for RedundantWithIndex {
         if redundant_block_signature(&block_node) {
             let msg_loc = call.message_loc().unwrap_or(call.location());
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Redundant `with_index`.".to_string(),
-            ));
+            let mut diag =
+                self.diagnostic(source, line, column, "Redundant `with_index`.".to_string());
+            // Autocorrect: replace `each_with_index` with `each`, or remove `.with_index`
+            if let Some(ref mut corr) = corrections {
+                if method_name == b"each_with_index" {
+                    corr.push(crate::correction::Correction {
+                        start: msg_loc.start_offset(),
+                        end: msg_loc.end_offset(),
+                        replacement: "each".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                } else {
+                    // `with_index` — remove `.with_index` from chained call
+                    // The receiver ends before `.with_index`
+                    let receiver = call.receiver().unwrap();
+                    corr.push(crate::correction::Correction {
+                        start: receiver.location().end_offset(),
+                        end: msg_loc.end_offset(),
+                        replacement: String::new(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                }
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
     }
 }
@@ -114,4 +139,5 @@ fn redundant_block_signature(block: &ruby_prism::BlockNode<'_>) -> bool {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(RedundantWithIndex, "cops/lint/redundant_with_index");
+    crate::cop_autocorrect_fixture_tests!(RedundantWithIndex, "cops/lint/redundant_with_index");
 }

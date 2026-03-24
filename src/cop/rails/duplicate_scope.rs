@@ -6,6 +6,26 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Rails/DuplicateScope
+///
+/// ## Reverted fix attempt (2026-03-23, commit bb5f83a2)
+///
+/// Attempted to fix FP on lambda/arrow equivalence and FN on bodyless scopes.
+/// Introduced FP=21 and FN=2 on standard corpus; reverted in 1bf1bea3.
+///
+/// **FP=21 (block calls treated as bodyless):** `scope :name do ... end` calls
+/// have `call.arguments()` returning only `:name` (1 arg) with the `do...end`
+/// block in `call.block()`. The `extract_scope_body_source` function saw
+/// `arg_list.len() == 1` and returned `__bodyless__`, grouping all block-style
+/// scopes as duplicates. In Parser AST, `scope :name do...end` is a `(block
+/// (send ...))` node — `each_child_node(:send)` at class body level never finds
+/// the send because it's wrapped in block. Fix: skip calls where
+/// `call.block().is_some()` in the scope collection loop.
+///
+/// **FN=2 (lambda normalization removed):** The commit removed lambda/arrow
+/// normalization, claiming RuboCop treats `-> {}` and `lambda {}` as different.
+/// This is wrong — Parser gem normalizes BOTH to `(lambda ...)` nodes, so
+/// RuboCop treats them as duplicates. Fix: restore the normalization.
 pub struct DuplicateScope;
 
 impl Cop for DuplicateScope {

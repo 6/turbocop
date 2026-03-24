@@ -249,6 +249,78 @@ use crate::parse::source::SourceFile;
 /// `context`/`let` blocks (DataDog pattern). These create a separate Ruby
 /// scope that our AST-walking approach doesn't enter. A full fix requires
 /// VariableForce-level scope tracking.
+///
+/// ## Investigation (FP=34, FN=59, 2026-03-23)
+///
+/// **FP=34 fixed (two root causes):**
+/// 1. **Describe/context arguments as example-scope reads** (~20 FPs):
+///    `stmt_example_scope_var_interaction` and `check_var_used_in_example_scopes`
+///    counted variable references in describe/context call arguments (e.g.,
+///    `describe "#{v}" do`, `context "...", skip: flag do`) as example-scope
+///    reads. Per RuboCop's source, `part_of_example_scope?` only matches
+///    it/before/let/subject/include — NOT describe/context arguments, which
+///    are evaluated at the group scope level. Repos affected: active_type (4),
+///    chef (3), puppet (5), CocoaPods (2), vcr (2), elasticsearch (1),
+///    imap-backup (1), activegraph (1), natalie (1), openproject (1).
+/// 2. **File-level assignment collection entering shared groups** (~14 FPs):
+///    `collect_file_level_assignments` recursed into shared_examples,
+///    shared_examples_for, and shared_context blocks. Fixed by adding
+///    `is_rspec_shared_group` check. Repos affected: forem (4), puppet (3),
+///    vcr (2), openproject (2), natalie (1), activegraph (1), other (1).
+///
+/// **FN=59 remaining (multiple root causes, all require VariableForce):**
+/// - `def self.method` with `.each`/`context` (DataDog: ~11 FN)
+/// - Ruby 3.1 keyword shorthand `url:` not detected as variable reference
+///   (stringer: ~4 FN)
+/// - `def` methods inside describe blocks not entered by `check_def_level_vars`
+///   (opal: ~3 FN)
+/// - Conditional reassignment flow analysis gaps (fastlane: ~3 FN)
+/// - Various other VariableForce scope-tracking gaps (~38 FN)
+///
+/// ## Fix (FN: ImplicitNode for Ruby 3.1 keyword shorthand, 2026-03-23)
+///
+/// `node_references_var` (and transitively `node_reads_var`) did not handle
+/// `ImplicitNode`. In Prism, Ruby 3.1+ keyword shorthand `method(url:)`
+/// (equivalent to `method(url: url)`) is represented as an `AssocNode`
+/// where the value is an `ImplicitNode` wrapping a `LocalVariableReadNode`.
+/// The AssocNode handler already recurses into key and value, but when the
+/// value was an `ImplicitNode`, it fell through to `false` at the end of
+/// `node_references_var`. Fix: added `as_implicit_node()` handler that
+/// unwraps and recurses into the inner value. This fixes ~6 FNs (stringer,
+/// gumroad, shoulda-matchers).
+///
+/// ## Remaining gaps (FP=3, FN=53 as of 2026-03-23)
+///
+/// **3 FP — infrastructure issues, not cop logic bugs:**
+/// - SubjectStub FP=2: corpus oracle artifact. nitrocop is correct; RuboCop
+///   1.85.1 + rubocop-rspec 3.9.0 also flags both lines (ubicloud). Oracle
+///   missed them — will self-resolve on next corpus oracle run.
+/// - ScatteredLet FP=1: que-rb uses minitest with minitest-hooks DSL that
+///   looks like RSpec. RuboCop can't load rubocop-rspec from que-rb's bundle
+///   so it skips RSpec cops. nitrocop has them compiled in. Fix requires
+///   infrastructure: check project Gemfile.lock for plugin gem presence.
+///
+/// **53 FN — require VariableForce implementation:**
+/// RuboCop's `VariableForce` (~800 LOC Ruby) is a per-assignment dataflow
+/// engine that tracks variable lifetime through all execution paths with
+/// branch-aware analysis. Our cop uses AST-walking heuristics instead.
+///
+/// Root causes of remaining FN:
+/// - `def self.method` + `.each` with nested example groups (~11 FN,
+///   DataDog/chef): `check_def_level_vars` collects assignments but the
+///   interaction between `.each` block scope and nested `context`/`it`
+///   blocks isn't tracked precisely enough.
+/// - Conditional write kills (~3 FN, fastlane): `before` hook writes
+///   variable inside `unless initialized` — flow analysis returns
+///   `WriteBeforeRead` (killing the outer value), but the write is
+///   conditional so the file-level value can still reach later `it` blocks.
+/// - Block-local scoping edge cases (~39 FN): variables captured across
+///   multiple nested blocks, rescue/ensure reassignment, `for` loop
+///   scoping differences, etc.
+///
+/// Building VariableForce in Rust means implementing a per-assignment
+/// reference tracker with branch-aware dataflow — a substantial effort
+/// but the right long-term path to close the remaining FN gap.
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
@@ -548,6 +620,14 @@ fn collect_file_level_assignments(
                 .receiver()
                 .is_some_and(|r| util::constant_name(&r).is_some_and(|n| n == b"RSpec")));
         if no_recv && is_rspec_example_group(name) {
+            return;
+        }
+        // Stop at shared example groups (shared_examples, shared_examples_for,
+        // shared_context). Variables inside shared groups are scoped to the
+        // shared group block, not file-level. RuboCop's VariableForce respects
+        // block scope boundaries, so variables inside shared groups don't leak
+        // to the file level.
+        if no_recv && util::is_rspec_shared_group(name) {
             return;
         }
         // Stop at example scopes (it, before, let, subject, etc.)
@@ -1029,15 +1109,11 @@ fn stmt_example_scope_var_interaction(
         // Nested example groups: recurse into their statements
         // Match both `describe` (no receiver) and `RSpec.describe` (receiver is RSpec)
         if (no_recv || is_rspec_recv) && is_rspec_example_group(name) {
-            // Check arguments of the example group call (e.g., `describe result::Success`).
-            // Variables used as arguments to describe/context are reads.
-            if let Some(args) = call.arguments() {
-                for arg in args.arguments().iter() {
-                    if node_references_var(&arg, var_name) {
-                        return VarInteraction::ReadOnly;
-                    }
-                }
-            }
+            // Note: describe/context ARGUMENTS (e.g., `describe "#{v}" do`) are
+            // evaluated at the group scope, not inside example scopes. RuboCop's
+            // LeakyLocalVariable cop checks `part_of_example_scope?` which only
+            // matches it/before/let/subject/include — NOT describe/context call
+            // arguments. So we do NOT check call.arguments() here.
             if let Some(blk) = call.block() {
                 if let Some(bn) = blk.as_block_node() {
                     if let Some(body) = bn.body() {
@@ -1925,17 +2001,12 @@ fn check_var_used_in_example_scopes(node: &ruby_prism::Node<'_>, var_name: &[u8]
             return false;
         }
 
-        // Nested example groups: check arguments and recurse into their body
+        // Nested example groups: recurse into their body
         // Match both `describe` (no receiver) and `RSpec.describe` (receiver is RSpec)
         if (no_recv || is_rspec_recv) && is_rspec_example_group(name) {
-            // Check arguments (e.g., `describe result::Success`)
-            if let Some(args) = call.arguments() {
-                for arg in args.arguments().iter() {
-                    if node_references_var(&arg, var_name) {
-                        return true;
-                    }
-                }
-            }
+            // Note: describe/context ARGUMENTS are evaluated at the group scope,
+            // not inside example scopes. RuboCop doesn't flag these. See the
+            // matching comment in stmt_example_scope_var_interaction.
             if let Some(blk) = call.block() {
                 if let Some(bn) = blk.as_block_node() {
                     if let Some(body) = bn.body() {
@@ -2998,6 +3069,13 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
         return false;
     }
 
+    // ImplicitNode: Ruby 3.1+ keyword shorthand `method(url:)` wraps the
+    // value in an ImplicitNode containing a LocalVariableReadNode (or CallNode).
+    // Unwrap and check the inner node.
+    if let Some(implicit) = node.as_implicit_node() {
+        return node_references_var(&implicit.value(), var_name);
+    }
+
     false
 }
 
@@ -3380,6 +3458,38 @@ end
     }
 
     #[test]
+    fn test_no_fp_shared_context_vars() {
+        // shared_context IS in RSPEC_EXAMPLE_GROUPS, so check_node DOES process it.
+        // Variables inside shared_context used in example scopes ARE correctly flagged.
+        // This test verifies that file-level collection stops at shared_context.
+        //
+        // When only the shared_context exists in the file (no surrounding describe),
+        // check_node processes it and finds sc_opts used in the before hook — offense.
+        // This is CORRECT per RuboCop's vendor spec.
+        let source_with_describe = br#"sc_extra = "file level"
+RSpec.shared_context "test setup" do
+  sc_opts = { timeout: 30 }
+  before { setup(sc_opts) }
+end
+describe SomeClass do
+  it "test" do
+    expect(true).to be true
+  end
+end
+"#;
+        // sc_extra at file level should NOT be flagged (not used in example scopes).
+        // sc_opts inside shared_context IS correctly flagged by check_node (as a
+        // group-level assignment used in the before hook), but should NOT be
+        // double-flagged by check_source as a file-level assignment.
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source_with_describe);
+        let offenses_at_line1: Vec<_> = diags.iter().filter(|d| d.location.line == 1).collect();
+        assert!(
+            offenses_at_line1.is_empty(),
+            "sc_extra at file level should not be flagged (not used in examples)"
+        );
+    }
+
+    #[test]
     fn test_fn_def_body_vars_leak_into_describe() {
         // chef pattern: variables assigned inside def body, then used in describe/let/it blocks
         let source = br#"def static_provider_resolution(opts = {})
@@ -3444,8 +3554,10 @@ end
 
     #[test]
     fn test_fn_var_used_in_describe_argument() {
-        // dry-monads pattern: variable used as argument to nested describe call
-        // e.g., `result = described_class; describe result::Success do ... end`
+        // Describe/context arguments are evaluated at the group scope, not inside
+        // example scopes. RuboCop's `part_of_example_scope?` doesn't match
+        // describe/context, so variables used only in describe arguments should
+        // NOT be flagged.
         let source = br#"RSpec.describe(SomeClass) do
   result = described_class
 
@@ -3458,8 +3570,8 @@ end
 "#;
         let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
         assert!(
-            diags.len() >= 1,
-            "Expected at least 1 offense for var used in describe arg, got {}: {:?}",
+            diags.is_empty(),
+            "Expected no offense for var used only in describe arg, got {}: {:?}",
             diags.len(),
             diags
                 .iter()

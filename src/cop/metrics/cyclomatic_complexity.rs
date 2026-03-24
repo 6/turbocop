@@ -59,6 +59,23 @@ use crate::parse::source::SourceFile;
 /// bodies were not counted because the `in_rescue_chain` flag remained true.
 /// Fix: override `visit_begin_node` to save/restore `in_rescue_chain`, so
 /// nested rescue scopes start fresh. This resolved 14 FN across 12 repos.
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus (5592 repos) reported FP=33, FN=0. Standard corpus is 0/0.
+///
+/// FP=33 root cause: cross-cutting file-level issue, NOT a cop algorithm bug.
+/// 27/33 FP come from 2 repos with vendored Ruby gems (cjstewart88/Tubalr at
+/// heroku/ruby/1.9.1/gems/rdoc-3.8/ and liaoziyang/stackneveroverflow at
+/// vendor/bundle/ruby/2.3.0/gems/rdoc-4.3.0/). RuboCop does not process these
+/// files (likely parser incompatibility with old Ruby 1.9 syntax or encoding),
+/// while nitrocop (Prism) parses them successfully. The same repos contribute
+/// FPs across ALL Metrics cops and many other departments.
+/// Remaining 6 FP from auth0 (2), gisiahq (1), noosfero (1), pitluga (1),
+/// samvera (1) — likely config resolution differences (project .rubocop.yml
+/// Max overrides or AllCops.Exclude patterns not loaded identically).
+/// No cop-level fix needed; requires infrastructure fix for file exclusion
+/// and config resolution parity.
 pub struct CyclomaticComplexity;
 
 #[derive(Default)]

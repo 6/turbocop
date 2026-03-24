@@ -29,6 +29,22 @@ use ruby_prism::Visit;
 /// - Fix: treat tabs as valid whitespace in text scanner; add extra-space
 ///   detection for `=` and `=>` in text scanner; improve alignment detection
 ///   to support cross-operator alignment (operators ending at same column).
+///
+/// ## Corpus investigation (2026-03-24)
+///
+/// Corpus oracle reported FP=1,492, FN=861.
+///
+/// An attempt was made to fix alignment detection with: (1) code-map awareness
+/// for alignment checks, (2) word-boundary restriction, (3) assignment-group
+/// alignment for `=`. The approach (commit 884f8c2, reverted) fixed FPs but
+/// massively increased FNs from 861 to 12,736 — the assignment-group alignment
+/// logic was too aggressively suppressing offenses. The code-map and word-boundary
+/// changes also suppressed too many legitimate detections.
+///
+/// A correct fix needs to: implement assignment-group alignment narrowly (only
+/// for consecutive simple `=` assignments at the same indentation level, not
+/// for `==`, `!=`, `=>`, etc.), and ensure code-map checks don't suppress
+/// operators that happen to be adjacent to string literals.
 pub struct SpaceAroundOperators;
 
 /// Collect byte offsets of `=` signs that are part of parameter defaults,

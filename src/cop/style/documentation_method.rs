@@ -148,6 +148,36 @@ fn has_retroactive_visibility(source: &SourceFile, def_offset: usize, method_nam
     false
 }
 
+/// Check if the inline prefix before `def` contains a visibility keyword (`private` or
+/// `protected`) anywhere in the chain. For example, `memoized internal private def baz`
+/// has `private` in the prefix, making the method non-public even though the prefix starts
+/// with an unknown modifier.
+fn has_inline_visibility_keyword(source: &SourceFile, def_offset: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut line_start = def_offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+    let line_prefix = &bytes[line_start..def_offset];
+    let trimmed: &[u8] = &line_prefix[line_prefix
+        .iter()
+        .take_while(|&&b| b == b' ' || b == b'\t')
+        .count()..];
+
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    // Check if any word in the prefix is `private` or `protected`
+    for word in trimmed.split(|&b| b == b' ' || b == b'\t') {
+        if word == b"private" || word == b"protected" {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Check if the `def` has an unknown (non-visibility, non-registered modifier) prefix
 /// on the same line. For example: `memoize def foo` or `register_element def bar`.
 ///
@@ -259,6 +289,11 @@ impl Cop for DocumentationMethod {
             }
             // Check retroactive visibility: `private :method_name` after the def
             if has_retroactive_visibility(source, def_offset, method_name) {
+                return;
+            }
+            // Check if the inline prefix contains `private` or `protected` anywhere
+            // in the chain (e.g., `memoized internal private def baz`)
+            if has_inline_visibility_keyword(source, def_offset) {
                 return;
             }
         }

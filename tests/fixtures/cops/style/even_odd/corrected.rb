@@ -1,0 +1,5 @@
+x.even?
+
+x.odd?
+
+x.odd?

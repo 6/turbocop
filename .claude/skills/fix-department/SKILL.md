@@ -79,6 +79,24 @@ Ephemeral cloud VMs typically run as `root` or a CI-specific user, not `vscode`.
 
 ## Workflow
 
+### Branch Guard (cloud VMs only)
+
+On ephemeral cloud VMs (not macOS, not devcontainers), **never commit directly to
+main**. Before starting any work, check the environment and current branch:
+```bash
+# Detect platform: macOS and devcontainers may commit to main directly.
+# Cloud VMs (not devcontainers) must use a feature branch.
+uname -s  # Darwin = macOS → skip branch guard
+# If Linux: check for devcontainer ($USER == "vscode" && /.dockerenv exists)
+```
+If you are on a cloud VM AND on `main`, create a feature branch immediately:
+```bash
+git checkout -b claude/fix-department-<target>-$(openssl rand -hex 3)
+```
+All commits go to this branch. Integration to main happens via PR (Phase 6).
+
+On macOS or devcontainers, committing directly to main is acceptable.
+
 ### Phase 0: Assess (you do this)
 
 1. **Always start with the scoreboard.** Run the script and **paste its full output verbatim
@@ -488,7 +506,7 @@ When the generated target row is at 100% and Linux CI agrees:
    both green. If CI confirmation is still pending, report that the target is
    locally green but not complete yet.
 
-### Phase 6: Integrate Back to Main (Default)
+### Phase 6: Integrate Back to Main
 
 Do not leave retained progress only in a feature branch.
 
@@ -496,19 +514,26 @@ Do not leave retained progress only in a feature branch.
    - Accepted cop fixes: one commit per cop (preferred).
    - Useful investigation artifacts retained in repo (for example, reverted-attempt notes): separate commit.
 
-2. Integrate those commit(s) into `main` immediately (unless the user explicitly says not to).
+2. **macOS / devcontainer (direct integration):**
+   Integrate those commit(s) into `main` immediately (unless the user explicitly says not to).
    ```bash
    git checkout main
    git cherry-pick <sha1> [<sha2> ...]
    ```
 
-3. Verify integration on `main`:
+   **Cloud VM (branch integration):**
+   If you created a feature branch in the Branch Guard step, push it:
+   ```bash
+   git push -u origin HEAD
+   ```
+
+3. Verify integration:
    ```bash
    git log --oneline -n 10
    git status --short --branch
    ```
 
-4. Report exactly what was integrated (commit SHA(s) and short subjects).
+4. Report exactly what was integrated (commit SHA(s) and short subjects, or PR URL).
 
 5. If there is truly no repo-retained progress, explicitly report that no commit was made.
 

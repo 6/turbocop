@@ -308,3 +308,14 @@ def execute
     end
   end
 end
+
+# Block-bearing create inside hash value inside collect_concat block (Tempfile.create is NOT AR)
+# in_transparent_container should NOT leak through block boundaries
+def fetch_articles(ftp, files)
+  { articles: files.collect_concat do |file|
+    Tempfile.create do |temp_file|
+      ftp.getbinaryfile(file, temp_file.path)
+      JSON.parse(File.read(temp_file.path))[:articles]
+    end
+  end }
+end

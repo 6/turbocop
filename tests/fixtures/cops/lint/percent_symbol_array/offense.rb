@@ -4,3 +4,7 @@
 ^^^^^^^^^^^^^^ Lint/PercentSymbolArray: Within `%i`/`%I`, ':' and ',' are unnecessary and may be unwanted in the resulting symbols.
 %I(:baz, :qux)
 ^^^^^^^^^^^^^^ Lint/PercentSymbolArray: Within `%i`/`%I`, ':' and ',' are unnecessary and may be unwanted in the resulting symbols.
+%i[:name, :role, :status]
+^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/PercentSymbolArray: Within `%i`/`%I`, ':' and ',' are unnecessary and may be unwanted in the resulting symbols.
+%i(:active :pending :archived)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/PercentSymbolArray: Within `%i`/`%I`, ':' and ',' are unnecessary and may be unwanted in the resulting symbols.

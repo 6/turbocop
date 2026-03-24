@@ -14,7 +14,7 @@ Use this when the user wants commits from one or more branches landed onto
 **Run the script first.** The happy path is fully automated:
 
 ```bash
-./scripts/land_branch_commits.sh <branch1> [branch2 ...]
+.claude/skills/land-branch-commits/scripts/land_branch_commits.sh <branch1> [branch2 ...]
 ```
 
 The script handles:
@@ -47,9 +47,19 @@ Pick up from here:
 3. Continue with `git cherry-pick --continue`.
 4. If the commit becomes empty (patch already present), skip with
    `git cherry-pick --skip`.
-5. After resolving, re-run the script with the same arguments — it will
+5. After resolving, **re-run the script with the same arguments** — it will
    skip already-landed commits and continue with the remaining ones.
-6. Do not use `git merge`, `git stash`, or destructive reset commands.
+   Always prefer re-running the script over manual cherry-picks so that
+   authorship reset, message cleanup, and trailer logic are applied
+   automatically.
+6. If you must cherry-pick manually (e.g., the script keeps failing), apply
+   the same fixups the script would:
+   - Reset author to the local git user (do not keep the branch author).
+   - Strip any `claude.ai` URLs from the commit message.
+   - Strip existing `Co-Authored-By` lines from the original message.
+   - Append a `Co-Authored-By` trailer for the original branch author
+     when they differ from the local git user.
+7. Do not use `git merge`, `git stash`, or destructive reset commands.
 
 ## Reporting
 

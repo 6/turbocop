@@ -408,3 +408,58 @@ describe SomeClass do
   end
 end
 
+# Variable inside shared_examples block (not file-level)
+RSpec.shared_examples "permitted roles" do |**kwargs|
+  to = kwargs.delete(:to)
+  label = kwargs.except(:to).map { |key, value| "#{key} is #{value}" }.join(" AND ")
+
+  Array(to).each do |role|
+    context "#{label} #{role.inspect} authorization" do
+      let(:user) { public_send(role) }
+      it { is_expected.to be_truthy }
+    end
+  end
+end
+
+# Variable used only in describe argument (group scope, not example scope)
+describe SomeClass do
+  v = SomeModule::SOME_CONSTANT
+  describe "with value #{v}" do
+    subject { described_class.new }
+    it { is_expected.to be_valid }
+  end
+end
+
+# Variable used as argument to nested describe (ConstantPathNode)
+# RuboCop's part_of_example_scope? doesn't match describe arguments
+RSpec.describe(SomeClass) do
+  result = described_class
+
+  describe result::Success do
+    it "works" do
+      expect(true).to be true
+    end
+  end
+end
+
+# Variable used only in context metadata (group scope, not example scope)
+describe SomeClass do
+  exclude_test = some_platform?
+  describe "platform tests", skip: exclude_test do
+    it "works" do
+      expect(true).to be true
+    end
+  end
+end
+
+# Variable used only in shared_examples_for block (not file-level)
+shared_examples_for "a testable resource" do |testcase|
+  context_name = "With mode #{testcase[:mode]}"
+  context context_name do
+    let(:resource) { build_resource(testcase) }
+    it "applies correctly" do
+      expect(resource).to be_valid
+    end
+  end
+end
+

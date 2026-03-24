@@ -15,6 +15,12 @@ use crate::parse::source::SourceFile;
 /// **Fix:** Added handling for `\cX` (3-byte) and `\C-X`/`\M-X` (4-byte) control
 /// and meta character escapes in `is_literal_regex()`, treating them as literal
 /// character sequences.
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus reported FP=4, FN=0. All 4 FPs from vendored gem files in
+/// repos with out-of-tree scan paths. Fixed by scan_roots support in
+/// CopFilterSet for AllCops.Exclude path matching (commit 1f2f67c).
 pub struct StringInclude;
 
 /// Check if a single byte is in RuboCop's literal character allowlist.

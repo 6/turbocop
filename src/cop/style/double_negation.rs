@@ -111,6 +111,24 @@ use crate::parse::source::SourceFile;
 /// branches and in `find_last_child_of_stmts` for elsif last-child nodes.
 /// (4) Fixed three incorrect fixture tests (moved to no_offense.rb).
 /// (5) Added FN test cases for elsif branches in multi-statement bodies.
+///
+/// Corpus investigation (round 7): 6 FPs, 0 FNs.
+///
+/// FP root cause: Parenthesized `!!` expressions like `(!!expr) ? a : b` and
+/// `(!!data[:key]) == value` were flagged inside def bodies with conditional
+/// ancestors. In Parser AST, `(!!expr)` creates a `begin` node, and RuboCop's
+/// `find_parent_not_enumerable` returns it. Since `begin_type?` is true, the
+/// lenient check `node.loc.line == parent.loc.last_line` applies, which
+/// trivially passes for single-line parenthesized expressions. In Prism,
+/// parenthesized expressions create `ParenthesesNode`, which nitrocop did not
+/// recognize as equivalent to `begin_type?`.
+///
+/// Fix (round 7): Added `parenthesized_last_line` tracking to the visitor.
+/// When visiting a `ParenthesesNode` inside a def body with a conditional
+/// ancestor, the parens' last line is recorded. In `is_end_of_method_definition`,
+/// when inside a conditional and `parenthesized_last_line` is set, the lenient
+/// same-line check is used instead of the strict `last_child_last_line <=
+/// cond_last_line` check.
 pub struct DoubleNegation;
 
 impl Cop for DoubleNegation {
@@ -137,6 +155,7 @@ impl Cop for DoubleNegation {
             conditional_last_line_stack: Vec::new(),
             statements_last_line_stack: Vec::new(),
             parent_is_statements: false,
+            parenthesized_last_line: None,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -173,6 +192,12 @@ struct DoubleNegationVisitor<'a> {
     /// stmts_last_line check apply — matching RuboCop's
     /// `find_parent_not_enumerable` + `begin_type?` check.
     parent_is_statements: bool,
+    /// Last line of the immediately enclosing `ParenthesesNode`, if any.
+    /// In Parser AST, parenthesized expressions create `begin` nodes, and
+    /// `find_parent_not_enumerable` returns them as `begin_type?`. When this
+    /// is `Some`, the lenient same-line check applies instead of the strict
+    /// `last_child_last_line <= cond_last_line` check.
+    parenthesized_last_line: Option<usize>,
 }
 
 impl DoubleNegationVisitor<'_> {
@@ -278,6 +303,20 @@ impl DoubleNegationVisitor<'_> {
         // double_negative_condition_return_value? logic
         if let Some(&cond_last_line) = self.conditional_last_line_stack.last() {
             // RuboCop: find_parent_not_enumerable → if parent.begin_type?
+            //
+            // In Parser AST, parenthesized expressions `(!!expr)` create a
+            // `begin` node. `find_parent_not_enumerable` returns this `begin`,
+            // and `begin_type?` is true, so the lenient check applies:
+            // `node.loc.line == parent.loc.last_line`. For single-line parens,
+            // this is trivially true.
+            //
+            // In Prism, parenthesized expressions create `ParenthesesNode`.
+            // When `parenthesized_last_line` is set, apply the same lenient
+            // check: `!!` is allowed if on the same line as the parens.
+            if let Some(paren_last_line) = self.parenthesized_last_line {
+                return node_line == paren_last_line;
+            }
+
             // Only apply the statements line check when the !! node's
             // non-enumerable parent IS a StatementsNode (begin_type? in
             // Parser AST). When !! is inside another expression (method call,
@@ -600,7 +639,9 @@ impl DoubleNegationVisitor<'_> {
         let saved_cond = std::mem::take(&mut self.conditional_last_line_stack);
         let saved_stmts = std::mem::take(&mut self.statements_last_line_stack);
         let saved_parent_is_statements = self.parent_is_statements;
+        let saved_parenthesized = self.parenthesized_last_line;
         self.parent_is_statements = false;
+        self.parenthesized_last_line = None;
 
         visit_fn(self);
 
@@ -608,6 +649,7 @@ impl DoubleNegationVisitor<'_> {
         self.conditional_last_line_stack = saved_cond;
         self.statements_last_line_stack = saved_stmts;
         self.parent_is_statements = saved_parent_is_statements;
+        self.parenthesized_last_line = saved_parenthesized;
     }
 }
 
@@ -618,7 +660,11 @@ impl<'pr> Visit<'pr> for DoubleNegationVisitor<'_> {
         // After checking this node, clear parent_is_statements for children.
         // Children of a call node are not direct children of the StatementsNode.
         let saved_parent = self.parent_is_statements;
+        // Clear parenthesized_last_line for children: `!!` inside a deeper
+        // call is no longer directly parenthesized.
+        let saved_parenthesized = self.parenthesized_last_line;
         self.parent_is_statements = false;
+        self.parenthesized_last_line = None;
 
         // Check if this is a define_method or define_singleton_method call with a block
         if let Some(block) = node.block() {
@@ -632,6 +678,7 @@ impl<'pr> Visit<'pr> for DoubleNegationVisitor<'_> {
                         ruby_prism::visit_call_node(this, node);
                     });
                     self.parent_is_statements = saved_parent;
+                    self.parenthesized_last_line = saved_parenthesized;
                     return;
                 }
             }
@@ -639,6 +686,7 @@ impl<'pr> Visit<'pr> for DoubleNegationVisitor<'_> {
 
         ruby_prism::visit_call_node(self, node);
         self.parent_is_statements = saved_parent;
+        self.parenthesized_last_line = saved_parenthesized;
     }
 
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
@@ -646,6 +694,26 @@ impl<'pr> Visit<'pr> for DoubleNegationVisitor<'_> {
         self.with_def_body(body, |this| {
             ruby_prism::visit_def_node(this, node);
         });
+    }
+
+    fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'pr>) {
+        // In Parser AST, parenthesized expressions `(expr)` create a `begin`
+        // node. RuboCop's `find_parent_not_enumerable` returns this `begin`,
+        // and `begin_type?` allows the lenient same-line check in
+        // `double_negative_condition_return_value?`. Track the parentheses
+        // last line so `is_end_of_method_definition` can apply the same logic.
+        if !self.def_info_stack.is_empty() && !self.conditional_last_line_stack.is_empty() {
+            let saved = self.parenthesized_last_line;
+            self.parenthesized_last_line =
+                Some(self.last_line_of_node(
+                    node.location().start_offset(),
+                    node.location().end_offset(),
+                ));
+            ruby_prism::visit_parentheses_node(self, node);
+            self.parenthesized_last_line = saved;
+        } else {
+            ruby_prism::visit_parentheses_node(self, node);
+        }
     }
 
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {

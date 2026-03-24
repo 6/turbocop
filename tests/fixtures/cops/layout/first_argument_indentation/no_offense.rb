@@ -50,7 +50,7 @@ search = lambda do |params|
   { bool: { must: [query], filter: filter } }
 end.(params[:q], params[:t]),
 
-# String interpolation with method call inside heredoc — should not flag
+# String interpolation with method call inside heredoc — correctly indented
 content = <<~HTML
   #{builder.attachment(
     :image,

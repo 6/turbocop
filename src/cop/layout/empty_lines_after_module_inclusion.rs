@@ -96,6 +96,25 @@ use crate::parse::source::SourceFile;
 /// reports aggregate excess in batch `--corpus-check` mode, but that output is
 /// within file-drop noise from parser-crash repos and no longer reflects the
 /// known exact-location mismatches for this cop.
+///
+/// ## Corpus investigation (2026-03-23)
+///
+/// Corpus oracle reported FP=12. Two root causes:
+///
+/// 1. **include/extend as last of multiple statements before rescue** (~9 FPs):
+///    In `begin...rescue` blocks where the include is the last of multiple
+///    statements before `rescue`, RuboCop's `right_sibling` returns nil (no
+///    next statement), so the cop doesn't fire. nitrocop's text-based approach
+///    saw `rescue` as the next line and flagged it. Fix: track
+///    `last_before_rescue` flag in the visitor, skip offense when the next line
+///    starts with `rescue` and the flag is set.
+///
+/// 2. **Single-line class/block with semicolons followed by blank line** (~3 FPs):
+///    `class C; extend M; setup; end` followed by a blank line. RuboCop's
+///    `next_line_empty_or_enable_directive_comment?` check fires before AST-based
+///    sibling analysis — if the physical next line is blank, the cop returns.
+///    nitrocop was finding the same-line `;` follower and firing regardless.
+///    Fix: check physical next line for blankness before adding same-line offense.
 pub struct EmptyLinesAfterModuleInclusion;
 
 const MODULE_INCLUSION_METHODS: &[&[u8]] = &[b"include", b"extend", b"prepend"];
@@ -256,6 +275,7 @@ impl Cop for EmptyLinesAfterModuleInclusion {
             corrections: Vec::new(),
             in_block_or_send: false,
             in_if_body: false,
+            last_before_rescue: false,
         };
         visitor.visit(&parse_result.node());
         if let Some(ref mut corr) = corrections {
@@ -279,6 +299,10 @@ struct InclusionVisitor<'a> {
     /// True when inside an if/unless body — RuboCop's `next_line_node` returns
     /// nil when `node.parent.if_type?`, so the cop never fires in these contexts.
     in_if_body: bool,
+    /// True when this statement is the last of multiple statements in a begin
+    /// body that has a rescue clause. In RuboCop's AST, the right sibling is nil
+    /// (no next statement), so the cop doesn't fire.
+    last_before_rescue: bool,
 }
 
 impl InclusionVisitor<'_> {
@@ -363,6 +387,13 @@ impl InclusionVisitor<'_> {
                     {
                         return;
                     }
+                    // RuboCop's `next_line_empty_or_enable_directive_comment?` check
+                    // fires before examining the AST next-node. When the physical
+                    // next line is blank, the cop returns — even if there's a
+                    // same-line `;` follower that would normally trigger.
+                    if last_line < lines.len() && is_blank_or_whitespace_line(lines[last_line]) {
+                        return;
+                    }
                     self.add_offense(loc.start_offset(), None);
                     return;
                 }
@@ -384,6 +415,14 @@ impl InclusionVisitor<'_> {
 
         let next_trimmed = trim_leading(next_line);
         if is_allowed_following_line(next_trimmed, allow_grouped_inclusions) {
+            return;
+        }
+
+        // In RuboCop, when the include is the last of multiple statements in a
+        // begin body before a rescue clause, right_sibling returns nil and the
+        // cop doesn't fire. Only when it's the sole statement does the parent
+        // become the rescue node itself (with resbody as right sibling).
+        if self.last_before_rescue && starts_with_keyword(next_trimmed, b"rescue") {
             return;
         }
 
@@ -623,11 +662,38 @@ impl<'pr> Visit<'pr> for InclusionVisitor<'_> {
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
         let was = self.in_block_or_send;
         let was_if = self.in_if_body;
+        let was_rescue = self.last_before_rescue;
         self.in_block_or_send = false;
         self.in_if_body = false;
-        ruby_prism::visit_begin_node(self, node);
+
+        // When a begin node has a rescue clause and the body has multiple
+        // statements, the last statement has no right sibling in RuboCop's AST.
+        // Set `last_before_rescue` so the cop doesn't fire on it.
+        let has_rescue = node.rescue_clause().is_some();
+        if let Some(stmts) = node.statements() {
+            let body = stmts.body();
+            let count = body.len();
+            for (i, stmt) in body.iter().enumerate() {
+                self.last_before_rescue = has_rescue && count > 1 && i == count - 1;
+                self.visit(&stmt);
+            }
+        }
+
+        // Visit rescue/else/ensure clauses normally
+        self.last_before_rescue = false;
+        if let Some(rescue_clause) = node.rescue_clause() {
+            self.visit(&rescue_clause.as_node());
+        }
+        if let Some(else_clause) = node.else_clause() {
+            self.visit(&else_clause.as_node());
+        }
+        if let Some(ensure_clause) = node.ensure_clause() {
+            self.visit(&ensure_clause.as_node());
+        }
+
         self.in_block_or_send = was;
         self.in_if_body = was_if;
+        self.last_before_rescue = was_rescue;
     }
 
     // Rescue modifier: `include Foo rescue Bar` wraps the include call

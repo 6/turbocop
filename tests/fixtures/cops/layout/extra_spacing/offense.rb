@@ -43,3 +43,7 @@ check_b   # comment B
        ^ Layout/ExtraSpacing: Unnecessary spacing detected.
 check_c_patterns   # comment C
                 ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+# Extra spaces inside empty word arrays (RuboCop flags these)
+a = %w(  )
+       ^ Layout/ExtraSpacing: Unnecessary spacing detected.

@@ -44,3 +44,11 @@ assert_search_matches({}, {
   },
   {'key' => '4'}
 )
+
+# Grouped expression with correctly indented )
+w = x * (
+  y + z
+)
+
+# Single-line grouped expression (no hanging paren)
+result = (a + b)

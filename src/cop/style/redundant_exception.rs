@@ -35,6 +35,10 @@ impl Cop for RedundantException {
         &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -42,7 +46,7 @@ impl Cop for RedundantException {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
@@ -70,12 +74,26 @@ impl Cop for RedundantException {
         if arg_list.len() == 2 && Self::is_runtime_error(&arg_list[0]) {
             let loc = call_node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
+            let mut diag = self.diagnostic(
                 source,
                 line,
                 column,
                 "Redundant `RuntimeError` argument can be removed.".to_string(),
-            ));
+            );
+            // Autocorrect: remove `RuntimeError, ` (first arg + comma + space)
+            if let Some(ref mut corr) = corrections {
+                let first_arg_start = arg_list[0].location().start_offset();
+                let second_arg_start = arg_list[1].location().start_offset();
+                corr.push(crate::correction::Correction {
+                    start: first_arg_start,
+                    end: second_arg_start,
+                    replacement: String::new(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
 
         // Pattern 2: raise RuntimeError.new("message") (1 arg that's a call to .new on RuntimeError)
@@ -87,12 +105,28 @@ impl Cop for RedundantException {
                         if Self::is_runtime_error(&receiver) {
                             let loc = call_node.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            diagnostics.push(self.diagnostic(
+                            let mut diag = self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Redundant `RuntimeError.new` call can be replaced with just the message.".to_string(),
-                            ));
+                            );
+                            // Autocorrect: replace `RuntimeError.new("msg")` with just `"msg"`
+                            if let Some(ref mut corr) = corrections {
+                                let new_args = new_call.arguments().unwrap();
+                                let args_src = std::str::from_utf8(new_args.location().as_slice())
+                                    .unwrap_or("")
+                                    .to_string();
+                                corr.push(crate::correction::Correction {
+                                    start: arg_list[0].location().start_offset(),
+                                    end: arg_list[0].location().end_offset(),
+                                    replacement: args_src,
+                                    cop_name: self.name(),
+                                    cop_index: 0,
+                                });
+                                diag.corrected = true;
+                            }
+                            diagnostics.push(diag);
                         }
                     }
                 }
@@ -105,4 +139,5 @@ impl Cop for RedundantException {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(RedundantException, "cops/style/redundant_exception");
+    crate::cop_autocorrect_fixture_tests!(RedundantException, "cops/style/redundant_exception");
 }

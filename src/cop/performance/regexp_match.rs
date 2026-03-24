@@ -29,6 +29,17 @@ use ruby_prism::Visit;
 /// `r.offset < upper_bound` excluded it. Fixed by using `<=` so refs at the exact boundary
 /// are included. Examples: `$` =~ MGR0` after `w =~ /eed$/`, and
 /// `Regexp.last_match[0] =~ /re/` after `str =~ /pattern/`.
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus reported FP=38, FN=0. All 38 FPs from vendored gem files in
+/// repos cjstewart88__Tubalr (heroku/ruby/1.9.1/gems/rdoc-*),
+/// liaoziyang__stackneveroverflow (vendor/bundle/ruby/2.3.0/gems/rdoc-*),
+/// infochimps-labs__wukong, and pitluga__supply_drop. Root cause: AllCops.Exclude
+/// patterns like `vendor/**/*` failed to match when the scanned directory was
+/// outside the config's base_dir (corpus oracle scenario). Fixed by adding
+/// scan_roots support to CopFilterSet for out-of-tree path relativization.
+/// The TargetRubyVersion check (minimum 2.4) remains as an additional guard.
 pub struct RegexpMatch;
 
 impl Cop for RegexpMatch {
@@ -45,10 +56,21 @@ impl Cop for RegexpMatch {
         source: &SourceFile,
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // RuboCop: minimum_target_ruby_version 2.4
+        // match? was added in Ruby 2.4, so this cop only applies for 2.4+.
+        let ruby_version = config
+            .options
+            .get("TargetRubyVersion")
+            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+            .unwrap_or(2.7);
+        if ruby_version < 2.4 {
+            return;
+        }
+
         // Pass 1: Collect all MatchData reference positions with their scope info
         let mut ref_collector = MatchDataRefCollector {
             refs: Vec::new(),
@@ -776,6 +798,32 @@ mod tests {
             diags.len(),
             0,
             "Should not flag when $1 falls in range. Got: {:?}",
+            diags
+                .iter()
+                .map(|d| format!("{}:{} {}", d.location.line, d.location.column, d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn skips_when_target_ruby_below_2_4() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+        let source = b"if x =~ /pattern/\n  do_something\nend\n";
+        let mut options = HashMap::new();
+        options.insert(
+            "TargetRubyVersion".to_string(),
+            serde_yml::Value::Number(serde_yml::Number::from(2.3)),
+        );
+        let config = CopConfig {
+            options,
+            ..CopConfig::default()
+        };
+        let diags = run_cop_full_with_config(&RegexpMatch, source, config);
+        assert!(
+            diags.is_empty(),
+            "Should NOT flag when TargetRubyVersion < 2.4. Got: {:?}",
             diags
                 .iter()
                 .map(|d| format!("{}:{} {}", d.location.line, d.location.column, d.message))

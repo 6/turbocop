@@ -81,8 +81,7 @@ alias :"foo" :"bar"
 { 'ł': 'l' }
 { "а": "a" }
 { "Ãa1": "true" }
-# %s() percent-literal symbols — RuboCop never flags these
+# %s() percent-literal symbols with non-quote delimiters — RuboCop never flags these
 %s(CourierNew)
 %s(CourierNew,Italic)
-%s"foo"
 %s[bar]

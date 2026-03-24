@@ -186,6 +186,35 @@ use ruby_prism::Visit;
 ///    non-adjacent elsif branches, while-loop variables, multi-assign
 ///    LHS variables, catch/else scoping, and case/when condition
 ///    assignments now correctly detect shadowing. Added 20+ test cases.
+///
+/// ## Corpus fix (2026-03-23): FP=3→0, FN=113→? (estimated ~30)
+///
+/// Two changes:
+///
+/// 1. **Removed `call_arg_var_names` mechanism**: This suppressed shadowing
+///    when a call argument name matched a block parameter name (e.g.,
+///    `Thread.new(value) { |value| }`). But RuboCop only special-cases
+///    Ractor.new (already handled separately), NOT Thread.new or any
+///    other call. The mechanism was causing ~80+ FNs across the corpus
+///    (Thread.new, reduce, File.open, Dir.chdir, inject, etc.).
+///
+/// 2. **Inherited conditional context for nested blocks**: Added
+///    `inherited_cond_branch` to propagate conditional context through
+///    block boundaries. When a block inside an if-branch contains an
+///    inner block, the inner block can now detect that the outer variable
+///    is in a different branch of the same if. This matches RuboCop's
+///    `same_conditions_node_different_branch?` which walks up the AST
+///    through block parent pointers to find conditional ancestors.
+///    Fixes FPs in active-hash (pluck pattern), neo4j/activegraph,
+///    and trogdoro/xiki where nested blocks in else-branches were
+///    incorrectly flagged.
+///
+/// Also corrected the `get_login_info` test case from offense to
+/// no_offense — RuboCop's `variable_node` for a deeply nested block
+/// returns the parent of the innermost scope, which traverses through
+/// block boundaries. When the enclosing block IS the else_branch of
+/// the if, `variable_node == if.else_branch` is true, so RuboCop
+/// suppresses (not an offense).
 pub struct ShadowingOuterLocalVariable;
 
 impl Cop for ShadowingOuterLocalVariable {
@@ -220,7 +249,7 @@ impl Cop for ShadowingOuterLocalVariable {
             when_condition_case_offset: None,
             in_when_body_of_case: None,
             expression_depth: 0,
-            call_arg_var_names: HashSet::new(),
+            inherited_cond_branch: None,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -275,10 +304,12 @@ struct BlockContext {
     is_nested_in_expression: bool,
     /// True if the block is inside an else clause (not a then-body).
     is_in_else_clause: bool,
-    /// Names of local variables passed as arguments to the block's parent call.
-    /// Block params matching these names receive values directly (not via closure),
-    /// so shadowing is intentional (e.g., `Thread.new(value) { |value| }`).
-    call_arg_var_names: HashSet<String>,
+    /// Inherited conditional branch context from an enclosing block. When a block
+    /// clears the conditional branch stack, inner blocks lose direct conditional
+    /// context. This field preserves it so the different-branch check can still
+    /// fire for deeply nested blocks. RuboCop walks up through block boundaries
+    /// to find conditional ancestors — this approximates that.
+    inherited_cond_branch: Option<(usize, usize)>,
 }
 
 /// Entry in the conditional branch stack tracking current conditional context.
@@ -323,11 +354,15 @@ struct ShadowVisitor<'a, 'src> {
     /// not apply — matching RuboCop's `variable_node == outer_local_variable_node`
     /// check which requires block.parent to be the conditional node itself.
     expression_depth: usize,
-    /// Names of local variables passed as arguments to the current call node.
-    /// Used to suppress shadowing when a block parameter receives a value
-    /// directly from its parent call (e.g., `Thread.new(value) { |value| }`).
-    /// RuboCop suppresses this via `variable_used_in_declaration_of_outer?`.
-    call_arg_var_names: HashSet<String>,
+    /// The conditional branch context inherited from an enclosing block's entry
+    /// point. When a block clears the conditional branch stack, inner blocks
+    /// lose all conditional context. This field preserves the outermost
+    /// conditional branch info so that the different-branch check
+    /// (`is_different_conditional_branch`) can still fire for deeply nested
+    /// blocks. RuboCop's `same_conditions_node_different_branch?` walks up
+    /// the AST through block boundaries to find conditional ancestors — this
+    /// field approximates that behavior.
+    inherited_cond_branch: Option<(usize, usize)>,
 }
 
 impl ShadowVisitor<'_, '_> {
@@ -800,30 +835,6 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
             }
             return;
         }
-        // Collect local variable names from arguments. When a block param
-        // has the same name as an argument, the block receives the value
-        // directly (e.g., `Thread.new(value) { |value| }`), so shadowing
-        // is intentional and should not be flagged.
-        let saved_arg_names = std::mem::take(&mut self.call_arg_var_names);
-        if let Some(arguments) = node.arguments() {
-            for arg in arguments.arguments().iter() {
-                if let Some(lvar) = arg.as_local_variable_read_node() {
-                    if let Ok(name) = std::str::from_utf8(lvar.name().as_slice()) {
-                        self.call_arg_var_names.insert(name.to_string());
-                    }
-                }
-                // Also handle splat arguments: *args
-                if let Some(splat) = arg.as_splat_node() {
-                    if let Some(expr) = splat.expression() {
-                        if let Some(lvar) = expr.as_local_variable_read_node() {
-                            if let Ok(name) = std::str::from_utf8(lvar.name().as_slice()) {
-                                self.call_arg_var_names.insert(name.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
         // Visit receiver with incremented expression_depth. When a call's
         // receiver is itself a call with a block (method chain like
         // `x.map { |v| }.reduce()`), the block inside the receiver is part
@@ -842,7 +853,6 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         if let Some(block) = node.block() {
             self.visit(&block);
         }
-        self.call_arg_var_names = saved_arg_names;
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
@@ -857,7 +867,9 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
             // expression_depth == 0 when visiting the block child.
             is_nested_in_expression: self.expression_depth > 0,
             is_in_else_clause: self.current_is_else_clause(),
-            call_arg_var_names: self.call_arg_var_names.clone(),
+            // Inherited conditional context from enclosing blocks — allows
+            // different-branch suppression for deeply nested blocks.
+            inherited_cond_branch: self.inherited_cond_branch,
         };
 
         // Check block parameters against outer locals
@@ -894,9 +906,22 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         // inherit the else's conditional context and suppress valid shadowing.
         let saved_cond_stack = std::mem::take(&mut self.conditional_branch_stack);
         let saved_when_body = self.in_when_body_of_case.take();
+        // Propagate the block's conditional context to inner blocks via
+        // inherited_cond_branch. This allows the different-branch check to
+        // fire even when a block is deeply nested inside other blocks.
+        // RuboCop's `same_conditions_node_different_branch?` walks up the
+        // AST through block boundaries — we approximate this by passing
+        // the outermost conditional context down.
+        let saved_inherited = self.inherited_cond_branch;
+        // Use the current block's conditional context if available, otherwise
+        // keep the already-inherited context from an outer block.
+        if bctx.cond_branch.is_some() {
+            self.inherited_cond_branch = bctx.cond_branch;
+        }
         ruby_prism::visit_block_node(self, node);
         self.conditional_branch_stack = saved_cond_stack;
         self.in_when_body_of_case = saved_when_body;
+        self.inherited_cond_branch = saved_inherited;
         self.scopes.pop();
     }
 
@@ -910,7 +935,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
             in_when_body_of_case: self.in_when_body_of_case,
             is_nested_in_expression: self.expression_depth > 0,
             is_in_else_clause: self.current_is_else_clause(),
-            call_arg_var_names: HashSet::new(),
+            inherited_cond_branch: self.inherited_cond_branch,
         };
 
         if let Some(params_node) = node.parameters() {
@@ -938,9 +963,14 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         // Clear conditional branch stack for lambda body (same reason as blocks).
         let saved_cond_stack = std::mem::take(&mut self.conditional_branch_stack);
         let saved_when_body = self.in_when_body_of_case.take();
+        let saved_inherited = self.inherited_cond_branch;
+        if bctx.cond_branch.is_some() {
+            self.inherited_cond_branch = bctx.cond_branch;
+        }
         ruby_prism::visit_lambda_node(self, node);
         self.conditional_branch_stack = saved_cond_stack;
         self.in_when_body_of_case = saved_when_body;
+        self.inherited_cond_branch = saved_inherited;
         self.scopes.pop();
     }
 
@@ -1553,12 +1583,6 @@ fn check_shadow(
     if name.is_empty() || name.starts_with('_') {
         return;
     }
-    // Skip if the variable name is passed as an argument to the block's
-    // parent call (e.g., Thread.new(value) { |value| }). The block
-    // parameter receives the value directly, not via closure.
-    if bctx.call_arg_var_names.contains(name) {
-        return;
-    }
     if let Some(info) = outer_locals.get(name) {
         if is_different_conditional_branch(
             info,
@@ -1569,6 +1593,27 @@ fn check_shadow(
             bctx.is_in_else_clause,
         ) {
             return;
+        }
+        // Check inherited conditional context from enclosing blocks.
+        // When a block is nested inside another block within a conditional
+        // branch, the direct conditional context is cleared. The inherited
+        // context allows the different-branch check to fire across block
+        // boundaries. Only Check 1 (same-conditional different-branch) is
+        // used here — Checks 2/3 depend on direct parentage and don't
+        // apply to deeply nested blocks.
+        if let Some(inherited) = bctx.inherited_cond_branch {
+            if bctx.cond_branch.is_none() {
+                if let Some((outer_cond, outer_branch)) = info.conditional_branch {
+                    if outer_cond == inherited.0 && outer_branch != inherited.1 {
+                        // For if-type conditionals, different branches are
+                        // mutually exclusive — always suppress regardless
+                        // of nesting depth.
+                        if info.is_if_type_cond {
+                            return;
+                        }
+                    }
+                }
+            }
         }
         if let (Some(var_case), Some(block_case)) =
             (info.when_condition_of_case, bctx.in_when_body_of_case)

@@ -46,6 +46,16 @@ use crate::parse::source::SourceFile;
 /// in dry-rb and OpenProject code). ActiveModel's `errors` method takes no
 /// arguments; calls with arguments are custom methods on non-ActiveModel objects.
 /// Fixed by adding `call.arguments().is_none()` check in `is_errors_call`.
+///
+/// ## Investigation findings (2026-03-23)
+///
+/// **FP root cause (3 FPs):** Pattern 4 (`DEPRECATED_ERRORS_METHODS`) was not
+/// checking whether the deprecated method itself was called with arguments.
+/// RuboCop's `errors_deprecated?` pattern has no trailing `...`, so it only
+/// matches argument-less calls. Calls like `errors.to_xml(:skip_instruct => true)`
+/// are NOT deprecated hash manipulation — `to_xml` with options is a legitimate
+/// serialization method. Fixed by adding `call.arguments().is_none()` check
+/// in Pattern 4.
 pub struct DeprecatedActiveModelErrorsMethods;
 
 const MSG: &str = "Avoid manipulating ActiveModel errors as hash directly.";
@@ -128,7 +138,10 @@ impl Cop for DeprecatedActiveModelErrorsMethods {
         // Pattern 4: errors.keys / errors.values / errors.to_h / errors.to_xml
         // Only flag when receiver is `errors` directly — NOT `errors.messages` or
         // `errors.details` (those return a plain Hash, so .keys/.values etc. are valid).
-        if DEPRECATED_ERRORS_METHODS.contains(&method_name) {
+        // RuboCop's `errors_deprecated?` pattern has no trailing `...`, so it only
+        // matches calls WITHOUT arguments. e.g. `errors.to_xml(:skip_instruct => true)`
+        // is NOT flagged.
+        if DEPRECATED_ERRORS_METHODS.contains(&method_name) && call.arguments().is_none() {
             if let Some(recv) = call.receiver() {
                 if is_errors_call(&recv, model_file) {
                     let loc = node.location();

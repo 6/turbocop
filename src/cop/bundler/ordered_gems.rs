@@ -20,9 +20,24 @@ use crate::parse::source::SourceFile;
 /// regex literals or path strings.
 pub struct OrderedGems;
 
+/// A gem entry within a group, tracking its byte range for autocorrect.
+struct GemEntry {
+    #[allow(dead_code)]
+    name: String,
+    sort_key: String,
+    /// Byte offset of the start of the line (inclusive).
+    line_start: usize,
+    /// Byte offset past the end of the line including newline (exclusive).
+    line_end: usize,
+}
+
 impl Cop for OrderedGems {
     fn name(&self) -> &'static str {
         "Bundler/OrderedGems"
+    }
+
+    fn supports_autocorrect(&self) -> bool {
+        true
     }
 
     fn default_include(&self) -> &'static [&'static str] {
@@ -34,23 +49,75 @@ impl Cop for OrderedGems {
         source: &SourceFile,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let treat_comments_as_separators = config.get_bool("TreatCommentsAsGroupSeparators", true);
         let consider_punctuation = config.get_bool("ConsiderPunctuation", false);
 
+        let bytes = source.as_bytes();
         let mut prev_gem: Option<(String, String)> = None; // (original_name, sort_key)
         let mut in_block_comment = false;
+
+        // Track gem groups for autocorrect: groups of contiguous gem lines
+        let mut gem_group: Vec<GemEntry> = Vec::new();
+
+        // Compute line byte ranges
+        let mut line_offsets: Vec<(usize, usize)> = Vec::new(); // (start, end) for each line
+        {
+            let mut offset = 0;
+            for line in source.lines() {
+                let start = offset;
+                offset += line.len();
+                // Skip past newline
+                if offset < bytes.len() && bytes[offset] == b'\n' {
+                    offset += 1;
+                }
+                line_offsets.push((start, offset));
+            }
+        }
+
+        let flush_group = |gem_group: &mut Vec<GemEntry>,
+                           corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
+                           bytes: &[u8]| {
+            if gem_group.len() >= 2 {
+                if let Some(corr) = corrections {
+                    // Check if the group is already sorted
+                    let is_sorted = gem_group.windows(2).all(|w| w[0].sort_key <= w[1].sort_key);
+                    if !is_sorted {
+                        let group_start = gem_group.first().unwrap().line_start;
+                        let group_end = gem_group.last().unwrap().line_end;
+                        // Sort by sort_key using index array
+                        let mut indices: Vec<usize> = (0..gem_group.len()).collect();
+                        indices.sort_by(|&a, &b| gem_group[a].sort_key.cmp(&gem_group[b].sort_key));
+                        let sorted: Vec<&[u8]> = indices
+                            .iter()
+                            .map(|&i| &bytes[gem_group[i].line_start..gem_group[i].line_end])
+                            .collect();
+                        let replacement: Vec<u8> = sorted.concat();
+                        corr.push(crate::correction::Correction {
+                            start: group_start,
+                            end: group_end,
+                            replacement: String::from_utf8_lossy(&replacement).to_string(),
+                            cop_name: "Bundler/OrderedGems",
+                            cop_index: 0,
+                        });
+                    }
+                }
+            }
+            gem_group.clear();
+        };
 
         for (i, line) in source.lines().enumerate() {
             let line_str = std::str::from_utf8(line).unwrap_or("");
             let trimmed = line_str.trim();
             let line_num = i + 1;
+            let (line_start, line_end) = line_offsets[i];
 
             if in_block_comment {
                 if trimmed.starts_with("=end") {
                     in_block_comment = false;
                     prev_gem = None;
+                    flush_group(&mut gem_group, &mut corrections, bytes);
                 }
                 continue;
             }
@@ -58,11 +125,13 @@ impl Cop for OrderedGems {
             if trimmed.starts_with("=begin") {
                 in_block_comment = true;
                 prev_gem = None;
+                flush_group(&mut gem_group, &mut corrections, bytes);
                 continue;
             }
 
             // Blank lines reset the ordering group
             if trimmed.is_empty() {
+                flush_group(&mut gem_group, &mut corrections, bytes);
                 prev_gem = None;
                 continue;
             }
@@ -70,6 +139,7 @@ impl Cop for OrderedGems {
             // Comments may reset the ordering group
             if trimmed.starts_with('#') {
                 if treat_comments_as_separators {
+                    flush_group(&mut gem_group, &mut corrections, bytes);
                     prev_gem = None;
                 }
                 continue;
@@ -79,11 +149,11 @@ impl Cop for OrderedGems {
             // also reset the ordering group
             if let Some(gem_name) = extract_literal_gem_name(line_str) {
                 let sort_key = make_sort_key(gem_name, consider_punctuation);
+                let col = line_str.len() - line_str.trim_start().len();
 
                 if let Some((ref prev_name, ref prev_key)) = prev_gem {
                     if sort_key < *prev_key {
-                        let col = line_str.len() - line_str.trim_start().len();
-                        diagnostics.push(self.diagnostic(
+                        let mut diag = self.diagnostic(
                             source,
                             line_num,
                             col,
@@ -91,19 +161,37 @@ impl Cop for OrderedGems {
                                 "Gems should be sorted in an alphabetical order within their section of the Gemfile. Gem `{}` should appear before `{}`.",
                                 gem_name, prev_name
                             ),
-                        ));
+                        );
+                        if corrections.is_some() {
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
                     }
                 }
 
+                gem_group.push(GemEntry {
+                    name: gem_name.to_string(),
+                    sort_key: sort_key.clone(),
+                    line_start,
+                    line_end,
+                });
+
                 prev_gem = Some((gem_name.to_string(), sort_key));
             } else if is_continuation_line(trimmed) {
-                // Continuation lines of multi-line gem declarations (e.g., git:, glob:,
-                // version constraints) — skip without resetting the group
+                // Continuation lines of multi-line gem declarations — extend the last
+                // gem entry's range to include this line
+                if let Some(last) = gem_group.last_mut() {
+                    last.line_end = line_end;
+                }
             } else {
                 // Non-gem declaration resets the group (group, source, platforms, etc.)
+                flush_group(&mut gem_group, &mut corrections, bytes);
                 prev_gem = None;
             }
         }
+
+        // Flush remaining group
+        flush_group(&mut gem_group, &mut corrections, bytes);
     }
 }
 
@@ -243,4 +331,48 @@ fn make_sort_key(name: &str, consider_punctuation: bool) -> String {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(OrderedGems, "cops/bundler/ordered_gems");
+    crate::cop_autocorrect_fixture_tests!(OrderedGems, "cops/bundler/ordered_gems");
+
+    #[test]
+    fn autocorrect_simple_swap() {
+        let input = b"gem 'zoo'\ngem 'alpha'\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&OrderedGems, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"gem 'alpha'\ngem 'zoo'\n");
+    }
+
+    #[test]
+    fn autocorrect_three_gems() {
+        let input = b"gem 'c'\ngem 'b'\ngem 'a'\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&OrderedGems, input);
+        assert_eq!(diags.len(), 2);
+        assert!(diags.iter().all(|d| d.corrected));
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"gem 'a'\ngem 'b'\ngem 'c'\n");
+    }
+
+    #[test]
+    fn autocorrect_preserves_groups() {
+        let input = b"gem 'b'\ngem 'a'\n\ngem 'd'\ngem 'c'\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&OrderedGems, input);
+        assert_eq!(diags.len(), 2);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"gem 'a'\ngem 'b'\n\ngem 'c'\ngem 'd'\n");
+    }
+
+    #[test]
+    fn autocorrect_multiline_gem() {
+        let input = b"gem 'rubocop',\n    '0.1.1'\ngem 'rspec'\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&OrderedGems, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"gem 'rspec'\ngem 'rubocop',\n    '0.1.1'\n");
+    }
 }

@@ -1,16 +1,18 @@
 use crate::cop::node_type::{
     CLASS_VARIABLE_AND_WRITE_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE,
-    CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_TARGET_NODE, CLASS_VARIABLE_WRITE_NODE, DEF_NODE,
+    CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE, DEF_NODE, FOR_NODE,
     GLOBAL_VARIABLE_AND_WRITE_NODE, GLOBAL_VARIABLE_OPERATOR_WRITE_NODE,
-    GLOBAL_VARIABLE_OR_WRITE_NODE, GLOBAL_VARIABLE_TARGET_NODE, GLOBAL_VARIABLE_WRITE_NODE,
-    INSTANCE_VARIABLE_AND_WRITE_NODE, INSTANCE_VARIABLE_OPERATOR_WRITE_NODE,
-    INSTANCE_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_TARGET_NODE, INSTANCE_VARIABLE_WRITE_NODE,
-    LOCAL_VARIABLE_AND_WRITE_NODE, LOCAL_VARIABLE_OPERATOR_WRITE_NODE,
-    LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_TARGET_NODE, LOCAL_VARIABLE_WRITE_NODE,
-    REQUIRED_PARAMETER_NODE, SYMBOL_NODE,
+    GLOBAL_VARIABLE_OR_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_AND_WRITE_NODE,
+    INSTANCE_VARIABLE_OPERATOR_WRITE_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE,
+    INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_AND_WRITE_NODE,
+    LOCAL_VARIABLE_OPERATOR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE,
+    MULTI_WRITE_NODE, REQUIRED_PARAMETER_NODE,
 };
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 /// FN=160 investigation: nitrocop only handled simple write nodes (e.g.
@@ -73,6 +75,29 @@ use crate::parse::source::SourceFile;
 /// leaving empty bare name `""`. The empty name fails the normalcase regex.
 /// RuboCop doesn't fire on `$$` because Parser gem handles it differently.
 /// Fix: skip variables with empty bare names after sigil stripping.
+///
+/// ## Corpus investigation (2026-03-23) — extended corpus
+///
+/// Extended corpus reported FP=39 across 2 repos. All FPs from pattern matching
+/// variable bindings (`in [a_1, b_2]`, `value => result_1`, `obj => { key: val_1 }`).
+/// In Parser gem, pattern matching creates `match_var` nodes, so `on_lvasgn` never
+/// fires. In Prism, the same syntax creates `LocalVariableTargetNode`, which was
+/// registered as an interested node type. Fix: removed all `*TargetNode` types from
+/// interested_node_types and instead handle them through `MultiWriteNode` (multi-
+/// assignment), `ForNode` (for-loop), and `RescueNode` (rescue exception variable),
+/// which are the only non-pattern-matching contexts where target nodes appear.
+///
+/// ## Corpus investigation (2026-03-23) — extended corpus, batch 2
+///
+/// Extended corpus reported FP=1 on `halostatue__color__3299b65` for
+/// `weight => k_1:, k_2:, k_l:` (pattern matching deconstruction).
+/// In Prism, hash pattern keys like `k_1:` are SymbolNode inside HashPatternNode.
+/// In Parser gem, these become `match_var` nodes, so RuboCop's `on_sym` never fires.
+/// The previous fix removed `*TargetNode` types but still processed SymbolNode in
+/// `check_node`, which has no parent context to detect pattern matching.
+/// Fix: moved symbol checking from `check_node` to the `check_source` visitor, which
+/// overrides `visit_hash_pattern_node` to skip SymbolNode keys while still visiting
+/// assoc values.
 pub struct VariableNumber;
 
 const DEFAULT_ALLOWED: &[&str] = &[
@@ -97,26 +122,23 @@ impl Cop for VariableNumber {
             CLASS_VARIABLE_AND_WRITE_NODE,
             CLASS_VARIABLE_OPERATOR_WRITE_NODE,
             CLASS_VARIABLE_OR_WRITE_NODE,
-            CLASS_VARIABLE_TARGET_NODE,
             CLASS_VARIABLE_WRITE_NODE,
             DEF_NODE,
+            FOR_NODE,
             GLOBAL_VARIABLE_AND_WRITE_NODE,
             GLOBAL_VARIABLE_OPERATOR_WRITE_NODE,
             GLOBAL_VARIABLE_OR_WRITE_NODE,
-            GLOBAL_VARIABLE_TARGET_NODE,
             GLOBAL_VARIABLE_WRITE_NODE,
             INSTANCE_VARIABLE_AND_WRITE_NODE,
             INSTANCE_VARIABLE_OPERATOR_WRITE_NODE,
             INSTANCE_VARIABLE_OR_WRITE_NODE,
-            INSTANCE_VARIABLE_TARGET_NODE,
             INSTANCE_VARIABLE_WRITE_NODE,
             LOCAL_VARIABLE_AND_WRITE_NODE,
             LOCAL_VARIABLE_OPERATOR_WRITE_NODE,
             LOCAL_VARIABLE_OR_WRITE_NODE,
-            LOCAL_VARIABLE_TARGET_NODE,
             LOCAL_VARIABLE_WRITE_NODE,
+            MULTI_WRITE_NODE,
             REQUIRED_PARAMETER_NODE,
-            SYMBOL_NODE,
         ]
     }
 
@@ -131,7 +153,6 @@ impl Cop for VariableNumber {
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "normalcase");
         let check_method_names = config.get_bool("CheckMethodNames", true);
-        let check_symbols = config.get_bool("CheckSymbols", true);
         let allowed = config.get_string_array("AllowedIdentifiers");
         let allowed_patterns = config.get_string_array("AllowedPatterns");
 
@@ -151,8 +172,6 @@ impl Cop for VariableNumber {
                 Some((n.name().as_slice(), n.name_loc()))
             } else if let Some(n) = node.as_local_variable_operator_write_node() {
                 Some((n.name().as_slice(), n.name_loc()))
-            } else if let Some(n) = node.as_local_variable_target_node() {
-                Some((n.name().as_slice(), n.location()))
             }
             // Instance variables (strip @)
             else if let Some(n) = node.as_instance_variable_write_node() {
@@ -163,8 +182,6 @@ impl Cop for VariableNumber {
                 Some((n.name().as_slice(), n.name_loc()))
             } else if let Some(n) = node.as_instance_variable_operator_write_node() {
                 Some((n.name().as_slice(), n.name_loc()))
-            } else if let Some(n) = node.as_instance_variable_target_node() {
-                Some((n.name().as_slice(), n.location()))
             }
             // Class variables (strip @@)
             else if let Some(n) = node.as_class_variable_write_node() {
@@ -175,8 +192,6 @@ impl Cop for VariableNumber {
                 Some((n.name().as_slice(), n.name_loc()))
             } else if let Some(n) = node.as_class_variable_operator_write_node() {
                 Some((n.name().as_slice(), n.name_loc()))
-            } else if let Some(n) = node.as_class_variable_target_node() {
-                Some((n.name().as_slice(), n.location()))
             }
             // Global variables (strip $)
             else if let Some(n) = node.as_global_variable_write_node() {
@@ -187,8 +202,6 @@ impl Cop for VariableNumber {
                 Some((n.name().as_slice(), n.name_loc()))
             } else if let Some(n) = node.as_global_variable_operator_write_node() {
                 Some((n.name().as_slice(), n.name_loc()))
-            } else if let Some(n) = node.as_global_variable_target_node() {
-                Some((n.name().as_slice(), n.location()))
             } else {
                 None
             };
@@ -241,48 +254,6 @@ impl Cop for VariableNumber {
             }
         }
 
-        // Check symbols
-        if check_symbols {
-            if let Some(sym) = node.as_symbol_node() {
-                let name = sym.unescaped();
-                let name_str = std::str::from_utf8(name).unwrap_or("");
-                // Skip standalone empty symbols (:'' and :""). In Parser gem
-                // with TargetRubyVersion >= 4.0, these are :dsym (not :sym),
-                // so RuboCop's on_sym never fires. Only hash-key empty symbols
-                // ("": val) become :sym in Parser 4.0. In Prism, standalone
-                // symbols have a colon-prefix opening (`:` or `:`), while
-                // hash-key symbols don't.
-                if name_str.is_empty() {
-                    let is_standalone = sym
-                        .opening_loc()
-                        .is_some_and(|loc| loc.as_slice().starts_with(b":"));
-                    if is_standalone {
-                        return;
-                    }
-                }
-                if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
-                    // For empty-value symbols like :"", value_loc() may return
-                    // a zero-length range at an incorrect offset. Use the full
-                    // symbol location instead when value_loc has zero length.
-                    let loc = match sym.value_loc() {
-                        Some(vloc) if !vloc.as_slice().is_empty() => vloc,
-                        _ => sym.location(),
-                    };
-                    if let Some(diag) = check_number_style(
-                        self,
-                        source,
-                        name_str,
-                        &loc,
-                        enforced_style,
-                        "symbol",
-                        true,
-                    ) {
-                        diagnostics.push(diag);
-                    }
-                }
-            }
-        }
-
         // Check method parameters
         if let Some(param) = node.as_required_parameter_node() {
             let name = param.name().as_slice();
@@ -299,6 +270,252 @@ impl Cop for VariableNumber {
                 ) {
                     diagnostics.push(diag);
                 }
+            }
+        }
+
+        // Multi-assignment targets: `val_1, val_2 = arr`
+        // In Prism, *TargetNode types appear in both multi-assignment and pattern matching.
+        // RuboCop's on_lvasgn fires for multi-assignment (Parser creates lvasgn children in
+        // mlhs), but NOT for pattern matching (Parser creates match_var nodes). By handling
+        // only MultiWriteNode targets here (instead of registering *TargetNode types
+        // directly), we correctly skip pattern matching variable bindings.
+        if let Some(mw) = node.as_multi_write_node() {
+            for target in mw.lefts().iter() {
+                self.check_target_variable(
+                    source,
+                    &target,
+                    enforced_style,
+                    &allowed_ids,
+                    &allowed_pats,
+                    diagnostics,
+                );
+            }
+            // Check the rest target (splat) if present
+            if let Some(rest) = mw.rest() {
+                if let Some(splat) = rest.as_splat_node() {
+                    if let Some(expr) = splat.expression() {
+                        self.check_target_variable(
+                            source,
+                            &expr,
+                            enforced_style,
+                            &allowed_ids,
+                            &allowed_pats,
+                            diagnostics,
+                        );
+                    }
+                }
+            }
+            for target in mw.rights().iter() {
+                self.check_target_variable(
+                    source,
+                    &target,
+                    enforced_style,
+                    &allowed_ids,
+                    &allowed_pats,
+                    diagnostics,
+                );
+            }
+        }
+
+        // For-loop index: `for val_1 in collection`
+        if let Some(for_node) = node.as_for_node() {
+            let index = for_node.index();
+            self.check_target_variable(
+                source,
+                &index,
+                enforced_style,
+                &allowed_ids,
+                &allowed_pats,
+                diagnostics,
+            );
+        }
+    }
+
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        // This visitor handles two cases that require tree-walking context:
+        //
+        // 1. Rescue exception variables (`rescue => error_2`): Prism's Visit trait
+        //    calls visit_rescue_node directly from visit_begin_node, bypassing
+        //    visit_branch_node_enter, so check_node never sees RescueNode.
+        //
+        // 2. Symbol checking: In pattern matching (`value => k_1:, k_2:`), Prism
+        //    creates SymbolNode keys inside HashPatternNode. Parser gem creates
+        //    match_var nodes instead, so RuboCop's on_sym never fires. The visitor
+        //    skips SymbolNode children of HashPatternNode to avoid false positives.
+        let enforced_style = config.get_str("EnforcedStyle", "normalcase");
+        let check_symbols = config.get_bool("CheckSymbols", true);
+        let allowed = config.get_string_array("AllowedIdentifiers");
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
+        let allowed_ids: Vec<String> =
+            allowed.unwrap_or_else(|| DEFAULT_ALLOWED.iter().map(|s| s.to_string()).collect());
+        let allowed_pats: Vec<String> = allowed_patterns.unwrap_or_default();
+
+        let mut visitor = VariableNumberVisitor {
+            cop: self,
+            source,
+            enforced_style,
+            check_symbols,
+            allowed_ids: &allowed_ids,
+            allowed_pats: &allowed_pats,
+            diagnostics,
+        };
+        visitor.visit(&parse_result.node());
+    }
+}
+
+/// Visitor that handles rescue exception variables and symbol checking.
+///
+/// Rescue: Prism's visit_begin_node calls visit_rescue_node directly,
+/// bypassing visit_branch_node_enter, so RescueNode is invisible to check_node.
+///
+/// Symbols: In pattern matching (`value => k_1:`), Prism creates SymbolNode
+/// keys inside HashPatternNode. Parser gem creates match_var nodes instead,
+/// so RuboCop's on_sym never fires. This visitor skips HashPatternNode
+/// subtrees entirely for symbol checking to match RuboCop behavior.
+struct VariableNumberVisitor<'a> {
+    cop: &'a VariableNumber,
+    source: &'a SourceFile,
+    enforced_style: &'a str,
+    check_symbols: bool,
+    allowed_ids: &'a [String],
+    allowed_pats: &'a [String],
+    diagnostics: &'a mut Vec<Diagnostic>,
+}
+
+impl<'pr> ruby_prism::Visit<'pr> for VariableNumberVisitor<'_> {
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        if let Some(reference) = node.reference() {
+            self.cop.check_target_variable(
+                self.source,
+                &reference,
+                self.enforced_style,
+                self.allowed_ids,
+                self.allowed_pats,
+                self.diagnostics,
+            );
+        }
+        // Continue walking children (subsequent rescue clauses, etc.)
+        ruby_prism::visit_rescue_node(self, node);
+    }
+
+    fn visit_symbol_node(&mut self, node: &ruby_prism::SymbolNode<'pr>) {
+        if !self.check_symbols {
+            return;
+        }
+        let name = node.unescaped();
+        let name_str = std::str::from_utf8(name).unwrap_or("");
+        // Skip standalone empty symbols (:'' and :""). In Parser gem
+        // with TargetRubyVersion >= 4.0, these are :dsym (not :sym),
+        // so RuboCop's on_sym never fires. Only hash-key empty symbols
+        // ("": val) become :sym in Parser 4.0. In Prism, standalone
+        // symbols have a colon-prefix opening, while hash-key symbols don't.
+        if name_str.is_empty() {
+            let is_standalone = node
+                .opening_loc()
+                .is_some_and(|loc| loc.as_slice().starts_with(b":"));
+            if is_standalone {
+                return;
+            }
+        }
+        if !is_allowed(name_str, self.allowed_ids, self.allowed_pats) {
+            // For empty-value symbols like :"", value_loc() may return
+            // a zero-length range at an incorrect offset. Use the full
+            // symbol location instead when value_loc has zero length.
+            let loc = match node.value_loc() {
+                Some(vloc) if !vloc.as_slice().is_empty() => vloc,
+                _ => node.location(),
+            };
+            if let Some(diag) = check_number_style(
+                self.cop,
+                self.source,
+                name_str,
+                &loc,
+                self.enforced_style,
+                "symbol",
+                true,
+            ) {
+                self.diagnostics.push(diag);
+            }
+        }
+        // SymbolNode is a leaf — no children to visit.
+    }
+
+    fn visit_hash_pattern_node(&mut self, node: &ruby_prism::HashPatternNode<'pr>) {
+        // In pattern matching (`value => k_1:, k_2:`), Prism creates SymbolNode
+        // keys inside HashPatternNode. Parser gem creates match_var nodes instead,
+        // so RuboCop's on_sym never fires for pattern matching hash keys.
+        // Skip recursing into HashPatternNode to avoid false positives on symbols.
+        // We still need to visit the value side of assocs (which may contain
+        // other patterns with rescue/symbol nodes), but NOT the key symbols.
+        for assoc in node.elements().iter() {
+            if let Some(assoc_node) = assoc.as_assoc_node() {
+                // Skip the key (SymbolNode in pattern matching) — visit only the value.
+                let value = assoc_node.value();
+                self.visit(&value);
+            } else if let Some(splat) = assoc.as_assoc_splat_node() {
+                // **rest pattern — visit the expression
+                if let Some(value) = splat.value() {
+                    self.visit(&value);
+                }
+            }
+        }
+        // Visit the rest node if present (e.g., `in { **rest }`)
+        if let Some(rest) = node.rest() {
+            self.visit(&rest);
+        }
+    }
+}
+
+impl VariableNumber {
+    /// Check a target variable node from MultiWriteNode or ForNode.
+    /// Handles LocalVariableTargetNode, InstanceVariableTargetNode,
+    /// ClassVariableTargetNode, and GlobalVariableTargetNode.
+    fn check_target_variable(
+        &self,
+        source: &SourceFile,
+        target: &ruby_prism::Node<'_>,
+        enforced_style: &str,
+        allowed_ids: &[String],
+        allowed_pats: &[String],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let (name_bytes, loc) = if let Some(n) = target.as_local_variable_target_node() {
+            (n.name().as_slice(), n.location())
+        } else if let Some(n) = target.as_instance_variable_target_node() {
+            (n.name().as_slice(), n.location())
+        } else if let Some(n) = target.as_class_variable_target_node() {
+            (n.name().as_slice(), n.location())
+        } else if let Some(n) = target.as_global_variable_target_node() {
+            (n.name().as_slice(), n.location())
+        } else {
+            return;
+        };
+
+        let name_str = std::str::from_utf8(name_bytes).unwrap_or("");
+        let bare = name_str.trim_start_matches('@').trim_start_matches('$');
+        let is_bare = bare.len() == name_str.len();
+        if bare.is_empty() {
+            return;
+        }
+        if !is_allowed(bare, allowed_ids, allowed_pats) {
+            if let Some(diag) = check_number_style(
+                self,
+                source,
+                bare,
+                &loc,
+                enforced_style,
+                "variable",
+                is_bare,
+            ) {
+                diagnostics.push(diag);
             }
         }
     }
@@ -464,6 +681,17 @@ mod tests {
     fn global_var_implicit_param_name_is_offense() {
         let diags = crate::testutil::run_cop_full(&VariableNumber, b"$_1 = 1\n");
         assert_eq!(diags.len(), 1, "expected $_1 to be flagged");
+    }
+
+    #[test]
+    fn rescue_variable_with_number() {
+        let diags =
+            crate::testutil::run_cop_full(&VariableNumber, b"begin\nrescue => error_2\nend\n");
+        assert_eq!(
+            diags.len(),
+            1,
+            "expected rescue variable error_2 to be flagged"
+        );
     }
 
     #[test]

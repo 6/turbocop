@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 BOT_NAME = "6[bot]"
@@ -56,7 +57,18 @@ def configure_git(
 
 
 def promote(repo: str, branch: str, message: str) -> dict[str, str]:
-    ref = json.loads(run_gh([f"repos/{repo}/git/ref/heads/{branch}"]))
+    # Retry the ref lookup — after `git push`, the GitHub API may not have
+    # propagated the ref yet (race condition observed in CI).
+    for attempt in range(5):
+        try:
+            ref = json.loads(run_gh([f"repos/{repo}/git/ref/heads/{branch}"]))
+            break
+        except subprocess.CalledProcessError:
+            if attempt == 4:
+                raise
+            time.sleep(2 ** attempt)  # 1s, 2s, 4s, 8s
+    else:
+        ref = json.loads(run_gh([f"repos/{repo}/git/ref/heads/{branch}"]))
     unsigned_sha = ref["object"]["sha"]
 
     commit = json.loads(run_gh([f"repos/{repo}/git/commits/{unsigned_sha}"]))

@@ -82,6 +82,22 @@
 /// and (b) using the full visitor for recursion after manually checking
 /// the class's own methods, so modules and other nested structures are
 /// properly traversed.
+///
+/// ## Reverted fix attempt (2026-03-23, commit fbedda13)
+///
+/// Attempted to fix FP and FN patterns in case/when and begin/rescue contexts.
+/// Introduced FP=9 on standard corpus; reverted in 1bf1bea3.
+///
+/// **FP=9 (unused outer_siblings in case/when handler):** The newly added
+/// `check_case_branch_stmts` method accepted `_outer_siblings` (prefixed with
+/// underscore — unused). When flash was the last statement in a `when` body
+/// (`inner_remaining.is_empty()`), the code unconditionally returned `true`,
+/// treating it as implicit render without checking whether the case statement's
+/// outer siblings contain `redirect_to` or `redirect_back`. In RuboCop, the
+/// `use_redirect_to?` check walks up to the parent's right_siblings. Fix: use
+/// `outer_siblings` and check for redirect_to when flash is the last statement
+/// in a when body. Additionally, the begin/rescue suppression of outer_siblings
+/// needs revisiting — `redirect_to` AFTER a begin block should still be visible.
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

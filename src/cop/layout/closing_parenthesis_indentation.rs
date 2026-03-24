@@ -1,4 +1,4 @@
-use crate::cop::node_type::{CALL_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE};
+use crate::cop::node_type::{CALL_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE, PARENTHESES_NODE};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -36,7 +36,13 @@ impl Cop for ClosingParenthesisIndentation {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE]
+        &[
+            CALL_NODE,
+            DEF_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            PARENTHESES_NODE,
+        ]
     }
 
     fn check_node(
@@ -62,6 +68,24 @@ impl Cop for ClosingParenthesisIndentation {
                     ));
                     return;
                 }
+            }
+            return;
+        }
+
+        // Handle grouped expressions: (expr)
+        // In Parser gem these are `begin` nodes; in Prism they are ParenthesesNode.
+        if let Some(parens) = node.as_parentheses_node() {
+            let open_loc = parens.opening_loc();
+            let close_loc = parens.closing_loc();
+            if close_loc.as_slice() == b")" {
+                diagnostics.extend(check_grouped_parens(
+                    source,
+                    self,
+                    open_loc,
+                    close_loc,
+                    parens.body(),
+                    config,
+                ));
             }
             return;
         }
@@ -252,6 +276,109 @@ fn check_def_parens(
                 close_line,
                 close_col,
                 format!("Indent `)` to column {} (not {}).", expected, close_col),
+            )];
+        }
+    }
+
+    Vec::new()
+}
+
+/// Check closing parenthesis indentation for grouped expressions: `(expr)`.
+/// In RuboCop's Parser gem, `(expr)` produces a `begin` node handled by `on_begin`.
+/// `on_begin` calls `check(node, node.children)` — the children of the begin node
+/// are the expressions inside the parens.
+fn check_grouped_parens(
+    source: &SourceFile,
+    cop: &ClosingParenthesisIndentation,
+    open_loc: ruby_prism::Location<'_>,
+    close_loc: ruby_prism::Location<'_>,
+    body: Option<ruby_prism::Node<'_>>,
+    config: &CopConfig,
+) -> Vec<Diagnostic> {
+    let (open_line, open_col) = source.offset_to_line_col(open_loc.start_offset());
+    let (close_line, close_col) = source.offset_to_line_col(close_loc.start_offset());
+
+    // Closing paren must be on its own line (hanging)
+    if !util::begins_its_line(source, close_loc.start_offset()) {
+        return Vec::new();
+    }
+
+    // Must be multiline
+    if close_line == open_line {
+        return Vec::new();
+    }
+
+    let body = match body {
+        Some(b) => b,
+        None => {
+            // Empty parens: check no-elements case
+            // Accept `)` at open_col, open_line_indent, or node column
+            let open_line_indent = match util::line_at(source, open_line) {
+                Some(line) => leading_whitespace_columns(line),
+                None => 0,
+            };
+            if close_col != open_col && close_col != open_line_indent {
+                return vec![cop.diagnostic(
+                    source,
+                    close_line,
+                    close_col,
+                    format!(
+                        "Indent `)` to column {} (not {}).",
+                        open_line_indent, close_col
+                    ),
+                )];
+            }
+            return Vec::new();
+        }
+    };
+
+    // Get the first child element for indentation calculation.
+    // If body is StatementsNode, use its first child; otherwise use body directly.
+    let first_element = if let Some(stmts) = body.as_statements_node() {
+        match stmts.body().iter().next() {
+            Some(n) => n,
+            None => return Vec::new(),
+        }
+    } else {
+        body
+    };
+
+    let (first_elem_line, _) = source.offset_to_line_col(first_element.location().start_offset());
+
+    let indent_width = config.get_usize("IndentationWidth", 2);
+
+    if first_elem_line > open_line {
+        // Scenario 1: First element on its own line after `(`
+        let first_elem_line_indent = match util::line_at(source, first_elem_line) {
+            Some(line) => leading_whitespace_columns(line),
+            None => 0,
+        };
+        let expected = first_elem_line_indent.saturating_sub(indent_width);
+        if close_col != expected {
+            return vec![cop.diagnostic(
+                source,
+                close_line,
+                close_col,
+                format!("Indent `)` to column {} (not {}).", expected, close_col),
+            )];
+        }
+    } else {
+        // Scenario 2: First element on same line as `(`
+        // For grouped expressions, all children at same column → align with `(`
+        // Otherwise use line indentation
+        let open_line_indent = match util::line_at(source, open_line) {
+            Some(line) => leading_whitespace_columns(line),
+            None => 0,
+        };
+        if close_col != open_col && close_col != open_line_indent {
+            return vec![cop.diagnostic(
+                source,
+                close_line,
+                close_col,
+                format!(
+                    "Indent `)` to column {} (not {}).",
+                    open_line_indent, close_col
+                ),
             )];
         }
     }

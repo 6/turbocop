@@ -42,3 +42,8 @@ flash[:error] =
   "Please specify a valid image name comprised of lowercase letters, digits, and \
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/I18nLocaleTexts: Move locale texts to the locale files in the `config/locales` directory.
    underscores. You may use one forward slash separator."
+
+# FN fix: single-line string with \r\n escape sequences should still be flagged
+# (Parser gem treats these as `str` since they are single-line in source)
+flash['info'] = "Thank you!\r\nWe appreciate your feedback."
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/I18nLocaleTexts: Move locale texts to the locale files in the `config/locales` directory.

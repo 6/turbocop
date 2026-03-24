@@ -348,6 +348,52 @@ use ruby_prism::Visit;
 /// since these create new scope boundaries in RuboCop's VariableForce.
 ///
 /// **Remaining (0 FP, 0 FN).** All known FP/FN locations are fixed.
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended oracle: FP=1, FN=6.
+///
+/// **FP fix: in_transparent_container leaked through block boundaries (1 FP).**
+/// foodcoops foodsoft supplier.rb:227: `Tempfile.create do |temp_file| ... end` inside
+/// `{ articles: files.collect_concat do |file| ... end }`. The hash `{ articles: ... }`
+/// set `in_transparent_container = true`, which leaked through the `collect_concat` block
+/// into the `Tempfile.create` call. Since `Tempfile.create` has a block body,
+/// `process_persist_call` saw `has_block_body && in_transparent_container` and forced
+/// VoidStatement, incorrectly flagging it.
+/// **Fix:** Reset `in_transparent_container` to false when entering block/lambda/def bodies,
+/// matching the existing `in_local_assignment` reset at scope boundaries.
+///
+/// **FN fix 1: ExplicitReturn inherited through or_node (3 FN).**
+/// WikiEduDashboard category.rb:61: `return record || create(wiki:, ...)`. RuboCop's
+/// `explicit_return?` uses `assignable_node(node).parent`, which only walks hash/array
+/// parents, NOT or/and nodes. For create inside `||` inside `return`, the parent of
+/// the create_node is the or_node (not the return), so `explicit_return?` returns false.
+/// Compound_boolean takes priority and flags with conditional message.
+/// **Fix:** In `visit_or_node`, ExplicitReturn no longer inherits to children. Both
+/// children get Condition context (compound_boolean path), matching RuboCop behavior.
+///
+/// **FN fix 2: Parenthesized persist call in argument context (2 FN).**
+/// felipediesel auto_increment_spec.rb:45: `@accounts << (@account.users.create ...)`
+/// noosfero cnpj_test.rb:58: `assert ( cnpj_valido.save ), "msg"`.
+/// RuboCop's `argument?` checks `node.parent.send_type?`. Parentheses create a `begin`
+/// wrapper which is not `send_type?`, so `argument?` returns false. Our transparent
+/// `visit_parentheses_node` incorrectly passed Argument context through.
+/// **Fix:** `visit_parentheses_node` pushes VoidStatement for body when current context
+/// is Argument or Assignment, since RuboCop's argument?/return_value_assigned? checks
+/// are blocked by parentheses (`begin` node).
+///
+/// **FN fix 3: Condition/compound_boolean context leaked through arrays (1 FN).**
+/// rsim ruby-plsql oci_connection.rb:281: `version.update` inside array inside `&&`.
+/// RuboCop's `in_condition_or_compound_boolean?` checks the FIRST non-begin ancestor.
+/// Array is not `operator_keyword?` or `conditional?`, so the check returns false.
+/// Our code propagated `in_compound_boolean` and Condition context through arrays.
+/// **Fix:** Reset `in_compound_boolean` in array/hash/keyword_hash visitors. Override
+/// Condition context to VoidStatement when entering arrays (matching RuboCop behavior
+/// where arrays break the condition/boolean context chain).
+///
+/// **Remaining FN (1):** chargify examples/metafields.rb:31: `field = Chargify::...create
+/// name: 'internal info'` — already correctly detected by nitrocop. This FN may be a
+/// secondary effect of one of the above fixes or a corpus oracle artifact.
 pub struct SaveBang;
 
 /// Modify-type persistence methods whose return value indicates success/failure.
@@ -1225,13 +1271,18 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         if let Some(params) = node.parameters() {
             self.visit(&params);
         }
-        // Reset in_local_assignment at block boundaries. Blocks create new scopes
-        // in RuboCop's VariableForce. An outer `d3 = expr do ... end` sets
-        // in_local_assignment for `d3`, but the block body's statements are in a
+        // Reset in_local_assignment and in_transparent_container at block boundaries.
+        // Blocks create new scopes in RuboCop's VariableForce. An outer `d3 = expr do ... end`
+        // sets in_local_assignment for `d3`, but the block body's statements are in a
         // different scope — multi-write or other assignments inside the block should
         // not inherit the outer in_local_assignment flag.
+        // Similarly, in_transparent_container (set by enclosing hash/array) should not
+        // leak through block boundaries. E.g., `{ articles: files.map { Tempfile.create { } } }`
+        // — the Tempfile.create block is a separate scope, not inside the hash.
         let saved_local = self.in_local_assignment;
+        let saved_transparent = self.in_transparent_container;
         self.in_local_assignment = false;
+        self.in_transparent_container = false;
         if let Some(body) = node.body() {
             if let Some(stmts) = body.as_statements_node() {
                 self.visit_statements_with_context(&stmts, true);
@@ -1240,6 +1291,7 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
             }
         }
         self.in_local_assignment = saved_local;
+        self.in_transparent_container = saved_transparent;
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
@@ -1247,7 +1299,9 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
             self.visit(&params);
         }
         let saved_local = self.in_local_assignment;
+        let saved_transparent = self.in_transparent_container;
         self.in_local_assignment = false;
+        self.in_transparent_container = false;
         if let Some(body) = node.body() {
             if let Some(stmts) = body.as_statements_node() {
                 self.visit_statements_with_context(&stmts, true);
@@ -1256,6 +1310,7 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
             }
         }
         self.in_local_assignment = saved_local;
+        self.in_transparent_container = saved_transparent;
     }
 
     // ── DefNode: body has implicit return semantics ──────────────────────
@@ -1269,7 +1324,9 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         // with a receiver. Only instance methods (no receiver) get implicit return semantics.
         let is_instance_method = node.receiver().is_none();
         let saved_local = self.in_local_assignment;
+        let saved_transparent = self.in_transparent_container;
         self.in_local_assignment = false;
+        self.in_transparent_container = false;
         if let Some(body) = node.body() {
             if let Some(stmts) = body.as_statements_node() {
                 self.visit_statements_with_context(&stmts, is_instance_method);
@@ -1278,6 +1335,7 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
             }
         }
         self.in_local_assignment = saved_local;
+        self.in_transparent_container = saved_transparent;
     }
 
     // ── StatementsNode: default (not in method/block) ────────────────────
@@ -1746,8 +1804,18 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
                 self.context_stack.pop();
                 self.visit(&node.right());
             }
-            Some(Context::ExplicitReturn) | Some(Context::Argument) => {
-                // Both children inherit — the || result is being used
+            Some(Context::ExplicitReturn) => {
+                // RuboCop's explicit_return? uses assignable_node which only walks
+                // hash/array parents, NOT or/and. So create inside `||` inside `return`
+                // is NOT exempt by explicit_return?. Both children get Condition context
+                // (compound_boolean path).
+                self.context_stack.push(Context::Condition);
+                self.visit(&node.left());
+                self.visit(&node.right());
+                self.context_stack.pop();
+            }
+            Some(Context::Argument) => {
+                // Both children inherit — the || result is being used as an argument
                 self.visit(&node.left());
                 self.visit(&node.right());
             }
@@ -1775,39 +1843,61 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         // RuboCop's VariableForce check_assignment checks `if rhs_node.send_type?` —
         // ArrayNode doesn't match, so create calls inside arrays in local assignments
         // are not flagged by VariableForce.
+        // Also reset in_compound_boolean: RuboCop's in_condition_or_compound_boolean?
+        // checks the FIRST non-begin ancestor. Array is not operator_keyword? or
+        // conditional?, so compound_boolean doesn't apply inside arrays.
+        // Also override Condition context: RuboCop's in_condition_or_compound_boolean?
+        // doesn't see through arrays (array is not conditional? or operator_keyword?).
+        // So elements inside arrays in Condition context should get VoidStatement.
         let saved_local = self.in_local_assignment;
         let saved_transparent = self.in_transparent_container;
+        let saved_compound = self.in_compound_boolean;
         self.in_local_assignment = false;
         self.in_transparent_container = true;
+        self.in_compound_boolean = false;
+        let override_condition = matches!(self.current_context(), Some(Context::Condition));
+        if override_condition {
+            self.context_stack.push(Context::VoidStatement);
+        }
         for element in node.elements().iter() {
             self.visit(&element);
         }
+        if override_condition {
+            self.context_stack.pop();
+        }
         self.in_local_assignment = saved_local;
         self.in_transparent_container = saved_transparent;
+        self.in_compound_boolean = saved_compound;
     }
 
     fn visit_hash_node(&mut self, node: &ruby_prism::HashNode<'pr>) {
         let saved_local = self.in_local_assignment;
         let saved_transparent = self.in_transparent_container;
+        let saved_compound = self.in_compound_boolean;
         self.in_local_assignment = false;
         self.in_transparent_container = true;
+        self.in_compound_boolean = false;
         for element in node.elements().iter() {
             self.visit(&element);
         }
         self.in_local_assignment = saved_local;
         self.in_transparent_container = saved_transparent;
+        self.in_compound_boolean = saved_compound;
     }
 
     fn visit_keyword_hash_node(&mut self, node: &ruby_prism::KeywordHashNode<'pr>) {
         let saved_local = self.in_local_assignment;
         let saved_transparent = self.in_transparent_container;
+        let saved_compound = self.in_compound_boolean;
         self.in_local_assignment = false;
         self.in_transparent_container = true;
+        self.in_compound_boolean = false;
         for element in node.elements().iter() {
             self.visit(&element);
         }
         self.in_local_assignment = saved_local;
         self.in_transparent_container = saved_transparent;
+        self.in_compound_boolean = saved_compound;
     }
 
     // ── BeginNode: body statements are in the parent's context ───────────
@@ -1830,15 +1920,32 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
     // ── Parentheses: transparent, pass through context ───────────────────
 
     fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'pr>) {
-        // Parentheses are transparent for context purposes.
-        // If the body is a StatementsNode, visit its children directly to avoid
-        // visit_statements_node overriding the parent context to VoidStatement.
-        // This is important for parenthesized conditions like `if(object.save)`.
+        // Parentheses are transparent for Condition context (e.g., `if(object.save)`),
+        // because RuboCop's `in_condition_or_compound_boolean?` deparenthesizes conditions.
+        // However, parentheses break argument?, return_value_assigned?, explicit_return?,
+        // and implicit_return? checks in RuboCop because those check `node.parent.send_type?`
+        // etc. and `begin` (from parens) is not a matching type.
+        // So for Argument and Assignment contexts, push VoidStatement to prevent incorrect
+        // exemption of parenthesized persist calls.
+        let ctx = self.current_context();
+        let needs_void = matches!(ctx, Some(Context::Argument) | Some(Context::Assignment));
         if let Some(body) = node.body() {
             if let Some(stmts) = body.as_statements_node() {
-                for stmt in stmts.body().iter() {
-                    self.visit(&stmt);
+                if needs_void {
+                    for stmt in stmts.body().iter() {
+                        self.context_stack.push(Context::VoidStatement);
+                        self.visit(&stmt);
+                        self.context_stack.pop();
+                    }
+                } else {
+                    for stmt in stmts.body().iter() {
+                        self.visit(&stmt);
+                    }
                 }
+            } else if needs_void {
+                self.context_stack.push(Context::VoidStatement);
+                self.visit(&body);
+                self.context_stack.pop();
             } else {
                 self.visit(&body);
             }

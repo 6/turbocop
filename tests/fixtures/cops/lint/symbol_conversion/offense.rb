@@ -150,3 +150,7 @@ instance_variable_get :"@ivar"
 # Non-UTF8 string to_sym
 "\xff".to_sym
 ^^^^^^^^^^^^^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:"\xFF"` instead.
+
+# Percent-s with double-quote delimiter
+%s"test"
+^^^^^^^^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:test` instead.

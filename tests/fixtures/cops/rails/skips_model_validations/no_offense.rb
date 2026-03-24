@@ -14,6 +14,10 @@ array&.insert(1, :a, :b)
 insert(attributes, something_else: true)
 # insert with mixed keyword args including :returning but also other keys
 insert(attributes, returning: false, something_else: true)
+# insert with block argument — not AR insert (block_pass counts as an arg in RuboCop AST)
+operand.insert(*args, &bl)
+insert(node, &block)
+dataset.insert_conflict(opts).insert(*values, &)
 # FileUtils.touch is not a model method
 FileUtils.touch('file')
 ::FileUtils.touch('file')

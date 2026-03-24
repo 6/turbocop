@@ -29,6 +29,24 @@ use crate::parse::source::SourceFile;
 /// - Fix: changed `build_directive_legacy_aliases` in `directives.rs` to only include
 ///   renames where the short name is the same (e.g., `Lint/Eval` → `Security/Eval`),
 ///   excluding same-department renames with changed short names.
+///
+/// ## Corpus investigation (2026-03-23) — extended corpus FP=2
+///
+/// FP=1 (directive): `has_tag?` in mysociety/alaveteli with
+/// `# rubocop:disable Naming::PredicateName` (old cop name, `::` separator).
+/// RuboCop's `DirectiveComment::COP_NAME_PATTERN` is `([A-Za-z]\w+/)*[A-Za-z]\w+`,
+/// which only recognizes `/` as separator — `:` is not `\w`. So for
+/// `Naming::PredicateName`, the regex captures only `Naming` (stops at `:`), and
+/// RuboCop treats it as a department-level disable covering ALL Naming cops.
+/// The earlier FN=61 finding (that RuboCop does NOT honor old short names) was
+/// correct for the `/` form (`Naming/PredicateName`), but the `::` form is a
+/// different code path — it never reaches `Registry.qualified_cop_name` because
+/// only `Naming` is extracted.
+/// Fix: changed `normalize_directive_cop_name` to return just the department
+/// token (the part before `::`) instead of converting `::` to `/`.
+///
+/// FP=2 (vendor-path): `is_utf8?` in noosfero/noosfero `vendor/` dir.
+/// Systemic vendor-path config/exclusion noise, not a cop bug.
 pub struct PredicatePrefix;
 
 impl PredicatePrefix {

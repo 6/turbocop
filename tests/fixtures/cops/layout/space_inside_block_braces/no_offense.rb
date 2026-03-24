@@ -11,3 +11,10 @@ items.each { |x|
 items.map {
   42
 }
+escape_html = ->(str) { str.gsub("&", "&amp;") }
+has_many :versions, -> { order("id ASC") }, class_name: "Foo"
+action = -> { puts "hello" }
+f = ->(x) { x + 1 }
+g = -> {
+  42
+}

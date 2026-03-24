@@ -397,3 +397,21 @@ def process_items(items)
     item_info
   end
 end
+
+# FP fix (round 7): !! inside parentheses used as ternary condition
+# In Parser AST, (!!expr) creates a begin node. RuboCop's
+# find_parent_not_enumerable returns begin, and begin_type? allows the
+# lenient same-line check.
+def deliver
+  notification = (!!evaluate_option(:silent)) ? notification_class.silent : notification_class
+  notification.do_something
+  notification.do_something_else
+end
+
+# FP fix (round 7): !! inside parentheses used in comparison
+def filter_data(data, transient)
+  defs = []
+  if (!!data[:transient]) == transient
+    defs << { name: data[:name] }
+  end
+end

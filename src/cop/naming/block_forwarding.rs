@@ -100,6 +100,10 @@ impl Cop for BlockForwarding {
         &[DEF_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -107,7 +111,7 @@ impl Cop for BlockForwarding {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Anonymous block forwarding requires Ruby 3.1+
         // Default TargetRubyVersion is 3.4 (matching RuboCop's behavior when unset)
@@ -204,20 +208,27 @@ impl Cop for BlockForwarding {
         // - Block is never referenced at all (unused param should be anonymous &), OR
         // - Param has space (RuboCop's lvar check broken, fires unconditionally)
         if checker.has_forwarding || !checker.has_any_reference || has_space_in_param {
-            // Offense on the parameter
+            // Offense on the parameter: replace `&block` with `&`
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
+            let mut param_diag = self.diagnostic(
                 source,
                 line,
                 column,
                 "Use anonymous block forwarding.".to_string(),
-            ));
+            );
+            if let Some(ref mut corr) = corrections {
+                corr.push(crate::correction::Correction {
+                    start: loc.start_offset(),
+                    end: loc.end_offset(),
+                    replacement: "&".to_string(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                param_diag.corrected = true;
+            }
+            diagnostics.push(param_diag);
 
             // Offense on each &block forwarding usage in the body.
-            // RuboCop compares source text of param vs forwarding usage
-            // (`last_argument.source == block_pass_node.source`). When the
-            // param has extra whitespace (e.g., "& block"), only body usages
-            // whose source text matches the param source are flagged.
             let param_source = if has_space_in_param {
                 Some(&source.as_bytes()[loc.start_offset()..loc.end_offset()])
             } else {
@@ -231,12 +242,23 @@ impl Cop for BlockForwarding {
                     }
                 }
                 let (line, column) = source.offset_to_line_col(*start);
-                diagnostics.push(self.diagnostic(
+                let mut fwd_diag = self.diagnostic(
                     source,
                     line,
                     column,
                     "Use anonymous block forwarding.".to_string(),
-                ));
+                );
+                if let Some(ref mut corr) = corrections {
+                    corr.push(crate::correction::Correction {
+                        start: *start,
+                        end: *end,
+                        replacement: "&".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    fwd_diag.corrected = true;
+                }
+                diagnostics.push(fwd_diag);
             }
         }
     }
@@ -400,4 +422,27 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(BlockForwarding, "cops/naming/block_forwarding");
+    crate::cop_autocorrect_fixture_tests!(BlockForwarding, "cops/naming/block_forwarding");
+
+    #[test]
+    fn autocorrect_simple_forwarding() {
+        let input = b"def foo(&block)\n  bar(&block)\nend\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&BlockForwarding, input);
+        assert_eq!(diags.len(), 2);
+        assert!(diags.iter().all(|d| d.corrected));
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"def foo(&)\n  bar(&)\nend\n");
+    }
+
+    #[test]
+    fn autocorrect_unused_param() {
+        let input = b"def foo(&block)\nend\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&BlockForwarding, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"def foo(&)\nend\n");
+    }
 }

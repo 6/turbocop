@@ -44,6 +44,19 @@ use crate::parse::source::SourceFile;
 /// (`Point( 1 )`, `SuperPoint( x: 1 )`) and parenthesized `yield(...)` calls
 /// also need their Prism-specific nodes (`ArrayPatternNode`,
 /// `HashPatternNode`, `YieldNode`).
+///
+/// ## Corpus investigation (2026-03-23)
+///
+/// Corpus oracle reported FP=35, FN=5.
+///
+/// FP=35: All from line-continuation backslash after opening paren space, e.g.
+/// `method( \`. RuboCop's token-based approach sees the next token on the
+/// following line, so it doesn't flag the space. Fixed by treating a trailing
+/// `\` in `next_same_line_item` as no code on the same line.
+///
+/// FN=5: Parenthesized multi-write targets like `( x, y ) = foo`. Prism uses
+/// `MultiWriteNode` (not `MultiTargetNode`) for the outer parens. The cop
+/// doesn't handle `MultiWriteNode` yet — needs adding as an interested node.
 pub struct SpaceInsideParens;
 
 const MSG: &str = "Space inside parentheses detected.";
@@ -393,6 +406,10 @@ fn next_same_line_item(bytes: &[u8], offset: usize) -> NextSameLineItem {
         NextSameLineItem::None
     } else if bytes[idx] == b'#' {
         NextSameLineItem::Comment
+    } else if bytes[idx] == b'\\' && is_trailing_backslash(bytes, idx, line_end) {
+        // Line continuation backslash — RuboCop treats this as no code on the
+        // same line (the next token is on the following line).
+        NextSameLineItem::None
     } else {
         NextSameLineItem::Code(idx)
     }
@@ -415,6 +432,14 @@ fn previous_same_line_code(bytes: &[u8], close_start: usize) -> Option<usize> {
     } else {
         Some(idx - 1)
     }
+}
+
+fn is_trailing_backslash(bytes: &[u8], idx: usize, line_end: usize) -> bool {
+    let mut i = idx + 1;
+    while i < line_end && matches!(bytes[i], b' ' | b'\t' | b'\r') {
+        i += 1;
+    }
+    i >= line_end
 }
 
 fn check_extraneous_open_space(

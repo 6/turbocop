@@ -211,6 +211,22 @@ use crate::parse::source::SourceFile;
 /// `is_inside_conditional_block()`. When scanning backwards, an `end` at lower indent
 /// closes a sibling scope — conditional keywords beyond it are in a different scope and
 /// should not affect the current def.
+///
+/// ## Reverted fix attempt (2026-03-23, commit 0956d7b0)
+///
+/// Attempted to fix FP on parameter receivers and FN inside else blocks.
+/// Introduced FP=1 on standard corpus; reverted in 1bf1bea3.
+///
+/// **FP=1 (is_inside_conditional_block overrides private in same branch):**
+/// `def connection` (indent 6) inside an `else` branch (indent 4) preceded by
+/// `private` (indent 6) in the same else branch. `is_private_or_protected`
+/// returns true, but `is_inside_conditional_block` also returns true (finds
+/// `else` at lower indent). The skip logic `is_private && !is_inside_conditional`
+/// evaluates to false, so the private method gets flagged. But `private` is in
+/// the SAME conditional branch as the def — it should still apply. Fix: when
+/// `is_inside_conditional_block` is true, check whether `private` appears AFTER
+/// the enclosing conditional keyword and BEFORE the def (same nesting level),
+/// which means private still applies within that branch.
 pub struct Delegate;
 
 impl Cop for Delegate {

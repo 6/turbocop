@@ -134,17 +134,6 @@ fn collect_corpus_check_results(
             // Lint each file and collect diagnostics
             let mut seen = HashSet::new();
             for path in &discovered.files {
-                // Make path relative to repo dir so AllCops.Exclude patterns
-                // (e.g. vendor/**/*) match correctly instead of matching the
-                // corpus dir itself. Note: this is slightly more aggressive than
-                // CI, where paths like `repos/<repo_id>/bin/foo.rb` don't match
-                // `bin/**/*`, but the difference is minor (~128 offenses across
-                // 1000 repos) and compensates for file-set differences between
-                // local corpus clones and CI shallow clones.
-                let rel_path = path.strip_prefix(repo_path).unwrap_or(path);
-                if cop_filters.is_globally_excluded(rel_path) {
-                    continue;
-                }
                 let source = match parse::source::SourceFile::from_path(path) {
                     Ok(s) => s,
                     Err(_) => continue,

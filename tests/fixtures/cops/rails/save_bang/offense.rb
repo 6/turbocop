@@ -262,3 +262,30 @@ s if s&.persisted?
 # CREATE as receiver of call_operator_write — receiver is void context
 Student.create.lessons += [science]
         ^^^^^^ Rails/SaveBang: Use `create!` instead of `create` if the return value is not checked.
+
+# CREATE in || inside explicit return — compound_boolean takes priority
+# RuboCop's explicit_return? uses assignable_node which doesn't walk through or nodes
+def self.get_or_create(**opts)
+  record = find_by(opts)
+  return record || create(opts)
+                   ^^^^^^ Rails/SaveBang: `create` returns a model which is always truthy.
+end
+
+# CREATE in local assignment at top-level (no persisted? check)
+field = Chargify::SubscriptionMetafield.create name: 'internal info'
+                                        ^^^^^^ Rails/SaveBang: Use `create!` instead of `create` if the return value is not checked. Or check `persisted?` on model returned from `create`.
+
+# Parenthesized persist call in argument — parens break argument? check
+# RuboCop's argument? checks node.parent.send_type? and begin (parens) is not send_type?
+@accounts << (@account.users.create name: "Daniel")
+                             ^^^^^^ Rails/SaveBang: Use `create!` instead of `create` if the return value is not checked.
+
+# Parenthesized save in argument — same as above
+assert ( cnpj_valido.save ), "CNPJ valido nao foi salvo."
+                     ^^^^ Rails/SaveBang: Use `save!` instead of `save` if the return value is not checked.
+
+# update/save inside array inside && — compound_boolean/Condition should not leak through arrays
+# RuboCop's in_condition_or_compound_boolean? checks first non-begin ancestor, which is array (not &&)
+@database_version ||= (version = raw_connection.oracle_server_version) &&
+  [version.major, version.minor, version.update, version.patch]
+                                         ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.

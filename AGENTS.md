@@ -89,8 +89,9 @@ python3 -m ruff check path/to/changed.py
 - `ruby_prism::ParseResult` is `!Send + !Sync`, so parsing must happen inside each rayon worker thread.
 - The `Cop` trait is `Send + Sync`; cops that need mutable visitor state should create a temporary visitor struct internally.
 - Edition 2024 / Rust 1.85+.
-- Cops disabled by default in vendor config must override `default_enabled() -> false`, or they will produce false positives when vendored config loading fails.
-- Plugin cops depend on the target project's installed gem version, not just the vendored submodule version in this repo.
+- Cops disabled by default in vendor config must override `default_enabled() -> false`, or they will produce false positives when vendored config loading fails. Note: `default_enabled()` has no effect on corpus FP/FN numbers — the corpus baseline config (`baseline_rubocop.yml`) explicitly enables all cops, overriding this. The override only matters for real-world usage.
+- Plugin cops depend on the target project's installed gem version, not just the vendored submodule version in this repo. When nitrocop processes `require: [rubocop-rspec]`, it runs `bundle info --path` to find the installed gem and loads that gem's `config/default.yml`. Cops not in the installed gem's config are treated as non-existent (disabled), matching RuboCop's behavior.
+- Corpus bundle version matters: `check-cop.py --rerun` requires the corpus bundle installed for the Ruby version in `mise.toml`. If the Ruby version is wrong or gems are missing, config resolution falls back to hardcoded defaults and offense counts will be wildly incorrect (often 5-10x higher). Fix with `cd bench/corpus && BUNDLE_PATH=vendor/bundle bundle install`.
 
 ## Fixture Rules
 
@@ -143,7 +144,7 @@ BUNDLE_PATH=vendor/bundle bundle install
 - Commit early and often on shared branches.
 - Ignore unrelated working-tree changes unless asked to handle them.
 - Never copy code or identifiers from private repos into this repo.
-- Document cop investigation findings as `///` doc comments on the cop struct.
+- Document cop investigation findings as `///` doc comments on the cop struct. This includes failed fix attempts: document what was tried, why it regressed (with FP/FN numbers), the commit SHA that was reverted, and what a correct fix would need. This prevents future agents from repeating the same failed approach.
 - When editing a skill, check related skills that share conventions or workflows.
 
 ## Notes

@@ -73,6 +73,28 @@ use crate::parse::source::SourceFile;
 ///    deep tree search on the receiver. Fixed by using `contains_rails_root` for receiver check.
 /// 3. `"#{path.relative_path_from(Rails.root)}.png"` — `contains_rails_root_deep` (used in dstr
 ///    detection) didn't recurse into call arguments. Fixed by adding argument traversal.
+///
+/// ## Investigation findings (2026-03-23)
+///
+/// **FP root causes (4 FPs)**:
+/// 1. `::Rails.root&.join("app", "models")&.to_s` — safe navigation operator `&.` makes this
+///    a `csend`, not a regular `send`. RuboCop's `RESTRICT_ON_SEND = %i[join]` only matches
+///    regular sends. Fixed by checking `call_operator_loc()` for `&.` and skipping.
+/// 2. `File.join [Rails.root, ENV['FIXTURES_PATH'] || %w[test fixtures]].flatten` — single
+///    argument is a method call on an array literal. RuboCop errors/crashes on this pattern,
+///    effectively not flagging it. Fixed by adding `is_call_on_array` guard to `check_file_join`.
+/// 3. `"#{scheme}://#{Rails.root}/db/#{Rails.env}.sqlite3"` — the `://` before Rails.root
+///    contains a colon. RuboCop's `dstr_separated_by_colon?` checks `children[1..]` (ALL
+///    string parts from index 1), not just parts after the Rails.root index. Our check was
+///    only looking at `parts[rails_root_index + 1..]`. Fixed by checking all parts from
+///    index 1 onward.
+///
+/// **FN root causes (2 FNs)**:
+/// 1. `File.join((Rails.root || "."), "config", ...)` — parenthesized OrNode. The
+///    `contains_rails_root` function didn't traverse ParenthesesNode (which wraps a
+///    StatementsNode) or OrNode. Fixed by adding both node types to the traversal.
+/// 2. `File.join(::Rails.root || '', 'config')` — bare OrNode argument. Same root cause
+///    as above. Fixed by adding OrNode traversal to `contains_rails_root`.
 pub struct FilePath;
 
 /// Check if a constant node is top-level (bare `Foo` or `::Foo`), not namespaced (`A::Foo`).
@@ -158,7 +180,32 @@ fn contains_rails_root(node: &ruby_prism::Node<'_>) -> bool {
             }
         }
     }
+    // Check or-node: `Rails.root || "."` — traverse both sides
+    if let Some(or_node) = node.as_or_node() {
+        if contains_rails_root(&or_node.left()) || contains_rails_root(&or_node.right()) {
+            return true;
+        }
+    }
+    // Check parentheses node: `(Rails.root || ".")` — unwrap body through StatementsNode
+    if let Some(paren) = node.as_parentheses_node() {
+        if let Some(body) = paren.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                if stmts.body().iter().any(|s| contains_rails_root(&s)) {
+                    return true;
+                }
+            } else if contains_rails_root(&body) {
+                return true;
+            }
+        }
+    }
     false
+}
+
+/// Check if a call uses safe navigation (`&.`). RuboCop's `RESTRICT_ON_SEND`
+/// only matches regular sends, not csends (safe navigation).
+fn is_safe_navigation_call(call: &ruby_prism::CallNode<'_>) -> bool {
+    call.call_operator_loc()
+        .is_some_and(|loc| loc.as_slice().starts_with(b"&"))
 }
 
 /// Check if a node is any kind of variable (local, instance, class, global).
@@ -195,6 +242,18 @@ fn string_contains_slash(node: &ruby_prism::Node<'_>) -> bool {
     } else {
         false
     }
+}
+
+/// Check if a File.join argument is a method call on an array literal,
+/// like `[Rails.root, ...].flatten`. RuboCop errors on such patterns,
+/// effectively not flagging them.
+fn is_call_on_array(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        if let Some(recv) = call.receiver() {
+            return recv.as_array_node().is_some();
+        }
+    }
+    false
 }
 
 /// Check if a node is a constant (not Rails).
@@ -247,6 +306,12 @@ impl Cop for FilePath {
         };
 
         if call.name().as_slice() != b"join" {
+            return;
+        }
+
+        // Skip safe navigation calls: Rails.root&.join(...) is csend, not send.
+        // RuboCop's RESTRICT_ON_SEND only matches regular send, not csend.
+        if is_safe_navigation_call(&call) {
             return;
         }
 
@@ -363,10 +428,16 @@ impl FilePath {
             return;
         }
 
-        // Check that no arguments are variables, non-Rails constants, or contain multiple slashes
+        // Check that no arguments are variables, non-Rails constants, contain multiple slashes,
+        // or are method calls on array literals (e.g. `[...].flatten`).
         // RuboCop: arguments.none? { |arg| arg.variable? || arg.const_type? || string_contains_multiple_slashes?(arg) }
+        // Additionally, skip call-on-array arguments as RuboCop errors on patterns like
+        // `File.join([Rails.root, ...].flatten)`.
         let has_invalid_arg = arg_list.iter().any(|a| {
-            is_variable(a) || is_non_rails_constant(a) || string_contains_multiple_slashes(a)
+            is_variable(a)
+                || is_non_rails_constant(a)
+                || string_contains_multiple_slashes(a)
+                || is_call_on_array(a)
         });
         if has_invalid_arg {
             return;
@@ -478,9 +549,12 @@ fn contains_rails_root_deep(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
-/// Check if the dstr is separated by a colon after Rails.root (e.g. "#{Rails.root}:/foo").
-fn dstr_separated_by_colon(parts: &[ruby_prism::Node<'_>], rails_root_index: usize) -> bool {
-    for part in &parts[rails_root_index + 1..] {
+/// Check if the dstr contains a colon separator anywhere after the first part.
+/// RuboCop checks `children[1..]` (all parts from index 1), not just parts after
+/// the Rails.root index. This correctly handles `"#{scheme}://#{Rails.root}/path"`
+/// where the `://` colon appears before Rails.root.
+fn dstr_separated_by_colon(parts: &[ruby_prism::Node<'_>], _rails_root_index: usize) -> bool {
+    for part in &parts[1..] {
         if let Some(s) = part.as_string_node() {
             let src = s.unescaped();
             if src.starts_with(b":") {

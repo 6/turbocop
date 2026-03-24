@@ -4,3 +4,7 @@ x = "foo" "bar"
     ^^^^^^^^^^^ Lint/ImplicitStringConcatenation: Combine "foo" and "bar" into a single string literal, rather than using implicit string concatenation.
 y = "hello" "world"
     ^^^^^^^^^^^^^^^ Lint/ImplicitStringConcatenation: Combine "hello" and "world" into a single string literal, rather than using implicit string concatenation.
+z = ["first" "second", "third"]
+     ^^^^^^^^^^^^^^^^ Lint/ImplicitStringConcatenation: Combine "first" and "second" into a single string literal, rather than using implicit string concatenation.
+w = ['a' 'b' 'c']
+     ^^^^^^ Lint/ImplicitStringConcatenation: Combine 'a' and 'b' into a single string literal, rather than using implicit string concatenation.

@@ -23,3 +23,17 @@ end.not_to change(Comment, :count)
 expect do
   Fabricate(:problem)
 end.to change(Comment, :count).by(3)
+
+# Single-line block chains — no offense
+a { b }.c { d }
+w do x end.y do z end
+
+# Chain of calls followed by a multi-line block — not a block chain
+a1.a2.a3 do
+  b
+end
+
+# First block is single-line, second is multiline — no offense
+Thread.list.find_all { |t| t.alive? }.map { |t|
+  t.object_id
+}

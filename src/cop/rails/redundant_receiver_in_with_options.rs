@@ -7,6 +7,16 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// RuboCop's `all_block_nodes_in` and `all_send_nodes_in` use recursive
+/// `def_node_search` which descends into ALL child nodes including hash
+/// arguments, conditionals (`if`/`unless`), and boolean operators (`||`/`&&`).
+///
+/// FP fixes:
+/// - Lambdas inside hash arguments (e.g., `:if => -> { ... }`) must be found
+///   by `contains_block_or_lambda` to correctly bail out.
+/// - Send nodes inside `unless`/`if` blocks and boolean operators must be
+///   checked by `node_all_sends_use_param` so that non-param receivers
+///   (e.g., `reflect_on_association(:parent)`) correctly prevent flagging.
 pub struct RedundantReceiverInWithOptions;
 
 impl Cop for RedundantReceiverInWithOptions {
@@ -136,6 +146,9 @@ impl Cop for RedundantReceiverInWithOptions {
 impl RedundantReceiverInWithOptions {
     /// Recursively check if any block or lambda node exists anywhere in a subtree.
     /// RuboCop exits early if `all_block_nodes_in(body).none?` is false.
+    /// RuboCop's `def_node_search :all_block_nodes_in, '(block ...)'` matches
+    /// `(block ...)` anywhere in the AST, including inside hash arguments and
+    /// conditionals. We must recurse through all structural node types.
     fn contains_block_or_lambda(node: &ruby_prism::Node<'_>) -> bool {
         // Lambda nodes (-> { ... }) are block nodes in Parser AST
         if node.as_lambda_node().is_some() {
@@ -152,6 +165,90 @@ impl RedundantReceiverInWithOptions {
                     }
                 }
             }
+        }
+        // Recurse into hash/assoc/array nodes (lambdas can appear in hash values)
+        if let Some(hash) = node.as_keyword_hash_node() {
+            for elem in hash.elements().iter() {
+                if Self::contains_block_or_lambda(&elem) {
+                    return true;
+                }
+            }
+        }
+        if let Some(hash) = node.as_hash_node() {
+            for elem in hash.elements().iter() {
+                if Self::contains_block_or_lambda(&elem) {
+                    return true;
+                }
+            }
+        }
+        if let Some(assoc) = node.as_assoc_node() {
+            if Self::contains_block_or_lambda(&assoc.value()) {
+                return true;
+            }
+        }
+        if let Some(array) = node.as_array_node() {
+            for elem in array.elements().iter() {
+                if Self::contains_block_or_lambda(&elem) {
+                    return true;
+                }
+            }
+        }
+        // Recurse into if/unless nodes
+        if let Some(if_node) = node.as_if_node() {
+            if Self::contains_block_or_lambda(&if_node.predicate()) {
+                return true;
+            }
+            if let Some(stmts) = if_node.statements() {
+                for stmt in stmts.body().iter() {
+                    if Self::contains_block_or_lambda(&stmt) {
+                        return true;
+                    }
+                }
+            }
+            if let Some(else_clause) = if_node.subsequent() {
+                if Self::contains_block_or_lambda(&else_clause) {
+                    return true;
+                }
+            }
+        }
+        if let Some(else_node) = node.as_else_node() {
+            if let Some(stmts) = else_node.statements() {
+                for stmt in stmts.body().iter() {
+                    if Self::contains_block_or_lambda(&stmt) {
+                        return true;
+                    }
+                }
+            }
+        }
+        if let Some(unless_node) = node.as_unless_node() {
+            if Self::contains_block_or_lambda(&unless_node.predicate()) {
+                return true;
+            }
+            if let Some(stmts) = unless_node.statements() {
+                for stmt in stmts.body().iter() {
+                    if Self::contains_block_or_lambda(&stmt) {
+                        return true;
+                    }
+                }
+            }
+            if let Some(else_clause) = unless_node.else_clause() {
+                if let Some(stmts) = else_clause.statements() {
+                    for stmt in stmts.body().iter() {
+                        if Self::contains_block_or_lambda(&stmt) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        // Recurse into boolean operators
+        if let Some(or_node) = node.as_or_node() {
+            return Self::contains_block_or_lambda(&or_node.left())
+                || Self::contains_block_or_lambda(&or_node.right());
+        }
+        if let Some(and_node) = node.as_and_node() {
+            return Self::contains_block_or_lambda(&and_node.left())
+                || Self::contains_block_or_lambda(&and_node.right());
         }
         // Recurse into assignment values
         if let Some(or_write) = node.as_instance_variable_or_write_node() {
@@ -229,6 +326,76 @@ impl RedundantReceiverInWithOptions {
         }
         if let Some(or_write) = node.as_local_variable_or_write_node() {
             return self.node_all_sends_use_param(&or_write.value(), param_name);
+        }
+        // Recurse into boolean operators (||, &&)
+        if let Some(or_node) = node.as_or_node() {
+            return self.node_all_sends_use_param(&or_node.left(), param_name)
+                && self.node_all_sends_use_param(&or_node.right(), param_name);
+        }
+        if let Some(and_node) = node.as_and_node() {
+            return self.node_all_sends_use_param(&and_node.left(), param_name)
+                && self.node_all_sends_use_param(&and_node.right(), param_name);
+        }
+        // Recurse into parentheses
+        if let Some(parens) = node.as_parentheses_node() {
+            if let Some(body) = parens.body() {
+                if let Some(stmts) = body.as_statements_node() {
+                    for stmt in stmts.body().iter() {
+                        if !self.node_all_sends_use_param(&stmt, param_name) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        // Recurse into if/unless nodes — RuboCop's all_send_nodes_in finds
+        // sends inside conditionals too
+        if let Some(if_node) = node.as_if_node() {
+            if !self.node_all_sends_use_param(&if_node.predicate(), param_name) {
+                return false;
+            }
+            if let Some(stmts) = if_node.statements() {
+                for stmt in stmts.body().iter() {
+                    if !self.node_all_sends_use_param(&stmt, param_name) {
+                        return false;
+                    }
+                }
+            }
+            if let Some(else_clause) = if_node.subsequent() {
+                if !self.node_all_sends_use_param(&else_clause, param_name) {
+                    return false;
+                }
+            }
+        }
+        if let Some(else_node) = node.as_else_node() {
+            if let Some(stmts) = else_node.statements() {
+                for stmt in stmts.body().iter() {
+                    if !self.node_all_sends_use_param(&stmt, param_name) {
+                        return false;
+                    }
+                }
+            }
+        }
+        if let Some(unless_node) = node.as_unless_node() {
+            if !self.node_all_sends_use_param(&unless_node.predicate(), param_name) {
+                return false;
+            }
+            if let Some(stmts) = unless_node.statements() {
+                for stmt in stmts.body().iter() {
+                    if !self.node_all_sends_use_param(&stmt, param_name) {
+                        return false;
+                    }
+                }
+            }
+            if let Some(else_clause) = unless_node.else_clause() {
+                if let Some(stmts) = else_clause.statements() {
+                    for stmt in stmts.body().iter() {
+                        if !self.node_all_sends_use_param(&stmt, param_name) {
+                            return false;
+                        }
+                    }
+                }
+            }
         }
         true
     }

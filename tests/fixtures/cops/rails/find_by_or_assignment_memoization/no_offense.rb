@@ -25,3 +25,25 @@ end
 # Multiline modifier if
 @collection ||= Collection.find_by(name: params[:collection_id]) if
     params[:collection_id]
+
+# Instance variable assigned in initialize — RuboCop skips (object shapes)
+class TrainingProgressManager
+  def initialize(user, training_module, training_module_user: nil)
+    @user = user
+    @training_module = training_module
+    @tmu = training_module_user
+    @tmu ||= TrainingModulesUsers.find_by(user_id: @user.id,
+                                          training_module_id: @training_module&.id)
+  end
+end
+
+# Same pattern: ivar initialized in initialize, memoized elsewhere
+class ReportImporter
+  def initialize(host_name)
+    @host = nil
+  end
+
+  def find_or_create_host(name)
+    @host ||= Host::Managed.find_by(name: name)
+  end
+end

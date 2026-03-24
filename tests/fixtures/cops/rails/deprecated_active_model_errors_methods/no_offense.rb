@@ -18,6 +18,10 @@ result.errors(locale: :de).to_h
 result.errors(full: true).to_h
 contract.call(attrs).errors(full: true).to_h.each_value { |v| v }
 
+# Deprecated methods called WITH arguments should NOT be flagged
+# (RuboCop's errors_deprecated? pattern only matches argument-less calls)
+user.errors.to_xml(:skip_instruct => true)
+
 # Bare `errors` (no explicit receiver) should NOT be flagged outside model files
 errors.keys
 errors.values

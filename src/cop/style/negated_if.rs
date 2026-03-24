@@ -47,6 +47,16 @@ fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
     current
 }
 
+/// Get the inner expression from a negation node (`!expr` → `expr`).
+fn get_negation_inner<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"!" {
+            return call.receiver();
+        }
+    }
+    None
+}
+
 /// Check if a node is a single negation (`!expr` or `not expr`),
 /// excluding double negation (`!!expr`).
 fn is_single_negation(node: &ruby_prism::Node<'_>) -> bool {
@@ -79,6 +89,10 @@ impl Cop for NegatedIf {
         &[CALL_NODE, IF_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -86,7 +100,7 @@ impl Cop for NegatedIf {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "both");
         let if_node = match node.as_if_node() {
@@ -153,12 +167,56 @@ impl Cop for NegatedIf {
             // For modifier form `body if !cond`, this is the start of `body`.
             // For prefix form `if !cond`, this is the `if` keyword.
             let (line, column) = source.offset_to_line_col(node.location().start_offset());
-            diagnostics.push(self.diagnostic(
+            let mut diag = self.diagnostic(
                 source,
                 line,
                 column,
                 "Favor `unless` over `if` for negative conditions.".to_string(),
-            ));
+            );
+
+            // Autocorrect: replace `if` with `unless` and remove `!`/`not` from condition
+            if let Some(ref mut corr) = corrections {
+                // 1. Replace `if` keyword with `unless`
+                corr.push(crate::correction::Correction {
+                    start: if_kw_loc.start_offset(),
+                    end: if_kw_loc.end_offset(),
+                    replacement: "unless".to_string(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+
+                // 2. Replace the negated condition with its inner expression
+                // The predicate may be wrapped in parens, so we work with the original predicate
+                let predicate = if_node.predicate();
+                let pred_start = predicate.location().start_offset();
+                let pred_end = predicate.location().end_offset();
+
+                // Get the inner expression (without negation and optional parens)
+                let inner_expr = get_negation_inner(&unwrapped);
+                if let Some(inner) = inner_expr {
+                    let inner_src = std::str::from_utf8(inner.location().as_slice())
+                        .unwrap_or("")
+                        .to_string();
+                    // Add a space prefix if there's no space between keyword and predicate
+                    let needs_space = pred_start == if_kw_loc.end_offset();
+                    let replacement = if needs_space {
+                        format!(" {inner_src}")
+                    } else {
+                        inner_src
+                    };
+                    corr.push(crate::correction::Correction {
+                        start: pred_start,
+                        end: pred_end,
+                        replacement,
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                }
+
+                diag.corrected = true;
+            }
+
+            diagnostics.push(diag);
         }
     }
 }
@@ -169,6 +227,7 @@ mod tests {
     use crate::testutil::run_cop_full_with_config;
 
     crate::cop_fixture_tests!(NegatedIf, "cops/style/negated_if");
+    crate::cop_autocorrect_fixture_tests!(NegatedIf, "cops/style/negated_if");
 
     #[test]
     fn parenthesized_negation() {

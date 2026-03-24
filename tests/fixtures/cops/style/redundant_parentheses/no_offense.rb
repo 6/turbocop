@@ -215,3 +215,47 @@ foo ||= (bar in baz)
 # Pattern matching in endless method definition — parens required
 def myfoo = (bar in [0, 1])
 def mybar = (baz => result)
+# Unary on local variable — RuboCop's method_call_with_redundant_parentheses?
+# returns false for non-call types (local variables), so these are not flagged.
+# `x` is defined above in earlier fixture lines.
+(!x)
+(~x)
+(-x)
+(+x)
+# Unary on variable — parens needed for operator precedence
+# RuboCop's check_unary unwraps to the base; method_call_with_redundant_parentheses?
+# returns false for variables (not :call type), so (-var) is not flagged.
+num = 1
+(-num) % 4
+pad = (-num) % 4
+# Unary plus on negated variable — +(-v)
+v = 1
+v.frozen? ? v : +(-v)
+# Double negation — inner parens wrap a unary op, base is a paren node
+!(!hash_of_options[:distinct])
+!(!@values[:recursive])
+# Unary minus on variable as method argument
+x = 1
+assert_tensor [-10, -20, -30], (-x)
+# Multiline chained logical expression
+xx = (organisations_string || "")
+  .split(",")
+  .collect(&:strip)
+# Multiline chained method call
+rounded_value =
+  (fractional / smallest_denomination)
+  .round(0, rounding_mode)
+# Multiline chained nil-safe call
+(sources || [])
+  .grep(Source)
+  .flat_map { _1 }
+# Multiline chained with alignment
+opt = (mailer.default_url_options || {})
+      .merge(options)
+      .merge(opt)
+# Multiline chained method call
+(foo_bar.baz)
+  .qux
+# Multiline chained comparison
+(aa == bb)
+  .to_s

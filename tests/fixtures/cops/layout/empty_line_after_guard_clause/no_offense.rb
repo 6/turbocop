@@ -739,3 +739,17 @@ def delimiters_from(flags, format)
     found = delimiter
   end
 end
+
+# if/else with guard in if-branch is NOT a guard clause
+def get(key, raise_error: false, raw: false)
+  ret = if raise_error
+          @storage.get(key) or raise UnknownKey.new("doesn't exist")
+        else
+          @storage.get(key)
+        end
+  if raw
+    ret
+  else
+    ret && build_response(ret)
+  end
+end

@@ -24,6 +24,19 @@ use crate::parse::source::SourceFile;
 ///
 /// Message format for name duplicates: "Association `x` is defined multiple times. Don't
 /// repeat associations." (matching RuboCop exactly).
+/// ## Reverted fix attempt (2026-03-23, commit 3002d481)
+///
+/// Attempted to fix FP on block associations and FN on if-branch patterns.
+/// Introduced FP=2 on standard corpus; reverted in 1bf1bea3.
+///
+/// **FP=2 (elsif recursion over-collects):** The `collect_calls_from_if_branches`
+/// function recursively collected calls from both `if` and `elsif` branches.
+/// In Parser AST, `if ... elsif ... end` is `(if cond (send ...) (if cond2
+/// (send ...) nil))` — `each_child_node(:send)` on the outer `if` only finds
+/// the `if` branch's send, NOT the `elsif` branch's send (it's inside a nested
+/// `if` node). The fix over-collected by recursing into elsif. Fix: only
+/// collect from the `if` body and the `else` body, not nested `if` nodes from
+/// elsif chains.
 pub struct DuplicateAssociation;
 
 /// Association method names we track.

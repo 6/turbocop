@@ -6,3 +6,12 @@
 
 # TODO:make better
   ^^^^ Style/CommentAnnotation: Annotation keywords like `TODO` should be all upper case, followed by a colon, and a space, then a note describing the problem.
+
+# HACK something here
+  ^^^^ Style/CommentAnnotation: Annotation keywords like `HACK` should be all upper case, followed by a colon, and a space, then a note describing the problem.
+
+# REVIEW should double check
+  ^^^^^^ Style/CommentAnnotation: Annotation keywords like `REVIEW` should be all upper case, followed by a colon, and a space, then a note describing the problem.
+
+# OPTIMIZE:slow query
+  ^^^^^^^^ Style/CommentAnnotation: Annotation keywords like `OPTIMIZE` should be all upper case, followed by a colon, and a space, then a note describing the problem.

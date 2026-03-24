@@ -14,6 +14,10 @@ impl Cop for Strip {
         &[CALL_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for Strip {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -62,12 +66,26 @@ impl Cop for Strip {
                 // Point at the inner method selector through the outer
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Use `strip` instead of `{}`.", methods),
-                ));
+                );
+                // Autocorrect: replace `.lstrip.rstrip` or `.rstrip.lstrip` with `.strip`
+                if let Some(ref mut corr) = corrections {
+                    // Replace from inner receiver end to outer call end with `.strip`
+                    let inner_receiver = inner_call.receiver().unwrap();
+                    corr.push(crate::correction::Correction {
+                        start: inner_receiver.location().end_offset(),
+                        end: node.location().end_offset(),
+                        replacement: ".strip".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+                diagnostics.push(diag);
             }
         }
     }
@@ -77,4 +95,5 @@ impl Cop for Strip {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(Strip, "cops/style/strip");
+    crate::cop_autocorrect_fixture_tests!(Strip, "cops/style/strip");
 }

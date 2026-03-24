@@ -23,3 +23,8 @@ DateTime.current.to_f
 # Block-pass with additional arguments should not be flagged
 foo.map(x, &:to_i)
 foo.reduce(0, &:to_f)
+# Rooted constant paths (::Time, ::DateTime) should also be ignored
+::Time.now.to_f
+::Time.now.to_i
+::Time.local(2010).utc_offset.to_r
+::DateTime.new(2012, 8, 29).to_i

@@ -76,43 +76,47 @@ class VisibilityOrder
   end
 end
 
-# `private :method_name` is a visibility declaration, NOT a section marker;
-# it should be ignored (not in ExpectedOrder), not classified as private_methods.
-class VisibilityDeclaration
+# `private :method_name` makes the def private for ordering but does NOT act
+# as a visibility block for subsequent defs. No offense when private method
+# is last or only followed by more private methods.
+class VisibilityDeclarationAtEnd
   CONST = 1
   def initialize
     @x = 1
+  end
+  def bar
+    3
   end
   def foo
     2
   end
   private :foo
-  def bar
-    3
-  end
 end
 
-# `protected :method_name` should also be ignored
-class ProtectedDeclaration
+# `protected :method_name` similarly makes the def protected for ordering.
+class ProtectedDeclarationAtEnd
   CONST = 1
   def initialize
     @x = 1
+  end
+  def qux
+    3
   end
   def baz
     2
   end
   protected :baz
-  def qux
-    3
-  end
 end
 
-# Multiple symbol args: `private :foo, :bar`
-class MultipleVisibilityArgs
+# Multiple symbol args: `private :foo, :bar` — no offense if private defs are last
+class MultipleVisibilityArgsAtEnd
   include Comparable
   CONST = 1
   def initialize
     @x = 1
+  end
+  def gamma
+    3
   end
   def alpha
     1
@@ -121,9 +125,6 @@ class MultipleVisibilityArgs
     2
   end
   private :alpha, :beta
-  def gamma
-    3
-  end
 end
 
 # `private def foo` IS a def modifier and should be classified as private_methods
@@ -145,4 +146,28 @@ class << self
   def some_method
     2
   end
+end
+
+# Inline private declaration where no public method follows: no offense
+class InlinePrivateNoFollowUp
+  include Comparable
+  CONST = 1
+  def initialize
+    @x = 1
+  end
+  def validate_back_url(back_url)
+    back_url
+  end
+  private :validate_back_url
+end
+
+# Inline protected followed by more protected: no offense
+class InlineProtectedOrder
+  def public_method
+    1
+  end
+  def scm_entries
+    2
+  end
+  protected :scm_entries
 end

@@ -60,6 +60,27 @@ use crate::parse::source::SourceFile;
 /// Fixed by using `keyword_arg_pair_start_offset` to locate the `foreign_key:` key
 /// and reporting at that position. Also updated the message to match RuboCop's
 /// "Specifying the default value for `foreign_key` is redundant."
+///
+/// ## Investigation findings (2026-03-23)
+///
+/// **FP root cause (3 FPs):** RuboCop's `parent_module_name` returns `nil` when
+/// ANY non-`class_eval` block is in the ancestor chain of the send node. This
+/// means `has_*` inside `with_options do...end`, classes defined inside RSpec
+/// blocks, or any other non-class_eval block causes RuboCop to skip the check.
+/// Nitrocop's `find_enclosing_class_name` traversed through blocks to find the
+/// class, producing false positives.
+/// Fix: replaced `find_enclosing_class_name` with `find_parent_module_name` which
+/// replicates RuboCop's block-respecting ancestor traversal.
+///
+/// **FN root cause (2 FNs):**
+/// 1. `belongs_to` with trailing `do...end` block: the blanket `call.block().is_some()`
+///    skip applied to all associations, but RuboCop only skips `has_*` with trailing
+///    blocks (for `belongs_to`, the FK is derived from the association name, not the
+///    class, so blocks don't interfere).
+///    Fix: moved the trailing block check to apply only to `has_*` associations.
+/// 2. `has_many` inside `ClassName.class_eval do...end`: RuboCop's `parent_module_name`
+///    resolves the class from the `class_eval` receiver when it's a constant.
+///    Fix: `find_parent_module_name` now handles `class_eval` on constant receivers.
 pub struct RedundantForeignKey;
 
 impl Cop for RedundantForeignKey {
@@ -89,11 +110,6 @@ impl Cop for RedundantForeignKey {
             None => return,
         };
         if call.receiver().is_some() {
-            return;
-        }
-
-        // RuboCop's node_matcher pattern doesn't match calls with trailing blocks
-        if call.block().is_some() {
             return;
         }
 
@@ -160,11 +176,24 @@ impl Cop for RedundantForeignKey {
         // Build expected default FK
         let expected = if is_belongs_to {
             // belongs_to: default FK is {assoc_name}_id
+            // belongs_to with trailing blocks is still flagged by RuboCop
+            // (the FK is derived from the assoc name, not the class name).
             let mut expected = assoc_name;
             expected.extend_from_slice(b"_id");
             expected
         } else {
             // has_many/has_one/has_and_belongs_to_many:
+            // In RuboCop's Parser AST, a trailing do...end block wraps the send
+            // node, making the block an ancestor. parent_module_name then returns
+            // nil for the block (since it's not class_eval), so RuboCop skips it.
+            // For the :as case, parent_module_name is never called, but the
+            // trailing block still prevents the node_matcher from matching in
+            // the Parser AST (the block node replaces the send node at that
+            // position). So we skip all has_* with trailing blocks.
+            if call.block().is_some() {
+                return;
+            }
+
             // If :as option is present, default FK is {as_value}_id
             // Otherwise, default FK is {snake_case(model_name)}_id
             if let Some(as_value) = keyword_arg_value(&call, b"as") {
@@ -179,14 +208,17 @@ impl Cop for RedundantForeignKey {
                 expected.extend_from_slice(b"_id");
                 expected
             } else {
-                // Derive from enclosing class name
-                let class_name = match crate::schema::find_enclosing_class_name(
+                // Derive from enclosing class/module name, respecting block boundaries.
+                // RuboCop's parent_module_name returns nil when any non-class_eval block
+                // is in the ancestor chain (e.g., with_options do...end, RSpec it blocks).
+                // For ClassName.class_eval do...end, it uses the constant receiver name.
+                let class_name = match crate::schema::find_parent_module_name(
                     source.as_bytes(),
                     call.location().start_offset(),
                     parse_result,
                 ) {
                     Some(n) => n,
-                    None => return, // Not inside a class, can't determine default FK
+                    None => return, // Not inside a class or blocked by a block
                 };
                 // Use the last segment for namespaced classes (Foo::Bar -> Bar)
                 let last_segment = class_name.rsplit("::").next().unwrap_or(&class_name);

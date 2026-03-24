@@ -46,6 +46,19 @@ use ruby_prism::Visit;
 /// implicit — only explicit `begin..end` triggers `in_begin_assignment`.
 /// Patterns: `var = items.find do |i| ... rescue ... end`, `CONST = lambda do
 /// ... rescue ... end`, `def foo ... rescue ... end` nested inside assignments.
+///
+/// ## Corpus investigation (2026-03-23)
+///
+/// Corpus oracle reported FP=0, FN=5.
+///
+/// FN=5: webmock (1), dependabot-core (1), puppet (3). All involve `return` inside
+/// standalone `begin..ensure..end` or `begin..rescue..end` blocks NOT in assignment
+/// contexts. The webmock/dependabot pattern is `begin; ...; return yield(self); ensure;
+/// ...; end` inside `if block_given?`. The puppet patterns are `begin; return
+/// from_args(...); rescue; ...; end` inside rescue clauses. RuboCop's cop only fires
+/// on assignment nodes (`on_lvasgn`, `on_ivasgn`, etc.) and should NOT flag these
+/// standalone begin blocks. These are likely corpus oracle artifacts (possibly from a
+/// broader RuboCop version or configuration). No code change needed.
 pub struct NoReturnInBeginEndBlocks;
 
 impl Cop for NoReturnInBeginEndBlocks {

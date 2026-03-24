@@ -41,3 +41,16 @@ Page.of_raw_data(site, '/', [
   { name: "categories" }
 ])
 ^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.
+# FN fix: Single-pair hash value in paren-relative — element + closing bracket at wrong indent
+FactoryBot.create(:limited_admin, :groups => [
+  FactoryBot.create(:google_admin_group),
+  ^^ Layout/FirstArrayElementIndentation: Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.
+])
+^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.
+# FN fix: Single-pair hash value in assert_equal — closing bracket at wrong indent
+assert_equal({ "c" => [
+  { "v" => 1421218800000, "f" => "Wed, Jan 14, 2015" },
+  ^^ Layout/FirstArrayElementIndentation: Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.
+  { "v" => 2, "f" => "2" },
+] }, data["hits_over_time"]["rows"][1])
+^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.

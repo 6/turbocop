@@ -23,6 +23,10 @@ impl Cop for StringChars {
         &[CALL_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -30,7 +34,7 @@ impl Cop for StringChars {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -82,12 +86,24 @@ impl Cop for StringChars {
         )
         .unwrap_or("split(...)");
 
-        diagnostics.push(self.diagnostic(
+        let mut diag = self.diagnostic(
             source,
             line,
             column,
             format!("Use `chars` instead of `{}`.", offense_src),
-        ));
+        );
+        // Autocorrect: replace `split(//)`, `split('')`, or `split("")` with `chars`
+        if let Some(ref mut corr) = corrections {
+            corr.push(crate::correction::Correction {
+                start: msg_loc.start_offset(),
+                end: node.location().end_offset(),
+                replacement: "chars".to_string(),
+                cop_name: self.name(),
+                cop_index: 0,
+            });
+            diag.corrected = true;
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -95,4 +111,5 @@ impl Cop for StringChars {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(StringChars, "cops/style/string_chars");
+    crate::cop_autocorrect_fixture_tests!(StringChars, "cops/style/string_chars");
 }

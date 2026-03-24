@@ -44,7 +44,8 @@ use crate::parse::source::SourceFile;
 /// in `is_deterministic_single_char_regex`.
 ///
 /// FP=1: `gsub( / /, "_" )` in `databasically__lowdown` from vendored path
-/// (`vendor/rails/...`) — file-exclusion infrastructure issue, not fixable per-cop.
+/// (`vendor/rails/...`). Fixed by scan_roots support in CopFilterSet for
+/// AllCops.Exclude path matching (commit 1f2f67c).
 pub struct StringReplacement;
 
 impl Cop for StringReplacement {

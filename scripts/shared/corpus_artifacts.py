@@ -4,7 +4,7 @@
 Tries multiple strategies in order:
 1. `gh` CLI (if installed and authenticated)
 2. GitHub REST API with GH_TOKEN / GH_TOKEN_FOR_ACTIONS_READ / GITHUB_TOKEN env var
-3. Parse checked-in docs/corpus.md (summary data only, no per-file detail)
+3. Parse checked-in docs/corpus*.md (summary data only, no per-file detail)
 4. Helpful error message with instructions
 
 All scripts that need corpus-results.json should use this module instead of
@@ -336,16 +336,31 @@ def _try_curl_api(repo: str | None, prefer: str = "extended") -> tuple[Path, int
     return None
 
 
-def _try_corpus_md() -> tuple[Path, int, str] | None:
-    """Parse docs/corpus.md to build a minimal corpus-results.json.
+def _corpus_md_candidates(project_root: Path, prefer: str) -> list[Path]:
+    """Return fallback corpus docs in preference order."""
+    docs = project_root / "docs"
+    standard = docs / "corpus.md"
+    extended = docs / "corpus_extended.md"
+    if prefer == "extended":
+        return [extended, standard]
+    return [standard, extended]
+
+
+def _try_corpus_md(prefer: str = "standard") -> tuple[Path, int, str] | None:
+    """Parse checked-in corpus markdown to build a minimal corpus-results.json.
 
     This is a last-resort fallback when no GitHub token is available.
     It provides summary and by_cop data (enough for gem_progress.py, triage.py)
     but NOT per-file detail (investigate-cop.py, check-cop.py need the full JSON).
+    Honors `prefer="extended"` by using docs/corpus_extended.md first.
     """
     project_root = _find_project_root()
-    corpus_md = project_root / "docs" / "corpus.md"
-    if not corpus_md.exists():
+    corpus_md = None
+    for candidate in _corpus_md_candidates(project_root, prefer):
+        if candidate.exists():
+            corpus_md = candidate
+            break
+    if corpus_md is None:
         return None
 
     text = corpus_md.read_text()
@@ -440,7 +455,7 @@ def _try_corpus_md() -> tuple[Path, int, str] | None:
             "total_fn": total_fn,
         },
         "by_cop": by_cop,
-        "_source": "docs/corpus.md (summary only, no per-file detail)",
+        "_source": f"{corpus_md.relative_to(project_root)} (summary only, no per-file detail)",
     }
 
     # Write to cache
@@ -457,7 +472,11 @@ def _try_corpus_md() -> tuple[Path, int, str] | None:
     if sha_result.returncode == 0 and sha_result.stdout.strip():
         head_sha = sha_result.stdout.strip()
 
-    print(f"Using docs/corpus.md as fallback (summary data only, dated {run_date})", file=sys.stderr)
+    print(
+        f"Using {corpus_md.relative_to(project_root)} as fallback "
+        f"(summary data only, dated {run_date})",
+        file=sys.stderr,
+    )
     return cache_path, 0, head_sha
 
 
@@ -500,7 +519,7 @@ def download_corpus_results(
     Tries strategies in order:
     1. gh CLI (if installed and authenticated)
     2. GitHub REST API with GH_TOKEN/GH_TOKEN_FOR_ACTIONS_READ/GITHUB_TOKEN env var
-    3. Parse checked-in docs/corpus.md (summary data only)
+    3. Parse checked-in docs/corpus*.md (summary data only)
     4. Exit with helpful error message
 
     The `prefer` parameter controls which artifact is preferred:
@@ -525,8 +544,8 @@ def download_corpus_results(
         _clean_stale_local(project_root)
         return result
 
-    # Try parsing checked-in docs/corpus.md
-    result = _try_corpus_md()
+    # Try parsing checked-in corpus markdown fallback.
+    result = _try_corpus_md(prefer=prefer)
     if result:
         _clean_stale_local(project_root)
         return result
@@ -540,5 +559,6 @@ def download_corpus_results(
     print("  3. Download manually and pass --input corpus-results.json", file=sys.stderr)
     if repo:
         print(f"  4. Visit https://github.com/{repo}/actions and download the", file=sys.stderr)
-        print("     corpus-report artifact from the latest corpus-oracle run", file=sys.stderr)
+        preferred = "corpus-report-extended" if prefer == "extended" else "corpus-report"
+        print(f"     {preferred} artifact from the latest corpus-oracle run", file=sys.stderr)
     sys.exit(1)

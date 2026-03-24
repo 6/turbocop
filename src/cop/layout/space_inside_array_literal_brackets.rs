@@ -105,21 +105,39 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
             }
         }
 
-        // Skip multiline arrays
+        let enforced = config.get_str("EnforcedStyle", "no_space");
+
+        // For multiline arrays, determine which bracket sides to skip.
+        // RuboCop uses start_ok/end_ok:
+        // - For no_space: start_ok if next token after [ is a comment
+        // - For space: start_ok if next non-whitespace after [ is on a different line
+        // - end_ok: if ] begins its own line (only whitespace before it)
         let (open_line, _) = source.offset_to_line_col(opening.start_offset());
         let (close_line, _) = source.offset_to_line_col(closing.start_offset());
-        if open_line != close_line {
-            return;
-        }
+        let is_multiline = open_line != close_line;
 
-        let enforced = config.get_str("EnforcedStyle", "no_space");
+        let start_ok = if is_multiline {
+            match enforced {
+                "no_space" => next_to_comment(bytes, open_end),
+                _ => next_to_newline(bytes, open_end),
+            }
+        } else {
+            false
+        };
+
+        let end_ok = if is_multiline {
+            // ] begins its line: only whitespace before it on the same line
+            begins_its_line_raw(bytes, close_start)
+        } else {
+            false
+        };
 
         let space_after_open = bytes.get(open_end) == Some(&b' ');
         let space_before_close = close_start > 0 && bytes.get(close_start - 1) == Some(&b' ');
 
         match enforced {
             "no_space" => {
-                if space_after_open {
+                if !start_ok && space_after_open {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
                     let mut diag = self.diagnostic(
                         source,
@@ -139,7 +157,7 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
                     }
                     diagnostics.push(diag);
                 }
-                if space_before_close {
+                if !end_ok && space_before_close {
                     let (line, column) = source.offset_to_line_col(closing.start_offset());
                     let mut diag = self.diagnostic(
                         source,
@@ -161,7 +179,7 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
                 }
             }
             "space" => {
-                if !space_after_open {
+                if !start_ok && !space_after_open {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
                     let mut diag = self.diagnostic(
                         source,
@@ -181,7 +199,7 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
                     }
                     diagnostics.push(diag);
                 }
-                if !space_before_close {
+                if !end_ok && !space_before_close {
                     let (line, column) = source.offset_to_line_col(closing.start_offset());
                     let mut diag = self.diagnostic(
                         source,
@@ -203,6 +221,56 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Check if the next non-whitespace character after `pos` is on a different line.
+/// Used for `space` style to skip the opening bracket check when elements
+/// start on the next line.
+fn next_to_newline(bytes: &[u8], pos: usize) -> bool {
+    let mut i = pos;
+    while i < bytes.len() {
+        match bytes[i] {
+            b' ' | b'\t' => i += 1,
+            b'\n' | b'\r' => return true,
+            _ => return false,
+        }
+    }
+    true // end of file
+}
+
+/// Check if the next non-whitespace character after `pos` is a `#` comment.
+/// Used for `no_space` style to allow `[ # comment\n  ...]`.
+fn next_to_comment(bytes: &[u8], pos: usize) -> bool {
+    let mut i = pos;
+    while i < bytes.len() {
+        match bytes[i] {
+            b' ' | b'\t' => i += 1,
+            b'#' => return true,
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// Check if the position is the first non-whitespace on its line (raw byte scan).
+/// Equivalent to `util::begins_its_line` but works on raw bytes without SourceFile.
+fn begins_its_line_raw(bytes: &[u8], pos: usize) -> bool {
+    if pos == 0 {
+        return true;
+    }
+    let mut i = pos - 1;
+    loop {
+        match bytes[i] {
+            b' ' | b'\t' => {
+                if i == 0 {
+                    return true;
+                }
+                i -= 1;
+            }
+            b'\n' => return true,
+            _ => return false,
         }
     }
 }

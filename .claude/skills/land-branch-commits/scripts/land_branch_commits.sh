@@ -93,11 +93,10 @@ for branch in "${resolved[@]}"; do
   info "processing origin/$branch"
 
   # Get patch-new commits (oldest first)
-  mapfile -t cherry_lines < <(git cherry -v main "origin/$branch")
-
   new_shas=()
   skipped=()
-  for line in "${cherry_lines[@]}"; do
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
     marker="${line:0:1}"
     sha="${line:2:40}"
     subject="${line:43}"
@@ -108,7 +107,7 @@ for branch in "${resolved[@]}"; do
       info "  skip (already on main): ${sha:0:8} $subject"
       total_skipped=$((total_skipped + 1))
     fi
-  done
+  done < <(git cherry -v main "origin/$branch")
 
   if [[ ${#new_shas[@]} -eq 0 ]]; then
     info "  no patch-new commits"

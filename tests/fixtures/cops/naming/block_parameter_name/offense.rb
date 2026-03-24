@@ -14,3 +14,9 @@ foo { |FOO:| bar }
        ^^^ Naming/BlockParameterName: Block parameter must not contain capital letters.
 foo { |bar:, BAZ: nil| bar }
              ^^^ Naming/BlockParameterName: Block parameter must not contain capital letters.
+# Lambda parameters should also be checked
+->(locationID) { locationID }
+   ^^^^^^^^^^ Naming/BlockParameterName: Block parameter must not contain capital letters.
+-> (Foo, Bar) { [Foo, Bar] }
+    ^^^ Naming/BlockParameterName: Block parameter must not contain capital letters.
+         ^^^ Naming/BlockParameterName: Block parameter must not contain capital letters.

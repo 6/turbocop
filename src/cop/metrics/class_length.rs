@@ -43,6 +43,16 @@ use crate::parse::source::SourceFile;
 /// lines 400+ were covered. Fix applied in `src/parse/directives.rs`: when a
 /// new block disable is opened for a cop that already has one open, the
 /// previous range is closed first before opening the new one.
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus (5592 repos) reported FP=6, FN=1. Standard corpus is 0/0.
+///
+/// FP=6: 4/6 from Tubalr (2) and stackneveroverflow (2) — same cross-cutting
+/// vendored gem file issue. 1 from auth0, 1 from noosfero — config/exclusion.
+///
+/// FN=1 from brixen/poetics (bin/poetics) — extensionless file not discovered
+/// by nitrocop. File discovery issue, not cop logic.
 pub struct ClassLength;
 
 struct LengthSettings<'a> {

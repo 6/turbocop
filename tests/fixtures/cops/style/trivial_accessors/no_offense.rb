@@ -65,3 +65,30 @@ end
 def top_level_reader
   @top_level_reader
 end
+
+# Methods inside instance_eval blocks are skipped
+something.instance_eval do
+  def bar
+    @bar
+  end
+
+  def baz=(val)
+    @baz = val
+  end
+end
+
+# Methods inside instance_eval with begin block are skipped
+something.instance_eval do
+  begin
+    def qux
+      @qux
+    end
+  end
+end
+
+# Reader with keyword rest params is not trivial
+class ParamClass
+  def errors(**_args)
+    @errors
+  end
+end

@@ -13,3 +13,10 @@ foo(
 build(
 )
 check ( value)
+foo( \
+  bar,
+  baz
+)
+expect(result).to eq( \
+                    wrap("hello")
+)

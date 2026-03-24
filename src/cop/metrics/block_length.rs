@@ -186,6 +186,16 @@ use crate::parse::source::SourceFile;
 /// Fix: in `DescendantMaxLineFinder.track_node_end`, skip BlockNode at
 /// depth == exclude_depth when single_child_body is true. This prevents
 /// counting the inner block's `end` keyword, matching Parser semantics.
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus (5592 repos) reported FP=4, FN=1. Standard corpus is 0/0.
+///
+/// FP=4: all from Tubalr (2) and stackneveroverflow (2) — vendored gem files
+/// that RuboCop cannot parse but Prism handles. Cross-cutting file-level issue.
+///
+/// FN=1 from rkh/Reak (bin/reak:48) — extensionless file not discovered by
+/// nitrocop. File discovery issue, not cop logic.
 pub struct BlockLength;
 
 impl Cop for BlockLength {

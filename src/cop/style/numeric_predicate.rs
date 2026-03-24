@@ -126,6 +126,10 @@ impl Cop for NumericPredicate {
         &[CALL_NODE, GLOBAL_VARIABLE_READ_NODE, INTEGER_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -133,7 +137,7 @@ impl Cop for NumericPredicate {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "predicate");
         let _allowed_methods = config.get_string_array("AllowedMethods");
@@ -178,12 +182,23 @@ impl Cop for NumericPredicate {
                         let loc = node.location();
                         let current = std::str::from_utf8(loc.as_slice()).unwrap_or("");
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        diagnostics.push(self.diagnostic(
+                        let mut diag = self.diagnostic(
                             source,
                             line,
                             column,
                             format!("Use `{}` instead of `{}`.", replacement, current),
-                        ));
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            corr.push(crate::correction::Correction {
+                                start: loc.start_offset(),
+                                end: loc.end_offset(),
+                                replacement: replacement.clone(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
                     }
 
                     // 0 == x, 0 > x, 0 < x (inverted)
@@ -198,12 +213,23 @@ impl Cop for NumericPredicate {
                         let loc = node.location();
                         let current = std::str::from_utf8(loc.as_slice()).unwrap_or("");
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        diagnostics.push(self.diagnostic(
+                        let mut diag = self.diagnostic(
                             source,
                             line,
                             column,
                             format!("Use `{}` instead of `{}`.", replacement, current),
-                        ));
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            corr.push(crate::correction::Correction {
+                                start: loc.start_offset(),
+                                end: loc.end_offset(),
+                                replacement: replacement.clone(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
                     }
                 }
             }
@@ -226,12 +252,23 @@ impl Cop for NumericPredicate {
                 let loc = node.location();
                 let current = std::str::from_utf8(loc.as_slice()).unwrap_or("");
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Use `{}` instead of `{}`.", replacement, current),
-                ));
+                );
+                if let Some(ref mut corr) = corrections {
+                    corr.push(crate::correction::Correction {
+                        start: loc.start_offset(),
+                        end: loc.end_offset(),
+                        replacement: replacement.clone(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+                diagnostics.push(diag);
             }
         }
     }
@@ -241,4 +278,5 @@ impl Cop for NumericPredicate {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(NumericPredicate, "cops/style/numeric_predicate");
+    crate::cop_autocorrect_fixture_tests!(NumericPredicate, "cops/style/numeric_predicate");
 }

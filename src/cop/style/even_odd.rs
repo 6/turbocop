@@ -14,6 +14,10 @@ impl Cop for EvenOdd {
         &[CALL_NODE, INTEGER_NODE, PARENTHESES_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for EvenOdd {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
@@ -111,12 +115,28 @@ impl Cop for EvenOdd {
         };
 
         let (line, column) = source.offset_to_line_col(call_node.location().start_offset());
-        diagnostics.push(self.diagnostic(
+        let mut diag = self.diagnostic(
             source,
             line,
             column,
             format!("Replace with `Integer#{}?`.", replacement),
-        ));
+        );
+        // Autocorrect: replace `x % 2 == 0` with `x.even?` etc.
+        if let Some(ref mut corr) = corrections {
+            // The modulo receiver is the value being checked (e.g., `x` in `x % 2 == 0`)
+            let modulo_receiver = modulo_call.receiver().unwrap();
+            let receiver_src =
+                std::str::from_utf8(modulo_receiver.location().as_slice()).unwrap_or("x");
+            corr.push(crate::correction::Correction {
+                start: call_node.location().start_offset(),
+                end: call_node.location().end_offset(),
+                replacement: format!("{}.{}?", receiver_src, replacement),
+                cop_name: self.name(),
+                cop_index: 0,
+            });
+            diag.corrected = true;
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -124,4 +144,5 @@ impl Cop for EvenOdd {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(EvenOdd, "cops/style/even_odd");
+    crate::cop_autocorrect_fixture_tests!(EvenOdd, "cops/style/even_odd");
 }

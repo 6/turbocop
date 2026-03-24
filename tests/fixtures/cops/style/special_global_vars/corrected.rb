@@ -1,0 +1,11 @@
+puts $PROGRAM_NAME
+
+puts $ERROR_INFO
+
+puts $PROCESS_ID
+
+puts $CHILD_STATUS
+
+puts $LAST_MATCH_INFO
+
+puts $LAST_READ_LINE

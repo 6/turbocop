@@ -4,6 +4,31 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/TrailingCommaInArrayLiteral — checks trailing commas in array literals.
+///
+/// ## Heredoc handling
+/// When arrays contain heredoc elements, Prism's `location().end_offset()` for
+/// the last element points to the end of the heredoc opening tag (e.g., after
+/// `<<~STR.chomp`), NOT the closing terminator. The heredoc body and terminator
+/// sit between `last_end` and `closing_start` (`]`).
+///
+/// **Root cause of FPs:** Previous approach scanned from start of `]`'s line,
+/// which could pick up commas inside heredoc content or terminators.
+///
+/// **Root cause of FNs:** Previous approach for multiline heredoc arrays scanned
+/// from start of `]`'s line, missing the trailing comma on the heredoc opening
+/// line (e.g., `<<~STR.chomp,`).
+///
+/// **Fix:** When heredocs are present, scan from `last_end` but stop at the
+/// first newline (matching RuboCop's `/\A[^\S\n]*,/` regex). This finds commas
+/// on the heredoc opening line without entering heredoc content.
+///
+/// ## Nested heredoc FPs (2026-03)
+/// When the last element of an outer array is a sub-array containing a heredoc
+/// (e.g., `["foo.rb", <<-EOS]`), the heredoc body sits between the sub-array's
+/// `end_offset()` and the outer `]`. The `any_heredoc` check must recurse into
+/// sub-arrays to detect these nested heredocs, otherwise heredoc content gets
+/// scanned for commas producing false positives. Seen in zeitwerk, rufo, thredded.
 pub struct TrailingCommaInArrayLiteral;
 
 impl Cop for TrailingCommaInArrayLiteral {
@@ -52,37 +77,22 @@ impl Cop for TrailingCommaInArrayLiteral {
         let bytes = source.as_bytes();
 
         // For heredoc elements, Prism's location.end_offset() is at the
-        // heredoc opening tag (e.g., `<<-RB`), not the closing tag. In
-        // multiline arrays, the heredoc body sits between last_end and
-        // closing_start, so scanning that range could find commas inside
-        // heredoc content. For multiline arrays with heredocs, scan only
-        // from the start of the closing bracket's line.
+        // heredoc opening tag (e.g., `<<-RB`), not the closing tag. The
+        // heredoc body and terminator sit between last_end and closing_start.
         //
-        // For single-line arrays like `['-W0', '-e', <<-RB]`, the heredoc
-        // body extends below the line and doesn't appear between the last
-        // element and `]`. Using last_end is safe and correct; the
-        // start-of-line scan would incorrectly pick up inter-element commas.
-        let effective_last_end = if any_heredoc(&elements) {
-            let open_line = array_node
-                .opening_loc()
-                .map(|l| source.offset_to_line_col(l.start_offset()).0)
-                .unwrap_or(0);
-            let close_line = source.offset_to_line_col(closing_start).0;
-            if open_line == close_line {
-                // Single-line brackets: heredoc bodies are below, safe to use last_end
-                last_end
-            } else {
-                // Multiline brackets: scan from start of `]`'s line
-                let mut pos = closing_start;
-                while pos > 0 && bytes[pos - 1] != b'\n' {
-                    pos -= 1;
-                }
-                pos
-            }
+        // RuboCop handles this by using a regex that disallows newlines when
+        // heredocs are present: /\A[^\S\n]*,/ — only whitespace (no newlines)
+        // before a comma. This ensures we find trailing commas on the heredoc
+        // opening line (e.g., `<<~STR.chomp,`) but never match commas inside
+        // heredoc content on subsequent lines.
+        let has_heredoc = any_heredoc(&elements);
+        let has_comma = if has_heredoc {
+            has_trailing_comma_no_newline(bytes, last_end, closing_start)
         } else {
-            last_end
+            has_trailing_comma(bytes, last_end, closing_start)
         };
-        let has_comma = has_trailing_comma(bytes, effective_last_end, closing_start);
+        // For finding the comma offset in diagnostics, use the same logic
+        let effective_last_end = last_end;
 
         let style = config.get_str("EnforcedStyleForMultiline", "no_comma");
 
@@ -104,13 +114,18 @@ impl Cop for TrailingCommaInArrayLiteral {
         };
 
         // Helper: find the absolute offset of the trailing comma for diagnostics.
-        // Uses effective_last_end to avoid scanning through heredoc content.
+        // When heredocs are present, only search on the same line (no newline crossing).
         let find_comma_offset = || -> Option<usize> {
             let search_range = &bytes[effective_last_end..closing_start];
-            search_range
-                .iter()
-                .position(|&b| b == b',')
-                .map(|off| effective_last_end + off)
+            for (i, &b) in search_range.iter().enumerate() {
+                if has_heredoc && b == b'\n' {
+                    return None; // Stop at newline for heredoc elements
+                }
+                if b == b',' {
+                    return Some(effective_last_end + i);
+                }
+            }
+            None
         };
 
         match style {
@@ -199,6 +214,35 @@ impl Cop for TrailingCommaInArrayLiteral {
     }
 }
 
+/// Like `has_trailing_comma` but stops at the first newline. Used when
+/// heredocs are present: only match commas on the same line as the last
+/// element's end offset (the heredoc opening tag line), never inside
+/// heredoc content on subsequent lines. Matches RuboCop's `/\A[^\S\n]*,/`
+/// regex used in `comma_offset` when `any_heredoc?` is true.
+fn has_trailing_comma_no_newline(
+    source_bytes: &[u8],
+    last_element_end: usize,
+    closing_start: usize,
+) -> bool {
+    if last_element_end >= closing_start || closing_start > source_bytes.len() {
+        return false;
+    }
+    let region = &source_bytes[last_element_end..closing_start];
+    for &b in region {
+        if b == b'\n' {
+            return false; // Stop at newline — don't enter heredoc content
+        }
+        if b == b',' {
+            return true;
+        }
+        // Skip horizontal whitespace only
+        if b != b' ' && b != b'\t' {
+            return false; // Non-whitespace, non-comma, non-newline — no trailing comma
+        }
+    }
+    false
+}
+
 /// Returns true if any element in the list is or contains a heredoc.
 fn any_heredoc(elements: &[ruby_prism::Node<'_>]) -> bool {
     elements.iter().any(|e| is_heredoc_element(e))
@@ -224,6 +268,14 @@ fn is_heredoc_element(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
         if let Some(recv) = call.receiver() {
             return is_heredoc_element(&recv);
+        }
+    }
+    // Check sub-arrays that may contain heredoc elements (e.g., ["foo.rb", <<-EOS])
+    if let Some(arr) = node.as_array_node() {
+        for child in arr.elements().iter() {
+            if is_heredoc_element(&child) {
+                return true;
+            }
         }
     }
     false

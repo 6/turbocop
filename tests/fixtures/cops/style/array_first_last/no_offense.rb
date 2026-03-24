@@ -22,3 +22,10 @@ positions[id_pair[0]] = id_pair[1]
 opts[-1][:host] = context.host_name
 data[items[0]] = value
 config[settings[-1]]
+
+# [0]/[-1] used as argument to index-write nodes (||=, &&=, +=)
+result[cf[0]] ||= {}
+parsed_response[parsed_key[0]] ||= {}
+count[ext[0]] += fields.to_i
+h[arr[0]] ||= []
+h[arr[-1]] &&= false

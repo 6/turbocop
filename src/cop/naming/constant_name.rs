@@ -66,6 +66,15 @@ use crate::parse::source::SourceFile;
 /// `LambdaNode` was incorrectly removed thinking RuboCop didn't allow them.
 /// Fixed by re-adding `value.as_lambda_node().is_some()` to
 /// `is_valid_rhs_for_assignment()`.
+///
+/// ## Corpus investigation (2026-03-23) — extended corpus
+///
+/// Extended corpus reported FP=7 (all vendor-path repos), FN=2.
+/// FN=2: `Positive = ->{ (_1 in Range) and ... }` — lambda with numbered
+/// parameters. In Parser AST, `->{ _1 }` creates `:numblock` (not `:block`),
+/// which is NOT in RuboCop's `allowed_assignment?` list. In Prism, all lambdas
+/// are `LambdaNode` regardless. Fix: check if lambda parameters are
+/// `NumberedParametersNode` or `ItParametersNode` and only allow regular lambdas.
 pub struct ConstantName;
 
 impl Cop for ConstantName {
@@ -237,9 +246,17 @@ fn is_valid_rhs_for_assignment(value: &ruby_prism::Node<'_>) -> bool {
     // Lambda literal: `-> {}`, `-> do ... end`
     // In Parser AST, lambda literals are `:block` nodes wrapping `:lambda`, so
     // RuboCop's `%i[block const casgn].include?(value.type)` allows them.
-    // In Prism, they are `LambdaNode` — must check separately.
-    if value.as_lambda_node().is_some() {
-        return true;
+    // However, lambdas with numbered params (`_1`) are `:numblock` in Parser,
+    // and with `it` are `:itblock` — these are NOT in RuboCop's allowed list.
+    // In Prism, all lambdas are `LambdaNode` regardless, so we must check the
+    // parameters type to distinguish.
+    if let Some(lambda) = value.as_lambda_node() {
+        let uses_numblock = lambda.parameters().is_some_and(|p| {
+            p.as_numbered_parameters_node().is_some() || p.as_it_parameters_node().is_some()
+        });
+        if !uses_numblock {
+            return true;
+        }
     }
 
     // Constant reference: `Server = BaseServer` or `Stream = Foo::Bar`

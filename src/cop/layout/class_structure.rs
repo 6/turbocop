@@ -26,6 +26,23 @@ use crate::parse::source::SourceFile;
 ///
 /// **Remaining gaps:** None known for default config. Custom `Categories` /
 /// `ExpectedOrder` configs may reveal edge cases in the category lookup.
+///
+/// ## Investigation findings (2026-03-23)
+///
+/// **Root cause of 312 FNs:** `private :method_name` and `protected :method_name`
+/// (inline visibility declarations with symbol args) were not affecting the
+/// classification of the corresponding `def` node. In RuboCop,
+/// `VisibilityHelp#node_visibility_from_visibility_inline_on_method_name` looks
+/// at right siblings of a `def` node for matching `private/protected :name`
+/// declarations, making the def classified as `private_methods` or
+/// `protected_methods`. Added `find_inline_visibility()` to replicate this.
+///
+/// **Root cause of 1 FP:** Send nodes with a receiver (e.g. `singleton_class.prepend`)
+/// were not being classified. RuboCop classifies ALL send nodes by `method_name`
+/// regardless of receiver. Removed the `receiver().is_none()` gate from the
+/// category-lookup path in `classify_statement`, so e.g. `singleton_class.prepend`
+/// is classified as `module_inclusion` (matching RuboCop). This prevents the
+/// ordering tracker from missing intermediate classifications.
 pub struct ClassStructure;
 
 /// Default expected order (matches vendor/rubocop/config/default.yml).
@@ -146,6 +163,8 @@ impl Cop for ClassStructure {
                 current_visibility,
                 &method_to_category,
                 &expected_order,
+                &all_stmts,
+                idx,
             );
 
             // Determine whether to ignore this node (matching RuboCop's ignore? method)
@@ -216,13 +235,18 @@ fn classify_statement(
     current_visibility: &str,
     method_to_category: &HashMap<String, String>,
     expected_order: &[String],
+    all_stmts: &[ruby_prism::Node<'_>],
+    idx: usize,
 ) -> Option<String> {
-    // Send nodes (method calls): look up in categories
+    // Send nodes (method calls): look up in categories.
+    // RuboCop classifies ALL send nodes by method_name (even with a receiver),
+    // so we handle both receiver and no-receiver cases.
     if let Some(call) = stmt.as_call_node() {
-        if call.receiver().is_none() {
-            let name_bytes = call.name().as_slice();
-            let name = std::str::from_utf8(name_bytes).unwrap_or("");
+        let name_bytes = call.name().as_slice();
+        let name = std::str::from_utf8(name_bytes).unwrap_or("");
 
+        // Handle def modifiers and visibility declarations (receiver-less only)
+        if call.receiver().is_none() {
             // Handle def modifiers: `private def foo` / `public def bar`
             // Only classify as {vis}_methods when the argument is an actual def node.
             // `private :foo` (symbol arg) is a visibility declaration, NOT a def modifier —
@@ -237,20 +261,20 @@ fn classify_statement(
                     // classify as plain method name (will be skipped if not in expected_order)
                 }
             }
-
-            // Check if this method name is in any category
-            let category = method_to_category.get(name);
-            let key = category.map_or(name, |c| c.as_str());
-
-            // Build visibility-prefixed key (e.g., "public_module_inclusion")
-            let vis_key = format!("{current_visibility}_{key}");
-            // If the visibility-prefixed form is in expected_order, use it;
-            // otherwise use the plain key (matching RuboCop's find_send_node_category)
-            if expected_order.iter().any(|e| e == &vis_key) {
-                return Some(vis_key);
-            }
-            return Some(key.to_string());
         }
+
+        // Check if this method name is in any category
+        let category = method_to_category.get(name);
+        let key = category.map_or(name, |c| c.as_str());
+
+        // Build visibility-prefixed key (e.g., "public_module_inclusion")
+        let vis_key = format!("{current_visibility}_{key}");
+        // If the visibility-prefixed form is in expected_order, use it;
+        // otherwise use the plain key (matching RuboCop's find_send_node_category)
+        if expected_order.iter().any(|e| e == &vis_key) {
+            return Some(vis_key);
+        }
+        return Some(key.to_string());
     }
 
     // Constants
@@ -271,9 +295,50 @@ fn classify_statement(
         if def.name().as_slice() == b"initialize" {
             return Some("initializer".to_string());
         }
-        return Some(format!("{current_visibility}_methods"));
+        // Check for inline visibility declarations among right siblings:
+        // `private :method_name` or `protected :method_name` that match this def's name.
+        // This mirrors RuboCop's VisibilityHelp#node_visibility_from_visibility_inline_on_method_name.
+        let def_name = def.name().as_slice();
+        let inline_vis = find_inline_visibility(def_name, all_stmts, idx);
+        let vis = inline_vis.unwrap_or(current_visibility);
+        return Some(format!("{vis}_methods"));
     }
 
+    None
+}
+
+/// Check right siblings for an inline visibility declaration matching the given method name.
+/// e.g., `private :foo` or `protected :bar` after `def foo` / `def bar`.
+/// Returns the visibility string ("private" or "protected") if found, None otherwise.
+fn find_inline_visibility<'a>(
+    def_name: &[u8],
+    all_stmts: &[ruby_prism::Node<'a>],
+    idx: usize,
+) -> Option<&'static str> {
+    // Search right siblings (nodes after this def in the class body)
+    for sibling in &all_stmts[idx + 1..] {
+        if let Some(call) = sibling.as_call_node() {
+            if call.receiver().is_none() {
+                let call_name = call.name().as_slice();
+                let vis = match call_name {
+                    b"private" => "private",
+                    b"protected" => "protected",
+                    b"public" => "public",
+                    _ => continue,
+                };
+                // Check if any argument is a symbol matching the def name
+                if let Some(args) = call.arguments() {
+                    for arg in args.arguments().iter() {
+                        if let Some(sym) = arg.as_symbol_node() {
+                            if sym.unescaped() == def_name {
+                                return Some(vis);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     None
 }
 

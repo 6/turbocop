@@ -16,6 +16,15 @@ use crate::parse::source::SourceFile;
 /// heredoc was tracked — the second heredoc's body lines were flagged as too long.
 /// Fixed by converting to `Vec<Vec<u8>>` (stack of terminators) so all heredocs
 /// opened on one line are tracked and their bodies correctly skipped.
+///
+/// ## Corpus investigation (2026-03-23)
+///
+/// FP=86 traced to URI detection picking the wrong match when a URL contains
+/// embedded URLs in query parameters (e.g. `&url=http://...`). The old code
+/// picked only the last (rightmost) scheme match, whose start was past `max`,
+/// so the line was flagged. RuboCop's `URI::DEFAULT_PARSER.make_regexp` matches
+/// the entire first URL including query params. Fixed by checking ALL URI matches
+/// and accepting the line if any satisfies `allowed_position?`.
 pub struct LineLength;
 
 impl Cop for LineLength {
@@ -332,57 +341,65 @@ fn normalize_ruby_regex(pattern: &str) -> String {
     s
 }
 
-/// Check if the last URI match in the line, after extension, reaches the end of the line
+/// Check if ANY URI match in the line, after extension, reaches the end of the line
 /// AND starts before `max`. This matches RuboCop's `allowed_position?` + `extend_end_position`.
+///
+/// RuboCop uses `URI::DEFAULT_PARSER.make_regexp(schemes)` which matches the full URI
+/// including query parameters. A URL like `http://example.com/?url=http://other.com/path`
+/// is matched as ONE URI starting at the first `http://`. We approximate this by trying
+/// ALL scheme matches and accepting the line if any satisfies the allowed_position? check.
 fn uri_extends_to_end(line: &str, schemes: &[String], max: usize) -> bool {
-    // Find all URI starts (last match wins, matching RuboCop behavior)
-    let mut last_start = None;
+    // Collect all URI start positions
+    let mut all_starts: Vec<usize> = Vec::new();
     for scheme in schemes {
         let prefix = format!("{scheme}://");
         let mut search_from = 0;
         while let Some(pos) = line[search_from..].find(&prefix) {
             let abs_pos = search_from + pos;
-            last_start = match last_start {
-                Some(prev) if prev > abs_pos => Some(prev),
-                _ => Some(abs_pos),
-            };
+            all_starts.push(abs_pos);
             search_from = abs_pos + prefix.len();
         }
     }
 
-    let start = match last_start {
-        Some(s) => s,
-        None => return false,
-    };
+    if all_starts.is_empty() {
+        return false;
+    }
 
-    // Find end of URI (first whitespace after URI start)
-    let uri_end = start
-        + line[start..]
-            .find(|c: char| c.is_whitespace())
-            .unwrap_or(line.len() - start);
+    // Check each URI start — if ANY satisfies allowed_position?, allow the line
+    for start in all_starts {
+        // Find end of URI (first whitespace after URI start)
+        let uri_end = start
+            + line[start..]
+                .find(|c: char| c.is_whitespace())
+                .unwrap_or(line.len() - start);
 
-    // Extend end position (matching RuboCop's extend_end_position):
-    // 1. YARD brace extension: if line contains `{` and ends with `}`,
-    //    extend from end_pos through the closing `}`.
-    // 2. Extend to the end of the next non-whitespace run.
-    let mut end_pos = uri_end;
+        // Extend end position (matching RuboCop's extend_end_position):
+        // 1. YARD brace extension: if line contains `{` and ends with `}`,
+        //    extend from end_pos through the closing `}`.
+        // 2. Extend to the end of the next non-whitespace run.
+        let mut end_pos = uri_end;
 
-    // Step 1: YARD brace extension — RuboCop checks /{(\s|\S)*}$/
-    // which matches any line that has a `{` somewhere and ends with `}`.
-    if line.contains('{') && line.ends_with('}') {
-        if let Some(brace_pos) = line[end_pos..].rfind('}') {
-            end_pos += brace_pos + 1; // include the closing `}`
+        // Step 1: YARD brace extension — RuboCop checks /{(\s|\S)*}$/
+        // which matches any line that has a `{` somewhere and ends with `}`.
+        if line.contains('{') && line.ends_with('}') {
+            if let Some(brace_pos) = line[end_pos..].rfind('}') {
+                end_pos += brace_pos + 1; // include the closing `}`
+            }
+        }
+
+        // Step 2: Extend to next word boundary — /^\S+(?=\s|$)/
+        let rest = &line[end_pos..];
+        let non_ws_len = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
+        end_pos += non_ws_len;
+
+        // Check allowed_position?: start_chars < max AND end_pos reaches end of line
+        let start_chars = line[..start].chars().count();
+        if start_chars < max && end_pos >= line.len() {
+            return true;
         }
     }
 
-    // Step 2: Extend to next word boundary — /^\S+(?=\s|$)/
-    let rest = &line[end_pos..];
-    let non_ws_len = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
-    end_pos += non_ws_len;
-
-    // Check allowed_position?: start_chars < max AND end_pos reaches end of line
-    let start_chars = line[..start].chars().count();
-    start_chars < max && end_pos >= line.len()
+    false
 }
 
 #[cfg(test)]

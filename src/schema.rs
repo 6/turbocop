@@ -599,6 +599,119 @@ impl<'a> Visit<'a> for ClassFinder<'a> {
     }
 }
 
+/// Find the parent module name for a `has_*` association, replicating RuboCop's
+/// `parent_module_name` behavior.
+///
+/// Unlike `find_enclosing_class_name`, this returns `None` if there is any
+/// non-`class_eval` block node in the ancestor chain between the target and
+/// the root. For `ClassName.class_eval do...end` blocks, it returns the
+/// constant receiver name. This matches RuboCop's behavior where
+/// `parent_module_name` returns `nil` when any regular block ancestor is found.
+pub fn find_parent_module_name(
+    source: &[u8],
+    node_offset: usize,
+    parse_result: &ruby_prism::ParseResult<'_>,
+) -> Option<String> {
+    let mut finder = ParentModuleFinder {
+        source,
+        target_offset: node_offset,
+        result: None,
+        found: false,
+    };
+    finder.visit(&parse_result.node());
+    if finder.found { finder.result } else { None }
+}
+
+struct ParentModuleFinder<'a> {
+    source: &'a [u8],
+    target_offset: usize,
+    /// The resolved class name (None means "blocked by a non-class_eval block").
+    result: Option<String>,
+    /// Whether we found the target at all.
+    found: bool,
+}
+
+impl<'a> ParentModuleFinder<'a> {
+    fn contains(&self, node: &ruby_prism::Node<'_>) -> bool {
+        let loc = node.location();
+        self.target_offset >= loc.start_offset() && self.target_offset < loc.end_offset()
+    }
+}
+
+impl<'a> Visit<'a> for ParentModuleFinder<'a> {
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'a>) {
+        let node_ref = node.as_node();
+        if self.contains(&node_ref) {
+            let name_node = node.constant_path();
+            if let Some(n) = extract_constant_name(self.source, &name_node) {
+                self.result = Some(n);
+            }
+            ruby_prism::visit_class_node(self, node);
+        }
+    }
+
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'a>) {
+        let node_ref = node.as_node();
+        if self.contains(&node_ref) {
+            ruby_prism::visit_module_node(self, node);
+        }
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'a>) {
+        let node_ref = node.as_node();
+        if !self.contains(&node_ref) {
+            return;
+        }
+
+        // Check if this is the target call (at the exact offset)
+        if node.location().start_offset() == self.target_offset {
+            self.found = true;
+            return;
+        }
+
+        // Check if this call has a block containing the target
+        if let Some(block) = node.block() {
+            let block_loc = block.location();
+            if self.target_offset >= block_loc.start_offset()
+                && self.target_offset < block_loc.end_offset()
+            {
+                // This is a block ancestor. Check if it's class_eval on a constant.
+                let method_name = node.name();
+                if method_name.as_slice() == b"class_eval" {
+                    if let Some(recv) = node.receiver() {
+                        if let Some(name) = extract_constant_name(self.source, &recv) {
+                            // class_eval on a constant — use the constant name
+                            self.result = Some(name);
+                            // Continue visiting inside the block
+                            ruby_prism::visit_call_node(self, node);
+                            return;
+                        }
+                    }
+                }
+                // Non-class_eval block — RuboCop returns nil
+                self.result = None;
+                // Still need to recurse to find the target, but mark as blocked
+                let saved = self.result.take();
+                ruby_prism::visit_call_node(self, node);
+                // Force result to None since we're blocked by a non-class_eval block
+                let _ = saved;
+                self.result = None;
+                return;
+            }
+        }
+
+        ruby_prism::visit_call_node(self, node);
+    }
+
+    // Handle standalone block nodes (e.g., `begin...end` blocks, though rare)
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'a>) {
+        let node_ref = node.as_node();
+        if self.contains(&node_ref) {
+            ruby_prism::visit_block_node(self, node);
+        }
+    }
+}
+
 /// Extract the full name from a constant node (ConstantReadNode or ConstantPathNode).
 /// For `Web::Setting`, returns `"Web::Setting"` (not just `"Setting"`).
 fn extract_constant_name(source: &[u8], node: &ruby_prism::Node<'_>) -> Option<String> {

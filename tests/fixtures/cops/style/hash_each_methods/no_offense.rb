@@ -15,3 +15,20 @@ Resque::Failure.each(0, Resque::Failure.count, queue) do |_, item|
   puts item
 end
 collection.each(limit) { |_key, val| process(val) }
+# keys.each / values.each with &block (non-symbol block_pass) should not trigger
+packages.values.each(&blk)
+@scopes.values.each(&block)
+@namespaces.values.each(&block)
+@cog_registry.cogs.keys.each(&method(:bind_cog))
+# hash mutation: keys.each { |k| hash[k] = ... } should not trigger
+hash.keys.each { |k| hash[k] = transform(hash[k]) }
+params.keys.each { |key| params[key] = params[key].to_s }
+rsp.keys.each { |k| rsp[k] = rsp[k].first }
+settings.keys.each do |key|
+  next unless value = settings[key]
+  settings[key] = value.split
+end
+# _-prefixed param that IS actually used in the body should not trigger
+data.each do |method_name, _apipie_dsl_data|
+  description = define(method_name, _apipie_dsl_data)
+end

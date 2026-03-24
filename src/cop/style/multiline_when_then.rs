@@ -26,6 +26,10 @@ impl Cop for MultilineWhenThen {
         &[WHEN_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -33,7 +37,7 @@ impl Cop for MultilineWhenThen {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let when_node = match node.as_when_node() {
             Some(w) => w,
@@ -92,12 +96,54 @@ impl Cop for MultilineWhenThen {
         }
 
         let (line, column) = source.offset_to_line_col(then_loc.start_offset());
-        diagnostics.push(self.diagnostic(
+        let mut diag = self.diagnostic(
             source,
             line,
             column,
             "Do not use `then` for multiline `when` statement.".to_string(),
-        ));
+        );
+        // Autocorrect: remove `then` keyword.
+        // If at end of line (`when bar then\n`), remove ` then`.
+        // If at start of line (`  then do_something\n`), remove `then `.
+        if let Some(ref mut corr) = corrections {
+            let src = source.as_bytes();
+            let then_end = then_loc.end_offset();
+            let then_start = then_loc.start_offset();
+            // Check if there's a space before `then`
+            let remove_start = if then_start > 0 && src[then_start - 1] == b' ' {
+                then_start - 1
+            } else {
+                then_start
+            };
+            // Check if there's a space after `then`
+            let remove_end = if then_end < src.len() && src[then_end] == b' ' {
+                then_end + 1
+            } else {
+                then_end
+            };
+            // Prefer removing preceding space if at end of line
+            let at_eol = then_end >= src.len() || src[then_end] == b'\n' || src[then_end] == b'\r';
+            if at_eol {
+                corr.push(crate::correction::Correction {
+                    start: remove_start,
+                    end: then_end,
+                    replacement: String::new(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+            } else {
+                // `then` followed by content — remove `then ` (keep indentation before)
+                corr.push(crate::correction::Correction {
+                    start: then_start,
+                    end: remove_end,
+                    replacement: String::new(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+            }
+            diag.corrected = true;
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -105,4 +151,5 @@ impl Cop for MultilineWhenThen {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(MultilineWhenThen, "cops/style/multiline_when_then");
+    crate::cop_autocorrect_fixture_tests!(MultilineWhenThen, "cops/style/multiline_when_then");
 }

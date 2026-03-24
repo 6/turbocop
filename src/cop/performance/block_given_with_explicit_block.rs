@@ -17,6 +17,12 @@ use crate::parse::source::SourceFile;
 /// - 2 additional FN: `block_given?` used as parameter default value in the method signature
 ///   (e.g., `def open(timing: block_given?, &block)`). Fixed by scanning OptionalKeywordParameterNode
 ///   and OptionalParameterNode default values in addition to the body.
+///
+/// ## Extended corpus investigation (2026-03-23)
+///
+/// Extended corpus reported FP=6, FN=0. All 6 FPs from vendored gem files
+/// with out-of-tree scan paths. Fixed by scan_roots support in CopFilterSet
+/// for AllCops.Exclude path matching (commit 1f2f67c).
 pub struct BlockGivenWithExplicitBlock;
 
 impl Cop for BlockGivenWithExplicitBlock {

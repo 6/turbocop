@@ -25,6 +25,10 @@ impl Cop for DirEmpty {
         &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -32,7 +36,7 @@ impl Cop for DirEmpty {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -53,12 +57,33 @@ impl Cop for DirEmpty {
                             if is_dir_const(&recv_recv) {
                                 let loc = node.location();
                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                diagnostics.push(self.diagnostic(
+                                let mut diag = self.diagnostic(
                                     source,
                                     line,
                                     column,
                                     "Use `Dir.empty?('path/to/dir')` instead.".to_string(),
-                                ));
+                                );
+                                if let Some(ref mut corr) = corrections {
+                                    // Extract inner call's arguments source
+                                    let args_src = if let Some(args) = recv_call.arguments() {
+                                        std::str::from_utf8(args.location().as_slice())
+                                            .unwrap_or("")
+                                    } else {
+                                        ""
+                                    };
+                                    let dir_src =
+                                        std::str::from_utf8(recv_recv.location().as_slice())
+                                            .unwrap_or("Dir");
+                                    corr.push(crate::correction::Correction {
+                                        start: loc.start_offset(),
+                                        end: loc.end_offset(),
+                                        replacement: format!("{}.empty?({})", dir_src, args_src),
+                                        cop_name: self.name(),
+                                        cop_index: 0,
+                                    });
+                                    diag.corrected = true;
+                                }
+                                diagnostics.push(diag);
                             }
                         }
                     }
@@ -84,15 +109,39 @@ impl Cop for DirEmpty {
                                             let loc = node.location();
                                             let (line, column) =
                                                 source.offset_to_line_col(loc.start_offset());
-                                            diagnostics.push(
-                                                self.diagnostic(
-                                                    source,
-                                                    line,
-                                                    column,
-                                                    "Use `Dir.empty?('path/to/dir')` instead."
-                                                        .to_string(),
-                                                ),
+                                            let mut diag = self.diagnostic(
+                                                source,
+                                                line,
+                                                column,
+                                                "Use `Dir.empty?('path/to/dir')` instead."
+                                                    .to_string(),
                                             );
+                                            if let Some(ref mut corr) = corrections {
+                                                let args_src = if let Some(args) =
+                                                    inner_call.arguments()
+                                                {
+                                                    std::str::from_utf8(args.location().as_slice())
+                                                        .unwrap_or("")
+                                                } else {
+                                                    ""
+                                                };
+                                                let dir_src = std::str::from_utf8(
+                                                    dir_recv.location().as_slice(),
+                                                )
+                                                .unwrap_or("Dir");
+                                                corr.push(crate::correction::Correction {
+                                                    start: loc.start_offset(),
+                                                    end: loc.end_offset(),
+                                                    replacement: format!(
+                                                        "{}.empty?({})",
+                                                        dir_src, args_src
+                                                    ),
+                                                    cop_name: self.name(),
+                                                    cop_index: 0,
+                                                });
+                                                diag.corrected = true;
+                                            }
+                                            diagnostics.push(diag);
                                         }
                                     }
                                 }
@@ -109,4 +158,5 @@ impl Cop for DirEmpty {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(DirEmpty, "cops/style/dir_empty");
+    crate::cop_autocorrect_fixture_tests!(DirEmpty, "cops/style/dir_empty");
 }
