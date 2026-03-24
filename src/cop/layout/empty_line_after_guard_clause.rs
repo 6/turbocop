@@ -208,6 +208,30 @@ use crate::parse::source::SourceFile;
 ///    not whether there's an else). The suppression only applies when the `if` node
 ///    has no right_sibling (embedded in assignment like `ret = if...else...end`).
 ///    Fix: only skip when the `if` keyword has code before it on the same line.
+///
+/// ## Corpus investigation (2026-03-24: FP=0, FN=13)
+///
+/// Two root causes identified for FN:
+///
+/// 1. **`unless...else...end` with guard in unless body**: The cop blanket-skipped
+///    all `UnlessNode` with `else_clause().is_some()`. But in RuboCop's parser AST,
+///    `unless cond; A; else; B; end` is stored as `(if cond B A)`, and `if_branch`
+///    returns the unless body `A`, not the else body `B`. So `unless cond; raise; else; code; end`
+///    has `raise` as the guard clause and should be checked. Fix: handle unless/else
+///    like if/else — check if the unless keyword is preceded by code on its line
+///    (embedded expression like `ret = unless...else...end`), and only skip in
+///    that case. Otherwise, proceed to check the unless body for guard clauses.
+///
+/// 2. **Multiline guard with code after it on end line**: The embedded-expression
+///    check compared end position to detect code sharing a line with the guard
+///    (e.g., `arr.each { return x if cond }`). But for multiline guards spanning
+///    lines N to M (like `raise "x" if cond.find { |x| x.valid? }; next_stmt`),
+///    the code after the guard on line M is a SEPARATE statement — not an embedded
+///    expression. RuboCop's `multiple_statements_on_line?` uses `same_line?` which
+///    compares START lines, so a guard starting on line N with next stmt on line M
+///    (N != M) is not considered "same line". Fix: only skip embedded expressions
+///    when `if_start_line == if_end_line` (single-line guard). For multiline guards
+///    with code on the end line, directly flag the offense.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -308,9 +332,26 @@ impl Cop for EmptyLineAfterGuardClause {
                 None => return,
             }
         } else if let Some(unless_node) = node.as_unless_node() {
-            // Skip unless/else forms
+            // Handle unless/else forms similarly to if/else:
+            // RuboCop checks `if_branch.guard_clause?` — for `unless` nodes in
+            // the parser gem, `if_branch` is the unless body (the `statements`),
+            // not the else body. So `unless cond; raise; else; code; end` has
+            // `raise` as the guard and should be checked for blank line.
+            //
+            // For embedded `unless...else...end` (like `ret = unless...else...end`),
+            // skip the offense (same as if/else embedded handling).
             if unless_node.else_clause().is_some() {
-                return;
+                {
+                    let kw = unless_node.keyword_loc();
+                    let kw_line = source.offset_to_line_col(kw.start_offset()).0;
+                    let line_start_offset = source.line_col_to_offset(kw_line, 0).unwrap_or(0);
+                    let kw_byte_offset = kw.start_offset();
+                    let prefix = &source.as_bytes()[line_start_offset..kw_byte_offset];
+                    let has_code_before = prefix.iter().any(|&b| b != b' ' && b != b'\t');
+                    if has_code_before {
+                        return;
+                    }
+                }
             }
             match unless_node.statements() {
                 Some(s) => (
@@ -416,6 +457,17 @@ impl Cop for EmptyLineAfterGuardClause {
         // non-comment code after the if node on the same line, skip.
         // Only check this for non-heredoc guards (heredoc guards span multiple lines).
         // Use byte offsets directly to avoid UTF-8 character/byte mismatch.
+        //
+        // RuboCop's `multiple_statements_on_line?` uses `same_line?(node, node.right_sibling)`
+        // which compares START lines. So for a multiline guard spanning lines 5-7 with
+        // a semicolon and next statement on line 7, RuboCop does NOT skip (start lines
+        // differ). Only skip when the guard is entirely on one line (start == end).
+        //
+        // For multiline guards (start != end), if there's code after the guard on the
+        // end line, that code IS the next statement and there's no blank line between
+        // them — this is an offense (not an embedded expression).
+        let if_start_line = source.offset_to_line_col(loc.start_offset()).0;
+        let mut has_code_after_multiline_guard = false;
         if heredoc_end_line.is_none() {
             if let Some(cur_line) = lines.get(if_end_line.saturating_sub(1)) {
                 // Compute the byte position within the line where the if node ends.
@@ -431,11 +483,46 @@ impl Cop for EmptyLineAfterGuardClause {
                         .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
                     {
                         if rest[idx] != b'#' {
-                            return;
+                            if if_start_line == if_end_line {
+                                // Single-line guard with code after it on same line:
+                                // embedded expression (e.g. `arr.each { return x if cond }`)
+                                return;
+                            }
+                            // Multiline guard with code after it on end line:
+                            // next statement shares a line with guard's end → offense
+                            has_code_after_multiline_guard = true;
                         }
                     }
                 }
             }
+        }
+
+        // If a multiline guard has code after it on the end line (e.g., semicolon-
+        // separated next statement), skip the normal next-line analysis and go
+        // straight to the offense — there's no blank line between the guard and
+        // the next statement.
+        if has_code_after_multiline_guard {
+            let (line, col) = source.offset_to_line_col(offense_offset);
+            let mut diag = self.diagnostic(
+                source,
+                line,
+                col,
+                "Add empty line after guard clause.".to_string(),
+            );
+            if let Some(ref mut corr) = corrections {
+                if let Some(offset) = source.line_col_to_offset(effective_end_line + 1, 0) {
+                    corr.push(crate::correction::Correction {
+                        start: offset,
+                        end: offset,
+                        replacement: "\n".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+            }
+            diagnostics.push(diag);
+            return;
         }
 
         // Check if next line exists
@@ -1951,6 +2038,86 @@ mod tests {
             diags.len(),
             1,
             "Expected 1 offense for CRLF `return unless` before local assignment, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_unless_else_with_guard_in_body() {
+        // FN: `unless cond; raise; else; code; end` followed by code
+        // RuboCop checks `if_branch.guard_clause?` — for `unless`, the if_branch
+        // is the unless body (not the else body). So `unless cond; raise; else; ...; end`
+        // has `raise` as the guard clause and should require a blank line.
+        let source = b"def foo\n  unless cond\n    raise \"error\"\n  else\n    do_thing\n  end\n  next_code\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for unless/else with guard in body, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_unless_else_guard_in_else_body() {
+        // No offense: `unless cond; do_thing; else; raise; end`
+        // RuboCop's if_branch for unless is the unless body (do_thing), not the else body.
+        // do_thing is NOT a guard clause → no offense.
+        let source = b"def foo\n  unless cond\n    do_thing\n  else\n    raise \"error\"\n  end\n  next_code\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            0,
+            "Expected 0 offenses for unless/else with guard in else body, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_guard_in_rescue_body() {
+        // FN: guard clause inside rescue body followed by code
+        let source = b"def foo\nrescue => e\n  return if ignored?(e)\n  handle(e)\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for guard in rescue body, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_guard_in_case_when_body() {
+        // FN: guard clause inside case/when body followed by code
+        let source =
+            b"def foo\n  case x\n  when :a\n    return if skip?\n    process\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for guard in case/when body, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_multiline_guard_semicolon_on_end_line() {
+        // FN: guard clause spans multiple lines (block in condition), with a
+        // semicolon and next statement on the guard's end line. RuboCop uses
+        // `same_line?` which checks start lines, so it does NOT treat this as
+        // multiple_statements_on_line. Nitrocop's embedded expression check
+        // should only skip when code is after the guard on the SAME start line.
+        let source = b"def foo\n  raise \"bad\" if !u = items.find { |x|\n    x.valid?\n  }; do_something\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for multiline guard with semicolon on end line, got {}: {:?}",
             diags.len(),
             diags
         );

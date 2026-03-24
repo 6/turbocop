@@ -335,3 +335,24 @@ def times(number)
       " times(N) can be declared only after response declaration."
   end
 end
+
+# FN fix: unless/else with guard in unless body (the unless body is the
+# if_branch in RuboCop's AST, so raise is the guard clause)
+def unless_else_guard
+  unless cond
+    raise "error"
+  else
+    do_thing
+  end
+
+  next_code
+end
+
+# FN fix: multiline guard (block in condition) with semicolon-separated
+# next statement on the guard's end line
+def multiline_guard_semicolon
+  raise "bad" if !u = items.find { |x|
+    x.valid?
+  }; do_something
+
+end

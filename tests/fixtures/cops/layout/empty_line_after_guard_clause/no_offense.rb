@@ -753,3 +753,34 @@ def get(key, raise_error: false, raw: false)
     ret && build_response(ret)
   end
 end
+
+# unless/else where the else body is a guard — NOT flagged because
+# RuboCop's if_branch for unless is the unless body, not the else body
+def unless_else_guard_in_else
+  unless cond
+    do_thing
+  else
+    raise "error"
+  end
+  next_code
+end
+
+# unless/else with guard in body, followed by blank line — no offense
+def unless_else_guard_blank
+  unless cond
+    raise "error"
+  else
+    do_thing
+  end
+
+  next_code
+end
+
+# unless/else at end of method — no offense (last stmt)
+def unless_else_guard_at_end
+  unless cond
+    raise "error"
+  else
+    do_thing
+  end
+end
