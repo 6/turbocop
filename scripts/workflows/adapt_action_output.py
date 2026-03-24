@@ -65,11 +65,56 @@ def adapt(execution_file: Path, output_file: Path) -> None:
     output_file.write_text(json.dumps(adapted, indent=2))
 
 
+def print_summary(execution_file: Path) -> None:
+    """Print a human-readable conversation summary to stderr."""
+    raw = execution_file.read_text()
+    if not raw.strip():
+        return
+    data = json.loads(raw)
+    if not isinstance(data, list):
+        return
+
+    print("=== Agent Conversation Summary ===", file=sys.stderr)
+    turn = 0
+    for msg in data:
+        if not isinstance(msg, dict):
+            continue
+        msg_type = msg.get("type", "")
+
+        if msg_type == "assistant":
+            turn += 1
+            content = msg.get("message", {}).get("content", [])
+            tool_names = []
+            text_snippet = ""
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_use":
+                    tool_names.append(block.get("name", "?"))
+                elif block.get("type") == "text" and not text_snippet:
+                    text = block.get("text", "")
+                    text_snippet = text[:120].replace("\n", " ")
+            parts = [f"[Turn {turn}]"]
+            if tool_names:
+                parts.append(f"tools: {', '.join(tool_names)}")
+            if text_snippet:
+                parts.append(text_snippet)
+            print("  ".join(parts), file=sys.stderr)
+
+        elif msg_type == "result":
+            cost = msg.get("total_cost_usd", "?")
+            turns = msg.get("num_turns", "?")
+            duration_s = (msg.get("duration_ms") or 0) / 1000
+            print(f"=== Done: {turns} turns, ${cost}, {duration_s:.0f}s ===", file=sys.stderr)
+
+
 def main() -> None:
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} <execution_file> <output_file>", file=sys.stderr)
         sys.exit(1)
-    adapt(Path(sys.argv[1]), Path(sys.argv[2]))
+    exec_path = Path(sys.argv[1])
+    adapt(exec_path, Path(sys.argv[2]))
+    print_summary(exec_path)
 
 
 if __name__ == "__main__":

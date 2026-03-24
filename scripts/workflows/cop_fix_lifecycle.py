@@ -492,7 +492,7 @@ def cmd_claim_pr(args: list[str]) -> int:
     tree_sha = _gh_api_json(f"repos/{opts.repo}/git/commits/{parent_sha}")["tree"]["sha"]
     commit = _gh_api_json(
         f"repos/{opts.repo}/git/commits",
-        "-f", f"message=[bot] Fix {opts.cop}: in progress [skip ci]",
+        "-f", f"message=[bot] Fix {opts.cop}: in progress",
         "-f", f"tree={tree_sha}",
         "-f", f"parents[]={parent_sha}",
     )

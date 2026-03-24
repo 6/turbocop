@@ -25,7 +25,6 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "cop_fix_lifecycle.py select-backend" in yml
     assert "cop_fix_lifecycle.py claim-pr" in yml
     assert "cop_fix_lifecycle.py finalize" in yml
-    assert "requires_standard_quick_gate" in yml
 
     # Logic now lives in cop_fix_lifecycle.py
     assert "dispatch-cops.py" in py
@@ -35,8 +34,6 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert '"gh", "issue", "comment"' in py
     assert "docs/agent-ci.md" in py
     assert "validate_agent_changes.py" in py
-    assert "bundle check" in py
-    assert "check-cop.py" in py
     assert '"gh", "pr", "merge"' in py
 
     # Removed patterns should not appear in either

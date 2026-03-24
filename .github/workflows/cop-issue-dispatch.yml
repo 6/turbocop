@@ -21,6 +21,7 @@ on:
           - auto
           - codex
           - claude
+          - claude-oauth
           - minimax
         default: auto
       strength_override:

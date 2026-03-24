@@ -2319,7 +2319,7 @@ def main():
     dispatch_issues.add_argument("--dry-run", action="store_true")
     dispatch_issues.add_argument(
         "--backend-family-override",
-        choices=["auto", "codex", "claude", "minimax"],
+        choices=["auto", "codex", "claude", "claude-oauth", "minimax"],
         default="auto",
     )
     dispatch_issues.add_argument(

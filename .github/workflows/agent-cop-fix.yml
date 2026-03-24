@@ -308,6 +308,14 @@ jobs:
 
           kill $WATCHER_PID 2>/dev/null || true
 
+      - name: Start progress watcher (action)
+        if: steps.task.outputs.code_bugs != '0' && steps.backend.outputs.action == 'true'
+        run: |
+          python3 scripts/workflows/agent_logs.py watch \
+            --newer-than "$FINAL_TASK_FILE" --interval 30 \
+            --backend claude &
+          echo $! > /tmp/action_watcher_pid
+
       - name: Run agent (action)
         if: steps.task.outputs.code_bugs != '0' && steps.backend.outputs.action == 'true'
         id: action_agent
@@ -317,7 +325,6 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: ${{ steps.prepare.outputs.prompt_content }}
           claude_args: "--dangerously-skip-permissions --model claude-opus-4-6 --effort ${{ steps.backend.outputs.reasoning_effort }}"
-          show_full_output: true
           github_token: ${{ steps.actions-read-token.outputs.token }}
         env:
           ANTHROPIC_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_MODEL }}
@@ -328,6 +335,7 @@ jobs:
       - name: Adapt action output
         if: steps.task.outputs.code_bugs != '0' && steps.backend.outputs.action == 'true'
         run: |
+          kill "$(cat /tmp/action_watcher_pid 2>/dev/null)" 2>/dev/null || true
           EXEC_FILE="${{ steps.action_agent.outputs.execution_file }}"
           if [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
             python3 scripts/workflows/adapt_action_output.py \
