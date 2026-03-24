@@ -33,6 +33,18 @@ use crate::parse::source::SourceFile;
 /// argument for anonymous patterns (`?`). Fixed by classifying negation
 /// patterns into Anonymous/Named/IsNotNull and validating that the required
 /// value argument exists.
+///
+/// ## Corpus investigation (2026-03-24)
+///
+/// Extended corpus reported FP=2, FN=0.
+///
+/// FP=1: `where(["state not in (?) ", ...])` — trailing space in SQL template.
+/// `negation_type()` called `sql.trim()` before matching, but RuboCop uses
+/// `\A...\z` anchored regex without trimming. Removed `trim()` call.
+///
+/// FP=2: `where("repositories.private <> ?", true, user.repository_ids)` — 3
+/// call arguments. RuboCop's pattern `(call _ :where $str_type? $_ ?)` matches
+/// at most 2 args. Added early return when bare string form has >2 args.
 pub struct WhereNot;
 
 /// Type of negation pattern found in SQL.
@@ -48,17 +60,17 @@ enum NegationType {
 /// Check if the SQL template string matches a simple negation pattern
 /// that can be replaced with `where.not(...)`.
 fn negation_type(sql: &str) -> Option<NegationType> {
-    let trimmed = sql.trim();
-
-    if is_not_eq_anonymous(trimmed) || is_not_in_anonymous(trimmed) {
+    // Do NOT trim whitespace: RuboCop uses `\A...\z` anchored regex without
+    // trimming, so trailing/leading spaces cause a non-match.
+    if is_not_eq_anonymous(sql) || is_not_in_anonymous(sql) {
         return Some(NegationType::Anonymous);
     }
 
-    if is_not_eq_named(trimmed) || is_not_in_named(trimmed) {
+    if is_not_eq_named(sql) || is_not_in_named(sql) {
         return Some(NegationType::Named);
     }
 
-    if is_not_null(trimmed) {
+    if is_not_null(sql) {
         return Some(NegationType::IsNotNull);
     }
 
@@ -363,9 +375,14 @@ impl Cop for WhereNot {
         let first_arg = &arg_list[0];
         let (sql_content, has_value_arg, has_hash_arg) =
             if let Some(str_node) = first_arg.as_string_node() {
-                // Form 1: bare string — value args are remaining call arguments
-                let has_val = arg_list.len() > 1;
-                let has_hash = arg_list.len() > 1
+                // Form 1: bare string — value args are remaining call arguments.
+                // RuboCop's pattern `(call _ :where $str_type? $_ ?)` matches at most
+                // 2 call args (template + optional value). Reject 3+ args.
+                if arg_list.len() > 2 {
+                    return;
+                }
+                let has_val = arg_list.len() == 2;
+                let has_hash = arg_list.len() == 2
                     && (arg_list[1].as_hash_node().is_some()
                         || arg_list[1].as_keyword_hash_node().is_some());
                 (

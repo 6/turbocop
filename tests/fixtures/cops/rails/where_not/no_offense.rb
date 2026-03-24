@@ -14,3 +14,7 @@ User.where(["name IS NULL"])
 # Named parameter form without hash argument should not be flagged
 builder.where("id NOT IN (:selected_tag_ids)")
 where("name != :name")
+# Bare string with 3+ arguments should not be flagged (RuboCop pattern matches at most 2)
+User.where("repositories.private <> ?", true, [1, 2, 3])
+# Trailing whitespace in SQL template should not be flagged (RuboCop uses anchored regex, no trim)
+User.where("state not in (?) ", ["canceled", "invalided"])
