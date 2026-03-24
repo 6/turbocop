@@ -90,9 +90,15 @@ Tried in commit 12f56f2a, reverted in 8c345a5b. Changing the oracle to `cd "$DES
 
 Clone repos to a temp directory outside the git tree (e.g., `/tmp/corpus/<id>/`) and run from a neutral parent. This matches the oracle's cwd-outside-repo behavior.
 
-**This is now the recommended approach** since Option A failed catastrophically.
+**Implemented** in commit a82349f8. Each per-repo run symlinks the corpus repo into
+a temp directory outside the project tree and runs from there, matching the oracle's
+`repos/<id>/` path context.
 
-The oracle's invocation style is load-bearing for RuboCop's config resolution. Instead of changing the oracle, make check-cop.py match it.
+**Local testing (macOS)**: Per-repo counts match the oracle exactly (e.g., autolab=16,
+puppet=29, dpl=35). But the aggregate total is 574 vs oracle's 540 — a 34-offense gap
+that may be a macOS vs Linux difference in how the `ignore` crate resolves symlinks
+or `.gitignore`. **CI (Linux) is the real test** — merge main into PR #151 and see if
+cop-check passes.
 
 ### Option C: Allow a per-cop threshold in CI cop-check
 

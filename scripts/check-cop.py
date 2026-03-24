@@ -719,8 +719,43 @@ def main():
                     print(f"  ... and {len(repos_with_offenses) - 30} more")
                 print()
 
+            # Debug: dump per-repo counts for comparison with oracle
+            debug_path = PROJECT_ROOT / "check-cop-debug.json"
+            debug_data = {
+                "cop": args.cop,
+                "per_repo": {k: v for k, v in sorted(per_repo.items())},
+                "total": sum(c for c in per_repo.values() if c >= 0),
+                "repos_run": len(per_repo),
+                "errors": [k for k, v in per_repo.items() if v < 0],
+            }
+            debug_path.write_text(json.dumps(debug_data, indent=2))
+            print(f"Debug: per-repo counts written to {debug_path}",
+                  file=sys.stderr)
+
     excess = max(0, nitrocop_total - expected_rubocop)
     missing = max(0, expected_rubocop - nitrocop_total)
+
+    # Debug: if there's a discrepancy and we have per-repo data, show details
+    if (excess > 0 or missing > 0) and args.verbose and 'per_repo' in dir():
+        print("Per-repo discrepancy analysis:", file=sys.stderr)
+        print(f"  check-cop total: {nitrocop_total}, oracle expected: {expected_rubocop}, "
+              f"diff: {nitrocop_total - expected_rubocop:+d}", file=sys.stderr)
+        activity_repos = set(data.get("cop_activity_repos", {}).get(args.cop, []))
+        local_active = {k for k, v in per_repo.items() if v > 0 and k != "__ci_baseline_matching_repos__"}
+        only_local = sorted(local_active - activity_repos)
+        only_oracle = sorted(activity_repos - local_active)
+        if only_local:
+            extra_from_local = sum(per_repo.get(k, 0) for k in only_local)
+            print(f"  Repos with offenses locally but NOT in oracle activity ({len(only_local)}, "
+                  f"{extra_from_local} offenses):", file=sys.stderr)
+            for r in only_local[:10]:
+                print(f"    {per_repo[r]:>4}  {r}", file=sys.stderr)
+        if only_oracle:
+            print(f"  Repos in oracle activity but 0 locally ({len(only_oracle)}):",
+                  file=sys.stderr)
+            for r in only_oracle[:10]:
+                print(f"    {r}", file=sys.stderr)
+        print(file=sys.stderr)
 
     # CI nitrocop baseline: the offense count CI's nitrocop produced on
     # RuboCop-inspected files. Our local count should be close to this.
