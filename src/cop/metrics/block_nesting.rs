@@ -2,7 +2,6 @@ use ruby_prism::Visit;
 
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
-use crate::parse::directives::DisabledRanges;
 use crate::parse::source::SourceFile;
 
 /// ## Corpus investigation (2026-03-04)
@@ -20,21 +19,6 @@ use crate::parse::source::SourceFile;
 /// Local corpus rerun delta vs unchanged baseline binary was repo-local and
 /// isolated to the target file (`3 -> 2` offenses in ransack), with no other
 /// repo-level count changes.
-///
-/// ## Corpus investigation (2026-03-23)
-///
-/// Extended corpus reported FP=16, FN=1.
-///
-/// FN=1 was from `GoogleCloudPlatform/inspec-gcp-cis-benchmark` —
-/// `controls/1.01-iam.rb:79`.  An inline `# rubocop:disable Metrics/BlockNesting`
-/// on a parent `if` node caused nitrocop to skip the entire subtree, missing a
-/// deeper offense.  In RuboCop, `ignore_node` is only called when the offense
-/// is actually emitted (not suppressed by directive), so descendants of a
-/// directive-suppressed node are still checked.
-///
-/// Fixed by collecting ALL offenses (never skipping subtrees), then applying
-/// an ignore-subtree dedup pass that respects inline disable directives: only
-/// unsuppressed parent offenses shadow their descendants.
 pub struct BlockNesting;
 
 impl Cop for BlockNesting {
@@ -61,46 +45,10 @@ impl Cop for BlockNesting {
             count_blocks,
             count_modifier_forms,
             depth: 0,
-            offenses: Vec::new(),
+            diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-
-        // Replicate RuboCop's ignore_node / part_of_ignored_node? semantics:
-        //
-        // In RuboCop, `ignore_node(node)` is called inside the `add_offense` block,
-        // which only executes when the offense is NOT suppressed by an inline
-        // directive.  If a parent offense is suppressed (e.g. by an inline
-        // `# rubocop:disable Metrics/BlockNesting`), `ignore_node` is never called
-        // for it, so child offenses at deeper nesting levels are still reported.
-        //
-        // To replicate this, we collect ALL offenses (the visitor never skips
-        // subtrees), then filter: keep an offense unless a "parent" offense
-        // (one whose byte range contains it) exists AND is NOT suppressed by
-        // a disable directive.
-        let disabled = DisabledRanges::from_comments(source, parse_result);
-        let cop_name = self.name();
-
-        // Build the set of "active ignored" byte ranges: offenses that are NOT
-        // directive-suppressed.  These shadow their descendants.
-        let ignored_ranges: Vec<(usize, usize)> = visitor
-            .offenses
-            .iter()
-            .filter(|o| !disabled.is_disabled(cop_name, o.diag.location.line))
-            .map(|o| (o.node_start, o.node_end))
-            .collect();
-
-        for offense in visitor.offenses {
-            // Skip this offense if it is inside an "active ignored" parent range,
-            // unless it IS that parent itself.
-            let dominated = ignored_ranges.iter().any(|&(ps, pe)| {
-                // Parent range strictly contains this offense's node range.
-                ps < offense.node_start && offense.node_end <= pe
-            });
-            if dominated {
-                continue;
-            }
-            diagnostics.push(offense.diag);
-        }
+        diagnostics.extend(visitor.diagnostics);
     }
 
     fn diagnostic(
@@ -121,45 +69,32 @@ impl Cop for BlockNesting {
     }
 }
 
-/// An offense with its AST node byte range for ignore-subtree dedup.
-struct NestingOffense {
-    diag: Diagnostic,
-    /// Start byte offset of the AST node that triggered this offense.
-    node_start: usize,
-    /// End byte offset of the AST node that triggered this offense.
-    node_end: usize,
-}
-
 struct NestingVisitor<'a> {
     source: &'a SourceFile,
     max: usize,
     count_blocks: bool,
     count_modifier_forms: bool,
     depth: usize,
-    offenses: Vec<NestingOffense>,
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl NestingVisitor<'_> {
-    /// Check nesting depth and record offense if exceeded.
-    /// Always returns without skipping the subtree — the caller must continue
-    /// recursing so that deeper offenses are discovered (they are deduped later
-    /// in `check_source`).
-    fn check_nesting(&mut self, loc: &ruby_prism::Location<'_>) {
+    /// Check nesting depth and fire offense if exceeded.
+    /// Returns true if an offense was fired (caller should skip subtree).
+    fn check_nesting(&mut self, loc: &ruby_prism::Location<'_>) -> bool {
         if self.depth > self.max {
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-            self.offenses.push(NestingOffense {
-                diag: Diagnostic {
-                    path: self.source.path_str().to_string(),
-                    location: crate::diagnostic::Location { line, column },
-                    severity: crate::diagnostic::Severity::Convention,
-                    cop_name: "Metrics/BlockNesting".to_string(),
-                    message: format!("Avoid more than {} levels of block nesting.", self.max),
-                    corrected: false,
-                },
-                node_start: loc.start_offset(),
-                node_end: loc.end_offset(),
+            self.diagnostics.push(Diagnostic {
+                path: self.source.path_str().to_string(),
+                location: crate::diagnostic::Location { line, column },
+                severity: crate::diagnostic::Severity::Convention,
+                cop_name: "Metrics/BlockNesting".to_string(),
+                message: format!("Avoid more than {} levels of block nesting.", self.max),
+                corrected: false,
             });
+            return true;
         }
+        false
     }
 }
 
@@ -188,7 +123,12 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
 
         if should_count {
             self.depth += 1;
-            self.check_nesting(&node.location());
+            let exceeded = self.check_nesting(&node.location());
+            if exceeded {
+                // Ignore-subtree: do not recurse into children
+                self.depth -= 1;
+                return;
+            }
         }
         ruby_prism::visit_if_node(self, node);
         if should_count {
@@ -204,7 +144,11 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
             return;
         }
         self.depth += 1;
-        self.check_nesting(&node.location());
+        let exceeded = self.check_nesting(&node.location());
+        if exceeded {
+            self.depth -= 1;
+            return;
+        }
         ruby_prism::visit_unless_node(self, node);
         self.depth -= 1;
     }
@@ -213,7 +157,11 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
         // RuboCop always counts while/until as nesting, including modifier forms.
         // CountModifierForms only affects if/unless, not while/until.
         self.depth += 1;
-        self.check_nesting(&node.location());
+        let exceeded = self.check_nesting(&node.location());
+        if exceeded {
+            self.depth -= 1;
+            return;
+        }
         ruby_prism::visit_while_node(self, node);
         self.depth -= 1;
     }
@@ -222,28 +170,44 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
         // RuboCop always counts while/until as nesting, including modifier forms.
         // CountModifierForms only affects if/unless, not while/until.
         self.depth += 1;
-        self.check_nesting(&node.location());
+        let exceeded = self.check_nesting(&node.location());
+        if exceeded {
+            self.depth -= 1;
+            return;
+        }
         ruby_prism::visit_until_node(self, node);
         self.depth -= 1;
     }
 
     fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
         self.depth += 1;
-        self.check_nesting(&node.location());
+        let exceeded = self.check_nesting(&node.location());
+        if exceeded {
+            self.depth -= 1;
+            return;
+        }
         ruby_prism::visit_case_node(self, node);
         self.depth -= 1;
     }
 
     fn visit_case_match_node(&mut self, node: &ruby_prism::CaseMatchNode<'pr>) {
         self.depth += 1;
-        self.check_nesting(&node.location());
+        let exceeded = self.check_nesting(&node.location());
+        if exceeded {
+            self.depth -= 1;
+            return;
+        }
         ruby_prism::visit_case_match_node(self, node);
         self.depth -= 1;
     }
 
     fn visit_for_node(&mut self, node: &ruby_prism::ForNode<'pr>) {
         self.depth += 1;
-        self.check_nesting(&node.location());
+        let exceeded = self.check_nesting(&node.location());
+        if exceeded {
+            self.depth -= 1;
+            return;
+        }
         ruby_prism::visit_for_node(self, node);
         self.depth -= 1;
     }
@@ -257,10 +221,12 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
         // Manually walk the node: visit statements at incremented depth,
         // then visit subsequent at the ORIGINAL depth.
         self.depth += 1;
-        self.check_nesting(&node.location());
-        // Visit the rescue body (statements) at incremented depth
-        if let Some(stmts) = node.statements() {
-            self.visit_statements_node(&stmts);
+        let exceeded = self.check_nesting(&node.location());
+        if !exceeded {
+            // Visit the rescue body (statements) at incremented depth
+            if let Some(stmts) = node.statements() {
+                self.visit_statements_node(&stmts);
+            }
         }
         self.depth -= 1;
 
@@ -285,15 +251,21 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
         if is_ternary_expression {
             self.visit(&expression);
             self.depth += 1;
-            self.check_nesting(&node.keyword_loc());
-            self.visit(&rescue_expression);
+            let exceeded = self.check_nesting(&node.keyword_loc());
+            if !exceeded {
+                self.visit(&rescue_expression);
+            }
             self.depth -= 1;
             return;
         }
 
         // Default behavior: inline rescue contributes one nesting level.
         self.depth += 1;
-        self.check_nesting(&node.keyword_loc());
+        let exceeded = self.check_nesting(&node.keyword_loc());
+        if exceeded {
+            self.depth -= 1;
+            return;
+        }
         self.visit(&expression);
         self.visit(&rescue_expression);
         self.depth -= 1;
@@ -302,7 +274,11 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         if self.count_blocks {
             self.depth += 1;
-            self.check_nesting(&node.location());
+            let exceeded = self.check_nesting(&node.location());
+            if exceeded {
+                self.depth -= 1;
+                return;
+            }
             ruby_prism::visit_block_node(self, node);
             self.depth -= 1;
         } else {
@@ -313,7 +289,11 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
         if self.count_blocks {
             self.depth += 1;
-            self.check_nesting(&node.location());
+            let exceeded = self.check_nesting(&node.location());
+            if exceeded {
+                self.depth -= 1;
+                return;
+            }
             ruby_prism::visit_lambda_node(self, node);
             self.depth -= 1;
         } else {
@@ -343,6 +323,5 @@ mod tests {
         modifier_until = "modifier_until.rb",
         inline_rescue = "inline_rescue.rb",
         method_inside_nesting = "method_inside_nesting.rb",
-        inline_disable_nested = "inline_disable_nested.rb",
     );
 }
