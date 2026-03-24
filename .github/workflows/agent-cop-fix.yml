@@ -264,17 +264,12 @@ jobs:
       # --- Install + run agent ---
 
       - name: Run backend setup
-        if: steps.task.outputs.code_bugs != '0' && steps.backend.outputs.action != 'true'
+        if: steps.task.outputs.code_bugs != '0'
         env:
           MINIMAX_API_KEY: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
           ANTHROPIC_API_KEY: ${{ (steps.selected_backend.outputs.backend == 'claude-normal' || steps.selected_backend.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
           CODEX_AUTH_JSON: ${{ (steps.selected_backend.outputs.backend == 'codex-normal' || steps.selected_backend.outputs.backend == 'codex-hard') && secrets.CODEX_AUTH_JSON || '' }}
-        run: ${{ steps.backend.outputs.setup_cmd }}
-
-      - name: Run backend setup (action)
-        if: steps.task.outputs.code_bugs != '0' && steps.backend.outputs.action == 'true'
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ (steps.selected_backend.outputs.backend == 'claude-oauth-normal' || steps.selected_backend.outputs.backend == 'claude-oauth-hard') && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
         run: ${{ steps.backend.outputs.setup_cmd }}
 
       - name: Mask read-only GitHub token
