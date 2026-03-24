@@ -98,6 +98,41 @@
 /// `outer_siblings` and check for redirect_to when flash is the last statement
 /// in a when body. Additionally, the begin/rescue suppression of outer_siblings
 /// needs revisiting — `redirect_to` AFTER a begin block should still be visible.
+///
+/// ## Reverted fix attempt (2026-03-24, commit 998e83c7)
+///
+/// Attempted two fixes: (1) FP=4 by passing `&[]` as outer_siblings for begin
+/// body when rescue exists, (2) FN case/when by adding `check_case_node_with_outer`
+/// and `check_case_branch_stmts`. Introduced FP=28 (+24) on corpus; reverted in
+/// a6172038.
+///
+/// **FP=24 (begin/rescue outer_siblings blanket suppression):** Passing `&[]` as
+/// outer_siblings for the begin body when a rescue clause exists suppressed ALL
+/// render detection from outer context. This broke cases where flash is in an
+/// if/else branch INSIDE the begin body and render exists in outer siblings after
+/// the begin/rescue block. The correct fix must only suppress implicit render for
+/// flash that is a DIRECT child of the begin body (matching RuboCop's rescue
+/// ancestor walk), not for flash nested inside if/else branches within the begin.
+///
+/// **FP from case/when:** The case/when handler may have also contributed FPs.
+/// In RuboCop, `case` is NOT matched by `each_ancestor(:if, :rescue)` — flash in
+/// a when body takes the "no ancestor" path in `followed_by_render?`, checking the
+/// PARENT scope's right_siblings for render. A correct handler must check the case
+/// node's outer siblings for both render AND redirect_to.
+///
+/// **Remaining FP=4 root cause (not yet fixed):** Flash inside begin/rescue body
+/// followed by `respond_to` block containing BOTH render and redirect_to. RuboCop's
+/// `use_redirect_to?` is recursive (uses `any_descendant?`), finding redirect_to
+/// inside respond_to blocks. Our `is_redirect_sibling` only checks direct siblings.
+/// Fix: make redirect detection recursive, or specifically check inside respond_to
+/// block bodies for redirect_to.
+///
+/// **Remaining FN=32 breakdown:**
+/// - case/when branches (~8-10 FN): needs careful outer_siblings wiring
+/// - lambda/proc blocks as hash args (~7 FN): call.block() doesn't capture these
+/// - respond_to with render in nested if/else (~2 FN): block body scoping issue
+/// - unless inside begin/rescue (~1 FN): complex nesting
+/// - nested assignment `query = flash[:query] = ...` (~1 FN): not a top-level stmt
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
