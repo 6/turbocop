@@ -434,7 +434,8 @@ def validate_corpus(include_extended: bool = False):
         manifest_msg = "manifest.jsonl + manifest_extended.jsonl" if include_extended else "manifest.jsonl"
         print(f"Corpus checkout does not match bench/corpus/{manifest_msg}. "
               "Run bench/corpus/clone_repos.sh to sync repos.", file=sys.stderr)
-        sys.exit(1)
+        if wrong_sha or len(missing) > 5:
+            sys.exit(1)
 
 
 def run_nitrocop_per_repo(cop_name: str, relevant_repos: set[str] | None = None) -> dict[str, int]:

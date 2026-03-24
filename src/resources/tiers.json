@@ -696,6 +696,7 @@
     "Style/ImplicitRuntimeError": "stable",
     "Style/InPatternThen": "stable",
     "Style/InlineComment": "stable",
+    "Style/InverseMethods": "stable",
     "Style/IpAddresses": "stable",
     "Style/ItAssignment": "stable",
     "Style/ItBlockParameter": "stable",
