@@ -24,7 +24,6 @@ impl Cop for FirstParameterIndentation {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "consistent");
-        let _indent_width = config.get_usize("IndentationWidth", 2);
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -53,18 +52,40 @@ impl Cop for FirstParameterIndentation {
             return;
         }
 
-        // Find the first parameter
-        let requireds: Vec<ruby_prism::Node<'_>> = params.requireds().iter().collect();
-        let optionals: Vec<ruby_prism::Node<'_>> = params.optionals().iter().collect();
+        // Find the first parameter by earliest start offset across all param types
+        let mut first_offset: Option<usize> = None;
+        let mut update_min = |offset: usize| {
+            first_offset = Some(match first_offset {
+                Some(cur) if cur <= offset => cur,
+                _ => offset,
+            });
+        };
 
-        let first_offset = if !requireds.is_empty() {
-            requireds[0].location().start_offset()
-        } else if !optionals.is_empty() {
-            optionals[0].location().start_offset()
-        } else if let Some(rest) = params.rest() {
-            rest.location().start_offset()
-        } else {
-            return;
+        if let Some(first) = params.requireds().iter().next() {
+            update_min(first.location().start_offset());
+        }
+        if let Some(first) = params.optionals().iter().next() {
+            update_min(first.location().start_offset());
+        }
+        if let Some(rest) = params.rest() {
+            update_min(rest.location().start_offset());
+        }
+        if let Some(first) = params.posts().iter().next() {
+            update_min(first.location().start_offset());
+        }
+        if let Some(first) = params.keywords().iter().next() {
+            update_min(first.location().start_offset());
+        }
+        if let Some(kw_rest) = params.keyword_rest() {
+            update_min(kw_rest.location().start_offset());
+        }
+        if let Some(block) = params.block() {
+            update_min(block.location().start_offset());
+        }
+
+        let first_offset = match first_offset {
+            Some(o) => o,
+            None => return,
         };
 
         let (first_line, first_col) = source.offset_to_line_col(first_offset);
@@ -91,7 +112,7 @@ impl Cop for FirstParameterIndentation {
         let width = config.get_usize("IndentationWidth", 2);
 
         let expected = match style {
-            "align_parentheses" => open_col + 1,
+            "align_parentheses" => open_col + width,
             _ => def_line_indent + width, // "consistent"
         };
 
