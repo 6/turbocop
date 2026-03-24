@@ -185,19 +185,11 @@ def clear_file_cache():
     shutil.rmtree(cache_dir, ignore_errors=True)
 
 
-def corpus_env(repo_dir: str | None = None) -> dict[str, str]:
-    """Environment variables for corpus runs, matching CI exactly.
-
-    When repo_dir is set, GIT_CEILING_DIRECTORIES isolates the corpus repo
-    from the parent nitrocop project's .gitignore (which excludes vendor/corpus/).
-    Without this, the `ignore` crate's gitignore-aware file walker skips all
-    files in corpus repos, producing 0 offenses.
-    """
+def corpus_env() -> dict[str, str]:
+    """Environment variables for corpus runs, matching the oracle exactly."""
     env = os.environ.copy()
     env["BUNDLE_GEMFILE"] = str(PROJECT_ROOT / "bench" / "corpus" / "Gemfile")
     env["BUNDLE_PATH"] = str(PROJECT_ROOT / "bench" / "corpus" / "vendor" / "bundle")
-    if repo_dir:
-        env["GIT_CEILING_DIRECTORIES"] = str(CORPUS_DIR)
     return env
 
 
@@ -231,18 +223,22 @@ def count_deduplicated_offenses(json_data: dict) -> int:
 
 
 def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
-    """Run nitrocop on a single repo. Used by the parallel executor."""
+    """Run nitrocop on a single repo. Used by the parallel executor.
+
+    Runs from inside the repo directory with GIT_CEILING_DIRECTORIES set
+    to the corpus root so the `ignore` crate does not walk up into the
+    parent nitrocop project. This matches the corpus oracle's git context
+    (which clones to repos/<id>/ outside the project tree).
+    """
     cop_name, repo_dir = args
     repo_id = Path(repo_dir).name
+    env = corpus_env()
+    env["GIT_CEILING_DIRECTORIES"] = str(CORPUS_DIR)
     try:
-        # Run from repo dir so base_dir_for_path_parameters (cwd) resolves
-        # Exclude patterns like vendor/**/* relative to the repo, not the
-        # nitrocop project root. This matches CI behavior where repos are
-        # at repos/<id>/ and cwd is the CI workspace root.
         result = subprocess.run(
             nitrocop_cmd(cop_name, "."),
             capture_output=True, text=True, timeout=120,
-            cwd=repo_dir, env=corpus_env(repo_dir),
+            cwd=repo_dir, env=env,
         )
     except subprocess.TimeoutExpired:
         return (repo_id, -1)

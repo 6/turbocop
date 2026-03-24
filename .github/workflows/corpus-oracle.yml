@@ -279,19 +279,27 @@ jobs:
             # Resolve per-repo config (adds file exclusions for repos with known parser crashes)
             REPO_CONFIG=$(python3 bench/corpus/gen_repo_config.py "$REPO_ID" bench/corpus/baseline_rubocop.yml "$DEST")
 
+            # Both tools run from inside the repo so the `ignore` crate and
+            # RuboCop see the same .gitignore context. GIT_CEILING_DIRECTORIES
+            # prevents walking up to the parent workspace git tree.
+            # All config/output paths are absolute so they resolve from any cwd.
+            WORKSPACE="$PWD"
+            ABS_DEST="$(cd "$DEST" && pwd)"
+
             # nitrocop
             echo "=== nitrocop: ${REPO_ID} ==="
             rc=0
             timeout "${REPO_TIMEOUT}" \
-            env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
-                BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
-            bin/nitrocop \
+            env BUNDLE_GEMFILE=$WORKSPACE/bench/corpus/Gemfile \
+                BUNDLE_PATH=$WORKSPACE/bench/corpus/vendor/bundle \
+                GIT_CEILING_DIRECTORIES=$(dirname "$ABS_DEST") \
+            $WORKSPACE/bin/nitrocop \
               --preview \
               --format json \
               --no-cache \
               --config "$REPO_CONFIG" \
-              "$DEST" \
-              > "results/nitrocop/${REPO_ID}.json" 2>"results/nitrocop/${REPO_ID}.err" || rc=$?
+              "$ABS_DEST" \
+              > "$WORKSPACE/results/nitrocop/${REPO_ID}.json" 2>"$WORKSPACE/results/nitrocop/${REPO_ID}.err" || rc=$?
 
             if [ "$rc" -eq 124 ]; then
               echo "::warning::nitrocop timed out after ${REPO_TIMEOUT}s for ${REPO_ID}"
@@ -302,16 +310,17 @@ jobs:
               echo "=== rubocop: ${REPO_ID} ==="
               rc=0
               timeout "${REPO_TIMEOUT}" \
-              env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
-                  BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
+              env BUNDLE_GEMFILE=$WORKSPACE/bench/corpus/Gemfile \
+                  BUNDLE_PATH=$WORKSPACE/bench/corpus/vendor/bundle \
+                  GIT_CEILING_DIRECTORIES=$(dirname "$ABS_DEST") \
               bundle exec rubocop \
-                --require ./bench/corpus/rescue_parser_crashes.rb \
+                --require $WORKSPACE/bench/corpus/rescue_parser_crashes.rb \
                 --config "$REPO_CONFIG" \
                 --format json \
                 --force-exclusion \
                 --cache false \
-                "$DEST" \
-                > "results/rubocop/${REPO_ID}.json" 2>"results/rubocop/${REPO_ID}.err" || rc=$?
+                "$ABS_DEST" \
+                > "$WORKSPACE/results/rubocop/${REPO_ID}.json" 2>"$WORKSPACE/results/rubocop/${REPO_ID}.err" || rc=$?
 
               if [ "$rc" -eq 124 ]; then
                 echo "::warning::rubocop timed out after ${REPO_TIMEOUT}s for ${REPO_ID}"

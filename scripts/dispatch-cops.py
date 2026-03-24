@@ -1404,151 +1404,100 @@ def select_backend_for_entry(
         standard_corpus=standard_corpus,
     )
 
-    if mode == "retry":
+    def _result(backend: str, reason: str, code_bugs: int = 0,
+                config_issues: int = 0, easy: bool = False) -> dict[str, object]:
         return {
-            "backend": "codex-hard",
-            "reason": "retry mode uses codex",
-            "tier": tier,
-            "code_bugs": 0,
-            "config_issues": 0,
-            "easy": False,
-            "risk_class": risk["risk_class"],
-            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
-            "extended_only_edge_case": risk["extended_only_edge_case"],
-        }
-
-    if has_failed_attempt(prior_prs):
-        return {
-            "backend": "codex-hard",
-            "reason": "cop has prior failed agent attempts",
-            "tier": tier,
-            "code_bugs": 0,
-            "config_issues": 0,
-            "easy": False,
-            "risk_class": risk["risk_class"],
-            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
-            "extended_only_edge_case": risk["extended_only_edge_case"],
-        }
-
-    if risk["extended_only_edge_case"]:
-        return {
-            "backend": "codex-hard",
-            "reason": (
-                "extended-only edge case against a standard-perfect baseline; "
-                "avoid broad regressions"
-            ),
-            "tier": tier,
-            "code_bugs": 0,
-            "config_issues": 0,
-            "easy": False,
-            "risk_class": risk["risk_class"],
-            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
-            "extended_only_edge_case": risk["extended_only_edge_case"],
-        }
-
-    if issue_difficulty:
-        if issue_difficulty == "simple":
-            return {
-                "backend": "codex-normal",
-                "reason": "issue difficulty label is simple",
-                "tier": tier,
-                "code_bugs": 0,
-                "config_issues": 0,
-                "easy": True,
-                "risk_class": risk["risk_class"],
-                "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
-                "extended_only_edge_case": risk["extended_only_edge_case"],
-            }
-        return {
-            "backend": "codex-hard",
-            "reason": f"issue difficulty label is {issue_difficulty}",
-            "tier": tier,
-            "code_bugs": 0,
-            "config_issues": 0,
-            "easy": False,
-            "risk_class": risk["risk_class"],
-            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
-            "extended_only_edge_case": risk["extended_only_edge_case"],
-        }
-
-    if not entry:
-        return {
-            "backend": "codex-hard",
-            "reason": "cop is missing from corpus data",
-            "tier": tier,
-            "code_bugs": 0,
-            "config_issues": 0,
-            "easy": False,
-            "risk_class": risk["risk_class"],
-            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
-            "extended_only_edge_case": risk["extended_only_edge_case"],
-        }
-
-    if not should_consider_easy_candidate(
-        entry,
-        min_total=min_total,
-        max_total=max_total,
-        min_matches=min_matches,
-    ):
-        return {
-            "backend": "codex-hard",
-            "reason": (
-                f"cop is outside easy thresholds (total={total_for_entry(entry)}, "
-                f"matches={entry.get('matches', 0)})"
-            ),
-            "tier": tier,
-            "code_bugs": 0,
-            "config_issues": 0,
-            "easy": False,
-            "risk_class": risk["risk_class"],
-            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
-            "extended_only_edge_case": risk["extended_only_edge_case"],
-        }
-
-    if not binary or not binary.exists():
-        return {
-            "backend": "codex-hard",
-            "reason": "nitrocop binary unavailable for easy-cop prediagnosis",
-            "tier": tier,
-            "code_bugs": 0,
-            "config_issues": 0,
-            "easy": False,
-            "risk_class": risk["risk_class"],
-            "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
-            "extended_only_edge_case": risk["extended_only_edge_case"],
-        }
-
-    fn_bugs, fn_cfg = diagnose_examples(binary, cop, entry.get("fn_examples", []), "fn")
-    fp_bugs, fp_cfg = diagnose_examples(binary, cop, entry.get("fp_examples", []), "fp")
-    code_bugs = fn_bugs + fp_bugs
-    config_issues = fn_cfg + fp_cfg
-    if code_bugs >= min_bugs:
-        return {
-            "backend": "codex-normal",
-            "reason": (
-                f"easy cop: total={total_for_entry(entry)}, matches={entry.get('matches', 0)}, "
-                f"diagnosed_code_bugs={code_bugs}"
-            ),
+            "backend": backend,
+            "reason": reason,
             "tier": tier,
             "code_bugs": code_bugs,
             "config_issues": config_issues,
-            "easy": True,
+            "easy": easy,
             "risk_class": risk["risk_class"],
             "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
             "extended_only_edge_case": risk["extended_only_edge_case"],
         }
 
-    return {
-        "backend": "codex-hard",
-        "reason": "prediagnosis did not confirm any code bugs for easy-cop routing",
-        "tier": tier,
-        "code_bugs": code_bugs,
-        "config_issues": config_issues,
-        "easy": False,
-        "risk_class": risk["risk_class"],
-        "requires_standard_quick_gate": risk["requires_standard_quick_gate"],
-        "extended_only_edge_case": risk["extended_only_edge_case"],
-    }
+    # Routing strategy:
+    # - codex-normal:        easy mechanical fixes with confirmed code bugs (fast, cheap)
+    # - codex-hard:          complex cops with many divergences, or medium difficulty
+    # - claude-oauth-normal: config/parser-only issues needing investigation judgment
+    # - claude-oauth-hard:   retries, prior failures, extended-only edge cases
+
+    # Retries and prior failures need fresh thinking, not more brute force
+    if mode == "retry":
+        return _result("claude-oauth-hard", "retry mode needs fresh investigation approach")
+
+    if has_failed_attempt(prior_prs):
+        return _result("claude-oauth-hard", "prior agent attempt failed; needs different approach")
+
+    # Extended-only edge cases are subtle — need judgment about whether to
+    # fix the cop or document as a known parser/config difference
+    if risk["extended_only_edge_case"]:
+        return _result(
+            "claude-oauth-hard",
+            "extended-only edge case against a standard-perfect baseline; "
+            "needs judgment on whether to fix or document",
+        )
+
+    # Explicit issue difficulty labels
+    if issue_difficulty:
+        if issue_difficulty == "simple":
+            return _result("codex-normal", "issue difficulty label is simple", easy=True)
+        if issue_difficulty == "complex":
+            return _result("claude-oauth-hard", f"issue difficulty label is {issue_difficulty}")
+        # medium → codex-hard (mechanical but needs more reasoning)
+        return _result("codex-hard", f"issue difficulty label is {issue_difficulty}")
+
+    if not entry:
+        return _result("codex-hard", "cop is missing from corpus data")
+
+    # Run prediagnosis to classify code bugs vs config/parser issues
+    code_bugs = 0
+    config_issues = 0
+    if binary and binary.exists() and should_consider_easy_candidate(
+        entry, min_total=min_total, max_total=max_total, min_matches=min_matches,
+    ):
+        fn_bugs, fn_cfg = diagnose_examples(binary, cop, entry.get("fn_examples", []), "fn")
+        fp_bugs, fp_cfg = diagnose_examples(binary, cop, entry.get("fp_examples", []), "fp")
+        code_bugs = fn_bugs + fp_bugs
+        config_issues = fn_cfg + fp_cfg
+
+        if code_bugs >= min_bugs:
+            # Confirmed code bugs in an easy cop — codex handles these well
+            return _result(
+                "codex-normal",
+                f"easy cop: total={total_for_entry(entry)}, matches={entry.get('matches', 0)}, "
+                f"diagnosed_code_bugs={code_bugs}",
+                code_bugs=code_bugs, config_issues=config_issues, easy=True,
+            )
+
+        if config_issues > 0 and code_bugs == 0:
+            # All issues are config/parser-level, not cop bugs — claude
+            # has better judgment on whether to fix or document
+            return _result(
+                "claude-oauth-normal",
+                f"all {config_issues} issues are config/parser-level, not code bugs; "
+                f"needs investigation to determine correct action",
+                code_bugs=code_bugs, config_issues=config_issues,
+            )
+
+    # Complex cop (outside easy thresholds) or no binary for prediagnosis —
+    # codex-hard handles high-volume mechanical work well
+    if total > max_total:
+        return _result(
+            "codex-hard",
+            f"complex cop with many divergences (total={total})",
+            code_bugs=code_bugs, config_issues=config_issues,
+        )
+
+    # Default: moderate complexity, codex-hard for mechanical work
+    return _result(
+        "codex-hard",
+        f"moderate cop (total={total}, matches={entry.get('matches', 0)}); "
+        f"code_bugs={code_bugs}, config_issues={config_issues}",
+        code_bugs=code_bugs, config_issues=config_issues,
+    )
 
 
 def classify_issue_difficulty(entry: dict, recommendation: dict[str, object]) -> str:

@@ -189,7 +189,7 @@ def test_format_with_diagnostics_keeps_no_source_examples_when_they_are_all_we_h
     assert "(could not diagnose: no source context)" in output
 
 
-def test_select_backend_for_entry_retry_forces_codex():
+def test_select_backend_for_entry_retry_uses_claude():
     result = gct.select_backend_for_entry(
         "Style/Foo",
         {"cop": "Style/Foo", "fp": 1, "fn": 1, "matches": 100},
@@ -197,8 +197,8 @@ def test_select_backend_for_entry_retry_forces_codex():
         binary=None,
         prior_prs=[],
     )
-    assert result["backend"] == "codex-hard"
-    assert "retry mode" in result["reason"]
+    assert result["backend"] == "claude-oauth-hard"
+    assert "retry" in result["reason"]
 
 
 def test_has_failed_attempt_ignores_open_prs():
@@ -277,7 +277,7 @@ def test_build_cross_corpus_risk_section_warns_about_standard_perfect_baseline()
     assert "risk of overfitting" in section
 
 
-def test_select_backend_for_entry_forces_codex_hard_for_extended_only_edge_case():
+def test_select_backend_for_entry_uses_claude_for_extended_only_edge_case():
     result = gct.select_backend_for_entry(
         "Style/MixinUsage",
         {"cop": "Style/MixinUsage", "fp": 3, "fn": 0, "matches": 100, "repo_breakdown": {"foo__bar__abc": {"fp": 3, "fn": 0}}},
@@ -288,10 +288,9 @@ def test_select_backend_for_entry_forces_codex_hard_for_extended_only_edge_case(
         prior_prs=[],
         issue_difficulty="simple",
     )
-    assert result["backend"] == "codex-hard"
-    assert result["requires_standard_quick_gate"] is True
+    assert result["backend"] == "claude-oauth-hard"
     assert result["extended_only_edge_case"] is True
-    assert "standard-perfect baseline" in result["reason"]
+    assert "judgment" in result["reason"] or "document" in result["reason"]
 
 
 def test_classify_issue_difficulty_escalates_extended_only_edge_case():
@@ -489,13 +488,13 @@ if __name__ == "__main__":
     test_detect_prism_pitfalls_none()
     test_format_with_diagnostics_omits_no_source_examples_when_diagnosed_exists()
     test_format_with_diagnostics_keeps_no_source_examples_when_they_are_all_we_have()
-    test_select_backend_for_entry_retry_forces_codex()
+    test_select_backend_for_entry_retry_uses_claude()
     test_has_failed_attempt_ignores_open_prs()
     test_select_backend_for_entry_uses_issue_difficulty_when_present()
     test_select_backend_for_entry_easy_cop_uses_codex_normal()
     test_assess_cross_corpus_risk_flags_extended_only_edge_case()
     test_build_cross_corpus_risk_section_warns_about_standard_perfect_baseline()
-    test_select_backend_for_entry_forces_codex_hard_for_extended_only_edge_case()
+    test_select_backend_for_entry_uses_claude_for_extended_only_edge_case()
     test_classify_issue_difficulty_escalates_extended_only_edge_case()
     test_build_start_here_section_uses_repo_hotspots_and_examples()
     test_build_start_here_section_empty_when_no_corpus_examples()
