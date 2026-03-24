@@ -53,3 +53,7 @@ end
 include GravatarHelper, GravatarHelper::PublicMethods, ERB::Util
 extend A, B
 prepend X, Y, Z
+# include inside BEGIN {} block is NOT flagged by RuboCop (PreExecutionNode is opaque)
+BEGIN {
+  include UtilityFunctions
+}
