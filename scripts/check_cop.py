@@ -436,9 +436,6 @@ def validate_corpus():
 def run_nitrocop_per_repo(
     cop_name: str,
     relevant_repos: set[str] | None = None,
-    *,
-    shard_index: int | None = None,
-    total_shards: int | None = None,
 ) -> dict[str, int]:
     """Run nitrocop --only on each corpus repo in parallel, return {repo_id: count}.
 
@@ -472,10 +469,6 @@ def run_nitrocop_per_repo(
         skipped = len(all_repos) - len(repos)
         print(f"  --quick: running {len(repos)}/{len(all_repos)} repos "
               f"(skipping {skipped} with zero baseline activity)", file=sys.stderr)
-
-    if shard_index is not None and total_shards is not None:
-        repos = [r for i, r in enumerate(repos) if i % total_shards == shard_index]
-        print(f"  shard {shard_index}/{total_shards}: {len(repos)} repos", file=sys.stderr)
 
     total = len(repos)
     work = [(cop_name, str(r)) for r in repos]
@@ -518,8 +511,6 @@ def rerun_local_per_repo(
     *,
     quick: bool,
     has_activity_index: bool,
-    shard_index: int | None = None,
-    total_shards: int | None = None,
 ) -> dict[str, int]:
     """Re-run nitrocop locally using per-repo subprocess mode.
 
@@ -539,10 +530,7 @@ def rerun_local_per_repo(
                 "quick rerun falls back to divergence-only data",
                 file=sys.stderr,
             )
-    return run_nitrocop_per_repo(
-        cop_name, relevant_repos=relevant_repos,
-        shard_index=shard_index, total_shards=total_shards,
-    )
+    return run_nitrocop_per_repo(cop_name, relevant_repos=relevant_repos)
 
 
 def main():
@@ -561,10 +549,6 @@ def main():
                         help="Only run repos with baseline activity (faster, may miss new FPs on zero-baseline repos)")
     parser.add_argument("--clone", action="store_true",
                         help="Auto-clone needed corpus repos from manifest (for CI use with --rerun --quick)")
-    parser.add_argument("--shard-index", type=int, default=None,
-                        help="Shard index for parallel CI (0-based)")
-    parser.add_argument("--total-shards", type=int, default=None,
-                        help="Total number of shards for parallel CI")
     args = parser.parse_args()
 
     # Load corpus results
@@ -666,8 +650,6 @@ def main():
                 data,
                 quick=args.quick,
                 has_activity_index=has_activity_index,
-                shard_index=args.shard_index,
-                total_shards=args.total_shards,
             )
             save_cached_results(args.cop, per_repo)
 
@@ -746,26 +728,6 @@ def main():
             print(f"Debug: per-repo counts written to {debug_path}",
                   file=sys.stderr)
 
-    # When sharding, adjust expected totals to only cover scanned repos
-    if args.shard_index is not None and 'per_repo' in dir():
-        scanned_repos = set(per_repo.keys()) - {"__ci_baseline_matching_repos__"}
-        # Reconstruct expected RuboCop count for just our shard's repos
-        shard_expected = 0
-        activity = data.get("cop_activity_repos", {}).get(args.cop, [])
-        for repo_id in scanned_repos:
-            if repo_id in activity:
-                # Per-repo rubocop count = per-repo nitrocop count from oracle - FP + FN
-                repo_cops = by_repo_cop.get(repo_id, {})
-                if args.cop in repo_cops:
-                    entry = repo_cops[args.cop]
-                    shard_expected += entry.get("matches", 0)
-                else:
-                    # Repo matched oracle exactly — use nitrocop count as rubocop count
-                    shard_expected += per_repo.get(repo_id, 0)
-        expected_rubocop = shard_expected
-        print(f"  shard {args.shard_index}: adjusted expected to {expected_rubocop:,} "
-              f"for {len(scanned_repos)} repos", file=sys.stderr)
-
     excess = max(0, nitrocop_total - expected_rubocop)
     missing = max(0, expected_rubocop - nitrocop_total)
 
@@ -822,10 +784,7 @@ def main():
     # count before RuboCop file-filtering, matching what check-cop produces.
     # When unavailable, we fall back to ci_nitrocop_total (filtered).
     nitro_unfiltered = cop_entry.get("nitro_total_unfiltered")
-    if args.shard_index is not None:
-        # Sharded mode: use per-repo adjusted expected, skip global unfiltered
-        adjusted_excess = max(0, excess - file_drop_offenses)
-    elif nitro_unfiltered is not None:
+    if nitro_unfiltered is not None:
         # Compare against the unfiltered baseline — this matches check-cop exactly
         adjusted_excess = max(0, nitrocop_total - nitro_unfiltered - file_drop_offenses)
     else:
