@@ -581,10 +581,15 @@ fn is_directive_redundant(
         if cop_filters.is_cop_excluded(idx, path) {
             return true;
         }
-        // Cop is enabled and not explicitly excluded — don't flag.
-        // Conservative: even if the cop didn't execute (Include mismatch),
-        // sub-config path resolution issues could cause false positives.
-        false
+        // Cop is enabled and not explicitly excluded. If the disable
+        // directive was unused (no offense suppressed), flag as redundant.
+        // This matches RuboCop's behavior: if the cop didn't fire any
+        // offenses in the directive's scope, the directive is unnecessary.
+        // Risk: if nitrocop has detection gaps for this cop, we may flag a
+        // directive that IS actually needed. But this is correct behavior
+        // for cops with full coverage, and the risk is acceptable for
+        // reducing 1000+ FNs from the conservative approach.
+        true
     } else {
         // Cop is NOT in the registry. Check if it's a renamed cop whose new
         // name IS in the registry and is enabled. RuboCop treats disable

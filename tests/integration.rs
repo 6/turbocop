@@ -3389,7 +3389,8 @@ fn no_redundant_disable_unknown_department() {
 #[test]
 fn no_redundant_disable_running_cop_no_offense() {
     // Disable for a real cop that is running but doesn't fire on clean code.
-    // Conservative approach: don't flag, since it might be a detection gap.
+    // RuboCop flags this as redundant: if the cop didn't fire, the directive
+    // is unnecessary.
     let dir = temp_dir("redundant_disable_running_clean");
     let file = write_file(
         &dir,
@@ -3414,9 +3415,10 @@ fn no_redundant_disable_running_cop_no_offense() {
         .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
         .collect();
 
-    assert!(
-        redundant.is_empty(),
-        "Should NOT flag disable for a running cop (conservative approach), got: {:?}",
+    assert_eq!(
+        redundant.len(),
+        1,
+        "Should flag unused disable for a running cop (matching RuboCop), got: {:?}",
         redundant
     );
 
@@ -4334,10 +4336,8 @@ fn redundant_disable_excluded_cop() {
 #[test]
 fn no_redundant_disable_include_mismatch_cop() {
     // A cop with an Include pattern that doesn't match the file. The cop is
-    // enabled but won't execute (Include mismatch). We do NOT flag this as
-    // redundant because Include mismatches can arise from sub-config directory
-    // path resolution issues and aren't reliable indicators of redundancy.
-    // Only Exclude-based exclusions are flagged.
+    // enabled but won't execute (Include mismatch). RuboCop flags this as
+    // redundant because the cop didn't fire any offenses.
     let dir = temp_dir("no_redundant_disable_include_mismatch");
     let file = write_file(
         &dir,
@@ -4370,8 +4370,8 @@ fn no_redundant_disable_include_mismatch_cop() {
 
     assert_eq!(
         redundant.len(),
-        0,
-        "Include mismatch should NOT be flagged as redundant: {:?}",
+        1,
+        "Include mismatch should be flagged as redundant (matching RuboCop): {:?}",
         redundant
     );
 
@@ -4419,8 +4419,9 @@ fn no_redundant_disable_self_referential() {
 #[test]
 fn redundant_disable_mixed_excluded_and_active() {
     // Two cops on one disable directive: one is excluded (Lint/UselessMethodDefinition),
-    // one actively suppresses an offense (Layout/TrailingWhitespace). Only the
-    // excluded cop's directive should be flagged as redundant.
+    // one is enabled but no offense (Layout/TrailingWhitespace — the spaces are
+    // between code and comment, not at end of line). Both should be flagged as
+    // redundant since neither cop's directive actually suppressed an offense.
     let dir = temp_dir("redundant_disable_mixed_excl_active");
     let sub = dir.join("app").join("controllers");
     fs::create_dir_all(&sub).unwrap();
@@ -4452,31 +4453,24 @@ fn redundant_disable_mixed_excluded_and_active() {
         .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
         .collect();
 
-    // Only the excluded cop's directive should be flagged
+    // Both cops' directives are unused: one excluded, one enabled but no offense
     assert_eq!(
         redundant.len(),
-        1,
-        "Expected 1 redundant disable (excluded cop only), got: {:?}",
+        2,
+        "Expected 2 redundant disables (both cops unused), got: {:?}",
         redundant
     );
+    // Verify both cops are flagged
+    let messages: Vec<&str> = redundant.iter().map(|d| d.message.as_str()).collect();
     assert!(
-        redundant[0]
-            .message
-            .contains("Lint/UselessMethodDefinition"),
-        "Should flag the excluded cop, not the active one: {}",
-        redundant[0].message
+        messages.iter().any(|m| m.contains("Lint/UselessMethodDefinition")),
+        "Should flag the excluded cop: {:?}",
+        messages
     );
-    // The trailing whitespace offense should NOT appear (it's suppressed)
-    let tw_offenses: Vec<_> = result
-        .diagnostics
-        .iter()
-        .filter(|d| d.cop_name == "Layout/TrailingWhitespace")
-        .collect();
-    assert_eq!(
-        tw_offenses.len(),
-        0,
-        "TrailingWhitespace should be suppressed by the directive, got: {:?}",
-        tw_offenses
+    assert!(
+        messages.iter().any(|m| m.contains("Layout/TrailingWhitespace")),
+        "Should flag the enabled-but-unused cop: {:?}",
+        messages
     );
 
     fs::remove_dir_all(&dir).ok();
@@ -4485,7 +4479,7 @@ fn redundant_disable_mixed_excluded_and_active() {
 #[test]
 fn no_redundant_disable_executed_cop_no_offense() {
     // A cop that is enabled and executes on the file but produces no offense.
-    // Conservative: we don't flag this because nitrocop may have detection gaps.
+    // RuboCop flags this as redundant: the cop ran but found nothing to suppress.
     let dir = temp_dir("no_redundant_disable_exec_no_off");
     // Style/FrozenStringLiteralComment fires on missing frozen_string_literal
     // but this file HAS it, so no offense. The disable is unused but the cop ran.
@@ -4514,8 +4508,8 @@ fn no_redundant_disable_executed_cop_no_offense() {
 
     assert_eq!(
         redundant.len(),
-        0,
-        "Executed cop with no offense should NOT be flagged: {:?}",
+        1,
+        "Executed cop with no offense should be flagged as redundant (matching RuboCop): {:?}",
         redundant
     );
 
