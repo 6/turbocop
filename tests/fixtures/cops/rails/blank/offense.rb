@@ -40,3 +40,21 @@ return self if nil? || empty?
                ^^^^^^^^^^^^^^ Rails/Blank: Use `blank?` instead of `nil? || empty?`.
 return [] if nil? || empty?
              ^^^^^^^^^^^^^^ Rails/Blank: Use `blank?` instead of `nil? || empty?`.
+
+elements.nil? or elements.empty?
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/Blank: Use `elements.blank?` instead of `elements.nil? or elements.empty?`.
+
+return if name.nil? or name.empty?
+          ^^^^^^^^^^^^^^^^^^^^^^^^ Rails/Blank: Use `name.blank?` instead of `name.nil? or name.empty?`.
+
+words.shift if words[0].nil? or words[0].empty?
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/Blank: Use `words[0].blank?` instead of `words[0].nil? or words[0].empty?`.
+
+foo unless bar.nil? || bar.empty?
+           ^^^^^^^^^^^^^^^^^^^^^^ Rails/Blank: Use `bar.blank?` instead of `bar.nil? || bar.empty?`.
+
+break if line.nil? or line.empty?
+         ^^^^^^^^^^^^^^^^^^^^^^^^ Rails/Blank: Use `line.blank?` instead of `line.nil? or line.empty?`.
+
+break if rnext.nil? or rnext.empty? or rline.nil? or rline.empty?
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/Blank: Use `rnext.blank?` instead of `rnext.nil? or rnext.empty?`.
