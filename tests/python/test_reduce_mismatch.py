@@ -2,8 +2,6 @@
 """Tests for reduce-mismatch.py."""
 
 import importlib.util
-import json
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
