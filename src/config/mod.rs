@@ -2619,6 +2619,10 @@ impl ResolvedConfig {
                     EnabledState::True => true,
                 };
 
+                if name == "Style/InverseMethods" {
+                    eprintln!("DEBUG filter EARLY: enabled={enabled} default_enabled={}", cop.default_enabled());
+                }
+
                 // Plugin department awareness: cops from plugin departments should
                 // only run if the corresponding gem was loaded via require:/plugins:.
                 if enabled
