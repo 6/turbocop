@@ -460,7 +460,7 @@
 | 446 | Layout/DefEndAlignment | 719 | 264 | — | Medium |
 | 447 | Rails/OrderById | 2,607 | 263 | — | Medium |
 | 448 | RSpec/LetSetup | 10,681 | 261 | — | Medium |
-| 449 | Lint/Syntax | 9,024 | 261 | — | Medium |
+| 449 | Lint/Syntax | 8,990 | 261 | — | Medium |
 | 450 | Rails/SquishedSQLHeredocs | 5,955 | 259 | — | Medium |
 | 451 | Style/InfiniteLoop | 2,479 | 259 | — | Medium |
 | 452 | RSpec/LetBeforeExamples | 2,283 | 259 | — | Medium |
