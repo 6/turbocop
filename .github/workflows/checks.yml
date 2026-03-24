@@ -18,7 +18,7 @@ jobs:
         os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
           ref: ${{ inputs.ref || '' }}
@@ -109,7 +109,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
           fetch-depth: 0
@@ -146,7 +146,7 @@ jobs:
 
       - name: Cache corpus bundle
         if: steps.cops.outputs.has_cops == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: bench/corpus/vendor/bundle
           key: cop-check-bundle-${{ hashFiles('bench/corpus/Gemfile.lock') }}
@@ -190,7 +190,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
           ref: ${{ inputs.ref || '' }}
@@ -204,7 +204,7 @@ jobs:
       - uses: ruby/setup-ruby@v1
 
       - name: Cache corpus bundle
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: bench/corpus/vendor/bundle
           key: corpus-smoke-bundle-${{ hashFiles('bench/corpus/Gemfile.lock') }}

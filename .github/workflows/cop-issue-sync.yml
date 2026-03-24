@@ -23,7 +23,7 @@ jobs:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
       RUSTFLAGS: -C link-arg=-fuse-ld=mold
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -33,7 +33,7 @@ jobs:
 
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}

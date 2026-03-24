@@ -54,7 +54,7 @@ jobs:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
       RUSTFLAGS: -C link-arg=-fuse-ld=mold
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
           fetch-depth: 0
@@ -79,7 +79,7 @@ jobs:
           fi
         id: cargo-cache
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         if: steps.cargo-cache.outputs.seeded != 'true'
         with:
           path: target
@@ -105,14 +105,14 @@ jobs:
       # --- App token (needed for push + PR creation as 6[bot]) ---
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Generate read-only GitHub token
         id: actions-read-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -386,7 +386,7 @@ jobs:
 
       - name: Upload agent log
         if: always() && steps.task.outputs.code_bugs != '0' && steps.leak_scan.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: agent-log-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.snapshot.outputs.artifact_paths }}

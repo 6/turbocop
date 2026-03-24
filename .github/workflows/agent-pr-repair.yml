@@ -69,14 +69,14 @@ jobs:
     steps:
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Generate read-only GitHub token
         id: actions-read-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -138,7 +138,7 @@ jobs:
             echo "skip_reason=PR is not open" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: steps.preflight.outputs.should_continue == 'true'
         with:
           fetch-depth: 1
@@ -171,7 +171,7 @@ jobs:
         run: |
           echo "::notice::Skipping auto-repair: ${{ steps.pr.outputs.skip_reason }}"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: steps.pr.outputs.should_run == 'true'
         with:
           submodules: true
@@ -334,7 +334,7 @@ jobs:
 
       - name: Cache corpus bundle
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: bench/corpus/vendor/bundle
           key: pr-repair-bundle-${{ hashFiles('bench/corpus/Gemfile.lock') }}
@@ -348,7 +348,7 @@ jobs:
 
       - name: Cache corpus clones
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.verify_meta.outputs.needs_local_cop_check == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: vendor/corpus
           key: pr-repair-corpus-${{ hashFiles('bench/corpus/manifest.jsonl') }}
@@ -858,7 +858,7 @@ jobs:
 
       - name: Upload repair logs
         if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.leak_scan.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: agent-pr-repair-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.artifact_manifest.outputs.paths }}
