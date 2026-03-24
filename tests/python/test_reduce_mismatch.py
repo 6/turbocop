@@ -23,47 +23,26 @@ def setup_function(_function=None):
 
 def test_rubocop_runner_uses_no_server():
     """RubocopRunner should use --no-server to avoid contention."""
-    calls = []
-
-    def fake_run(cmd, **_kwargs):
-        calls.append(cmd)
-        payload = {
-            "files": [{
-                "offenses": [
-                    {"cop_name": "Style/Test", "location": {"line": 7}},
-                    {"cop_name": "Other/Cop", "location": {"line": 9}},
-                ]
-            }]
-        }
-        return subprocess.CompletedProcess(cmd, 1, json.dumps(payload), "")
-
-    with patch.object(reduce_mismatch.subprocess, "run", side_effect=fake_run):
-        runner = reduce_mismatch.RubocopRunner()
-        lines = runner.run("Style/Test", "/tmp/example.rb")
-
-    assert lines == {7}
-    # Should use --no-server, never --start-server or --server
-    assert len(calls) == 1
-    assert "--no-server" in calls[0]
-    assert "--server" not in calls[0] or calls[0].index("--no-server") < len(calls[0])
-    assert "--start-server" not in calls[0]
+    runner = reduce_mismatch.RubocopRunner()
+    cmd = runner._base_cmd("Style/Test", "/tmp/example.rb")
+    assert "--no-server" in cmd
+    assert "--server" not in cmd or cmd.index("--no-server") < len(cmd)
+    assert "--start-server" not in cmd
 
 
 def test_rubocop_runner_filters_by_cop():
     """Only offense lines matching the requested cop should be returned."""
-    def fake_run(cmd, **_kwargs):
-        payload = {
-            "files": [{
-                "offenses": [
-                    {"cop_name": "Style/Test", "location": {"line": 3}},
-                    {"cop_name": "Style/Other", "location": {"line": 5}},
-                    {"cop_name": "Style/Test", "location": {"line": 10}},
-                ]
-            }]
-        }
-        return subprocess.CompletedProcess(cmd, 1, json.dumps(payload), "")
+    fake_data = {
+        "files": [{
+            "offenses": [
+                {"cop_name": "Style/Test", "location": {"line": 3}},
+                {"cop_name": "Style/Other", "location": {"line": 5}},
+                {"cop_name": "Style/Test", "location": {"line": 10}},
+            ]
+        }]
+    }
 
-    with patch.object(reduce_mismatch.subprocess, "run", side_effect=fake_run):
+    with patch.object(reduce_mismatch, "cached_rubocop_run", return_value=fake_data):
         runner = reduce_mismatch.RubocopRunner()
         lines = runner.run("Style/Test", "/tmp/example.rb")
 
