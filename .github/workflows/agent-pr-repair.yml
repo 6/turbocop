@@ -9,6 +9,10 @@ on:
   workflow_run:
     workflows: ["Checks"]
     types: [completed]
+  # Cancellation-only trigger: a closed PR re-enters the same concurrency group
+  # and cancels any in-flight repair for that PR before it can publish.
+  pull_request:
+    types: [closed]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -47,7 +51,7 @@ on:
         default: false
 
 concurrency:
-  group: agent-pr-repair-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number || (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number) || github.event.workflow_run.head_branch || github.run_id }}
+  group: agent-pr-repair-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number || (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number) || (github.event_name == 'pull_request' && github.event.pull_request.number) || github.event.workflow_run.head_branch || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -432,8 +436,28 @@ jobs:
             --repo-root "$PWD" \
             --output "$GIT_ACTIVITY_BEFORE_FILE"
 
-      - name: Run repair agent
+      - name: Reconfirm PR is still repairable before agent
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
+        id: pre_agent_live_pr
+        env:
+          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
+        run: |
+          PR_JSON=$(gh pr view "${{ steps.pr.outputs.number }}" \
+            --repo "${{ github.repository }}" \
+            --json state,baseRefName,isCrossRepository,headRepository,author,labels,headRefOid)
+          python3 scripts/workflows/repair_retry_policy.py live-gate \
+            --pr-json "$PR_JSON" \
+            --repo "${{ github.repository }}" \
+            --checks-head-sha "${{ steps.pr.outputs.head_sha }}" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Skip closed or moved PR before agent
+        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.pre_agent_live_pr.outputs.should_continue != 'true'
+        run: |
+          echo "::notice::Skipping auto-repair agent run: ${{ steps.pre_agent_live_pr.outputs.skip_reason }}"
+
+      - name: Run repair agent
+        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.pre_agent_live_pr.outputs.should_continue == 'true'
         id: agent
         timeout-minutes: 45
         env:
@@ -458,7 +482,7 @@ jobs:
           kill $WATCHER_PID 2>/dev/null || true
 
       - name: Snapshot agent outputs
-        if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
+        if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.pre_agent_live_pr.outputs.should_continue == 'true'
         run: |
           git status --short > "$AGENT_STATUS_FILE" || true
           git log --oneline "${{ steps.prep.outputs.base_sha }}"..HEAD > "$AGENT_COMMITS_FILE" || true
@@ -477,7 +501,7 @@ jobs:
             --out-dir "$AGENT_GIT_ACTIVITY_DIR" || true
 
       - name: Validate repair change scope
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
+        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.pre_agent_live_pr.outputs.should_continue == 'true'
         id: file_guard
         run: |
           python3 scripts/workflows/validate_agent_changes.py \
@@ -488,7 +512,7 @@ jobs:
             >> "$GITHUB_OUTPUT"
 
       - name: Validate repair locally
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.file_guard.outputs.valid == 'true'
+        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.pre_agent_live_pr.outputs.should_continue == 'true' && steps.file_guard.outputs.valid == 'true'
         id: verify
         env:
           GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
@@ -504,6 +528,11 @@ jobs:
         if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
         id: assess
         run: |
+          if [ "${{ steps.pre_agent_live_pr.outputs.should_continue }}" != "true" ]; then
+            echo "result=stale_pr" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ "${{ steps.agent.outcome }}" != "success" ]; then
             echo "result=agent_failed" >> "$GITHUB_OUTPUT"
             exit 0
@@ -606,6 +635,9 @@ jobs:
               echo ""
               echo "The repair would have reduced the PR to an empty diff against \`origin/main\`, which this workflow treats as an invalid blanket revert."
             } > "$REPAIR_COMMENT_FILE"
+          elif [ "$RESULT" = "stale_pr" ]; then
+            echo "::notice::Skipping auto-repair result publish: ${{ steps.live_pr.outputs.skip_reason }}"
+            exit 0
           elif [ "$RESULT" = "file_guard_failed" ]; then
             gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
             {

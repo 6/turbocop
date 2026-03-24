@@ -91,6 +91,21 @@ def test_gate_pr_rejects_closed_pr():
     assert reason == "PR is not open"
 
 
+def test_gate_pr_rejects_head_moved_after_failed_checks():
+    pr = {
+        "state": "OPEN",
+        "baseRefName": "main",
+        "isCrossRepository": False,
+        "headRepository": {"nameWithOwner": "6/nitrocop"},
+        "author": {"login": "6[bot]"},
+        "labels": [{"name": "agent-fix"}],
+        "headRefOid": "def",
+    }
+    should_run, reason = repair_retry_policy.gate_pr(pr, "6/nitrocop", "abc")
+    assert should_run is False
+    assert reason == "PR head moved after the failed Checks run"
+
+
 def test_policy_blocks_same_head_repeat():
     should_run, reason, needs_human = repair_retry_policy.apply_policy(
         route="easy",
@@ -153,6 +168,7 @@ if __name__ == "__main__":
     test_inspect_attempts_counts_pushes_and_codex()
     test_gate_pr_accepts_trusted_bot_pr()
     test_gate_pr_rejects_closed_pr()
+    test_gate_pr_rejects_head_moved_after_failed_checks()
     test_policy_blocks_same_head_repeat()
     test_policy_blocks_after_two_pushes()
     test_policy_blocks_second_codex_attempt()

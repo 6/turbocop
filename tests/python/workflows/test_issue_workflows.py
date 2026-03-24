@@ -47,10 +47,17 @@ def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
     content = AGENT_PR_REPAIR.read_text()
     assert '--json state --jq \'.state\'' in content
     assert "--json number,title,url,body,state" in content
+    assert "types: [closed]" in content
+    assert "github.event.pull_request.number" in content
     assert "linked_issue_number" in content
     assert 'gh issue comment "${{ steps.pr.outputs.linked_issue_number }}"' in content
     assert '--add-label "state:blocked"' in content
     assert "Skip closed PRs" in content
+    assert "Reconfirm PR is still repairable before agent" in content
+    assert "Skip closed or moved PR before agent" in content
+    assert "python3 scripts/workflows/repair_retry_policy.py live-gate" in content
+    assert "Skip closed or moved PR before publish" not in content
+    assert 'echo "result=stale_pr" >> "$GITHUB_OUTPUT"' in content
     assert "Local Cop-Check Diagnosis" in content or "Precompute local cop-check diagnosis packet" in content
     assert '<summary>Task prompt (${{ steps.prompt.outputs.tokens }} tokens)</summary>' in content
     assert 'cat "$FINAL_TASK_FILE"' in content

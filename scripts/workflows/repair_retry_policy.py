@@ -142,6 +142,14 @@ def cmd_pr_state(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_live_gate(args: argparse.Namespace) -> int:
+    pr = json.loads(args.pr_json)
+    should_run, reason = gate_pr(pr, args.repo, args.checks_head_sha)
+    print(f"should_continue={'true' if should_run else 'false'}")
+    print(f"skip_reason={reason}")
+    return 0
+
+
 def cmd_policy(args: argparse.Namespace) -> int:
     should_run, reason, needs_human = apply_policy(
         route=args.route,
@@ -167,6 +175,12 @@ def main() -> int:
     pr_state.add_argument("--repo", required=True)
     pr_state.add_argument("--checks-head-sha", default="")
     pr_state.set_defaults(func=cmd_pr_state)
+
+    live_gate = subparsers.add_parser("live-gate")
+    live_gate.add_argument("--pr-json", required=True)
+    live_gate.add_argument("--repo", required=True)
+    live_gate.add_argument("--checks-head-sha", default="")
+    live_gate.set_defaults(func=cmd_live_gate)
 
     policy = subparsers.add_parser("policy")
     policy.add_argument("--route", required=True)
