@@ -7,13 +7,13 @@ Answers "why is repo X at Y%?" by showing the top diverging cops for that repo.
 Reads corpus-results.json (downloaded from CI or local) — no nitrocop execution needed.
 
 Usage:
-    python3 scripts/investigate-repo.py rails                    # fuzzy match repo name
-    python3 scripts/investigate-repo.py rails --fp-only          # only FP-producing cops
-    python3 scripts/investigate-repo.py rails --fn-only          # only FN-producing cops
-    python3 scripts/investigate-repo.py rails --limit 10         # top 10 (default 20)
-    python3 scripts/investigate-repo.py --list                   # list all repos by match rate
-    python3 scripts/investigate-repo.py --input corpus-results.json rails
-    python3 scripts/investigate-repo.py rails --no-git-exclude       # skip auto-exclusion of fixed cops
+    python3 scripts/investigate_repo.py rails                    # fuzzy match repo name
+    python3 scripts/investigate_repo.py rails --fp-only          # only FP-producing cops
+    python3 scripts/investigate_repo.py rails --fn-only          # only FN-producing cops
+    python3 scripts/investigate_repo.py rails --limit 10         # top 10 (default 20)
+    python3 scripts/investigate_repo.py --list                   # list all repos by match rate
+    python3 scripts/investigate_repo.py --input corpus-results.json rails
+    python3 scripts/investigate_repo.py rails --no-git-exclude       # skip auto-exclusion of fixed cops
 """
 
 import argparse

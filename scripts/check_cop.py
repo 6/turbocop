@@ -12,14 +12,14 @@ the exact offense locations, and it does NOT prove department-level completion
 in README.md / docs/corpus.md.
 
 Results are cached per (binary_mtime, cop_name, repo_id) so that re-running
-check-cop.py for a different cop after fixing one cop is instant — only the
+check_cop.py for a different cop after fixing one cop is instant — only the
 changed cop needs re-execution. Use --rerun to force a fresh run.
 
 Usage:
-    python3 scripts/check-cop.py Lint/Void              # quick aggregate count check
-    python3 scripts/check-cop.py Lint/Void --verbose     # per-repo count breakdown
-    python3 scripts/check-cop.py Lint/Void --verbose --rerun --quick  # fast iteration
-    python3 scripts/check-cop.py Lint/Void --threshold 5 # allow up to 5 excess
+    python3 scripts/check_cop.py Lint/Void              # quick aggregate count check
+    python3 scripts/check_cop.py Lint/Void --verbose     # per-repo count breakdown
+    python3 scripts/check_cop.py Lint/Void --verbose --rerun --quick  # fast iteration
+    python3 scripts/check_cop.py Lint/Void --threshold 5 # allow up to 5 excess
 """
 
 import argparse
@@ -772,7 +772,7 @@ def main():
     # Gate: detect regressions from the CI baseline.
     #
     # The oracle filters nitrocop offenses to only RuboCop-inspected files
-    # (diff_results.py line 304-305) before counting. check-cop.py doesn't
+    # (diff_results.py line 304-305) before counting. check_cop.py doesn't
     # run RuboCop, so its count includes offenses on files RuboCop excluded
     # or crashed on. This creates a constant positive offset.
     #
@@ -820,7 +820,7 @@ def main():
                 print(f"  Current: {', '.join(parts)}")
         if missing > 0:
             print(f"Note: aggregate count still misses {missing:,} RuboCop offenses")
-        print("Next: use scripts/verify-cop-locations.py for exact known FP/FN locations")
+        print("Next: use scripts/verify_cop_locations.py for exact known FP/FN locations")
         print("Next: use bench_nitrocop conform to prove department-level completion")
 
 

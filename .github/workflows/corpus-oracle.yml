@@ -467,7 +467,7 @@ jobs:
           if [ -f bench/synthetic/synthetic-results.json ]; then
             SYNTH_ARG="--synthetic bench/synthetic/synthetic-results.json"
           fi
-          python3 scripts/cop-coverage.py --input corpus-results.json $SYNTH_ARG > docs/cop_coverage.md
+          python3 scripts/cop_coverage.py --input corpus-results.json $SYNTH_ARG > docs/cop_coverage.md
 
       - name: Upload report
         uses: actions/upload-artifact@v6

@@ -41,10 +41,6 @@ jobs:
         if: matrix.os == 'ubuntu-24.04'
         run: bash scripts/workflows/check_no_vendor_include_macros.sh
 
-      - name: Python module naming
-        if: matrix.os == 'ubuntu-24.04'
-        run: python3 scripts/workflows/lint_python_module_names.py
-
       - name: Set up uv
         if: matrix.os == 'ubuntu-24.04'
         uses: astral-sh/setup-uv@v6
@@ -122,7 +118,7 @@ jobs:
           else
             BASE="HEAD~1"
           fi
-          python3 scripts/dispatch-cops.py changed \
+          python3 scripts/dispatch_cops.py changed \
             --base "$BASE" --head HEAD > /tmp/changed_cops.txt
           echo "Changed cops:"
           cat /tmp/changed_cops.txt
@@ -171,7 +167,7 @@ jobs:
             echo "=============================="
             echo "Checking: $cop (re-running against corpus)"
             echo "=============================="
-            if ! python3 scripts/check-cop.py "$cop" --verbose --rerun --quick --clone; then
+            if ! python3 scripts/check_cop.py "$cop" --verbose --rerun --quick --clone; then
               echo "FAIL: $cop regression detected"
               failed=$((failed + 1))
             fi
@@ -216,4 +212,4 @@ jobs:
           bundle install --jobs 4 --retry 3
 
       - name: Run smoke test
-        run: python3 scripts/corpus-smoke-test.py --binary target/release/nitrocop
+        run: python3 scripts/corpus_smoke_test.py --binary target/release/nitrocop

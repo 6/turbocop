@@ -153,7 +153,7 @@ def render_oracle_context(
 
     lines = [
         "Oracle context from CI corpus artifact:",
-        f"- Repos and exact examples: `python3 scripts/investigate-cop.py {cop} --input {standard_corpus} --fn-only --context --limit 10`",
+        f"- Repos and exact examples: `python3 scripts/investigate_cop.py {cop} --input {standard_corpus} --fn-only --context --limit 10`",
     ]
 
     repo_breakdown = oracle_repo_breakdown.get(cop, {})
@@ -212,16 +212,16 @@ def render_start_here(
 ) -> list[str]:
     lines = [
         "Start here:",
-        f"- Re-run after edits: `python3 scripts/check-cop.py {cop} --verbose --rerun --quick --clone`",
+        f"- Re-run after edits: `python3 scripts/check_cop.py {cop} --verbose --rerun --quick --clone`",
     ]
     if standard_corpus is not None:
         lines.append(
-            f"- Baseline corpus context: `python3 scripts/investigate-cop.py {cop} --input {standard_corpus} --repos-only`"
+            f"- Baseline corpus context: `python3 scripts/investigate_cop.py {cop} --input {standard_corpus} --repos-only`"
         )
     if batch_mode and top_repos:
         lines.extend(
             [
-                f"- Batch sanity check if counts look suspicious: `python3 scripts/check-cop.py {cop} --verbose --rerun --quick --clone --no-batch`",
+                f"- Batch sanity check if counts look suspicious: `python3 scripts/check_cop.py {cop} --verbose --rerun --quick --clone --no-batch`",
                 "- This local packet used batch `--corpus-check`; compare 1-2 top repos in per-repo mode before inventing a full manual sweep.",
             ]
         )
@@ -326,7 +326,7 @@ def main() -> int:
     changed_result = run_capture(
         [
             sys.executable,
-            "scripts/dispatch-cops.py",
+            "scripts/dispatch_cops.py",
             "changed",
             "--base",
             "origin/main",
@@ -344,7 +344,7 @@ def main() -> int:
         for cop in cops:
             cmd = [
                 sys.executable,
-                "scripts/check-cop.py",
+                "scripts/check_cop.py",
                 cop,
                 "--verbose",
                 "--rerun",
@@ -366,7 +366,7 @@ def main() -> int:
         results.append(
             {
                 "cop": "(changed-cops detection failed)",
-                "command": f"{sys.executable} scripts/dispatch-cops.py changed --base origin/main --head HEAD",
+                "command": f"{sys.executable} scripts/dispatch_cops.py changed --base origin/main --head HEAD",
                 "status": changed_result.returncode,
                 "output": tail_lines((changed_result.stdout + changed_result.stderr).strip()),
             }

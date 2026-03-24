@@ -22,10 +22,10 @@ Final stop condition:
 - The target shows 100.0% / 0 FP / 0 FN in the generated corpus reports
   (`README.md`, `docs/corpus.md`, and related artifacts), never via manual edits.
 - Linux CI/corpus oracle agrees with the local result.
-Per-cop `check-cop.py --rerun` results are intermediate count-based gates only.
+Per-cop `check_cop.py --rerun` results are intermediate count-based gates only.
 They are necessary, but they are NOT sufficient to end `/fix-department`.
 When the corpus oracle has concrete FP/FN examples for a cop, use
-`verify-cop-locations.py` as the location-level check before treating that cop
+`verify_cop_locations.py` as the location-level check before treating that cop
 as done locally.
 
 ## Persistence
@@ -134,10 +134,10 @@ On macOS or devcontainers, committing directly to main is acceptable.
    - Do **not** treat `vendor/corpus/` as mandatory bootstrap. The smoke test does not
      need it, and cloud environments should not prefetch the full corpus checkout.
    - Only hydrate corpus repos on demand when a workflow step actually needs local
-     source files (`investigate-cop.py --context` fallback, `reduce-mismatch.py`,
-     `verify-cop-locations.py`):
+     source files (`investigate_cop.py --context` fallback, `reduce_mismatch.py`,
+     `verify_cop_locations.py`):
      ```bash
-     python3 scripts/corpus-repo-map.py --clone Department/CopName
+     python3 scripts/corpus_repo_map.py --clone Department/CopName
      ```
    - Missing vendor **rubocop** submodules are setup failures. Missing `vendor/corpus`
      is not a failure unless the current investigation step needs local corpus files.
@@ -151,8 +151,8 @@ On macOS or devcontainers, committing directly to main is acceptable.
      cp "${CARGO_TARGET_DIR}/release/nitrocop" "/tmp/nitrocop-${target_name}"
      export NITROCOP_BIN="/tmp/nitrocop-${target_name}"
      ```
-     All Python scripts (`check-cop.py`, `verify-cop-locations.py`, `corpus-smoke-test.py`,
-     `reduce-mismatch.py`) honor `NITROCOP_BIN` to find the binary. Copying to `/tmp/`
+     All Python scripts (`check_cop.py`, `verify_cop_locations.py`, `corpus_smoke_test.py`,
+     `reduce_mismatch.py`) honor `NITROCOP_BIN` to find the binary. Copying to `/tmp/`
      prevents other agents' builds from overwriting it. Rebuild and re-copy after code
      changes (Phase 4 verification).
 
@@ -170,17 +170,17 @@ Skip Layout/ alignment cops unless they're the only ones remaining (complex mult
 
 For each selected cop, investigate the FP/FN pattern:
 ```bash
-python3 scripts/investigate-cop.py Department/CopName --context --fp-only --limit 10
-python3 scripts/investigate-cop.py Department/CopName --context --fn-only --limit 10
+python3 scripts/investigate_cop.py Department/CopName --context --fp-only --limit 10
+python3 scripts/investigate_cop.py Department/CopName --context --fn-only --limit 10
 ```
 
-`investigate-cop.py` prefers embedded snippets from `corpus-results.json`. If that
+`investigate_cop.py` prefers embedded snippets from `corpus-results.json`. If that
 is insufficient and you need full local source files, clone only the relevant repos:
 ```bash
-python3 scripts/corpus-repo-map.py --clone Department/CopName
+python3 scripts/corpus_repo_map.py --clone Department/CopName
 ```
 
-**Synthetic-only cops** (zero corpus activity): If `investigate-cop.py` shows no results, the cop
+**Synthetic-only cops** (zero corpus activity): If `investigate_cop.py` shows no results, the cop
 only has data in the synthetic corpus. Investigate using:
 ```bash
 # Read synthetic results for the cop
@@ -195,15 +195,15 @@ to re-verify after fixing.
 **Run the delta reducer** on up to 3 examples per cop (mix of FP and FN) to get minimal reproductions
 (corpus cops only — not applicable to synthetic-only cops):
 ```bash
-python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line            # FP
-python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line --type fn   # FN
+python3 scripts/reduce_mismatch.py Department/CopName repo_id filepath:line            # FP
+python3 scripts/reduce_mismatch.py Department/CopName repo_id filepath:line --type fn   # FN
 ```
 Pick examples from different repos when possible. The reduced files (typically 5–20 lines) go
 to `/tmp/nitrocop-reduce/` — read them and include them in the teammate prompt.
 
 Summarize: cop name, FP/FN counts, minimal repro(s), root cause hypothesis.
 
-**When no example locations are available** (investigate-cop.py shows counts but no
+**When no example locations are available** (investigate_cop.py shows counts but no
 file paths, and no corpus repos cloned): still dispatch teammates, but tell them
 upfront that examples are unavailable. For low-divergence cops (FP+FN ≤ 2), the
 FP/FN may be a corpus artifact — tell teammates to compare nitrocop vs vendor
@@ -269,7 +269,7 @@ if the prompt/examples require local corpus source context.
 2. **Understand the FP/FN pattern** from the examples provided in your prompt.
    If needed, read the actual source files from `vendor/corpus/<repo_id>/<path>` to see more context,
    but only after cloning the targeted repos for this cop. Prefer:
-   `python3 scripts/corpus-repo-map.py --clone Department/CopName`
+   `python3 scripts/corpus_repo_map.py --clone Department/CopName`
    instead of fetching a full corpus checkout.
    **DO NOT run nitrocop or rubocop directly** — not on corpus repos, not on ad-hoc
    files in `/tmp/`, not anywhere outside the test fixtures. Running `nitrocop` on
@@ -277,16 +277,16 @@ if the prompt/examples require local corpus source context.
    verify cop behavior are:
    - **Unit tests**: add patterns to `offense.rb` / `no_offense.rb` fixtures and run
      `cargo test --lib -- <cop_name_snake>` — this is fast, reliable, and self-documenting.
-   - **Corpus validation**: `check-cop.py --rerun` for aggregate count regression on
-     cops you modified; `check-cop.py --verbose` for untouched cops when the latest
+   - **Corpus validation**: `check_cop.py --rerun` for aggregate count regression on
+     cops you modified; `check_cop.py --verbose` for untouched cops when the latest
      corpus oracle run is current.
-   - **Location validation**: `python3 scripts/verify-cop-locations.py Department/CopName`
+   - **Location validation**: `python3 scripts/verify_cop_locations.py Department/CopName`
      for modified cops when the corpus oracle includes concrete FP/FN examples.
    - **Synthetic corpus**: `python3 bench/synthetic/run_synthetic.py --verbose` for
      synthetic-only cops.
    Never create test Ruby files outside the fixture directories.
 
-   **Bail-out rule:** If no example locations are available (investigate-cop.py shows
+   **Bail-out rule:** If no example locations are available (investigate_cop.py shows
    counts only, no file paths), no corpus repos are cloned locally, and the minimal
    repro examples in the prompt are insufficient to identify a concrete bug: stop
    investigating after analyzing the cop source + vendor RuboCop source. Compare the
@@ -362,27 +362,27 @@ if the prompt/examples require local corpus source context.
    CARGO_TARGET_DIR="target-${target_name}" cargo build --release
    cp "${CARGO_TARGET_DIR}/release/nitrocop" "/tmp/nitrocop-${target_name}"
    export NITROCOP_BIN="/tmp/nitrocop-${target_name}"
-   python3 scripts/corpus-smoke-test.py --binary "$NITROCOP_BIN"
+   python3 scripts/corpus_smoke_test.py --binary "$NITROCOP_BIN"
    ```
 
    Run the corpus smoke test once per batch, not after every cop. It is the cheap
    systemic guard for file discovery, config/plugin loading, directive handling,
-   and other cross-cop regressions that per-cop `check-cop.py` reruns will not catch.
+   and other cross-cop regressions that per-cop `check_cop.py` reruns will not catch.
    It does not require `vendor/corpus/`.
 
 4. Verify each fixed cop with the right acceptance gate (with `NITROCOP_BIN` set):
    ```bash
-   python3 scripts/check-cop.py Department/CopName --verbose --rerun
+   python3 scripts/check_cop.py Department/CopName --verbose --rerun
    python3 bench/synthetic/run_synthetic.py --verbose
    ```
    **Corpus validation is the intermediate acceptance gate** for corpus-backed
    cops — unit tests passing is necessary but NOT sufficient. The goal is
    `PASS: aggregate offense count matches RuboCop for this cop`, plus
-   `verify-cop-locations.py` when concrete oracle locations exist. `PASS: no
+   `verify_cop_locations.py` when concrete oracle locations exist. `PASS: no
    new excess vs CI nitrocop baseline` alone is not enough — the cop may still
    have remaining mismatches. For synthetic-only cops, re-run the synthetic
    benchmark and inspect that cop's entry in
-   `bench/synthetic/synthetic-results.json`; `check-cop.py` has no signal there.
+   `bench/synthetic/synthetic-results.json`; `check_cop.py` has no signal there.
    Use `--rerun` only for cops changed in this batch; for untouched corpus cops,
    use artifact mode (`--verbose`).
 
@@ -410,7 +410,7 @@ if the prompt/examples require local corpus source context.
    python3 .claude/skills/fix-department/scripts/gem_progress.py --gem <gem-name>
    ```
    Note: This still reads the original corpus data. Per-cop verification via
-   `check-cop.py` or `run_synthetic.py` gives the ground truth for fixed cops.
+   `check_cop.py` or `run_synthetic.py` gives the ground truth for fixed cops.
 
 7. If the user explicitly asks for a corpus-report refresh, use the real
    generation path rather than editing files by hand:
@@ -430,7 +430,7 @@ if the prompt/examples require local corpus source context.
 8. After a CI corpus-report refresh, inspect the target row in `README.md` and
    `docs/corpus.md`:
    - If the row is still below 100%, go back to Phase 1 even if the modified
-     cops passed `check-cop.py --rerun` and `verify-cop-locations.py`.
+     cops passed `check_cop.py --rerun` and `verify_cop_locations.py`.
    - If the row is 100% locally but Linux CI/corpus oracle is not yet green or
      disagrees, treat that as a parity bug and keep investigating. Do not
      declare the department/gem complete yet.
@@ -472,7 +472,7 @@ When the generated target row is at 100% and Linux CI agrees:
    cargo fmt
    cargo clippy --release -- -D warnings
    cargo test --release
-   python3 scripts/corpus-smoke-test.py --binary target/release/nitrocop
+   python3 scripts/corpus_smoke_test.py --binary target/release/nitrocop
    ```
 
 2. Report to the user:

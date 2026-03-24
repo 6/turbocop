@@ -11,7 +11,7 @@ Use the deterministic regression investigator first. Do not start with ad hoc Gi
 ## Primary command
 
 ```bash
-python3 scripts/investigate-regression.py --repo 6/nitrocop --corpus standard
+python3 scripts/investigate_regression.py --repo 6/nitrocop --corpus standard
 ```
 
 This compares the latest two successful corpus-oracle runs for that corpus,
@@ -28,13 +28,13 @@ lists regressed cops, links them to tracker issues, and surfaces:
 Reopen/comment linked issues for regressed cops:
 
 ```bash
-python3 scripts/investigate-regression.py --repo 6/nitrocop --action reopen
+python3 scripts/investigate_regression.py --repo 6/nitrocop --action reopen
 ```
 
 Reopen issues and dispatch simple regressions back into `agent-cop-fix`:
 
 ```bash
-python3 scripts/investigate-regression.py --repo 6/nitrocop --action dispatch-simple
+python3 scripts/investigate_regression.py --repo 6/nitrocop --action dispatch-simple
 ```
 
 ## Workflow entrypoint

@@ -75,21 +75,21 @@ EASY_STEP_COMMANDS = {
 
 HARD_STEP_COMMANDS = {
     "Check cops against corpus baseline": (
-        "python3 scripts/dispatch-cops.py changed --base origin/main --head HEAD > \"$REPAIR_CHANGED_COPS_FILE\"\n"
+        "python3 scripts/dispatch_cops.py changed --base origin/main --head HEAD > \"$REPAIR_CHANGED_COPS_FILE\"\n"
         "failed=0\n"
         "while IFS= read -r cop; do\n"
         "  [ -z \"$cop\" ] && continue\n"
         "  echo \"==============================\"\n"
         "  echo \"Checking: $cop (re-running against corpus)\"\n"
         "  echo \"==============================\"\n"
-        "  if ! python3 scripts/check-cop.py \"$cop\" --verbose --rerun --quick --clone; then\n"
+        "  if ! python3 scripts/check_cop.py \"$cop\" --verbose --rerun --quick --clone; then\n"
         "    echo \"FAIL: $cop regression detected\"\n"
         "    failed=$((failed + 1))\n"
         "  fi\n"
         "done < \"$REPAIR_CHANGED_COPS_FILE\"\n"
         "test \"$failed\" -eq 0"
     ),
-    "Run smoke test": "python3 scripts/corpus-smoke-test.py --binary target/release/nitrocop",
+    "Run smoke test": "python3 scripts/corpus_smoke_test.py --binary target/release/nitrocop",
 }
 
 
@@ -445,10 +445,10 @@ def build_prompt(
         ])
         if corpus_path:
             lines.append(
-                f"python3 scripts/investigate-cop.py Department/CopName --input {corpus_path} --context"
+                f"python3 scripts/investigate_cop.py Department/CopName --input {corpus_path} --context"
             )
             lines.append(
-                f"python3 scripts/check-cop.py Department/CopName --input {corpus_path} --verbose --rerun --quick --clone"
+                f"python3 scripts/check_cop.py Department/CopName --input {corpus_path} --verbose --rerun --quick --clone"
             )
         lines.extend([
             "```",

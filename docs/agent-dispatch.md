@@ -17,7 +17,7 @@ You (any machine with gh CLI)
   ▼
 GitHub Actions (agent-cop-fix.yml)
   │  1. Checkout repo + build Rust (cached, ~1 min)
-  │  2. dispatch-cops.py task → self-contained task prompt
+  │  2. dispatch_cops.py task → self-contained task prompt
   │  3. codex exec --dangerously-bypass-approvals-and-sandbox
   │     → auto-routed to gpt-5.3-codex or gpt-5.4
   │  4. cargo test --lib → validate the fix compiles + tests pass
@@ -80,7 +80,7 @@ Go to **Settings > Rules > Rulesets > New ruleset**:
 ### Phase 1: Triage / Issue Sync (5 min)
 
 ```bash
-python3 scripts/dispatch-cops.py tiers
+python3 scripts/dispatch_cops.py tiers
 gh workflow run cop-issue-sync.yml
 ```
 
@@ -131,7 +131,7 @@ gh workflow run corpus-oracle.yml
 
 ### Task Packet
 
-`dispatch-cops.py task` produces a markdown prompt containing:
+`dispatch_cops.py task` produces a markdown prompt containing:
 - Focused instructions (TDD workflow, fixture format)
 - The cop's Rust source
 - RuboCop's Ruby implementation (ground truth)
@@ -166,7 +166,7 @@ On the PR, two additional workflows run:
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/dispatch-cops.py` | Dispatch helper CLI: task generation, tiers, changed cops, prior attempts, issue sync, issue dispatch, and backend routing |
+| `scripts/dispatch_cops.py` | Dispatch helper CLI: task generation, tiers, changed cops, prior attempts, issue sync, issue dispatch, and backend routing |
 
 ## Workflows
 

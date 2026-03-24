@@ -2,7 +2,7 @@
 
 ## Problem
 
-When `investigate-cop.py` surfaces an FP/FN in a 400-line file, finding the root cause is manual and slow. You read the source, guess which syntax motif triggers the mismatch, and iterate. This is the main bottleneck in the fix loop.
+When `investigate_cop.py` surfaces an FP/FN in a 400-line file, finding the root cause is manual and slow. You read the source, guess which syntax motif triggers the mismatch, and iterate. This is the main bottleneck in the fix loop.
 
 ## Goal
 
@@ -13,7 +13,7 @@ A script that takes a corpus mismatch (cop + file) and automatically shrinks the
 ### Input
 
 ```bash
-python3 scripts/reduce-mismatch.py Style/SymbolProc mastodon__mastodon__c1f398a app/models/user.rb:42
+python3 scripts/reduce_mismatch.py Style/SymbolProc mastodon__mastodon__c1f398a app/models/user.rb:42
 ```
 
 Arguments:
@@ -23,7 +23,7 @@ Arguments:
 
 Or with `--input` to auto-pick the first example:
 ```bash
-python3 scripts/reduce-mismatch.py Style/SymbolProc --auto
+python3 scripts/reduce_mismatch.py Style/SymbolProc --auto
 ```
 
 This reads `corpus-results.json`, picks the first FP example for that cop, and reduces it.
@@ -93,7 +93,7 @@ The reduced file is:
 1. Written to a temp directory
 2. Optionally copied into the fixture directory with `--save-fixture`:
    ```bash
-   python3 scripts/reduce-mismatch.py Style/SymbolProc --auto --save-fixture
+   python3 scripts/reduce_mismatch.py Style/SymbolProc --auto --save-fixture
    # → appends to tests/fixtures/cops/style/symbol_proc/offense.rb (for FN)
    # → appends to tests/fixtures/cops/style/symbol_proc/no_offense.rb (for FP)
    ```
@@ -103,9 +103,9 @@ The reduced file is:
 Reduce all FP examples for a cop at once:
 
 ```bash
-python3 scripts/reduce-mismatch.py Style/SymbolProc --all-fps --parallel 4
-python3 scripts/reduce-mismatch.py Style/SymbolProc --all-fns --parallel 4
-python3 scripts/reduce-mismatch.py Style/SymbolProc --all --parallel 4     # both FP + FN
+python3 scripts/reduce_mismatch.py Style/SymbolProc --all-fps --parallel 4
+python3 scripts/reduce_mismatch.py Style/SymbolProc --all-fns --parallel 4
+python3 scripts/reduce_mismatch.py Style/SymbolProc --all --parallel 4     # both FP + FN
 ```
 
 This produces a set of minimal repros, deduplicates them into clusters, and reports a summary. The whole point: 50 corpus mismatches collapse into 3–5 distinct root causes.
@@ -269,19 +269,19 @@ This JSON can be consumed by `/fix-cops` to hand each cluster (not each raw FP) 
 
 ### Integration with Existing Tools
 
-- **`investigate-cop.py`**: Add `--reduce` flag that pipes each example into the reducer
-- **`check-cop.py`**: After `--verbose` shows regressions, offer to reduce new FPs
+- **`investigate_cop.py`**: Add `--reduce` flag that pipes each example into the reducer
+- **`check_cop.py`**: After `--verbose` shows regressions, offer to reduce new FPs
 - **`/fix-cops` skill**: Before handing a cop to a teammate, pre-reduce the top 3 FP examples so the teammate gets minimal repros instead of 400-line files
 
 ### Key Files
 
 | File | Role |
 |------|------|
-| `scripts/reduce-mismatch.py` | Main reducer script (new) |
+| `scripts/reduce_mismatch.py` | Main reducer script (new) |
 | `bench/corpus/baseline_rubocop.yml` | Config used for nitrocop invocations |
 | `vendor/corpus/{repo_id}/{filepath}` | Source files to reduce |
-| `scripts/investigate-cop.py` | FP/FN example source; integration point |
-| `scripts/check-cop.py` | Regression verification; integration point |
+| `scripts/investigate_cop.py` | FP/FN example source; integration point |
+| `scripts/check_cop.py` | Regression verification; integration point |
 
 ### Risks / Open Questions
 
@@ -299,4 +299,4 @@ This JSON can be consumed by `/fix-cops` to hand each cluster (not each raw FP) 
 
 2. **V2**: Add `--auto` (pick from corpus-results.json), `--save-fixture` (append to offense.rb/no_offense.rb with annotations), and the Prism parseability gate.
 
-3. **V3**: Batch mode (`--all-fps`, `--all-fns`, `--all`) with parallel reduction. AST fingerprinting and cluster dedup. JSON output for tooling. Integration with `investigate-cop.py --reduce` and `/fix-cops` skill (hand clusters to teammates instead of raw examples).
+3. **V3**: Batch mode (`--all-fps`, `--all-fns`, `--all`) with parallel reduction. AST fingerprinting and cluster dedup. JSON output for tooling. Integration with `investigate_cop.py --reduce` and `/fix-cops` skill (hand clusters to teammates instead of raw examples).

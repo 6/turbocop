@@ -202,7 +202,7 @@ def cmd_select_backend(args: list[str]) -> int:
 
     if opts.backend_input == "auto":
         cmd = [
-            sys.executable, str(SCRIPTS_DIR.parent / "dispatch-cops.py"), "backend",
+            sys.executable, str(SCRIPTS_DIR.parent / "dispatch_cops.py"), "backend",
             "--repo", opts.repo,
             "--cop", opts.cop,
             "--mode", opts.mode,
@@ -323,7 +323,7 @@ def cmd_build_prompt(args: list[str]) -> int:
     # Retry mode: collect prior attempts and close stale PRs
     if opts.mode == "retry":
         _run_ok([
-            sys.executable, str(SCRIPTS_DIR.parent / "dispatch-cops.py"),
+            sys.executable, str(SCRIPTS_DIR.parent / "dispatch_cops.py"),
             "prior-attempts",
             "--cop", opts.cop,
             "--output", str(prior_attempts_file),

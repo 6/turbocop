@@ -9,12 +9,12 @@ locations grouped by repo with optional source context from vendor/corpus/.
 No nitrocop execution needed — this reads pre-computed data.
 
 Usage:
-    python3 scripts/investigate-cop.py Style/PercentQLiterals
-    python3 scripts/investigate-cop.py Style/PercentQLiterals --context
-    python3 scripts/investigate-cop.py Style/PercentQLiterals --repos-only
-    python3 scripts/investigate-cop.py Style/PercentQLiterals --fp-only
-    python3 scripts/investigate-cop.py Style/PercentQLiterals --fn-only
-    python3 scripts/investigate-cop.py Style/PercentQLiterals --input corpus-results.json
+    python3 scripts/investigate_cop.py Style/PercentQLiterals
+    python3 scripts/investigate_cop.py Style/PercentQLiterals --context
+    python3 scripts/investigate_cop.py Style/PercentQLiterals --repos-only
+    python3 scripts/investigate_cop.py Style/PercentQLiterals --fp-only
+    python3 scripts/investigate_cop.py Style/PercentQLiterals --fn-only
+    python3 scripts/investigate_cop.py Style/PercentQLiterals --input corpus-results.json
 """
 
 import argparse

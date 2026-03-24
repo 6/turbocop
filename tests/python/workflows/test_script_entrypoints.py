@@ -25,8 +25,8 @@ def run_help(path: Path) -> None:
 
 
 def test_public_and_workflow_scripts_run_without_pythonpath():
-    run_help(ROOT / "scripts" / "check-cop.py")
-    run_help(ROOT / "scripts" / "dispatch-cops.py")
+    run_help(ROOT / "scripts" / "check_cop.py")
+    run_help(ROOT / "scripts" / "dispatch_cops.py")
     run_help(ROOT / "scripts" / "workflows" / "prepare_pr_repair.py")
     run_help(ROOT / "scripts" / "workflows" / "agent_logs.py")
 

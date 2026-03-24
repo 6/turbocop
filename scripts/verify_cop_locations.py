@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Per-line verification of cop FP/FN against CI corpus oracle data.
 
-Unlike check-cop.py (aggregate counts), this checks SPECIFIC offense locations
+Unlike check_cop.py (aggregate counts), this checks SPECIFIC offense locations
 from the CI corpus oracle. It runs nitrocop on individual corpus files and
 verifies whether each known FP/FN has been fixed.
 
 Usage:
-    python3 scripts/verify-cop-locations.py Metrics/AbcSize
-    python3 scripts/verify-cop-locations.py Metrics/AbcSize --fp-only
-    python3 scripts/verify-cop-locations.py Metrics/AbcSize --fn-only
-    python3 scripts/verify-cop-locations.py Metrics/BlockLength Metrics/MethodLength
+    python3 scripts/verify_cop_locations.py Metrics/AbcSize
+    python3 scripts/verify_cop_locations.py Metrics/AbcSize --fp-only
+    python3 scripts/verify_cop_locations.py Metrics/AbcSize --fn-only
+    python3 scripts/verify_cop_locations.py Metrics/BlockLength Metrics/MethodLength
 """
 
 import argparse
@@ -337,7 +337,7 @@ def main():
 
 
 def _run_tests():
-    """Self-tests for pure functions. Run with: python3 scripts/verify-cop-locations.py --test"""
+    """Self-tests for pure functions. Run with: python3 scripts/verify_cop_locations.py --test"""
     # parse_loc
     assert parse_loc("repo__id__abc123: path/to/file.rb:42") == ("repo__id__abc123", "path/to/file.rb", 42)
     assert parse_loc("r: a.rb:1") == ("r", "a.rb", 1)

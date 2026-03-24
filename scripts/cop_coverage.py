@@ -8,11 +8,11 @@ repo spread, with a confidence tier. Use this to identify cops that lack
 real-world validation from the corpus.
 
 Usage:
-    python3 scripts/cop-coverage.py --input results.json                    # single corpus
-    python3 scripts/cop-coverage.py --input results.json --synthetic s.json # + synthetic
-    python3 scripts/cop-coverage.py --zero-only                             # only zero-hit cops
-    python3 scripts/cop-coverage.py --department Style                      # filter by department
-    python3 scripts/cop-coverage.py --format csv                            # CSV output
+    python3 scripts/cop_coverage.py --input results.json                    # single corpus
+    python3 scripts/cop_coverage.py --input results.json --synthetic s.json # + synthetic
+    python3 scripts/cop_coverage.py --zero-only                             # only zero-hit cops
+    python3 scripts/cop_coverage.py --department Style                      # filter by department
+    python3 scripts/cop_coverage.py --format csv                            # CSV output
 """
 
 import argparse

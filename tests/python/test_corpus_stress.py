@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for corpus-stress.py."""
+"""Tests for corpus_stress.py."""
 
 import importlib.util
 from pathlib import Path
 
-SCRIPT = Path(__file__).parents[2] / "scripts" / "corpus-stress.py"
+SCRIPT = Path(__file__).parents[2] / "scripts" / "corpus_stress.py"
 SPEC = importlib.util.spec_from_file_location("corpus_stress", SCRIPT)
 assert SPEC and SPEC.loader
 corpus_stress = importlib.util.module_from_spec(SPEC)

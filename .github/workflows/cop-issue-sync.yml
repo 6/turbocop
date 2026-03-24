@@ -55,4 +55,4 @@ jobs:
           if [ -n "${{ github.event.inputs.department }}" ]; then
             ARGS+=(--department "${{ github.event.inputs.department }}")
           fi
-          python3 scripts/dispatch-cops.py issues-sync "${ARGS[@]}"
+          python3 scripts/dispatch_cops.py issues-sync "${ARGS[@]}"

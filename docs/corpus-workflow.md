@@ -5,36 +5,36 @@
 Use the cached corpus tools before rerunning expensive checks:
 
 ```bash
-python3 scripts/investigate-cop.py Department/CopName
-python3 scripts/investigate-cop.py Department/CopName --repos-only
-python3 scripts/investigate-cop.py Department/CopName --context
-python3 scripts/investigate-repo.py rails
-python3 scripts/reduce-mismatch.py Department/CopName repo_id path/to/file.rb:line
+python3 scripts/investigate_cop.py Department/CopName
+python3 scripts/investigate_cop.py Department/CopName --repos-only
+python3 scripts/investigate_cop.py Department/CopName --context
+python3 scripts/investigate_repo.py rails
+python3 scripts/reduce_mismatch.py Department/CopName repo_id path/to/file.rb:line
 ```
 
-`investigate-cop.py` and `investigate-repo.py` download the latest corpus artifact automatically. Do not manually download artifacts first.
+`investigate_cop.py` and `investigate_repo.py` download the latest corpus artifact automatically. Do not manually download artifacts first.
 
 ## Regression Checks
 
-Use `check-cop.py` for aggregate corpus validation after a fix:
+Use `check_cop.py` for aggregate corpus validation after a fix:
 
 ```bash
-python3 scripts/check-cop.py Department/CopName
-python3 scripts/check-cop.py Department/CopName --verbose
-python3 scripts/check-cop.py Department/CopName --verbose --rerun
-python3 scripts/check-cop.py Department/CopName --verbose --rerun --quick
-python3 scripts/verify-cop-locations.py Department/CopName
+python3 scripts/check_cop.py Department/CopName
+python3 scripts/check_cop.py Department/CopName --verbose
+python3 scripts/check_cop.py Department/CopName --verbose --rerun
+python3 scripts/check_cop.py Department/CopName --verbose --rerun --quick
+python3 scripts/verify_cop_locations.py Department/CopName
 ```
 
 Important:
 
-- `check-cop.py` is count-based. It does not prove exact location matches.
-- `verify-cop-locations.py` checks the known oracle FP/FN locations.
+- `check_cop.py` is count-based. It does not prove exact location matches.
+- `verify_cop_locations.py` checks the known oracle FP/FN locations.
 - “file-drop noise” is not an excuse for real FN gaps. Investigate the actual missed examples.
 
 ## Corpus Bundle Notes
 
-`check-cop.py --rerun` and `--corpus-check` require the active Ruby bundle under `bench/corpus/vendor/bundle/`.
+`check_cop.py --rerun` and `--corpus-check` require the active Ruby bundle under `bench/corpus/vendor/bundle/`.
 
 ```bash
 cd bench/corpus
@@ -48,15 +48,15 @@ If `bundle info rubocop` fails, config resolution falls back to defaults and cou
 Issue-backed cop dispatch:
 
 ```bash
-python3 scripts/dispatch-cops.py issues-sync --binary target/debug/nitrocop
-python3 scripts/dispatch-cops.py dispatch-issues --max-active 5
-python3 scripts/dispatch-cops.py backend --cop Department/CopName --binary target/debug/nitrocop
+python3 scripts/dispatch_cops.py issues-sync --binary target/debug/nitrocop
+python3 scripts/dispatch_cops.py dispatch-issues --max-active 5
+python3 scripts/dispatch_cops.py backend --cop Department/CopName --binary target/debug/nitrocop
 ```
 
 Regression triage:
 
 ```bash
-python3 scripts/investigate-regression.py --action report
+python3 scripts/investigate_regression.py --action report
 ```
 
 ## Bench And Conformance

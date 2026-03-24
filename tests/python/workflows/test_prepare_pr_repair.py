@@ -41,7 +41,7 @@ def test_hard_cop_check_routes_to_codex():
     assert result["backend"] == "codex-hard"
     assert result["guard_profile"] == "repair-cop-check"
     assert result["cop_check_failure"] is True
-    assert any("scripts/check-cop.py" in command for command in result["verification_commands"])
+    assert any("scripts/check_cop.py" in command for command in result["verification_commands"])
 
 
 def test_mixed_failures_escalate_to_hard():
@@ -57,7 +57,7 @@ def test_mixed_failures_escalate_to_hard():
     assert result["guard_profile"] == "repair-smoke"
     assert result["cop_check_failure"] is False
     assert any("cargo clippy" in command for command in result["verification_commands"])
-    assert any("corpus-smoke-test.py" in command for command in result["verification_commands"])
+    assert any("corpus_smoke_test.py" in command for command in result["verification_commands"])
 
 
 def test_macos_only_failure_is_skipped():
@@ -104,7 +104,7 @@ def test_prompt_includes_route_and_failed_packet():
         "backend": "codex-hard",
         "guard_profile": "repair-cop-check",
         "reason": "cop-check: Check cops against corpus baseline",
-        "verification_commands": ["cargo build --release", "python3 scripts/check-cop.py Foo/Bar"],
+        "verification_commands": ["cargo build --release", "python3 scripts/check_cop.py Foo/Bar"],
         "jobs": [
             {
                 "name": "cop-check",

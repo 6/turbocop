@@ -8,13 +8,13 @@ description: Investigate a corpus regression between two corpus-oracle runs, reo
 Start with the deterministic script, not ad hoc browsing:
 
 ```bash
-python3 scripts/investigate-regression.py --repo 6/nitrocop```
+python3 scripts/investigate_regression.py --repo 6/nitrocop```
 
 If mutation is desired:
 
 ```bash
-python3 scripts/investigate-regression.py --repo 6/nitrocop --corpus standard --action reopen
-python3 scripts/investigate-regression.py --repo 6/nitrocop --corpus standard --action dispatch-simple
+python3 scripts/investigate_regression.py --repo 6/nitrocop --corpus standard --action reopen
+python3 scripts/investigate_regression.py --repo 6/nitrocop --corpus standard --action dispatch-simple
 ```
 
 For GitHub-hosted execution:

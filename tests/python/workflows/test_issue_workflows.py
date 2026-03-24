@@ -27,7 +27,7 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "cop_fix_lifecycle.py finalize" in yml
 
     # Logic now lives in cop_fix_lifecycle.py
-    assert "dispatch-cops.py" in py
+    assert "dispatch_cops.py" in py
     assert "offense_fixtures_have_no_unannotated_blocks" in py
     assert "Closes #{" in py
     assert "nitrocop-cop-issue" in py
@@ -96,21 +96,21 @@ def test_agent_pr_repair_distinguishes_agent_failure_from_verify_failure():
 def test_issue_sync_workflow_uses_app_token_and_dispatch_script():
     content = COP_ISSUE_SYNC.read_text()
     assert "actions/create-github-app-token@v3" in content
-    assert "python3 scripts/dispatch-cops.py issues-sync" in content
+    assert "python3 scripts/dispatch_cops.py issues-sync" in content
     assert "--binary target/debug/nitrocop" in content
 
 
 def test_issue_dispatch_workflow_uses_github_token_and_dispatch_script():
     content = COP_ISSUE_DISPATCH.read_text()
     assert "github.token" in content
-    assert "python3 scripts/dispatch-cops.py dispatch-issues" in content
+    assert "python3 scripts/dispatch_cops.py dispatch-issues" in content
     assert "--max-active" in content
 
 
 def test_investigate_regression_workflow_uses_script():
     content = INVESTIGATE_REGRESSION.read_text()
     assert "actions/create-github-app-token@v3" in content
-    assert "python3 scripts/investigate-regression.py" in content
+    assert "python3 scripts/investigate_regression.py" in content
     assert "dispatch-simple" in content
 
 

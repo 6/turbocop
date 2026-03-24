@@ -163,7 +163,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          python3 scripts/dispatch-cops.py task \
+          python3 scripts/dispatch_cops.py task \
             "${{ github.event.inputs.cop }}" \
             --binary target/debug/nitrocop \
             --output "$TASK_FILE"

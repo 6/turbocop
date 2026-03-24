@@ -69,4 +69,4 @@ jobs:
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS+=(--dry-run)
           fi
-          python3 scripts/dispatch-cops.py dispatch-issues "${ARGS[@]}"
+          python3 scripts/dispatch_cops.py dispatch-issues "${ARGS[@]}"

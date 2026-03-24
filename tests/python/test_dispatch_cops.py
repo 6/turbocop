@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for dispatch-cops.py helper functions."""
+"""Tests for dispatch_cops.py helper functions."""
 import importlib.util
 import io
 import json
@@ -7,7 +7,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 
-SCRIPT = Path(__file__).parents[2] / "scripts" / "dispatch-cops.py"
+SCRIPT = Path(__file__).parents[2] / "scripts" / "dispatch_cops.py"
 SPEC = importlib.util.spec_from_file_location("dispatch_cops", SCRIPT)
 assert SPEC and SPEC.loader
 gct = importlib.util.module_from_spec(SPEC)
@@ -250,7 +250,7 @@ def test_build_start_here_section_uses_repo_hotspots_and_examples():
     }
     section = gct.build_start_here_section("Style/MixinUsage", corpus)
     assert "## Start Here" in section
-    assert "python3 scripts/investigate-cop.py Style/MixinUsage --repos-only" in section
+    assert "python3 scripts/investigate_cop.py Style/MixinUsage --repos-only" in section
     assert "`travis-ci__dpl__8c6eabc` (3 FP) — example `lib/foo.rb:10`" in section
     assert "`puppetlabs__puppet__e227c27` (4 FN) — example `manifests/init.rb:30`" in section
     assert "Representative FP examples:" in section

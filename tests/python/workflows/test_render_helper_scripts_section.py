@@ -21,16 +21,16 @@ def test_renders_only_present_helper_scripts():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
         (root / "scripts").mkdir()
-        (root / "scripts" / "check-cop.py").write_text("print('ok')\n")
-        (root / "scripts" / "dispatch-cops.py").write_text("print('ok')\n")
+        (root / "scripts" / "check_cop.py").write_text("print('ok')\n")
+        (root / "scripts" / "dispatch_cops.py").write_text("print('ok')\n")
 
         section = renderer.build_section(root)
         assert "## Available Local Helper Scripts" in section
-        assert "`scripts/check-cop.py`" in section
-        assert "`scripts/dispatch-cops.py`" in section
-        assert "scripts/corpus-smoke-test.py" not in section
-        assert "python3 scripts/check-cop.py Department/CopName --verbose --rerun --quick --clone" in section
-        assert "python3 scripts/dispatch-cops.py changed --base origin/main --head HEAD" in section
+        assert "`scripts/check_cop.py`" in section
+        assert "`scripts/dispatch_cops.py`" in section
+        assert "scripts/corpus_smoke_test.py" not in section
+        assert "python3 scripts/check_cop.py Department/CopName --verbose --rerun --quick --clone" in section
+        assert "python3 scripts/dispatch_cops.py changed --base origin/main --head HEAD" in section
 
 
 if __name__ == "__main__":

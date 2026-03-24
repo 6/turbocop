@@ -60,7 +60,7 @@ jobs:
           if [ -n "${{ github.event.inputs.after_run }}" ]; then
             ARGS+=(--after-run "${{ github.event.inputs.after_run }}")
           fi
-          python3 scripts/investigate-regression.py "${ARGS[@]}"
+          python3 scripts/investigate_regression.py "${ARGS[@]}"
           cat regression-report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload regression report
