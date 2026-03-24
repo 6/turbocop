@@ -224,6 +224,7 @@ def main():
     by_cop_fn = defaultdict(int)  # rubocop-only
     by_cop_fp_examples = defaultdict(list)  # (filepath, line) per cop
     by_cop_fn_examples = defaultdict(list)
+    by_cop_unfiltered: dict[str, int] = {}  # nitrocop count BEFORE RuboCop file-filtering
     by_repo_cop = defaultdict(lambda: defaultdict(lambda: {"matches": 0, "fp": 0, "fn": 0}))
     total_matches = 0
     total_fp = 0
@@ -301,6 +302,13 @@ def main():
         # - Fix upstream in parser gem / Prism translation layer: the crash is
         #   in Parser::Builders::Default#static_regexp which doesn't rescue
         #   RegexpError. Not something we control.
+        # Count unfiltered nitrocop offenses per-cop before file filtering.
+        # check-cop.py doesn't run RuboCop, so it can't replicate the
+        # file-filtering step. The unfiltered count is stored in the
+        # artifact so check-cop can compare against it instead.
+        for _, _, cop in tc_offenses:
+            by_cop_unfiltered[cop] = by_cop_unfiltered.get(cop, 0) + 1
+
         if rc_inspected_files:
             tc_offenses = {o for o in tc_offenses if o[0] in rc_inspected_files}
 
@@ -417,12 +425,13 @@ def main():
         rate = m / total if total > 0 else 1.0
         diverging = fp + fn > 0
         exercised = total > 0
-        by_cop.append({
+        entry = {
             "cop": cop,
             "matches": m,
             "fp": fp,
             "fn": fn,
             "rubocop_total": m + fn,
+            "nitro_total_unfiltered": by_cop_unfiltered.get(cop, m + fp),
             "unique_repos": cop_repo_counts.get(cop, 0),
             "match_rate": trunc4(rate),
             "exercised": exercised,
@@ -430,7 +439,8 @@ def main():
             "diverging": diverging,
             "fp_examples": by_cop_fp_examples.get(cop, [])[:EXAMPLE_CAP],
             "fn_examples": by_cop_fn_examples.get(cop, [])[:EXAMPLE_CAP],
-        })
+        }
+        by_cop.append(entry)
     by_cop.sort(key=lambda x: x["fp"] + x["fn"], reverse=True)
 
     # Aggregate by department

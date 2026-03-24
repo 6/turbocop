@@ -776,14 +776,25 @@ def main():
     print("  Gate type: count-only / cop-level regression")
     print()
 
-    # Gate: compare actual FP/FN (vs rubocop) against CI baseline FP/FN.
-    # FAIL if either metric got WORSE than CI had. This correctly handles:
-    #   - Fixed FNs: count goes up → FN decreases → PASS
-    #   - New FPs:   count goes up → FP increases → FAIL
-    #   - New FNs:   count goes down → FN increases → FAIL
-    #   - Fixed FPs: count goes down → FP decreases → PASS
-    # Adjust for file-drop noise (repos where rubocop crashed on some files).
-    adjusted_excess = max(0, excess - file_drop_offenses)
+    # Gate: detect regressions from the CI baseline.
+    #
+    # The oracle filters nitrocop offenses to only RuboCop-inspected files
+    # (diff_results.py line 304-305) before counting. check-cop.py doesn't
+    # run RuboCop, so its count includes offenses on files RuboCop excluded
+    # or crashed on. This creates a constant positive offset.
+    #
+    # To handle this, we use the oracle's unfiltered nitrocop count
+    # (nitro_total_unfiltered) as the baseline when available. This is the
+    # count before RuboCop file-filtering, matching what check-cop produces.
+    # When unavailable, we fall back to ci_nitrocop_total (filtered).
+    nitro_unfiltered = cop_entry.get("nitro_total_unfiltered")
+    if nitro_unfiltered is not None:
+        # Compare against the unfiltered baseline — this matches check-cop exactly
+        adjusted_excess = max(0, nitrocop_total - nitro_unfiltered - file_drop_offenses)
+    else:
+        # Fallback: compare against the filtered baseline.
+        # The file-filtering gap means excess will be inflated.
+        adjusted_excess = max(0, excess - file_drop_offenses)
     fp_regression = max(0, adjusted_excess - baseline_fp)
     fn_regression = max(0, missing - baseline_fn) if args.rerun else 0
 
