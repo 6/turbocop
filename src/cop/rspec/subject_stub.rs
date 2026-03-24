@@ -42,15 +42,17 @@ use crate::parse::source::SourceFile;
 ///    Fixed by skipping DefNode when `receiver().is_some()`.
 ///    Example: travis-ci/dpl `spec/dpl/ctx/bash_spec.rb` — `def self.cmds(cmds)` contains
 ///    `before { allow(bash).to receive(...)  }`.
+///    FP=2: Corpus oracle artifact. Nitrocop is correct. No code fix needed.
 ///    Remaining 2 FPs (ubicloud host_nexus_spec.rb:173,196): confirmed corpus oracle
-///    artifact. `nx` is defined as `subject(:nx)` (line 6), so both tools should flag
-///    `expect(nx).to receive(:bud) do...end.at_least(:once)`. Verified empirically:
-///    RuboCop 1.85.1 + rubocop-rspec 3.9.0 flags both lines correctly (tested with
-///    `--config baseline.yml` and `--only RSpec/SubjectStub`). The project's own
-///    `.rubocop.yml` disables SubjectStub (`RSpec/SubjectStub: Enabled: false`), but
-///    the corpus oracle overrides this with `baseline_rubocop.yml`. Root cause of the
-///    oracle miss is unknown — possibly rubocop 1.84.2 vs 1.85.1 difference, or a
-///    transient CI issue. No cop logic fix needed; nitrocop is correct here.
+///    artifact as of 2026-03-24. `nx` is defined as `subject(:nx)` (line 6), so both
+///    tools should flag `expect(nx).to receive(:bud) do...end.at_least(:once)`.
+///    Verified empirically: RuboCop 1.85.1 + rubocop-rspec 3.9.0 flags both lines
+///    correctly (tested with `--config baseline.yml` and `--only RSpec/SubjectStub`).
+///    The project's own `.rubocop.yml` disables SubjectStub
+///    (`RSpec/SubjectStub: Enabled: false`), but the corpus oracle overrides this
+///    with `baseline_rubocop.yml`. Root cause of the oracle miss is unknown —
+///    possibly rubocop 1.84.2 vs 1.85.1 difference, or a transient CI issue.
+///    No cop logic fix needed; nitrocop is correct here.
 ///
 /// Round 4 FN fix (1→0):
 /// 7. Subject stubs inside blocks on intermediate calls in a receiver chain: when
