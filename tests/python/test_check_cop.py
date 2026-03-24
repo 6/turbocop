@@ -152,7 +152,7 @@ def test_rerun_local_per_repo_always_uses_per_repo_mode():
         check_cop.ensure_binary_fresh = lambda: calls.append("fresh")
         check_cop.clear_file_cache = lambda: calls.append("clear")
 
-        def fake_per_repo(_cop_name, relevant_repos=None):
+        def fake_per_repo(_cop_name, relevant_repos=None, **_kwargs):
             calls.append(("per_repo", relevant_repos))
             return {"repo-a": 2}
 
