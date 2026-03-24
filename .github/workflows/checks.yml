@@ -10,13 +10,29 @@ on:
   pull_request:
 
 jobs:
+  # Shared Linux release build — cop-check shards and corpus-smoke-test download
+  # this artifact instead of rebuilding (~2 min saved per job).
+  build-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+          ref: ${{ inputs.ref || '' }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release binary
+        run: cargo build --release
+      - uses: actions/upload-artifact@v6
+        with:
+          name: nitrocop-linux
+          path: target/release/nitrocop
+          retention-days: 1
+
   build-and-test:
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
@@ -30,70 +46,61 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Format
-        if: matrix.os == 'ubuntu-24.04'
         run: cargo fmt --check
 
       - name: Validate corpus manifest
-        if: matrix.os == 'ubuntu-24.04'
         run: python3 bench/corpus/validate_manifest.py
 
       - name: No vendor include macros
-        if: matrix.os == 'ubuntu-24.04'
         run: bash scripts/workflows/check_no_vendor_include_macros.sh
 
-      - name: Set up uv
-        if: matrix.os == 'ubuntu-24.04'
-        uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v6
 
       - name: Python lint
-        if: matrix.os == 'ubuntu-24.04'
         run: uv run ruff check scripts tests/python bench/corpus
 
       - name: Gem builder tests
-        if: matrix.os == 'ubuntu-24.04'
         run: ruby gem/test/gem_builder_test.rb
 
       - name: Python script tests
-        if: matrix.os == 'ubuntu-24.04'
         run: uv run pytest tests/python/ -v
 
       - name: Clippy
-        if: matrix.os == 'ubuntu-24.04'
         run: cargo clippy --profile ci -- -D warnings
 
-      # On ubuntu, clippy verifies compilation and corpus-smoke-test builds --release
-      # (same settings as --profile ci), so an explicit build step here is redundant.
-      # On macos, we still build --profile ci to catch cross-platform linking issues.
-      - name: Build
-        if: matrix.os == 'macos-latest'
-        run: cargo build --profile ci
-
-      # Compile test binaries in debug mode (dev profile, opt-level=1) rather than
-      # --profile ci (release + thin LTO). Test compilation with LTO was the main
-      # bottleneck: ~4m on ubuntu vs ~1.5m in debug. Test runtime stays under 30s.
-      # --no-run compiles all test binaries once up front so the per-filter steps
-      # below are instant and their step names show up clearly in the CI UI.
       - name: Compile tests
-        if: matrix.os == 'ubuntu-24.04'
         run: cargo test --no-run
 
       - name: NodePattern verifier
-        if: matrix.os == 'ubuntu-24.04'
         run: cargo test verifier -- --nocapture
 
       - name: Config audit
-        if: matrix.os == 'ubuntu-24.04'
         run: cargo test config_audit -- --nocapture
 
       - name: Prism pitfalls
-        if: matrix.os == 'ubuntu-24.04'
         run: cargo test prism_pitfalls -- --nocapture
 
       - name: File discovery sync
-        if: matrix.os == 'ubuntu-24.04'
         run: cargo test file_discovery_sync -- --nocapture
 
       - name: Test
+        run: cargo test
+
+  # macOS: build-only on PRs, build + test on main
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+          ref: ${{ inputs.ref || '' }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --profile ci
+      - name: Test
+        if: github.ref == 'refs/heads/main'
         run: cargo test
 
   # Corpus cop check: for any changed cops, re-run nitrocop on corpus repos
@@ -101,13 +108,10 @@ jobs:
   # before they reach the full 1000-repo corpus oracle.
   # --rerun: actually runs the new binary (not just cached results)
   # --quick: only repos with baseline activity for the cop (3-10x faster)
-  # Detect which cops changed so cop-check shards can skip when none changed
-  cop-detect:
+  cop-check:
+    needs: build-linux
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      has_cops: ${{ steps.cops.outputs.has_cops }}
-      changed_cops: ${{ steps.cops.outputs.changed_cops }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
@@ -128,67 +132,53 @@ jobs:
           cat /tmp/changed_cops.txt
           if [ -s /tmp/changed_cops.txt ]; then
             echo "has_cops=true" >> "$GITHUB_OUTPUT"
-            # Pass cop list as single-line for matrix jobs
-            echo "changed_cops=$(paste -sd',' /tmp/changed_cops.txt)" >> "$GITHUB_OUTPUT"
           else
             echo "has_cops=false" >> "$GITHUB_OUTPUT"
-            echo "changed_cops=" >> "$GITHUB_OUTPUT"
           fi
 
-  cop-check:
-    needs: cop-detect
-    if: needs.cop-detect.outputs.has_cops == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3]
-    steps:
-      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v6
+        if: steps.cops.outputs.has_cops == 'true'
         with:
-          submodules: true
-          fetch-depth: 0
-
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build release binary
-        run: cargo build --release
+          name: nitrocop-linux
+          path: target/release
+      - run: chmod +x target/release/nitrocop
+        if: steps.cops.outputs.has_cops == 'true'
 
       - uses: ruby/setup-ruby@v1
+        if: steps.cops.outputs.has_cops == 'true'
 
       - name: Cache corpus bundle
+        if: steps.cops.outputs.has_cops == 'true'
         uses: actions/cache@v5
         with:
           path: bench/corpus/vendor/bundle
           key: cop-check-bundle-${{ hashFiles('bench/corpus/Gemfile.lock') }}
 
       - name: Install corpus gems
+        if: steps.cops.outputs.has_cops == 'true'
         run: |
           cd bench/corpus
           bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
-      - name: Check cops against corpus baseline (shard ${{ matrix.shard }}/4)
+      - name: Check cops against corpus baseline
+        if: steps.cops.outputs.has_cops == 'true'
         env:
           NITROCOP_BIN: ${{ github.workspace }}/target/release/nitrocop
           GH_TOKEN: ${{ github.token }}
         run: |
-          IFS=',' read -ra COPS <<< "${{ needs.cop-detect.outputs.changed_cops }}"
           failed=0
-          for cop in "${COPS[@]}"; do
+          while IFS= read -r cop; do
             [ -z "$cop" ] && continue
             echo ""
             echo "=============================="
-            echo "Checking: $cop (shard ${{ matrix.shard }}/4)"
+            echo "Checking: $cop (re-running against corpus)"
             echo "=============================="
-            if ! python3 scripts/check_cop.py "$cop" --verbose --rerun --quick --clone \
-                 --shard-index ${{ matrix.shard }} --total-shards 4; then
+            if ! python3 scripts/check_cop.py "$cop" --verbose --rerun --quick --clone; then
               echo "FAIL: $cop regression detected"
               failed=$((failed + 1))
             fi
-          done
+          done < /tmp/changed_cops.txt
 
           if [ "$failed" -gt 0 ]; then
             echo ""
@@ -196,29 +186,11 @@ jobs:
             exit 1
           fi
 
-  # Roll-up job for branch protection — add "cop-check-gate" as a required check
-  cop-check-gate:
-    if: always()
-    needs: [cop-detect, cop-check]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 1
-    steps:
-      - run: |
-          if [ "${{ needs.cop-detect.outputs.has_cops }}" != "true" ]; then
-            echo "No cops changed — gate passes"
-            exit 0
-          fi
-          if [ "${{ needs.cop-check.result }}" = "success" ]; then
-            echo "All shards passed"
-            exit 0
-          fi
-          echo "cop-check failed: ${{ needs.cop-check.result }}"
-          exit 1
-
   # Corpus smoke test: run nitrocop + rubocop on a few cheap sentinel repos to
   # catch systemic regressions (file discovery, config, plugin loading, directives)
   # before they reach the full 1000-repo corpus oracle.
   corpus-smoke-test:
+    needs: build-linux
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -227,11 +199,11 @@ jobs:
           submodules: true
           ref: ${{ inputs.ref || '' }}
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build release binary
-        run: cargo build --release
+      - uses: actions/download-artifact@v6
+        with:
+          name: nitrocop-linux
+          path: target/release
+      - run: chmod +x target/release/nitrocop
 
       - uses: ruby/setup-ruby@v1
 
