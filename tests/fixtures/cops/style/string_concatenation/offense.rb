@@ -26,3 +26,13 @@ a + 'b' + c + 'd'
 # Single non-literal + string (aggressive mode)
 Pathname.new('/') + 'test'
 ^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+# Heredoc with single-line content (str in Parser) — flagged
+code = <<EOM + extra_code
+       ^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+content
+EOM
+
+# Single-line string with escape \n (not multi-line source) — flagged
+"hello\nworld" + name
+^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.

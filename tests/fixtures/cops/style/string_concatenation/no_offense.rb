@@ -16,11 +16,7 @@ request.path + "?sort=#{field}&order=#{order}"
 "#{index} " + user.email
 rule_message + "\n#{explanation}"
 
-# Heredoc concatenation — not flagged (can't convert to interpolation)
-code = <<EOM + code
-hostname = Socket.gethostname
-EOM
-
+# Multi-line heredoc content — in Parser these are dstr (not str_type?)
 conf = @basic_conf + <<CONF
 <match fluent.**>
   @type stdout
@@ -29,6 +25,7 @@ CONF
 
 result = header + <<~HEREDOC
   some content here
+  more content
 HEREDOC
 
 # Line-end concatenation (both sides str, + at end of line) — handled by Style/LineEndConcatenation
@@ -51,7 +48,3 @@ html = '
 x = 'line1
 line2' + y + 'line3
 line4'
-
-# Single-line string with escape sequence \n IS flagged (str_type? in Parser)
-# but multi-line source is NOT. This tests the boundary.
-# "hello\nworld" + name — would be flagged (single source line)
