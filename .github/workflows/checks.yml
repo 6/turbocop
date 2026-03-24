@@ -196,6 +196,25 @@ jobs:
             exit 1
           fi
 
+  # Roll-up job for branch protection — add "cop-check-gate" as a required check
+  cop-check-gate:
+    if: always()
+    needs: [cop-detect, cop-check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - run: |
+          if [ "${{ needs.cop-detect.outputs.has_cops }}" != "true" ]; then
+            echo "No cops changed — gate passes"
+            exit 0
+          fi
+          if [ "${{ needs.cop-check.result }}" = "success" ]; then
+            echo "All shards passed"
+            exit 0
+          fi
+          echo "cop-check failed: ${{ needs.cop-check.result }}"
+          exit 1
+
   # Corpus smoke test: run nitrocop + rubocop on a few cheap sentinel repos to
   # catch systemic regressions (file discovery, config, plugin loading, directives)
   # before they reach the full 1000-repo corpus oracle.
