@@ -839,7 +839,7 @@ fn search_assignment_alignment(
 }
 
 /// Search for any subsequent assignment at the same indent level and determine
-/// whether it's aligned, misaligned, or absent.
+/// whether it's aligned, misaligned, or absent. Uses RuboCop-like blank-line break.
 fn search_subsequent_assignment_status(
     source: &SourceFile,
     lines: &[&[u8]],
@@ -850,6 +850,7 @@ fn search_subsequent_assignment_status(
     code_map: Option<&CodeMap>,
 ) -> SubsequentStatus {
     let mut check_idx = line_idx + 1;
+    let mut at_relevant_indent = true;
     loop {
         if check_idx >= lines.len() {
             break;
@@ -862,6 +863,10 @@ fn search_subsequent_assignment_status(
 
         // Break on non-blank line with less indentation
         if !is_blank && !is_comment && indent < my_indent {
+            break;
+        }
+        // Break on blank line while at relevant indentation level
+        if at_relevant_indent && is_blank {
             break;
         }
 
@@ -887,6 +892,11 @@ fn search_subsequent_assignment_status(
                 }
                 return SubsequentStatus::Misaligned;
             }
+        }
+
+        // Update at_relevant_indent for non-blank lines
+        if !is_blank {
+            at_relevant_indent = indent == my_indent;
         }
 
         check_idx += 1;

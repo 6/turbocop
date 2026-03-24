@@ -837,9 +837,17 @@ fn is_guard_line_with_continuations(content: &[u8], lines: &[&[u8]], line_idx: u
 
 /// Check if the line at `line_idx` starts a multi-line modifier guard clause.
 /// Scans forward through continuation lines looking for `if`/`unless` keyword.
+///
+/// RuboCop requires `single_line?` on the guard statement (the raise/fail/return/etc.
+/// call). If the guard's arguments span multiple lines (comma or `+` continuation),
+/// the guard is NOT single-line and should NOT suppress the preceding offense.
+/// However, if the continuation is only `\` (backslash line wrap), the guard
+/// arguments may still be single-line — the `if`/`unless` modifier is just on
+/// the next line.
 fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
     let mut depth: i32 = 0; // track paren/brace nesting
     let mut is_first = true;
+    let mut guard_args_multiline = false;
     for line in &lines[line_idx..] {
         let trimmed_bytes = line
             .iter()
@@ -854,7 +862,9 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
             && depth <= 0
             && (contains_word(trimmed_bytes, b"if") || contains_word(trimmed_bytes, b"unless"))
         {
-            return true;
+            // If the guard's arguments span multiple lines (comma/plus/open-paren
+            // continuation), the guard fails RuboCop's `single_line?` check.
+            return !guard_args_multiline;
         }
         is_first = false;
 
@@ -874,10 +884,15 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
             .map(|end| &trimmed_bytes[..=end])
             .unwrap_or(trimmed_bytes);
 
-        let continues = stripped.ends_with(b"\\")
-            || stripped.ends_with(b",")
-            || stripped.ends_with(b"+")
-            || depth > 0;
+        let arg_continuation =
+            stripped.ends_with(b",") || stripped.ends_with(b"+") || depth > 0;
+        let line_continuation = stripped.ends_with(b"\\");
+
+        if arg_continuation {
+            guard_args_multiline = true;
+        }
+
+        let continues = arg_continuation || line_continuation;
 
         if !continues {
             break;
@@ -1046,7 +1061,11 @@ fn is_bare_guard_in_block(trimmed: &[u8], lines: &[&[u8]], line_idx: usize) -> b
         .map(|end| &trimmed[..=end])
         .unwrap_or(trimmed);
 
-    if stripped.ends_with(b"\\") || stripped.ends_with(b",") {
+    if stripped.ends_with(b"\\")
+        || stripped.ends_with(b",")
+        || stripped.ends_with(b"+")
+        || stripped.ends_with(b".")
+    {
         return false;
     }
 
