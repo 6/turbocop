@@ -314,7 +314,7 @@ jobs:
           python3 scripts/workflows/agent_logs.py watch \
             --newer-than "$FINAL_TASK_FILE" --interval 30 \
             --backend claude &
-          echo $! > /tmp/action_watcher_pid
+          echo $! > ${RUNNER_TEMP}/action_watcher_pid
 
       - name: Run agent (action)
         if: steps.task.outputs.code_bugs != '0' && steps.backend.outputs.action == 'true'
@@ -335,7 +335,7 @@ jobs:
       - name: Adapt action output
         if: steps.task.outputs.code_bugs != '0' && steps.backend.outputs.action == 'true'
         run: |
-          kill "$(cat /tmp/action_watcher_pid 2>/dev/null)" 2>/dev/null || true
+          kill "$(cat ${RUNNER_TEMP}/action_watcher_pid 2>/dev/null)" 2>/dev/null || true
           EXEC_FILE="${{ steps.action_agent.outputs.execution_file }}"
           if [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
             python3 scripts/workflows/adapt_action_output.py \
