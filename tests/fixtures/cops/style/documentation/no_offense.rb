@@ -88,3 +88,17 @@ class Base # :nodoc: all
     end
   end
 end
+
+# FP fix: class with class << self containing only include/prepend
+class Cache
+  class << self
+    prepend Mixin
+  end
+end
+
+# FP fix: module with class << self containing only include
+module Marshal
+  class << self
+    include MarshalAutoloader
+  end
+end
