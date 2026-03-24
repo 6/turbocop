@@ -21,6 +21,15 @@ use crate::parse::source::SourceFile;
 /// nitrocop only walked the receiver chain. Fixed by replacing
 /// `call_chain_includes_receive` with `subtree_includes_receive` that recursively
 /// searches receiver, arguments, and nested call nodes.
+///
+/// ## Corpus investigation (2026-03-24)
+///
+/// FP=1 (nats-io/nats-pure.rb): `expect { ... }.to receive(:stop)` was flagged.
+/// RuboCop's NodePattern `$(send nil? {:expect :allow} ...)` requires a plain `send`
+/// node as the receiver of `.to`. When `expect` is called with a block, Parser AST
+/// represents it as a `block` node (not a `send`), so the pattern never matches.
+/// In Prism, `expect { ... }` is a `CallNode` with a `block` field set. Fixed by
+/// returning early when `recv_call.block().is_some()`.
 pub struct MessageExpectation;
 
 /// Default style is `allow` — flags `expect(...).to receive` in favor of `allow`.
@@ -108,6 +117,15 @@ impl Cop for MessageExpectation {
 
         let recv_name = recv_call.name().as_slice();
         if recv_call.receiver().is_some() {
+            return;
+        }
+
+        // If expect/allow is called with a block (e.g. `expect { ... }.to receive(...)`),
+        // skip — RuboCop's NodePattern `$(send nil? {:expect :allow} ...)` requires a
+        // plain send node as the receiver of `.to`. In Parser AST, `expect { ... }` becomes
+        // a `block` node (not a `send` node), so the pattern never matches. In Prism,
+        // `expect { ... }` is a CallNode with a block field, so we must guard here.
+        if recv_call.block().is_some() {
             return;
         }
 

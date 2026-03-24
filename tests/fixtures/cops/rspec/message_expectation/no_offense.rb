@@ -11,3 +11,9 @@ expect(obj).to_not receive(:qux)
 expect(fake_request).to receive(:on).with(:close), &on_close
 allow(items).to all receive(:process)
 allow(items).to all(receive(:process).with(:arg))
+# expect { block }.to receive: receiver is a block call, not a plain send
+# RuboCop's NodePattern $(send nil? {:expect :allow} ...) requires a send node
+# as receiver of .to; a block call produces a block node, not a send node
+expect {
+  subject
+}.to receive(:stop)
