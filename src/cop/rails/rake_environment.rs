@@ -44,6 +44,21 @@ use crate::parse::source::SourceFile;
 /// **Fix:** Changed the `else` branch to set `task_name_is_default = false` and
 /// `hash_first_arg = false`, allowing the cop to continue checking for dependencies
 /// and flag the offense when appropriate.
+///
+/// ## Investigation findings (2026-03-24)
+///
+/// **3 FN:** Old Rake 0.8 style `task :name, :arg1, :arg2, :needs => [deps]` was
+/// not flagged. The cop iterated ALL remaining args (`arg_list[1..]`) for dependency
+/// hashes and found the `:needs` hash, treating it as having dependencies. RuboCop
+/// only checks `arguments[1]` (the second argument) — since `:arg1` is a symbol,
+/// not a hash, it doesn't find dependencies and flags the offense.
+///
+/// **1 FP:** `task({name => deps}, &block)` with an explicit `HashNode` (curly braces)
+/// was not handled as first argument. Only `KeywordHashNode` (implicit hash) was
+/// recognized, so the explicit hash fell to the `else` branch and was flagged.
+///
+/// **Fix:** Changed dependency check to only inspect `arg_list[1]` (matching RuboCop).
+/// Added `HashNode` handling alongside `KeywordHashNode` for first-argument hashes.
 pub struct RakeEnvironment;
 
 impl Cop for RakeEnvironment {
@@ -112,11 +127,19 @@ impl Cop for RakeEnvironment {
             // task 'foo' do ... end
             task_name_is_default = s.unescaped() == b"default";
             hash_first_arg = false;
-        } else if let Some(kw) = first.as_keyword_hash_node() {
-            // task foo: :dep do ... end  (hash-first-arg form)
+        } else if first.as_keyword_hash_node().is_some() || first.as_hash_node().is_some() {
+            // task foo: :dep do ... end  (KeywordHashNode, implicit hash)
+            // task({foo => :dep}) { ... }  (HashNode, explicit hash with curlies)
             // Extract the key as the task name and check value for dependencies.
-            let mut elements = kw.elements().iter();
-            if let Some(first_elem) = elements.next() {
+            let elements: Vec<ruby_prism::Node<'_>> = if let Some(kw) = first.as_keyword_hash_node()
+            {
+                kw.elements().iter().collect()
+            } else if let Some(h) = first.as_hash_node() {
+                h.elements().iter().collect()
+            } else {
+                unreachable!()
+            };
+            if let Some(first_elem) = elements.first() {
                 if let Some(assoc) = first_elem.as_assoc_node() {
                     // Check task name from the key
                     let key = assoc.key();
@@ -151,10 +174,14 @@ impl Cop for RakeEnvironment {
             return;
         }
 
-        // For non-hash-first-arg form, check remaining args for dependency hashes.
+        // For non-hash-first-arg form, check only arg_list[1] for dependency hash.
+        // Matches RuboCop's `task_args = node.arguments[1]` — only the second
+        // argument is checked, not all remaining args. This correctly handles
+        // `task :foo, [:arg] => :dep` (second arg is a hash) while ignoring
+        // `task :foo, :arg1, :arg2, :needs => [...]` (second arg is a symbol).
         if !hash_first_arg {
-            for arg in &arg_list[1..] {
-                if let Some(kw) = arg.as_keyword_hash_node() {
+            if let Some(second) = arg_list.get(1) {
+                if let Some(kw) = second.as_keyword_hash_node() {
                     for elem in kw.elements().iter() {
                         if let Some(assoc) = elem.as_assoc_node() {
                             let value = assoc.value();

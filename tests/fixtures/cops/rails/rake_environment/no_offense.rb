@@ -34,3 +34,5 @@ end
 task name => new_name do
   puts "local variable with hash rocket dependency"
 end
+task({name => dependencies}, &block)
+task({name => dependencies}) { puts "explicit hash with deps" }

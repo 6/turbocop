@@ -43,3 +43,18 @@ task short_name do
 ^^^^^^^^^^^^^^^^^^ Rails/RakeEnvironment: Add `:environment` dependency to the rake task.
   run_command
 end
+
+task :release, :rel, :reuse, :reltest, :needs => [:prerelease] do |t, args|
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RakeEnvironment: Add `:environment` dependency to the rake task.
+  puts "release"
+end
+
+task :update_version, :rel, :reuse, :needs => [:prerelease] do |t, args|
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RakeEnvironment: Add `:environment` dependency to the rake task.
+  puts "update"
+end
+
+task :tag, :rel, :needs => [:prerelease] do |t, args|
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RakeEnvironment: Add `:environment` dependency to the rake task.
+  puts "tag"
+end
