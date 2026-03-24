@@ -212,7 +212,10 @@ impl Cop for InverseMethods {
         };
 
         let method_bytes = call.name().as_slice();
-        eprintln!("DEBUG InverseMethods: checking call {:?}", std::str::from_utf8(method_bytes));
+        eprintln!(
+            "DEBUG InverseMethods: checking call {:?}",
+            std::str::from_utf8(method_bytes)
+        );
 
         // Pattern 1: !receiver.method — the call is `!` with the inner being a method call
         if method_bytes == b"!" {

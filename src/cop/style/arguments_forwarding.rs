@@ -202,11 +202,7 @@ impl Cop for ArgumentsForwarding {
             // syntax error. For Ruby < 3.4, if ANY classified send is inside a block,
             // skip all anonymous forwarding (matching RuboCop's
             // `all_forwarding_offenses_correctable?`).
-            if ruby_version < 3.4
-                && send_classifications
-                    .iter()
-                    .any(|sc| sc.inside_block)
-            {
+            if ruby_version < 3.4 && send_classifications.iter().any(|sc| sc.inside_block) {
                 return;
             }
 

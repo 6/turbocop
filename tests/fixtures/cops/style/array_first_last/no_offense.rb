@@ -29,3 +29,10 @@ parsed_response[parsed_key[0]] ||= {}
 count[ext[0]] += fields.to_i
 h[arr[0]] ||= []
 h[arr[-1]] &&= false
+
+# [0]/[-1] as receiver of index-write nodes (receiver is chained with bracket-assignment)
+# These are IndexOrWriteNode/IndexAndWriteNode/IndexOperatorWriteNode in Prism
+# where the receiver is itself a [] call — suppress like []=
+remaining_fragments[0][:from_page] ||= page_number
+values[0][1] += value
+items[-1][:status] &&= active

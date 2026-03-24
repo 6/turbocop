@@ -109,6 +109,25 @@ fn suppress_index_write_args(
     }
 }
 
+/// Suppress the receiver of an index-write node if it is a `[]` call.
+/// Index-write nodes (IndexOrWriteNode, IndexAndWriteNode, IndexOperatorWriteNode)
+/// are semantically `[]=` operations. When the receiver is `arr[0]` (a `[]` call),
+/// as in `arr[0][:key] ||= val`, the `[0]` is a child of a bracket operation and
+/// must not be flagged — matching RuboCop's `brace_method?(parent)` suppression.
+fn suppress_index_write_receiver(
+    receiver: Option<ruby_prism::Node<'_>>,
+    suppressed: &mut Vec<usize>,
+) {
+    if let Some(recv) = receiver {
+        if let Some(recv_call) = recv.as_call_node() {
+            if is_bracket_call(&recv_call) {
+                suppressed.push(recv_call.location().start_offset());
+                suppress_bracket_receiver_chain(&recv_call, suppressed);
+            }
+        }
+    }
+}
+
 /// Check if an index-write node's arguments contain integer 0 or -1,
 /// and if so, produce a diagnostic. This handles `arr[0] += val`,
 /// `arr[-1] ||= default`, etc.
@@ -194,6 +213,8 @@ impl<'pr> Visit<'pr> for ArrayFirstLastVisitor<'_> {
     fn visit_index_or_write_node(&mut self, node: &ruby_prism::IndexOrWriteNode<'pr>) {
         // Suppress [] call arguments (FP fix: h[arr[0]] ||= val)
         suppress_index_write_args(node.arguments(), &mut self.suppressed_offsets);
+        // Suppress [] receiver (FP fix: arr[0][:key] ||= val)
+        suppress_index_write_receiver(node.receiver(), &mut self.suppressed_offsets);
         // Check own index for 0/-1 (FN fix: arr[0] ||= val)
         check_index_write_args(
             node.arguments(),
@@ -209,6 +230,8 @@ impl<'pr> Visit<'pr> for ArrayFirstLastVisitor<'_> {
     fn visit_index_and_write_node(&mut self, node: &ruby_prism::IndexAndWriteNode<'pr>) {
         // Suppress [] call arguments (FP fix: h[arr[0]] &&= val)
         suppress_index_write_args(node.arguments(), &mut self.suppressed_offsets);
+        // Suppress [] receiver (FP fix: arr[0][:key] &&= val)
+        suppress_index_write_receiver(node.receiver(), &mut self.suppressed_offsets);
         // Check own index for 0/-1 (FN fix: arr[0] &&= val)
         check_index_write_args(
             node.arguments(),
@@ -224,6 +247,8 @@ impl<'pr> Visit<'pr> for ArrayFirstLastVisitor<'_> {
     fn visit_index_operator_write_node(&mut self, node: &ruby_prism::IndexOperatorWriteNode<'pr>) {
         // Suppress [] call arguments (FP fix: h[arr[0]] += val)
         suppress_index_write_args(node.arguments(), &mut self.suppressed_offsets);
+        // Suppress [] receiver (FP fix: values[0][1] += val)
+        suppress_index_write_receiver(node.receiver(), &mut self.suppressed_offsets);
         // Check own index for 0/-1 (FN fix: arr[0] += val)
         check_index_write_args(
             node.arguments(),
