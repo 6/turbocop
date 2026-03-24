@@ -596,4 +596,123 @@ mod tests {
             "Module with classes and private_constant should not need documentation"
         );
     }
+
+    // FN: compact path class definitions like `class Foo::Bar` should be flagged
+    #[test]
+    fn compact_path_class_needs_docs() {
+        let source = b"class Foo::Bar\n  def method\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Compact path class should need documentation"
+        );
+    }
+
+    // FN: compact path module definitions like `module A::B` should be flagged
+    #[test]
+    fn compact_path_module_needs_docs() {
+        let source = b"module A::B\n  C = 1\n  def method\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Compact path module should need documentation"
+        );
+    }
+
+    // FN: compact path class with documentation should NOT be flagged
+    #[test]
+    fn compact_path_class_with_docs_no_offense() {
+        let source = b"# Documented\nclass Foo::Bar\n  def method\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert!(
+            diags.is_empty(),
+            "Compact path class with documentation should not be flagged"
+        );
+    }
+
+    // FN: compact path with nodoc should NOT be flagged
+    #[test]
+    fn compact_path_with_nodoc_no_offense() {
+        let source = b"class A::B::Test #:nodoc:\n  def method\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert!(
+            diags.is_empty(),
+            "Compact path with :nodoc: should not be flagged"
+        );
+    }
+
+    // FN: cbase class like `class ::MyClass` should be flagged
+    #[test]
+    fn cbase_class_needs_docs() {
+        let source = b"class ::MyClass\n  def method\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Cbase class (::MyClass) should need documentation"
+        );
+    }
+
+    // FP: deeply nested module inside a method should still be flagged per RuboCop
+    // (RuboCop fires on_module for all modules in the AST)
+    #[test]
+    fn nested_module_inside_namespace_with_nodoc() {
+        // Module inside a :nodoc: parent (without all) should still need docs
+        let source = b"module TestModule #:nodoc:\n  TEST = 20\n  class Test\n    def method\n    end\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Nested class inside :nodoc: (without all) parent should still need docs"
+        );
+    }
+
+    // RuboCop: class inside documented module A with inline comment still needs docs
+    #[test]
+    fn class_inside_commented_module_needs_docs() {
+        let source =
+            b"module A # The A Module\n  class B\n    C = 1\n    def method\n    end\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Class B inside module A should still need documentation"
+        );
+    }
+
+    // Empty class with compact path should not need docs (no body)
+    #[test]
+    fn compact_path_empty_class_no_offense() {
+        let source = b"class Foo::Bar\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert!(
+            diags.is_empty(),
+            "Empty compact path class should not need documentation"
+        );
+    }
+
+    // Compact path namespace module should not need docs
+    #[test]
+    fn compact_path_namespace_module_no_offense() {
+        let source = b"module A::B\n  class C; end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert!(
+            diags.is_empty(),
+            "Compact path namespace module should not need documentation"
+        );
+    }
+
+    // Deeply nested class with docs
+    #[test]
+    fn deeply_nested_class_with_docs_no_offense() {
+        let source = b"module A::B\n  module C\n    # Documented\n    class D\n      def method\n      end\n    end\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        // A::B is namespace (contains only C module), C is namespace (contains only D class), D has docs
+        assert!(
+            diags.is_empty(),
+            "All documented/namespace classes should not be flagged"
+        );
+    }
 }

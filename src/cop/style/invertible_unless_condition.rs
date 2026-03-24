@@ -29,6 +29,18 @@ use std::collections::HashMap;
 /// Fix: rewrote message generation to use a recursive `preferred_condition()` method
 /// matching RuboCop's approach, and changed message format to match RuboCop's
 /// `Prefer 'if <preferred>' over 'unless <current>'.` format.
+///
+/// Corpus investigation (2026-03-24):
+///
+/// Line offset issue: offense was reported at the `unless` keyword location
+/// (`keyword_loc()`), but RuboCop reports at the start of the entire unless node
+/// (`add_offense(node, ...)`). For modifier unless (postfix form), the node starts
+/// at the body expression, not the keyword. This caused line/column mismatches
+/// for multi-line modifier unless expressions (e.g., `errors.add(...\n) unless cond`
+/// reported at the keyword line instead of the `errors.add` line).
+///
+/// Fix: changed diagnostic location from `unless_node.keyword_loc()` to
+/// `node.location()` (the full UnlessNode range start).
 pub struct InvertibleUnlessCondition;
 
 impl InvertibleUnlessCondition {
@@ -331,7 +343,11 @@ impl Cop for InvertibleUnlessCondition {
             inverse_keyword, preferred, keyword, current_src
         );
 
-        let loc = unless_node.keyword_loc();
+        // RuboCop reports at the node start (the expression start), not the keyword.
+        // For modifier unless (postfix form), the node starts at the body, not the
+        // `unless` keyword. This matters for multi-line expressions where the body
+        // spans multiple lines before the `unless` keyword.
+        let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(source, line, column, message));
     }
