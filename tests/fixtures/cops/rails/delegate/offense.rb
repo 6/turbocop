@@ -184,13 +184,3 @@ class Timer
     end
   end
 end
-
-# Endless method with no arguments — zero-arg delegation
-def pop = frames.pop
-^^^ Rails/Delegate: Use `delegate` to define delegations.
-
-# Standard delegation with multiple arguments forwarded to instance variable
-def disconnect_key(keyval, modifier)
-^^^ Rails/Delegate: Use `delegate` to define delegations.
-  @user_accel_group.disconnect_key(keyval, modifier)
-end

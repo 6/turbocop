@@ -227,26 +227,6 @@ use crate::parse::source::SourceFile;
 /// `is_inside_conditional_block` is true, check whether `private` appears AFTER
 /// the enclosing conditional keyword and BEFORE the def (same nesting level),
 /// which means private still applies within that branch.
-///
-/// ## Fix (2026-03-24): FP=6→4, FN=2→0
-///
-/// **FP fix 1 — parameter receiver**: `def delete(x); x.delete(x); end` was flagged
-/// even though the receiver `x` is a method parameter, not a persistent object attribute.
-/// Parameters cannot be used with `delegate to:`. Added `get_local_receiver_name()` to
-/// extract the receiver's local name and check it against `param_names`.
-///
-/// **FP fix 2 — operator method**: `def !@; !value; end` was flagged even though
-/// operator methods like `!`, `~`, `+`, etc. cannot be delegated with Rails' `delegate`
-/// macro. Prism Rust binding returns `"!"` for `def !@` name. Added `is_operator_method()`
-/// that checks if the method name starts with a non-letter, non-underscore, non-bracket
-/// character (operators start with `!`, `~`, `+`, `-`, `<`, `>`, `=`, `|`, `&`, `^`, `*`,
-/// `/`, `%` etc., while `[]`/`[]=` start with `[` and ARE valid delegation targets).
-///
-/// **FN fix (already working)**: `def pop = frames.pop` (endless 0-arg) and
-/// `def disconnect_key(a, b); @ivar.disconnect_key(a, b); end` (multi-arg ivar delegation)
-/// were already handled by the existing code. Added fixture test cases to confirm.
-///
-/// Remaining FP=4 are vendor paths (heroku gems, vendor/bundle) — infrastructure issue.
 pub struct Delegate;
 
 impl Cop for Delegate {
@@ -465,25 +445,6 @@ impl Cop for Delegate {
             return;
         }
 
-        // Skip operator methods — operator methods like `!`, `~`, `+@`, `-@`, `[]`, `[]=`,
-        // `<=>`, `==`, etc. cannot be delegated with Rails' `delegate` macro.
-        // RuboCop doesn't flag these. Check if the def name contains non-identifier characters.
-        if is_operator_method(def_name) {
-            return;
-        }
-
-        // Skip when the receiver is one of the method's own parameters.
-        // Parameters cannot be used as `delegate to:` targets because they are
-        // local to the method, not persistent attributes of the object.
-        // Example: `def delete(account_env_var); account_env_var.delete(account_env_var); end`
-        if !param_names.is_empty() {
-            if let Some(recv_name) = get_local_receiver_name(&receiver) {
-                if param_names.iter().any(|p| p == &recv_name) {
-                    return;
-                }
-            }
-        }
-
         // When EnforceForPrefixed is false, skip prefixed delegations
         // (e.g., `def foo_bar; foo.bar; end` where method starts with receiver name)
         // Must check all receiver types, not just CallNode.
@@ -628,48 +589,6 @@ fn get_receiver_name(receiver: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
         // For ConstantPathNode, extract source text
         let loc = receiver.location();
         return Some(loc.as_slice().to_vec());
-    }
-    None
-}
-
-/// Check if a method name is an operator method that can't be delegated with
-/// Rails' `delegate` macro. Operator methods like `!`, `~`, `+`, `-`, `<=>`,
-/// `==`, etc. don't start with a letter or underscore.
-/// Methods like `[]` and `[]=` also don't start with a letter/underscore but
-/// ARE valid delegation targets — RuboCop flags them. So we only check the
-/// first character: operator methods start with non-letter, non-underscore,
-/// non-bracket characters.
-///
-/// Valid delegatable names: `foo`, `foo?`, `foo!`, `[]`, `[]=`, `_bar`
-/// Operator names: `!`, `~`, `+`, `-`, `<=>`, `==`, `<<`, `>>`, `|`, `&`, etc.
-fn is_operator_method(name: &[u8]) -> bool {
-    if name.is_empty() {
-        return false;
-    }
-    let first = name[0];
-    // Regular method names start with a letter or underscore.
-    // `[]` and `[]=` start with `[` — these are valid delegation targets.
-    if first.is_ascii_alphabetic() || first == b'_' || first == b'[' {
-        return false;
-    }
-    // Everything else is an operator method: `!`, `~`, `+`, `-`, `<`, `>`, `=`, `|`, `&`, `^`, `*`, `/`, `%`
-    true
-}
-
-/// Extract the local variable name of a receiver node, if it's a local variable
-/// or a receiverless call (which acts like a local variable in Ruby).
-/// Used to check if the receiver is one of the method's parameters.
-fn get_local_receiver_name(receiver: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
-    if let Some(lv) = receiver.as_local_variable_read_node() {
-        return Some(lv.name().as_slice().to_vec());
-    }
-    if let Some(recv_call) = receiver.as_call_node() {
-        if recv_call.receiver().is_none()
-            && recv_call.arguments().is_none()
-            && recv_call.block().is_none()
-        {
-            return Some(recv_call.name().as_slice().to_vec());
-        }
     }
     None
 }
@@ -909,47 +828,4 @@ fn has_module_function_token(code: &[u8]) -> bool {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(Delegate, "cops/rails/delegate");
-
-    #[test]
-    fn test_parameter_receiver_fp() {
-        let source =
-            b"def delete(account_env_var)\n  account_env_var.delete(account_env_var)\nend\n";
-        let diagnostics = crate::testutil::run_cop_full(&Delegate, source);
-        assert!(
-            diagnostics.is_empty(),
-            "Should NOT flag parameter receiver delegation, got: {:?}",
-            diagnostics
-        );
-    }
-
-    #[test]
-    fn test_operator_method_fp() {
-        let source = b"def !@\n  !value\nend\n";
-        let diagnostics = crate::testutil::run_cop_full(&Delegate, source);
-        assert!(
-            diagnostics.is_empty(),
-            "Should NOT flag operator method override, got: {:?}",
-            diagnostics
-        );
-    }
-
-    #[test]
-    fn test_endless_method_zero_args_fn() {
-        let source = b"def pop = frames.pop\n";
-        let diagnostics = crate::testutil::run_cop_full(&Delegate, source);
-        assert!(
-            !diagnostics.is_empty(),
-            "Should flag endless method delegation, got no offenses"
-        );
-    }
-
-    #[test]
-    fn test_multi_arg_delegation_fn() {
-        let source = b"def disconnect_key(keyval, modifier)\n  @user_accel_group.disconnect_key(keyval, modifier)\nend\n";
-        let diagnostics = crate::testutil::run_cop_full(&Delegate, source);
-        assert!(
-            !diagnostics.is_empty(),
-            "Should flag multi-arg delegation to ivar, got no offenses"
-        );
-    }
 }

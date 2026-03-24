@@ -45,18 +45,6 @@ def [](key, default)
   @attrs[key]
 end
 
-# Parameter receiver — receiver is a method parameter, not a valid delegate target
-# RuboCop doesn't flag this because parameters can't be used with `delegate to:`
-def delete(account_env_var)
-  account_env_var.delete(account_env_var)
-end
-
-# Operator method override — operator methods can't be delegated with Rails' delegate macro
-# RuboCop doesn't flag operator methods like `!`, `~`, `+@`, `-@`, etc.
-def !@
-  !value
-end
-
 # Private methods are ignored — including methods after other method `end`s
 # in the same private section
 private
