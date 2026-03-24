@@ -15,15 +15,6 @@ use crate::diagnostic::Severity;
 /// stopped suppressing their current cops, so nitrocop started reporting the
 /// directives themselves as redundant. Fixed centrally in `parse/directives.rs`
 /// by honoring moved legacy names whose short name is unchanged.
-///
-/// ## Corpus investigation (2026-03-24)
-///
-/// FN=1102: The `is_directive_redundant` function was too conservative — it
-/// never flagged unused directives for enabled cops (to avoid FPs from detection
-/// gaps). RuboCop flags ANY unused directive as redundant if the cop is known.
-/// Changed to match RuboCop: if a disable directive was unused and the cop is
-/// in the registry and enabled, flag it. This trades a small risk of FPs (from
-/// nitrocop detection gaps) for reducing ~1100 FNs.
 pub struct RedundantCopDisableDirective;
 
 impl Cop for RedundantCopDisableDirective {
