@@ -94,7 +94,7 @@ Use `uv run` as the preferred way to invoke Python tools (`ruff`, `pytest`, etc.
 - Edition 2024 / Rust 1.85+.
 - Cops disabled by default in vendor config must override `default_enabled() -> false`, or they will produce false positives when vendored config loading fails. Note: `default_enabled()` has no effect on corpus FP/FN numbers — the corpus baseline config (`baseline_rubocop.yml`) explicitly enables all cops, overriding this. The override only matters for real-world usage.
 - Plugin cops depend on the target project's installed gem version, not just the vendored submodule version in this repo. When nitrocop processes `require: [rubocop-rspec]`, it runs `bundle info --path` to find the installed gem and loads that gem's `config/default.yml`. Cops not in the installed gem's config are treated as non-existent (disabled), matching RuboCop's behavior.
-- Corpus bundle version matters: `check-cop.py --rerun` requires the corpus bundle installed for the Ruby version in `mise.toml`. If the Ruby version is wrong or gems are missing, config resolution falls back to hardcoded defaults and offense counts will be wildly incorrect (often 5-10x higher). Fix with `cd bench/corpus && BUNDLE_PATH=vendor/bundle bundle install`.
+- Corpus bundle version matters: `check_cop.py --rerun` requires the corpus bundle installed for the Ruby version in `mise.toml`. If the Ruby version is wrong or gems are missing, config resolution falls back to hardcoded defaults and offense counts will be wildly incorrect (often 5-10x higher). Fix with `cd bench/corpus && BUNDLE_PATH=vendor/bundle bundle install`.
 
 ## Fixture Rules
 
@@ -109,26 +109,26 @@ Use `uv run` as the preferred way to invoke Python tools (`ruff`, `pytest`, etc.
 Start with cached corpus tools before rerunning expensive checks:
 
 ```bash
-python3 scripts/investigate-cop.py Department/CopName
-python3 scripts/investigate-cop.py Department/CopName --context
-python3 scripts/investigate-repo.py rails
-python3 scripts/reduce-mismatch.py Department/CopName repo_id path/to/file.rb:line
+python3 scripts/investigate_cop.py Department/CopName
+python3 scripts/investigate_cop.py Department/CopName --context
+python3 scripts/investigate_repo.py rails
+python3 scripts/reduce_mismatch.py Department/CopName repo_id path/to/file.rb:line
 ```
 
-Use `check-cop.py` for aggregate regression checks after a fix:
+Use `check_cop.py` for aggregate regression checks after a fix:
 
 ```bash
-python3 scripts/check-cop.py Department/CopName
-python3 scripts/check-cop.py Department/CopName --verbose --rerun --quick
-python3 scripts/verify-cop-locations.py Department/CopName
+python3 scripts/check_cop.py Department/CopName
+python3 scripts/check_cop.py Department/CopName --verbose --rerun --quick
+python3 scripts/verify_cop_locations.py Department/CopName
 ```
 
 Important:
 
-- `investigate-cop.py` and `investigate-repo.py` auto-download the latest corpus artifacts. Do not manually download them first.
-- `check-cop.py` is count-only; use `verify-cop-locations.py` when you need location-level confirmation.
+- `investigate_cop.py` and `investigate_repo.py` auto-download the latest corpus artifacts. Do not manually download them first.
+- `check_cop.py` is count-only; use `verify_cop_locations.py` when you need location-level confirmation.
 - “file-drop noise” is not an excuse for FN gaps. Investigate the actual missed examples.
-- `check-cop.py --rerun` depends on the bundle under `bench/corpus/vendor/bundle/`. If needed:
+- `check_cop.py --rerun` depends on the bundle under `bench/corpus/vendor/bundle/`. If needed:
 
 ```bash
 cd bench/corpus
@@ -152,7 +152,7 @@ BUNDLE_PATH=vendor/bundle bundle install
 
 ## Notes
 
-- Top-level Python entrypoints in `scripts/` are public CLIs and use kebab-case names.
+- All Python files use snake_case names (enforced by ruff N999).
 - Workflow internals belong in `scripts/workflows/`.
 - Shared Python helpers belong in `scripts/shared/`.
 - Keep vendor submodules pinned to release tags, not arbitrary commits.

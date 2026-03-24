@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for investigate-regression.py."""
+"""Tests for investigate_regression.py."""
 
 import importlib.util
 from pathlib import Path
 
-SCRIPT = Path(__file__).parents[2] / "scripts" / "investigate-regression.py"
+SCRIPT = Path(__file__).parents[2] / "scripts" / "investigate_regression.py"
 SPEC = importlib.util.spec_from_file_location("investigate_regression", SCRIPT)
 assert SPEC and SPEC.loader
 mod = importlib.util.module_from_spec(SPEC)

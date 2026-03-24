@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Tests for reduce-mismatch.py."""
+"""Tests for reduce_mismatch.py."""
 
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-SCRIPT = Path(__file__).parents[2] / "scripts" / "reduce-mismatch.py"
+SCRIPT = Path(__file__).parents[2] / "scripts" / "reduce_mismatch.py"
 
 spec = importlib.util.spec_from_file_location("reduce_mismatch", SCRIPT)
 reduce_mismatch = importlib.util.module_from_spec(spec)

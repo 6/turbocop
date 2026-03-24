@@ -7,29 +7,29 @@ from pathlib import Path
 
 HELPERS = [
     (
-        "scripts/check-cop.py",
+        "scripts/check_cop.py",
         "aggregate corpus regression check for one cop",
-        "python3 scripts/check-cop.py Department/CopName --verbose --rerun --quick --clone",
+        "python3 scripts/check_cop.py Department/CopName --verbose --rerun --quick --clone",
     ),
     (
-        "scripts/dispatch-cops.py",
+        "scripts/dispatch_cops.py",
         "dispatch helpers for changed cops, task generation, ranking, and prior attempts",
-        "python3 scripts/dispatch-cops.py changed --base origin/main --head HEAD",
+        "python3 scripts/dispatch_cops.py changed --base origin/main --head HEAD",
     ),
     (
-        "scripts/investigate-cop.py",
+        "scripts/investigate_cop.py",
         "inspect FP/FN examples from corpus oracle data",
-        "python3 scripts/investigate-cop.py Department/CopName --context",
+        "python3 scripts/investigate_cop.py Department/CopName --context",
     ),
     (
-        "scripts/verify-cop-locations.py",
+        "scripts/verify_cop_locations.py",
         "verify exact known oracle FP/FN locations",
-        "python3 scripts/verify-cop-locations.py Department/CopName",
+        "python3 scripts/verify_cop_locations.py Department/CopName",
     ),
     (
-        "scripts/corpus-smoke-test.py",
+        "scripts/corpus_smoke_test.py",
         "smoke-test a few pinned repos",
-        "python3 scripts/corpus-smoke-test.py --binary target/release/nitrocop",
+        "python3 scripts/corpus_smoke_test.py --binary target/release/nitrocop",
     ),
 ]
 

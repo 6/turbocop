@@ -170,7 +170,7 @@ def test_build_claim_body_with_issue():
         issue_number="42",
     )
     assert "Style/NegatedWhile" in body
-    assert "Closes #42" in body
+    assert "Refs #42" in body
     assert "nitrocop-cop-issue" in body
     assert "claude / normal" in body
 
@@ -208,7 +208,7 @@ def test_build_task_body():
     assert "Code bugs:** 5" in body
     assert "2000 tokens" in body
     assert "## Task" in body
-    assert "Closes #99" in body
+    assert "Refs #99" in body
 
 
 # ── _generate_summary ───────────────────────────────────────────────────

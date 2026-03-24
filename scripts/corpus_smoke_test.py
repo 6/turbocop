@@ -8,12 +8,12 @@ The test compares current results against a checked-in baseline snapshot. It fai
 if matches decrease or FP/FN increase beyond a small tolerance per repo. To update
 the baseline after intentional changes:
 
-    python3 scripts/corpus-smoke-test.py --update-baseline
+    python3 scripts/corpus_smoke_test.py --update-baseline
 
 Usage:
-    python3 scripts/corpus-smoke-test.py                    # auto-detect binary
-    python3 scripts/corpus-smoke-test.py --binary path/to/nitrocop
-    python3 scripts/corpus-smoke-test.py --update-baseline  # regenerate baseline
+    python3 scripts/corpus_smoke_test.py                    # auto-detect binary
+    python3 scripts/corpus_smoke_test.py --binary path/to/nitrocop
+    python3 scripts/corpus_smoke_test.py --update-baseline  # regenerate baseline
 
 When using the repo's normal release binary, the script will auto-rebuild if the
 binary is older than Rust source inputs. Explicit non-standard `--binary` paths
@@ -517,7 +517,7 @@ def main():
         for msg in failures:
             print(f"  {msg}")
         print("\nIf this is intentional, update the baseline:")
-        print("  python3 scripts/corpus-smoke-test.py --update-baseline")
+        print("  python3 scripts/corpus_smoke_test.py --update-baseline")
         sys.exit(1)
 
     # Ratchet: auto-tighten baseline when results improve.

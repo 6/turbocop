@@ -1,8 +1,8 @@
-# check-cop.py vs Corpus Oracle: File-Filtering Gap (RESOLVED)
+# check_cop.py vs Corpus Oracle: File-Filtering Gap (RESOLVED)
 
 ## Status
 
-**RESOLVED** — The oracle now stores `nitro_total_unfiltered` in per-cop artifact data (commit 82cedc66). check-cop.py compares against this unfiltered count, eliminating the structural gap. Verified passing locally and on CI for Style/MixinUsage.
+**RESOLVED** — The oracle now stores `nitro_total_unfiltered` in per-cop artifact data (commit 82cedc66). check_cop.py compares against this unfiltered count, eliminating the structural gap. Verified passing locally and on CI for Style/MixinUsage.
 
 ## Root Cause
 
@@ -13,7 +13,7 @@ if rc_inspected_files:
     tc_offenses = {o for o in tc_offenses if o[0] in rc_inspected_files}
 ```
 
-RuboCop drops files when its parser crashes mid-batch. The oracle correctly excludes nitrocop offenses on those dropped files from the match/FP/FN counts. But `check-cop.py` doesn't run RuboCop, so it counts ALL nitrocop offenses including those on dropped files. This produced a constant +34 offset for Style/MixinUsage (and varying offsets for other cops).
+RuboCop drops files when its parser crashes mid-batch. The oracle correctly excludes nitrocop offenses on those dropped files from the match/FP/FN counts. But `check_cop.py` doesn't run RuboCop, so it counts ALL nitrocop offenses including those on dropped files. This produced a constant +34 offset for Style/MixinUsage (and varying offsets for other cops).
 
 ## Fix
 
@@ -21,7 +21,7 @@ The oracle now stores both counts per cop:
 - `matches + fp` — the filtered count (after excluding RuboCop-dropped files)
 - `nitro_total_unfiltered` — the raw count before filtering
 
-`check-cop.py` compares against `nitro_total_unfiltered` when available, falling back to the filtered count for older artifacts.
+`check_cop.py` compares against `nitro_total_unfiltered` when available, falling back to the filtered count for older artifacts.
 
 ## Failed Approaches
 

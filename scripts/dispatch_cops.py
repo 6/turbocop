@@ -14,16 +14,16 @@ Public subcommands:
 - `dispatch-issues` fills the bounded active queue by dispatching tracker issues
 
 Usage:
-    python3 scripts/dispatch-cops.py task Style/NegatedWhile
-    python3 scripts/dispatch-cops.py changed --base origin/main --head HEAD
-    python3 scripts/dispatch-cops.py tiers --tier 1 --names
-    python3 scripts/dispatch-cops.py rank --json
-    python3 scripts/dispatch-cops.py prior-attempts --cop Style/NegatedWhile
-    python3 scripts/dispatch-cops.py backend --cop Style/NegatedWhile --binary target/debug/nitrocop
-    python3 scripts/dispatch-cops.py issues-sync --binary target/debug/nitrocop
-    python3 scripts/dispatch-cops.py issues-sync --department Rails --binary target/debug/nitrocop
-    python3 scripts/dispatch-cops.py dispatch-issues --max-active 5
-    python3 scripts/dispatch-cops.py dispatch-issues --department Rails --max-active 3
+    python3 scripts/dispatch_cops.py task Style/NegatedWhile
+    python3 scripts/dispatch_cops.py changed --base origin/main --head HEAD
+    python3 scripts/dispatch_cops.py tiers --tier 1 --names
+    python3 scripts/dispatch_cops.py rank --json
+    python3 scripts/dispatch_cops.py prior-attempts --cop Style/NegatedWhile
+    python3 scripts/dispatch_cops.py backend --cop Style/NegatedWhile --binary target/debug/nitrocop
+    python3 scripts/dispatch_cops.py issues-sync --binary target/debug/nitrocop
+    python3 scripts/dispatch_cops.py issues-sync --department Rails --binary target/debug/nitrocop
+    python3 scripts/dispatch_cops.py dispatch-issues --max-active 5
+    python3 scripts/dispatch_cops.py dispatch-issues --department Rails --max-active 3
 """
 
 import argparse
@@ -407,9 +407,9 @@ def build_start_here_section(cop: str, corpus: dict) -> str:
         "Use the existing corpus data to focus on the most concentrated regressions first.",
         "",
         "Helpful local commands:",
-        f"- `python3 scripts/investigate-cop.py {cop} --repos-only`",
-        f"- `python3 scripts/investigate-cop.py {cop} --context`",
-        f"- `python3 scripts/verify-cop-locations.py {cop}`",
+        f"- `python3 scripts/investigate_cop.py {cop} --repos-only`",
+        f"- `python3 scripts/investigate_cop.py {cop} --context`",
+        f"- `python3 scripts/verify_cop_locations.py {cop}`",
         "",
     ]
 

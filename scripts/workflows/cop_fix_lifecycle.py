@@ -202,7 +202,7 @@ def cmd_select_backend(args: list[str]) -> int:
 
     if opts.backend_input == "auto":
         cmd = [
-            sys.executable, str(SCRIPTS_DIR.parent / "dispatch-cops.py"), "backend",
+            sys.executable, str(SCRIPTS_DIR.parent / "dispatch_cops.py"), "backend",
             "--repo", opts.repo,
             "--cop", opts.cop,
             "--mode", opts.mode,
@@ -323,7 +323,7 @@ def cmd_build_prompt(args: list[str]) -> int:
     # Retry mode: collect prior attempts and close stale PRs
     if opts.mode == "retry":
         _run_ok([
-            sys.executable, str(SCRIPTS_DIR.parent / "dispatch-cops.py"),
+            sys.executable, str(SCRIPTS_DIR.parent / "dispatch_cops.py"),
             "prior-attempts",
             "--cop", opts.cop,
             "--output", str(prior_attempts_file),
@@ -390,7 +390,7 @@ def _build_claim_body(
     ]
     if issue_number:
         lines += [
-            f"Closes #{issue_number}",
+            f"Refs #{issue_number}",
             "",
             f"<!-- nitrocop-cop-issue: number={issue_number} cop={cop} -->",
             "",
@@ -418,7 +418,7 @@ def _build_task_body(
     ]
     if issue_number:
         lines += [
-            f"Closes #{issue_number}",
+            f"Refs #{issue_number}",
             "",
             f"<!-- nitrocop-cop-issue: number={issue_number} cop={cop} -->",
             "",
@@ -827,6 +827,31 @@ def cmd_snapshot(args: list[str]) -> int:
     return 0
 
 
+def _is_docs_only_change(signed_sha: str, repo: str) -> bool:
+    """Check if .rs file changes are only doc comments (///) — no logic changes.
+
+    Fixture files (.rb) are always allowed. Returns True only when every
+    added/modified line in .rs files is a doc comment or blank.
+    """
+    r = _run_ok(["gh", "api", f"repos/{repo}/compare/main...{signed_sha}",
+                 "--jq", '.files[] | select(.filename | endswith(".rs")) | .patch // empty'])
+    if r.returncode != 0:
+        return False
+    rs_patch = r.stdout.strip()
+    if not rs_patch:
+        # No .rs files changed at all — only fixtures. That's docs-only.
+        return True
+    for line in rs_patch.splitlines():
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        content = line[1:].strip()
+        if not content or content.startswith("///"):
+            continue
+        # Any non-doc, non-blank added line in .rs means real logic
+        return False
+    return True
+
+
 # ── finalize ────────────────────────────────────────────────────────────
 
 def _close_pr_no_changes(
@@ -908,6 +933,8 @@ def _build_final_pr_body(
     signed_sha: str,
     parent_sha: str,
     repo: str,
+    *,
+    docs_only: bool = False,
 ) -> str:
     agent_result_file = _env_path("AGENT_RESULT_FILE")
     task_file = _env_path("TASK_FILE")
@@ -940,8 +967,9 @@ def _build_final_pr_body(
         "",
     ]
     if issue_number:
+        link_keyword = "Refs" if docs_only else "Closes"
         lines += [
-            f"Closes #{issue_number}",
+            f"{link_keyword} #{issue_number}",
             "",
             f"<!-- nitrocop-cop-issue: number={issue_number} cop={cop} -->",
             "",
@@ -1130,11 +1158,17 @@ def cmd_finalize(args: list[str]) -> int:
         _output("has_pr", "false")
         return 0
 
+    # 8b. Detect docs-only changes (no real cop logic fix)
+    docs_only = _is_docs_only_change(signed_sha, opts.repo)
+    if docs_only:
+        _log("Docs-only change — will merge documentation but keep issue open as blocked")
+
     # 9. Build and update PR body
     body = _build_final_pr_body(
         opts.cop, opts.mode, opts.backend_label, opts.model_label,
         opts.run_url, opts.run_number, opts.issue_number, opts.tokens,
         signed_sha, parent_sha, opts.repo,
+        docs_only=docs_only,
     )
     write_and_read(pr_body_file, body)
     _run(["gh", "pr", "edit", opts.pr_url, "--body-file", str(pr_body_file)])
@@ -1144,7 +1178,30 @@ def cmd_finalize(args: list[str]) -> int:
     _log(f"PR ready: {opts.pr_url}")
     _run(["gh", "pr", "merge", opts.pr_url, "--auto", "--squash", "--delete-branch"])
 
-    _output("result", "success")
+    # 11. If docs-only, mark issue blocked (don't close it — the gap is still open)
+    if docs_only and opts.issue_number:
+        body = (
+            f"Agent investigated `{opts.cop}` and documented findings, "
+            f"but no cop logic was changed.\n\n"
+            f"- Backend: `{opts.backend_label}`\n"
+            f"- Model: `{opts.model_label}`\n"
+            f"- Mode: `{opts.mode}`\n"
+            f"- Run: {opts.run_url}\n\n"
+            f"The FP/FN gap is likely caused by file-discovery or config differences, "
+            f"not a cop detection bug. Documentation PR was merged. "
+            f"Marking as blocked for manual investigation.\n"
+        )
+        claim_body = _env_path("CLAIM_BODY_FILE")
+        write_and_read(claim_body, body)
+        _run_ok(["gh", "issue", "comment", opts.issue_number, "--repo", opts.repo,
+                 "--body-file", str(claim_body)])
+        _run_ok([
+            "gh", "issue", "edit", opts.issue_number, "--repo", opts.repo,
+            "--remove-label", "state:pr-open,state:dispatched,state:backlog",
+            "--add-label", "state:blocked",
+        ])
+
+    _output("result", "docs_only" if docs_only else "success")
     _output("has_pr", "true")
     _output("pr_url", opts.pr_url)
     return 0

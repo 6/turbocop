@@ -251,7 +251,7 @@ jobs:
         if: steps.pr.outputs.should_run == 'true'
         id: verify_meta
         run: |
-          if grep -q "scripts/check-cop.py" "$REPAIR_VERIFY_SCRIPT"; then
+          if grep -q "scripts/check_cop.py" "$REPAIR_VERIFY_SCRIPT"; then
             echo "needs_local_cop_check=true" >> "$GITHUB_OUTPUT"
           else
             echo "needs_local_cop_check=false" >> "$GITHUB_OUTPUT"

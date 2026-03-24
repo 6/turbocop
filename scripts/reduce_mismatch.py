@@ -7,9 +7,9 @@ Takes a cop + corpus file with a known FP/FN and automatically shrinks it to
 a minimal reproduction using delta debugging (block deletion + line deletion).
 
 Usage:
-    python3 scripts/reduce-mismatch.py Style/SymbolProc repo_id app/models/user.rb:42
-    python3 scripts/reduce-mismatch.py Style/SymbolProc repo_id app/models/user.rb:42 --type fn
-    python3 scripts/reduce-mismatch.py Style/SymbolProc repo_id app/models/user.rb:42 --verbose
+    python3 scripts/reduce_mismatch.py Style/SymbolProc repo_id app/models/user.rb:42
+    python3 scripts/reduce_mismatch.py Style/SymbolProc repo_id app/models/user.rb:42 --type fn
+    python3 scripts/reduce_mismatch.py Style/SymbolProc repo_id app/models/user.rb:42 --verbose
 """
 
 import argparse

@@ -6,10 +6,10 @@ Reads corpus-results.json (auto-downloaded from CI) and produces:
 2. For targeted cloning: the minimal set of repos needed to investigate a cop
 
 Usage:
-    python3 scripts/corpus-repo-map.py                          # summary of all diverging cops
-    python3 scripts/corpus-repo-map.py Metrics/BlockLength      # repos for one cop
-    python3 scripts/corpus-repo-map.py --clone Metrics/BlockLength  # clone just those repos
-    python3 scripts/corpus-repo-map.py --all > /tmp/cop-repo-map.json  # full JSON mapping
+    python3 scripts/corpus_repo_map.py                          # summary of all diverging cops
+    python3 scripts/corpus_repo_map.py Metrics/BlockLength      # repos for one cop
+    python3 scripts/corpus_repo_map.py --clone Metrics/BlockLength  # clone just those repos
+    python3 scripts/corpus_repo_map.py --all > /tmp/cop-repo-map.json  # full JSON mapping
 """
 
 import json
@@ -34,10 +34,10 @@ def find_corpus_results() -> dict | None:
             with open(files[0]) as f:
                 return json.load(f)
 
-    # Try downloading via investigate-cop.py's download logic
+    # Try downloading via investigate_cop.py's download logic
     try:
         subprocess.run(
-            [sys.executable, str(PROJECT_ROOT / "scripts" / "investigate-cop.py"),
+            [sys.executable, str(PROJECT_ROOT / "scripts" / "investigate_cop.py"),
              "Style/FrozenStringLiteralComment", "--repos-only"],
             capture_output=True, text=True, timeout=60
         )
@@ -215,7 +215,7 @@ def main():
 
     data = find_corpus_results()
     if not data:
-        print("ERROR: No corpus-results.json found. Run investigate-cop.py first.", file=sys.stderr)
+        print("ERROR: No corpus-results.json found. Run investigate_cop.py first.", file=sys.stderr)
         sys.exit(1)
 
     cop_map = build_cop_repo_map(data)

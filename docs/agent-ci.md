@@ -35,9 +35,9 @@ These rules apply when `GITHUB_ACTIONS` is set and the workflow is driving the a
 - Workflow internals live in `scripts/workflows/`.
 - Shared importable helpers live in `scripts/shared/`.
 - Use the stable top-level CLI paths shown in the prompt, for example:
-  - `python3 scripts/check-cop.py Department/CopName --verbose --rerun --quick --clone`
-  - `python3 scripts/investigate-cop.py Department/CopName --context`
-  - `python3 scripts/dispatch-cops.py changed --base origin/main --head HEAD`
+  - `python3 scripts/check_cop.py Department/CopName --verbose --rerun --quick --clone`
+  - `python3 scripts/investigate_cop.py Department/CopName --context`
+  - `python3 scripts/dispatch_cops.py changed --base origin/main --head HEAD`
 
 ## Failure Handling
 

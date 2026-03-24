@@ -70,7 +70,7 @@ For harder cops or overview by tier:
 
 ```bash
 python3 scripts/ci-agents.py tiers --tier 1   # simple FP+FN count view
-python3 scripts/investigate-cop.py Department/CopName --context  # deep dive
+python3 scripts/investigate_cop.py Department/CopName --context  # deep dive
 ```
 
 **Skip cops with 0 code bugs** — they're all config issues and the workflow

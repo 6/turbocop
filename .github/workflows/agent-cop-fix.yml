@@ -163,7 +163,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          python3 scripts/dispatch-cops.py task \
+          python3 scripts/dispatch_cops.py task \
             "${{ github.event.inputs.cop }}" \
             --binary target/debug/nitrocop \
             --output "$TASK_FILE"
@@ -339,6 +339,7 @@ jobs:
             --backend claude &
           echo $! > ${RUNNER_TEMP}/action_watcher_pid
 
+      # claude-code-action is REQUIRED for OAuth auth — do not replace with CLI invocation.
       - name: Run agent (action)
         if: steps.task.outputs.code_bugs != '0' && steps.backend.outputs.action == 'true'
         id: action_agent

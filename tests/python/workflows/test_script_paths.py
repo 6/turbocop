@@ -34,12 +34,12 @@ def banned_tokens() -> list[str]:
         "/".join(("scripts", "corpus")) + "/",
         "scripts/" + "corpus_download.py",
         "scripts/" + "stress-report.py",
+        "scripts/workflows/" + "lint_python_module_names.py",
         "scripts/workflows/" + "extract_agent_log.py",
         "scripts/workflows/" + "summarize_agent_result.py",
         "scripts/workflows/" + "watch_agent_progress.py",
         "scripts/" + "gen-stress-configs.py",
         "scripts/" + "land-branch-commits.sh",
-        "scripts/" + "corpus_smoke_test.py",
         "scripts/workflows/" + "check_python_module_names.py",
     ]
 
@@ -53,8 +53,8 @@ def test_removed_paths_no_longer_exist():
         ROOT / "scripts" / "stress-report.py",
         ROOT / "scripts" / "gen-stress-configs.py",
         ROOT / "scripts" / "land-branch-commits.sh",
-        ROOT / "scripts" / "corpus_smoke_test.py",
         ROOT / "scripts" / "check_python_module_names.py",
+        ROOT / "scripts" / "workflows" / "lint_python_module_names.py",
         ROOT / "scripts" / "workflows" / "extract_agent_log.py",
         ROOT / "scripts" / "workflows" / "summarize_agent_result.py",
         ROOT / "scripts" / "workflows" / "watch_agent_progress.py",

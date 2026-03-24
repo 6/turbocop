@@ -303,7 +303,7 @@ def main():
         #   in Parser::Builders::Default#static_regexp which doesn't rescue
         #   RegexpError. Not something we control.
         # Count unfiltered nitrocop offenses per-cop before file filtering.
-        # check-cop.py doesn't run RuboCop, so it can't replicate the
+        # check_cop.py doesn't run RuboCop, so it can't replicate the
         # file-filtering step. The unfiltered count is stored in the
         # artifact so check-cop can compare against it instead.
         for _, _, cop in tc_offenses:

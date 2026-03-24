@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Tests for check-cop.py."""
+"""Tests for check_cop.py."""
 import importlib.util
 import json
 import sys
 import tempfile
 from pathlib import Path
 
-SCRIPT = Path(__file__).parents[2] / "scripts" / "check-cop.py"
+SCRIPT = Path(__file__).parents[2] / "scripts" / "check_cop.py"
 sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location("check_cop", SCRIPT)
 assert SPEC and SPEC.loader

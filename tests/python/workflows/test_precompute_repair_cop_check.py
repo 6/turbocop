@@ -16,7 +16,7 @@ def test_render_packet_includes_changed_cop_results():
         [
             {
                 "cop": "Style/MixinUsage",
-                "command": "python3 scripts/check-cop.py Style/MixinUsage --verbose --rerun --quick --clone",
+                "command": "python3 scripts/check_cop.py Style/MixinUsage --verbose --rerun --quick --clone",
                 "status": 1,
                 "output": (
                     "  (used batch --corpus-check mode)\n"
@@ -59,9 +59,9 @@ def test_render_packet_includes_changed_cop_results():
     assert "Exit status: `1`" in packet
     assert "FN increased from 0 to 38" in packet
     assert "Start here:" in packet
-    assert "python3 scripts/investigate-cop.py Style/MixinUsage --input /tmp/standard.json --repos-only" in packet
-    assert "python3 scripts/investigate-cop.py Style/MixinUsage --input /tmp/standard.json --fn-only --context --limit 10" in packet
-    assert "python3 scripts/check-cop.py Style/MixinUsage --verbose --rerun --quick --clone --no-batch" in packet
+    assert "python3 scripts/investigate_cop.py Style/MixinUsage --input /tmp/standard.json --repos-only" in packet
+    assert "python3 scripts/investigate_cop.py Style/MixinUsage --input /tmp/standard.json --fn-only --context --limit 10" in packet
+    assert "python3 scripts/check_cop.py Style/MixinUsage --verbose --rerun --quick --clone --no-batch" in packet
     assert "Oracle FN hotspots:" in packet
     assert "`puppetlabs__puppet__e227c27` (4 FN)" in packet
     assert "Representative oracle FN examples:" in packet
