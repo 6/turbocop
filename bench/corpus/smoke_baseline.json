@@ -53,18 +53,18 @@
     "rc_files": 288
   },
   "ruby-formatter__rufo__a90e654": {
-    "fn": 556,
-    "fp": 17,
-    "matches": 10347,
+    "fn": 532,
+    "fp": 21,
+    "matches": 10371,
     "nc_files": 157,
     "overlay_divergence": {
       "fn": 6420,
       "fp": 10,
-      "fp_delta": -7,
-      "match_delta": 5864,
+      "fp_delta": -11,
+      "match_delta": 5888,
       "matches": 4483
     },
-    "rate": 94.8,
+    "rate": 94.9,
     "rc_files": 158
   },
   "standardrb__standard__c886a57": {
