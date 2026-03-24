@@ -95,80 +95,52 @@ MINIMAX_BACKEND = {
 }
 
 
-CLAUDE_NORMAL_BACKEND = {
-    "family": "claude",
-    "strength": "normal",
-    "model": "sonnet",
-    "reasoning_effort": "",
-    "display_label": "claude / normal",
-    "model_label": "Claude Sonnet",
-    "cli": "claude",
-    "setup_cmd": (
-        'python3 scripts/workflows/guard_backend_secrets.py '
-        '--from-env ANTHROPIC_API_KEY '
-        'emit-masks && '
-        'curl -fsSL https://claude.ai/install.sh | bash'
-    ),
-    "log_format": "claude",
-    "log_pattern": "~/.claude/projects/**/*.jsonl",
-    "run_cmd": (
-        'claude -p --dangerously-skip-permissions '
-        '--output-format json '
-        '"$(cat "$FINAL_TASK_FILE")" '
-        '> "$AGENT_RESULT_FILE" '
-        '2> >(tee "$AGENT_LOG_FILE" >&2) || true'
-    ),
-    "env": {
-        "ANTHROPIC_MODEL": "sonnet",
-        "API_TIMEOUT_MS": "300000",
-        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    },
-    "secrets": {
-        "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY",
-    },
-}
+def claude_backend(strength: str, effort: str, display_label: str, model_label: str) -> dict:
+    return {
+        "family": "claude",
+        "strength": strength,
+        "model": "claude-opus-4-6",
+        "reasoning_effort": effort,
+        "display_label": display_label,
+        "model_label": model_label,
+        "cli": "claude",
+        "setup_cmd": (
+            'python3 scripts/workflows/guard_backend_secrets.py '
+            '--from-env ANTHROPIC_API_KEY '
+            'emit-masks && '
+            'curl -fsSL https://claude.ai/install.sh | bash'
+        ),
+        "log_format": "claude",
+        "log_pattern": "~/.claude/projects/**/*.jsonl",
+        "run_cmd": (
+            f'claude -p --dangerously-skip-permissions '
+            f'--model claude-opus-4-6 --effort {effort} '
+            f'--output-format json '
+            f'"$(cat "$FINAL_TASK_FILE")" '
+            f'> "$AGENT_RESULT_FILE" '
+            f'2> >(tee "$AGENT_LOG_FILE" >&2) || true'
+        ),
+        "env": {
+            "ANTHROPIC_MODEL": "claude-opus-4-6",
+            "API_TIMEOUT_MS": "300000",
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        },
+        "secrets": {
+            "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY",
+        },
+    }
 
 
-CLAUDE_HARD_BACKEND = {
-    "family": "claude",
-    "strength": "hard",
-    "model": "opus",
-    "reasoning_effort": "",
-    "display_label": "claude / hard",
-    "model_label": "Claude Opus",
-    "cli": "claude",
-    "setup_cmd": (
-        'python3 scripts/workflows/guard_backend_secrets.py '
-        '--from-env ANTHROPIC_API_KEY '
-        'emit-masks && '
-        'curl -fsSL https://claude.ai/install.sh | bash'
-    ),
-    "log_format": "claude",
-    "log_pattern": "~/.claude/projects/**/*.jsonl",
-    "run_cmd": (
-        'claude -p --dangerously-skip-permissions '
-        '--output-format json '
-        '"$(cat "$FINAL_TASK_FILE")" '
-        '> "$AGENT_RESULT_FILE" '
-        '2> >(tee "$AGENT_LOG_FILE" >&2) || true'
-    ),
-    "env": {
-        "ANTHROPIC_MODEL": "opus",
-        "API_TIMEOUT_MS": "300000",
-        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    },
-    "secrets": {
-        "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY",
-    },
-}
+CLAUDE_NORMAL_BACKEND = claude_backend("normal", "medium", "claude / normal", "Claude Opus 4.6 (medium)")
+CLAUDE_HARD_BACKEND = claude_backend("hard", "high", "claude / hard", "Claude Opus 4.6 (high)")
 
 
-def claude_oauth_backend(strength: str, model: str, display_label: str, model_label: str) -> dict:
+def claude_oauth_backend(strength: str, effort: str, display_label: str, model_label: str) -> dict:
     return {
         "family": "claude-oauth",
         "strength": strength,
-        "model": model,
-        "reasoning_effort": "",
+        "model": "claude-opus-4-6",
+        "reasoning_effort": effort,
         "display_label": display_label,
         "model_label": model_label,
         "cli": "claude-action",
@@ -182,7 +154,7 @@ def claude_oauth_backend(strength: str, model: str, display_label: str, model_la
         "log_pattern": "~/.claude/projects/**/*.jsonl",
         "run_cmd": "",
         "env": {
-            "ANTHROPIC_MODEL": model,
+            "ANTHROPIC_MODEL": "claude-opus-4-6",
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         },
         "secrets": {
@@ -195,10 +167,10 @@ CODEX_53_HIGH_BACKEND = codex_backend("gpt-5.3-codex", "high", "normal")
 CODEX_54_XHIGH_BACKEND = codex_backend("gpt-5.4", "xhigh", "hard")
 
 CLAUDE_OAUTH_NORMAL_BACKEND = claude_oauth_backend(
-    "normal", "sonnet", "claude-oauth / normal", "Claude Sonnet (OAuth)",
+    "normal", "medium", "claude-oauth / normal", "Claude Opus 4.6 (OAuth, medium)",
 )
 CLAUDE_OAUTH_HARD_BACKEND = claude_oauth_backend(
-    "hard", "opus", "claude-oauth / hard", "Claude Opus (OAuth)",
+    "hard", "high", "claude-oauth / hard", "Claude Opus 4.6 (OAuth, high)",
 )
 
 

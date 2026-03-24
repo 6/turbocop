@@ -316,7 +316,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: ${{ steps.prepare.outputs.prompt_content }}
-          claude_args: "--dangerously-skip-permissions"
+          claude_args: "--dangerously-skip-permissions --model claude-opus-4-6 --effort ${{ steps.backend.outputs.reasoning_effort }}"
           github_token: ${{ steps.actions-read-token.outputs.token }}
         env:
           ANTHROPIC_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_MODEL }}
