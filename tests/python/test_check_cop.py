@@ -142,10 +142,9 @@ def test_clone_repos_for_cop_reclones_when_existing_sha_mismatches():
             check_cop.subprocess.run = original_subprocess_run
 
 
-def test_rerun_local_per_repo_skips_batch_when_no_batch_requested():
+def test_rerun_local_per_repo_always_uses_per_repo_mode():
     original_ensure_binary_fresh = check_cop.ensure_binary_fresh
     original_clear_file_cache = check_cop.clear_file_cache
-    original_run_nitrocop_batch = check_cop.run_nitrocop_batch
     original_run_nitrocop_per_repo = check_cop.run_nitrocop_per_repo
     try:
         calls = []
@@ -153,15 +152,10 @@ def test_rerun_local_per_repo_skips_batch_when_no_batch_requested():
         check_cop.ensure_binary_fresh = lambda: calls.append("fresh")
         check_cop.clear_file_cache = lambda: calls.append("clear")
 
-        def fake_batch(_cop_name):
-            calls.append("batch")
-            return {"repo-a": 1}
-
         def fake_per_repo(_cop_name, relevant_repos=None):
             calls.append(("per_repo", relevant_repos))
             return {"repo-a": 2}
 
-        check_cop.run_nitrocop_batch = fake_batch
         check_cop.run_nitrocop_per_repo = fake_per_repo
 
         result = check_cop.rerun_local_per_repo(
@@ -172,16 +166,13 @@ def test_rerun_local_per_repo_skips_batch_when_no_batch_requested():
             },
             quick=True,
             has_activity_index=True,
-            no_batch=True,
         )
 
         assert result == {"repo-a": 2}
-        assert "batch" not in calls
         assert ("per_repo", {"repo-a"}) in calls
     finally:
         check_cop.ensure_binary_fresh = original_ensure_binary_fresh
         check_cop.clear_file_cache = original_clear_file_cache
-        check_cop.run_nitrocop_batch = original_run_nitrocop_batch
         check_cop.run_nitrocop_per_repo = original_run_nitrocop_per_repo
 
 
@@ -191,5 +182,5 @@ if __name__ == "__main__":
     test_run_nitrocop_per_repo_skips_missing_corpus_when_no_relevant_repos()
     test_run_nitrocop_per_repo_errors_on_missing_required_repos()
     test_clone_repos_for_cop_reclones_when_existing_sha_mismatches()
-    test_rerun_local_per_repo_skips_batch_when_no_batch_requested()
+    test_rerun_local_per_repo_always_uses_per_repo_mode()
     print("All tests passed.")

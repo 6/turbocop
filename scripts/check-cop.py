@@ -19,7 +19,6 @@ Usage:
     python3 scripts/check-cop.py Lint/Void              # quick aggregate count check
     python3 scripts/check-cop.py Lint/Void --verbose     # per-repo count breakdown
     python3 scripts/check-cop.py Lint/Void --verbose --rerun --quick  # fast iteration
-    python3 scripts/check-cop.py Lint/Void --verbose --rerun --quick --no-batch  # force per-repo subprocess mode
     python3 scripts/check-cop.py Lint/Void --threshold 5 # allow up to 5 excess
 """
 
@@ -216,42 +215,6 @@ def nitrocop_cmd(cop_name: str, target: str) -> list[str]:
         target,
     ]
 
-
-def run_nitrocop_batch(cop_name: str) -> dict[str, int] | None:
-    """Try batch corpus check via --corpus-check flag (single process).
-
-    Returns {repo_id: count} or None if the binary doesn't support --corpus-check.
-    """
-    cmd = [
-        str(NITROCOP_BIN), "--corpus-check", str(CORPUS_DIR),
-        "--only", cop_name, "--preview",
-        "--no-cache",
-        "--config", str(BASELINE_CONFIG),
-    ]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=600,
-            env=corpus_env(str(CORPUS_DIR)),
-        )
-    except subprocess.TimeoutExpired:
-        print("  batch corpus-check timed out, falling back to per-repo", file=sys.stderr)
-        return None
-
-    if result.returncode != 0:
-        # Binary might not support --corpus-check yet
-        if "corpus-check" in result.stderr.lower() or "unrecognized" in result.stderr.lower():
-            return None
-        print(f"  batch corpus-check failed (exit {result.returncode}), "
-              f"falling back to per-repo", file=sys.stderr)
-        return None
-
-    try:
-        data = json.loads(result.stdout)
-        return {k: v for k, v in data.get("repos", {}).items()}
-    except json.JSONDecodeError:
-        print("  batch corpus-check returned invalid JSON, falling back to per-repo",
-              file=sys.stderr)
-        return None
 
 
 def count_deduplicated_offenses(json_data: dict) -> int:
@@ -539,37 +502,26 @@ def rerun_local_per_repo(
     *,
     quick: bool,
     has_activity_index: bool,
-    no_batch: bool,
 ) -> dict[str, int]:
-    """Re-run nitrocop locally, preferring batch mode unless disabled."""
+    """Re-run nitrocop locally using per-repo subprocess mode.
+
+    Each repo is linted from its own directory with BUNDLE_GEMFILE and
+    GIT_CEILING_DIRECTORIES set, matching the corpus oracle exactly.
+    """
     ensure_binary_fresh()
     clear_file_cache()
     print("Running nitrocop per-repo...", file=sys.stderr)
 
-    per_repo = None
-    if not no_batch:
-        per_repo = run_nitrocop_batch(cop_name)
-        if per_repo is not None:
-            print("  (used batch --corpus-check mode)", file=sys.stderr)
-
-    if per_repo is None:
-        if no_batch:
+    relevant_repos = None
+    if quick:
+        relevant_repos = relevant_repos_for_cop(cop_name, data)
+        if not has_activity_index:
             print(
-                "  (forced per-repo subprocess mode; skipped batch --corpus-check)",
+                "WARNING: corpus artifact lacks cop_activity_repos; "
+                "quick rerun falls back to divergence-only data",
                 file=sys.stderr,
             )
-        relevant_repos = None
-        if quick:
-            relevant_repos = relevant_repos_for_cop(cop_name, data)
-            if not has_activity_index:
-                print(
-                    "WARNING: corpus artifact lacks cop_activity_repos; "
-                    "quick rerun falls back to divergence-only data",
-                    file=sys.stderr,
-                )
-        per_repo = run_nitrocop_per_repo(cop_name, relevant_repos=relevant_repos)
-
-    return per_repo
+    return run_nitrocop_per_repo(cop_name, relevant_repos=relevant_repos)
 
 
 def main():
@@ -586,8 +538,6 @@ def main():
                         help="Force re-execution of nitrocop (ignore local cache)")
     parser.add_argument("--quick", action="store_true",
                         help="Only run repos with baseline activity (faster, may miss new FPs on zero-baseline repos)")
-    parser.add_argument("--no-batch", action="store_true",
-                        help="Skip local batch --corpus-check mode and force per-repo subprocess rerun")
     parser.add_argument("--clone", action="store_true",
                         help="Auto-clone needed corpus repos from manifest (for CI use with --rerun --quick)")
     parser.add_argument("--extended", action="store_true",
@@ -694,7 +644,6 @@ def main():
                 data,
                 quick=args.quick,
                 has_activity_index=has_activity_index,
-                no_batch=args.no_batch,
             )
             save_cached_results(args.cop, per_repo)
 
