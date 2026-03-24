@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -378,20 +379,25 @@ def dispatch_simple_repair(repo: str, issue: dict, regression: dict) -> None:
         f"and {regression['after_run_id']}. "
         "Investigate the regression introduced after merge and keep the fix narrow."
     )
-    subprocess.run(
-        [
-            "gh", "workflow", "run", "agent-cop-fix.yml",
-            "--repo", repo,
-            "-f", f"cop={regression['cop']}",
-            "-f", "backend=auto",
-            "-f", "mode=retry",
-            "-f", f"issue_number={issue['number']}",
-            "-f", f"extra_context={extra_context}",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    cmd = [
+        "gh", "workflow", "run", "agent-cop-fix.yml",
+        "--repo", repo,
+        "-f", f"cop={regression['cop']}",
+        "-f", "backend=auto",
+        "-f", "mode=retry",
+        "-f", f"issue_number={issue['number']}",
+        "-f", f"extra_context={extra_context}",
+    ]
+    # Use DISPATCH_TOKEN (GITHUB_TOKEN with actions:write) for workflow dispatch,
+    # since the default GH_TOKEN is an app token that lacks actions permission.
+    env = {**os.environ}
+    dispatch_token = os.environ.get("DISPATCH_TOKEN")
+    if dispatch_token:
+        env["GH_TOKEN"] = dispatch_token
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    if proc.returncode != 0:
+        print(f"ERROR dispatching repair for {regression['cop']}: {proc.stderr.strip()}", file=sys.stderr)
+        proc.check_returncode()
 
 
 def render_report(before_meta: dict, after_meta: dict, regressions: list[dict]) -> str:

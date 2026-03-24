@@ -2,7 +2,7 @@ name: Investigate Regression
 
 permissions:
   contents: read
-  actions: read
+  actions: write
   issues: write
   pull-requests: read
 
@@ -46,6 +46,7 @@ jobs:
       - name: Investigate regression
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          DISPATCH_TOKEN: ${{ github.token }}
         run: |
           ARGS=(
             --repo "${{ github.repository }}"
