@@ -1,5 +1,9 @@
 # check-cop.py vs Corpus Oracle: 38-Offense Discrepancy
 
+## Status
+
+**OPEN** — `GIT_CEILING_DIRECTORIES` was added to the oracle (commit 9966179c) and rerun (run 23475296495). The oracle still reports 540, meaning `GIT_CEILING_DIRECTORIES` alone does not change how the `ignore` crate resolves `.gitignore` when the target is passed as an absolute path. The discrepancy persists.
+
 ## Summary
 
 `check-cop.py --rerun` consistently reports fewer offenses than the corpus oracle for some cops (e.g., Style/MixinUsage: 502 vs 540). This causes agent PRs to fail the CI cop-check gate even when the cop fix is correct.
@@ -8,29 +12,30 @@
 
 The corpus oracle and `check-cop.py` run nitrocop with different working directory contexts, which changes how the `ignore` crate's `WalkBuilder` resolves `.gitignore` files during file discovery.
 
+The oracle's shallow clones (`git init` + `git fetch --depth 1` + `git checkout FETCH_HEAD`) contain gitignored files physically on disk (e.g., `bin/update`). Whether these files are skipped depends on how the `ignore` crate enters the `.git` tree.
+
 ### Corpus Oracle (`.github/workflows/corpus-oracle.yml`)
 
 ```bash
-# Clones repos to repos/<id>/ (NOT under vendor/)
 DEST="repos/${REPO_ID}"
 git init "$DEST"
 git -C "$DEST" fetch --depth 1 "$REPO_URL" "$REPO_SHA"
 git -C "$DEST" checkout FETCH_HEAD
 
-# Runs nitrocop from workspace root, passing repo path as argument
+# Runs from workspace root, passing repo as absolute path
 env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
     BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
+    GIT_CEILING_DIRECTORIES=$(dirname "$ABS_DEST") \
 bin/nitrocop --preview --format json --no-cache \
-    --config "$REPO_CONFIG" "$DEST"
+    --config "$REPO_CONFIG" "$ABS_DEST"
 ```
 
-Key: `cwd` is the workspace root. The target path is `repos/<id>/`. The `WalkBuilder` starts walking from `repos/<id>/` and enters the repo's `.git` tree. However, because `cwd` is outside the repo, the `ignore` crate's gitignore resolution behaves differently — it may not fully respect the repo's `.gitignore` for files that are gitignored but physically present in the shallow clone.
+Result: 540 offenses for Style/MixinUsage. Gitignored files ARE processed.
 
 ### check-cop.py (per-repo mode)
 
 ```bash
-# Clones repos to vendor/corpus/<id>/
-# Runs nitrocop from INSIDE the repo
+# Runs from INSIDE the repo with . as target
 cd vendor/corpus/<id>
 env BUNDLE_GEMFILE=.../bench/corpus/Gemfile \
     BUNDLE_PATH=.../bench/corpus/vendor/bundle \
@@ -39,113 +44,128 @@ nitrocop --only Style/MixinUsage --preview --format json --no-cache \
     --config .../bench/corpus/baseline_rubocop.yml .
 ```
 
-Key: `cwd` is inside the repo. The `WalkBuilder` starts from `.` and immediately finds `.git/` and `.gitignore`. Gitignored files (like `bin/update` in some repos) are properly skipped.
+Result: 502 offenses for Style/MixinUsage. Gitignored files ARE skipped.
 
-## The Discrepancy
+## Why GIT_CEILING_DIRECTORIES Didn't Fix It
 
-The oracle processes gitignored files because `WalkBuilder` doesn't fully apply `.gitignore` when the walk starts from outside the repo's `.git` tree. RuboCop in the oracle also runs from outside, so both tools agree — the oracle is internally consistent at 540.
+`GIT_CEILING_DIRECTORIES` prevents git from looking for `.git` directories above the ceiling. But the oracle passes the repo as an absolute path target, so the `ignore` crate's `WalkBuilder` starts walking from the repo directory and finds `.git` inside it. The ceiling is set to the parent of the repo dir, which doesn't affect this walk.
 
-`check-cop.py` runs from inside the repo, so `.gitignore` is properly applied and gitignored files are skipped. This gives 502 (38 fewer).
-
-## Affected Repos (Style/MixinUsage example)
-
-The 38 missing offenses come from files like:
-- `bin/update` (gitignored in many Rails repos)
-- Other files under gitignored paths that still exist in the shallow clone
-
-These files contain top-level `include` calls that Style/MixinUsage flags. The oracle sees them, check-cop doesn't.
+The difference is more subtle: when `cwd` is inside the repo (check-cop style), the `ignore` crate resolves `.gitignore` relative to the working directory and correctly skips gitignored files. When `cwd` is outside the repo (oracle style), even though the walker enters the repo and finds `.git`, the gitignore resolution may differ — possibly because the `ignore` crate uses `cwd` as part of its path normalization.
 
 ## Verified Behavior
 
 | Invocation | MixinUsage Count | Notes |
 |---|---|---|
 | Oracle on CI (`repos/<id>/` from workspace root) | 540 | Gitignored files processed |
-| check-cop per-repo (`cwd=vendor/corpus/<id>/`, `.`) | 502 | Gitignored files skipped |
-| check-cop from CORPUS_DIR (`vendor/corpus/`, `<id>`) | 574 | Parent .gitignore context changes results |
-| Batch `--corpus-check` (removed) | 587 | `vendor/**/*` exclude applied incorrectly |
+| Oracle on CI with `GIT_CEILING_DIRECTORIES` | 540 | No change — ceiling doesn't affect it |
+| check-cop per-repo (`cwd=repo`, `.` target) | 502 | Gitignored files properly skipped |
+| check-cop from CORPUS_DIR (`vendor/corpus/`, `<id>` target) | 574 | Parent gitignore context adds extras |
+| Batch `--corpus-check` (removed) | 587 | `vendor/**/*` exclude incorrectly applied |
 | From `/tmp` with absolute path | 574 | Same as CORPUS_DIR |
-| Repo copied outside project tree | matches oracle | Confirms it's a path/git context issue |
+| Repo copied outside project tree to `/tmp` | matches oracle (540) | Confirms it's a cwd/git context issue |
+
+### Per-repo example: autolab/Autolab
+
+```
+# From inside repo (check-cop style): 15 offenses — bin/update skipped
+# From outside repo (oracle style):   16 offenses — bin/update included
+# The file bin/update is gitignored but present in shallow clone
+```
 
 ## Previously Fixed Issues
 
-1. **Batch mode (`--corpus-check`)**: Applied `AllCops.Exclude: vendor/**/*` against `vendor/corpus/<id>/...` paths, incorrectly excluding entire repos. Produced 587 (47 extra FPs). **Fixed**: batch mode removed entirely.
+1. **Batch mode (`--corpus-check`)**: Applied `AllCops.Exclude: vendor/**/*` against `vendor/corpus/<id>/...` paths, incorrectly excluding entire repos. Produced 587 (47 extra FPs). **Fixed**: batch mode removed entirely (commit 22b833ed).
 
-2. **`[skip ci]` in squash merges**: The claim-pr placeholder commit included `[skip ci]` which poisoned merged PR commit messages, preventing CI from running. **Fixed**: removed `[skip ci]` from placeholder.
+2. **`[skip ci]` in squash merges**: The claim-pr placeholder commit included `[skip ci]` which poisoned merged PR commit messages, preventing CI from running. **Fixed**: removed `[skip ci]` from placeholder (commit 558ab7e1).
+
+3. **`GIT_CEILING_DIRECTORIES` in oracle**: Added to both nitrocop and RuboCop invocations (commit 9966179c). **Did not fix the discrepancy** — oracle still reports 540.
 
 ## Options to Fix
 
-### Option A: Fix the oracle to run from inside each repo (recommended)
+### Option A: Run oracle from inside each repo (cd into DEST) — FAILED
 
-Change `corpus-oracle.yml` to `cd` into each repo before running nitrocop:
-
-```bash
-cd "$DEST"
-env BUNDLE_GEMFILE=$WORKSPACE/bench/corpus/Gemfile \
-    BUNDLE_PATH=$WORKSPACE/bench/corpus/vendor/bundle \
-    GIT_CEILING_DIRECTORIES=$(dirname "$PWD") \
-$WORKSPACE/bin/nitrocop --preview --format json --no-cache \
-    --config "$REPO_CONFIG" .
-```
-
-This would make the oracle respect `.gitignore` properly, matching real-world `rubocop .` behavior. Baselines would drop by ~38 for Style/MixinUsage (and potentially small amounts for other cops). All cop baselines would need a refresh.
-
-Do the same for the RuboCop invocation in the oracle so both tools continue to agree.
+Tried in commit 12f56f2a, reverted in 8c345a5b. Changing the oracle to `cd "$DEST"` and use `.` as the target dropped conformance from **98.9% to 0.0%** — RuboCop's config resolution completely broke when `cwd` changed. The oracle's invocation style (cwd=workspace root, repo as path argument) is load-bearing for RuboCop and cannot be changed.
 
 ### Option B: Make check-cop replicate the oracle's outside-repo behavior
 
-Clone repos to a temp directory outside the git tree (e.g., `/tmp/corpus/<id>/`) and run from the parent directory with the repo as a target. This matches the oracle's path context exactly.
+Clone repos to a temp directory outside the git tree (e.g., `/tmp/corpus/<id>/`) and run from a neutral parent. This matches the oracle's cwd-outside-repo behavior.
 
-Downside: slower (copies repos to /tmp), and preserves the oracle's arguably-wrong behavior of processing gitignored files.
+**Implemented** in commit a82349f8. Each per-repo run symlinks the corpus repo into
+a temp directory outside the project tree and runs from there, matching the oracle's
+`repos/<id>/` path context.
 
-### Option C: Allow a threshold in CI cop-check
+**Local testing (macOS)**: Per-repo counts match the oracle exactly (e.g., autolab=16,
+puppet=29, dpl=35). But the aggregate total is 574 vs oracle's 540 — a 34-offense gap
+that may be a macOS vs Linux difference in how the `ignore` crate resolves symlinks
+or `.gitignore`. **CI (Linux) is the real test** — merge main into PR #151 and see if
+cop-check passes.
 
-Add `--threshold 38` to the CI cop-check for affected cops. Quick but fragile — the exact number depends on which repos have gitignored files with offenses.
+### Option C: Allow a per-cop threshold in CI cop-check
 
-### Option D: Disable gitignore in WalkBuilder for corpus runs
+Add `--threshold N` to the CI cop-check for cops known to have this discrepancy. The number would need to be computed from the oracle data.
 
-Add a `--no-gitignore` flag to nitrocop that disables `.gitignore` respect in `WalkBuilder`. Use it in both the oracle and check-cop. This makes both tools consistently process all files regardless of `.gitignore`.
+**Downside**: Fragile, masks real regressions up to the threshold.
 
-Downside: diverges from real-world behavior where users expect `.gitignore` to be respected.
+### Option D: Add `--no-gitignore` flag to nitrocop
+
+Disable `.gitignore` respect in `WalkBuilder` for corpus runs. Use in both the oracle and check-cop.
+
+**Downside**: Diverges from real-world behavior. Would need to be added to the Rust code.
 
 ## Debugging on CI
 
-CI runners use the same Ubuntu 24.04 environment as the oracle and cop-check. To debug further:
+CI runners use the same Ubuntu 24.04 environment as the oracle and cop-check. **This discrepancy must be debugged on CI** since local macOS may behave differently.
 
-1. **Create a branch with verbose logging** and push it to trigger CI:
-   ```bash
-   # Add debug output to check-cop.py or the checks workflow
-   git checkout -b debug/check-cop-discrepancy
-   # Edit .github/workflows/checks.yml to add verbose logging
-   # Or add a one-off debug step that runs both invocation styles
-   git push origin debug/check-cop-discrepancy
-   ```
+1. **Create a debug branch** with a one-off workflow step that compares both invocation styles:
 
-2. **Add a debug step to checks.yml** that compares oracle-style vs check-cop-style for a specific repo:
    ```yaml
    - name: Debug corpus invocation difference
      run: |
+       # Clone a known-affected repo
        REPO="autolab__Autolab__674efe9"
-       # Oracle style: from workspace root
-       target/release/nitrocop --only Style/MixinUsage --preview --format json \
-         --no-cache --config bench/corpus/baseline_rubocop.yml \
+       mkdir -p vendor/corpus
+       git init "vendor/corpus/$REPO"
+       git -C "vendor/corpus/$REPO" fetch --depth 1 \
+         https://github.com/autolab/Autolab.git 674efe9
+       git -C "vendor/corpus/$REPO" checkout FETCH_HEAD
+
+       echo "=== Oracle style: cwd=workspace, target=path ==="
+       env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
+           BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
+       target/release/nitrocop --only Style/MixinUsage --preview \
+         --format json --no-cache \
+         --config bench/corpus/baseline_rubocop.yml \
          "vendor/corpus/$REPO" 2>/dev/null | python3 -c "
            import json,sys; d=json.loads(sys.stdin.read())
-           print(f'outside: {len(d.get(\"offenses\",[]))}')"
-       # Check-cop style: from inside repo
+           offs=[o['path']+':'+str(o['line']) for o in d.get('offenses',[])]
+           print(f'oracle-style: {len(offs)} offenses')
+           for o in offs: print(f'  {o}')"
+
+       echo "=== Check-cop style: cwd=repo, target=. ==="
        cd "vendor/corpus/$REPO"
-       env GIT_CEILING_DIRECTORIES=$(dirname "$PWD") \
-         "$GITHUB_WORKSPACE/target/release/nitrocop" \
-         --only Style/MixinUsage --preview --format json \
-         --no-cache --config "$GITHUB_WORKSPACE/bench/corpus/baseline_rubocop.yml" \
+       env BUNDLE_GEMFILE=$GITHUB_WORKSPACE/bench/corpus/Gemfile \
+           BUNDLE_PATH=$GITHUB_WORKSPACE/bench/corpus/vendor/bundle \
+           GIT_CEILING_DIRECTORIES=$GITHUB_WORKSPACE/vendor/corpus \
+       $GITHUB_WORKSPACE/target/release/nitrocop --only Style/MixinUsage \
+         --preview --format json --no-cache \
+         --config $GITHUB_WORKSPACE/bench/corpus/baseline_rubocop.yml \
          . 2>/dev/null | python3 -c "
            import json,sys; d=json.loads(sys.stdin.read())
-           print(f'inside: {len(d.get(\"offenses\",[]))}')"
+           offs=[o['path']+':'+str(o['line']) for o in d.get('offenses',[])]
+           print(f'check-cop-style: {len(offs)} offenses')
+           for o in offs: print(f'  {o}')"
    ```
 
-3. **Compare file discovery** by adding `--debug` to nitrocop, which prints per-phase timing and file counts. This reveals whether the difference is in file discovery or offense detection.
+2. **Verify Option A on CI** by testing `cd "$DEST"` + `.` target in the debug branch before changing the real oracle.
 
-This is useful because the discrepancy may behave differently on macOS vs Linux due to filesystem case sensitivity, symlink handling, or the `ignore` crate's platform-specific behavior.
+3. **Compare file discovery** by adding `--debug` to nitrocop in both modes — this prints file counts per phase and reveals whether the difference is in discovery or offense detection.
 
-## Recommendation
+## Next Steps
 
-**Option A** is the cleanest fix. The oracle should match real-world usage (running from inside the repo). The one-time baseline refresh is a small cost. Both the oracle's nitrocop and RuboCop invocations should be updated to run from inside each repo with `GIT_CEILING_DIRECTORIES` set.
+1. **Rerun the standard corpus oracle** to restore the known-good baseline (the Option A attempt corrupted it).
+
+2. **Try Option B**: Make check-cop.py match the oracle by running from a neutral directory outside the git tree with the repo as a path argument. This avoids changing the oracle at all.
+
+3. If Option B doesn't work, **try Option D**: Add `--no-gitignore` to nitrocop for corpus runs so both tools consistently process all files regardless of `.gitignore`.
+
+4. Once check-cop matches the oracle, **merge PR #151** (Style/MixinUsage) and **re-dispatch** remaining cops.

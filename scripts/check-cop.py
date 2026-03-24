@@ -27,6 +27,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from shared.corpus_artifacts import download_corpus_results as _download_corpus
@@ -225,23 +226,36 @@ def count_deduplicated_offenses(json_data: dict) -> int:
 def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
     """Run nitrocop on a single repo. Used by the parallel executor.
 
-    Runs from inside the repo directory with GIT_CEILING_DIRECTORIES set
-    to the corpus root so the `ignore` crate does not walk up into the
-    parent nitrocop project. This matches the corpus oracle's git context
-    (which clones to repos/<id>/ outside the project tree).
+    The corpus oracle runs from its workspace root with repos at
+    repos/<id>/ — a path NOT inside any git tree. To match this,
+    we symlink the repo into a temp directory outside the nitrocop
+    project tree and run from there. This gives the `ignore` crate
+    the same .gitignore resolution context as the oracle.
     """
     cop_name, repo_dir = args
     repo_id = Path(repo_dir).name
-    env = corpus_env()
-    env["GIT_CEILING_DIRECTORIES"] = str(CORPUS_DIR)
+    repo_abs = str(Path(repo_dir).resolve())
+
+    # Create a temp directory outside the git tree with a symlink to the repo.
+    # The symlink makes the path <tmpdir>/repos/<repo_id> which mirrors the
+    # oracle's repos/<id>/ layout. Running from <tmpdir> means cwd is NOT
+    # inside any git tree, matching the oracle exactly.
+    tmpdir = tempfile.mkdtemp(prefix="nitrocop_cop_check_")
+    repos_parent = Path(tmpdir) / "repos"
+    repos_parent.mkdir()
+    link = repos_parent / repo_id
+    link.symlink_to(repo_abs)
     try:
         result = subprocess.run(
-            nitrocop_cmd(cop_name, "."),
+            nitrocop_cmd(cop_name, str(link)),
             capture_output=True, text=True, timeout=120,
-            cwd=repo_dir, env=env,
+            cwd=tmpdir, env=corpus_env(),
         )
     except subprocess.TimeoutExpired:
         return (repo_id, -1)
+    finally:
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
     if result.returncode not in (0, 1):
         return (repo_id, -1)
@@ -705,8 +719,43 @@ def main():
                     print(f"  ... and {len(repos_with_offenses) - 30} more")
                 print()
 
+            # Debug: dump per-repo counts for comparison with oracle
+            debug_path = PROJECT_ROOT / "check-cop-debug.json"
+            debug_data = {
+                "cop": args.cop,
+                "per_repo": {k: v for k, v in sorted(per_repo.items())},
+                "total": sum(c for c in per_repo.values() if c >= 0),
+                "repos_run": len(per_repo),
+                "errors": [k for k, v in per_repo.items() if v < 0],
+            }
+            debug_path.write_text(json.dumps(debug_data, indent=2))
+            print(f"Debug: per-repo counts written to {debug_path}",
+                  file=sys.stderr)
+
     excess = max(0, nitrocop_total - expected_rubocop)
     missing = max(0, expected_rubocop - nitrocop_total)
+
+    # Debug: if there's a discrepancy and we have per-repo data, show details
+    if (excess > 0 or missing > 0) and args.verbose and 'per_repo' in dir():
+        print("Per-repo discrepancy analysis:", file=sys.stderr)
+        print(f"  check-cop total: {nitrocop_total}, oracle expected: {expected_rubocop}, "
+              f"diff: {nitrocop_total - expected_rubocop:+d}", file=sys.stderr)
+        activity_repos = set(data.get("cop_activity_repos", {}).get(args.cop, []))
+        local_active = {k for k, v in per_repo.items() if v > 0 and k != "__ci_baseline_matching_repos__"}
+        only_local = sorted(local_active - activity_repos)
+        only_oracle = sorted(activity_repos - local_active)
+        if only_local:
+            extra_from_local = sum(per_repo.get(k, 0) for k in only_local)
+            print(f"  Repos with offenses locally but NOT in oracle activity ({len(only_local)}, "
+                  f"{extra_from_local} offenses):", file=sys.stderr)
+            for r in only_local[:10]:
+                print(f"    {per_repo[r]:>4}  {r}", file=sys.stderr)
+        if only_oracle:
+            print(f"  Repos in oracle activity but 0 locally ({len(only_oracle)}):",
+                  file=sys.stderr)
+            for r in only_oracle[:10]:
+                print(f"    {r}", file=sys.stderr)
+        print(file=sys.stderr)
 
     # CI nitrocop baseline: the offense count CI's nitrocop produced on
     # RuboCop-inspected files. Our local count should be close to this.
