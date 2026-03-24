@@ -24,3 +24,11 @@ elsif !Config::MODES.include?(mode)
       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/NegateInclude: Use `exclude?` instead of `!include?`.
   handle_invalid
 end
+
+# inside && expression
+parent != kernel && !searched.include?(kernel)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/NegateInclude: Use `exclude?` instead of `!include?`.
+
+# space between ! and expression
+! %w{root wheel}.include?(group)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/NegateInclude: Use `exclude?` instead of `!include?`.
