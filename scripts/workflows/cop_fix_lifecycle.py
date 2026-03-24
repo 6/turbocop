@@ -488,6 +488,7 @@ def cmd_claim_pr(args: list[str]) -> int:
         ("agent-fix", "0e8a16"),
         (model_label_name, "c2e0c6"),
         ("state:backlog", "fbca04"),
+        ("state:dispatched", "1d76db"),
         ("state:pr-open", "0e8a16"),
         ("state:blocked", "b60205"),
     ]:
@@ -517,7 +518,7 @@ def cmd_claim_pr(args: list[str]) -> int:
     if opts.issue_number:
         _run_ok([
             "gh", "issue", "edit", opts.issue_number, "--repo", opts.repo,
-            "--remove-label", "state:backlog,state:blocked",
+            "--remove-label", "state:backlog,state:dispatched,state:blocked",
             "--add-label", "state:pr-open",
         ])
 
@@ -852,7 +853,7 @@ def _close_pr_no_changes(
         _run_ok(["gh", "issue", "comment", issue_number, "--repo", repo, "--body-file", str(claim_body)])
         _run_ok([
             "gh", "issue", "edit", issue_number, "--repo", repo,
-            "--remove-label", "state:pr-open",
+            "--remove-label", "state:pr-open,state:dispatched",
             "--add-label", "state:backlog",
         ])
     _run_ok(["gh", "pr", "close", pr_url, "--comment", "Agent produced no changes.", "--delete-branch"])
@@ -884,7 +885,7 @@ def _close_pr_rejected(
         _run_ok(["gh", "issue", "comment", issue_number, "--repo", repo, "--body-file", str(claim_body)])
         _run_ok([
             "gh", "issue", "edit", issue_number, "--repo", repo,
-            "--remove-label", "state:pr-open,state:backlog",
+            "--remove-label", "state:pr-open,state:dispatched,state:backlog",
             "--add-label", "state:blocked",
         ])
 
@@ -1208,7 +1209,7 @@ def cmd_cleanup_failure(args: list[str]) -> int:
             _run_ok([
                 "gh", "issue", "edit", opts.issue_number,
                 "--repo", opts.repo,
-                "--remove-label", "state:pr-open",
+                "--remove-label", "state:pr-open,state:dispatched",
                 "--add-label", "state:backlog",
             ])
 

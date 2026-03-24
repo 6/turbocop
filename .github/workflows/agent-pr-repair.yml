@@ -294,7 +294,7 @@ jobs:
           EOF
             gh issue comment "${{ steps.pr.outputs.linked_issue_number }}" --repo "${{ github.repository }}" --body-file "$REPAIR_COMMENT_FILE"
             gh issue edit "${{ steps.pr.outputs.linked_issue_number }}" --repo "${{ github.repository }}" \
-              --remove-label "state:pr-open,state:backlog" \
+              --remove-label "state:pr-open,state:dispatched,state:backlog" \
               --add-label "state:blocked" 2>/dev/null || true
           fi
 
@@ -318,7 +318,7 @@ jobs:
             EOF
               gh issue comment "${{ steps.pr.outputs.linked_issue_number }}" --repo "${{ github.repository }}" --body-file "$REPAIR_COMMENT_FILE"
               gh issue edit "${{ steps.pr.outputs.linked_issue_number }}" --repo "${{ github.repository }}" \
-                --remove-label "state:pr-open,state:backlog" \
+                --remove-label "state:pr-open,state:dispatched,state:backlog" \
                 --add-label "state:blocked" 2>/dev/null || true
             fi
           fi
@@ -713,7 +713,7 @@ jobs:
           if [ -n "${{ steps.pr.outputs.linked_issue_number }}" ] && ! { [ "$RESULT" = "pushable" ] && [ "${{ steps.push.outcome }}" = "success" ]; }; then
             gh issue comment "${{ steps.pr.outputs.linked_issue_number }}" --repo "${{ github.repository }}" --body-file "$REPAIR_COMMENT_FILE"
             gh issue edit "${{ steps.pr.outputs.linked_issue_number }}" --repo "${{ github.repository }}" \
-              --remove-label "state:pr-open,state:backlog" \
+              --remove-label "state:pr-open,state:dispatched,state:backlog" \
               --add-label "state:blocked" 2>/dev/null || true
           fi
 
@@ -904,13 +904,13 @@ jobs:
             echo "::notice::No linked tracker issue found in PR body"
             exit 0
           fi
-          # Only reset if issue is currently in pr-open state
+          # Only reset if issue is currently in pr-open or dispatched state
           LABELS=$(gh issue view "$ISSUE_NUM" --repo "${{ github.repository }}" \
             --json labels -q '[.labels[].name] | join(",")')
-          if echo "$LABELS" | grep -q "state:pr-open"; then
+          if echo "$LABELS" | grep -qE "state:pr-open|state:dispatched"; then
             gh issue edit "$ISSUE_NUM" --repo "${{ github.repository }}" \
-              --remove-label "state:pr-open" --add-label "state:backlog"
-            echo "::notice::Reset issue #$ISSUE_NUM from state:pr-open to state:backlog"
+              --remove-label "state:pr-open,state:dispatched" --add-label "state:backlog"
+            echo "::notice::Reset issue #$ISSUE_NUM to state:backlog"
           else
-            echo "::notice::Issue #$ISSUE_NUM is not in state:pr-open (labels: $LABELS), skipping reset"
+            echo "::notice::Issue #$ISSUE_NUM not in pr-open/dispatched state (labels: $LABELS), skipping reset"
           fi
