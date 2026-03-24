@@ -7,7 +7,13 @@ permissions:
   pull-requests: read
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      department:
+        description: "Only sync cops in this department (e.g., Rails, Style, Performance). Empty = all."
+        required: false
+        type: string
+        default: ""
 
 jobs:
   sync:
@@ -39,6 +45,11 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          python3 scripts/dispatch-cops.py issues-sync \
-            --repo "${{ github.repository }}" \
+          ARGS=(
+            --repo "${{ github.repository }}"
             --binary target/debug/nitrocop
+          )
+          if [ -n "${{ github.event.inputs.department }}" ]; then
+            ARGS+=(--department "${{ github.event.inputs.department }}")
+          fi
+          python3 scripts/dispatch-cops.py issues-sync "${ARGS[@]}"

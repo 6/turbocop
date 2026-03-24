@@ -21,7 +21,9 @@ Usage:
     python3 scripts/dispatch-cops.py prior-attempts --cop Style/NegatedWhile
     python3 scripts/dispatch-cops.py backend --cop Style/NegatedWhile --binary target/debug/nitrocop
     python3 scripts/dispatch-cops.py issues-sync --binary target/debug/nitrocop
+    python3 scripts/dispatch-cops.py issues-sync --department Rails --binary target/debug/nitrocop
     python3 scripts/dispatch-cops.py dispatch-issues --max-active 5
+    python3 scripts/dispatch-cops.py dispatch-issues --department Rails --max-active 3
 """
 
 import argparse
@@ -1844,6 +1846,11 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
     binary = args.binary.resolve() if args.binary else None
     diverging_cops = {cop for cop, entry in entries.items() if total_for_entry(entry) > 0}
 
+    # Filter by department if requested
+    dept_filter = args.department
+    if dept_filter:
+        diverging_cops = {cop for cop in diverging_cops if cop.startswith(dept_filter + "/")}
+
     created = updated = reopened = closed = 0
 
     for cop in sorted(diverging_cops):
@@ -1896,6 +1903,9 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
 
     for cop, issue in issues_by_cop.items():
         if cop in diverging_cops:
+            continue
+        # When filtering by department, don't close issues outside the filter scope
+        if dept_filter and not cop.startswith(dept_filter + "/"):
             continue
         open_pr = open_prs_by_cop.get(cop)
         if open_pr is not None or issue.get("state") != "OPEN":
@@ -1960,9 +1970,11 @@ def sorted_dispatch_candidates(issues: list[dict]) -> list[dict]:
 def cmd_dispatch_issues(args: argparse.Namespace) -> int:
     repo = args.repo
     issues = list_tracker_issues(repo)
+    dept_filter = args.department
     eligible = [
         issue for issue in issues
         if issue.get("state") == "OPEN" and STATE_BACKLOG in issue_label_names(issue)
+        and (not dept_filter or (extract_cop_from_issue(issue) or "").startswith(dept_filter + "/"))
     ]
     eligible = sorted_dispatch_candidates(eligible)
     open_count, in_progress, active = active_agent_fix_count(repo)
@@ -2067,6 +2079,10 @@ def main():
     issues_sync.add_argument("--input", type=Path, help="Path to corpus-results.json")
     issues_sync.add_argument("--binary", type=Path, help="Path to nitrocop binary for backend routing")
     issues_sync.add_argument(
+        "--department",
+        help="Only sync cops in this department (e.g., Rails, Style, Performance)",
+    )
+    issues_sync.add_argument(
         "--repo",
         default=os.environ.get("GITHUB_REPOSITORY", ""),
         help="GitHub repo (owner/name)",
@@ -2075,6 +2091,10 @@ def main():
     dispatch_issues = subparsers.add_parser("dispatch-issues", help="Dispatch backlog issues into agent-cop-fix")
     dispatch_issues.add_argument("--max-active", type=int, default=5)
     dispatch_issues.add_argument("--dry-run", action="store_true")
+    dispatch_issues.add_argument(
+        "--department",
+        help="Only dispatch cops in this department (e.g., Rails, Style, Performance)",
+    )
     dispatch_issues.add_argument(
         "--backend-family-override",
         choices=["auto", "codex", "claude", "claude-oauth", "minimax"],

@@ -32,6 +32,11 @@ on:
           - normal
           - hard
         default: auto
+      department:
+        description: "Only dispatch cops in this department (e.g., Rails, Style, Performance). Empty = all."
+        required: false
+        type: string
+        default: ""
       dry_run:
         description: "Only print which issues would be dispatched"
         required: false
@@ -65,6 +70,9 @@ jobs:
             --backend-family-override "${{ github.event.inputs.backend_override }}"
             --strength-override "${{ github.event.inputs.strength_override }}"
           )
+          if [ -n "${{ github.event.inputs.department }}" ]; then
+            ARGS+=(--department "${{ github.event.inputs.department }}")
+          fi
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS+=(--dry-run)
           fi

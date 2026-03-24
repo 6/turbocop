@@ -29,6 +29,16 @@ ls .github/workflows/agent-cop-fix.yml \
 The user needs `CODEX_AUTH_JSON` configured in GitHub repo secrets.
 See `docs/agent-dispatch.md` for setup instructions.
 
+## Interactive Prompts
+
+When invoked without explicit arguments, use `AskUserQuestion` to gather:
+
+1. **Department** — Ask: "Which department do you want to target? (e.g., Rails, Style, Performance, or leave blank for all)"
+2. **Max concurrency** — For dispatch phase, ask: "How many concurrent agent runs? (default: 5)"
+
+Pass the answers through as `--department` / `--max-active` to the CLI and workflows.
+If the user provides these as skill arguments (e.g., `/dispatch-cops sync Rails`), skip the prompts.
+
 ## Phases
 
 ### Phase 1: Triage / Sync
@@ -38,6 +48,12 @@ Inspect the current dispatchable set and sync the tracker issues:
 ```bash
 python3 scripts/dispatch-cops.py rank
 gh workflow run cop-issue-sync.yml
+```
+
+To scope to a single department:
+
+```bash
+gh workflow run cop-issue-sync.yml -f department=Rails
 ```
 
 This runs pre-diagnostic on every cop's FP/FN examples to classify them as
@@ -73,10 +89,17 @@ Fill the bounded active queue from backlog issues:
 gh workflow run cop-issue-dispatch.yml -f max_active=5
 ```
 
+Scope to a department with concurrency limit:
+
+```bash
+gh workflow run cop-issue-dispatch.yml -f max_active=3 -f department=Rails
+```
+
 Dry run first if you want to inspect the selected queue:
 
 ```bash
 gh workflow run cop-issue-dispatch.yml -f max_active=5 -f dry_run=true
+gh workflow run cop-issue-dispatch.yml -f max_active=3 -f department=Rails -f dry_run=true
 ```
 
 If you need to force one backend across the dispatched issues:
@@ -151,9 +174,11 @@ python3 scripts/dispatch-cops.py tiers
 
 ## Arguments
 
-- `/dispatch-cops` — start from Phase 1 (triage / issue sync)
-- `/dispatch-cops sync` — jump to Phase 1 (sync/update cop tracker issues)
-- `/dispatch-cops dispatch` — jump to Phase 2 (fill bounded queue from backlog issues)
+- `/dispatch-cops` — start from Phase 1 (prompts for department interactively)
+- `/dispatch-cops sync` — jump to Phase 1 (prompts for department)
+- `/dispatch-cops sync Rails` — jump to Phase 1, scoped to Rails department
+- `/dispatch-cops dispatch` — jump to Phase 2 (prompts for department and max concurrency)
+- `/dispatch-cops dispatch Rails 3` — jump to Phase 2, Rails only, max 3 concurrent
 - `/dispatch-cops retry` — jump to Phase 4 (retry failures)
 - `/dispatch-cops status` — show current PR status and merge candidates
 - `/dispatch-cops validate` — jump to Phase 5 (trigger corpus oracle)
