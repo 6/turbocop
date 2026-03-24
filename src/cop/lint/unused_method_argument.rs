@@ -45,6 +45,12 @@ use ruby_prism::Visit;
 ///   (2) singleton class expressions (`class << obj`), (3) superclass expressions
 ///   (`class Foo < base`) were not detected as used, producing false positives.
 ///   Fixed to visit these "twisted" expressions while still skipping the body.
+/// - **FP: parser-gem-incompatible multibyte regexp escapes** — two extended-only
+///   false positives came from vendored files containing legacy regexp escapes like
+///   `\200-\377` and `\x80-\xFF`. RuboCop's parser treats these files as syntax
+///   errors and does not run `Lint/UnusedMethodArgument`, while Prism can still
+///   produce a recoverable AST and this cop would emit offenses. Fixed by bailing
+///   out for files containing these incompatible multibyte regexp escape ranges.
 pub struct UnusedMethodArgument;
 
 impl Cop for UnusedMethodArgument {
@@ -197,6 +203,17 @@ impl Cop for UnusedMethodArgument {
             return;
         }
 
+        // Ruby parser (used by RuboCop) rejects legacy multibyte regexp escape
+        // ranges like `\200-\377` and `\x80-\xFF` as syntax errors, so
+        // UnusedMethodArgument does not run for those files.
+        //
+        // Prism can still parse those files and produce an AST, which can lead
+        // to false positives on otherwise unreachable methods. Mirror RuboCop's
+        // behavior by skipping this cop for files containing such ranges.
+        if has_parser_incompatible_multibyte_regexp_escapes(source.as_bytes()) {
+            return;
+        }
+
         // Find all local variable reads in the body AND in parameter defaults.
         // A parameter used as a default value for another parameter counts as used
         // (e.g., `def foo(node, start = node)` — `node` is used in default of `start`).
@@ -259,6 +276,75 @@ impl Cop for UnusedMethodArgument {
             }
         }
     }
+}
+
+fn has_parser_incompatible_multibyte_regexp_escapes(bytes: &[u8]) -> bool {
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+
+        // Hex range: \x80-\xFF (case-insensitive), where either bound is >= 0x80.
+        if i + 9 < bytes.len() && is_hex_escape(&bytes[i..i + 4]) {
+            let start = hex_escape_value(&bytes[i + 2..i + 4]);
+            if bytes[i + 4] == b'-' && bytes[i + 5] == b'\\' && is_hex_escape(&bytes[i + 5..i + 9])
+            {
+                let end = hex_escape_value(&bytes[i + 7..i + 9]);
+                if start >= 0x80 || end >= 0x80 {
+                    return true;
+                }
+            }
+        }
+
+        // Octal range: \200-\377, where either bound is >= 0o200.
+        if i + 8 < bytes.len() && is_octal_triplet(&bytes[i + 1..i + 4]) {
+            let start = octal_triplet_value(&bytes[i + 1..i + 4]);
+            if bytes[i + 4] == b'-'
+                && bytes[i + 5] == b'\\'
+                && is_octal_triplet(&bytes[i + 6..i + 9])
+            {
+                let end = octal_triplet_value(&bytes[i + 6..i + 9]);
+                if start >= 0o200 || end >= 0o200 {
+                    return true;
+                }
+            }
+        }
+
+        i += 1;
+    }
+
+    false
+}
+
+fn is_hex_escape(slice: &[u8]) -> bool {
+    slice.len() == 4
+        && slice[0] == b'\\'
+        && (slice[1] == b'x' || slice[1] == b'X')
+        && slice[2].is_ascii_hexdigit()
+        && slice[3].is_ascii_hexdigit()
+}
+
+fn hex_escape_value(slice: &[u8]) -> u8 {
+    (hex_nibble(slice[0]) << 4) | hex_nibble(slice[1])
+}
+
+fn hex_nibble(b: u8) -> u8 {
+    match b {
+        b'0'..=b'9' => b - b'0',
+        b'a'..=b'f' => b - b'a' + 10,
+        b'A'..=b'F' => b - b'A' + 10,
+        _ => 0,
+    }
+}
+
+fn is_octal_triplet(slice: &[u8]) -> bool {
+    slice.len() == 3 && slice.iter().all(|b| (b'0'..=b'7').contains(b))
+}
+
+fn octal_triplet_value(slice: &[u8]) -> u16 {
+    ((slice[0] - b'0') as u16) * 64 + ((slice[1] - b'0') as u16) * 8 + (slice[2] - b'0') as u16
 }
 
 fn is_not_implemented(body: &ruby_prism::Node<'_>, exceptions: Option<&[String]>) -> bool {

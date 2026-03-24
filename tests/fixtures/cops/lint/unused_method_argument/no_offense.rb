@@ -140,3 +140,17 @@ def make_subclass(base)
     end
   end
 end
+
+# parser-gem-incompatible multibyte regexp escape (`\200-\377`) in file
+# causes RuboCop to stop at syntax errors, so UnusedMethodArgument does not run.
+def parser_incompatible_octal(str, debug = false)
+  set_string str, 0
+end
+_tmp = scan(/\A(?-mix:[0-9A-Za-z\200-\377])/)
+
+# parser-gem-incompatible multibyte regexp escape (`\x80-\xFF`) in file
+# also prevents RuboCop from reporting UnusedMethodArgument offenses.
+def parser_incompatible_hex(tag, val)
+  val.each_pair { |k, v| puts "#{k}=#{v}" }
+end
+bad = /([\x80-\xFF])/
