@@ -541,16 +541,18 @@ def rerun_local_per_repo(
     has_activity_index: bool,
     no_batch: bool,
 ) -> dict[str, int]:
-    """Re-run nitrocop locally, preferring batch mode unless disabled."""
+    """Re-run nitrocop locally using per-repo subprocess mode.
+
+    Batch mode (--corpus-check) is disabled: it applies AllCops.Exclude
+    against paths relative to cwd, which incorrectly excludes corpus repos
+    under vendor/corpus/ via the vendor/**/* pattern.  Per-repo mode runs
+    each repo from its own directory, matching the corpus oracle behavior.
+    """
     ensure_binary_fresh()
     clear_file_cache()
     print("Running nitrocop per-repo...", file=sys.stderr)
 
     per_repo = None
-    if not no_batch:
-        per_repo = run_nitrocop_batch(cop_name)
-        if per_repo is not None:
-            print("  (used batch --corpus-check mode)", file=sys.stderr)
 
     if per_repo is None:
         if no_batch:
