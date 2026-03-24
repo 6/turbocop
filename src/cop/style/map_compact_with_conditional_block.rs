@@ -23,6 +23,14 @@ use crate::parse::source::SourceFile;
 /// FP root causes:
 /// - elsif chains were not skipped (vendor checks `condition_node.parent.elsif?`)
 /// - Non-parameter return values already handled via `truthy_branch_returns_param`
+/// - Multi-parameter blocks (e.g., `|key, value|`) were incorrectly matched.
+///   The vendor node pattern `(args $(arg _))` requires exactly one positional
+///   argument. Returning just one of multiple params is NOT equivalent to
+///   `select`/`reject` which return the full element. Fixed by checking that
+///   the block has exactly one required parameter and no other param types.
+/// - `filter_map` blocks used the wrong message ("Use `filter_map` instead of
+///   `map { ... }.compact`") when the code already used `filter_map`. Fixed by
+///   using a distinct message for the `filter_map` path.
 ///
 /// The vendor RuboCop NodePattern handles these block body shapes
 /// (plus unless variants of all):
@@ -85,11 +93,16 @@ impl Cop for MapCompactWithConditionalBlock {
                     if check_block_body(source, &block_node) {
                         let loc = call.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
+                        let msg = if map_name == b"filter_map" {
+                            "Use `select` or `reject` instead of `filter_map { ... }.compact`."
+                        } else {
+                            "Use `filter_map` instead of `map { ... }.compact`."
+                        };
                         diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
-                            "Use `filter_map` instead of `map { ... }.compact`.".to_string(),
+                            msg.to_string(),
                         ));
                     }
                 }
