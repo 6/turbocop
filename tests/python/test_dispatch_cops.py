@@ -349,7 +349,7 @@ def test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue():
     gct.create_tracker_issue = lambda repo, title, body, labels: calls.append(("create", title, labels))
     try:
         gct.cmd_issues_sync(
-            SimpleNamespace(repo="6/nitrocop", input=None, binary=None)
+            SimpleNamespace(repo="6/nitrocop", input=None, binary=None, department=None)
         )
     finally:
         for name, func in original_funcs.items():
@@ -391,6 +391,7 @@ def test_cmd_dispatch_issues_respects_capacity_and_uses_auto_backend():
                     dry_run=True,
                     backend_family_override="auto",
                     strength_override="auto",
+                    department=None,
                 )
             )
     finally:
