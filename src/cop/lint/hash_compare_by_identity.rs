@@ -19,6 +19,17 @@ use crate::parse::source::SourceFile;
 ///   `IndexOrWriteNode` / `IndexAndWriteNode` / `IndexOperatorWriteNode`, not normal `CallNode`s.
 /// - Rerunning the corpus gate after handling both shapes matched RuboCop exactly:
 ///   expected 74, actual 74, with no potential FP/FN.
+///
+/// ## Extended corpus FP investigation (2026-03-24)
+///
+/// Extended corpus: 203 matches, 2 FP, 0 FN. Both FPs are in
+/// `pitluga/supply_drop` at `examples/vendored-puppet/vendor/puppet-2.7.8/lib/puppet/util/zaml.rb`.
+/// The file has syntax errors (invalid multibyte escapes at line 224) that cause RuboCop's parser
+/// to fail, so RuboCop only reports `Lint/Syntax` and never runs `Lint/HashCompareByIdentity`.
+/// Prism parses the file successfully, so nitrocop correctly detects the `object_id` key pattern.
+/// This is a parser-level difference, not a cop detection bug — the cop logic is correct.
+/// Fixing this would require skipping non-syntax cops on files with parse errors at the
+/// engine/runner level, not in individual cop implementations.
 pub struct HashCompareByIdentity;
 
 const HASH_KEY_METHODS: &[&[u8]] = &[b"key?", b"has_key?", b"fetch", b"[]", b"[]="];
