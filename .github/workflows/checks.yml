@@ -104,7 +104,7 @@ jobs:
   cop-check:
     # Scanning 1,291 repos takes ~17min; allow headroom for build + clone
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
