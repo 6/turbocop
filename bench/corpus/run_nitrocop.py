@@ -120,18 +120,20 @@ def run_nitrocop(
             cwd=effective_cwd,
         )
     except subprocess.TimeoutExpired:
-        return {"offenses": [], "count": -1, "error": f"timeout after {timeout}s"}
+        return {"raw": "", "offenses": [], "count": -1, "error": f"timeout after {timeout}s"}
 
     if result.returncode not in (0, 1):
-        return {"offenses": [], "count": -1, "error": f"exit code {result.returncode}"}
+        return {"raw": result.stdout, "offenses": [], "count": -1,
+                "error": f"exit code {result.returncode}"}
 
     try:
         data = json.loads(result.stdout)
         offenses = data.get("offenses", [])
         count = deduplicate_offenses(offenses)
-        return {"offenses": offenses, "count": count, "error": None}
+        return {"raw": result.stdout, "offenses": offenses, "count": count, "error": None}
     except json.JSONDecodeError as e:
-        return {"offenses": [], "count": -1, "error": f"JSON parse error: {e}"}
+        return {"raw": result.stdout, "offenses": [], "count": -1,
+                "error": f"JSON parse error: {e}"}
 
 
 def main():
@@ -148,17 +150,15 @@ def main():
         args.repo_dir, cop=args.cop, binary=args.binary, timeout=args.timeout,
     )
 
-    output = json.dumps(result if not args.output else {
-        "metadata": {"offense_count": result["count"]},
-        "offenses": result["offenses"],
-    }, indent=2)
-
     if args.output:
-        Path(args.output).write_text(output + "\n")
+        # Write raw nitrocop JSON — the oracle's diff_results.py expects this format
+        Path(args.output).write_text(result["raw"] or "{}\n")
         if result["error"]:
             print(f"WARNING: {result['error']}", file=sys.stderr)
     else:
-        print(output)
+        # Interactive mode — print parsed summary
+        summary = {"count": result["count"], "error": result["error"]}
+        print(json.dumps(summary, indent=2))
 
     sys.exit(0 if result["count"] >= 0 else 1)
 
