@@ -486,17 +486,17 @@ def main():
     parser.add_argument("--sample", type=int, default=None,
                         help="Cap to N repos (prioritizes diverging + highest-offense repos). "
                              "Useful for fast pre-merge gates on high-match cops.")
+    parser.add_argument("--all-repos", action="store_true",
+                        help="Run ALL corpus repos, not just those with baseline activity. "
+                             "Slow (30+ min). Use for local debugging only.")
     parser.add_argument("--shard-index", type=int, default=None,
                         help="Shard index for parallel CI (0-based)")
     parser.add_argument("--total-shards", type=int, default=None,
                         help="Total number of shards for parallel CI")
     args = parser.parse_args()
 
-    # --rerun implies --quick: running all repos is never useful and takes 30+ min.
-    # The --quick flag filters to repos with baseline activity, which is always
-    # what you want. Keep --quick as an explicit flag for backwards compat but
-    # auto-enable it whenever --rerun is set.
-    if args.rerun:
+    # --rerun implies --quick unless --all-repos is explicitly set.
+    if args.rerun and not args.all_repos:
         args.quick = True
 
     # Load corpus results
