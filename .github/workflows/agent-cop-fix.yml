@@ -405,9 +405,11 @@ jobs:
 
       - name: Corpus regression gate
         if: steps.task.outputs.code_bugs != '0'
+        env:
+          NITROCOP_BIN: target/debug/nitrocop
         run: |
           python3 scripts/check_cop.py "${{ github.event.inputs.cop }}" \
-            --rerun --clone --sample 15 --binary target/debug/nitrocop
+            --rerun --clone --sample 15
 
       - name: Finalize PR
         if: steps.task.outputs.code_bugs != '0'
