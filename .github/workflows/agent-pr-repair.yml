@@ -122,6 +122,7 @@ jobs:
             PR_NUM="${{ github.event.pull_request.number }}"
             BRANCH="${{ github.event.pull_request.head.ref }}"
             CHECKS_RUN=$(gh run list --workflow=checks.yml --branch="$BRANCH" \
+              --repo "${{ github.repository }}" \
               --limit 1 --json databaseId,headSha -q '.[0]')
             RUN_ID=$(echo "$CHECKS_RUN" | jq -r '.databaseId // empty')
             HEAD_SHA=$(echo "$CHECKS_RUN" | jq -r '.headSha // empty')
@@ -138,7 +139,7 @@ jobs:
             echo "strength_override=auto" >> "$GITHUB_OUTPUT"
             echo "force=true" >> "$GITHUB_OUTPUT"
             # Remove the label so it can be re-added later
-            gh pr edit "$PR_NUM" --remove-label "action:retry-repair" || true
+            gh pr edit "$PR_NUM" --repo "${{ github.repository }}" --remove-label "action:retry-repair" || true
           else
             echo "pr_number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
             echo "checks_run_id=${{ github.event.inputs.checks_run_id }}" >> "$GITHUB_OUTPUT"
