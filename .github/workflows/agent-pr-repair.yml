@@ -13,7 +13,7 @@ on:
   # Cancellation-only trigger: a closed PR re-enters the same concurrency group
   # and cancels any in-flight repair for that PR before it can publish.
   pull_request:
-    types: [closed, labeled]
+    types: [closed]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -61,10 +61,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'failure' &&
-       github.event.workflow_run.event == 'pull_request') ||
-      (github.event_name == 'pull_request' &&
-       github.event.action == 'labeled' &&
-       github.event.label.name == 'action:retry-repair')
+       github.event.workflow_run.event == 'pull_request')
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     env:
@@ -117,29 +114,6 @@ jobs:
           print("strength_override=auto")
           print("force=false")
           PY
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            # action:retry-repair label: find the latest failed Checks run for this PR
-            PR_NUM="${{ github.event.pull_request.number }}"
-            BRANCH="${{ github.event.pull_request.head.ref }}"
-            CHECKS_RUN=$(gh run list --workflow=checks.yml --branch="$BRANCH" \
-              --repo "${{ github.repository }}" \
-              --limit 1 --json databaseId,headSha -q '.[0]')
-            RUN_ID=$(echo "$CHECKS_RUN" | jq -r '.databaseId // empty')
-            HEAD_SHA=$(echo "$CHECKS_RUN" | jq -r '.headSha // empty')
-            if [ -z "$RUN_ID" ]; then
-              echo "::error::No Checks run found for branch $BRANCH"
-              exit 1
-            fi
-            echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
-            echo "checks_run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-            echo "checks_url=https://github.com/${{ github.repository }}/actions/runs/$RUN_ID" >> "$GITHUB_OUTPUT"
-            echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
-            echo "head_branch=$BRANCH" >> "$GITHUB_OUTPUT"
-            echo "backend_family_override=auto" >> "$GITHUB_OUTPUT"
-            echo "strength_override=auto" >> "$GITHUB_OUTPUT"
-            echo "force=true" >> "$GITHUB_OUTPUT"
-            # Remove the label so it can be re-added later
-            gh pr edit "$PR_NUM" --repo "${{ github.repository }}" --remove-label "action:retry-repair" || true
           else
             echo "pr_number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
             echo "checks_run_id=${{ github.event.inputs.checks_run_id }}" >> "$GITHUB_OUTPUT"

@@ -47,7 +47,7 @@ def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
     content = AGENT_PR_REPAIR.read_text()
     assert '--json state --jq \'.state\'' in content
     assert "--json number,title,url,body,state" in content
-    assert "types: [closed, labeled]" in content
+    assert "types: [closed]" in content
     assert "github.event.pull_request.number" in content
     assert "linked_issue_number" in content
     assert 'gh issue comment "${{ steps.pr.outputs.linked_issue_number }}"' in content
