@@ -274,3 +274,29 @@ class ChargeProcessor
       PaypalChargeProcessor.paypal_api
     end
 end
+
+# module_function in an OUTER ancestor module suppresses delegation even across
+# a nested module boundary. Pattern from rack's Multipart::UploadedFile.
+module Utils
+  module_function :escape
+
+  module Multipart
+    class UploadedFile
+      def path
+        @tempfile.path
+      end
+
+      alias_method :local_path, :path
+    end
+  end
+end
+
+# A method parameter cannot be a `delegate` target.
+def delete(account_env_var)
+  account_env_var.delete(account_env_var)
+end
+
+# Unary operator methods like `!@` are not treated as delegations by RuboCop.
+def !@
+  !value
+end

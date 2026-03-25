@@ -184,3 +184,41 @@ class Timer
     end
   end
 end
+
+def pop         = frames.pop
+^ Rails/Delegate: Use `delegate` to define delegations.
+
+def add_word_pair(start, stop, name)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @attribute_manager.add_word_pair(start, stop, name)
+end
+
+def add_html(tag, name)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @attribute_manager.add_html(tag, name)
+end
+
+def add_special(pattern, name)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @attribute_manager.add_special(pattern, name)
+end
+
+def [](n)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @attrs[n]
+end
+
+def << item
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @items << item
+end
+
+def empty?
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @parts.empty?
+end
+
+def length
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @parts.length
+end

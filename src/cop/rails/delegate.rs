@@ -227,6 +227,40 @@ use crate::parse::source::SourceFile;
 /// `is_inside_conditional_block` is true, check whether `private` appears AFTER
 /// the enclosing conditional keyword and BEFORE the def (same nesting level),
 /// which means private still applies within that branch.
+///
+/// ## Investigation (2026-03-25): sampled corpus rerun after restoring bundle
+///
+/// **FP root cause 1 (rack/utils.rb, line 461)**: `is_in_module_function_scope`
+/// stopped at the first lower-indent `module` when scanning backwards. That
+/// missed `module_function` declared in an OUTER ancestor module before a nested
+/// module/class chain:
+/// `module Utils; module_function :escape; module Multipart; class UploadedFile`.
+/// RuboCop's `module_function_declared?` checks all ancestor modules, so this
+/// method should be skipped.
+///
+/// Fix: backward scan now expands across lower-indent `module` boundaries the
+/// same way it already expanded across `class` boundaries.
+///
+/// **FP root cause 2 (travis-api, line 13)**: syntactically trivial forwarding
+/// through a method parameter (`def delete(x); x.delete(x); end`) is not a valid
+/// `delegate` target because `delegate` cannot point to a method parameter.
+///
+/// Fix: reject local-variable receivers whose name matches one of the method's
+/// required parameters.
+///
+/// **FP root cause 3 (travis-yaml, line 92)**: Prism normalizes unary operator
+/// defs like `def !@` to the name `!`, so direct name matching incorrectly
+/// treated `def !@; !value; end` as a trivial delegation.
+///
+/// Fix: skip unary operator defs whose source name ends in `@` but whose
+/// normalized Prism name does not.
+///
+/// **Remaining sampled FN cluster**: After installing `bench/corpus/vendor/bundle`
+/// and reproducing against explicit file paths, the large vendored-file FN
+/// sample comes from repo traversal/config exclusion behavior outside this cop.
+/// Explicit-file runs for representative misses (for example lowdown's
+/// `vendor/rails/.../base.rb:368`) already match RuboCop, so that issue was not
+/// addressed here within the cop-only file scope.
 pub struct Delegate;
 
 impl Cop for Delegate {
@@ -327,7 +361,14 @@ impl Cop for Delegate {
         // 1. Direct match: def foo; bar.foo; end
         // 2. Prefixed match (when EnforceForPrefixed): def bar_foo; bar.foo; end
         let def_name = def_node.name().as_slice();
+        let def_name_loc = def_node.name_loc().as_slice();
         let call_name = call.name().as_slice();
+
+        // Prism normalizes unary operator defs like `def !@` to the name `!`,
+        // but RuboCop does not treat those as delegations.
+        if is_unary_operator_def(def_name, def_name_loc) {
+            return;
+        }
 
         // Must have a receiver (delegating to another object)
         let receiver = match call.receiver() {
@@ -405,6 +446,14 @@ impl Cop for Delegate {
         };
 
         if !is_delegatable_receiver {
+            return;
+        }
+
+        // `delegate` cannot target a method parameter such as:
+        //   def delete(x)
+        //     x.delete(x)
+        //   end
+        if receiver_is_parameter(&receiver, &param_names) {
             return;
         }
 
@@ -689,14 +738,12 @@ fn is_in_module_function_scope(source: &SourceFile, def_offset: usize) -> bool {
             return true;
         }
 
-        // Stop at module boundary at lower indentation (crossed into outer module scope)
-        if indent < current_col && trimmed.starts_with(b"module ") {
-            break;
-        }
-
-        // When hitting a class boundary at lower indentation, expand search to the
-        // outer indentation so we can find module_function declared at the module level.
-        if indent < current_col && trimmed.starts_with(b"class ") {
+        // When hitting a lower-indent class/module boundary, expand the search to
+        // the outer indentation so we can find `module_function` declared in any
+        // ancestor module, even across nested module/class chains.
+        if indent < current_col
+            && (trimmed.starts_with(b"class ") || trimmed.starts_with(b"module "))
+        {
             current_col = indent;
         }
     }
@@ -785,6 +832,20 @@ fn is_in_module_function_scope(source: &SourceFile, def_offset: usize) -> bool {
     }
 
     false
+}
+
+fn is_unary_operator_def(def_name: &[u8], def_name_loc: &[u8]) -> bool {
+    def_name_loc.ends_with(b"@") && def_name_loc.len() == def_name.len() + 1
+}
+
+fn receiver_is_parameter(receiver: &ruby_prism::Node<'_>, param_names: &[Vec<u8>]) -> bool {
+    let Some(local) = receiver.as_local_variable_read_node() else {
+        return false;
+    };
+
+    param_names
+        .iter()
+        .any(|param| param.as_slice() == local.name().as_slice())
 }
 
 /// Check if a code portion contains `module_function` as a standalone token,
