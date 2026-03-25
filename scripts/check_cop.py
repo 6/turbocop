@@ -113,22 +113,27 @@ def latest_source_mtime() -> float:
 
 
 def ensure_binary_fresh():
-    """Rebuild release binary when source is newer than target/release/nitrocop."""
+    """Rebuild binary when source is newer than the configured binary path."""
     ensure_binary()
     bin_mtime = NITROCOP_BIN.stat().st_mtime
     src_mtime = latest_source_mtime()
     if src_mtime <= bin_mtime:
         return
 
-    print("Release binary is stale; rebuilding with cargo build --release...", file=sys.stderr)
+    # Detect profile from binary path (target/debug/ vs target/release/)
+    is_release = "release" in NITROCOP_BIN.parts
+    profile_flag = ["--release"] if is_release else []
+    profile_name = "release" if is_release else "debug"
+    print(f"Binary is stale; rebuilding with cargo build {' '.join(profile_flag)}... ({profile_name})",
+          file=sys.stderr)
     result = subprocess.run(
-        ["cargo", "build", "--release"],
+        ["cargo", "build", *profile_flag],
         cwd=PROJECT_ROOT,
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
-        print("Error rebuilding release binary:", file=sys.stderr)
+        print(f"Error rebuilding {profile_name} binary:", file=sys.stderr)
         print(result.stderr, file=sys.stderr)
         sys.exit(1)
 
