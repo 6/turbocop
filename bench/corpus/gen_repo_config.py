@@ -17,6 +17,12 @@ from pathlib import Path
 EXCLUDES_PATH = Path(__file__).parent / "repo_excludes.json"
 
 
+def absolute_path(path_str: str) -> Path:
+    """Return an absolute path without resolving symlinks."""
+    path = Path(path_str)
+    return path if path.is_absolute() else Path.cwd() / path
+
+
 def main():
     if len(sys.argv) != 4:
         print(f"Usage: {sys.argv[0]} <repo_id> <base_config> <repo_dir>", file=sys.stderr)
@@ -40,7 +46,7 @@ def main():
     # Use absolute paths since the temp config lives in /tmp/ but the base
     # config and repo are relative to $PWD.
     abs_base = str(Path(base_config).resolve())
-    abs_repo = str(Path(repo_dir).resolve())
+    abs_repo = str(absolute_path(repo_dir))
 
     # RuboCop merges AllCops/Exclude by default (union), so we only need
     # to list the additional excludes here.
