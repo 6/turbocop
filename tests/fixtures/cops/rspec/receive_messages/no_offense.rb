@@ -58,3 +58,21 @@ before do
   allow(Service).to receive(:bar).and_return(qux)
   allow(Service).to receive(:baz).and_call_original
 end
+
+# Stubs inside an explicit begin...end block (kwbegin in parser AST).
+# RuboCop's on_begin does not fire on kwbegin nodes, so these are not flagged.
+def cli
+  @cli ||=
+    begin
+      cli = Skylight::CLI::Base.new
+      allow(cli).to receive(:highline).and_return(hl)
+      allow(cli).to receive(:config).and_return(config)
+      cli
+    end
+end
+
+# Stubs inside a standalone begin...end block.
+begin
+  allow(obj).to receive(:foo).and_return(1)
+  allow(obj).to receive(:bar).and_return(2)
+end

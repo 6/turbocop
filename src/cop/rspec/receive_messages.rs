@@ -32,6 +32,18 @@ use ruby_prism::Visit;
 ///    `uniq_items` only excludes items whose receive arg appears on a
 ///    *different* line, keeping items with unique args in the group.
 ///    Fixed to match RuboCop's per-item filtering.
+///
+/// ## Corpus investigation (2026-03-25)
+///
+/// FP=3 from two repos: skylightio/skylight-ruby (2 FPs) and jruby/jruby-rack (1 FP).
+/// Root cause: Stubs inside explicit `begin...end` blocks were incorrectly flagged.
+/// In the parser gem AST, explicit `begin...end` creates `kwbegin` nodes, and
+/// RuboCop's `on_begin` callback does NOT fire on `kwbegin` — only on implicit
+/// `begin` nodes (block bodies, method bodies, etc.). In Prism, both cases use
+/// `StatementsNode`, so our visitor was processing `StatementsNode` inside
+/// `BeginNode` (explicit begin..end) which RuboCop skips.
+/// Fix: Override `visit_begin_node` to set a flag that skips `check_statements`
+/// for the direct `StatementsNode` body of `BeginNode`.
 pub struct ReceiveMessages;
 
 struct StubInfo {
@@ -67,6 +79,7 @@ impl Cop for ReceiveMessages {
             cop: self,
             source,
             diagnostics: Vec::new(),
+            skip_begin_body: false,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -77,6 +90,9 @@ struct ReceiveMessagesVisitor<'a> {
     cop: &'a ReceiveMessages,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
+    /// Set before descending into `BeginNode` so the next `visit_statements_node`
+    /// call (for the begin body) skips `check_statements`.
+    skip_begin_body: bool,
 }
 
 impl<'a> ReceiveMessagesVisitor<'a> {
@@ -153,8 +169,20 @@ impl<'a> ReceiveMessagesVisitor<'a> {
 
 impl<'pr> Visit<'pr> for ReceiveMessagesVisitor<'_> {
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
-        self.check_statements(node);
+        if !self.skip_begin_body {
+            self.check_statements(node);
+        }
+        self.skip_begin_body = false;
         ruby_prism::visit_statements_node(self, node);
+    }
+
+    /// Explicit `begin...end` blocks map to `kwbegin` in parser gem AST.
+    /// RuboCop's `on_begin` does NOT fire on `kwbegin` nodes, so we must
+    /// skip `check_statements` for the direct `StatementsNode` body of
+    /// `BeginNode`.
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        self.skip_begin_body = true;
+        ruby_prism::visit_begin_node(self, node);
     }
 }
 
