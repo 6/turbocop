@@ -32,6 +32,8 @@ from pathlib import Path
 from shared.corpus_artifacts import download_corpus_results as _download_corpus
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "bench" / "corpus"))
+from run_nitrocop import run_nitrocop as _run_corpus_nitrocop  # noqa: E402, I001
 CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
 MANIFEST_PATH = PROJECT_ROOT / "bench" / "corpus" / "manifest.jsonl"
 NITROCOP_BIN = Path(os.environ["NITROCOP_BIN"]) if "NITROCOP_BIN" in os.environ else PROJECT_ROOT / os.environ.get("CARGO_TARGET_DIR", "target") / "release" / "nitrocop"
@@ -69,7 +71,8 @@ def check_corpus_bundle():
         )
         return
     # Check that rubocop gem is findable
-    env = corpus_env()
+    from run_nitrocop import build_env
+    env = build_env()
     try:
         result = subprocess.run(
             ["bundle", "info", "--path", "rubocop"],
@@ -185,42 +188,6 @@ def clear_file_cache():
     shutil.rmtree(cache_dir, ignore_errors=True)
 
 
-def corpus_env() -> dict[str, str]:
-    """Environment variables for corpus runs, matching the oracle exactly."""
-    env = os.environ.copy()
-    env["BUNDLE_GEMFILE"] = str(PROJECT_ROOT / "bench" / "corpus" / "Gemfile")
-    env["BUNDLE_PATH"] = str(PROJECT_ROOT / "bench" / "corpus" / "vendor" / "bundle")
-    return env
-
-
-def nitrocop_cmd(cop_name: str, target: str) -> list[str]:
-    """Build the nitrocop command for corpus checking.
-
-    Uses --config with the baseline config to match CI corpus oracle exactly.
-    This ensures disabled-by-default cops are enabled the same way as in CI.
-    All paths are absolute so the command works from any cwd.
-    """
-    return [
-        str(NITROCOP_BIN), "--only", cop_name, "--preview",
-        "--format", "json", "--no-cache",
-        "--config", str(BASELINE_CONFIG),
-        target,
-    ]
-
-
-
-def count_deduplicated_offenses(json_data: dict) -> int:
-    """Count offenses deduplicated by (path, line, cop_name).
-
-    The corpus oracle uses this deduplication, so we must match it.
-    E.g., two offenses on the same line for the same cop count as one.
-    """
-    seen = set()
-    for o in json_data.get("offenses", []):
-        key = (o.get("path", ""), o.get("line", 0), o.get("cop_name", ""))
-        seen.add(key)
-    return len(seen)
-
 
 _SYMLINK_DIR: Path | None = None
 
@@ -250,32 +217,17 @@ def _ensure_symlink_dir() -> Path:
 
 
 def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
-    """Run nitrocop on a single repo. Used by the parallel executor.
-
-    Runs from a shared temp directory outside the git tree with a
-    symlink to the repo, matching the oracle's file-discovery context.
-    """
+    """Run nitrocop on a single repo via the shared corpus runner."""
     cop_name, repo_dir = args
     repo_id = Path(repo_dir).name
     symlink_dir = _ensure_symlink_dir()
     link = symlink_dir / "repos" / repo_id
-    try:
-        result = subprocess.run(
-            nitrocop_cmd(cop_name, str(link)),
-            capture_output=True, text=True, timeout=120,
-            cwd=str(symlink_dir), env=corpus_env(),
-        )
-    except subprocess.TimeoutExpired:
-        return (repo_id, -1)
+    abs_link = str(link.resolve()) if link.exists() else str(link)
+    result = _run_corpus_nitrocop(
+        abs_link, cop=cop_name, binary=str(NITROCOP_BIN), timeout=120,
+    )
+    return (repo_id, result["count"])
 
-    if result.returncode not in (0, 1):
-        return (repo_id, -1)
-
-    try:
-        data = json.loads(result.stdout)
-        return (repo_id, count_deduplicated_offenses(data))
-    except json.JSONDecodeError:
-        return (repo_id, -1)
 
 
 def load_manifest() -> dict[str, dict]:
@@ -436,6 +388,9 @@ def validate_corpus():
 def run_nitrocop_per_repo(
     cop_name: str,
     relevant_repos: set[str] | None = None,
+    *,
+    shard_index: int | None = None,
+    total_shards: int | None = None,
 ) -> dict[str, int]:
     """Run nitrocop --only on each corpus repo in parallel, return {repo_id: count}.
 
@@ -470,11 +425,17 @@ def run_nitrocop_per_repo(
         print(f"  --quick: running {len(repos)}/{len(all_repos)} repos "
               f"(skipping {skipped} with zero baseline activity)", file=sys.stderr)
 
+    if shard_index is not None and total_shards is not None:
+        full = len(repos)
+        repos = [r for i, r in enumerate(repos) if i % total_shards == shard_index]
+        print(f"  shard {shard_index}/{total_shards}: {len(repos)}/{full} repos", file=sys.stderr)
+
     total = len(repos)
+
     work = [(cop_name, str(r)) for r in repos]
 
     workers = min(os.cpu_count() or 4, 16)
-    counts = {}
+    counts: dict[str, int] = {}
     done = 0
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -511,6 +472,8 @@ def rerun_local_per_repo(
     *,
     quick: bool,
     has_activity_index: bool,
+    shard_index: int | None = None,
+    total_shards: int | None = None,
 ) -> dict[str, int]:
     """Re-run nitrocop locally using per-repo subprocess mode.
 
@@ -530,7 +493,10 @@ def rerun_local_per_repo(
                 "quick rerun falls back to divergence-only data",
                 file=sys.stderr,
             )
-    return run_nitrocop_per_repo(cop_name, relevant_repos=relevant_repos)
+    return run_nitrocop_per_repo(
+        cop_name, relevant_repos=relevant_repos,
+        shard_index=shard_index, total_shards=total_shards,
+    )
 
 
 def main():
@@ -549,6 +515,10 @@ def main():
                         help="Only run repos with baseline activity (faster, may miss new FPs on zero-baseline repos)")
     parser.add_argument("--clone", action="store_true",
                         help="Auto-clone needed corpus repos from manifest (for CI use with --rerun --quick)")
+    parser.add_argument("--shard-index", type=int, default=None,
+                        help="Shard index for parallel CI (0-based)")
+    parser.add_argument("--total-shards", type=int, default=None,
+                        help="Total number of shards for parallel CI")
     args = parser.parse_args()
 
     # Load corpus results
@@ -650,6 +620,8 @@ def main():
                 data,
                 quick=args.quick,
                 has_activity_index=has_activity_index,
+                shard_index=args.shard_index,
+                total_shards=args.total_shards,
             )
             save_cached_results(args.cop, per_repo)
 
@@ -786,22 +758,23 @@ def main():
         fp_repos = []
         fn_repos = []
         activity_counts = {}
+        has_unfiltered = False
 
-        # Build per-repo oracle nitrocop counts from by_repo_cop
+        # Build per-repo oracle nitrocop counts from by_repo_cop.
+        # Prefer nitro_unfiltered (exact pre-filter count) over matches+fp (filtered).
         for repo_id, cops in by_repo_cop.items():
             if args.cop in cops:
                 entry = cops[args.cop]
-                # Oracle nitrocop count = matches + FP for this repo
-                activity_counts[repo_id] = entry.get("matches", 0) + entry.get("fp", 0)
+                if "nitro_unfiltered" in entry and entry["nitro_unfiltered"] > 0:
+                    activity_counts[repo_id] = entry["nitro_unfiltered"]
+                    has_unfiltered = True
+                else:
+                    activity_counts[repo_id] = entry.get("matches", 0) + entry.get("fp", 0)
 
         # For repos with oracle activity but not in by_repo_cop divergence,
         # the oracle count == rubocop count (perfect match).
         for repo_id in data.get("cop_activity_repos", {}).get(args.cop, []):
             if repo_id not in activity_counts:
-                # Not diverging — oracle nitrocop matched rubocop exactly.
-                # We don't have the per-repo rubocop count, but we know
-                # nitrocop == rubocop. Use the local count as a stand-in
-                # (if nothing changed, local == oracle == rubocop).
                 activity_counts.setdefault(repo_id, per_repo.get(repo_id, 0))
 
         for repo_id, local_count in per_repo.items():
@@ -809,7 +782,7 @@ def main():
                 continue
             oracle_count = activity_counts.get(repo_id)
             if oracle_count is None:
-                continue  # Repo not tracked by oracle — skip
+                continue
             diff = local_count - oracle_count
             if diff > 0:
                 new_fp += diff
@@ -818,7 +791,24 @@ def main():
                 new_fn += abs(diff)
                 fn_repos.append((repo_id, local_count, oracle_count, abs(diff)))
 
-        print("  Gate: per-repo regression (rerun mode)")
+        # Fallback: if oracle lacks nitro_unfiltered per-repo (old artifact),
+        # per-repo FP is unreliable due to file-discovery noise. Use global
+        # unfiltered comparison with 1% tolerance instead.
+        if not has_unfiltered and new_fp > 0:
+            nitro_unfiltered = cop_entry.get("nitro_total_unfiltered", ci_nitrocop_total)
+            tolerance = max(10, int(nitro_unfiltered * 0.01))
+            fp_ceiling = nitro_unfiltered + baseline_fp + tolerance
+            adjusted_fp = max(0, nitrocop_total - fp_ceiling)
+            if adjusted_fp == 0:
+                print(f"  Per-repo FP ({new_fp}) within global tolerance "
+                      f"(old artifact, no nitro_unfiltered per repo)", file=sys.stderr)
+                new_fp = 0
+                fp_repos = []
+            else:
+                new_fp = adjusted_fp
+
+        mode = "per-repo (unfiltered)" if has_unfiltered else "per-repo (filtered + fallback)"
+        print(f"  Gate: {mode}")
         print(f"  New FP (local > oracle): {new_fp:>6,}")
         print(f"  New FN (local < oracle): {new_fn:>6,}")
         print()

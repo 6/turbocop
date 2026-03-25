@@ -108,6 +108,10 @@ def run_nitrocop_on_repo(
     repo_id: str, filepaths: list[str], cop_name: str,
 ) -> dict[str, set[int]]:
     """Run nitrocop once on all files in a repo, return {filepath: set of offense lines}."""
+    # Import shared corpus runner for oracle-identical env/config
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bench" / "corpus"))
+    from run_nitrocop import build_env, resolve_repo_config
+
     repo_dir = corpus_dir / repo_id
     existing = []
     for fp in filepaths:
@@ -118,10 +122,8 @@ def run_nitrocop_on_repo(
     if not existing:
         return result_map
 
-    # Build env that points bundle resolution at the corpus bundle
-    env = os.environ.copy()
-    env["BUNDLE_GEMFILE"] = str(corpus_dir / "Gemfile")
-    env["BUNDLE_PATH"] = str(corpus_dir / "vendor" / "bundle")
+    env = build_env(str(repo_dir))
+    resolved_config = resolve_repo_config(repo_id, str(repo_dir))
 
     cmd = [
         str(nitrocop_bin),
@@ -129,7 +131,7 @@ def run_nitrocop_on_repo(
         "--format", "json",
         "--no-cache",
         "--cache", "false",
-        "--config", str(config_path),
+        "--config", resolved_config,
         "--preview",
     ] + [str(repo_dir / fp) for fp in existing]
 
