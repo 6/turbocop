@@ -85,6 +85,12 @@ use crate::parse::source::SourceFile;
 ///
 /// **Fix applied:** Changed to `call.block().and_then(|b| b.as_block_node()).is_some()`
 /// to only skip actual block nodes, not block_pass arguments.
+///
+/// **FP=3 investigation:** All 3 reported FPs (clbustos/Rserve-Ruby-client `==`,
+/// nricciar/wikicloth `==`, puppetlabs/puppetlabs-stdlib `zero?`) are cases where
+/// RuboCop also flags the code. Verified by running RuboCop with baseline config on
+/// isolated snippets. These are file-drop noise in the corpus oracle (files not
+/// processed identically by both tools), not behavioral differences in the cop.
 pub struct IfWithBooleanLiteralBranches;
 
 impl Cop for IfWithBooleanLiteralBranches {
@@ -453,4 +459,26 @@ mod tests {
         IfWithBooleanLiteralBranches,
         "cops/style/if_with_boolean_literal_branches"
     );
+
+    #[test]
+    fn block_argument_vs_block_node() {
+        // Verify that Prism stores BlockArgumentNode (&:sym) in call.block(),
+        // and that condition_returns_boolean correctly handles it (treats it
+        // as boolean-returning, unlike actual BlockNode).
+        let source = b"futures.all?(&:fulfilled?)";
+        let result = ruby_prism::parse(source);
+        let prog = result.node().as_program_node().unwrap();
+        let stmts = prog.statements();
+        let nodes: Vec<_> = stmts.body().into_iter().collect();
+        let call_node = &nodes[0];
+        let call = call_node.as_call_node().unwrap();
+
+        // block() returns Some(BlockArgumentNode), NOT BlockNode
+        assert!(call.block().is_some());
+        assert!(call.block().unwrap().as_block_argument_node().is_some());
+        assert!(call.block().unwrap().as_block_node().is_none());
+
+        // condition_returns_boolean should return true (predicate method with block_pass)
+        assert!(condition_returns_boolean(call_node, &None));
+    }
 }
