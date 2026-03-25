@@ -506,7 +506,7 @@ def cmd_claim_pr(args: list[str]) -> int:
     r = _run([
         "gh", "pr", "create",
         "--draft", "--base", "main", "--head", opts.branch,
-        "--label", f"agent-fix,{model_label_name}",
+        "--label", f"type:cop-fix,{model_label_name}",
         "--title", f"[bot] Fix {opts.cop}{retry_note}",
         "--body-file", str(claim_body_file),
     ])
