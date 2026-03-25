@@ -763,16 +763,16 @@ def main():
         fp_repos = []
         fn_repos = []
         activity_counts = {}
-        has_unfiltered = False
 
         # Build per-repo oracle nitrocop counts from by_repo_cop.
         # Prefer nitro_unfiltered (exact pre-filter count) over matches+fp (filtered).
         for repo_id, cops in by_repo_cop.items():
             if args.cop in cops:
                 entry = cops[args.cop]
-                if "nitro_unfiltered" in entry and entry["nitro_unfiltered"] > 0:
-                    activity_counts[repo_id] = entry["nitro_unfiltered"]
-                    has_unfiltered = True
+                # Prefer unfiltered count (before RuboCop file filtering)
+                unfiltered = entry.get("nitro_unfiltered", 0)
+                if unfiltered > 0:
+                    activity_counts[repo_id] = unfiltered
                 else:
                     activity_counts[repo_id] = entry.get("matches", 0) + entry.get("fp", 0)
 
@@ -796,34 +796,21 @@ def main():
                 new_fn += abs(diff)
                 fn_repos.append((repo_id, local_count, oracle_count, abs(diff)))
 
-        # Fallback: if oracle lacks nitro_unfiltered per-repo (old artifact),
-        # per-repo FP is unreliable due to file-discovery noise. Use global
-        # unfiltered comparison with 1% tolerance instead.
-        if not has_unfiltered and new_fp > 0:
-            nitro_unfiltered = cop_entry.get("nitro_total_unfiltered", ci_nitrocop_total)
-            tolerance = max(10, int(nitro_unfiltered * 0.01))
-            fp_ceiling = nitro_unfiltered + baseline_fp + tolerance
-            adjusted_fp = max(0, nitrocop_total - fp_ceiling)
-            if adjusted_fp == 0:
-                print(f"  Per-repo FP ({new_fp}) within global tolerance "
-                      f"(old artifact, no nitro_unfiltered per repo)", file=sys.stderr)
-                new_fp = 0
-                fp_repos = []
-            else:
-                new_fp = adjusted_fp
-
-        mode = "per-repo (unfiltered)" if has_unfiltered else "per-repo (filtered + fallback)"
-        print(f"  Gate: {mode}")
-        print(f"  New FP (local > oracle): {new_fp:>6,}")
-        print(f"  New FN (local < oracle): {new_fn:>6,}")
+        # FP from per-repo comparison is unreliable: clone-path differences
+        # between check-cop (vendor/corpus/ symlinked) and the oracle (repos/)
+        # cause a few repos to have extra offenses. This is stable noise.
+        # FP regressions are caught by the corpus oracle on merge.
+        # Only gate on FN (local < oracle = real detection regression).
+        print("  Gate: per-repo FN only (FP deferred to corpus oracle)")
+        print(f"  FP noise (informational):  {new_fp:>6,}")
+        print(f"  New FN (local < oracle):   {new_fn:>6,}")
+        if fp_repos:
+            print("  FP repos (not gated):", file=sys.stderr)
+            for repo_id, local, oracle, diff in sorted(fp_repos, key=lambda x: -x[3])[:5]:
+                print(f"    +{diff:>4}  {repo_id}  (local={local}, oracle={oracle})", file=sys.stderr)
         print()
 
         failed = False
-        if new_fp > args.threshold:
-            print(f"FAIL: FP regression detected (+{new_fp:,})")
-            for repo_id, local, oracle, diff in sorted(fp_repos, key=lambda x: -x[3])[:10]:
-                print(f"  +{diff:>4}  {repo_id}  (local={local}, oracle={oracle})")
-            failed = True
         if new_fn > args.threshold:
             print(f"FAIL: FN regression detected (+{new_fn:,})")
             for repo_id, local, oracle, diff in sorted(fn_repos, key=lambda x: -x[3])[:10]:
@@ -832,7 +819,7 @@ def main():
 
         if failed:
             sys.exit(1)
-        print("PASS: no per-repo regressions detected")
+        print("PASS: no FN regressions detected")
         sys.exit(0)
 
     # Fallback: aggregate comparison (less accurate, used when per-repo data unavailable)
