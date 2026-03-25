@@ -217,14 +217,18 @@ def _ensure_symlink_dir() -> Path:
 
 
 def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
-    """Run nitrocop on a single repo via the shared corpus runner."""
+    """Run nitrocop on a single repo via the shared corpus runner.
+
+    Uses the symlink path (not resolved) so the repo appears outside
+    any git tree, matching the oracle's file-discovery context.
+    """
     cop_name, repo_dir = args
     repo_id = Path(repo_dir).name
     symlink_dir = _ensure_symlink_dir()
     link = symlink_dir / "repos" / repo_id
-    abs_link = str(link.resolve()) if link.exists() else str(link)
     result = _run_corpus_nitrocop(
-        abs_link, cop=cop_name, binary=str(NITROCOP_BIN), timeout=120,
+        str(link), cop=cop_name, binary=str(NITROCOP_BIN), timeout=120,
+        cwd=str(symlink_dir),
     )
     return (repo_id, result["count"])
 
