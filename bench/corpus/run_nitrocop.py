@@ -110,10 +110,14 @@ def run_nitrocop(
         cmd += ["--only", cop]
     cmd.append(repo_dir)
 
+    # Run from outside any git tree to avoid .gitignore interference.
+    # Default to /tmp if no cwd provided — the command uses absolute paths
+    # so cwd only affects git/ignore behavior.
+    effective_cwd = cwd or "/tmp"
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout, env=env,
-            cwd=cwd,
+            cwd=effective_cwd,
         )
     except subprocess.TimeoutExpired:
         return {"offenses": [], "count": -1, "error": f"timeout after {timeout}s"}
