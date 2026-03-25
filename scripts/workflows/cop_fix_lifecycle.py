@@ -485,7 +485,7 @@ def cmd_claim_pr(args: list[str]) -> int:
     # Ensure labels exist
     model_label_name = f"model:{opts.backend}"
     for label, color in [
-        ("agent-fix", "0e8a16"),
+        ("type:cop-fix", "0e8a16"),
         (model_label_name, "c2e0c6"),
         ("state:backlog", "fbca04"),
         ("state:dispatched", "1d76db"),
@@ -892,8 +892,8 @@ def _close_pr_rejected(
     run_url: str,
     scope_report: str,
 ) -> None:
-    _run_ok(["gh", "label", "create", "needs-human", "--repo", repo, "--color", "b60205"])
-    _run_ok(["gh", "pr", "edit", pr_url, "--repo", repo, "--add-label", "needs-human"])
+    _run_ok(["gh", "label", "create", "state:needs-human", "--repo", repo, "--color", "b60205"])
+    _run_ok(["gh", "pr", "edit", pr_url, "--repo", repo, "--add-label", "state:needs-human"])
 
     body = (
         f"## Agent Fix Rejected\n\n"

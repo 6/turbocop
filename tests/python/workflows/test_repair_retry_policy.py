@@ -68,7 +68,7 @@ def test_gate_pr_accepts_trusted_bot_pr():
         "isCrossRepository": False,
         "headRepository": {"nameWithOwner": "6/nitrocop"},
         "author": {"login": "6[bot]"},
-        "labels": [{"name": "agent-fix"}],
+        "labels": [{"name": "type:cop-fix"}],
         "headRefOid": "abc",
     }
     should_run, reason = repair_retry_policy.gate_pr(pr, "6/nitrocop", "abc")
@@ -83,7 +83,7 @@ def test_gate_pr_rejects_closed_pr():
         "isCrossRepository": False,
         "headRepository": {"nameWithOwner": "6/nitrocop"},
         "author": {"login": "6[bot]"},
-        "labels": [{"name": "agent-fix"}],
+        "labels": [{"name": "type:cop-fix"}],
         "headRefOid": "abc",
     }
     should_run, reason = repair_retry_policy.gate_pr(pr, "6/nitrocop", "abc")
@@ -98,7 +98,7 @@ def test_gate_pr_rejects_head_moved_after_failed_checks():
         "isCrossRepository": False,
         "headRepository": {"nameWithOwner": "6/nitrocop"},
         "author": {"login": "6[bot]"},
-        "labels": [{"name": "agent-fix"}],
+        "labels": [{"name": "type:cop-fix"}],
         "headRefOid": "def",
     }
     should_run, reason = repair_retry_policy.gate_pr(pr, "6/nitrocop", "abc")
