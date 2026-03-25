@@ -231,9 +231,13 @@ def relevant_repos_for_cop(cop_name: str, data: dict) -> set[str]:
     return relevant
 
 
-def clone_repos_for_cop(cop_name: str, data: dict) -> Path:
+def clone_repos_for_cop(
+    cop_name: str, data: dict,
+    shard_index: int | None = None, total_shards: int | None = None,
+) -> Path:
     """Clone repos needed for a cop into a temp dir matching the oracle's structure.
 
+    When sharding, only clones repos in this shard's slice.
     Returns the temp dir path. Repos are at <tmpdir>/repos/REPO_ID/.
     """
     import tempfile
@@ -246,6 +250,14 @@ def clone_repos_for_cop(cop_name: str, data: dict) -> Path:
     needed = relevant_repos_for_cop(cop_name, data)
     if not needed:
         print(f"  No baseline activity or divergence for {cop_name}", file=sys.stderr)
+
+    # When sharding, only clone this shard's repos
+    if shard_index is not None and total_shards is not None and needed:
+        sorted_needed = sorted(needed)
+        shard_needed = {r for i, r in enumerate(sorted_needed) if i % total_shards == shard_index}
+        print(f"  shard {shard_index}/{total_shards}: {len(shard_needed)}/{len(needed)} repos to clone",
+              file=sys.stderr)
+        needed = shard_needed
 
     tmpdir = Path(tempfile.mkdtemp(prefix="nitrocop_cop_check_"))
     print(f"  Cloning {len(needed)} repos for {cop_name} into {tmpdir}...", file=sys.stderr)
@@ -408,6 +420,10 @@ def rerun_local_per_repo(
                 "quick rerun falls back to divergence-only data",
                 file=sys.stderr,
             )
+    # When --clone with sharding, the clone dir already contains only this
+    # shard's repos. Don't double-shard in the scan.
+    if shard_index is not None and _CLONE_DIR is not None:
+        return run_nitrocop_per_repo(cop_name, relevant_repos=None)
     return run_nitrocop_per_repo(
         cop_name, relevant_repos=relevant_repos,
         shard_index=shard_index, total_shards=total_shards,
@@ -467,7 +483,10 @@ def main():
         if args.clone:
             # Clone into temp dir with oracle-identical path structure
             global _CLONE_DIR
-            tmpdir = clone_repos_for_cop(args.cop, data)
+            tmpdir = clone_repos_for_cop(
+                args.cop, data,
+                shard_index=args.shard_index, total_shards=args.total_shards,
+            )
             _CLONE_DIR = tmpdir / "repos"
         else:
             validate_corpus()
