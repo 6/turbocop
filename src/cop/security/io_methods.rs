@@ -11,6 +11,18 @@ use crate::parse::source::SourceFile;
 /// `src/fs.rs` by merging `git ls-files` tracked Ruby files into discovery results,
 /// which makes tracked hidden files visible to cops while preserving normal
 /// directory walking behavior.
+///
+/// ## Corpus investigation (2026-03-25) — full corpus verification
+///
+/// Corpus oracle reported FP=0, FN=2. 1 FN verified FIXED by
+/// `verify_cop_locations.py`. 1 FN remains in `databasically__lowdown__d593927`
+/// at `vendor/rails/.../test_case.rb:61` (`IO.readlines(File.join(...))`).
+/// Cop logic is correct — detects the offense when given the file directly.
+/// The remaining FN is a path resolution artifact: the file is under
+/// `vendor/rails/` in the repo, and the `vendor/**/*` AllCops.Exclude
+/// pattern may interfere with file-level exclude checks depending on how
+/// paths are resolved relative to the config file's directory vs. the
+/// repo directory.
 pub struct IoMethods;
 
 const DANGEROUS_METHODS: &[&[u8]] = &[

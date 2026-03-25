@@ -21,6 +21,14 @@ use crate::parse::source::SourceFile;
 /// `Lint/Eval`. RuboCop still suppresses `Security/Eval` for `# rubocop:disable Lint/Eval`
 /// because the cop moved departments but kept the short name. Fixed centrally in
 /// `parse/directives.rs` by honoring moved legacy names whose short name is unchanged.
+///
+/// ## Corpus investigation (2026-03-25) — full corpus verification
+///
+/// Corpus oracle reported FP=0, FN=8. All 8 FN verified FIXED by
+/// `verify_cop_locations.py`. Cop logic handles all `eval` patterns correctly
+/// (bare eval, eval with variable args, eval with interpolated strings, etc.).
+/// The FN gap was a corpus oracle config/path resolution artifact (same as
+/// Security/Open).
 pub struct Eval;
 
 impl Cop for Eval {

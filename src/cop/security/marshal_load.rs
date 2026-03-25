@@ -15,6 +15,13 @@ use crate::parse::source::SourceFile;
 /// 68, 210, 460). These files are tracked but under a `.gitignore`d directory.
 /// Fixed in `src/fs.rs` by merging `git ls-files` tracked Ruby files into discovery,
 /// so tracked ignored files are linted like RuboCop.
+///
+/// ## Corpus investigation (2026-03-25) — full corpus verification
+///
+/// Corpus oracle reported FP=0, FN=13. All 13 FN verified FIXED by
+/// `verify_cop_locations.py`. Cop logic handles all `Marshal.load` and
+/// `Marshal.restore` patterns correctly. The FN gap was a corpus oracle
+/// config/path resolution artifact (same as Security/Open).
 pub struct MarshalLoad;
 
 impl Cop for MarshalLoad {

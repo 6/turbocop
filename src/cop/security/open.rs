@@ -21,6 +21,16 @@ use crate::parse::source::SourceFile;
 /// block position, not in arguments(). RuboCop's NodePattern `...` matches block_pass
 /// nodes, so it flags these. Fixed by checking call.block() for BlockArgumentNode when
 /// arguments() is None.
+///
+/// ## Corpus investigation (2026-03-25) — full corpus verification
+///
+/// Corpus oracle reported FP=0, FN=36. All 36 FN verified FIXED by
+/// `verify_cop_locations.py` — cop logic is correct for all patterns (bare `open`
+/// with variable args, `open` with block, etc.). The FN gap was a corpus oracle
+/// config/path resolution artifact: repos cloned under `vendor/corpus/` had their
+/// files matched by the `vendor/**/*` AllCops.Exclude pattern when run from the
+/// project root. Running from the repo's own directory (as CI does) finds all
+/// offenses correctly.
 pub struct Open;
 
 /// Check if the argument is a "safe" string literal.
