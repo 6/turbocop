@@ -708,21 +708,17 @@ def main():
                 new_fn += abs(diff)
                 fn_repos.append((repo_id, local_count, oracle_count, abs(diff)))
 
-        # FP from per-repo comparison is unreliable: clone-path differences
-        # between check-cop (vendor/corpus/ symlinked) and the oracle (repos/)
-        # cause a few repos to have extra offenses. This is stable noise.
-        # FP regressions are caught by the corpus oracle on merge.
-        # Only gate on FN (local < oracle = real detection regression).
-        print("  Gate: per-repo FN only (FP deferred to corpus oracle)")
-        print(f"  FP noise (informational):  {new_fp:>6,}")
-        print(f"  New FN (local < oracle):   {new_fn:>6,}")
-        if fp_repos:
-            print("  FP repos (not gated):", file=sys.stderr)
-            for repo_id, local, oracle, diff in sorted(fp_repos, key=lambda x: -x[3])[:5]:
-                print(f"    +{diff:>4}  {repo_id}  (local={local}, oracle={oracle})", file=sys.stderr)
+        print("  Gate: per-repo FP + FN")
+        print(f"  New FP (local > oracle): {new_fp:>6,}")
+        print(f"  New FN (local < oracle): {new_fn:>6,}")
         print()
 
         failed = False
+        if new_fp > args.threshold:
+            print(f"FAIL: FP regression detected (+{new_fp:,})")
+            for repo_id, local, oracle, diff in sorted(fp_repos, key=lambda x: -x[3])[:10]:
+                print(f"  +{diff:>4}  {repo_id}  (local={local}, oracle={oracle})")
+            failed = True
         if new_fn > args.threshold:
             print(f"FAIL: FN regression detected (+{new_fn:,})")
             for repo_id, local, oracle, diff in sorted(fn_repos, key=lambda x: -x[3])[:10]:
@@ -731,7 +727,7 @@ def main():
 
         if failed:
             sys.exit(1)
-        print("PASS: no FN regressions detected")
+        print("PASS: no per-repo regressions detected")
         sys.exit(0)
 
     # Fallback: aggregate comparison (less accurate, used when per-repo data unavailable)
