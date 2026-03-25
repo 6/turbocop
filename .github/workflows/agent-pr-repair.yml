@@ -52,7 +52,9 @@ on:
         default: false
 
 concurrency:
-  group: agent-pr-repair-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number || (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number) || (github.event_name == 'pull_request' && github.event.pull_request.number) || github.event.workflow_run.head_branch || github.run_id }}
+  # Separate group for label-triggered retries so they don't get cancelled
+  # by concurrent Checks→repair runs on the same PR.
+  group: agent-pr-repair-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number || (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number) || (github.event_name == 'pull_request' && github.event.pull_request.number) || github.event.workflow_run.head_branch || github.run_id }}${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && '-retry' || '' }}
   cancel-in-progress: true
 
 jobs:
