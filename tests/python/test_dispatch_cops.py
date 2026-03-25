@@ -313,7 +313,7 @@ def test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue():
             "state": "CLOSED",
             "url": "https://example.com/issues/11",
             "body": "<!-- nitrocop-cop-tracker: cop=Style/Foo fp=1 fn=2 total=3 matches=55 difficulty=simple -->",
-            "labels": [{"name": "cop-tracker"}],
+            "labels": [{"name": "type:cop-issue"}],
         },
         {
             "number": 12,
@@ -321,7 +321,7 @@ def test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue():
             "state": "OPEN",
             "url": "https://example.com/issues/12",
             "body": "<!-- nitrocop-cop-tracker: cop=Layout/Done fp=0 fn=1 total=1 matches=120 difficulty=simple -->",
-            "labels": [{"name": "cop-tracker"}, {"name": "state:backlog"}],
+            "labels": [{"name": "type:cop-issue"}, {"name": "state:backlog"}],
         },
     ]
     gct.list_agent_fix_prs = lambda repo, state="all": []
@@ -360,14 +360,14 @@ def test_cmd_dispatch_issues_respects_capacity_and_uses_auto_backend():
             "title": "[cop] Layout/Foo",
             "state": "OPEN",
             "body": "<!-- nitrocop-cop-tracker: cop=Layout/Foo fp=1 fn=2 total=3 matches=60 difficulty=simple -->",
-            "labels": [{"name": "cop-tracker"}, {"name": "state:backlog"}, {"name": "difficulty:simple"}],
+            "labels": [{"name": "type:cop-issue"}, {"name": "state:backlog"}, {"name": "difficulty:simple"}],
         },
         {
             "number": 22,
             "title": "[cop] Style/Bar",
             "state": "OPEN",
             "body": "<!-- nitrocop-cop-tracker: cop=Style/Bar fp=2 fn=2 total=4 matches=80 difficulty=medium -->",
-            "labels": [{"name": "cop-tracker"}, {"name": "state:backlog"}, {"name": "difficulty:medium"}],
+            "labels": [{"name": "type:cop-issue"}, {"name": "state:backlog"}, {"name": "difficulty:medium"}],
         },
     ]
     gct.active_agent_fix_count = lambda repo: (1, 1, 1)

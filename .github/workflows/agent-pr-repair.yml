@@ -305,8 +305,8 @@ jobs:
         run: |
           echo "::notice::Skipping auto-repair: ${{ steps.policy.outputs.skip_reason }}"
           if [ "${{ steps.policy.outputs.needs_human }}" = "true" ]; then
-            gh label create needs-human --repo "${{ github.repository }}" --color "b60205" 2>/dev/null || true
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            gh label create state:needs-human --repo "${{ github.repository }}" --color "b60205" 2>/dev/null || true
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             if [ -n "${{ steps.pr.outputs.linked_issue_number }}" ]; then
               cat > "$REPAIR_COMMENT_FILE" <<EOF
             Automatic PR repair stopped for linked PR #${{ steps.pr.outputs.number }}.
@@ -393,7 +393,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh label create needs-human --repo "${{ github.repository }}" --color "b60205" 2>/dev/null || true
+          gh label create state:needs-human --repo "${{ github.repository }}" --color "b60205" 2>/dev/null || true
           {
             echo "## Auto-repair Started"
             echo ""
@@ -617,7 +617,7 @@ jobs:
               echo "<!-- nitrocop-auto-repair: phase=pushed head_sha=${{ steps.pr.outputs.head_sha }} backend=${{ steps.repair.outputs.backend }} checks_run_id=${{ steps.target.outputs.checks_run_id }} repair_commit=${{ steps.push.outputs.signed_sha || steps.assess.outputs.head_sha }} -->"
             } > "$REPAIR_COMMENT_FILE"
           elif [ "$RESULT" = "no_changes" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Did Not Produce a Fix"
               echo ""
@@ -628,7 +628,7 @@ jobs:
               echo "The repair attempt completed local verification commands but produced no branch changes, so it was treated as unsuccessful."
             } > "$REPAIR_COMMENT_FILE"
           elif [ "$RESULT" = "empty_pr" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Rejected"
               echo ""
@@ -642,7 +642,7 @@ jobs:
             echo "::notice::Skipping auto-repair result publish: ${{ steps.live_pr.outputs.skip_reason }}"
             exit 0
           elif [ "$RESULT" = "file_guard_failed" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Rejected"
               echo ""
@@ -655,7 +655,7 @@ jobs:
               cat "$AGENT_SCOPE_REPORT_FILE"
             } > "$REPAIR_COMMENT_FILE"
           elif [ "$RESULT" = "agent_failed" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Agent Failed"
               echo ""
@@ -666,7 +666,7 @@ jobs:
               echo "The repair agent step failed before local verification ran."
             } > "$REPAIR_COMMENT_FILE"
           elif [ "$RESULT" = "verify_not_run" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Verification Did Not Run"
               echo ""
@@ -677,7 +677,7 @@ jobs:
               echo "The workflow reached assessment without a verification result, so no verification log was produced."
             } > "$REPAIR_COMMENT_FILE"
           elif [ "${{ steps.push.outcome }}" = "failure" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Push Failed"
               echo ""
@@ -688,7 +688,7 @@ jobs:
               echo "Local verification passed, but pushing the repair branch failed."
             } > "$REPAIR_COMMENT_FILE"
           else
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "needs-human" 2>/dev/null || true
+            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Failed Verification"
               echo ""
