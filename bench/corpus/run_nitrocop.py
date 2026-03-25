@@ -68,7 +68,7 @@ def build_env(repo_dir: str | None = None) -> dict[str, str]:
     env["BUNDLE_GEMFILE"] = str(CORPUS_DIR / "Gemfile")
     env["BUNDLE_PATH"] = str(CORPUS_DIR / "vendor" / "bundle")
     if repo_dir:
-        env["GIT_CEILING_DIRECTORIES"] = str(Path(repo_dir).resolve().parent)
+        env["GIT_CEILING_DIRECTORIES"] = str(Path(repo_dir).absolute().parent)
     return env
 
 
@@ -90,14 +90,18 @@ def run_nitrocop(
     cop: str | None = None,
     binary: str | None = None,
     timeout: int = 120,
+    cwd: str | None = None,
 ) -> dict:
     """Run nitrocop on a corpus repo with oracle-identical settings.
 
     Returns dict with keys: offenses (list), count (int), error (str|None).
     """
     binary = resolve_binary(binary)
-    repo_dir = str(Path(repo_dir).resolve())
-    repo_id = Path(repo_dir).name
+    # Use absolute path but don't resolve symlinks — the caller may pass a
+    # symlink outside the git tree to match the oracle's file-discovery context.
+    repo_path = Path(repo_dir).absolute()
+    repo_dir = str(repo_path)
+    repo_id = repo_path.name
     config = resolve_repo_config(repo_id, repo_dir)
     env = build_env(repo_dir)
 
@@ -109,6 +113,7 @@ def run_nitrocop(
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout, env=env,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired:
         return {"offenses": [], "count": -1, "error": f"timeout after {timeout}s"}
