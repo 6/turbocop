@@ -190,9 +190,9 @@ def job_route(job: dict) -> str:
         return "skip"
     route = "skip"
     for step_name in steps:
-        if step_name in HARD_STEP_COMMANDS:
+        if _step_in_commands(step_name, HARD_STEP_COMMANDS):
             return "hard"
-        if step_name in EASY_STEP_COMMANDS:
+        if _step_in_commands(step_name, EASY_STEP_COMMANDS):
             route = "easy"
             continue
         if step_name.startswith("Post ") or step_name in SKIPPABLE_STEP_NAMES:
@@ -201,11 +201,21 @@ def job_route(job: dict) -> str:
     return route
 
 
+def _normalize_step_name(step_name: str) -> str:
+    """Strip shard suffixes like ' (shard 1/4)' from step names."""
+    return re.sub(r"\s*\(shard \d+/\d+\)\s*$", "", step_name)
+
+
+def _step_in_commands(step_name: str, commands: dict) -> bool:
+    return step_name in commands or _normalize_step_name(step_name) in commands
+
+
 def command_for_step(step_name: str) -> str | None:
-    if step_name in HARD_STEP_COMMANDS:
-        return HARD_STEP_COMMANDS[step_name]
-    if step_name in EASY_STEP_COMMANDS:
-        return EASY_STEP_COMMANDS[step_name]
+    normalized = _normalize_step_name(step_name)
+    if normalized in HARD_STEP_COMMANDS:
+        return HARD_STEP_COMMANDS[normalized]
+    if normalized in EASY_STEP_COMMANDS:
+        return EASY_STEP_COMMANDS[normalized]
     return None
 
 
@@ -241,7 +251,8 @@ def classify_run(run: dict) -> dict:
         for step_name in job.get("failed_step_names", [])
     }
     def _is_unrelated(step: str) -> bool:
-        return step in COP_FIX_UNRELATED_STEPS or step in SKIPPABLE_STEP_NAMES or bool(COP_FIX_UNRELATED_RE.match(step))
+        n = _normalize_step_name(step)
+        return n in COP_FIX_UNRELATED_STEPS or n in SKIPPABLE_STEP_NAMES or bool(COP_FIX_UNRELATED_RE.match(n))
 
     unrelated_failures = {s for s in all_failed_step_names if _is_unrelated(s)}
     non_skippable_failures = all_failed_step_names - unrelated_failures
@@ -284,7 +295,8 @@ def classify_run(run: dict) -> dict:
         "backend": backend,
         "guard_profile": determine_guard_profile(route, jobs),
         "cop_check_failure": any(
-            "Check cops against corpus baseline" in job.get("failed_step_names", [])
+            any(_normalize_step_name(s) == "Check cops against corpus baseline"
+                for s in job.get("failed_step_names", []))
             for job in jobs
         ),
         "jobs": jobs,
@@ -298,7 +310,7 @@ def classify_run(run: dict) -> dict:
 
 def determine_guard_profile(route: str, jobs: list[dict]) -> str:
     failed_step_names = {
-        step_name
+        _normalize_step_name(step_name)
         for job in jobs
         for step_name in job.get("failed_step_names", [])
     }

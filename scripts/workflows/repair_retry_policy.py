@@ -49,18 +49,16 @@ def parse_linked_issue(body: str) -> tuple[int | None, str]:
 
 def inspect_attempts(comments: list[dict], current_head_sha: str) -> dict[str, int | bool]:
     prior_pushes = 0
-    prior_codex_attempts = 0
+    prior_pr_repair_attempts = 0
     prior_attempted_current_head = False
 
     for comment in comments:
         body = comment.get("body") or ""
         for marker in parse_marker_fields(body):
             phase = marker.get("phase", "")
-            backend = marker.get("backend", "")
             head_sha = marker.get("head_sha", "")
             if phase == "started":
-                if backend.startswith("codex"):
-                    prior_codex_attempts += 1
+                prior_pr_repair_attempts += 1
                 if current_head_sha and head_sha == current_head_sha:
                     prior_attempted_current_head = True
             elif phase == "pushed":
@@ -68,7 +66,7 @@ def inspect_attempts(comments: list[dict], current_head_sha: str) -> dict[str, i
 
     return {
         "prior_pushes": prior_pushes,
-        "prior_codex_attempts": prior_codex_attempts,
+        "prior_pr_repair_attempts": prior_pr_repair_attempts,
         "prior_attempted_current_head": prior_attempted_current_head,
     }
 
@@ -95,11 +93,10 @@ def gate_pr(pr: dict, repo: str, checks_head_sha: str) -> tuple[bool, str]:
 def apply_policy(
     *,
     route: str,
-    backend: str,
     force: bool,
     prior_attempted_current_head: bool,
     prior_pushes: int,
-    prior_codex_attempts: int,
+    prior_pr_repair_attempts: int,
 ) -> tuple[bool, str, bool]:
     if route == "skip":
         return True, "", False
@@ -109,8 +106,8 @@ def apply_policy(
         return False, "This PR head has already had an automatic repair attempt", False
     if prior_pushes >= 2:
         return False, "PR already has 2 automatic repair pushes", True
-    if backend.startswith("codex") and prior_codex_attempts >= 1:
-        return False, "PR already has a Codex automatic repair attempt", True
+    if prior_pr_repair_attempts >= 2:
+        return False, "PR already has 2 automatic repair attempts", True
     return True, "", False
 
 
@@ -131,7 +128,7 @@ def cmd_pr_state(args: argparse.Namespace) -> int:
     print(f"should_run={'true' if should_run else 'false'}")
     print(f"skip_reason={reason}")
     print(f"prior_pushes={attempts['prior_pushes']}")
-    print(f"prior_codex_attempts={attempts['prior_codex_attempts']}")
+    print(f"prior_pr_repair_attempts={attempts['prior_pr_repair_attempts']}")
     print(
         "prior_attempted_current_head="
         + ("true" if attempts["prior_attempted_current_head"] else "false")
@@ -150,11 +147,10 @@ def cmd_live_gate(args: argparse.Namespace) -> int:
 def cmd_policy(args: argparse.Namespace) -> int:
     should_run, reason, needs_human = apply_policy(
         route=args.route,
-        backend=args.backend,
         force=args.force,
         prior_attempted_current_head=args.prior_attempted_current_head,
         prior_pushes=args.prior_pushes,
-        prior_codex_attempts=args.prior_codex_attempts,
+        prior_pr_repair_attempts=args.prior_pr_repair_attempts,
     )
     print(f"should_repair={'true' if should_run else 'false'}")
     print(f"skip_reason={reason}")
@@ -181,11 +177,10 @@ def main() -> int:
 
     policy = subparsers.add_parser("policy")
     policy.add_argument("--route", required=True)
-    policy.add_argument("--backend", required=True)
     policy.add_argument("--force", action="store_true")
     policy.add_argument("--prior-attempted-current-head", action="store_true")
     policy.add_argument("--prior-pushes", type=int, default=0)
-    policy.add_argument("--prior-codex-attempts", type=int, default=0)
+    policy.add_argument("--prior-pr-repair-attempts", type=int, default=0)
     policy.set_defaults(func=cmd_policy)
 
     args = parser.parse_args()

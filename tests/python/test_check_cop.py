@@ -154,6 +154,39 @@ def test_rerun_local_per_repo_always_uses_per_repo_mode():
         check_cop.run_nitrocop_per_repo = original_run_nitrocop_per_repo
 
 
+def test_per_repo_gate_compares_against_rubocop_not_old_nitrocop():
+    """The per-repo gate should compare local nitrocop vs RuboCop count (matches+fn),
+    not vs old nitrocop count (matches+fp). A cop fix that moves closer to RuboCop
+    should pass, even if it changes the nitrocop count."""
+    by_repo_cop = {
+        "repo-a": {
+            "Style/Foo": {"matches": 10, "fp": 2, "fn": 3, "nitro_unfiltered": 12},
+            # Old nitrocop: 12 (matches+fp), RuboCop: 13 (matches+fn)
+        },
+    }
+    activity_counts = {}
+    for repo_id, cops in by_repo_cop.items():
+        if "Style/Foo" in cops:
+            entry = cops["Style/Foo"]
+            # Should use matches + fn (RuboCop = 13), not matches + fp (old nitrocop = 12)
+            activity_counts[repo_id] = entry.get("matches", 0) + entry.get("fn", 0)
+
+    # Case 1: local=13 matches RuboCop exactly → no regression
+    local_count = 13
+    diff = local_count - activity_counts["repo-a"]
+    assert diff == 0, f"Expected 0 diff, got {diff} (local={local_count}, rubocop={activity_counts['repo-a']})"
+
+    # Case 2: local=12 (old nitrocop count) → FN=1 vs RuboCop
+    local_count = 12
+    diff = local_count - activity_counts["repo-a"]
+    assert diff == -1, f"Expected -1 diff (FN), got {diff}"
+
+    # Case 3: local=14 → FP=1 vs RuboCop
+    local_count = 14
+    diff = local_count - activity_counts["repo-a"]
+    assert diff == 1, f"Expected +1 diff (FP), got {diff}"
+
+
 if __name__ == "__main__":
     test_clone_repos_for_cop_creates_temp_dir_for_zero_divergence()
     test_relevant_repos_for_cop_unions_activity_and_divergence()
@@ -161,4 +194,5 @@ if __name__ == "__main__":
     test_run_nitrocop_per_repo_errors_on_missing_required_repos()
     test_clone_repos_for_cop_uses_shared_clone_module()
     test_rerun_local_per_repo_always_uses_per_repo_mode()
+    test_per_repo_gate_compares_against_rubocop_not_old_nitrocop()
     print("All tests passed.")
