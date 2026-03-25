@@ -216,25 +216,13 @@ jobs:
 
       - name: Pre-clone repos (parallel)
         run: |
-          mkdir -p repos
-          # Clone all batch repos in parallel (3 at a time) before running tools.
-          # Network is the bottleneck, so parallel clones cut total clone time by ~3x.
-          clone_one() {
-            local REPO_ID="$1" REPO_URL="$2" REPO_SHA="$3"
-            local DEST="repos/${REPO_ID}"
-            git init "$DEST" --quiet || { echo "Init failed: ${REPO_ID}"; return 1; }
-            git -C "$DEST" fetch --depth 1 "$REPO_URL" "$REPO_SHA" --quiet 2>/dev/null \
-              || git -C "$DEST" fetch --depth 1 "$REPO_URL" --quiet \
-              || { echo "Fetch failed: ${REPO_ID}"; rm -rf "$DEST"; return 1; }
-            git -C "$DEST" checkout FETCH_HEAD --quiet 2>/dev/null || true
-            echo "Cloned ${REPO_ID}"
-          }
-          export -f clone_one
-
-          jq -r '.[] | "\(.id) \(.repo_url) \(.sha)"' batch_repos.json \
-            | xargs -P 3 -L 1 bash -c 'clone_one "$@"' _
-
-          echo "Cloned $(ls repos/ | wc -l) repos"
+          # Uses shared clone script — identical to check-cop's clone path
+          REPO_IDS=$(jq -r '.[].id' batch_repos.json | paste -sd,)
+          python3 bench/corpus/clone_repos.py \
+            --dest . \
+            --manifest bench/corpus/manifest.jsonl \
+            --repo-ids "$REPO_IDS" \
+            --parallel 3
 
       - name: Run batch
         run: |

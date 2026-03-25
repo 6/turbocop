@@ -34,7 +34,11 @@ from shared.corpus_artifacts import download_corpus_results as _download_corpus
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "bench" / "corpus"))
 from run_nitrocop import run_nitrocop as _run_corpus_nitrocop  # noqa: E402, I001
+from clone_repos import clone_repos as _clone_repos, load_manifest as _load_manifest_from_file  # noqa: E402, I001
+from clone_repos import repo_head_sha  # noqa: E402, I001
 CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
+# Overridden to temp dir when --clone is used (see main())
+_CLONE_DIR: Path | None = None
 MANIFEST_PATH = PROJECT_ROOT / "bench" / "corpus" / "manifest.jsonl"
 NITROCOP_BIN = Path(os.environ["NITROCOP_BIN"]) if "NITROCOP_BIN" in os.environ else PROJECT_ROOT / os.environ.get("CARGO_TARGET_DIR", "target") / "release" / "nitrocop"
 BASELINE_CONFIG = PROJECT_ROOT / "bench" / "corpus" / "baseline_rubocop.yml"
@@ -189,46 +193,17 @@ def clear_file_cache():
 
 
 
-_SYMLINK_DIR: Path | None = None
-
-
-def _ensure_symlink_dir() -> Path:
-    """Create a shared temp directory with symlinks to all corpus repos.
-
-    The oracle runs from its workspace root with repos at repos/<id>/,
-    outside any git tree. To match this file-discovery context, we
-    symlink all repos into a temp directory. The symlinks are created
-    once and reused across all per-repo runs.
-    """
-    global _SYMLINK_DIR
-    if _SYMLINK_DIR is not None:
-        return _SYMLINK_DIR
-
-    import tempfile
-    tmpdir = Path(tempfile.mkdtemp(prefix="nitrocop_cop_check_"))
-    repos_parent = tmpdir / "repos"
-    repos_parent.mkdir()
-    for repo_dir in CORPUS_DIR.iterdir():
-        if repo_dir.is_dir():
-            link = repos_parent / repo_dir.name
-            link.symlink_to(repo_dir.resolve())
-    _SYMLINK_DIR = tmpdir
-    return tmpdir
+def _get_corpus_dir() -> Path:
+    """Get the corpus directory — temp clone dir in CI, vendor/corpus locally."""
+    return _CLONE_DIR if _CLONE_DIR is not None else CORPUS_DIR
 
 
 def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
-    """Run nitrocop on a single repo via the shared corpus runner.
-
-    Uses the symlink path (not resolved) so the repo appears outside
-    any git tree, matching the oracle's file-discovery context.
-    """
+    """Run nitrocop on a single repo via the shared corpus runner."""
     cop_name, repo_dir = args
     repo_id = Path(repo_dir).name
-    symlink_dir = _ensure_symlink_dir()
-    link = symlink_dir / "repos" / repo_id
     result = _run_corpus_nitrocop(
-        str(link), cop=cop_name, binary=str(NITROCOP_BIN), timeout=120,
-        cwd=str(symlink_dir),
+        repo_dir, cop=cop_name, binary=str(NITROCOP_BIN), timeout=120,
     )
     return (repo_id, result["count"])
 
@@ -236,28 +211,7 @@ def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
 
 def load_manifest() -> dict[str, dict]:
     """Load repo info from manifest.jsonl, keyed by repo ID."""
-    repos = {}
-    if not MANIFEST_PATH.exists():
-        return repos
-    with open(MANIFEST_PATH) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                entry = json.loads(line)
-                repos[entry["id"]] = entry
-    return repos
-
-
-def repo_head_sha(repo_dir: Path) -> str | None:
-    """Return the current HEAD SHA for a cloned corpus repo, if available."""
-    result = subprocess.run(
-        ["git", "-C", str(repo_dir), "rev-parse", "HEAD"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        return None
-    sha = result.stdout.strip()
-    return sha or None
+    return _load_manifest_from_file(MANIFEST_PATH)
 
 
 def relevant_repos_for_cop(cop_name: str, data: dict) -> set[str]:
@@ -277,72 +231,26 @@ def relevant_repos_for_cop(cop_name: str, data: dict) -> set[str]:
     return relevant
 
 
-def clone_repos_for_cop(cop_name: str, data: dict):
-    """Clone only the corpus repos needed for a specific cop from the manifest.
+def clone_repos_for_cop(cop_name: str, data: dict) -> Path:
+    """Clone repos needed for a cop into a temp dir matching the oracle's structure.
 
-    Uses the quick-rerun repo set (baseline activity + baseline divergence),
-    then shallow-clones them to vendor/corpus/. Skips repos that are already
-    cloned.
+    Returns the temp dir path. Repos are at <tmpdir>/repos/REPO_ID/.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import tempfile
 
     manifest = load_manifest()
     if not manifest:
         print("ERROR: manifest.jsonl not found", file=sys.stderr)
         sys.exit(1)
 
-    CORPUS_DIR.mkdir(parents=True, exist_ok=True)
-
     needed = relevant_repos_for_cop(cop_name, data)
-
     if not needed:
         print(f"  No baseline activity or divergence for {cop_name}", file=sys.stderr)
-        return
 
-    # Filter to repos in manifest and not already cloned at the pinned SHA
-    to_clone = []
-    for repo_id in sorted(needed):
-        if repo_id not in manifest:
-            continue
-        dest = CORPUS_DIR / repo_id
-        if dest.exists():
-            if repo_head_sha(dest) == manifest[repo_id].get("sha"):
-                continue
-            import shutil
-            shutil.rmtree(dest, ignore_errors=True)
-        to_clone.append(manifest[repo_id])
-
-    if not to_clone:
-        print(f"  All {len(needed)} needed repos already cloned", file=sys.stderr)
-        return
-
-    print(f"  Cloning {len(to_clone)} repos for {cop_name}...", file=sys.stderr)
-
-    def _clone_one(repo_info):
-        dest = CORPUS_DIR / repo_info["id"]
-        try:
-            dest.mkdir(parents=True, exist_ok=True)
-            subprocess.run(["git", "init", str(dest)],
-                           capture_output=True, check=True, timeout=10)
-            subprocess.run(["git", "-C", str(dest), "fetch", "--depth", "1",
-                            repo_info["repo_url"], repo_info["sha"]],
-                           capture_output=True, check=True, timeout=120)
-            subprocess.run(["git", "-C", str(dest), "checkout", "FETCH_HEAD"],
-                           capture_output=True, check=True, timeout=30)
-            return True
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            import shutil
-            shutil.rmtree(dest, ignore_errors=True)
-            return False
-
-    workers = min(os.cpu_count() or 4, 8)
-    ok = 0
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_clone_one, r): r["id"] for r in to_clone}
-        for f in as_completed(futures):
-            if f.result():
-                ok += 1
-    print(f"  Cloned {ok}/{len(to_clone)} repos", file=sys.stderr)
+    tmpdir = Path(tempfile.mkdtemp(prefix="nitrocop_cop_check_"))
+    print(f"  Cloning {len(needed)} repos for {cop_name} into {tmpdir}...", file=sys.stderr)
+    _clone_repos(tmpdir, manifest, repo_ids=needed, parallel=3)
+    return tmpdir
 
 
 def validate_corpus():
@@ -357,13 +265,14 @@ def validate_corpus():
 
     manifest_ids = set(manifest)
 
-    local_ids = {d.name for d in CORPUS_DIR.iterdir() if d.is_dir()} if CORPUS_DIR.exists() else set()
+    corpus_dir = _get_corpus_dir()
+    local_ids = {d.name for d in corpus_dir.iterdir() if d.is_dir()} if corpus_dir.exists() else set()
     extra = local_ids - manifest_ids
     missing = manifest_ids - local_ids
     wrong_sha = []
 
     for repo_id in sorted(local_ids & manifest_ids):
-        actual = repo_head_sha(CORPUS_DIR / repo_id)
+        actual = repo_head_sha(corpus_dir / repo_id)
         expected = manifest[repo_id].get("sha")
         if actual != expected:
             wrong_sha.append((repo_id, expected, actual or "(unknown)"))
@@ -406,13 +315,14 @@ def run_nitrocop_per_repo(
         print("  --quick: no baseline activity or divergence requires a local rerun", file=sys.stderr)
         return {}
 
-    if not CORPUS_DIR.exists():
+    corpus_dir = _get_corpus_dir()
+    if not corpus_dir.exists():
         raise FileNotFoundError(
-            f"Local corpus checkout not found at {CORPUS_DIR}. "
+            f"Local corpus checkout not found at {corpus_dir}. "
             "Pass --clone or run bench/corpus/clone_repos.sh."
         )
 
-    all_repos = sorted(d for d in CORPUS_DIR.iterdir() if d.is_dir())
+    all_repos = sorted(d for d in corpus_dir.iterdir() if d.is_dir())
     repos = all_repos
     if relevant_repos is not None:
         available = {r.name for r in all_repos}
@@ -422,7 +332,7 @@ def run_nitrocop_per_repo(
             if len(missing) > 5:
                 preview += ", ..."
             raise FileNotFoundError(
-                f"Missing {len(missing)} required corpus repo(s) under {CORPUS_DIR}: {preview}"
+                f"Missing {len(missing)} required corpus repo(s) under {corpus_dir}: {preview}"
             )
         repos = [r for r in all_repos if r.name in relevant_repos]
         skipped = len(all_repos) - len(repos)
@@ -555,8 +465,10 @@ def main():
     # Validate local corpus matches manifest (warns about stale/missing repos)
     if args.rerun:
         if args.clone:
-            # Auto-clone needed repos instead of requiring full corpus checkout
-            clone_repos_for_cop(args.cop, data)
+            # Clone into temp dir with oracle-identical path structure
+            global _CLONE_DIR
+            tmpdir = clone_repos_for_cop(args.cop, data)
+            _CLONE_DIR = tmpdir / "repos"
         else:
             validate_corpus()
         check_corpus_bundle()
