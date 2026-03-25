@@ -225,7 +225,7 @@ def main():
     by_cop_fp_examples = defaultdict(list)  # (filepath, line) per cop
     by_cop_fn_examples = defaultdict(list)
     by_cop_unfiltered: dict[str, int] = {}  # nitrocop count BEFORE RuboCop file-filtering
-    by_repo_cop = defaultdict(lambda: defaultdict(lambda: {"matches": 0, "fp": 0, "fn": 0}))
+    by_repo_cop = defaultdict(lambda: defaultdict(lambda: {"matches": 0, "fp": 0, "fn": 0, "nitro_unfiltered": 0}))
     total_matches = 0
     total_fp = 0
     total_fn = 0
@@ -308,6 +308,8 @@ def main():
         # artifact so check-cop can compare against it instead.
         for _, _, cop in tc_offenses:
             by_cop_unfiltered[cop] = by_cop_unfiltered.get(cop, 0) + 1
+            if multi_repo:
+                by_repo_cop[repo_id][cop]["nitro_unfiltered"] += 1
 
         if rc_inspected_files:
             tc_offenses = {o for o in tc_offenses if o[0] in rc_inspected_files}
