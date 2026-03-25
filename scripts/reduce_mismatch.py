@@ -50,12 +50,13 @@ def _check_deadline():
         raise TimeoutError("Total reduction timeout exceeded")
 
 
+sys.path.insert(0, str(PROJECT_ROOT / "bench" / "corpus"))
+from run_nitrocop import build_env as _build_corpus_env  # noqa: E402
+
+
 def corpus_env() -> dict[str, str]:
     """Environment variables for corpus runs, matching CI exactly."""
-    env = os.environ.copy()
-    env["BUNDLE_GEMFILE"] = str(PROJECT_ROOT / "bench" / "corpus" / "Gemfile")
-    env["BUNDLE_PATH"] = str(PROJECT_ROOT / "bench" / "corpus" / "vendor" / "bundle")
-    return env
+    return _build_corpus_env()
 
 
 class RubocopRunner:

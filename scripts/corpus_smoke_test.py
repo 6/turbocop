@@ -192,9 +192,12 @@ def clone_repo(repo: dict, dest: str) -> bool:
 
 
 def run_nitrocop(binary: str, repo_dir: str) -> dict:
-    env = os.environ.copy()
-    env["BUNDLE_GEMFILE"] = os.path.join(ROOT, "bench", "corpus", "Gemfile")
-    env["BUNDLE_PATH"] = os.path.join(ROOT, "bench", "corpus", "vendor", "bundle")
+    # Use shared corpus env for oracle-identical settings
+    sys.path.insert(0, os.path.join(ROOT, "bench", "corpus"))
+    from run_nitrocop import build_env, resolve_repo_config
+    env = build_env(repo_dir)
+    repo_id = os.path.basename(repo_dir)
+    resolved_config = resolve_repo_config(repo_id, repo_dir)
     with tempfile.TemporaryDirectory(prefix="nitrocop-smoke-cache-") as cache_dir:
         env["NITROCOP_CACHE_DIR"] = cache_dir
         result = subprocess.run(
@@ -207,7 +210,7 @@ def run_nitrocop(binary: str, repo_dir: str) -> dict:
                 "--cache",
                 "false",
                 "--config",
-                BASELINE_CONFIG,
+                resolved_config,
                 repo_dir,
             ],
             capture_output=True,
