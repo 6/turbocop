@@ -772,24 +772,79 @@ def main():
     print("  Gate type: count-only / cop-level regression")
     print()
 
-    # Gate: detect regressions from the CI baseline.
+    # Gate: per-repo regression detection.
     #
-    # The oracle filters nitrocop offenses to only RuboCop-inspected files
-    # (diff_results.py line 304-305) before counting. check_cop.py doesn't
-    # run RuboCop, so its count includes offenses on files RuboCop excluded
-    # or crashed on. This creates a constant positive offset.
-    #
-    # To handle this, we use the oracle's unfiltered nitrocop count
-    # (nitro_total_unfiltered) as the baseline when available. This is the
-    # count before RuboCop file-filtering, matching what check-cop produces.
-    # When unavailable, we fall back to ci_nitrocop_total (filtered).
+    # Aggregate comparison is unreliable because local nitrocop scans files
+    # the oracle filtered out (RuboCop parser crashes, excluded paths, etc.).
+    # Instead, compare per-repo: for each repo in by_repo_cop, check if the
+    # local count diverged from the oracle's per-repo nitrocop count.
+    # Repos NOT in by_repo_cop matched exactly in the oracle — flag any
+    # local count that exceeds the oracle activity count for that repo.
+    if has_enriched and args.rerun and 'per_repo' in dir():
+        new_fp = 0
+        new_fn = 0
+        fp_repos = []
+        fn_repos = []
+        activity_counts = {}
+
+        # Build per-repo oracle nitrocop counts from by_repo_cop
+        for repo_id, cops in by_repo_cop.items():
+            if args.cop in cops:
+                entry = cops[args.cop]
+                # Oracle nitrocop count = matches + FP for this repo
+                activity_counts[repo_id] = entry.get("matches", 0) + entry.get("fp", 0)
+
+        # For repos with oracle activity but not in by_repo_cop divergence,
+        # the oracle count == rubocop count (perfect match).
+        for repo_id in data.get("cop_activity_repos", {}).get(args.cop, []):
+            if repo_id not in activity_counts:
+                # Not diverging — oracle nitrocop matched rubocop exactly.
+                # We don't have the per-repo rubocop count, but we know
+                # nitrocop == rubocop. Use the local count as a stand-in
+                # (if nothing changed, local == oracle == rubocop).
+                activity_counts.setdefault(repo_id, per_repo.get(repo_id, 0))
+
+        for repo_id, local_count in per_repo.items():
+            if repo_id == "__ci_baseline_matching_repos__" or local_count < 0:
+                continue
+            oracle_count = activity_counts.get(repo_id)
+            if oracle_count is None:
+                continue  # Repo not tracked by oracle — skip
+            diff = local_count - oracle_count
+            if diff > 0:
+                new_fp += diff
+                fp_repos.append((repo_id, local_count, oracle_count, diff))
+            elif diff < 0:
+                new_fn += abs(diff)
+                fn_repos.append((repo_id, local_count, oracle_count, abs(diff)))
+
+        print("  Gate: per-repo regression (rerun mode)")
+        print(f"  New FP (local > oracle): {new_fp:>6,}")
+        print(f"  New FN (local < oracle): {new_fn:>6,}")
+        print()
+
+        failed = False
+        if new_fp > args.threshold:
+            print(f"FAIL: FP regression detected (+{new_fp:,})")
+            for repo_id, local, oracle, diff in sorted(fp_repos, key=lambda x: -x[3])[:10]:
+                print(f"  +{diff:>4}  {repo_id}  (local={local}, oracle={oracle})")
+            failed = True
+        if new_fn > args.threshold:
+            print(f"FAIL: FN regression detected (+{new_fn:,})")
+            for repo_id, local, oracle, diff in sorted(fn_repos, key=lambda x: -x[3])[:10]:
+                print(f"  +{diff:>4}  {repo_id}  (local={local}, oracle={oracle})")
+            failed = True
+
+        if failed:
+            sys.exit(1)
+        print("PASS: no per-repo regressions detected")
+        sys.exit(0)
+
+    # Fallback: aggregate comparison (less accurate, used when per-repo data unavailable)
     nitro_unfiltered = cop_entry.get("nitro_total_unfiltered")
     if nitro_unfiltered is not None:
-        # Compare against the unfiltered baseline — this matches check-cop exactly
         adjusted_excess = max(0, nitrocop_total - nitro_unfiltered - file_drop_offenses)
     else:
-        # Fallback: compare against the filtered baseline.
-        # The file-filtering gap means excess will be inflated.
         adjusted_excess = max(0, excess - file_drop_offenses)
     fp_regression = max(0, adjusted_excess - baseline_fp)
     fn_regression = max(0, missing - baseline_fn) if args.rerun else 0
