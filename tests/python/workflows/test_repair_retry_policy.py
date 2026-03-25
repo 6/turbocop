@@ -76,6 +76,20 @@ def test_gate_pr_accepts_trusted_bot_pr():
     assert reason == ""
 
 
+def test_gate_pr_accepts_human_author_with_label():
+    pr = {
+        "state": "OPEN",
+        "baseRefName": "main",
+        "isCrossRepository": False,
+        "headRepository": {"nameWithOwner": "6/nitrocop"},
+        "author": {"login": "6"},
+        "labels": [{"name": "type:cop-fix"}],
+        "headRefOid": "abc",
+    }
+    should_run, reason = repair_retry_policy.gate_pr(pr, "6/nitrocop", "abc")
+    assert should_run is True
+
+
 def test_gate_pr_rejects_closed_pr():
     pr = {
         "state": "CLOSED",

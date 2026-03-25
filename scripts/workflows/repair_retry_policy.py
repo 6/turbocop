@@ -76,7 +76,6 @@ def inspect_attempts(comments: list[dict], current_head_sha: str) -> dict[str, i
 def gate_pr(pr: dict, repo: str, checks_head_sha: str) -> tuple[bool, str]:
     labels = [label["name"] for label in pr.get("labels", [])]
     head_repo = (pr.get("headRepository") or {}).get("nameWithOwner", "")
-    author_login = (pr.get("author") or {}).get("login", "")
 
     if pr.get("state") != "OPEN":
         return False, "PR is not open"
@@ -87,9 +86,7 @@ def gate_pr(pr: dict, repo: str, checks_head_sha: str) -> tuple[bool, str]:
     if head_repo and head_repo != repo:
         return False, f"PR head repository {head_repo} does not match {repo}"
     if "type:cop-fix" not in labels:
-        return False, "PR is not labeled agent-fix"
-    if author_login not in {"6[bot]", "app/6"}:
-        return False, f"PR author {author_login} is not trusted for auto-repair"
+        return False, "PR is not labeled type:cop-fix"
     if checks_head_sha and pr.get("headRefOid") and pr["headRefOid"] != checks_head_sha:
         return False, "PR head moved after the failed Checks run"
     return True, ""
