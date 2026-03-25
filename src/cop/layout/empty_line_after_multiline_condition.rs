@@ -129,6 +129,14 @@ use ruby_prism::Visit;
 ///   `check_multiline_condition`. The `\r` was not included in the whitespace
 ///   byte set (`' '`, `'\t'`), so it triggered a false offense. Fixed by
 ///   adding `\r` to the whitespace check.
+///
+/// **FP root causes (round 8, 11 FP):**
+/// - The `then` keyword after a multiline parenthesized condition (e.g.,
+///   `if (\n...\n) then`) was treated as real content in the tail check of
+///   `check_multiline_condition`. The tail after the predicate end offset
+///   contains ` then`, and `t` is non-whitespace/non-comment, so the cop
+///   falsely fired. Fixed by also skipping `then` keyword in the tail check
+///   via `is_then_keyword()`.
 pub struct EmptyLineAfterMultilineCondition;
 
 impl Cop for EmptyLineAfterMultilineCondition {
@@ -574,6 +582,18 @@ fn is_sole_body_statement(
     false
 }
 
+/// Check if a byte slice starts with the `then` keyword at a word boundary.
+/// Handles `then\n`, `then `, `then\t`, bare `then`, and `then;`.
+fn is_then_keyword(rest: &[u8]) -> bool {
+    rest.starts_with(b"then")
+        && (rest.len() == 4
+            || rest[4] == b' '
+            || rest[4] == b'\t'
+            || rest[4] == b'\n'
+            || rest[4] == b'\r'
+            || rest[4] == b';')
+}
+
 /// Count the number of leading whitespace characters in a line.
 fn line_indent(line: &[u8]) -> usize {
     line.iter()
@@ -667,7 +687,11 @@ impl EmptyLineAfterMultilineCondition {
                     .iter()
                     .position(|&b| b != b' ' && b != b'\t' && b != b'\r');
                 if let Some(pos) = first_non_ws {
-                    if tail[pos] != b'#' {
+                    let rest = &tail[pos..];
+                    // Skip comments and `then` keyword — both are not real
+                    // content after the condition. `then` is a syntactic keyword
+                    // of `if`/`elsif`/`unless` and should be ignored.
+                    if rest[0] != b'#' && !is_then_keyword(rest) {
                         let (line, col) =
                             source.offset_to_line_col(predicate.location().start_offset());
                         return vec![self.diagnostic(source, line, col, MSG.to_string())];
@@ -969,6 +993,20 @@ mod tests {
         assert!(
             diags.is_empty(),
             "Should not fire on modifier unless inside parens: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn fp_block_if_with_then_after_multiline_condition() {
+        // Block if with `then` keyword after multiline parenthesized condition.
+        // The `then` on the pred-end line is not real content — it's a syntactic
+        // keyword. The blank line after `then` satisfies the empty line requirement.
+        let source = b"if (\n  result.is_a?(Array) &&\n  result[0].is_a?(Class)\n) then\n\n  do_something\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterMultilineCondition, source);
+        assert!(
+            diags.is_empty(),
+            "Should not fire on block if with then after multiline condition: {:?}",
             diags
         );
     }

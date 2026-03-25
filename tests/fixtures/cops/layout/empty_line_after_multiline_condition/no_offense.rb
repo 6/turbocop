@@ -394,3 +394,13 @@ while rest?
 
   next if scan_block( nil, /\s*/, {'{' => '}', '[' => ']'} )
 end
+
+# Block if with `then` keyword after multiline parenthesized condition — not real content
+if (
+  result.is_a?(Array) &&
+  result[0].is_a?(Class) &&
+  result[0].ancestors.include?(Exception)
+) then
+
+  do_something
+end
