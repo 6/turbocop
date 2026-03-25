@@ -83,3 +83,10 @@ class DynamicAttr
 
   alias_method :other, :name if condition
 end
+
+# attr_reader followed by conditional attr_writer — not a true attr successor
+def attr(name, writer=false)
+  attr_reader name
+
+  attr_writer name if writer
+end

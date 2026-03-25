@@ -83,3 +83,10 @@ class DynamicAttr
   ^^^^^^^^^^^^^^^^^^^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
   alias_method :other, :name if condition
 end
+
+# attr_reader followed by conditional attr_writer — not a true attr successor
+def attr(name, writer=false)
+  attr_reader name
+  ^^^^^^^^^^^^^^^^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
+  attr_writer name if writer
+end

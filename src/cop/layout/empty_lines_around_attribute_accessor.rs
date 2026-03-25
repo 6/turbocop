@@ -74,6 +74,20 @@ use crate::parse::source::SourceFile;
 /// (c) Camping FNs (2) are unfixable — minified Ruby with mid-line attr calls separated
 ///     by semicolons. Prism parses these as CallNodes but they fail the standalone-statement
 ///     check (not at first non-whitespace position of the line).
+///
+/// **Fix 7 (2026-03-25):** Three fixes:
+/// (a) `end)`, `end]`, `end,` not recognized as block boundaries — only `end` followed
+///     by space/newline/comment/semicolon/dot was handled. Added `)`, `]`, `,` to allowed
+///     chars after `end`. Fixes 5 FPs (httpx, yohasebe) where `attr_reader` inside
+///     `Module.new do...end)` was flagged.
+/// (b) `# rubocop:enable` directive comment followed by blank line now treated as valid
+///     separator, matching RuboCop's `next_line_empty_or_enable_directive_comment?`.
+///     Fixes 2 FPs (expertiza) where `attr_accessor` between `rubocop:disable/enable`
+///     comments was flagged.
+/// (c) `is_attr_method_line()` now accepts `:` after method name (e.g., `attr_accessor:name`
+///     without space) and rejects attr lines with modifier `if`/`unless` (e.g.,
+///     `attr_writer name if writer`). Fixes 1 FP (pangloss: `attr_accessor:to_emit`) and
+///     1 FN (rcodetools: conditional attr_writer not treated as sibling).
 pub struct EmptyLinesAroundAttributeAccessor;
 
 const ATTRIBUTE_METHODS: &[&[u8]] = &[b"attr_reader", b"attr_writer", b"attr_accessor", b"attr"];
@@ -175,6 +189,15 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         // If next line is blank, no offense
         if is_blank_or_whitespace_line(next_line) {
             return;
+        }
+
+        // RuboCop treats `# rubocop:enable ...` directive comments followed by a
+        // blank line as valid separators (next_line_empty_or_enable_directive_comment?).
+        if is_enable_directive_comment(next_line) {
+            let line_after = last_line + 1;
+            if line_after >= lines.len() || is_blank_or_whitespace_line(lines[line_after]) {
+                return;
+            }
         }
 
         // If next line is end of class/module/block, or a branch keyword
@@ -331,7 +354,15 @@ fn is_block_boundary_keyword(trimmed: &[u8]) -> bool {
             if after.is_none()
                 || matches!(
                     after,
-                    Some(b' ') | Some(b'\n') | Some(b'\r') | Some(b'#') | Some(b';') | Some(b'.')
+                    Some(b' ')
+                        | Some(b'\n')
+                        | Some(b'\r')
+                        | Some(b'#')
+                        | Some(b';')
+                        | Some(b'.')
+                        | Some(b')')
+                        | Some(b']')
+                        | Some(b',')
                 )
             {
                 return true;
@@ -364,11 +395,29 @@ fn has_modifier_conditional(trimmed: &[u8]) -> bool {
     false
 }
 
+/// Returns true if the line is a `# rubocop:enable ...` directive comment.
+/// RuboCop treats enable directives followed by a blank line as valid separators.
+fn is_enable_directive_comment(line: &[u8]) -> bool {
+    let trimmed: Vec<u8> = line
+        .iter()
+        .copied()
+        .skip_while(|&b| b == b' ' || b == b'\t')
+        .collect();
+    trimmed.starts_with(b"# rubocop:enable ")
+}
+
 fn is_attr_method_line(trimmed: &[u8]) -> bool {
     for &attr in ATTRIBUTE_METHODS {
         if trimmed.starts_with(attr) {
             let after = trimmed.get(attr.len());
-            if after.is_none() || matches!(after, Some(b' ') | Some(b'(') | Some(b'\n')) {
+            if after.is_none()
+                || matches!(after, Some(b' ') | Some(b'(') | Some(b'\n') | Some(b':'))
+            {
+                // If the attr call has a modifier `if`/`unless`, RuboCop's AST sees
+                // it as an IfNode, not a plain attr call — not a sibling attr accessor.
+                if has_modifier_conditional(trimmed) {
+                    return false;
+                }
                 return true;
             }
         }

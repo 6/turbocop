@@ -202,3 +202,41 @@ class Services
   def initialize
   end
 end
+
+# attr_reader inside Module.new do...end) block argument — no offense
+# The attr is the only/last statement in the block body (no right sibling)
+body.extend(Module.new do
+  attr_reader :buffer
+end)
+
+# attr_accessor inside Module.new do...end) with include
+handler.extend(Module.new do
+  include SomeModule
+  attr_accessor :session, :channel
+end)
+
+# attr_reader inside block with end) followed by code on next line
+body.extend(Module.new do
+  attr_reader :buffer
+end)
+assert body.buffer.nil?
+
+# attr_accessor without space before colon arg (attr_accessor:name)
+class JoinPipe
+  attr_reader :block, :groups, :unique
+  attr_accessor:to_emit
+
+  def initialize
+  end
+end
+
+# attr_accessor followed by rubocop:enable directive then blank line — no offense
+# RuboCop treats enable directive + blank line as a valid separator
+class ContentPage
+  # rubocop:disable Lint/DuplicateMethods
+  attr_accessor :content_html
+  # rubocop:enable Lint/DuplicateMethods
+
+  def url
+  end
+end
