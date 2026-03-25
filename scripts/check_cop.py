@@ -420,6 +420,10 @@ def rerun_local_per_repo(
                 "quick rerun falls back to divergence-only data",
                 file=sys.stderr,
             )
+    # When --clone with sharding, the clone dir already contains only this
+    # shard's repos. Don't double-shard in the scan.
+    if shard_index is not None and _CLONE_DIR is not None:
+        return run_nitrocop_per_repo(cop_name, relevant_repos=None)
     return run_nitrocop_per_repo(
         cop_name, relevant_repos=relevant_repos,
         shard_index=shard_index, total_shards=total_shards,
