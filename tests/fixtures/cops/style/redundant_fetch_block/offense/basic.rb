@@ -11,3 +11,7 @@ hash.fetch(:key) { 'default' }
 # String default with frozen_string_literal: true is flagged
 val = hash.fetch(:key) { 'fallback' }
            ^^^^^^^^^^^^^^^^^^^^^^^^^ Style/RedundantFetchBlock: Use `fetch(:key, 'fallback')` instead of `fetch(:key) { 'fallback' }`.
+
+# Unary minus with space is still a simple literal
+@file_limit = options.fetch(:file_limit) { - 1 }
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/RedundantFetchBlock: Use `fetch(:file_limit, - 1)` instead of `fetch(:file_limit) { - 1 }`.

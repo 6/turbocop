@@ -12,6 +12,15 @@ use crate::parse::source::SourceFile;
 ///   is enabled (`check_for_string?` calls `frozen_string_literals_enabled?`).
 ///   An earlier attempt removed this check, causing +56 FP on multi_json smoke test.
 ///   The check was restored.
+/// - FP: `::Rails.cache.fetch` was not skipped because `ConstantPathNode.location()`
+///   returns `::Rails` (full source), not just `Rails`. Fixed by using `.name()` which
+///   returns just the constant name segment.
+/// - FN: frozen_string_literal detection only checked line 1, missing files with
+///   encoding comments on line 1 (e.g. `# -*- coding: utf-8 -*-`). Fixed by checking
+///   the first 3 lines.
+/// - FN: Unary minus with space (`- 1`) parsed as `CallNode` with method `:-@` wrapping
+///   an integer/float, not a bare literal. Fixed by treating such CallNodes as simple
+///   literals in `is_simple_literal`.
 pub struct RedundantFetchBlock;
 
 impl RedundantFetchBlock {
@@ -25,6 +34,22 @@ impl RedundantFetchBlock {
             || node.as_nil_node().is_some()
             || node.as_rational_node().is_some()
             || node.as_imaginary_node().is_some()
+            || Self::is_unary_minus_literal(node)
+    }
+
+    /// Detect unary minus applied to a numeric literal (e.g. `- 1` or `-1.0`).
+    /// Prism parses `- 1` (with space) as a CallNode with method `:-@` and an
+    /// integer/float receiver, rather than folding it into the literal.
+    fn is_unary_minus_literal(node: &ruby_prism::Node<'_>) -> bool {
+        if let Some(call) = node.as_call_node() {
+            if call.name().as_slice() == b"-@" && call.arguments().is_none() {
+                if let Some(receiver) = call.receiver() {
+                    return receiver.as_integer_node().is_some()
+                        || receiver.as_float_node().is_some();
+                }
+            }
+        }
+        false
     }
 }
 
@@ -62,8 +87,9 @@ impl Cop for RedundantFetchBlock {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let safe_for_constants = config.get_bool("SafeForConstants", false);
-        // RuboCop only flags string defaults when frozen_string_literal: true
-        let frozen_string_literal = source.lines().next().is_some_and(|line| {
+        // RuboCop only flags string defaults when frozen_string_literal: true.
+        // Check first 3 lines to handle shebangs and encoding comments.
+        let frozen_string_literal = source.lines().take(3).any(|line| {
             std::str::from_utf8(line)
                 .unwrap_or("")
                 .contains("frozen_string_literal: true")
@@ -118,8 +144,10 @@ impl Cop for RedundantFetchBlock {
                             }
                         }
                         if let Some(const_path) = recv_recv.as_constant_path_node() {
-                            if const_path.location().as_slice() == b"Rails" {
-                                return;
+                            if let Some(name) = const_path.name() {
+                                if name.as_slice() == b"Rails" {
+                                    return;
+                                }
                             }
                         }
                     }
@@ -190,5 +218,10 @@ impl Cop for RedundantFetchBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantFetchBlock, "cops/style/redundant_fetch_block");
+    crate::cop_scenario_fixture_tests!(
+        RedundantFetchBlock,
+        "cops/style/redundant_fetch_block",
+        basic = "basic.rb",
+        frozen_string_literal_line2 = "frozen_string_literal_line2.rb",
+    );
 }

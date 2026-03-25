@@ -10,3 +10,6 @@ hash.fetch(:key) { 'default' }
 
 # Rails.cache.fetch excluded
 Rails.cache.fetch(:key) { 42 }
+
+# ::Rails.cache.fetch excluded (ConstantPathNode)
+::Rails.cache.fetch("key") { 1 }
