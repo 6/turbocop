@@ -86,7 +86,7 @@ def gate_pr(pr: dict, repo: str, checks_head_sha: str) -> tuple[bool, str]:
         return False, "Cross-repository PRs are not trusted for auto-repair"
     if head_repo and head_repo != repo:
         return False, f"PR head repository {head_repo} does not match {repo}"
-    if "agent-fix" not in labels:
+    if "type:cop-fix" not in labels:
         return False, "PR is not labeled agent-fix"
     if author_login not in {"6[bot]", "app/6"}:
         return False, f"PR author {author_login} is not trusted for auto-repair"

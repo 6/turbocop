@@ -97,7 +97,7 @@ MAX_ADDITIONAL_EXAMPLES_PER_KIND = 5
 COP_TRACKER_MARKER = "nitrocop-cop-tracker"
 PR_ISSUE_MARKER = "nitrocop-cop-issue"
 ISSUE_TITLE_PREFIX = "[cop] "
-TRACKER_LABEL = "cop-tracker"
+TRACKER_LABEL = "type:cop-issue"
 STATE_BACKLOG = "state:backlog"
 STATE_PR_OPEN = "state:pr-open"
 STATE_BLOCKED = "state:blocked"
@@ -1440,7 +1440,7 @@ def list_agent_fix_prs(repo: str, state: str = "all") -> list[dict]:
             "--state",
             state,
             "--label",
-            "agent-fix",
+            "type:cop-fix",
             "--limit",
             str(MAX_GH_PAGE),
             "--json",

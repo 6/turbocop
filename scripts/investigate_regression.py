@@ -26,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 
 ISSUE_TITLE_PREFIX = "[cop] "
-TRACKER_LABEL = "cop-tracker"
+TRACKER_LABEL = "type:cop-issue"
 TRACKER_RE = re.compile(r"<!--\s*nitrocop-cop-tracker:\s*(.*?)\s*-->")
 PR_ISSUE_RE = re.compile(r"<!--\s*nitrocop-cop-issue:\s*(.*?)\s*-->")
 TITLE_RE = re.compile(r"^\[bot\] Fix (?P<cop>.+?)(?: \(retry\))?$")
@@ -273,7 +273,7 @@ def list_merged_agent_fix_prs(repo: str) -> list[dict]:
         "pr", "list",
         "--repo", repo,
         "--state", "merged",
-        "--label", "agent-fix",
+        "--label", "type:cop-fix",
         "--limit", "500",
         "--json", "number,title,url,body,mergedAt",
     ])
