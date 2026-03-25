@@ -24,6 +24,16 @@ use crate::parse::source::SourceFile;
 /// `rubocop:enable` comment-line report behavior.
 ///
 /// Fix: apply a whitespace-aware blank-line check only for this separation cop.
+///
+/// ## Corpus investigation (2026-03-25)
+///
+/// FP=3, FN=0.
+///
+/// FP=3 root cause: hook calls with `&block_arg` (e.g., `around(&rspec_around)`,
+/// `before(:context, &block)`) were incorrectly flagged. In Prism, `call.block()`
+/// returns `Some(BlockArgumentNode)` for these, not `Some(BlockNode)`. RuboCop's
+/// cop triggers on `on_block`, so it only fires for real block bodies. Fix: require
+/// `call.block()` to be a `BlockNode`, not a `BlockArgumentNode`.
 pub struct EmptyLineAfterHook;
 
 impl Cop for EmptyLineAfterHook {
@@ -84,8 +94,13 @@ impl<'a, 'pr> Visit<'pr> for HookSeparationVisitor<'a> {
             if call.receiver().is_some() || !is_rspec_hook(call.name().as_slice()) {
                 continue;
             }
-            if call.block().is_none() {
-                continue;
+            // Only flag hooks with actual block bodies (do...end or {}),
+            // not hooks that pass a block argument via &var.
+            // In Prism, call.block() returns Some for both BlockNode and
+            // BlockArgumentNode; we must require a real BlockNode.
+            match call.block() {
+                Some(b) if b.as_block_argument_node().is_none() => {}
+                _ => continue,
             }
 
             if i + 1 >= nodes.len() {
