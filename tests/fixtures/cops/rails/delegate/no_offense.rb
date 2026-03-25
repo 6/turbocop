@@ -274,3 +274,12 @@ class ChargeProcessor
       PaypalChargeProcessor.paypal_api
     end
 end
+
+# `private` inside the same nested block still applies.
+class LowerPass
+  Env = Struct.new(:frames, keyword_init: true) do
+    private
+
+    def pop = frames.pop
+  end
+end

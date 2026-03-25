@@ -184,3 +184,87 @@ class Timer
     end
   end
 end
+
+def pop         = frames.pop
+^ Rails/Delegate: Use `delegate` to define delegations.
+
+def add_word_pair(start, stop, name)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @attribute_manager.add_word_pair(start, stop, name)
+end
+
+def add_html(tag, name)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @attribute_manager.add_html(tag, name)
+end
+
+def add_special(pattern, name)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @attribute_manager.add_special(pattern, name)
+end
+
+def [](n)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @attrs[n]
+end
+
+def << item
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @items << item
+end
+
+def empty?
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @parts.empty?
+end
+
+def length
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @parts.length
+end
+
+# Bare-argument command-call style from older Ruby codebases
+def force_encoding encoding
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @text.force_encoding encoding
+end
+
+def find_class_or_module name
+^ Rails/Delegate: Use `delegate` to define delegations.
+  RDoc::TopLevel.find_class_or_module name
+end
+
+def include?(a)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @addresses.include? a
+end
+
+def delete(a)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @addresses.delete a
+end
+
+# Setter delegation via self.class
+def mailer_name=(value)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  self.class.mailer_name = value
+end
+
+# []= delegation via class variable receiver
+def []=(locale_name, locale)
+^ Rails/Delegate: Use `delegate` to define delegations.
+  @@locales[locale_name] = locale
+end
+
+# Outer `private` should not suppress methods defined inside a nested block.
+# Pattern from amuta/kumi: private in enclosing class, delegation inside Struct.new do.
+class LowerPass
+  private
+
+  Env = Struct.new(:frames, keyword_init: true) do
+    def push(frame) = frames << frame
+
+    def pop = frames.pop
+    ^^^ Rails/Delegate: Use `delegate` to define delegations.
+  end
+end

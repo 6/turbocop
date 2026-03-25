@@ -227,6 +227,23 @@ use crate::parse::source::SourceFile;
 /// `is_inside_conditional_block` is true, check whether `private` appears AFTER
 /// the enclosing conditional keyword and BEFORE the def (same nesting level),
 /// which means private still applies within that branch.
+///
+/// ## Investigation (2026-03-25): FN in nested `do` blocks after outer `private`
+///
+/// **FN root cause**: `is_private_or_protected` is line-based and treated an
+/// outer `private` as applying to delegator methods defined inside nested block
+/// bodies. In Ruby/RuboCop visibility, a `def` inside `Struct.new(... ) do`,
+/// `if`, `case`, or similar nested scopes is not a sibling of the outer class
+/// body's `private` call, so that outer visibility does not apply.
+///
+/// Reproducer: `amuta/kumi` `lib/kumi/core/analyzer/passes/lir/lower_pass.rb:48`
+/// has `private` in `LowerPass`, then `Env = Struct.new(... ) do`, then
+/// `def pop = frames.pop`. RuboCop flags it; nitrocop skipped it as private.
+///
+/// Fix: Generalized the delegate-local visibility override from conditionals to
+/// nested `do`/conditional scopes. Outer visibility is ignored for defs inside
+/// these nested scopes unless the SAME nested scope declares `private` or
+/// `protected` before the def. Added offense/no-offense fixtures for both cases.
 pub struct Delegate;
 
 impl Cop for Delegate {
@@ -454,11 +471,12 @@ impl Cop for Delegate {
         }
 
         // Skip private/protected methods — RuboCop only flags public methods.
-        // Exception: defs inside conditional blocks (if/unless/case/etc.) are NOT
-        // affected by a preceding `private` keyword in RuboCop's AST-based sibling
-        // check, because the def is a child of the conditional node, not the class body.
+        // Exception: defs inside nested conditional/do blocks are not affected by
+        // an OUTER `private`/`protected` keyword, because the def is not a sibling
+        // of that outer visibility call in RuboCop's AST-based visibility check.
+        // However, `private` declared INSIDE the same nested scope still applies.
         if crate::cop::util::is_private_or_protected(source, node.location().start_offset())
-            && !is_inside_conditional_block(source, node.location().start_offset())
+            && !outer_visibility_does_not_apply(source, node.location().start_offset())
         {
             return;
         }
@@ -484,71 +502,206 @@ impl Cop for Delegate {
     }
 }
 
-/// Check if a def is inside a conditional/begin block at the class body level.
-/// RuboCop's VisibilityHelp uses AST sibling checks — a `def` inside an if/else/case
-/// block is NOT a sibling of `private`, so `private` doesn't affect it.
-/// Returns true if the def is inside such a block.
-fn is_inside_conditional_block(source: &SourceFile, def_offset: usize) -> bool {
+/// Returns true when a `def` is inside a nested conditional/do block where an
+/// OUTER `private`/`protected` does not apply, unless the SAME nested scope
+/// declares `private`/`protected` before the def.
+fn outer_visibility_does_not_apply(source: &SourceFile, def_offset: usize) -> bool {
     let (def_line, def_col) = source.offset_to_line_col(def_offset);
     let lines: Vec<&[u8]> = source.lines().collect();
 
-    // Scan backwards from the def to find an enclosing block-opening keyword
-    // at a LOWER indent than the def. If found before a class/module/end
-    // boundary, the def is nested inside a conditional.
-    for line in lines[..def_line.saturating_sub(1)].iter().rev() {
+    // Inline `private def foo` / `protected def foo` still applies even if the
+    // method body is inside a nested scope.
+    if has_inline_visibility_prefix(source, def_offset) {
+        return false;
+    }
+
+    let enclosing_scope = lines[..def_line.saturating_sub(1)]
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(idx, line)| {
+            let indent = line
+                .iter()
+                .take_while(|&&b| b == b' ' || b == b'\t')
+                .count();
+            let trimmed = trim_trailing_whitespace(&line[indent..]);
+
+            // Skip blank lines and comments
+            if trimmed.is_empty() || trimmed.starts_with(b"#") {
+                return None;
+            }
+
+            // Stop at class/module boundary at lower indent — we've left the scope.
+            if indent < def_col && is_class_or_module_line(trimmed) {
+                return Some(None);
+            }
+
+            // Stop at `end` at lower indent — crossed out of a sibling scope.
+            if indent < def_col && is_end_keyword(trimmed) {
+                return Some(None);
+            }
+
+            if indent < def_col && is_nested_scope_opener(trimmed) {
+                return Some(Some((idx, indent)));
+            }
+
+            None
+        })
+        .flatten();
+
+    let Some((scope_line, scope_indent)) = enclosing_scope else {
+        return false;
+    };
+
+    let mut nested_visibility_is_private = false;
+    let mut peer_scope_depth = 0usize;
+    for line in lines
+        .iter()
+        .take(def_line.saturating_sub(1))
+        .skip(scope_line + 1)
+    {
         let indent = line
             .iter()
             .take_while(|&&b| b == b' ' || b == b'\t')
             .count();
-        let trimmed = &line[indent..];
+        let trimmed = trim_trailing_whitespace(&line[indent..]);
 
-        // Skip blank lines and comments
         if trimmed.is_empty() || trimmed.starts_with(b"#") {
             continue;
         }
 
-        // Stop at class/module boundary at lower indent — we've left the scope
-        if indent < def_col && (trimmed.starts_with(b"class ") || trimmed.starts_with(b"module ")) {
-            return false;
+        // Ignore visibility keywords inside sibling scopes before the target def.
+        if indent == def_col {
+            if is_class_or_module_line(trimmed) {
+                if !is_single_line_class_or_module(trimmed) {
+                    peer_scope_depth += 1;
+                }
+                continue;
+            }
+            if is_nested_scope_opener(trimmed) {
+                peer_scope_depth += 1;
+                continue;
+            }
+            if peer_scope_depth > 0 && is_end_keyword(trimmed) {
+                peer_scope_depth -= 1;
+                continue;
+            }
         }
 
-        // Stop at `def ` at same indent — reached another method definition
-        if indent == def_col && trimmed.starts_with(b"def ") {
-            return false;
+        if peer_scope_depth > 0 {
+            continue;
         }
 
-        // Stop at `end` at lower indent — crossed out of a sibling method/block
-        // scope. Without this, conditional keywords (rescue/ensure/elsif/etc.)
-        // from inside OTHER methods would falsely match.
-        if indent < def_col
-            && (trimmed == b"end"
-                || trimmed.starts_with(b"end ")
-                || trimmed.starts_with(b"end;")
-                || trimmed.starts_with(b"end#"))
-        {
-            return false;
+        if indent > scope_indent && indent <= def_col {
+            if is_private_or_protected_keyword(trimmed) {
+                nested_visibility_is_private = true;
+            } else if is_public_keyword(trimmed) {
+                nested_visibility_is_private = false;
+            }
         }
+    }
 
-        // Check for block-opening keywords at lower indent (the class body level).
-        // These indicate the def is nested inside a conditional/loop/begin block.
-        if indent < def_col
-            && (trimmed.starts_with(b"if ")
-                || trimmed.starts_with(b"unless ")
-                || trimmed.starts_with(b"case ")
-                || trimmed.starts_with(b"case\n")
-                || trimmed.starts_with(b"while ")
-                || trimmed.starts_with(b"until ")
-                || trimmed.starts_with(b"for ")
-                || trimmed.starts_with(b"begin")
-                || trimmed == b"else"
-                || trimmed.starts_with(b"else ")
-                || trimmed.starts_with(b"elsif ")
-                || trimmed.starts_with(b"when ")
-                || trimmed.starts_with(b"rescue")
-                || trimmed.starts_with(b"ensure"))
-        {
-            return true;
+    !nested_visibility_is_private
+}
+
+fn has_inline_visibility_prefix(source: &SourceFile, def_offset: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut line_start = def_offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+    let line_to_def = &bytes[line_start..def_offset];
+    let trimmed = line_to_def
+        .iter()
+        .copied()
+        .skip_while(|&b| b == b' ' || b == b'\t')
+        .collect::<Vec<u8>>();
+    trimmed.starts_with(b"private ")
+        || trimmed.starts_with(b"private(")
+        || trimmed.starts_with(b"protected ")
+        || trimmed.starts_with(b"protected(")
+        || trimmed.starts_with(b"private_class_method ")
+}
+
+fn trim_trailing_whitespace(line: &[u8]) -> &[u8] {
+    let end_pos = line
+        .iter()
+        .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r')
+        .map_or(0, |p| p + 1);
+    &line[..end_pos]
+}
+
+fn is_end_keyword(trimmed: &[u8]) -> bool {
+    trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end;")
+}
+
+fn is_class_or_module_line(trimmed: &[u8]) -> bool {
+    trimmed.starts_with(b"class ") || trimmed.starts_with(b"module ")
+}
+
+fn is_single_line_class_or_module(trimmed: &[u8]) -> bool {
+    trimmed.ends_with(b"; end") || trimmed.ends_with(b";end")
+}
+
+fn is_private_or_protected_keyword(trimmed: &[u8]) -> bool {
+    trimmed == b"private"
+        || trimmed.starts_with(b"private #")
+        || trimmed == b"protected"
+        || trimmed.starts_with(b"protected #")
+}
+
+fn is_public_keyword(trimmed: &[u8]) -> bool {
+    trimmed == b"public" || trimmed.starts_with(b"public #")
+}
+
+fn is_nested_scope_opener(trimmed: &[u8]) -> bool {
+    trimmed.starts_with(b"if ")
+        || trimmed.starts_with(b"unless ")
+        || trimmed.starts_with(b"case ")
+        || trimmed.starts_with(b"while ")
+        || trimmed.starts_with(b"until ")
+        || trimmed.starts_with(b"for ")
+        || trimmed.starts_with(b"begin")
+        || trimmed == b"else"
+        || trimmed.starts_with(b"else ")
+        || trimmed.starts_with(b"elsif ")
+        || trimmed.starts_with(b"when ")
+        || trimmed.starts_with(b"rescue")
+        || trimmed.starts_with(b"ensure")
+        || has_do_block_opener(trimmed)
+}
+
+fn has_do_block_opener(trimmed: &[u8]) -> bool {
+    let code_portion = if let Some(hash_pos) = trimmed.iter().position(|&b| b == b'#') {
+        &trimmed[..hash_pos]
+    } else {
+        trimmed
+    };
+    has_standalone_token(code_portion, b"do")
+}
+
+fn has_standalone_token(code: &[u8], token: &[u8]) -> bool {
+    let tlen = token.len();
+    for start in 0..code.len() {
+        if start + tlen > code.len() {
+            break;
         }
+        if &code[start..start + tlen] != token {
+            continue;
+        }
+        if start > 0 {
+            let prev = code[start - 1];
+            if prev.is_ascii_alphanumeric() || prev == b'_' {
+                continue;
+            }
+        }
+        if start + tlen < code.len() {
+            let next = code[start + tlen];
+            if next.is_ascii_alphanumeric() || next == b'_' || next == b'?' || next == b'!' {
+                continue;
+            }
+        }
+        return true;
     }
     false
 }
