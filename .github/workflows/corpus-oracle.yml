@@ -57,8 +57,9 @@ jobs:
           python3 << 'PYEOF'
           import json, os, sys, hashlib
 
-          # 50 repos/batch → ~112 batches. GHA runs ~20 concurrently, so ~6 waves.
-          # Balances scheduling overhead vs per-batch duration on cold caches.
+          # 50 repos/batch → ~112 batches. Rubocop cache is consolidated
+          # (not per-batch), so batch size can be changed freely without
+          # causing cold caches.
           BATCH_SIZE = 50
 
           repos = []
@@ -170,13 +171,13 @@ jobs:
         id: rubocop-cache
         with:
           path: rubocop-cache/
-          # Key format: config_hash first, then batch_hash. This way restore-keys
-          # can fall back to any batch with the same config when batch composition
-          # changes (manifest edits shift which repos land in which batch).
-          # Per-repo JSON files from a different batch are still valid — the loop
-          # checks per-repo file existence and skips repos not in this batch.
-          key: rubocop-${{ steps.rubocop-cache-key.outputs.hash }}-${{ matrix.batch_hash }}
+          # Restore the consolidated cache from the previous collect-results job.
+          # This contains ALL repos' rubocop results, so batch composition changes
+          # (including batch size changes) don't cause cold caches.
+          # Falls back to any per-batch cache if no consolidated cache exists yet.
+          key: rubocop-all-${{ steps.rubocop-cache-key.outputs.hash }}-dummy
           restore-keys: |
+            rubocop-all-${{ steps.rubocop-cache-key.outputs.hash }}-
             rubocop-${{ steps.rubocop-cache-key.outputs.hash }}-
 
       - name: Compute batch repos
@@ -245,9 +246,9 @@ jobs:
             DEST="repos/${REPO_ID}"
 
             RUBOCOP_CACHED=false
-            if [ -f "rubocop-cache/${REPO_ID}.json" ]; then
+            if [ -f "rubocop-cache/${REPO_ID}_${REPO_SHA}.json" ]; then
               echo "Using cached rubocop result for ${REPO_ID}"
-              cp "rubocop-cache/${REPO_ID}.json" "results/rubocop/${REPO_ID}.json"
+              cp "rubocop-cache/${REPO_ID}_${REPO_SHA}.json" "results/rubocop/${REPO_ID}.json"
               RUBOCOP_CACHED=true
             fi
 
@@ -324,7 +325,7 @@ jobs:
 
             # Save rubocop result to cache dir (will be persisted after the batch)
             if [ "$RUBOCOP_CACHED" = false ] && [ -f "results/rubocop/${REPO_ID}.json" ]; then
-              cp "results/rubocop/${REPO_ID}.json" "rubocop-cache/${REPO_ID}.json"
+              cp "results/rubocop/${REPO_ID}.json" "rubocop-cache/${REPO_ID}_${REPO_SHA}.json"
             fi
 
             # Free disk space between repos
@@ -423,6 +424,62 @@ jobs:
 
       - name: Place synthetic results
         run: cp synthetic-dl/synthetic-results.json bench/synthetic/synthetic-results.json
+
+      - name: Consolidate rubocop cache
+        run: |
+          # Merge all per-batch rubocop results into a single SHA-indexed cache.
+          # Results are stored as {repo_id}_{sha}.json so manifest SHA changes
+          # automatically invalidate stale entries.
+          mkdir -p rubocop-cache
+          python3 << 'PYEOF'
+          import json, shutil, os
+          manifest = {}
+          with open('bench/corpus/manifest.jsonl') as f:
+              for line in f:
+                  line = line.strip()
+                  if line:
+                      r = json.loads(line)
+                      manifest[r['id']] = r['sha']
+          src = 'all-results/results/rubocop'
+          if not os.path.isdir(src):
+              print('No rubocop results to consolidate')
+          else:
+              count = 0
+              for fname in os.listdir(src):
+                  if not fname.endswith('.json'):
+                      continue
+                  repo_id = fname[:-5]
+                  sha = manifest.get(repo_id)
+                  if sha:
+                      shutil.copy2(os.path.join(src, fname),
+                                   os.path.join('rubocop-cache', f'{repo_id}_{sha}.json'))
+                      count += 1
+              print(f'Consolidated {count} rubocop results')
+          PYEOF
+
+      - name: Compute rubocop cache key
+        id: rubocop-cache-key
+        run: |
+          # Same hash as oracle-repo jobs use — must stay in sync
+          EXCLUDES_FILE="bench/corpus/repo_excludes.json"
+          RESCUE_FILE="bench/corpus/rescue_parser_crashes.rb"
+          EXTRA_HASH=""
+          for f in "$EXCLUDES_FILE" "$RESCUE_FILE"; do
+            if [ -f "$f" ]; then
+              EXTRA_HASH="${EXTRA_HASH}$(sha256sum "$f" | cut -c1-16)"
+            fi
+          done
+          KEY_HASH=$(echo "${EXTRA_HASH}" | cat - bench/corpus/Gemfile bench/corpus/baseline_rubocop.yml | sha256sum | cut -c1-16)
+          echo "hash=${KEY_HASH}" >> "$GITHUB_OUTPUT"
+
+      - name: Save consolidated rubocop cache
+        uses: actions/cache/save@v5
+        with:
+          path: rubocop-cache/
+          # Keyed by config hash + run_id so each successful run creates a fresh
+          # consolidated cache. Batch jobs restore via restore-keys prefix match,
+          # so they always get the most recent full cache regardless of batch size.
+          key: rubocop-all-${{ steps.rubocop-cache-key.outputs.hash }}-${{ github.run_id }}
 
       - name: Diff and generate report
         run: |
