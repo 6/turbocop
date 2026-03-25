@@ -42,6 +42,19 @@ use ruby_prism::Visit;
 ///
 /// Fix: added `is_proc_new()` helper to detect `Proc.new` and `::Proc.new`
 /// calls, extending the `is_proc_or_lambda` check in `visit_call_node`.
+///
+/// ## Corpus investigation (2026-03-25)
+///
+/// Corpus oracle reported FP=0, FN=11.
+///
+/// FN=11: Investigated with check_cop.py. Found that when CountKeywordArgs
+/// is false, RuboCop's `NAMED_KEYWORD_TYPES = %i[kwoptarg kwarg]` excludes
+/// named keyword args but NOT `kwrestarg` (**opts). nitrocop was excluding
+/// keyword_rest along with keywords, undercounting parameters.
+///
+/// Fix: in `count_params`, count `keyword_rest` (**opts) even when
+/// `CountKeywordArgs` is false, matching RuboCop's NAMED_KEYWORD_TYPES
+/// exclusion which only covers kwoptarg and kwarg.
 pub struct ParameterLists;
 
 impl Cop for ParameterLists {
@@ -102,6 +115,14 @@ impl<'a> ParameterListsVisitor<'a> {
 
         if self.count_keyword_args {
             count += params.keywords().len();
+            if params.keyword_rest().is_some() {
+                count += 1;
+            }
+        } else {
+            // When CountKeywordArgs is false, RuboCop's NAMED_KEYWORD_TYPES
+            // excludes :kwoptarg and :kwarg but NOT :kwrestarg (**opts).
+            // So keyword_rest (**opts) is still counted even when named
+            // keyword args are not.
             if params.keyword_rest().is_some() {
                 count += 1;
             }
@@ -452,6 +473,36 @@ mod tests {
             diags[0].location.line, 1,
             "Should report on line 1 (do | line), got line {}",
             diags[0].location.line
+        );
+    }
+
+    /// When CountKeywordArgs is false, **opts (keyword_rest) should still be
+    /// counted. RuboCop's NAMED_KEYWORD_TYPES excludes :kwoptarg/:kwarg but
+    /// NOT :kwrestarg.
+    #[test]
+    fn count_keyword_args_false_still_counts_kwrest() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(3.into())),
+                ("CountKeywordArgs".into(), serde_yml::Value::Bool(false)),
+            ]),
+            ..CopConfig::default()
+        };
+
+        // 3 required + **opts = 4 params (named keywords excluded but kwrest counted)
+        let source = b"def foo(a, b, c, d: 1, e: 2, **opts)\nend\n";
+        let diags = run_cop_full_with_config(&ParameterLists, source, config);
+        assert!(
+            !diags.is_empty(),
+            "Should count **opts even when CountKeywordArgs is false"
+        );
+        assert!(
+            diags[0].message.contains("[4/3]"),
+            "Expected [4/3] got: {}",
+            diags[0].message
         );
     }
 }
