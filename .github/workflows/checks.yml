@@ -108,10 +108,12 @@ jobs:
   # before they reach the full 1000-repo corpus oracle.
   # --rerun: actually runs the new binary (not just cached results)
   # --quick: only repos with baseline activity for the cop (3-10x faster)
-  cop-check:
-    needs: build-linux
+  cop-detect:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 5
+    outputs:
+      has_cops: ${{ steps.cops.outputs.has_cops }}
+      changed_cops: ${{ steps.cops.outputs.changed_cops }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -132,59 +134,91 @@ jobs:
           cat /tmp/changed_cops.txt
           if [ -s /tmp/changed_cops.txt ]; then
             echo "has_cops=true" >> "$GITHUB_OUTPUT"
+            echo "changed_cops=$(paste -sd',' /tmp/changed_cops.txt)" >> "$GITHUB_OUTPUT"
           else
             echo "has_cops=false" >> "$GITHUB_OUTPUT"
+            echo "changed_cops=" >> "$GITHUB_OUTPUT"
           fi
 
+  cop-check:
+    needs: [cop-detect, build-linux]
+    if: needs.cop-detect.outputs.has_cops == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v6
-        if: steps.cops.outputs.has_cops == 'true'
         with:
           name: nitrocop-linux
           path: target/release
       - run: chmod +x target/release/nitrocop
-        if: steps.cops.outputs.has_cops == 'true'
 
       - uses: ruby/setup-ruby@v1
-        if: steps.cops.outputs.has_cops == 'true'
 
       - name: Cache corpus bundle
-        if: steps.cops.outputs.has_cops == 'true'
         uses: actions/cache@v5
         with:
           path: bench/corpus/vendor/bundle
           key: cop-check-bundle-${{ hashFiles('bench/corpus/Gemfile.lock') }}
 
       - name: Install corpus gems
-        if: steps.cops.outputs.has_cops == 'true'
         run: |
           cd bench/corpus
           bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
-      - name: Check cops against corpus baseline
-        if: steps.cops.outputs.has_cops == 'true'
+      - name: Check cops against corpus baseline (shard ${{ matrix.shard }}/4)
         env:
           NITROCOP_BIN: ${{ github.workspace }}/target/release/nitrocop
           GH_TOKEN: ${{ github.token }}
         run: |
+          IFS=',' read -ra COPS <<< "${{ needs.cop-detect.outputs.changed_cops }}"
           failed=0
-          while IFS= read -r cop; do
+          for cop in "${COPS[@]}"; do
             [ -z "$cop" ] && continue
             echo ""
             echo "=============================="
-            echo "Checking: $cop (re-running against corpus)"
+            echo "Checking: $cop (shard ${{ matrix.shard }}/4)"
             echo "=============================="
-            if ! python3 scripts/check_cop.py "$cop" --verbose --rerun --quick --clone; then
-              echo "FAIL: $cop regression detected"
+            if ! python3 scripts/check_cop.py "$cop" --verbose --rerun --quick --clone \
+                 --shard-index ${{ matrix.shard }} --total-shards 4; then
+              echo "FAIL: $cop regression detected in shard ${{ matrix.shard }}"
               failed=$((failed + 1))
             fi
-          done < /tmp/changed_cops.txt
+          done
 
           if [ "$failed" -gt 0 ]; then
             echo ""
             echo "FAILED: $failed cop(s) regressed vs corpus baseline."
             exit 1
           fi
+
+  # Roll-up for branch protection — add "cop-check-gate" as a required check
+  cop-check-gate:
+    if: always()
+    needs: [cop-detect, cop-check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - run: |
+          if [ "${{ needs.cop-detect.outputs.has_cops }}" != "true" ]; then
+            echo "No cops changed — gate passes"
+            exit 0
+          fi
+          if [ "${{ needs.cop-check.result }}" = "success" ]; then
+            echo "All shards passed"
+            exit 0
+          fi
+          echo "cop-check failed: ${{ needs.cop-check.result }}"
+          exit 1
 
   # Corpus smoke test: run nitrocop + rubocop on a few cheap sentinel repos to
   # catch systemic regressions (file discovery, config, plugin loading, directives)

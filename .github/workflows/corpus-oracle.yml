@@ -57,7 +57,9 @@ jobs:
           python3 << 'PYEOF'
           import json, os, sys, hashlib
 
-          BATCH_SIZE = 25
+          # 75 repos/batch → ~73 batches. GHA runs ~20 concurrently, so 4 waves.
+          # Smaller batches (25) created 224 jobs / 11 waves of scheduling overhead.
+          BATCH_SIZE = 75
 
           repos = []
           with open('bench/corpus/manifest.jsonl') as f:
@@ -109,7 +111,7 @@ jobs:
   oracle-repo:
     needs: [build-nitrocop, compute-matrix]
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.compute-matrix.outputs.matrix) }}
@@ -212,6 +214,28 @@ jobs:
           print(f'Batch {batch_id}: {len(chunk)} repos')
           PYEOF
 
+      - name: Pre-clone repos (parallel)
+        run: |
+          mkdir -p repos
+          # Clone all batch repos in parallel (3 at a time) before running tools.
+          # Network is the bottleneck, so parallel clones cut total clone time by ~3x.
+          clone_one() {
+            local REPO_ID="$1" REPO_URL="$2" REPO_SHA="$3"
+            local DEST="repos/${REPO_ID}"
+            git init "$DEST" --quiet || { echo "Init failed: ${REPO_ID}"; return 1; }
+            git -C "$DEST" fetch --depth 1 "$REPO_URL" "$REPO_SHA" --quiet 2>/dev/null \
+              || git -C "$DEST" fetch --depth 1 "$REPO_URL" --quiet \
+              || { echo "Fetch failed: ${REPO_ID}"; rm -rf "$DEST"; return 1; }
+            git -C "$DEST" checkout FETCH_HEAD --quiet 2>/dev/null || true
+            echo "Cloned ${REPO_ID}"
+          }
+          export -f clone_one
+
+          jq -r '.[] | "\(.id) \(.repo_url) \(.sha)"' batch_repos.json \
+            | xargs -P 3 -L 1 bash -c 'clone_one "$@"' _
+
+          echo "Cloned $(ls repos/ | wc -l) repos"
+
       - name: Run batch
         run: |
           mkdir -p results/nitrocop results/rubocop rubocop-cache
@@ -223,22 +247,19 @@ jobs:
 
             echo "::group::${REPO_ID}"
 
+            # Skip repos that failed to clone
+            if [ ! -d "repos/${REPO_ID}" ]; then
+              echo "Skipping ${REPO_ID} (clone failed)"
+              echo "::endgroup::"
+              continue
+            fi
+
             RUBOCOP_CACHED=false
             if [ -f "rubocop-cache/${REPO_ID}.json" ]; then
               echo "Using cached rubocop result for ${REPO_ID}"
               cp "rubocop-cache/${REPO_ID}.json" "results/rubocop/${REPO_ID}.json"
               RUBOCOP_CACHED=true
             fi
-
-            # Clone — fetch exactly the pinned SHA at depth 1
-            DEST="repos/${REPO_ID}"
-            echo "Cloning ${REPO_ID} at ${REPO_SHA:0:7}..."
-            git init "$DEST" --quiet || { echo "Init failed for ${REPO_ID}"; echo "::endgroup::"; continue; }
-            git -C "$DEST" fetch --depth 1 "$REPO_URL" "$REPO_SHA" --quiet 2>/dev/null \
-              || git -C "$DEST" fetch --depth 1 "$REPO_URL" --quiet \
-              || { echo "Fetch failed for ${REPO_ID}"; rm -rf "$DEST"; echo "::endgroup::"; continue; }
-            git -C "$DEST" checkout FETCH_HEAD --quiet 2>/dev/null \
-              || echo "WARNING: checkout failed for ${REPO_ID}, using fetched HEAD"
 
             # Per-repo timeout (15 min each tool).
             # Keeps one slow repo from killing the whole batch.
@@ -254,20 +275,14 @@ jobs:
             WORKSPACE="$PWD"
             ABS_DEST="$(cd "$DEST" && pwd)"
 
-            # nitrocop
+            # nitrocop — uses shared script for oracle-identical invocation
             echo "=== nitrocop: ${REPO_ID} ==="
             rc=0
-            timeout "${REPO_TIMEOUT}" \
-            env BUNDLE_GEMFILE=$WORKSPACE/bench/corpus/Gemfile \
-                BUNDLE_PATH=$WORKSPACE/bench/corpus/vendor/bundle \
-                GIT_CEILING_DIRECTORIES=$(dirname "$ABS_DEST") \
-            $WORKSPACE/bin/nitrocop \
-              --preview \
-              --format json \
-              --no-cache \
-              --config "$REPO_CONFIG" \
-              "$ABS_DEST" \
-              > "$WORKSPACE/results/nitrocop/${REPO_ID}.json" 2>"$WORKSPACE/results/nitrocop/${REPO_ID}.err" || rc=$?
+            python3 bench/corpus/run_nitrocop.py "$ABS_DEST" \
+              --binary "$WORKSPACE/bin/nitrocop" \
+              --timeout "${REPO_TIMEOUT}" \
+              --output "$WORKSPACE/results/nitrocop/${REPO_ID}.json" \
+              2>"$WORKSPACE/results/nitrocop/${REPO_ID}.err" || rc=$?
 
             if [ "$rc" -eq 124 ]; then
               echo "::warning::nitrocop timed out after ${REPO_TIMEOUT}s for ${REPO_ID}"
