@@ -33,3 +33,13 @@ foo&.a || foo&.b || (foo&.c && flag) || foo&.d
 setting&.domains&.include?(domain) || setting&.domains.any? { |d| d.match?(/x/) }
 foo&.bar || foo.baz { |x| x }
 foo&.bar && foo.baz { |x| x }
+
+# Parenthesized && groups inside || — RuboCop does not recurse into begin nodes
+(klass_or_obj&.is_a?(Class) && klass_or_obj < ActiveRecord::Base) || (klass_or_obj&.is_a?(ActiveRecord::Base) && klass_or_obj.new_record?)
+(foo&.a && bar) || (foo&.b && baz)
+foo&.bar && (foobar.baz || foo&.baz)
+
+# Operator methods called with &. — operator_method? is true so already_appropriate for "."
+floated_corporation_index&.positive? && floated_corporation_index&.<(order.size)
+foo&.bar && foo&.+(1)
+foo&.bar && foo&.>=(threshold)

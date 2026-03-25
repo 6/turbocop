@@ -58,6 +58,24 @@ const DEFAULT_ALLOWED_METHODS: &[&str] = &["present?", "blank?", "presence", "tr
 /// them in a `(block (send ...))` node. RuboCop's `operand_nodes` only collects
 /// `call_type?` nodes, so block-wrapped calls are excluded. Fix: skip CallNodes
 /// with `call.block().is_some()` in `extract_operand_info`.
+///
+/// ## Corpus investigation (2026-03-25)
+///
+/// FP=2 (brick=1, 18xx=1). Two root causes:
+///
+/// 1. **brick FP** (`(A&.b && C) || (A&.d && E)`): nitrocop recursed into
+///    parenthesized expressions, merging operands from separate `&&` groups.
+///    RuboCop's `operand_nodes` only recurses into `operator_keyword?` nodes
+///    (and/or), NOT `begin` nodes (parentheses). Fix: remove ParenthesesNode
+///    recursion from `collect_operands_from_node`.
+///
+/// 2. **18xx FP** (`idx&.positive? && idx&.<(n)`): nitrocop set
+///    `is_operator_method` based on absence of a call operator (`&.`/`.`),
+///    but RuboCop's `operator_method?` is based purely on the method name
+///    (e.g. `<`, `+`, `==`). A call like `foo&.<(bar)` has `operator_method?`
+///    = true in RuboCop, so `already_appropriate_call?` returns true when
+///    expected is `.`. Fix: determine `is_operator_method` from the method
+///    name and update `already_appropriate` to match RuboCop's logic.
 pub struct SafeNavigationConsistency;
 
 impl Cop for SafeNavigationConsistency {
@@ -196,15 +214,6 @@ fn collect_operands_from_node<'a>(
     } else if let Some(or_node) = node.as_or_node() {
         collect_operands_from_node(&or_node.left(), false, None, operands);
         collect_operands_from_node(&or_node.right(), false, None, operands);
-    } else if let Some(paren) = node.as_parentheses_node() {
-        // Recurse into parenthesized expressions
-        if let Some(body) = paren.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                for stmt in stmts.body().iter() {
-                    collect_operands_from_node(&stmt, parent_is_and, and_group_key, operands);
-                }
-            }
-        }
     } else if let Some(info) = extract_operand_info(node, parent_is_and, and_group_key) {
         operands.push(info);
     }
@@ -239,8 +248,9 @@ fn extract_operand_info(
         })
         .unwrap_or(false);
 
-    // Check if this is an operator method (no dot, no &.)
-    let is_operator_method = call_op.is_none();
+    // RuboCop's operator_method? is based on the method name, not on whether
+    // a call operator (./&.) is present. foo&.<(bar) has operator_method?=true.
+    let is_operator_method = is_ruby_operator_method(&method_name);
 
     let call_operator_offset = call_op.as_ref().map(|loc| loc.start_offset()).unwrap_or(0);
     let receiver_offset = recv.location().start_offset();
@@ -446,12 +456,47 @@ fn find_consistent_parts(
     }
 }
 
+/// Check if a method name is a Ruby operator method.
+/// Matches RuboCop-AST's `operator_method?` predicate.
+fn is_ruby_operator_method(name: &str) -> bool {
+    matches!(
+        name,
+        "+" | "-"
+            | "*"
+            | "/"
+            | "%"
+            | "**"
+            | "<"
+            | ">"
+            | "<="
+            | ">="
+            | "=="
+            | "!="
+            | "==="
+            | "<=>"
+            | "<<"
+            | ">>"
+            | "&"
+            | "|"
+            | "^"
+            | "~"
+            | "=~"
+            | "!~"
+            | "!"
+            | "[]"
+            | "[]="
+    )
+}
+
 /// Check if an operand already uses the appropriate call style.
+/// Mirrors RuboCop's `already_appropriate_call?`:
+///   operand.safe_navigation? && dot_op == '&.'  ||
+///   (operand.dot? || operand.operator_method?) && dot_op == '.'
 fn already_appropriate(op: &OperandInfo, expected_op: &str) -> bool {
     if op.is_safe_nav && expected_op == "&." {
         return true;
     }
-    if (!op.is_safe_nav) && expected_op == "." {
+    if (!op.is_safe_nav || op.is_operator_method) && expected_op == "." {
         return true;
     }
     false
