@@ -20,19 +20,12 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 CORPUS_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = CORPUS_DIR.parent.parent
 BASELINE_CONFIG = CORPUS_DIR / "baseline_rubocop.yml"
 GEN_REPO_CONFIG = CORPUS_DIR / "gen_repo_config.py"
-
-
-def absolute_path(path: str | Path) -> Path:
-    """Return an absolute path without collapsing symlinks."""
-    path = Path(path)
-    return path if path.is_absolute() else Path.cwd() / path
 
 
 def resolve_binary(binary: str | None = None) -> str:
@@ -69,34 +62,13 @@ def resolve_repo_config(repo_id: str, repo_dir: str) -> str:
     return str(BASELINE_CONFIG)
 
 
-def prepare_repo_dir(repo_dir: str) -> tuple[Path, tempfile.TemporaryDirectory[str] | None]:
-    """Return a lintable repo path, preserving corpus symlink indirection.
-
-    `baseline_rubocop.yml` excludes `vendor/**/*`, so local corpus repos cloned
-    under `vendor/corpus/` must be linted through a path outside `vendor/`.
-    """
-    repo_path = absolute_path(repo_dir)
-    corpus_root = PROJECT_ROOT / "vendor" / "corpus"
-    try:
-        repo_path.relative_to(corpus_root)
-    except ValueError:
-        return repo_path, None
-
-    tmpdir = tempfile.TemporaryDirectory(prefix="nitrocop_corpus_repo_")
-    repos_dir = Path(tmpdir.name) / "repos"
-    repos_dir.mkdir()
-    link = repos_dir / repo_path.name
-    link.symlink_to(repo_path)
-    return link, tmpdir
-
-
 def build_env(repo_dir: str | None = None) -> dict[str, str]:
     """Build environment variables matching the corpus oracle exactly."""
     env = os.environ.copy()
     env["BUNDLE_GEMFILE"] = str(CORPUS_DIR / "Gemfile")
     env["BUNDLE_PATH"] = str(CORPUS_DIR / "vendor" / "bundle")
     if repo_dir:
-        env["GIT_CEILING_DIRECTORIES"] = str(absolute_path(repo_dir).parent)
+        env["GIT_CEILING_DIRECTORIES"] = str(Path(repo_dir).resolve().parent)
     return env
 
 
@@ -124,39 +96,33 @@ def run_nitrocop(
     Returns dict with keys: offenses (list), count (int), error (str|None).
     """
     binary = resolve_binary(binary)
-    repo_path, tmpdir = prepare_repo_dir(repo_dir)
-    repo_dir = str(repo_path)
-    repo_id = repo_path.name
+    repo_dir = str(Path(repo_dir).resolve())
+    repo_id = Path(repo_dir).name
+    config = resolve_repo_config(repo_id, repo_dir)
+    env = build_env(repo_dir)
+
+    cmd = [binary, "--preview", "--format", "json", "--no-cache", "--config", config]
+    if cop:
+        cmd += ["--only", cop]
+    cmd.append(repo_dir)
 
     try:
-        config = resolve_repo_config(repo_id, repo_dir)
-        env = build_env(repo_dir)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout, env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return {"offenses": [], "count": -1, "error": f"timeout after {timeout}s"}
 
-        cmd = [binary, "--preview", "--format", "json", "--no-cache", "--config", config]
-        if cop:
-            cmd += ["--only", cop]
-        cmd.append(repo_dir)
+    if result.returncode not in (0, 1):
+        return {"offenses": [], "count": -1, "error": f"exit code {result.returncode}"}
 
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout, env=env,
-            )
-        except subprocess.TimeoutExpired:
-            return {"offenses": [], "count": -1, "error": f"timeout after {timeout}s"}
-
-        if result.returncode not in (0, 1):
-            return {"offenses": [], "count": -1, "error": f"exit code {result.returncode}"}
-
-        try:
-            data = json.loads(result.stdout)
-            offenses = data.get("offenses", [])
-            count = deduplicate_offenses(offenses)
-            return {"offenses": offenses, "count": count, "error": None}
-        except json.JSONDecodeError as e:
-            return {"offenses": [], "count": -1, "error": f"JSON parse error: {e}"}
-    finally:
-        if tmpdir is not None:
-            tmpdir.cleanup()
+    try:
+        data = json.loads(result.stdout)
+        offenses = data.get("offenses", [])
+        count = deduplicate_offenses(offenses)
+        return {"offenses": offenses, "count": count, "error": None}
+    except json.JSONDecodeError as e:
+        return {"offenses": [], "count": -1, "error": f"JSON parse error: {e}"}
 
 
 def main():
