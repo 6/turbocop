@@ -166,6 +166,15 @@ use crate::parse::source::SourceFile;
 /// FN=2 from brixen/poetics (bin/poetics:21) — extensionless file that nitrocop
 /// does not discover. This is a file discovery issue (shebang detection), not a
 /// cop logic bug. RuboCop discovers and lints these files.
+///
+/// ## Corpus verification (2026-03-25)
+///
+/// verify_cop_locations.py: FP 0 fixed / 16 remain, FN 100 fixed / 0 remain.
+/// All FN verified fixed. Remaining FP=16: noosfero (4, vendored plugins),
+/// ruby/tk (3, config), auth0 (2, config), dradis (1, vendored plugin),
+/// ConfigLMM (1), brandur (1), engineyard (1), gisiahq (1), samvera (1),
+/// siberas (1) — all config resolution or vendored file issues.
+/// No cop-level fix needed.
 pub struct MethodLength;
 
 /// Parsed config values for MethodLength.

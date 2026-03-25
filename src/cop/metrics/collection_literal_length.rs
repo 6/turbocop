@@ -10,6 +10,12 @@ use crate::parse::source::SourceFile;
 /// FP=1 from noosfero (vendor/plugins/xss_terminate/lib/html5lib_sanitize.rb:154).
 /// Same cross-cutting file-level issue: vendored file that RuboCop does not
 /// process but nitrocop does. No cop-level fix needed.
+///
+/// ## Corpus verification (2026-03-25)
+///
+/// verify_cop_locations.py: FP 0 fixed / 1 remain, FN 7 fixed / 0 remain.
+/// All FN verified fixed. Remaining FP=1: noosfero (vendored plugin,
+/// same file as extended corpus investigation). No cop-level fix needed.
 pub struct CollectionLiteralLength;
 
 impl Cop for CollectionLiteralLength {

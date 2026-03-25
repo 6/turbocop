@@ -196,6 +196,12 @@ use crate::parse::source::SourceFile;
 ///
 /// FN=1 from rkh/Reak (bin/reak:48) — extensionless file not discovered by
 /// nitrocop. File discovery issue, not cop logic.
+///
+/// ## Corpus verification (2026-03-25)
+///
+/// verify_cop_locations.py: FP 0 fixed / 1 remain, FN 52 fixed / 0 remain.
+/// All FN verified fixed. Remaining FP=1: stackneveroverflow (vendored
+/// rails_admin gem). No cop-level fix needed.
 pub struct BlockLength;
 
 impl Cop for BlockLength {
