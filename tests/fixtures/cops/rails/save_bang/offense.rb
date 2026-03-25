@@ -62,6 +62,13 @@ object.save(*variable)
 object.save(**variable)
        ^^^^ Rails/SaveBang: Use `save!` instead of `save` if the return value is not checked.
 
+# Command-style update with a non-literal argument should still match Rails/SaveBang
+def merge_hashes(klass, mod)
+  klass.methods_hash.update mod.methods_hash
+                     ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+  nil
+end
+
 # CREATE in case statement condition
 case object.create
             ^^^^^^ Rails/SaveBang: `create` returns a model which is always truthy.
@@ -300,3 +307,27 @@ def metafield_example
                                        ^^^^^^ Rails/SaveBang: Use `create!` instead of `create` if the return value is not checked. Or check `persisted?` on model returned from `create`.
   nil
 end
+
+klass.methods_hash.update mod.methods_hash
+                   ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+
+klass.constants_hash.update mod.constants_hash
+                     ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+
+klass.classes_hash.update mod.classes_hash
+                   ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+
+klass.modules_hash.update mod.modules_hash
+                   ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+
+klass.metadata.update mod.metadata
+               ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+
+klass.methods_hash.update mod.methods_hash
+                   ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+
+klass.constants_hash.update mod.constants_hash
+                     ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+
+klass.classes_hash.update mod.classes_hash
+                   ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.

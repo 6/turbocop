@@ -403,6 +403,26 @@ use ruby_prism::Visit;
 /// per variable. A variable is only added to `suppressed_create_vars` if ALL of its
 /// create assignments have a persisted? check before the next create assignment to that
 /// variable (or end of scope).
+///
+/// ## Corpus investigation (2026-03-25)
+///
+/// Cached corpus results still report FP=0, FN=22, but the reported locations are stale
+/// relative to the current cop logic:
+/// - isolated regression tests for `klass.methods_hash.update mod.methods_hash` and the
+///   Puppet `Log.create(...)` sites pass with the current visitor;
+/// - explicit-file oracle-style runs with `baseline_rubocop.yml` also flag the reported
+///   lines in Tubalr, stackneveroverflow, supply_drop, and lowdown.
+///
+/// The remaining mismatch reproduces only in the corpus runner's temp overlay mode:
+/// `gen_repo_config.py` writes `/tmp/corpus_config_<repo>.yml`, and directory scans run
+/// with that config path. In that setup, nitrocop's config loader treats `/tmp` as the
+/// config root and leaks nested `.rubocop.yml` discovery / nearest-config matching into
+/// the baseline run, which suppresses files during repo scans even though explicit-file
+/// runs still flag them.
+///
+/// Correct fix is outside this cop: constrain baseline/temp-overlay runs so `src/config`
+/// does not discover repo-local or unrelated `/tmp` sub-configs when the oracle intends
+/// to ignore project configs. Do not rework `SaveBang` detection for this corpus delta.
 pub struct SaveBang;
 
 /// Modify-type persistence methods whose return value indicates success/failure.
@@ -2142,5 +2162,29 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(diagnostics[0].location.line, 3);
+    }
+
+    /// Regression test: command-style `update` with a single non-literal argument
+    /// should still match RuboCop's expected_signature? and be flagged in void context.
+    #[test]
+    fn command_style_update_with_call_argument_is_flagged() {
+        let source = b"def merge_hashes(klass, mod)\n  klass.methods_hash.update mod.methods_hash\n  nil\nend\n";
+        let diagnostics = crate::testutil::run_cop_full(&SaveBang, source);
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Expected 1 offense for command-style update, got {}: {:?}",
+            diagnostics.len(),
+            diagnostics
+                .iter()
+                .map(|d| format!("{}:{} {}", d.location.line, d.location.column, d.message))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(diagnostics[0].location.line, 2);
+        assert_eq!(diagnostics[0].location.column, 21);
+        assert_eq!(
+            diagnostics[0].message,
+            "Use `update!` instead of `update` if the return value is not checked."
+        );
     }
 }
