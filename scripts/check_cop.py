@@ -502,10 +502,12 @@ def main():
 
     # Check if enriched per-repo-per-cop data is available in corpus results
     by_repo_cop = data.get("by_repo_cop", {})
-    has_enriched = bool(by_repo_cop)
+    if not by_repo_cop:
+        print("ERROR: corpus artifact lacks by_repo_cop data. Run corpus oracle first.", file=sys.stderr)
+        sys.exit(1)
     has_activity_index = bool(data.get("cop_activity_repos"))
 
-    if args.verbose and has_enriched and not args.rerun:
+    if args.verbose and not args.rerun:
         # Use baseline artifact data instead of re-running nitrocop.
         # This reflects the downloaded corpus-oracle run, not local unverified changes.
         print(
@@ -564,7 +566,7 @@ def main():
         # Older corpus artifacts do not include cop_activity_repos, so clone mode
         # only reruns baseline-diverging repos. Preserve the synthetic CI-baseline
         # fallback for those older artifacts.
-        if args.clone and has_enriched and not has_activity_index:
+        if args.clone and not has_activity_index:
             set(per_repo.keys())
             # For each repo NOT in per_repo, add its CI nitrocop count.
             # Repos in by_repo_cop have matches + FP - FN. Repos NOT in
@@ -688,27 +690,26 @@ def main():
     # local count diverged from the oracle's per-repo nitrocop count.
     # Repos NOT in by_repo_cop matched exactly in the oracle — flag any
     # local count that exceeds the oracle activity count for that repo.
-    if has_enriched and args.rerun and 'per_repo' in dir():
+    if args.rerun and 'per_repo' in dir():
         new_fp = 0
         new_fn = 0
         fp_repos = []
         fn_repos = []
         activity_counts = {}
 
-        # Build per-repo oracle nitrocop counts from by_repo_cop.
-        # Prefer nitro_unfiltered (exact pre-filter count) over matches+fp (filtered).
+        # Build per-repo RuboCop counts as the ground truth target.
+        # FP = local > rubocop (nitrocop flags code RuboCop accepts)
+        # FN = local < rubocop (nitrocop misses code RuboCop flags)
+        # This way, a cop fix that moves nitrocop closer to RuboCop is always
+        # an improvement, never a regression.
         for repo_id, cops in by_repo_cop.items():
             if args.cop in cops:
                 entry = cops[args.cop]
-                # Prefer unfiltered count (before RuboCop file filtering)
-                unfiltered = entry.get("nitro_unfiltered", 0)
-                if unfiltered > 0:
-                    activity_counts[repo_id] = unfiltered
-                else:
-                    activity_counts[repo_id] = entry.get("matches", 0) + entry.get("fp", 0)
+                # RuboCop count = matches + FN (what RuboCop found)
+                activity_counts[repo_id] = entry.get("matches", 0) + entry.get("fn", 0)
 
         # For repos with oracle activity but not in by_repo_cop divergence,
-        # the oracle count == rubocop count (perfect match).
+        # rubocop == nitrocop (perfect match). Use local count as proxy.
         for repo_id in data.get("cop_activity_repos", {}).get(args.cop, []):
             if repo_id not in activity_counts:
                 activity_counts.setdefault(repo_id, per_repo.get(repo_id, 0))
@@ -727,9 +728,9 @@ def main():
                 new_fn += abs(diff)
                 fn_repos.append((repo_id, local_count, oracle_count, abs(diff)))
 
-        print("  Gate: per-repo FP + FN")
-        print(f"  New FP (local > oracle): {new_fp:>6,}")
-        print(f"  New FN (local < oracle): {new_fn:>6,}")
+        print("  Gate: per-repo vs RuboCop (ground truth)")
+        print(f"  New FP (local > rubocop): {new_fp:>6,}")
+        print(f"  New FN (local < rubocop): {new_fn:>6,}")
         print()
 
         failed = False
@@ -749,46 +750,9 @@ def main():
         print("PASS: no per-repo regressions detected")
         sys.exit(0)
 
-    # Fallback: aggregate comparison (less accurate, used when per-repo data unavailable)
-    nitro_unfiltered = cop_entry.get("nitro_total_unfiltered")
-    if nitro_unfiltered is not None:
-        adjusted_excess = max(0, nitrocop_total - nitro_unfiltered - file_drop_offenses)
-    else:
-        adjusted_excess = max(0, excess - file_drop_offenses)
-    fp_regression = max(0, adjusted_excess - baseline_fp)
-    fn_regression = max(0, missing - baseline_fn) if args.rerun else 0
-
-    failed = False
-    if fp_regression > args.threshold:
-        print(f"FAIL: FP increased from {baseline_fp:,} to {adjusted_excess:,} "
-              f"(+{fp_regression:,}, threshold: {args.threshold})")
-        if not args.verbose:
-            print("Run with --verbose to see which repos have excess offenses")
-        failed = True
-
-    if fn_regression > args.threshold:
-        print(f"FAIL: FN increased from {baseline_fn:,} to {missing:,} "
-              f"(+{fn_regression:,}, threshold: {args.threshold})")
-        failed = True
-
-    if failed:
-        sys.exit(1)
-    else:
-        if excess == 0 and missing == 0:
-            print("PASS: aggregate offense count matches RuboCop for this cop")
-        else:
-            parts = []
-            if adjusted_excess > 0:
-                parts.append(f"FP={adjusted_excess:,} (CI had {baseline_fp:,})")
-            if missing > 0:
-                parts.append(f"FN={missing:,} (CI had {baseline_fn:,})")
-            print("PASS: no regression vs CI baseline")
-            if parts:
-                print(f"  Current: {', '.join(parts)}")
-        if missing > 0:
-            print(f"Note: aggregate count still misses {missing:,} RuboCop offenses")
-        print("Next: use scripts/verify_cop_locations.py for exact known FP/FN locations")
-        print("Next: use bench_nitrocop conform to prove department-level completion")
+    # Per-repo gate should have handled this — if we reach here, something is wrong
+    print("ERROR: per-repo gate did not execute. Check corpus artifact data.", file=sys.stderr)
+    sys.exit(1)
 
 
 if __name__ == "__main__":
