@@ -25,23 +25,19 @@ def write_manifest(path: Path) -> None:
     path.write_text(json.dumps(entry) + "\n")
 
 
-def test_clone_repos_for_cop_creates_corpus_dir_for_zero_divergence():
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        original_corpus_dir = check_cop.CORPUS_DIR
-        original_manifest_path = check_cop.MANIFEST_PATH
-        try:
-            check_cop.CORPUS_DIR = tmp_path / "vendor" / "corpus"
+def test_clone_repos_for_cop_creates_temp_dir_for_zero_divergence():
+    original_manifest_path = check_cop.MANIFEST_PATH
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
             check_cop.MANIFEST_PATH = tmp_path / "bench" / "corpus" / "manifest.jsonl"
             write_manifest(check_cop.MANIFEST_PATH)
 
-            check_cop.clone_repos_for_cop("Style/MixinUsage", {"by_repo_cop": {}})
-
-            assert check_cop.CORPUS_DIR.exists()
-            assert list(check_cop.CORPUS_DIR.iterdir()) == []
-        finally:
-            check_cop.CORPUS_DIR = original_corpus_dir
-            check_cop.MANIFEST_PATH = original_manifest_path
+            result = check_cop.clone_repos_for_cop("Style/MixinUsage", {"by_repo_cop": {}})
+            # Returns a temp dir with repos/ subdirectory
+            assert (result / "repos").exists()
+    finally:
+        check_cop.MANIFEST_PATH = original_manifest_path
 
 
 def test_relevant_repos_for_cop_unions_activity_and_divergence():
@@ -96,50 +92,32 @@ def test_run_nitrocop_per_repo_errors_on_missing_required_repos():
             check_cop.CORPUS_DIR = original_corpus_dir
 
 
-def test_clone_repos_for_cop_reclones_when_existing_sha_mismatches():
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        original_corpus_dir = check_cop.CORPUS_DIR
-        original_manifest_path = check_cop.MANIFEST_PATH
-        original_repo_head_sha = check_cop.repo_head_sha
-        original_subprocess_run = check_cop.subprocess.run
-        try:
-            check_cop.CORPUS_DIR = tmp_path / "vendor" / "corpus"
-            check_cop.MANIFEST_PATH = tmp_path / "bench" / "corpus" / "manifest.jsonl"
+def test_clone_repos_for_cop_uses_shared_clone_module():
+    """clone_repos_for_cop delegates to the shared clone_repos module."""
+    original_manifest_path = check_cop.MANIFEST_PATH
+    original_clone = check_cop._clone_repos
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            check_cop.MANIFEST_PATH = tmp_path / "manifest.jsonl"
             write_manifest(check_cop.MANIFEST_PATH)
 
-            existing = check_cop.CORPUS_DIR / "demo-repo"
-            existing.mkdir(parents=True, exist_ok=True)
-            existing.joinpath("placeholder.txt").write_text("old clone")
-
-            check_cop.repo_head_sha = lambda path: "cafebabe"
-
             calls = []
+            check_cop._clone_repos = lambda dest, manifest, repo_ids=None, parallel=3: calls.append(
+                {"dest": str(dest), "ids": repo_ids}
+            ) or 0
 
-            class FakeResult:
-                def __init__(self):
-                    self.returncode = 0
-                    self.stdout = ""
-                    self.stderr = ""
-
-            def fake_run(cmd, **kwargs):
-                calls.append(cmd)
-                return FakeResult()
-
-            check_cop.subprocess.run = fake_run
-
-            check_cop.clone_repos_for_cop(
+            result = check_cop.clone_repos_for_cop(
                 "Style/MixinUsage",
                 {"cop_activity_repos": {"Style/MixinUsage": ["demo-repo"]}, "by_repo_cop": {}},
             )
 
-            assert any(cmd[:4] == ["git", "init", str(existing)] for cmd in calls)
-            assert any(cmd[:4] == ["git", "-C", str(existing), "fetch"] for cmd in calls)
-        finally:
-            check_cop.CORPUS_DIR = original_corpus_dir
-            check_cop.MANIFEST_PATH = original_manifest_path
-            check_cop.repo_head_sha = original_repo_head_sha
-            check_cop.subprocess.run = original_subprocess_run
+            assert len(calls) == 1
+            assert calls[0]["ids"] == {"demo-repo"}
+            assert (result / "repos").parent == result
+    finally:
+        check_cop.MANIFEST_PATH = original_manifest_path
+        check_cop._clone_repos = original_clone
 
 
 def test_rerun_local_per_repo_always_uses_per_repo_mode():
@@ -177,10 +155,10 @@ def test_rerun_local_per_repo_always_uses_per_repo_mode():
 
 
 if __name__ == "__main__":
-    test_clone_repos_for_cop_creates_corpus_dir_for_zero_divergence()
+    test_clone_repos_for_cop_creates_temp_dir_for_zero_divergence()
     test_relevant_repos_for_cop_unions_activity_and_divergence()
     test_run_nitrocop_per_repo_skips_missing_corpus_when_no_relevant_repos()
     test_run_nitrocop_per_repo_errors_on_missing_required_repos()
-    test_clone_repos_for_cop_reclones_when_existing_sha_mismatches()
+    test_clone_repos_for_cop_uses_shared_clone_module()
     test_rerun_local_per_repo_always_uses_per_repo_mode()
     print("All tests passed.")

@@ -68,7 +68,7 @@ def build_env(repo_dir: str | None = None) -> dict[str, str]:
     env["BUNDLE_GEMFILE"] = str(CORPUS_DIR / "Gemfile")
     env["BUNDLE_PATH"] = str(CORPUS_DIR / "vendor" / "bundle")
     if repo_dir:
-        env["GIT_CEILING_DIRECTORIES"] = str(Path(repo_dir).resolve().parent)
+        env["GIT_CEILING_DIRECTORIES"] = str(Path(repo_dir).absolute().parent)
     return env
 
 
@@ -90,14 +90,18 @@ def run_nitrocop(
     cop: str | None = None,
     binary: str | None = None,
     timeout: int = 120,
+    cwd: str | None = None,
 ) -> dict:
     """Run nitrocop on a corpus repo with oracle-identical settings.
 
     Returns dict with keys: offenses (list), count (int), error (str|None).
     """
     binary = resolve_binary(binary)
-    repo_dir = str(Path(repo_dir).resolve())
-    repo_id = Path(repo_dir).name
+    # Use absolute path but don't resolve symlinks — the caller may pass a
+    # symlink outside the git tree to match the oracle's file-discovery context.
+    repo_path = Path(repo_dir).absolute()
+    repo_dir = str(repo_path)
+    repo_id = repo_path.name
     config = resolve_repo_config(repo_id, repo_dir)
     env = build_env(repo_dir)
 
@@ -106,23 +110,30 @@ def run_nitrocop(
         cmd += ["--only", cop]
     cmd.append(repo_dir)
 
+    # Run from outside any git tree to avoid .gitignore interference.
+    # Default to /tmp if no cwd provided — the command uses absolute paths
+    # so cwd only affects git/ignore behavior.
+    effective_cwd = cwd or "/tmp"
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout, env=env,
+            cwd=effective_cwd,
         )
     except subprocess.TimeoutExpired:
-        return {"offenses": [], "count": -1, "error": f"timeout after {timeout}s"}
+        return {"raw": "", "offenses": [], "count": -1, "error": f"timeout after {timeout}s"}
 
     if result.returncode not in (0, 1):
-        return {"offenses": [], "count": -1, "error": f"exit code {result.returncode}"}
+        return {"raw": result.stdout, "offenses": [], "count": -1,
+                "error": f"exit code {result.returncode}"}
 
     try:
         data = json.loads(result.stdout)
         offenses = data.get("offenses", [])
         count = deduplicate_offenses(offenses)
-        return {"offenses": offenses, "count": count, "error": None}
+        return {"raw": result.stdout, "offenses": offenses, "count": count, "error": None}
     except json.JSONDecodeError as e:
-        return {"offenses": [], "count": -1, "error": f"JSON parse error: {e}"}
+        return {"raw": result.stdout, "offenses": [], "count": -1,
+                "error": f"JSON parse error: {e}"}
 
 
 def main():
@@ -139,17 +150,15 @@ def main():
         args.repo_dir, cop=args.cop, binary=args.binary, timeout=args.timeout,
     )
 
-    output = json.dumps(result if not args.output else {
-        "metadata": {"offense_count": result["count"]},
-        "offenses": result["offenses"],
-    }, indent=2)
-
     if args.output:
-        Path(args.output).write_text(output + "\n")
+        # Write raw nitrocop JSON — the oracle's diff_results.py expects this format
+        Path(args.output).write_text(result["raw"] or "{}\n")
         if result["error"]:
             print(f"WARNING: {result['error']}", file=sys.stderr)
     else:
-        print(output)
+        # Interactive mode — print parsed summary
+        summary = {"count": result["count"], "error": result["error"]}
+        print(json.dumps(summary, indent=2))
 
     sys.exit(0 if result["count"] >= 0 else 1)
 
