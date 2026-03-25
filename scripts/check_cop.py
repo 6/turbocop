@@ -451,8 +451,9 @@ def run_nitrocop_per_repo(
             if done % 50 == 0:
                 print(f"  [{done}/{total}] {repo_id}...", file=sys.stderr)
 
-    # Fill in 0 for skipped repos
-    if relevant_repos is not None:
+    # Fill in 0 for repos skipped by --quick (no baseline activity).
+    # Don't fill for repos skipped by sharding — those are handled by other shards.
+    if relevant_repos is not None and shard_index is None:
         for r in all_repos:
             if r.name not in counts:
                 counts[r.name] = 0
