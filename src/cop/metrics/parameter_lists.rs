@@ -55,6 +55,11 @@ use ruby_prism::Visit;
 /// Fix: in `count_params`, count `keyword_rest` (**opts) even when
 /// `CountKeywordArgs` is false, matching RuboCop's NAMED_KEYWORD_TYPES
 /// exclusion which only covers kwoptarg and kwarg.
+///
+/// ## Corpus verification (2026-03-25)
+///
+/// verify_cop_locations.py: ALL FP/FN VERIFIED FIXED.
+/// FP 0 fixed / 0 remain, FN 11 fixed / 0 remain.
 pub struct ParameterLists;
 
 impl Cop for ParameterLists {

@@ -57,6 +57,13 @@ use crate::parse::source::SourceFile;
 /// databasically (extensionless files), 1 from GoogleCloudPlatform
 /// (directive dedup, see failed fix above), 1 from pitluga (same class
 /// of file discovery issue). No cop-level fix needed for these.
+///
+/// ## Corpus verification (2026-03-25)
+///
+/// verify_cop_locations.py: FP 3 fixed / 0 remain, FN 99 fixed / 1 remain.
+/// All 3 FPs verified fixed (rescue_modifier semantics fix). FN=1 remaining:
+/// GoogleCloudPlatform (controls/1.01-iam.rb:79) — known directive dedup
+/// issue (see "Failed fix attempt" section above). Not a cop algorithm bug.
 pub struct BlockNesting;
 
 impl Cop for BlockNesting {

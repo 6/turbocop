@@ -76,6 +76,13 @@ use crate::parse::source::SourceFile;
 /// Max overrides or AllCops.Exclude patterns not loaded identically).
 /// No cop-level fix needed; requires infrastructure fix for file exclusion
 /// and config resolution parity.
+///
+/// ## Corpus verification (2026-03-25)
+///
+/// verify_cop_locations.py: FP 0 fixed / 5 remain, FN 100 fixed / 0 remain.
+/// All FN verified fixed. Remaining FP=5: auth0 (2), gisiahq (1),
+/// noosfero (1), samvera (1) — all config resolution or vendored file issues.
+/// No cop-level fix needed.
 pub struct CyclomaticComplexity;
 
 #[derive(Default)]

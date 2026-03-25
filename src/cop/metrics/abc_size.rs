@@ -239,6 +239,23 @@ use crate::parse::source::SourceFile;
 /// the explicit `Kernel.` `` ` `` `(cmd)` form is a `:send`.
 ///
 /// All 3 FN fixed. FP=0 confirmed via verify-cop-locations.py.
+///
+/// ## Corpus verification (2026-03-25)
+///
+/// verify_cop_locations.py: FP 0 fixed / 6 remain, FN 94 fixed / 6 remain.
+///
+/// FP=6 remaining: auth0 (2, config resolution — project .rubocop.yml Exclude
+/// patterns not loaded identically), gisiahq (1, config), noosfero (3, vendored
+/// plugin files). All infrastructure, not cop logic.
+///
+/// FN=6 remaining: Coursemology (6). Root cause: file has
+/// `# rubocop:disable Metrics/abcSize` (lowercase 'a') at line 2. RuboCop's
+/// Badge hash is case-sensitive, so `Metrics/abcSize` ≠ `Metrics/AbcSize` and
+/// the directive is ignored (offenses fire). nitrocop uses case-insensitive
+/// directive matching (eq_ignore_ascii_case), so it suppresses offenses. This
+/// is a directive-resolution edge case, not a cop algorithm bug. See WARNING
+/// comment in `parse/directives.rs:447` — tightening case sensitivity caused
+/// +292 FP in a previous attempt.
 pub struct AbcSize;
 
 /// Known iterating method names that make blocks count toward conditions.

@@ -121,6 +121,12 @@ use crate::parse::source::SourceFile;
 /// gems that RuboCop cannot parse but Prism handles. Remaining 4 FP from auth0 (2),
 /// gisiahq (1), pitluga (1) — likely config resolution differences.
 /// No cop-level fix needed; requires infrastructure fix.
+///
+/// ## Corpus verification (2026-03-25)
+///
+/// verify_cop_locations.py: FP 0 fixed / 3 remain, FN 100 fixed / 0 remain.
+/// All FN verified fixed. Remaining FP=3: auth0 (2), gisiahq (1) — config
+/// resolution differences. No cop-level fix needed.
 pub struct PerceivedComplexity;
 
 /// Known iterating method names that make blocks count toward complexity.

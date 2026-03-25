@@ -53,6 +53,12 @@ use crate::parse::source::SourceFile;
 ///
 /// FN=1 from brixen/poetics (bin/poetics) — extensionless file not discovered
 /// by nitrocop. File discovery issue, not cop logic.
+///
+/// ## Corpus verification (2026-03-25)
+///
+/// verify_cop_locations.py: FP 0 fixed / 2 remain, FN 100 fixed / 0 remain.
+/// All FN verified fixed. Remaining FP=2: auth0 (1, config resolution),
+/// noosfero (1, vendored plugin). No cop-level fix needed.
 pub struct ClassLength;
 
 struct LengthSettings<'a> {
