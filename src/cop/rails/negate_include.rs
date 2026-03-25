@@ -35,6 +35,20 @@ use crate::parse::source::SourceFile;
 /// uses `--force-exclusion` which handles this correctly. The `heroku/`
 /// paths aren't under `vendor/` at all and are likely excluded by RuboCop's
 /// file discovery or `.gitignore` handling. No cop-level fix needed.
+///
+/// ## Corpus investigation (2026-03-24)
+///
+/// FP=0, FN=4. All 4 FNs are in vendored gem paths:
+///   - `heroku/ruby/1.9.1/gems/rdoc-*/lib/rdoc/method_attr.rb` (cjstewart88__Tubalr, 2 FNs)
+///   - `vendor/bundle/ruby/2.3.0/gems/rdoc-4.3.0/lib/rdoc/method_attr.rb` (liaoziyang__stackneveroverflow, 1 FN)
+///   - `examples/vendored-puppet/vendor/puppet-2.7.8/lib/puppet/util/settings.rb` (pitluga__supply_drop, 1 FN)
+///
+/// Patterns: `!searched.include?(kernel)` inside `&&` and `! %w{...}.include?(group)`
+/// with space after `!`. Both patterns are correctly detected by the cop
+/// (verified via fixture tests). Root cause is the same file-exclusion path
+/// resolution issue as the 2026-03-19 FPs — RuboCop scans these vendored
+/// files via `--force-exclusion`, but nitrocop's corpus path resolution
+/// differs. No cop-level fix needed.
 pub struct NegateInclude;
 
 impl Cop for NegateInclude {
