@@ -240,11 +240,10 @@ jobs:
         run: |
           python3 scripts/workflows/repair_retry_policy.py policy \
             --route "${{ steps.repair.outputs.route }}" \
-            --backend "${{ steps.repair.outputs.backend }}" \
             ${{ steps.target.outputs.force == 'true' && '--force' || '' }} \
             ${{ steps.pr.outputs.prior_attempted_current_head == 'true' && '--prior-attempted-current-head' || '' }} \
             --prior-pushes "${{ steps.pr.outputs.prior_pushes }}" \
-            --prior-codex-attempts "${{ steps.pr.outputs.prior_codex_attempts }}" \
+            --prior-pr-repair-attempts "${{ steps.pr.outputs.prior_pr_repair_attempts }}" \
             >> "$GITHUB_OUTPUT"
 
       - name: Detect local cop-check verification
