@@ -406,9 +406,11 @@ jobs:
 
       - name: Corpus regression gate
         if: steps.task.outputs.code_bugs != '0'
-        env:
-          NITROCOP_BIN: target/debug/nitrocop
         run: |
+          # Rebuild if agent changed source files
+          cargo build 2>&1
+          ls -la target/debug/nitrocop
+          NITROCOP_BIN="$(pwd)/target/debug/nitrocop" \
           python3 scripts/check_cop.py "${{ github.event.inputs.cop }}" \
             --rerun --clone --sample 15
 

@@ -41,7 +41,7 @@ CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
 # Overridden to temp dir when --clone is used (see main())
 _CLONE_DIR: Path | None = None
 MANIFEST_PATH = PROJECT_ROOT / "bench" / "corpus" / "manifest.jsonl"
-NITROCOP_BIN = Path(os.environ["NITROCOP_BIN"]) if "NITROCOP_BIN" in os.environ else PROJECT_ROOT / os.environ.get("CARGO_TARGET_DIR", "target") / "release" / "nitrocop"
+NITROCOP_BIN = Path(os.environ["NITROCOP_BIN"]).resolve() if "NITROCOP_BIN" in os.environ else PROJECT_ROOT / os.environ.get("CARGO_TARGET_DIR", "target") / "release" / "nitrocop"
 BASELINE_CONFIG = PROJECT_ROOT / "bench" / "corpus" / "baseline_rubocop.yml"
 LOCAL_CACHE_DIR = PROJECT_ROOT / ".check-cop-cache"
 
