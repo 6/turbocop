@@ -37,6 +37,26 @@ use crate::parse::source::SourceFile;
 /// specific extended-corpus case (GoogleCloudPlatform/inspec-gcp-cis-benchmark
 /// controls/1.01-iam.rb:79) and verify against the full standard corpus
 /// with `check-cop.py --rerun` before merging.
+///
+/// ## Corpus investigation (2026-03-25)
+///
+/// Extended corpus (5592 repos) reported FP=3, FN=270.
+///
+/// FP=3: All from ruby-rdf/rdf. Root cause: `visit_rescue_modifier_node`
+/// added depth for BOTH the expression and rescue_expression, but in
+/// RuboCop's Parser AST, modifier rescue creates a `:rescue` node that is
+/// NOT in `NESTING_BLOCKS`. Only `:resbody` (the fallback) is counted.
+/// The expression and resbody are siblings under `:rescue`, not nested.
+/// Fix: visit the expression at the current depth (no increment) and only
+/// increment for the rescue_expression (matching `:resbody` semantics).
+/// The previous ternary-expression special case was a partial fix for this
+/// same issue; the general fix now handles all cases uniformly.
+///
+/// FN=270: Cross-cutting infrastructure issues. 244 FN from
+/// stackneveroverflow (vendored gems), 22 from Tubalr (same), 2 from
+/// databasically (extensionless files), 1 from GoogleCloudPlatform
+/// (directive dedup, see failed fix above), 1 from pitluga (same class
+/// of file discovery issue). No cop-level fix needed for these.
 pub struct BlockNesting;
 
 impl Cop for BlockNesting {
@@ -258,34 +278,17 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
         let expression = node.expression();
         let rescue_expression = node.rescue_expression();
 
-        // In Parser AST (used by RuboCop), modifier rescue wraps a ternary as
-        // sibling nodes under :rescue (if + resbody), so their nesting does not
-        // stack. Prism nests the ternary under RescueModifierNode, so emulate
-        // Parser semantics only for this shape.
-        let is_ternary_expression = expression
-            .as_if_node()
-            .is_some_and(|if_node| if_node.if_keyword_loc().is_none());
-
-        if is_ternary_expression {
-            self.visit(&expression);
-            self.depth += 1;
-            let exceeded = self.check_nesting(&node.keyword_loc());
-            if !exceeded {
-                self.visit(&rescue_expression);
-            }
-            self.depth -= 1;
-            return;
-        }
-
-        // Default behavior: inline rescue contributes one nesting level.
+        // In Parser AST (RuboCop), modifier rescue creates a :rescue node
+        // containing the expression and a :resbody as siblings. The :rescue
+        // node is NOT in NESTING_BLOCKS, so it doesn't add depth — only
+        // :resbody does. Match this by visiting the expression at the current
+        // depth and the rescue_expression at depth+1 (resbody equivalent).
+        self.visit(&expression);
         self.depth += 1;
         let exceeded = self.check_nesting(&node.keyword_loc());
-        if exceeded {
-            self.depth -= 1;
-            return;
+        if !exceeded {
+            self.visit(&rescue_expression);
         }
-        self.visit(&expression);
-        self.visit(&rescue_expression);
         self.depth -= 1;
     }
 

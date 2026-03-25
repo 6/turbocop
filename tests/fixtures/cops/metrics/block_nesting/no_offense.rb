@@ -93,3 +93,20 @@ def cast_time(input)
     input.in_time_zone rescue nil
   end
 end
+
+# Rescue modifier does not add depth for the expression side (only resbody).
+# In RuboCop, :rescue is NOT in NESTING_BLOCKS — :resbody is.
+# So `case...end rescue val` has case and resbody as siblings inside :rescue,
+# not case nested under rescue.
+class Date < Temporal
+  def initialize(value)
+    @object = case
+      when value.class == ::Date
+        if tz
+          @zone = tz == 'Z' ? '+00:00' : tz
+        else
+          @zone = nil
+        end
+    end rescue ::DateTime.new
+  end
+end
