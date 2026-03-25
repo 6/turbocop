@@ -175,7 +175,7 @@ def test_policy_force_bypasses_caps():
 if __name__ == "__main__":
     test_parse_marker_fields()
     test_parse_linked_issue()
-    test_inspect_attempts_counts_pushes_and_codex()
+    test_inspect_attempts_counts_pushes_and_repairs()
     test_gate_pr_accepts_trusted_bot_pr()
     test_gate_pr_rejects_closed_pr()
     test_gate_pr_rejects_head_moved_after_failed_checks()
