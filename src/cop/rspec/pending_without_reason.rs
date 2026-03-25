@@ -46,6 +46,17 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: skip the `block_node_example_group?` branch when the call is the sole
 /// top-level statement, matching RuboCop's `parent_node` nil early-return.
+///
+/// ## Corpus investigation (2026-03-25)
+///
+/// Corpus oracle reported FP=3, FN=0. All 3 FP are `:skip` used as metadata
+/// where it is NOT the last argument (e.g. `describe 'x', :skip, :focus do`).
+/// RuboCop's `metadata_without_reason?` node pattern requires `:skip`/`:pending`
+/// to be the final argument. Our `metadata_without_reason_label` was checking
+/// ALL arguments instead of only the last one.
+///
+/// Fix: only inspect the last argument for bare `:skip`/`:pending` symbol or
+/// `skip: true`/`pending: true` in a keyword hash.
 pub struct PendingWithoutReason;
 
 /// Skipped example-group methods (`ExampleGroups::Skipped` in RuboCop).
@@ -285,35 +296,40 @@ fn is_metadata_target_call(call: &ruby_prism::CallNode<'_>) -> bool {
 
 fn metadata_without_reason_label(call: &ruby_prism::CallNode<'_>) -> Option<&'static str> {
     let args = call.arguments()?;
-    for arg in args.arguments().iter() {
-        if let Some(sym) = arg.as_symbol_node() {
-            let val = sym.unescaped();
-            if val == b"skip" {
-                return Some("skip");
-            }
-            if val == b"pending" {
+    let arg_list = args.arguments();
+    let last = arg_list.iter().last()?;
+
+    // RuboCop's node pattern requires :skip/:pending to be the LAST argument.
+    // Check for bare symbol as the final argument.
+    if let Some(sym) = last.as_symbol_node() {
+        let val = sym.unescaped();
+        if val == b"skip" {
+            return Some("skip");
+        }
+        if val == b"pending" {
+            return Some("pending");
+        }
+    }
+
+    // Check for `skip: true` / `pending: true` in the last keyword hash argument.
+    if let Some(kw) = last.as_keyword_hash_node() {
+        for elem in kw.elements().iter() {
+            let Some(assoc) = elem.as_assoc_node() else {
+                continue;
+            };
+            let Some(key_sym) = assoc.key().as_symbol_node() else {
+                continue;
+            };
+            let key = key_sym.unescaped();
+            if (key == b"skip" || key == b"pending") && assoc.value().as_true_node().is_some() {
+                if key == b"skip" {
+                    return Some("skip");
+                }
                 return Some("pending");
             }
         }
-
-        if let Some(kw) = arg.as_keyword_hash_node() {
-            for elem in kw.elements().iter() {
-                let Some(assoc) = elem.as_assoc_node() else {
-                    continue;
-                };
-                let Some(key_sym) = assoc.key().as_symbol_node() else {
-                    continue;
-                };
-                let key = key_sym.unescaped();
-                if (key == b"skip" || key == b"pending") && assoc.value().as_true_node().is_some() {
-                    if key == b"skip" {
-                        return Some("skip");
-                    }
-                    return Some("pending");
-                }
-            }
-        }
     }
+
     None
 }
 
