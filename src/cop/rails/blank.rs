@@ -90,6 +90,19 @@ use ruby_prism::Visit;
 /// but `pkey_cols&.blank?` would return `nil` (falsy). So the replacement changes semantics.
 ///
 /// Fix: Added `call_operator_loc() == &.` check in `check_not_present` to skip safe navigation.
+///
+/// ## Investigation (2026-03-26)
+///
+/// **FN root cause (14 FN):** The NilOrEmpty diagnostic message was hardcoded with `||` between
+/// left and right operands (`format!("... {left_str} || {right_str}")`) instead of using the
+/// OrNode's actual source text. Ruby's `or` keyword also produces an OrNode in Prism, and the
+/// detection logic already handled it correctly. However, the message text didn't match RuboCop's
+/// output which uses `node.source` (preserving the original `or` or `||`). All 14 FNs involved
+/// the `or` keyword (`x.nil? or x.empty?`) or `not` keyword (`not x or x.empty?`) in corpus
+/// files. The detection was already working; only the message format was incorrect.
+///
+/// Fix: Changed `check_nil_or_empty` to use `or_node.location().as_slice()` for the full source
+/// text in the message, matching RuboCop's `node.source` behavior.
 pub struct Blank;
 
 /// Extract the receiver source text from a CallNode, returning None if absent.
@@ -198,7 +211,7 @@ impl<'pr> BlankVisitor<'_, '_> {
         let left = or_node.left();
         let right = or_node.right();
 
-        if let Some((nil_recv, left_src)) = nil_check_receiver(&left) {
+        if let Some((nil_recv, _left_src)) = nil_check_receiver(&left) {
             // Right side must be `<same>.empty?` — NOT safe navigation (`&.empty?`)
             // RuboCop's NodePattern `(send $_ :empty?)` only matches send, not csend.
             if let Some(right_call) = right.as_call_node() {
@@ -211,18 +224,15 @@ impl<'pr> BlankVisitor<'_, '_> {
                     if nil_recv == empty_recv {
                         let loc = or_node.location();
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                        let left_str = std::str::from_utf8(left_src).unwrap_or("nil?");
-                        let right_str =
-                            std::str::from_utf8(right.location().as_slice()).unwrap_or("empty?");
+                        let or_src =
+                            std::str::from_utf8(loc.as_slice()).unwrap_or("nil? || empty?");
                         let message = match nil_recv {
                             Some(recv_bytes) => {
                                 let recv_str = std::str::from_utf8(recv_bytes).unwrap_or("object");
-                                format!(
-                                    "Use `{recv_str}.blank?` instead of `{left_str} || {right_str}`."
-                                )
+                                format!("Use `{recv_str}.blank?` instead of `{or_src}`.")
                             }
                             None => {
-                                format!("Use `blank?` instead of `{left_str} || {right_str}`.")
+                                format!("Use `blank?` instead of `{or_src}`.")
                             }
                         };
                         self.diagnostics.push(self.cop.diagnostic(
