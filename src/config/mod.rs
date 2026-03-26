@@ -146,6 +146,11 @@ pub struct CopFilterSet {
     /// For other configs (e.g., `baseline_rubocop.yml`): current working directory.
     /// Used to relativize absolute file paths before glob matching.
     base_dir: Option<PathBuf>,
+    /// Target directory (CLI scan root) for additional path relativization.
+    /// Covers the case where file paths are absolute and not under config_dir
+    /// or base_dir (e.g., corpus runner: cwd=/tmp, config in /tmp/...,
+    /// target=/abs/repo).
+    target_dir: Option<PathBuf>,
     /// Sub-directories containing their own `.rubocop.yml` files.
     /// Sorted deepest-first so `nearest_config_dir` finds the most specific match.
     /// RuboCop resolves Include/Exclude patterns relative to the nearest config
@@ -312,6 +317,17 @@ impl CopFilterSet {
             path.strip_prefix(bd).ok()
         });
 
+        // Also relativize against target_dir (CLI scan root) when it differs
+        // from config_dir and base_dir. Handles overlay configs from temp
+        // directories where neither config_dir nor base_dir contains the
+        // actual file paths.
+        let rel_to_target = self.target_dir.as_deref().and_then(|td| {
+            if self.config_dir.as_deref() == Some(td) || self.base_dir.as_deref() == Some(td) {
+                return None;
+            }
+            path.strip_prefix(td).ok()
+        });
+
         // Strip `./` prefix for matching: file discovery produces `./test/foo.rb`
         // but cop Exclude patterns use `test/**/*`. Without stripping, patterns
         // that don't start with `./` won't match.
@@ -323,6 +339,7 @@ impl CopFilterSet {
         let included = filter.is_included(path)
             || rel_path.is_some_and(|rel| filter.is_included(rel))
             || rel_to_base.is_some_and(|rel| filter.is_included(rel))
+            || rel_to_target.is_some_and(|rel| filter.is_included(rel))
             || stripped.is_some_and(|s| filter.is_included(s));
         if !included {
             return false;
@@ -334,6 +351,7 @@ impl CopFilterSet {
         let excluded = filter.is_excluded(path)
             || rel_path.is_some_and(|rel| filter.is_excluded(rel))
             || rel_to_base.is_some_and(|rel| filter.is_excluded(rel))
+            || rel_to_target.is_some_and(|rel| filter.is_excluded(rel))
             || stripped.is_some_and(|s| filter.is_excluded(s));
         if excluded {
             return false;
@@ -368,11 +386,19 @@ impl CopFilterSet {
             .filter(|bd| self.config_dir.as_deref() != Some(*bd))
             .and_then(|bd| path.strip_prefix(bd).ok());
 
+        let rel_to_target = self.target_dir.as_deref().and_then(|td| {
+            if self.config_dir.as_deref() == Some(td) || self.base_dir.as_deref() == Some(td) {
+                return None;
+            }
+            path.strip_prefix(td).ok()
+        });
+
         let stripped = path.strip_prefix("./").ok();
         filter.is_excluded(path)
             || rel_to_nearest.is_some_and(|rel| filter.is_excluded(rel))
             || rel_to_root.is_some_and(|rel| filter.is_excluded(rel))
             || rel_to_base.is_some_and(|rel| filter.is_excluded(rel))
+            || rel_to_target.is_some_and(|rel| filter.is_excluded(rel))
             || stripped.is_some_and(|s| filter.is_excluded(s))
     }
 
@@ -399,6 +425,12 @@ impl CopFilterSet {
             .as_deref()
             .filter(|bd| self.config_dir.as_deref() != Some(*bd))
             .and_then(|bd| path.strip_prefix(bd).ok());
+        let rel_to_target = self.target_dir.as_deref().and_then(|td| {
+            if self.config_dir.as_deref() == Some(td) || self.base_dir.as_deref() == Some(td) {
+                return None;
+            }
+            path.strip_prefix(td).ok()
+        });
 
         // Include check: if patterns exist, file must match at least one form
         let has_include = include_set.is_some() || include_re.is_some();
@@ -408,11 +440,13 @@ impl CopFilterSet {
                 inc.is_match(path)
                     || rel_path.is_some_and(|rel| inc.is_match(rel))
                     || rel_to_base.is_some_and(|rel| inc.is_match(rel))
+                    || rel_to_target.is_some_and(|rel| inc.is_match(rel))
             });
             let re_match = include_re.as_ref().is_some_and(|re| {
                 re.is_match(path_str.as_ref())
                     || rel_path.is_some_and(|rel| re.is_match(&rel.to_string_lossy()))
                     || rel_to_base.is_some_and(|rel| re.is_match(&rel.to_string_lossy()))
+                    || rel_to_target.is_some_and(|rel| re.is_match(&rel.to_string_lossy()))
             });
             if !glob_match && !re_match {
                 return false;
@@ -423,7 +457,8 @@ impl CopFilterSet {
         if let Some(ref exc) = exclude_set {
             let excluded = exc.is_match(path)
                 || rel_path.is_some_and(|rel| exc.is_match(rel))
-                || rel_to_base.is_some_and(|rel| exc.is_match(rel));
+                || rel_to_base.is_some_and(|rel| exc.is_match(rel))
+                || rel_to_target.is_some_and(|rel| exc.is_match(rel));
             if excluded {
                 return false;
             }
@@ -432,7 +467,8 @@ impl CopFilterSet {
             let path_str = path.to_string_lossy();
             let excluded = re.is_match(path_str.as_ref())
                 || rel_path.is_some_and(|rel| re.is_match(&rel.to_string_lossy()))
-                || rel_to_base.is_some_and(|rel| re.is_match(&rel.to_string_lossy()));
+                || rel_to_base.is_some_and(|rel| re.is_match(&rel.to_string_lossy()))
+                || rel_to_target.is_some_and(|rel| re.is_match(&rel.to_string_lossy()));
             if excluded {
                 return false;
             }
@@ -635,6 +671,11 @@ pub struct ResolvedConfig {
     /// (e.g., `baseline_rubocop.yml`), this is the current working directory.
     /// This distinction matters because non-dotfile configs use cwd-relative patterns.
     base_dir: Option<PathBuf>,
+    /// Target directory from the CLI positional argument (the directory being linted).
+    /// Used as an additional relativization base for cop-level Include/Exclude
+    /// matching when neither config_dir nor base_dir contains the file path
+    /// (e.g., `--config /tmp/overlay.yml /path/to/repo` with cwd=/tmp).
+    target_dir: Option<PathBuf>,
     /// AllCops.MigratedSchemaVersion from rubocop-rails.
     /// When set, files whose basename contains a 14-digit "timestamp" <= this value
     /// have ALL offenses suppressed (rubocop-rails' MigrationFileSkippable).
@@ -664,6 +705,7 @@ impl ResolvedConfig {
             railties_in_lockfile: false,
             rack_version: None,
             base_dir: None,
+            target_dir: None,
             migrated_schema_version: None,
         }
     }
@@ -950,7 +992,7 @@ pub fn load_config(
     let config_path = match config_path {
         Some(p) => p,
         None => {
-            let Some(config_dir) = start_dir else {
+            let Some(ref config_dir) = start_dir else {
                 return Ok(ResolvedConfig::empty());
             };
             let base_dir = config_dir
@@ -964,8 +1006,9 @@ pub fn load_config(
             let defaults = fallback_default_excludes();
             return Ok(ResolvedConfig {
                 config_dir: Some(config_dir.clone()),
-                dir_overrides: load_dir_overrides(&config_dir),
+                dir_overrides: load_dir_overrides(config_dir),
                 base_dir: Some(base_dir),
+                target_dir: start_dir.clone(),
                 global_excludes: defaults.global_excludes,
                 ..ResolvedConfig::empty()
             });
@@ -1167,6 +1210,7 @@ pub fn load_config(
         railties_in_lockfile,
         rack_version,
         base_dir: Some(base_dir),
+        target_dir: start_dir,
         migrated_schema_version: base.migrated_schema_version,
     })
 }
@@ -2759,6 +2803,7 @@ impl ResolvedConfig {
             filters,
             config_dir: self.config_dir.clone(),
             base_dir: self.base_dir.clone(),
+            target_dir: self.target_dir.clone(),
             sub_config_dirs,
             universal_cop_indices,
             pattern_cop_indices,
@@ -3462,6 +3507,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
         // Glob pattern should work
         assert!(
@@ -3499,6 +3545,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
 
         assert!(
@@ -4521,6 +4568,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
         let path = Path::new("bench/repos/mastodon/lib/tasks/emojis.rake");
         assert!(
@@ -4544,6 +4592,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
         let path = Path::new("/tmp/test/db/migrate/001_create_users.rb");
         assert!(
@@ -4568,6 +4617,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
         let path = Path::new("bench/repos/discourse/spec/models/user_spec.rb");
         assert!(
@@ -4592,6 +4642,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
         let path = Path::new("bench/repos/discourse/spec/requests/api/invites_spec.rb");
         assert!(
@@ -4615,6 +4666,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
         assert!(filter_set.is_cop_match(0, Path::new("app/models/user.rb")));
         assert!(!filter_set.is_cop_match(0, Path::new("vendor/gems/foo.rb")));
@@ -4634,6 +4686,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
         assert!(!filter_set.is_cop_match(0, Path::new("anything.rb")));
     }
@@ -4654,6 +4707,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
         // File doesn't match Include, but is_cop_excluded only checks Exclude
         assert!(
@@ -4676,6 +4730,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
         assert!(
             filter_set.is_cop_excluded(0, Path::new("/project/app/controllers/test.rb")),
@@ -4703,6 +4758,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
         // File in sub-config dir: nearest_config_dir is the sub-dir,
         // but root-relative path should still match the Exclude pattern.
@@ -4729,6 +4785,7 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: Some("19700101000000".to_string()),
+            target_dir: None,
         };
         // SHA hash containing 14-digit run <= 19700101000000 → migrated
         assert!(filter_set.is_migrated_file(Path::new(
@@ -4756,8 +4813,79 @@ mod tests {
             universal_cop_indices: Vec::new(),
             pattern_cop_indices: Vec::new(),
             migrated_schema_version: None,
+            target_dir: None,
         };
         assert!(!no_version.is_migrated_file(Path::new("19700101000000_init.rb")));
+    }
+
+    // --- target_dir relativization tests (corpus runner scenario) ---
+
+    #[test]
+    fn is_cop_match_target_dir_include() {
+        // Corpus runner: cwd=/tmp, config in /tmp/configs/, target=/abs/repo
+        let filter = make_filter(true, &["**/app/controllers/**/*.rb"], &[]);
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
+            global_exclude_re: None,
+            filters: vec![filter],
+            config_dir: Some(PathBuf::from("/tmp/configs")),
+            base_dir: Some(PathBuf::from("/tmp")),
+            target_dir: Some(PathBuf::from("/abs/repo")),
+            sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
+            migrated_schema_version: None,
+        };
+        assert!(
+            filter_set.is_cop_match(0, Path::new("/abs/repo/app/controllers/foo_controller.rb")),
+            "Include pattern should match via target_dir relativization"
+        );
+        assert!(
+            !filter_set.is_cop_match(0, Path::new("/abs/repo/app/models/user.rb")),
+            "Non-matching file should still be excluded by Include"
+        );
+    }
+
+    #[test]
+    fn is_cop_match_target_dir_wildcard_rb() {
+        // **/*.rb should match any .rb file via target_dir
+        let filter = make_filter(true, &["**/*.rb"], &[]);
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
+            global_exclude_re: None,
+            filters: vec![filter],
+            config_dir: Some(PathBuf::from("/tmp/configs")),
+            base_dir: Some(PathBuf::from("/tmp")),
+            target_dir: Some(PathBuf::from("/abs/repo")),
+            sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
+            migrated_schema_version: None,
+        };
+        assert!(filter_set.is_cop_match(0, Path::new("/abs/repo/lib/foo.rb")));
+        assert!(!filter_set.is_cop_match(0, Path::new("/abs/repo/lib/foo.py")));
+    }
+
+    #[test]
+    fn is_cop_match_target_dir_exclude_overrides_include() {
+        // Exclude via target_dir relativization should block match
+        let filter = make_filter(true, &["**/*.rb"], &["vendor/**"]);
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            global_exclude_patterns: Vec::new(),
+            global_exclude_re: None,
+            filters: vec![filter],
+            config_dir: Some(PathBuf::from("/tmp/configs")),
+            base_dir: Some(PathBuf::from("/tmp")),
+            target_dir: Some(PathBuf::from("/abs/repo")),
+            sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
+            migrated_schema_version: None,
+        };
+        assert!(!filter_set.is_cop_match(0, Path::new("/abs/repo/vendor/gems/foo.rb")));
     }
 
     mod prop_tests {
