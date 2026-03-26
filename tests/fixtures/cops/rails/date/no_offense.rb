@@ -6,3 +6,6 @@ Time.current
 Hijri::Date.today
 Hijri::DateTime.now
 Custom::Date.today
+to_time_in_current_zone
+to_time_in_current_zone.since(-seconds)
+to_time_in_current_zone.xmlschema
