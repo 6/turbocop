@@ -512,6 +512,18 @@ def main():
               file=sys.stderr)
         sys.exit(1)
 
+    # In CI, cap unsharded --clone runs to --sample 30 to prevent agents
+    # from burning the full 45-min timeout on a corpus rerun.  The CI
+    # cop-check workflow always passes --shard-index, so this only kicks
+    # in for ad-hoc agent invocations.
+    if (os.environ.get("CI")
+            and args.clone
+            and args.sample is None
+            and args.shard_index is None):
+        args.sample = 30
+        print("NOTE: CI without --shard-index — auto-limiting to --sample 30",
+              file=sys.stderr)
+
     # Load corpus results
     if args.input:
         input_path = args.input
