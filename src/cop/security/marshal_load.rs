@@ -16,12 +16,25 @@ use crate::parse::source::SourceFile;
 /// Fixed in `src/fs.rs` by merging `git ls-files` tracked Ruby files into discovery,
 /// so tracked ignored files are linted like RuboCop.
 ///
-/// ## Corpus investigation (2026-03-25) — full corpus verification
+/// ## Corpus investigation (2026-03-26) — repo scan vs explicit file
 ///
-/// Corpus oracle reported FP=0, FN=13. All 13 FN verified FIXED by
-/// `verify_cop_locations.py`. Cop logic handles all `Marshal.load` and
-/// `Marshal.restore` patterns correctly. The FN gap was a corpus oracle
-/// config/path resolution artifact (same as Security/Open).
+/// Corpus oracle still reports FP=0, FN=13, concentrated in
+/// `cjstewart88__Tubalr__f6956c8` and `liaoziyang__stackneveroverflow__8f4dce2`.
+/// Added fixture coverage for representative misses like
+/// `pp Marshal.load(io.read)`, `@cache = Marshal.load io.read`, and
+/// `Marshal.load io.read`; the targeted fixture test passes without any code
+/// changes, confirming the AST match is already correct.
+///
+/// The remaining gap is in config/path handling before this cop runs:
+/// - explicit-file runs with the generated corpus config flag the exact FN files,
+///   matching RuboCop;
+/// - whole-repo scans with the same generated config omit those files from
+///   `--list-target-files`, while RuboCop still includes them;
+/// - `--force-default-config` also includes the files.
+///
+/// That narrows the fix to `src/config/mod.rs` target-file filtering or global
+/// exclude path resolution. There is no safe cop-local logic change in this file
+/// that fixes the corpus FN without risking regressions.
 pub struct MarshalLoad;
 
 impl Cop for MarshalLoad {
