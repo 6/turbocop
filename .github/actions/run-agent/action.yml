@@ -29,40 +29,22 @@ inputs:
 runs:
   using: composite
   steps:
-    # Step 1: brief — resolves backend config and writes only the needed
-    # secret(s) to individual files.  All _SECRET_* env vars are confined
-    # to this step; step 2 reads files instead.
-    - name: Resolve backend secrets
+    - name: Setup, mask, and run agent
       shell: bash
       env:
         BACKEND: ${{ inputs.backend }}
+        GH_TOKEN_FOR_ACTIONS_READ: ${{ inputs.actions_read_token }}
+        # Env var names match resolve_backend.py secret_ keys so the
+        # injection loop can look them up via bash indirect expansion.
         _SECRET_MINIMAX_API_KEY: ${{ inputs.minimax_api_key }}
         _SECRET_ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
         _SECRET_CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
         _SECRET_CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
       run: |
+        # --- Resolve backend config ---
         python3 scripts/workflows/resolve_backend.py "$BACKEND" \
           > "$RUNNER_TEMP/backend.env"
-
-        python3 scripts/workflows/resolve_agent_secrets.py \
-          "$RUNNER_TEMP/backend.env" "$RUNNER_TEMP/agent-secrets"
-
-    # Step 2: long-running — only GH_TOKEN_FOR_ACTIONS_READ is in env.
-    # Backend secrets are loaded from individual files and cleaned up
-    # before the agent starts.
-    - name: Run agent
-      shell: bash
-      env:
-        GH_TOKEN_FOR_ACTIONS_READ: ${{ inputs.actions_read_token }}
-      run: |
         cfg() { sed -n "s/^$1=//p" "$RUNNER_TEMP/backend.env"; }
-
-        # Load backend secrets from individual files, then clean up
-        for f in "$RUNNER_TEMP/agent-secrets"/*; do
-          [ -f "$f" ] || continue
-          export "$(basename "$f")=$(cat "$f")"
-        done
-        rm -rf "$RUNNER_TEMP/agent-secrets"
 
         # Export non-secret env vars (ANTHROPIC_MODEL, API_TIMEOUT_MS, etc.)
         while IFS='=' read -r key value; do
@@ -72,6 +54,23 @@ runs:
         export CARGO_INCREMENTAL=1
         export GH_TOKEN="$GH_TOKEN_FOR_ACTIONS_READ"
         export GH_TOKEN_FOR_ACTIONS_READ
+
+        # Inject secrets using resolve_backend.py's secret mappings.
+        # Each line is secret_<INPUT>=<TARGET_ENV_VAR>.  We look up
+        # _SECRET_<INPUT> via indirect expansion and export as TARGET.
+        # Also export under source name if different (needed by setup_cmd).
+        while IFS='=' read -r key target_var; do
+          source_name="${key#secret_}"
+          src_env="_SECRET_${source_name}"
+          if [ -n "${!src_env}" ]; then
+            export "$target_var=${!src_env}"
+            [ "$target_var" != "$source_name" ] && export "$source_name=${!src_env}"
+          fi
+        done < <(grep '^secret_' "$RUNNER_TEMP/backend.env")
+
+        # Clear _SECRET_* from env before running agent code
+        unset _SECRET_MINIMAX_API_KEY _SECRET_ANTHROPIC_API_KEY \
+              _SECRET_CODEX_AUTH_JSON _SECRET_CLAUDE_CODE_OAUTH_TOKEN
 
         # --- Run backend setup (installs CLI, masks backend secret) ---
         eval "$(cfg setup_cmd)"
