@@ -8,9 +8,9 @@
     ]
   },
   "ruby__logger__00796ec": {
-    "comment": "Invalid multibyte escape /[\\x0-\\xff]/ in regex crashes RuboCop parser; only 3 files dropped",
+    "comment": "Invalid multibyte escape /[\\x0-\\xff]/ in test_logger.rb crashes RuboCop parser, causing 656 phantom FN across 62 cops in sibling test files. Exclude entire test dir.",
     "exclude": [
-      "test/logger/test_logger.rb"
+      "test/**/*"
     ]
   },
   "cjstewart88__Tubalr__f6956c8": {
