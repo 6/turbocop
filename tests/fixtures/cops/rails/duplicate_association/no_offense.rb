@@ -29,3 +29,33 @@ class Report < ApplicationRecord
   has_one :baz, -> { condition }, class_name: 'Bar'
   has_one :qux, -> { some_condition }, class_name: 'Bar'
 end
+
+# In RuboCop, duplicate associations inside a conditional are ignored when the
+# class body has sibling statements. Parser represents that class body as a
+# multi-statement `begin`, and `class_send_nodes` does not descend into the
+# nested `if`.
+class CompatModel < ActiveRecord::Base
+  if ActiveRecord.version >= Gem::Version.new('5.0')
+    belongs_to :person, optional: true
+  else
+    belongs_to :person
+  end
+  has_many :orders
+end
+
+# Namespaced ApplicationRecord subclasses are not treated as Active Record
+# models by RuboCop's ActiveRecordHelper.
+class CommitStatus < Ci::ApplicationRecord
+  belongs_to :ci_stage
+  belongs_to :ci_stage
+end
+
+# class_name duplicates are ignored when one association uses an extension block.
+class Author < ActiveRecord::Base
+  has_many :posts_containing_the_letter_a, class_name: 'Post'
+  has_many :posts_with_extension, class_name: 'Post' do
+    def testing_proxy_owner
+      proxy_owner
+    end
+  end
+end

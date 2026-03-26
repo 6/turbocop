@@ -24,6 +24,26 @@ use crate::parse::source::SourceFile;
 ///
 /// Message format for name duplicates: "Association `x` is defined multiple times. Don't
 /// repeat associations." (matching RuboCop exactly).
+///
+/// ## FP fixes (2026-03-26)
+///
+/// Verified against the corpus bundle's `rubocop-rails` 2.34.3:
+///
+/// 1. `ClassSendNodeHelper#class_send_nodes` only descends into `if`/`unless`
+///    bodies when the conditional is the class body's sole statement. When the
+///    class body is a multi-statement `begin`, conditional associations are
+///    ignored. Our unconditional descent caused FP=72 across
+///    `voormedia/rails-erd`, `lorint/brick`, `rails_admin`, `cocoon`, and
+///    `front_end_builds`.
+/// 2. `ActiveRecordHelper#active_record?` matches only bare `ApplicationRecord`
+///    and `ActiveRecord::Base`, not namespaced parents like
+///    `Ci::ApplicationRecord`. Our `ends_with("Record")` fallback caused FP=4
+///    in `gisia`.
+/// 3. In multi-statement class bodies, block associations are `block` nodes in
+///    Parser AST, so `class_send_nodes` does not include them. Prism models
+///    them as `CallNode` with `block()`, so we must skip block-bearing calls in
+///    the multi-statement case. This caused the remaining FP=1 in `lowdown`.
+///
 /// ## Reverted fix attempt (2026-03-23, commit 3002d481)
 ///
 /// Attempted to fix FP on block associations and FN on if-branch patterns.
@@ -49,7 +69,13 @@ const ASSOCIATION_METHODS: &[&[u8]] = &[
 
 /// Check if the parent class looks like an ActiveRecord base class.
 fn is_active_record_parent(parent: &[u8]) -> bool {
-    parent == b"ApplicationRecord" || parent == b"ActiveRecord::Base" || parent.ends_with(b"Record")
+    let parent = if let Some(stripped) = parent.strip_prefix(b"::") {
+        stripped
+    } else {
+        parent
+    };
+
+    parent == b"ApplicationRecord" || parent == b"ActiveRecord::Base"
 }
 
 impl Cop for DuplicateAssociation {
@@ -169,16 +195,19 @@ impl Cop for DuplicateAssociation {
     }
 }
 
-/// Collect all association-relevant call nodes from a class body.
+/// Collect association-relevant calls, emulating RuboCop's Parser AST traversal.
 ///
-/// This collects:
-/// 1. Top-level CallNode statements in the class body (same as `class_body_calls`)
-/// 2. CallNode statements inside the `if` body and `else` body of top-level IfNode/UnlessNode
+/// Prism always wraps class bodies in `StatementsNode`, but Parser only wraps
+/// multi-statement bodies in `begin`. RuboCop's `class_send_nodes` therefore has
+/// two distinct behaviors we must preserve:
 ///
-/// RuboCop's `each_child_node(:send)` on an `if` node finds sends in the `if` body
-/// and `else` body, but NOT in `elsif` branches (those are nested `if` nodes in Parser AST).
-/// We replicate this by collecting from the IfNode's body StatementsNode and the ElseNode's
-/// StatementsNode, but NOT recursing into `subsequent()` (elsif chains).
+/// 1. Single-statement class body:
+///    - bare send / send+block => include that call
+///    - `if` / `unless` => descend into branch sends
+/// 2. Multi-statement class body (`begin` in Parser):
+///    - include only direct send statements
+///    - do not descend into nested conditionals
+///    - do not include block-wrapped send statements
 fn collect_association_calls<'a>(
     class_node: &ruby_prism::ClassNode<'a>,
 ) -> Vec<ruby_prism::CallNode<'a>> {
@@ -191,35 +220,40 @@ fn collect_association_calls<'a>(
         None => return Vec::new(),
     };
 
-    let mut calls = Vec::new();
+    let stmt_nodes: Vec<_> = stmts.body().iter().collect();
+    if stmt_nodes.len() == 1 {
+        let node = &stmt_nodes[0];
 
-    for node in stmts.body().iter() {
         if let Some(call) = node.as_call_node() {
-            calls.push(call);
-        } else if let Some(if_node) = node.as_if_node() {
-            collect_calls_from_if_node(&if_node, &mut calls);
-        } else if let Some(unless_node) = node.as_unless_node() {
-            // UnlessNode has body (the unless branch) and an optional else clause
-            if let Some(body) = unless_node.statements() {
-                for stmt in body.body().iter() {
-                    if let Some(call) = stmt.as_call_node() {
-                        calls.push(call);
-                    }
-                }
-            }
-            if let Some(else_clause) = unless_node.else_clause() {
-                if let Some(else_stmts) = else_clause.statements() {
-                    for stmt in else_stmts.body().iter() {
-                        if let Some(call) = stmt.as_call_node() {
-                            calls.push(call);
-                        }
-                    }
-                }
-            }
+            return vec![call];
         }
+
+        if let Some(if_node) = node.as_if_node() {
+            let mut calls = Vec::new();
+            collect_calls_from_if_node(&if_node, &mut calls);
+            return calls;
+        }
+
+        if let Some(unless_node) = node.as_unless_node() {
+            let mut calls = Vec::new();
+            collect_calls_from_unless_node(&unless_node, &mut calls);
+            return calls;
+        }
+
+        return Vec::new();
     }
 
-    calls
+    stmt_nodes
+        .into_iter()
+        .filter_map(|node| {
+            let call = node.as_call_node()?;
+            if call.block().is_some() {
+                None
+            } else {
+                Some(call)
+            }
+        })
+        .collect()
 }
 
 /// Collect calls from an IfNode's body and else clause.
@@ -262,6 +296,33 @@ fn collect_calls_from_if_node<'a>(
     }
 }
 
+/// Collect calls from an UnlessNode's body and else clause.
+///
+/// Mirrors the `if` handling above: only the direct sends from the unless body
+/// and the else body are visible through RuboCop's `each_child_node(:send)`.
+fn collect_calls_from_unless_node<'a>(
+    unless_node: &ruby_prism::UnlessNode<'a>,
+    calls: &mut Vec<ruby_prism::CallNode<'a>>,
+) {
+    if let Some(body) = unless_node.statements() {
+        for stmt in body.body().iter() {
+            if let Some(call) = stmt.as_call_node() {
+                calls.push(call);
+            }
+        }
+    }
+
+    if let Some(else_clause) = unless_node.else_clause() {
+        if let Some(else_stmts) = else_clause.statements() {
+            for stmt in else_stmts.body().iter() {
+                if let Some(call) = stmt.as_call_node() {
+                    calls.push(call);
+                }
+            }
+        }
+    }
+}
+
 /// Check if the call is one of the four association methods.
 fn is_association_call(call: &ruby_prism::CallNode<'_>) -> bool {
     ASSOCIATION_METHODS.iter().any(|m| is_dsl_call(call, m))
@@ -290,6 +351,10 @@ fn extract_sole_class_name(
     source: &SourceFile,
     call: &ruby_prism::CallNode<'_>,
 ) -> Option<Vec<u8>> {
+    if call.block().is_some() {
+        return None;
+    }
+
     let args = call.arguments()?;
     let arg_list: Vec<_> = args.arguments().iter().collect();
 
