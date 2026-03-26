@@ -176,6 +176,17 @@ Both tools have identical `base_dir` logic: if config filename starts with
 4. No Rust code changes needed — fix is entirely in Python/CI layer
 5. FP/FN delta reflects real implementation gaps, not config artifacts
 
+### Oracle run #162 produced 0% conformance (pre-existing workflow bug)
+
+The first oracle run after the config fix (run #162, PR #230) showed 0%
+conformance with all 5,590 repos erroring: "No rubocop JSON output file".
+
+Root cause: commit 8774941b ("Free disk in corpus collect-results") added
+`rm -rf all-results/results/rubocop` BEFORE the diff step that reads from
+`--rubocop-dir all-results/results/rubocop`. This pre-existing bug was masked
+because the previous oracle run (#161) happened to run before that commit
+landed. Fix: moved the cleanup to after the diff step.
+
 ### PR #229 is stale
 
 Corpus oracle PR #229 was generated while the reverted target_dir fix was on
