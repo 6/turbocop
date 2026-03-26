@@ -19,3 +19,14 @@ when :b
      ^^ Lint/DuplicateCaseCondition: Duplicate `when` condition detected.
   four
 end
+case token
+when "}", "]", ")", "+", "-", "\"", "\\", "'", '"'
+                                               ^^^ Lint/DuplicateCaseCondition: Duplicate `when` condition detected.
+  action
+end
+
+case event
+when "\C-m", "\r"
+             ^^^^ Lint/DuplicateCaseCondition: Duplicate `when` condition detected.
+  confirm
+end

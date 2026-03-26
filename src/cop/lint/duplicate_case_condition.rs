@@ -5,6 +5,11 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Corpus FN=5 came from comparing `when` conditions by raw source bytes instead
+/// of Prism's semantic literal value. That missed escape-equivalent strings like
+/// `"\""` vs `'"'` and `"\C-m"` vs `"\r"`, which RuboCop treats as duplicates.
+/// Fix: canonicalize string/symbol condition keys by unescaped bytes and fall
+/// back to source text for non-literal expressions to keep the change narrow.
 pub struct DuplicateCaseCondition;
 
 impl Cop for DuplicateCaseCondition {
@@ -43,8 +48,7 @@ impl Cop for DuplicateCaseCondition {
             };
             for condition in when_node.conditions().iter() {
                 let loc = condition.location();
-                let source_text = loc.as_slice();
-                if !seen.insert(source_text.to_vec()) {
+                if !seen.insert(condition_key(&condition)) {
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     diagnostics.push(self.diagnostic(
                         source,
@@ -56,6 +60,28 @@ impl Cop for DuplicateCaseCondition {
             }
         }
     }
+}
+
+fn condition_key(condition: &ruby_prism::Node<'_>) -> Vec<u8> {
+    if let Some(string) = condition.as_string_node() {
+        let mut key = Vec::with_capacity(4 + string.unescaped().len());
+        key.extend_from_slice(b"str:");
+        key.extend_from_slice(string.unescaped());
+        return key;
+    }
+
+    if let Some(symbol) = condition.as_symbol_node() {
+        let mut key = Vec::with_capacity(4 + symbol.unescaped().len());
+        key.extend_from_slice(b"sym:");
+        key.extend_from_slice(symbol.unescaped());
+        return key;
+    }
+
+    let source_text = condition.location().as_slice();
+    let mut key = Vec::with_capacity(4 + source_text.len());
+    key.extend_from_slice(b"src:");
+    key.extend_from_slice(source_text);
+    key
 }
 
 #[cfg(test)]
