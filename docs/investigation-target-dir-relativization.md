@@ -104,6 +104,33 @@ other gating mechanisms differ between them:
    repo root. Changing CWD to the repo dir might fix the relativization without
    needing `target_dir`, but the .gitignore concern hasn't been investigated.
 
+## Possible Directions
+
+These are starting points, not prescriptions — the right fix may be something
+different entirely.
+
+- **Fix the corpus runner instead of nitrocop**: Change `run_nitrocop.py` to
+  set `cwd` to the repo directory instead of `/tmp`. This would make `base_dir`
+  resolve to the repo root naturally, without adding `target_dir` to the core.
+  The `/tmp` CWD was chosen to "avoid .gitignore interference" but that concern
+  may no longer apply.
+
+- **Narrow the target_dir fix**: Instead of enabling it for all cops, only use
+  `target_dir` relativization when the cop already has non-zero baseline matches
+  in the oracle. This prevents silent cops from suddenly firing while fixing FN
+  for cops that should have been matching.
+
+- **Investigate why those cops produce FP**: The migration-only cops
+  (ThreeStateBooleanColumn, ReversibleMigration, etc.) produced thousands of FP.
+  Understanding why RuboCop doesn't fire them (MigratedSchemaVersion? project
+  config? gem version gating?) would clarify whether the fix needs a guard or
+  whether those cops have a separate implementation gap.
+
+- **Different config approach for corpus**: Rather than a temp overlay config,
+  the corpus runner could write a `.rubocop.yml` inside the repo directory
+  itself (cleaning up after). This would make `config_dir` resolve to the repo
+  root, sidestepping the relativization issue entirely.
+
 ## Key Code Locations
 
 - `src/config/mod.rs:294-343` — `is_cop_match()` (Include/Exclude checking)
