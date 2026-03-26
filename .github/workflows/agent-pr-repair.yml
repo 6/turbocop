@@ -52,8 +52,10 @@ on:
         default: false
 
 concurrency:
+  # Don't cancel in-progress repairs — a 45-min agent run is too expensive to discard.
+  # Queued repairs will wait and skip if the running one already fixed the issue.
   group: agent-pr-repair-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number || (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number) || (github.event_name == 'pull_request' && github.event.pull_request.number) || github.event.workflow_run.head_branch || github.run_id }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   repair:
