@@ -822,6 +822,10 @@ def main():
                 print(f"  +{diff:>4}  {repo_id}  (local={local}, baseline_nc={bl_nc}, rubocop={bl_rc})")
             failed = True
 
+        # Machine-readable summary for CI aggregation
+        result_str = "fail" if failed else "pass"
+        print(f"SUMMARY|{args.cop}|{baseline_fp}|{baseline_fn}|{new_fp}|{new_fn}|{result_str}")
+
         if failed:
             sys.exit(1)
         print("PASS: no per-repo regressions vs baseline")

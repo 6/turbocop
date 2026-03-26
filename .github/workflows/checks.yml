@@ -181,14 +181,20 @@ jobs:
         run: |
           IFS=',' read -ra COPS <<< "${{ needs.cop-detect.outputs.changed_cops }}"
           failed=0
+          mkdir -p /tmp/cop-check-summary
           for cop in "${COPS[@]}"; do
             [ -z "$cop" ] && continue
             echo ""
             echo "=============================="
             echo "Checking: $cop (shard ${{ matrix.shard }}/4)"
             echo "=============================="
-            if ! python3 scripts/check_cop.py "$cop" --verbose --rerun --clone \
-                 --shard-index ${{ matrix.shard }} --total-shards 8; then
+            OUTPUT=$(python3 scripts/check_cop.py "$cop" --verbose --rerun --clone \
+                 --shard-index ${{ matrix.shard }} --total-shards 8 2>&1) || true
+            echo "$OUTPUT"
+            # Extract SUMMARY line and save for gate job
+            echo "$OUTPUT" | grep '^SUMMARY|' | sed 's/^SUMMARY|//' \
+              >> /tmp/cop-check-summary/shard-${{ matrix.shard }}.txt
+            if echo "$OUTPUT" | grep -q "^FAIL:"; then
               echo "FAIL: $cop regression detected in shard ${{ matrix.shard }}"
               failed=$((failed + 1))
             fi
@@ -199,6 +205,14 @@ jobs:
             echo "FAILED: $failed cop(s) regressed vs corpus baseline."
             exit 1
           fi
+
+      - name: Upload cop-check summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: cop-check-summary-${{ matrix.shard }}
+          path: /tmp/cop-check-summary/
+          retention-days: 1
 
   # Roll-up for branch protection — add "cop-check-gate" as a required check
   cop-check-gate:
@@ -227,23 +241,40 @@ jobs:
           echo "cop-check failed: ${{ needs.cop-check.result }}"
           exit 1
 
+      - name: Download cop-check summaries
+        if: always() && github.event_name == 'pull_request' && steps.gate.outputs.result != 'skip'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: cop-check-summary-*
+          path: summaries/
+          merge-multiple: true
+        continue-on-error: true
+
       - name: Comment cop-check summary on PR
         if: always() && github.event_name == 'pull_request' && steps.gate.outputs.result != 'skip'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          COPS="${{ needs.cop-detect.outputs.changed_cops }}"
           RESULT="${{ steps.gate.outputs.result }}"
           ICON="✅"
           [ "$RESULT" = "fail" ] && ICON="❌"
 
           BODY="${ICON} **Cop-check results** (8 shards)\n\n"
-          BODY+="| Cop | Result |\n|-----|--------|\n"
-          IFS=',' read -ra COP_LIST <<< "$COPS"
-          for cop in "${COP_LIST[@]}"; do
-            [ -z "$cop" ] && continue
-            BODY+="| \`${cop}\` | ${RESULT} |\n"
-          done
+          BODY+="| Cop | Baseline FP | Baseline FN | New FP | New FN | Result |\n"
+          BODY+="|-----|-----------|-----------|--------|--------|--------|\n"
+
+          if [ -d summaries ]; then
+            for f in summaries/*.txt; do
+              [ -f "$f" ] || continue
+              while IFS='|' read -r cop bl_fp bl_fn new_fp new_fn shard_result; do
+                STATUS="✅"
+                [ "$shard_result" = "fail" ] && STATUS="❌"
+                BODY+="| \`${cop}\` | ${bl_fp} | ${bl_fn} | ${new_fp} | ${new_fn} | ${STATUS} |\n"
+              done < "$f"
+            done
+          else
+            BODY+="| (no shard data) | | | | | ${RESULT} |\n"
+          fi
 
           printf "$BODY" | gh pr comment "${{ github.event.pull_request.number }}" \
             --repo "${{ github.repository }}" --body-file -
