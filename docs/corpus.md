@@ -49,7 +49,7 @@ Every offense is compared by file path, line number, and cop name.
 
 | Repo | Issue | Files Dropped | Error |
 |------|-------|--------------|-------|
-| jruby__jruby__0303464 | crashed_rubocop | all |  |
+| jruby__jruby__0303464 | crashed_rubocop | all | `An error occurred while Lint/LiteralAsCondition cop was inspecting /home/runner/work/nitrocop/nitrocop/repos/jruby__jruby__0303464/spec/ruby/language/if_spec.rb:108:4.` |
 
 ## Diverging Cops
 
@@ -12975,7 +12975,7 @@ Every offense is compared by file path, line number, and cop name.
 
 | Repo | Status | Error |
 |------|--------|-------|
-| jruby__jruby__0303464 | crashed_rubocop |  |
+| jruby__jruby__0303464 | crashed_rubocop | `An error occurred while Lint/LiteralAsCondition cop was inspecting /home/runner/work/nitrocop/nitrocop/repos/jruby__jruby__0303464/spec/ruby/language/if_spec.rb:108:4.` |
 
 </details>
 
