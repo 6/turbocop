@@ -2,6 +2,20 @@ use crate::cop::node_type::FLOAT_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use regex::Regex;
+use std::sync::LazyLock;
+
+static SCIENTIFIC_MANTISSA_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^-?[1-9](\.\d*[0-9])?$").unwrap());
+static ENGINEERING_EXPONENT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-?\d+$").unwrap());
+static ENGINEERING_LARGE_MANTISSA_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^-?\d{4}").unwrap());
+static ENGINEERING_LEADING_ZERO_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^-?0\d").unwrap());
+static ENGINEERING_SMALL_MANTISSA_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^-?0.0").unwrap());
+static INTEGRAL_MANTISSA_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^-?[1-9](\d*[1-9])?$").unwrap());
 
 /// ## Corpus investigation (2026-03-25)
 ///
@@ -10,6 +24,15 @@ use crate::parse::source::SourceFile;
 /// FP=149: RuboCop only checks for lowercase `e` in exponential notation
 /// (`node.source['e']`). Uppercase `E` (e.g., `0.22E1`) is ignored. Nitrocop
 /// was lowercasing first and matching both. Fix: check for lowercase `e` only.
+///
+/// ## Corpus investigation (2026-03-26)
+///
+/// FN=4 in `natalie-lang/natalie`: RuboCop validates the raw mantissa text with
+/// regexes and rejects a leading `+` sign in scientific notation. Prism includes
+/// that `+` in the `FloatNode` source (`+2.5e20`, `+2.5e200`), but nitrocop was
+/// parsing numerically and treating those sources the same as `2.5e20`. Fix:
+/// mirror RuboCop's source-pattern checks for all styles instead of normalizing
+/// to numeric ranges.
 pub struct ExponentialNotation;
 
 impl Cop for ExponentialNotation {
@@ -47,94 +70,55 @@ impl Cop for ExponentialNotation {
             return;
         }
 
-        let lower = src_str.to_lowercase();
-
-        // Strip leading minus for mantissa analysis
-        let working = if let Some(stripped) = lower.strip_prefix('-') {
-            stripped
-        } else {
-            &lower
-        };
-
-        let parts: Vec<&str> = working.splitn(2, 'e').collect();
-        if parts.len() != 2 {
-            return;
-        }
-
-        let mantissa_str = parts[0].replace('_', "");
-        let exponent_str = parts[1].replace('_', "");
-
-        let mantissa: f64 = match mantissa_str.parse() {
-            Ok(v) => v,
-            Err(_) => return,
-        };
-
-        let exponent: i64 = match exponent_str.parse() {
-            Ok(v) => v,
-            Err(_) => return,
+        let (mantissa, exponent) = match src_str.split_once('e') {
+            Some(parts) => parts,
+            None => return,
         };
 
         let style = config.get_str("EnforcedStyle", "scientific");
-
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-
-        match style {
+        let message = match style {
             "scientific" => {
-                // Mantissa must be >= 1 and < 10
-                let abs_mantissa = mantissa.abs();
-                if !(1.0..10.0).contains(&abs_mantissa) {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Use a mantissa >= 1 and < 10.".to_string(),
-                    ));
+                if SCIENTIFIC_MANTISSA_RE.is_match(mantissa) {
+                    return;
                 }
+                "Use a mantissa >= 1 and < 10."
             }
             "engineering" => {
-                // Exponent must be divisible by 3, mantissa >= 0.1 and < 1000
-                let abs_mantissa = mantissa.abs();
-                if exponent % 3 != 0 || !(0.1..1000.0).contains(&abs_mantissa) {
-                    diagnostics.push(
-                        self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            "Use an exponent divisible by 3 and a mantissa >= 0.1 and < 1000."
-                                .to_string(),
-                        ),
-                    );
+                let exponent_ok = ENGINEERING_EXPONENT_RE.is_match(exponent);
+                if exponent_ok
+                    && exponent_divisible_by_three(exponent)
+                    && !ENGINEERING_LARGE_MANTISSA_RE.is_match(mantissa)
+                    && !ENGINEERING_LEADING_ZERO_RE.is_match(mantissa)
+                    && !ENGINEERING_SMALL_MANTISSA_RE.is_match(mantissa)
+                {
+                    return;
                 }
+                "Use an exponent divisible by 3 and a mantissa >= 0.1 and < 1000."
             }
             "integral" => {
-                // Mantissa must be an integer without trailing zeros
-                let has_decimal = mantissa_str.contains('.');
-                let mantissa_int: i64 = if has_decimal {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Use an integer as mantissa, without trailing zero.".to_string(),
-                    ));
+                if INTEGRAL_MANTISSA_RE.is_match(mantissa) {
                     return;
-                } else {
-                    match mantissa_str.parse() {
-                        Ok(v) => v,
-                        Err(_) => return,
-                    }
-                };
-                if mantissa_int != 0 && mantissa_int % 10 == 0 {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Use an integer as mantissa, without trailing zero.".to_string(),
-                    ));
                 }
+                "Use an integer as mantissa, without trailing zero."
             }
-            _ => {}
-        }
+            _ => return,
+        };
+
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        diagnostics.push(self.diagnostic(source, line, column, message.to_string()));
     }
+}
+
+fn exponent_divisible_by_three(exponent: &str) -> bool {
+    let digits = exponent.strip_prefix('-').unwrap_or(exponent);
+    if digits.is_empty() {
+        return false;
+    }
+
+    digits
+        .bytes()
+        .fold(0u8, |acc, byte| (acc * 10 + (byte - b'0')) % 3)
+        == 0
 }
 
 #[cfg(test)]
