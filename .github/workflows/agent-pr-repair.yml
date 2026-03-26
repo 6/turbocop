@@ -577,11 +577,21 @@ jobs:
 
           echo "result=pushable" >> "$GITHUB_OUTPUT"
 
+      # Refresh app token — the original may have expired during the 45-min agent run
+      # plus the 30+ min precompute step. GitHub App tokens expire after 60 minutes.
+      - name: Refresh app token
+        if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true'
+        id: refreshed-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
       - name: Push verified repair
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.assess.outputs.result == 'pushable'
         id: push
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.refreshed-app-token.outputs.token }}
         run: |
           python3 scripts/workflows/workflow_git.py configure \
             --repo "${{ github.repository }}" \
@@ -596,7 +606,7 @@ jobs:
       - name: Comment repair result
         if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.refreshed-app-token.outputs.token }}
         run: |
           RESULT="${{ steps.assess.outputs.result }}"
           if [ "$RESULT" = "pushable" ] && [ "${{ steps.push.outcome }}" = "success" ]; then

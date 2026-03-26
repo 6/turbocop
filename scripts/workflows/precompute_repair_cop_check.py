@@ -349,6 +349,7 @@ def main() -> int:
                 "--verbose",
                 "--rerun",
                 "--clone",
+                "--sample", "15",
             ]
             result = run_capture(cmd, repo_root)
             results.append(
