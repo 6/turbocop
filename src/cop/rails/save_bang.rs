@@ -403,6 +403,26 @@ use ruby_prism::Visit;
 /// per variable. A variable is only added to `suppressed_create_vars` if ALL of its
 /// create assignments have a persisted? check before the next create assignment to that
 /// variable (or end of scope).
+///
+/// ## Corpus investigation (2026-03-26)
+///
+/// Prompted corpus FN batch: 0 FP, 22 FN.
+///
+/// Added fixture coverage for the reported shapes:
+/// - `klass.methods_hash.update mod.methods_hash` and related no-paren `update` calls
+///   inside multi-statement method bodies
+/// - bare `update` calls inside multi-statement method bodies
+/// - nested-block / multiline `create` calls from vendored Puppet code
+///
+/// Those fixtures pass without logic changes, and direct per-file nitrocop runs against the
+/// cloned corpus files also report the expected offenses at the exact oracle lines
+/// (RDoc class_module.rb, TMail mailbox.rb, Puppet util.rb / metric.rb).
+///
+/// However, `python3 scripts/check_cop.py Rails/SaveBang --rerun --clone --sample 15`
+/// still reports the same 22 FN when it runs whole repos. That points away from
+/// `Rails/SaveBang` detection and toward repo-level file discovery or selection for
+/// vendored paths during corpus reruns. Keep cop logic unchanged unless a future
+/// investigation proves a direct per-file miss.
 pub struct SaveBang;
 
 /// Modify-type persistence methods whose return value indicates success/failure.
