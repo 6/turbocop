@@ -12,12 +12,21 @@ use crate::parse::source::SourceFile;
 /// which makes tracked hidden files visible to cops while preserving normal
 /// directory walking behavior.
 ///
-/// ## Corpus investigation (2026-03-25) — full corpus verification
+/// ## Corpus investigation (2026-03-26)
 ///
-/// Corpus oracle reported FP=0, FN=2. All 2 FN verified FIXED by
-/// `verify_cop_locations.py`. Cop logic handles all `IO.read/write/
-/// binread/binwrite/foreach/readlines` patterns correctly. The FN gap
-/// was a corpus oracle config/path resolution artifact.
+/// Cached corpus data still reports FP=0, FN=2, both on `IO.readlines`
+/// (`vendor/rails/.../test_case.rb` and `vendor/bundle/.../block_parser.rb`).
+/// Added fixture coverage for both the parenthesized call and the bare-argument
+/// call form; the targeted fixture test passed without any matcher changes,
+/// confirming this cop already handles `IO.readlines` correctly.
+///
+/// The affected repos both use per-repo corpus overlay configs generated from
+/// `bench/corpus/repo_excludes.json`, which inject absolute-path
+/// `AllCops.Exclude` entries for nearby vendored files. I did not find a
+/// cop-level detection bug here. `python3 scripts/check_cop.py
+/// Security/IoMethods --rerun --clone --sample 15` passed with no per-repo
+/// regression vs baseline, so if these two FN resurface, investigate corpus
+/// config/path handling rather than widening this cop's matcher.
 pub struct IoMethods;
 
 const DANGEROUS_METHODS: &[&[u8]] = &[
