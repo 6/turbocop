@@ -46,6 +46,24 @@ use crate::parse::source::SourceFile;
 /// with `IndexTargetNode` children (not `CallNode`). Fixed by adding
 /// `MULTI_WRITE_NODE` to `interested_node_types` and iterating `lefts()`
 /// to check each target for ENV receiver.
+///
+/// ## Remaining 34 corpus FN (2026-03-26) — config bug, not cop logic
+///
+/// The cop detection logic is correct. All 34 FN are caused by a config
+/// resolution bug in `src/config/mod.rs` (`is_cop_match` / `build_glob_set`):
+/// when `AllCops.Exclude` contains absolute paths (e.g. `/tmp/foo.rb`), the
+/// pattern-cop Include matching silently breaks, causing the cop to be skipped
+/// for files that should match Include patterns like `**/lib/**/*.rb`.
+///
+/// The corpus runner (`bench/corpus/run_nitrocop.py`) generates per-repo configs
+/// via `gen_repo_config.py`, which adds absolute-path Exclude entries for files
+/// with parse errors. These absolute paths trigger the bug. Affected repos:
+/// `cjstewart88__Tubalr` (14 FN), `pitluga__supply_drop` (10 FN),
+/// `liaoziyang__stackneveroverflow` (7 FN), `databasically__lowdown` (3 FN).
+///
+/// The fix belongs in `src/config/mod.rs`, not in this cop. This bug likely
+/// affects all pattern cops (those with Include/Exclude in their config), not
+/// just `Rails/EnvironmentVariableAccess`.
 pub struct EnvironmentVariableAccess;
 
 const READ_MSG: &str = "Do not read from `ENV` directly post initialization.";
