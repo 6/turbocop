@@ -573,14 +573,42 @@ jobs:
           IG_NC_DIR="all-results/results/ig-nitrocop"
           IG_RC_DIR="all-results/results/ig-rubocop"
           if [ -d "$IG_NC_DIR" ] && [ -d "$IG_RC_DIR" ]; then
-            COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
+            # Use a dedicated cop list for the IG diff, restricted to the 20
+            # Include-gated cops. Without this, RuboCop's --only still emits
+            # Lint/Syntax for every parse error (it's a special cop that always
+            # runs), which inflates the IG diff with thousands of phantom FN
+            # unrelated to the 20 cops we're comparing.
+            IG_COP_LIST=$(mktemp)
+            cat > "$IG_COP_LIST" << 'IGCOPS'
+          Rails/ActionControllerTestCase
+          Rails/AddColumnIndex
+          Rails/BulkChangeTable
+          Rails/CreateTableWithTimestamps
+          Rails/DangerousColumnNames
+          Rails/EnumSyntax
+          Rails/HttpPositionalArguments
+          Rails/HttpStatusNameConsistency
+          Rails/I18nLocaleAssignment
+          Rails/MigrationClassName
+          Rails/NotNullColumn
+          Rails/RedundantTravelBack
+          Rails/ResponseParsedBody
+          Rails/ReversibleMigration
+          Rails/ReversibleMigrationMethodDefinition
+          Rails/StrongParametersExpect
+          Rails/ThreeStateBooleanColumn
+          Rails/TimeZoneAssignment
+          Rails/UniqueValidationWithoutIndex
+          Rails/UnusedIgnoredColumns
+          IGCOPS
             python3 bench/corpus/diff_results.py \
               --nitrocop-dir "$IG_NC_DIR" \
               --rubocop-dir "$IG_RC_DIR" \
               --manifest bench/corpus/manifest.jsonl \
               --output-json include-gated-results.json \
               --output-md include-gated-results.md \
-              ${COP_LIST:+--cop-list "$COP_LIST"}
+              --cop-list "$IG_COP_LIST"
+            rm -f "$IG_COP_LIST"
             echo "Include-gated diff complete"
             head -50 include-gated-results.md
           else
