@@ -342,61 +342,118 @@ The 98.5% conformance number is genuine from the "does nitrocop match RuboCop"
 perspective. Both tools are symmetrically broken on these 20 cops — neither
 runs them, so they contribute zero to both FP and FN.
 
-### Recommended next step: specialized 1:1 comparison workflow
+### Recommended next step: parallel Include-gated comparison in the oracle workflow
 
-A **separate comparison workflow** for these 20 cops IS feasible, unlike the main
-oracle fix. The reason all previous oracle fixes failed was the **Exclude
-asymmetry** — fixing `base_dir` activated cop Exclude patterns in nitrocop but
-not RuboCop, affecting 400+ cops across all departments.
+A **parallel step in the corpus oracle workflow** for these 20 cops IS feasible,
+unlike fixing the main comparison. The reason all previous main oracle fixes
+failed was the **Exclude asymmetry** — fixing `base_dir` activated cop Exclude
+patterns in nitrocop but not RuboCop, affecting 400+ cops across all departments.
 
 These 20 cops are different: **19 of 20 have NO Exclude patterns.** Only
 `Rails/CreateTableWithTimestamps` has one (narrow ActiveStorage exclusion). This
 means fixing Include resolution for these cops won't trigger Exclude asymmetry.
 
-**Concrete approach:**
+#### How it integrates into the corpus oracle
 
-For each repo in a sample (~30-50 repos):
+The existing pipeline is:
 
-1. Write `.rubocop_include_check.yml` inside the repo dir:
+```
+oracle-repo jobs (batched)
+  → per-repo nitrocop + rubocop JSON
+    → diff_results.py
+      → corpus-results.json  (central aggregation)
+        ├→ gen_tiers.py       → tiers.json
+        ├→ update_readme.py   → README.md tables
+        ├→ cop_coverage.py    → docs/cop_coverage.md
+        └→ corpus-results.md  → docs/corpus.md
+```
+
+The Include-gated comparison runs **in parallel** with the main oracle-repo
+jobs, using the same cloned repos, and its results are **merged into
+corpus-results.json** before the downstream scripts run. This means the 20
+cops automatically appear in docs/corpus.md, README conformance tables, tier
+classification, and cop coverage — no changes needed to downstream scripts.
+
+```
+oracle-repo jobs (batched, ALL cops)  ←── existing, unchanged
+  → main-results.json
+
+include-gated job (20 cops only)      ←── NEW parallel job
+  → include-gated-results.json
+
+merge step                             ←── NEW
+  → corpus-results.json                    (replaces zero entries for 20 cops
+                                            with real data from include-gated job)
+  ↓
+gen_tiers.py / update_readme.py / cop_coverage.py  ←── unchanged
+```
+
+#### Per-repo comparison approach
+
+For each repo, the Include-gated job:
+
+1. Writes `.rubocop_include_check.yml` inside the repo dir:
    ```yaml
-   inherit_from: /path/to/baseline_rubocop.yml
-   # No other overrides needed — the .rubocop* filename ensures
-   # base_dir = repo_dir for both tools
+   inherit_from: /absolute/path/to/baseline_rubocop.yml
+   # The .rubocop* filename ensures base_dir = repo_dir for both tools
    ```
 
-2. Run RuboCop with `--only CopName` from the repo dir:
+2. Runs RuboCop from the repo dir with `--only` for the 20 cops:
    ```
    cd /path/to/repo
    bundle exec rubocop --config .rubocop_include_check.yml \
-     --only Rails/ReversibleMigration --format json .
+     --only Rails/ReversibleMigration,Rails/ThreeStateBooleanColumn,... \
+     --format json .
    ```
 
-3. Run nitrocop the same way (cwd=repo_dir):
+3. Runs nitrocop the same way (cwd=repo_dir):
    ```
    nitrocop --config .rubocop_include_check.yml \
-     --only Rails/ReversibleMigration --format json .
+     --only Rails/ReversibleMigration,Rails/ThreeStateBooleanColumn,... \
+     --format json .
    ```
 
-4. Compare offenses — both tools have `base_dir = repo_dir`, both resolve
-   `db/**/*.rb` correctly, no Exclude asymmetry.
+4. Both tools have `base_dir = repo_dir`, both resolve `db/**/*.rb` and
+   `spec/**/*.rb` correctly, no Exclude asymmetry (19/20 have no Exclude).
 
-**Why this works when the main oracle fix didn't:**
+#### Merge step
+
+A new script (e.g., `bench/corpus/merge_include_gated.py`) replaces the
+zero-data `by_cop` entries in main-results.json with real data from the
+Include-gated job. It also updates:
+- `by_department` — adds the new matches/FP/FN to the Rails department totals
+- `by_repo_cop` — adds per-repo-per-cop divergence data for the 20 cops
+- `cop_activity_repos` — adds repo lists for the 20 cops
+- `summary` — adjusts totals (total_matches, total_fp, total_fn)
+
+The merge is safe because the main oracle has exactly zero data for these 20
+cops (both tools skip them), so there's no double-counting.
+
+#### Why this works when the main oracle fix didn't
+
 - `--only` restricts to cops with no Exclude patterns → no asymmetry
 - In-repo `.rubocop*` config → `base_dir = repo_dir` for both tools
 - CWD = repo_dir → matches normal user workflow
 - Per-cop comparison → isolated from other cops' Exclude behavior
+- Merge into corpus-results.json → downstream scripts pick it up automatically
 
-**Why this can't be folded into the main oracle:**
-The main oracle compares ALL cops at once. Changing `base_dir` in the main
-oracle activates Exclude patterns for ALL cops, creating asymmetry in the
-400+ cops that have Exclude patterns. Restricting `--only` in the main oracle
-would defeat its purpose (full-corpus comparison).
+#### Why this can't be folded into the main oracle comparison
 
-**Implementation:** This could be a new script (e.g., `scripts/check_include_gated_cops.py`)
-or a mode in `check_cop.py`. It needs the corpus bundle installed to run RuboCop.
-The `check_cop.py --repo-cwd` infrastructure (added in Session 3) handles the
-nitrocop side; the missing piece is running RuboCop per-repo with the in-repo
-config and comparing offenses.
+The main oracle compares ALL cops at once without `--only`. Changing `base_dir`
+in the main oracle activates Exclude patterns for ALL cops, creating asymmetry
+in the 400+ cops that have Exclude patterns. The main comparison must stay as-is;
+the Include-gated comparison runs alongside it.
+
+#### Implementation scope
+
+- **New workflow job** in `.github/workflows/corpus-oracle.yml`: runs after
+  repos are cloned, in parallel with the main oracle-repo batches. Reuses the
+  same cloned repos. Uses `--only` with the 20 cop names.
+- **New script** `bench/corpus/merge_include_gated.py`: merges Include-gated
+  results into the main corpus-results.json before downstream scripts run.
+- **Existing infrastructure**: `run_nitrocop.py` already supports `cwd`
+  parameter; `diff_results.py` output format is well-defined; downstream
+  scripts need no changes.
 
 ### Quick plausibility check (nitrocop-only)
 
