@@ -306,8 +306,6 @@ jobs:
         run: |
           echo "::notice::Skipping auto-repair: ${{ steps.policy.outputs.skip_reason }}"
           if [ "${{ steps.policy.outputs.needs_human }}" = "true" ]; then
-            gh label create state:needs-human --repo "${{ github.repository }}" --color "b60205" 2>/dev/null || true
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             if [ -n "${{ steps.pr.outputs.linked_issue_number }}" ]; then
               cat > "$REPAIR_COMMENT_FILE" <<EOF
             Automatic PR repair stopped for linked PR #${{ steps.pr.outputs.number }}.
@@ -324,32 +322,12 @@ jobs:
             fi
           fi
 
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        with:
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-
-      - uses: ruby/setup-ruby@v1
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        with:
-          ruby-version: '4.0'
-
       - name: Cache corpus bundle
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
         uses: actions/cache@v5
         with:
           path: bench/corpus/vendor/bundle
           key: pr-repair-bundle-${{ hashFiles('bench/corpus/Gemfile.lock') }}
-
-      - name: Install corpus gems
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        run: |
-          cd bench/corpus
-          bundle config set --local path vendor/bundle
-          bundle install --jobs 4 --retry 3
 
       - name: Cache corpus clones
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.verify_meta.outputs.needs_local_cop_check == 'true'
@@ -358,9 +336,11 @@ jobs:
           path: vendor/corpus
           key: pr-repair-corpus-${{ hashFiles('bench/corpus/manifest.jsonl') }}
 
-      - name: Install mold linker
+      # --- Shared environment setup (Rust, Ruby, mold, corpus) ---
+      - uses: ./.github/actions/setup-agent-env
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
+        with:
+          rust_components: rustfmt, clippy
 
       - name: Build release binary for local cop-check diagnosis
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.verify_meta.outputs.needs_local_cop_check == 'true'
@@ -394,7 +374,6 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh label create state:needs-human --repo "${{ github.repository }}" --color "b60205" 2>/dev/null || true
           {
             echo "## Auto-repair Started"
             echo ""
@@ -415,23 +394,6 @@ jobs:
             echo "<!-- nitrocop-auto-repair: phase=started head_sha=${{ steps.pr.outputs.head_sha }} backend=${{ steps.repair.outputs.backend }} checks_run_id=${{ steps.target.outputs.checks_run_id }} -->"
           } > "$REPAIR_COMMENT_FILE"
           gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file "$REPAIR_COMMENT_FILE"
-
-      - name: Run backend setup
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        env:
-          MINIMAX_API_KEY: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ (steps.repair.outputs.backend == 'claude-normal' || steps.repair.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
-          CODEX_AUTH_JSON: ${{ (steps.repair.outputs.backend == 'codex-normal' || steps.repair.outputs.backend == 'codex-hard') && secrets.CODEX_AUTH_JSON || '' }}
-        run: ${{ steps.backend.outputs.setup_cmd }}
-
-      - name: Mask read-only GitHub token
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        env:
-          GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
-        run: |
-          python3 scripts/workflows/guard_backend_secrets.py \
-            --from-env GH_TOKEN_FOR_ACTIONS_READ \
-            emit-masks
 
       - name: Snapshot git state before agent
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
@@ -463,27 +425,14 @@ jobs:
       - name: Run repair agent
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.pre_agent_live_pr.outputs.should_continue == 'true'
         id: agent
-        timeout-minutes: 45
-        env:
-          ANTHROPIC_BASE_URL: ${{ steps.backend.outputs.env_ANTHROPIC_BASE_URL }}
-          ANTHROPIC_AUTH_TOKEN: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ (steps.repair.outputs.backend == 'claude-normal' || steps.repair.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
-          ANTHROPIC_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_MODEL }}
-          ANTHROPIC_SMALL_FAST_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_SMALL_FAST_MODEL }}
-          API_TIMEOUT_MS: ${{ steps.backend.outputs.env_API_TIMEOUT_MS }}
-          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: ${{ steps.backend.outputs.env_CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC }}
-          CARGO_INCREMENTAL: "1"
-          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
-          GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
-        run: |
-          python3 scripts/workflows/agent_logs.py watch \
-            --newer-than "$FINAL_TASK_FILE" --interval 30 \
-            --backend "${{ steps.backend.outputs.log_format }}" &
-          WATCHER_PID=$!
-
-          eval '${{ steps.backend.outputs.run_cmd }}'
-
-          kill $WATCHER_PID 2>/dev/null || true
+        uses: ./.github/actions/run-agent
+        timeout-minutes: 50
+        with:
+          backend: ${{ steps.repair.outputs.backend }}
+          actions_read_token: ${{ steps.actions-read-token.outputs.token }}
+          minimax_api_key: ${{ secrets.MINIMAX_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
 
       - name: Snapshot agent outputs
         if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.pre_agent_live_pr.outputs.should_continue == 'true'
@@ -628,7 +577,6 @@ jobs:
               echo "<!-- nitrocop-auto-repair: phase=pushed head_sha=${{ steps.pr.outputs.head_sha }} backend=${{ steps.repair.outputs.backend }} checks_run_id=${{ steps.target.outputs.checks_run_id }} repair_commit=${{ steps.push.outputs.signed_sha || steps.assess.outputs.head_sha }} -->"
             } > "$REPAIR_COMMENT_FILE"
           elif [ "$RESULT" = "no_changes" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Did Not Produce a Fix"
               echo ""
@@ -639,7 +587,6 @@ jobs:
               echo "The repair attempt completed local verification commands but produced no branch changes, so it was treated as unsuccessful."
             } > "$REPAIR_COMMENT_FILE"
           elif [ "$RESULT" = "empty_pr" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Rejected"
               echo ""
@@ -653,7 +600,6 @@ jobs:
             echo "::notice::Skipping auto-repair result publish: ${{ steps.live_pr.outputs.skip_reason }}"
             exit 0
           elif [ "$RESULT" = "file_guard_failed" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Rejected"
               echo ""
@@ -666,7 +612,6 @@ jobs:
               cat "$AGENT_SCOPE_REPORT_FILE"
             } > "$REPAIR_COMMENT_FILE"
           elif [ "$RESULT" = "agent_failed" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Agent Failed"
               echo ""
@@ -677,7 +622,6 @@ jobs:
               echo "The repair agent step failed before local verification ran."
             } > "$REPAIR_COMMENT_FILE"
           elif [ "$RESULT" = "verify_not_run" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Verification Did Not Run"
               echo ""
@@ -688,7 +632,6 @@ jobs:
               echo "The workflow reached assessment without a verification result, so no verification log was produced."
             } > "$REPAIR_COMMENT_FILE"
           elif [ "${{ steps.push.outcome }}" = "failure" ]; then
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Push Failed"
               echo ""
@@ -699,7 +642,6 @@ jobs:
               echo "Local verification passed, but pushing the repair branch failed."
             } > "$REPAIR_COMMENT_FILE"
           else
-            gh pr edit "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --add-label "state:needs-human" 2>/dev/null || true
             {
               echo "## Auto-repair Failed Verification"
               echo ""

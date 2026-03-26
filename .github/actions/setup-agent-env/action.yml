@@ -1,0 +1,46 @@
+name: Setup Agent Environment
+description: Install Rust, Ruby, mold linker, and corpus bundle for agent workflows
+
+inputs:
+  rust_components:
+    description: Rust toolchain components to install (comma-separated)
+    default: rustfmt
+  install_vendor_gems:
+    description: Install RuboCop gems from vendor submodule tags (cop-fix only)
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: ${{ inputs.rust_components }}
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Install mold linker
+      shell: bash
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
+
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '4.0'
+        bundler-cache: false
+
+    - name: Install vendor RuboCop gems
+      if: inputs.install_vendor_gems == 'true'
+      shell: bash
+      run: |
+        V_RC=$(cd vendor/rubocop && git describe --tags --abbrev=0 | sed 's/^v//')
+        V_PERF=$(cd vendor/rubocop-performance && git describe --tags --abbrev=0 | sed 's/^v//')
+        V_RAILS=$(cd vendor/rubocop-rails && git describe --tags --abbrev=0 | sed 's/^v//')
+        V_RSPEC=$(cd vendor/rubocop-rspec && git describe --tags --abbrev=0 | sed 's/^v//')
+        gem install "rubocop:$V_RC" "rubocop-performance:$V_PERF" \
+          "rubocop-rails:$V_RAILS" "rubocop-rspec:$V_RSPEC" prism --no-document
+
+    - name: Install corpus bundle
+      shell: bash
+      run: |
+        cd bench/corpus
+        bundle config set --local path vendor/bundle
+        bundle install --jobs 4 --retry 3

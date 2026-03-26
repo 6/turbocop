@@ -1,0 +1,56 @@
+name: Close Cop Issue on Merge
+
+permissions:
+  issues: write
+  pull-requests: read
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  close-issue:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Extract cop and issue from PR body
+        id: extract
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Look for <!-- nitrocop-cop-issue: number=NNN cop=Dept/Name -->
+          ISSUE=$(echo "$PR_BODY" | grep -oP 'nitrocop-cop-issue:.*?number=\K\d+' || echo "")
+          COP=$(echo "$PR_BODY" | grep -oP 'nitrocop-cop-issue:.*?cop=\K[A-Za-z]+/[A-Za-z]+' || echo "")
+          echo "issue=$ISSUE" >> "$GITHUB_OUTPUT"
+          echo "cop=$COP" >> "$GITHUB_OUTPUT"
+          if [ -z "$ISSUE" ]; then
+            echo "No cop tracker issue linked — skipping"
+          else
+            echo "Found: cop=$COP issue=#$ISSUE"
+          fi
+
+      - name: Generate app token
+        if: steps.extract.outputs.issue != ''
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Close tracker issue
+        if: steps.extract.outputs.issue != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ISSUE="${{ steps.extract.outputs.issue }}"
+          COP="${{ steps.extract.outputs.cop }}"
+          STATE=$(gh issue view "$ISSUE" --repo "${{ github.repository }}" --json state -q '.state')
+          if [ "$STATE" != "OPEN" ]; then
+            echo "Issue #$ISSUE already closed"
+            exit 0
+          fi
+          gh issue close "$ISSUE" \
+            --repo "${{ github.repository }}" \
+            --comment "Closed by merge of #${{ github.event.pull_request.number }} (\`${COP}\`). If divergence remains, the corpus oracle will reopen this issue."
+          echo "Closed issue #$ISSUE"

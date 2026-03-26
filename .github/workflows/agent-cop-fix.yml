@@ -51,11 +51,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # --- Rust toolchain + cache ---
-      - uses: dtolnay/rust-toolchain@stable
+      # --- Shared environment setup (Rust, Ruby, mold, corpus) ---
+      - uses: ./.github/actions/setup-agent-env
         with:
-          components: rustfmt
-      - uses: Swatinem/rust-cache@v2
+          rust_components: rustfmt
+          install_vendor_gems: 'true'
 
       # On self-hosted: copy pre-warmed target into job workspace (each job
       # gets its own copy to avoid concurrent cargo lock contention)
@@ -114,10 +114,6 @@ jobs:
           permission-pull-requests: read
 
       # --- Build (before task generation for pre-diagnostic) ---
-
-      # mold linker: cuts relink time from 30-60s to 2-5s for incremental builds
-      - name: Install mold linker
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
 
       - name: Build binary
         run: |
@@ -220,33 +216,6 @@ jobs:
             --extra-context "${{ github.event.inputs.extra_context }}" \
             --filter "${{ steps.init.outputs.filter }}"
 
-      # --- Ruby ---
-
-      - name: Install Ruby (for agent debugging)
-        if: steps.task.outputs.code_bugs != '0'
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '4.0'
-          bundler-cache: false
-
-      - name: Install Ruby gems (for agent debugging)
-        if: steps.task.outputs.code_bugs != '0'
-        run: |
-          # Read versions from vendor submodule tags to stay in sync
-          V_RC=$(cd vendor/rubocop && git describe --tags --abbrev=0 | sed 's/^v//')
-          V_PERF=$(cd vendor/rubocop-performance && git describe --tags --abbrev=0 | sed 's/^v//')
-          V_RAILS=$(cd vendor/rubocop-rails && git describe --tags --abbrev=0 | sed 's/^v//')
-          V_RSPEC=$(cd vendor/rubocop-rspec && git describe --tags --abbrev=0 | sed 's/^v//')
-          gem install "rubocop:$V_RC" "rubocop-performance:$V_PERF" \
-            "rubocop-rails:$V_RAILS" "rubocop-rspec:$V_RSPEC" prism --no-document
-
-      - name: Install corpus bundle (for check_cop.py)
-        if: steps.task.outputs.code_bugs != '0'
-        run: |
-          cd bench/corpus
-          bundle config set --local path vendor/bundle
-          bundle install --jobs 4 --retry 3
-
       # --- Wait for main to be healthy right before agent starts ---
       - name: Wait for healthy main
         if: steps.task.outputs.code_bugs != '0'
@@ -268,50 +237,17 @@ jobs:
 
       # --- Install + run agent ---
 
-      - name: Run backend setup
+      - name: Run agent (CLI)
         if: steps.task.outputs.code_bugs != '0'
-        env:
-          MINIMAX_API_KEY: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ (steps.selected_backend.outputs.backend == 'claude-normal' || steps.selected_backend.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
-          CODEX_AUTH_JSON: ${{ (steps.selected_backend.outputs.backend == 'codex-normal' || steps.selected_backend.outputs.backend == 'codex-hard') && secrets.CODEX_AUTH_JSON || '' }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ (steps.selected_backend.outputs.backend == 'claude-oauth-normal' || steps.selected_backend.outputs.backend == 'claude-oauth-hard') && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
-        run: ${{ steps.backend.outputs.setup_cmd }}
-
-      - name: Mask read-only GitHub token
-        if: steps.task.outputs.code_bugs != '0'
-        env:
-          GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
-        run: |
-          python3 scripts/workflows/guard_backend_secrets.py \
-            --from-env GH_TOKEN_FOR_ACTIONS_READ \
-            emit-masks
-
-      - name: Run agent
-        if: steps.task.outputs.code_bugs != '0' && steps.backend.outputs.action != 'true'
-        timeout-minutes: 45
-        env:
-          # Static env vars from resolve_backend (secrets injected separately)
-          ANTHROPIC_BASE_URL: ${{ steps.backend.outputs.env_ANTHROPIC_BASE_URL }}
-          ANTHROPIC_AUTH_TOKEN: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ (steps.selected_backend.outputs.backend == 'claude-normal' || steps.selected_backend.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
-          ANTHROPIC_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_MODEL }}
-          ANTHROPIC_SMALL_FAST_MODEL: ${{ steps.backend.outputs.env_ANTHROPIC_SMALL_FAST_MODEL }}
-          API_TIMEOUT_MS: ${{ steps.backend.outputs.env_API_TIMEOUT_MS }}
-          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: ${{ steps.backend.outputs.env_CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC }}
-          CARGO_INCREMENTAL: "1"
-          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
-          GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
-        run: |
-          # Background progress watcher
-          python3 scripts/workflows/agent_logs.py watch \
-            --newer-than "$FINAL_TASK_FILE" --interval 30 \
-            --backend "${{ steps.backend.outputs.log_format }}" &
-          WATCHER_PID=$!
-
-          # Run the agent (command from resolve_backend)
-          eval '${{ steps.backend.outputs.run_cmd }}'
-
-          kill $WATCHER_PID 2>/dev/null || true
+        uses: ./.github/actions/run-agent
+        timeout-minutes: 50
+        with:
+          backend: ${{ steps.selected_backend.outputs.backend }}
+          actions_read_token: ${{ steps.actions-read-token.outputs.token }}
+          minimax_api_key: ${{ secrets.MINIMAX_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
       - name: Start progress watcher (action)
         if: steps.task.outputs.code_bugs != '0' && steps.backend.outputs.action == 'true'

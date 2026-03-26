@@ -276,6 +276,12 @@ jobs:
             BODY+="| (no shard data) | | | | | ${RESULT} |\n"
           fi
 
+          if [ "$RESULT" = "pass" ]; then
+            BODY+="\nAll shards passed — ready to merge.\n"
+          else
+            BODY+="\nRegressions detected. The repair workflow will attempt an automatic fix.\n"
+          fi
+
           printf "$BODY" | gh pr comment "${{ github.event.pull_request.number }}" \
             --repo "${{ github.repository }}" --body-file -
 
