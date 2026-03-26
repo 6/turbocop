@@ -1,3 +1,6 @@
+  # encoding: utf-8
+  require "logstash/filters/base"
+
 def foo() end
 
 # encoding: us-ascii

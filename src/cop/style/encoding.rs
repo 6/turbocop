@@ -37,6 +37,21 @@ use crate::parse::source::SourceFile;
 ///   with trailing content after `-*-` were not matched. RuboCop's Emacs regex
 ///   `-*-(?<token>.+)-*-` greedily matches between first and last `-*-` occurrences,
 ///   ignoring trailing text. Fixed by using `rfind("-*-")` instead of `ends_with("-*-")`.
+///
+/// ## Investigation findings (2026-03-26)
+///
+/// ### FP root causes fixed (3 FP):
+/// - Indented first-line comments like `  # encoding: utf-8`, `\t#encoding: utf-8`,
+///   and `  # -*- coding: utf-8 -*-` are ordinary comments, not magic comments.
+///   RuboCop's `MagicComment#valid?` requires the raw line to start with `#`, but
+///   we previously called `trim()` before checking, which incorrectly promoted
+///   indented comments into top-of-file magic comments.
+///
+/// ### FN root cause fixed (1 FN):
+/// - `# coding: utf-8 -*-` is still an offense in RuboCop because
+///   `SimpleComment#encoding` captures the first token after `coding: ` and does
+///   not anchor the rest of the line. We previously required the entire remainder
+///   to equal `utf-8`, which missed this malformed-but-detected case.
 pub struct Encoding;
 
 impl Cop for Encoding {
@@ -65,7 +80,7 @@ impl Cop for Encoding {
             let line_len = line.len() + 1; // +1 for newline
 
             let line_str = match std::str::from_utf8(line) {
-                Ok(s) => s.trim(),
+                Ok(s) => s.trim_end(),
                 Err(_) => {
                     break;
                 }
@@ -181,12 +196,12 @@ fn vim_token_count(tokens_str: &str) -> usize {
 ///   vim comments can't specify frozen_string_literal/shareable_constant_value/typed/rbs_inline
 /// - Simple comments: require ": " (colon + space) after keyword
 fn is_magic_comment(line: &str) -> bool {
-    let lower = line.to_lowercase();
-
     // Must start with #
-    if !lower.trim_start().starts_with('#') {
+    if !line.starts_with('#') {
         return false;
     }
+
+    let lower = line.to_lowercase();
 
     // Emacs style: try to extract -*- ... -*- content
     if let Some(inner) = extract_emacs_inner(&lower) {
@@ -257,11 +272,7 @@ fn is_magic_comment(line: &str) -> bool {
     // if any keyword is specified. So we need to match what RuboCop actually accepts.
 
     // Extract content after # (with optional space)
-    let content = if let Some(rest) = lower.strip_prefix("# ") {
-        rest.trim()
-    } else if let Some(rest) = lower.strip_prefix('#') {
-        rest.trim()
-    } else {
+    let Some(content) = simple_comment_content(&lower) else {
         return false;
     };
 
@@ -310,6 +321,10 @@ fn is_magic_comment(line: &str) -> bool {
 /// - EmacsComment: `# -*- coding: utf-8 -*-` (may have trailing content after -\*-)
 /// - VimComment: `# vim: filetype=ruby, fileencoding=utf-8` (requires 2+ tokens)
 fn is_utf8_encoding_comment(line: &str) -> bool {
+    if !line.starts_with('#') {
+        return false;
+    }
+
     let lower = line.to_lowercase();
 
     // Emacs style: extract content between first and last -*-
@@ -358,20 +373,7 @@ fn is_utf8_encoding_comment(line: &str) -> bool {
     // Simple format: # encoding: utf-8 or # coding: utf-8
     // Requires space after colon per RuboCop's SimpleComment regex.
     // Extract content after # (with optional whitespace)
-    let content = if let Some(rest) = lower.strip_prefix("# ") {
-        rest.trim()
-    } else if let Some(rest) = lower.strip_prefix('#') {
-        rest.trim()
-    } else {
-        return false;
-    };
-
-    // RuboCop SimpleComment#encoding regex:
-    // /\A\s*\#\s*(frozen_string_literal:\s*(true|false))?\s*(?:en)?coding: (TOKEN)/io
-    // This allows optional frozen_string_literal prefix. We handle the simple case.
-    // The key: "coding: " requires colon + space.
-    if let Some(after) = strip_encoding_prefix_with_space(content) {
-        let value = after.trim();
+    if let Some(value) = extract_simple_encoding_value(&lower) {
         if value.eq_ignore_ascii_case("utf-8") {
             return true;
         }
@@ -380,15 +382,59 @@ fn is_utf8_encoding_comment(line: &str) -> bool {
     false
 }
 
-/// Strip the encoding/coding prefix with colon+space, returning the value part.
-/// Matches RuboCop's SimpleComment requirement of ": " (colon followed by space).
-fn strip_encoding_prefix_with_space(s: &str) -> Option<&str> {
-    let lower = s.to_lowercase();
-    for prefix in &["encoding: ", "coding: "] {
-        if lower.starts_with(prefix) {
-            return Some(&s[prefix.len()..]);
+/// Extract the content after a leading '#', trimming only the whitespace that Ruby
+/// allows between '#' and the magic comment keyword.
+fn simple_comment_content(line: &str) -> Option<&str> {
+    Some(line.strip_prefix('#')?.trim_start())
+}
+
+/// Consume a leading magic-comment token value. RuboCop uses `[[:alnum:]\\-_]+`
+/// for the token, so parsing stops at the first non-token character.
+fn take_magic_token(value: &str) -> Option<&str> {
+    let end = value
+        .char_indices()
+        .find_map(|(idx, ch)| {
+            (!ch.is_ascii_alphanumeric() && ch != '-' && ch != '_').then_some(idx)
+        })
+        .unwrap_or(value.len());
+
+    (end > 0).then_some(&value[..end])
+}
+
+/// Skip the optional `frozen_string_literal: true|false` prefix that RuboCop's
+/// SimpleComment encoding regex accepts ahead of `coding: ...`.
+fn skip_simple_frozen_string_literal_prefix(content: &str) -> &str {
+    for prefix in ["frozen_string_literal:", "frozen-string-literal:"] {
+        if let Some(after_prefix) = content.strip_prefix(prefix) {
+            let after_prefix = after_prefix.trim_start();
+            if let Some(value) = take_magic_token(after_prefix) {
+                if matches!(value, "true" | "false") {
+                    return after_prefix[value.len()..].trim_start();
+                }
+            }
         }
     }
+
+    content
+}
+
+/// Extract the encoding token for a simple magic comment.
+/// Matches RuboCop's `SimpleComment#encoding` behavior:
+/// - the raw line must start with '#'
+/// - optional spaces after '#'
+/// - optional `frozen_string_literal: true|false` prefix
+/// - `encoding: ` or `coding: ` with exactly one space after the colon
+/// - capture only the leading token characters, ignoring any trailing junk
+fn extract_simple_encoding_value(line: &str) -> Option<&str> {
+    let content = simple_comment_content(line)?;
+    let content = skip_simple_frozen_string_literal_prefix(content);
+
+    for prefix in ["encoding: ", "coding: "] {
+        if let Some(after_prefix) = content.strip_prefix(prefix) {
+            return take_magic_token(after_prefix);
+        }
+    }
+
     None
 }
 
@@ -402,6 +448,7 @@ mod tests {
         mixed_case = "mixed_case.rb",
         after_shebang = "after_shebang.rb",
         coding_format = "coding_format.rb",
+        malformed_trailing_marker = "malformed_trailing_marker.rb",
         emacs_with_trailing = "emacs_with_trailing.rb",
         emacs_encoding = "emacs_encoding.rb",
     );
@@ -497,6 +544,31 @@ mod tests {
         assert!(
             diags.is_empty(),
             "Should NOT flag #coding:utf-8 (no space): {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_fp_indented_simple_encoding_comment() {
+        // RuboCop requires magic comments to start with '#'. Leading indentation
+        // makes this an ordinary comment, so Style/Encoding should not fire.
+        let input = b"  # encoding: utf-8\n  require 'foo'\n";
+        let diags = crate::testutil::run_cop_full(&Encoding, input);
+        assert!(
+            diags.is_empty(),
+            "Should NOT flag indented encoding comment: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_fp_indented_emacs_encoding_comment() {
+        // Indented editor comments are also ordinary comments, not magic comments.
+        let input = b"  # -*- coding: utf-8 -*-\n##########################################################################\n";
+        let diags = crate::testutil::run_cop_full(&Encoding, input);
+        assert!(
+            diags.is_empty(),
+            "Should NOT flag indented emacs encoding comment: {:?}",
             diags
         );
     }
