@@ -227,6 +227,31 @@ use crate::parse::source::SourceFile;
 /// `is_inside_conditional_block` is true, check whether `private` appears AFTER
 /// the enclosing conditional keyword and BEFORE the def (same nesting level),
 /// which means private still applies within that branch.
+///
+/// ## Investigation (2026-03-26): representative FN fixtures pass, corpus FN remain
+///
+/// Added the current representative corpus FN snippets to the fixture:
+/// `@attribute_manager.add_word_pair(start, stop, name)`, `@attrs[n]`,
+/// `@items << item`, `@parts.empty?`, `@parts.length`, and `def pop = frames.pop`.
+/// The cop matches those cases in the unit fixture, so the remaining corpus FN=78
+/// are not caused by the local delegation matcher.
+///
+/// Direct corpus reproduction showed a split between explicit-file and repo-root runs:
+/// - Passing a missed file explicitly to nitrocop with the corpus config reports
+///   the expected offenses (for example `rdoc/markup.rb` lines 594/601/614 and
+///   `rdoc/markup/list.rb` lines 28/54/61).
+/// - Running the same repo through `bench/corpus.run_nitrocop(..., cop='Rails/Delegate')`
+///   omits those files entirely from the offense set.
+///
+/// The same pattern reproduced for `amuta__kumi__790c2e0`:
+/// `lib/kumi/core/analyzer/passes/lir/lower_pass.rb:48` is flagged when passed
+/// explicitly, but disappears in the repo-root corpus run.
+///
+/// Conclusion: the remaining corpus FN are dominated by whole-repo execution
+/// dropping or suppressing eligible files before this cop runs. The likely fix
+/// is outside this cop (file discovery / global exclude / repo-root config
+/// handling in `fs.rs`, `linter.rs`, or `config/mod.rs`). No narrow matcher
+/// change here fixes the corpus gap without papering over the real issue.
 pub struct Delegate;
 
 impl Cop for Delegate {
