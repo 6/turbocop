@@ -511,14 +511,6 @@ jobs:
             ${COP_LIST:+--cop-list "$COP_LIST"} \
             $CONTEXT_DIR
 
-      - name: Free disk after diff
-        run: |
-          # Remove raw rubocop results now that the diff step has consumed them.
-          # They've already been copied into rubocop-cache/ for future runs.
-          rm -rf all-results/results/rubocop
-          echo "Freed rubocop shard results"
-          df -h / | tail -1
-
       - name: Generate tiers.json
         run: |
           python3 bench/corpus/gen_tiers.py \
