@@ -4,3 +4,5 @@ refute_nil value
 ^^^^^^^^^^^^^^^^ Rails/RefuteMethods: Prefer `assert_not_nil` over `refute_nil`.
 refute_match(/pattern/, str)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RefuteMethods: Prefer `assert_no_match` over `refute_match`.
+refute_predicate(logdev.dev, :binmode?)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RefuteMethods: Prefer `assert_not_predicate` over `refute_predicate`.
