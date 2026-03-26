@@ -150,7 +150,7 @@ def cmd_init(args: list[str]) -> int:
     p.add_argument("--cop", required=True)
     p.add_argument("--mode", required=True)
     p.add_argument("--backend-input", required=True)
-    p.add_argument("--strength-input", required=True)
+    p.add_argument("--strength-input", default="hard")  # kept for compat, always hard
     p.add_argument("--run-id", required=True)
     opts = p.parse_args(args)
 
@@ -163,10 +163,7 @@ def cmd_init(args: list[str]) -> int:
     _output("dept_dir", ids["dept_dir"])
     _output("cop_snake", ids["cop_snake"])
 
-    _notice(
-        f"{opts.mode.title()} cop: {opts.cop} "
-        f"(backend input: {opts.backend_input}, strength: {opts.strength_input})"
-    )
+    _notice(f"{opts.mode.title()} cop: {opts.cop} (backend input: {opts.backend_input})")
     return 0
 
 
@@ -180,7 +177,7 @@ def cmd_select_backend(args: list[str]) -> int:
     p.add_argument("--cop", required=True)
     p.add_argument("--mode", required=True)
     p.add_argument("--backend-input", required=True)
-    p.add_argument("--strength-input", required=True)
+    p.add_argument("--strength-input", default="hard")  # kept for compat, always hard
     p.add_argument("--issue-number", default="")
     p.add_argument("--repo", required=True)
     p.add_argument("--binary", required=True)
@@ -218,14 +215,10 @@ def cmd_select_backend(args: list[str]) -> int:
                 key, _, val = line.partition("=")
                 _output(key, val)
     else:
-        # Manual backend selection
-        default_strength = "normal"
-        if opts.mode == "retry" and opts.backend_input == "codex":
-            default_strength = "hard"
-
+        # Manual backend selection — always hard
         result = _run([
             sys.executable, str(SCRIPTS_DIR / "resolve_backend.py"),
-            "choose", opts.backend_input, opts.strength_input, default_strength,
+            "choose", opts.backend_input, "hard", "hard",
         ])
         for line in result.stdout.strip().splitlines():
             line = line.strip()

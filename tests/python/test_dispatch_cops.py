@@ -395,7 +395,6 @@ def test_cmd_dispatch_issues_respects_capacity_and_uses_auto_backend():
                     max_active=2,
                     dry_run=True,
                     backend_family_override="auto",
-                    strength_override="auto",
                     department=None,
                 )
             )
@@ -411,7 +410,6 @@ def test_cmd_dispatch_issues_respects_capacity_and_uses_auto_backend():
             "cop": "Layout/Foo",
             "difficulty": "simple",
             "backend_family": "auto",
-            "strength": "auto",
         }
     ]
 

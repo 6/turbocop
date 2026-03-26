@@ -22,14 +22,6 @@ on:
           - claude-oauth
           - minimax
         default: auto
-      strength:
-        description: 'Model strength (used when backend is not auto)'
-        type: choice
-        options:
-          - auto
-          - normal
-          - hard
-        default: auto
       mode:
         description: 'Mode: fix (fresh) or retry (with prior attempt context)'
         type: choice
@@ -100,7 +92,6 @@ jobs:
             --cop "${{ github.event.inputs.cop }}" \
             --mode "${{ github.event.inputs.mode }}" \
             --backend-input "${{ github.event.inputs.backend }}" \
-            --strength-input "${{ github.event.inputs.strength }}" \
             --run-id "${{ github.run_id }}" \
             >> "$GITHUB_OUTPUT"
 
@@ -168,7 +159,6 @@ jobs:
             --cop "${{ github.event.inputs.cop }}" \
             --mode "${{ github.event.inputs.mode }}" \
             --backend-input "${{ github.event.inputs.backend }}" \
-            --strength-input "${{ github.event.inputs.strength }}" \
             --issue-number "${{ github.event.inputs.issue_number }}" \
             --repo "${{ github.repository }}" \
             --binary target/debug/nitrocop \

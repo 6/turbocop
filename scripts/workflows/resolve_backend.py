@@ -185,7 +185,7 @@ BACKENDS = {
 }
 
 
-def choose_backend(family: str, strength: str, default_strength: str = "normal") -> tuple[str, str, str]:
+def choose_backend(family: str, strength: str, default_strength: str = "hard") -> tuple[str, str, str]:
     if family == "auto":
         raise ValueError("auto family cannot be resolved without external routing")
 

@@ -24,14 +24,6 @@ on:
           - claude-oauth
           - minimax
         default: auto
-      strength_override:
-        description: "Override model strength for all dispatched issues"
-        type: choice
-        options:
-          - auto
-          - normal
-          - hard
-        default: auto
       department:
         description: "Only dispatch cops in this department (e.g., Rails, Style, Performance). Empty = all."
         required: false
@@ -61,7 +53,7 @@ jobs:
             --repo "${{ github.repository }}"
             --max-active "${{ github.event.inputs.max_active }}"
             --backend-family-override "${{ github.event.inputs.backend_override }}"
-            --strength-override "${{ github.event.inputs.strength_override }}"
+            --strength-override "hard"
           )
           if [ -n "${{ github.event.inputs.department }}" ]; then
             ARGS+=(--department "${{ github.event.inputs.department }}")

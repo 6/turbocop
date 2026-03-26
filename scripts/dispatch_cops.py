@@ -2039,14 +2039,12 @@ def cmd_dispatch_issues(args: argparse.Namespace) -> int:
         fields = parse_marker_fields(issue.get("body", ""), TRACKER_RE)
         difficulty = fields.get("difficulty", "complex")
         backend_family = args.backend_family_override
-        strength = args.strength_override
         result["selected"].append(
             {
                 "issue": issue["number"],
                 "cop": cop,
                 "difficulty": difficulty,
                 "backend_family": backend_family,
-                "strength": strength,
             }
         )
         if args.dry_run:
@@ -2056,7 +2054,6 @@ def cmd_dispatch_issues(args: argparse.Namespace) -> int:
             "--repo", repo,
             "-f", f"cop={cop}",
             "-f", f"backend={backend_family}",
-            "-f", f"strength={strength}",
             "-f", "mode=fix",
             "-f", f"issue_number={issue['number']}",
         ]
@@ -2146,11 +2143,6 @@ def main():
     dispatch_issues.add_argument(
         "--backend-family-override",
         choices=["auto", "codex", "claude", "claude-oauth", "minimax"],
-        default="auto",
-    )
-    dispatch_issues.add_argument(
-        "--strength-override",
-        choices=["auto", "normal", "hard"],
         default="auto",
     )
     dispatch_issues.add_argument(
