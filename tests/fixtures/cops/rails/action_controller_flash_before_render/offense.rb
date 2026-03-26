@@ -278,3 +278,135 @@ class Widget < ActiveRecord::Base
     ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
   end
 end
+
+# FN fix: flash inside case/when branches before redirect at method level
+class ArticlesController < ApplicationController
+  def cancelvote
+    @article.unvote_by current_user
+    case @article.vote_registered?
+    when true
+      flash[:notice] = %(Could not cancel your vote for the article "#{@article.title}")
+      ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+    when false
+      flash[:notice] = %(Cancelled your vote for the article "#{@article.title}")
+      ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+    when nil
+      flash[:error] = 'Can not cancel when you have not voted for this article'
+      ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+    end
+    redirect_to article_path(@article)
+  end
+end
+
+# FN fix: lambda hash values should be checked like regular block bodies
+class AgentsController < ApplicationController
+  def create
+    handle_crud(
+      on_invalid: lambda {
+        ensure_auth_and_display
+        return render_aspace_partial partial: "agents/new" if inline?
+        return render action: :new
+      },
+      on_valid: lambda { |id|
+        flash[:success] = t("agent._frontend.messages.created")
+        ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+
+        if @agent["is_slug_auto"] == false &&
+           @agent["slug"].nil? &&
+           params["agent"] &&
+           params["agent"]["is_slug_auto"] == "1"
+          flash[:warning] = t("slug.autogen_disabled")
+          ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+        end
+
+        return render json: @agent.to_hash if inline?
+        if params.key?(:plus_one)
+          return redirect_to(controller: :agents, action: :new, agent_type: @agent_type)
+        end
+
+        redirect_to(controller: :agents, action: :edit, id: id, agent_type: @agent_type)
+      }
+    )
+  end
+end
+
+# FN fix: stabby lambdas nested in keyword hashes should also be visited
+class DigitalObjectsController < ApplicationController
+  def create
+    handle_crud(
+      :on_invalid => ->() {
+        return render_aspace_partial :partial => "new" if inline?
+        render :action => "new"
+      },
+      :on_valid => ->(id) {
+        flash[:success] = t("digital_object._frontend.messages.created", digital_object_title: clean_mixed_content(@digital_object.title))
+        ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+
+        if @digital_object["is_slug_auto"] == false &&
+           @digital_object["slug"] == nil &&
+           params["digital_object"] &&
+           params["digital_object"]["is_slug_auto"] == "1"
+          flash[:warning] = t("slug.autogen_disabled")
+          ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+        end
+
+        return render :json => @digital_object.to_hash if inline?
+        redirect_to(
+          :controller => :digital_objects,
+          :action => :edit,
+          :id => id
+        )
+      }
+    )
+  end
+end
+
+# FN fix: on_invalid lambdas nested in call arguments should be checked
+class UsersController < ApplicationController
+  def update
+    update_user(
+      :on_invalid => ->() {
+        flash[:error] = t("user._frontend.messages.error_update")
+        ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+        render :action => "edit"
+      },
+      :on_valid => ->(id) {
+        redirect_to :action => :index
+      }
+    )
+  end
+end
+
+# FN fix: local lambda assignments should be visited, not just statement-level blocks
+class SessionsController < ApplicationController
+  def authenticate_sensitive
+    on_success = lambda do
+      session[:last_authenticated_at] = Time.now
+    end
+    on_failure = lambda do
+      flash[:danger] = I18n.t("users.edit.sensitive.failure")
+      ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+    end
+
+    render :edit
+  end
+end
+
+# FN fix: explicit begin/rescue bodies should see render in rescue clauses,
+# but not render after the begin/end block
+class AdviceController < ApplicationController
+  def save_advice
+    begin
+      unless params[:advice].nil?
+        params[:advice].keys.each do |advice_key|
+          QuestionAdvice.update(advice_key, advice: params[:advice][advice_key.to_sym][:advice])
+        end
+        flash[:notice] = "The advice was successfully saved!"
+        ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+      end
+    rescue ActiveRecord::RecordNotFound
+      render action: "edit_advice", id: params[:id]
+    end
+    redirect_to action: "edit_advice", id: params[:id]
+  end
+end

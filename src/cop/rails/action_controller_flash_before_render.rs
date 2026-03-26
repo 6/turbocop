@@ -133,6 +133,23 @@
 /// - respond_to with render in nested if/else (~2 FN): block body scoping issue
 /// - unless inside begin/rescue (~1 FN): complex nesting
 /// - nested assignment `query = flash[:query] = ...` (~1 FN): not a top-level stmt
+///
+/// ## Investigation (2026-03-26): FN cluster in case/when and nested lambda bodies
+///
+/// - Root cause 16 (FN~20): `CaseNode` branches were never checked. RuboCop does
+///   not treat `case` as an `if/rescue` ancestor, so `when` bodies need their own
+///   sibling logic: check later statements in the same branch first, then fall back
+///   to the case node's outer siblings for explicit render or def-level implicit render.
+/// - Root cause 17 (FN~8): only statement-level `call.block()` bodies were visited.
+///   This missed `lambda { ... }` / `-> { ... }` bodies nested inside assignments or
+///   hash arguments like `on_valid: lambda { ... }` and `on_invalid: ->() { ... }`.
+///   Added descendant block/lambda traversal that preserves the enclosing sibling
+///   context and reuses the existing block/branch analysis for the nested body.
+/// - Root cause 18 (FP/FN): explicit `begin ... rescue ... end` blocks inside methods need
+///   rescue-context handling. Flash in the begin body should see render in rescue/ensure
+///   clauses, but not render after the begin/end block. Propagating method-level outer
+///   siblings caused FPs like `country_bands_controller`, while suppressing too much caused
+///   FNs like `advice_controller`.
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -307,12 +324,17 @@ impl FlashVisitor<'_> {
                 self.check_begin_node_with_outer(&begin_node, remaining);
             }
 
-            // Recurse into respond_to/format blocks (nested block bodies).
-            // Pass outer siblings so implicit-render detection can see outer redirect/render.
-            if let Some(call_node) = stmt.as_call_node() {
-                if let Some(block) = call_node.block() {
-                    self.check_block_body_with_outer(&block, remaining, false);
-                }
+            if let Some(case_node) = stmt.as_case_node() {
+                self.check_case_node_with_outer(&case_node, remaining, false);
+            }
+
+            let handled_context = stmt.as_if_node().is_some()
+                || stmt.as_unless_node().is_some()
+                || stmt.as_begin_node().is_some()
+                || stmt.as_case_node().is_some();
+
+            if !handled_context {
+                self.check_embedded_contexts_with_outer(stmt, remaining, false);
             }
         }
     }
@@ -456,12 +478,80 @@ impl FlashVisitor<'_> {
     ) {
         if let Some(stmts) = begin_node.statements() {
             let body_nodes: Vec<_> = stmts.body().iter().collect();
-            self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
+            let rescue_context_nodes = begin_rescue_context_nodes(begin_node);
+            if !rescue_context_nodes.is_empty() {
+                self.check_begin_body_with_rescue(&body_nodes, &rescue_context_nodes);
+            } else {
+                self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
+            }
         }
         // For rescue clauses: RuboCop's each_ancestor(:rescue) finds the rescue node,
         // and rescue.right_siblings within the begin is empty. So pass empty outer.
         if let Some(rescue) = begin_node.rescue_clause() {
             self.check_rescue_with_outer(&rescue, &[]);
+        }
+    }
+
+    fn check_begin_body_with_rescue(
+        &mut self,
+        begin_stmts: &[ruby_prism::Node<'_>],
+        rescue_context_nodes: &[ruby_prism::Node<'_>],
+    ) {
+        for stmt in begin_stmts {
+            if let Some(nested_if) = stmt.as_if_node() {
+                self.check_if_node_with_outer(&nested_if, rescue_context_nodes);
+            }
+            if let Some(nested_unless) = stmt.as_unless_node() {
+                self.check_unless_node_with_outer(&nested_unless, rescue_context_nodes);
+            }
+            if let Some(nested_begin) = stmt.as_begin_node() {
+                self.check_begin_node_with_outer(&nested_begin, rescue_context_nodes);
+            }
+            if let Some(nested_case) = stmt.as_case_node() {
+                self.check_case_node_with_outer(&nested_case, rescue_context_nodes, true);
+            }
+
+            let handled_context = stmt.as_if_node().is_some()
+                || stmt.as_unless_node().is_some()
+                || stmt.as_begin_node().is_some()
+                || stmt.as_case_node().is_some();
+
+            if !handled_context {
+                self.check_embedded_contexts_with_outer(stmt, rescue_context_nodes, true);
+            }
+        }
+    }
+
+    fn check_case_node_with_outer(
+        &mut self,
+        case_node: &ruby_prism::CaseNode<'_>,
+        outer_siblings: &[ruby_prism::Node<'_>],
+        in_if_rescue_context: bool,
+    ) {
+        for condition in case_node.conditions().iter() {
+            let Some(when_node) = condition.as_when_node() else {
+                continue;
+            };
+            let Some(stmts) = when_node.statements() else {
+                continue;
+            };
+            let body_nodes: Vec<_> = stmts.body().iter().collect();
+            if in_if_rescue_context {
+                self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
+            } else {
+                self.check_case_branch_stmts(&body_nodes);
+            }
+        }
+
+        if let Some(else_clause) = case_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                let body_nodes: Vec<_> = stmts.body().iter().collect();
+                if in_if_rescue_context {
+                    self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
+                } else {
+                    self.check_case_branch_stmts(&body_nodes);
+                }
+            }
         }
     }
 
@@ -476,6 +566,51 @@ impl FlashVisitor<'_> {
         }
         if let Some(subsequent) = rescue.subsequent() {
             self.check_rescue_with_outer(&subsequent, outer_siblings);
+        }
+    }
+
+    fn check_case_branch_stmts(&mut self, branch_stmts: &[ruby_prism::Node<'_>]) {
+        for (i, stmt) in branch_stmts.iter().enumerate() {
+            let inner_remaining = &branch_stmts[i + 1..];
+
+            if let Some(flash_loc) = get_flash_assignment(stmt) {
+                let inner_has_redirect = inner_remaining.iter().any(|s| is_redirect_sibling(s));
+                let inner_has_render = inner_remaining.iter().any(|s| contains_render(s));
+
+                let is_offense = if inner_has_render {
+                    true
+                } else if inner_remaining.is_empty() {
+                    !inner_has_redirect
+                } else {
+                    false
+                };
+
+                if is_offense {
+                    self.emit_diagnostic(flash_loc);
+                }
+            }
+
+            if let Some(nested_if) = stmt.as_if_node() {
+                self.check_if_node_with_outer(&nested_if, inner_remaining);
+            }
+            if let Some(nested_unless) = stmt.as_unless_node() {
+                self.check_unless_node_with_outer(&nested_unless, inner_remaining);
+            }
+            if let Some(nested_begin) = stmt.as_begin_node() {
+                self.check_begin_node_with_outer(&nested_begin, inner_remaining);
+            }
+            if let Some(nested_case) = stmt.as_case_node() {
+                self.check_case_node_with_outer(&nested_case, inner_remaining, false);
+            }
+
+            let handled_context = stmt.as_if_node().is_some()
+                || stmt.as_unless_node().is_some()
+                || stmt.as_begin_node().is_some()
+                || stmt.as_case_node().is_some();
+
+            if !handled_context {
+                self.check_embedded_contexts_with_outer(stmt, inner_remaining, false);
+            }
         }
     }
 
@@ -513,21 +648,15 @@ impl FlashVisitor<'_> {
             let inner_remaining = &branch_stmts[i + 1..];
 
             if let Some(flash_loc) = get_flash_assignment(stmt) {
-                // RuboCop's use_redirect_to? checks flash's direct siblings for redirect_to
+                let inner_has_render = inner_remaining.iter().any(|s| contains_render(s));
                 let inner_has_redirect = inner_remaining.iter().any(|s| is_redirect_sibling(s));
-
-                // If redirect_to appears after flash in the same branch → no offense
-                if inner_has_redirect {
-                    continue;
-                }
 
                 let is_offense = if is_if_rescue_branch {
                     // For if/rescue: only check outer siblings for render.
                     // No implicit render from branches.
-                    outer_has_render
+                    !inner_has_redirect && outer_has_render
                 } else {
                     // For block bodies: check inner siblings for render first (like def level).
-                    let inner_has_render = inner_remaining.iter().any(|s| contains_render(s));
                     if inner_has_render {
                         true
                     } else if inner_remaining.is_empty() {
@@ -570,18 +699,30 @@ impl FlashVisitor<'_> {
             if let Some(nested_begin) = stmt.as_begin_node() {
                 self.check_begin_node_with_outer(&nested_begin, inner_remaining);
             }
-            if let Some(call_node) = stmt.as_call_node() {
-                if let Some(block) = call_node.block() {
-                    // In RuboCop, blocks are transparent to each_ancestor(:if, :rescue).
-                    // When inside an if/rescue context, the block inherits the if/rescue's
-                    // outer siblings, not the block's own siblings within the parent scope.
-                    let block_outer = if is_if_rescue_branch {
-                        outer_siblings
-                    } else {
-                        inner_remaining
-                    };
-                    self.check_block_body_with_outer(&block, block_outer, is_if_rescue_branch);
-                }
+            if let Some(nested_case) = stmt.as_case_node() {
+                let case_outer = if is_if_rescue_branch {
+                    outer_siblings
+                } else {
+                    inner_remaining
+                };
+                self.check_case_node_with_outer(&nested_case, case_outer, is_if_rescue_branch);
+            }
+
+            let handled_context = stmt.as_if_node().is_some()
+                || stmt.as_unless_node().is_some()
+                || stmt.as_begin_node().is_some()
+                || stmt.as_case_node().is_some();
+
+            if !handled_context {
+                // In RuboCop, blocks and lambdas are transparent to each_ancestor(:if, :rescue).
+                // When inside an if/rescue context, nested block-like bodies inherit the
+                // if/rescue's outer siblings rather than their local sibling list.
+                let embedded_outer = if is_if_rescue_branch {
+                    outer_siblings
+                } else {
+                    inner_remaining
+                };
+                self.check_embedded_contexts_with_outer(stmt, embedded_outer, is_if_rescue_branch);
             }
         }
     }
@@ -612,6 +753,38 @@ impl FlashVisitor<'_> {
         }
     }
 
+    fn check_lambda_body_with_outer(
+        &mut self,
+        lambda: &ruby_prism::LambdaNode<'_>,
+        outer_siblings: &[ruby_prism::Node<'_>],
+        in_if_rescue_context: bool,
+    ) {
+        if let Some(body) = lambda.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                let body_nodes: Vec<_> = stmts.body().iter().collect();
+                self.check_branch_stmts_with_outer(
+                    &body_nodes,
+                    outer_siblings,
+                    in_if_rescue_context,
+                );
+            }
+        }
+    }
+
+    fn check_embedded_contexts_with_outer(
+        &mut self,
+        node: &ruby_prism::Node<'_>,
+        outer_siblings: &[ruby_prism::Node<'_>],
+        in_if_rescue_context: bool,
+    ) {
+        let mut visitor = EmbeddedContextVisitor {
+            flash_visitor: self,
+            outer_siblings,
+            in_if_rescue_context,
+        };
+        visitor.visit(node);
+    }
+
     fn emit_diagnostic(&mut self, flash_loc: usize) {
         let (line, column) = self.source.offset_to_line_col(flash_loc);
         self.diagnostics.push(self.cop.diagnostic(
@@ -621,6 +794,57 @@ impl FlashVisitor<'_> {
             "Use `flash.now` before `render`.".to_string(),
         ));
     }
+}
+
+struct EmbeddedContextVisitor<'v, 'a, 'outer, 'pr> {
+    flash_visitor: &'v mut FlashVisitor<'a>,
+    outer_siblings: &'outer [ruby_prism::Node<'pr>],
+    in_if_rescue_context: bool,
+}
+
+impl<'a, 'outer, 'pr> Visit<'pr> for EmbeddedContextVisitor<'_, 'a, 'outer, 'pr> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if let Some(block) = node.block() {
+            if block.as_block_node().is_some() {
+                self.flash_visitor.check_block_body_with_outer(
+                    &block,
+                    self.outer_siblings,
+                    self.in_if_rescue_context,
+                );
+            }
+        }
+
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+        }
+        if let Some(args) = node.arguments() {
+            for arg in args.arguments().iter() {
+                self.visit(&arg);
+            }
+        }
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        self.flash_visitor.check_lambda_body_with_outer(
+            node,
+            self.outer_siblings,
+            self.in_if_rescue_context,
+        );
+    }
+
+    fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
+        self.flash_visitor.check_case_node_with_outer(
+            node,
+            self.outer_siblings,
+            self.in_if_rescue_context,
+        );
+    }
+
+    fn visit_if_node(&mut self, _node: &ruby_prism::IfNode<'pr>) {}
+
+    fn visit_unless_node(&mut self, _node: &ruby_prism::UnlessNode<'pr>) {}
+
+    fn visit_begin_node(&mut self, _node: &ruby_prism::BeginNode<'pr>) {}
 }
 
 /// Check if a class inherits from ApplicationController, ActionController::Base,
@@ -684,6 +908,19 @@ fn is_action_controller_class(class: &ruby_prism::ClassNode<'_>) -> bool {
     }
 
     false
+}
+
+fn begin_rescue_context_nodes<'pr>(
+    begin_node: &ruby_prism::BeginNode<'pr>,
+) -> Vec<ruby_prism::Node<'pr>> {
+    let mut nodes = Vec::new();
+    if let Some(rescue) = begin_node.rescue_clause() {
+        nodes.push(rescue.as_node());
+    }
+    if let Some(ensure_clause) = begin_node.ensure_clause() {
+        nodes.push(ensure_clause.as_node());
+    }
+    nodes
 }
 
 /// Search a class body for any reference to ApplicationController or ActionController::Base.

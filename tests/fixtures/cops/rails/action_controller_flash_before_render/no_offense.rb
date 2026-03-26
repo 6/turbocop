@@ -328,3 +328,47 @@ class PaymentsController < ApplicationController
     redirect_to payments_path
   end
 end
+
+# case branches with redirect_to in the same branch should not trigger
+class VotesController < ApplicationController
+  def create
+    case params[:vote]
+    when "0"
+      flash[:notice] = "Against"
+      redirect_to votes_path
+    when "1"
+      flash[:notice] = "For"
+      redirect_to votes_path
+    end
+  end
+end
+
+# Direct flash in a begin body with rescue should not see render after the block
+class CountryBandsController < ApplicationController
+  def update
+    begin
+      flash[:success] = if has_anything_changed
+                          "Successfully updated band data."
+                        else
+                          "No change to band data."
+                        end
+    rescue ActiveRecord::RecordInvalid => e
+      flash[:danger] = e.message
+    end
+    render :edit
+  end
+end
+
+# Direct flash in an explicit begin body should stay ignored even when the
+# begin body itself renders and rescue also renders
+class EnumerationsController < ApplicationController
+  def create
+    begin
+      flash[:success] = "Created"
+      render :plain => "Success"
+    rescue
+      flash.now[:error] = t("enumeration._frontend.messages.create_error")
+      render_aspace_partial :partial => "new"
+    end
+  end
+end
