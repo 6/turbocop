@@ -3,6 +3,15 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/FileEmpty detects patterns that check whether a file is empty
+/// and suggests using `File.empty?` instead.
+///
+/// Detected patterns:
+/// - `File.zero?('path')` / `FileTest.zero?('path')`
+/// - `File.size('path') == 0`
+/// - `File.size('path').zero?`
+/// - `File.read('path') == ""` / `File.binread('path') == ""`
+/// - `File.read('path').empty?` / `File.binread('path').empty?`
 pub struct FileEmpty;
 
 impl FileEmpty {
@@ -19,6 +28,30 @@ impl FileEmpty {
             }
         }
         false
+    }
+
+    fn report_offense(
+        &self,
+        source: &SourceFile,
+        call_loc: &ruby_prism::Location<'_>,
+        file_recv: &ruby_prism::Node<'_>,
+        arg: &ruby_prism::Node<'_>,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let (line, column) = source.offset_to_line_col(call_loc.start_offset());
+        let file_str = String::from_utf8_lossy(
+            &source.as_bytes()
+                [file_recv.location().start_offset()..file_recv.location().end_offset()],
+        );
+        let arg_str = String::from_utf8_lossy(
+            &source.as_bytes()[arg.location().start_offset()..arg.location().end_offset()],
+        );
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Use `{}.empty?({})` instead.", file_str, arg_str),
+        ));
     }
 }
 
@@ -52,78 +85,123 @@ impl Cop for FileEmpty {
 
         let method_bytes = call.name().as_slice();
 
-        // Pattern 1: File.zero?('path')
+        // Pattern 1: File.zero?('path') / FileTest.zero?('path')
+        // Pattern 2: File.size('path').zero? / FileTest.size('path').zero?
         if method_bytes == b"zero?" {
             if let Some(recv) = call.receiver() {
+                // Pattern 1: File.zero?(arg)
                 if Self::is_file_or_filetest(&recv) {
-                    let loc = call.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    let recv_src = &source.as_bytes()
-                        [recv.location().start_offset()..recv.location().end_offset()];
-                    let recv_str = String::from_utf8_lossy(recv_src);
                     if let Some(args) = call.arguments() {
                         let arg_list: Vec<_> = args.arguments().iter().collect();
                         if arg_list.len() == 1 {
-                            let arg_src = &source.as_bytes()[arg_list[0].location().start_offset()
-                                ..arg_list[0].location().end_offset()];
-                            let arg_str = String::from_utf8_lossy(arg_src);
-                            diagnostics.push(self.diagnostic(
+                            self.report_offense(
                                 source,
-                                line,
-                                column,
-                                format!("Use `{}.empty?({})` instead.", recv_str, arg_str),
-                            ));
+                                &call.location(),
+                                &recv,
+                                &arg_list[0],
+                                diagnostics,
+                            );
+                        }
+                    }
+                }
+                // Pattern 2: File.size(arg).zero?
+                else if let Some(size_call) = recv.as_call_node() {
+                    if size_call.name().as_slice() == b"size" {
+                        if let Some(file_recv) = size_call.receiver() {
+                            if Self::is_file_or_filetest(&file_recv) {
+                                if let Some(size_args) = size_call.arguments() {
+                                    let sa: Vec<_> = size_args.arguments().iter().collect();
+                                    if sa.len() == 1 {
+                                        self.report_offense(
+                                            source,
+                                            &call.location(),
+                                            &file_recv,
+                                            &sa[0],
+                                            diagnostics,
+                                        );
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Pattern 2: File.size('path') == 0 or File.size('path').zero?
-        // This is detected at the outer call level
+        // Pattern 3: File.size('path') == 0
+        // Pattern 4: File.read('path') == "" / File.binread('path') == ""
         if method_bytes == b"==" {
             if let Some(recv) = call.receiver() {
-                if let Some(size_call) = recv.as_call_node() {
-                    if size_call.name().as_slice() == b"size" {
-                        if let Some(file_recv) = size_call.receiver() {
-                            if Self::is_file_or_filetest(&file_recv) {
-                                // Check that the argument is 0
-                                if let Some(args) = call.arguments() {
-                                    let arg_list: Vec<_> = args.arguments().iter().collect();
-                                    if arg_list.len() == 1 {
-                                        if let Some(int_node) = arg_list[0].as_integer_node() {
-                                            if int_node.location().as_slice() == b"0" {
-                                                let loc = call.location();
-                                                let (line, column) =
-                                                    source.offset_to_line_col(loc.start_offset());
-                                                let file_src = &source.as_bytes()[file_recv
-                                                    .location()
-                                                    .start_offset()
-                                                    ..file_recv.location().end_offset()];
-                                                let file_str = String::from_utf8_lossy(file_src);
-                                                if let Some(size_args) = size_call.arguments() {
-                                                    let sa: Vec<_> =
-                                                        size_args.arguments().iter().collect();
-                                                    if sa.len() == 1 {
-                                                        let arg_src = &source.as_bytes()[sa[0]
-                                                            .location()
-                                                            .start_offset()
-                                                            ..sa[0].location().end_offset()];
-                                                        let arg_str =
-                                                            String::from_utf8_lossy(arg_src);
-                                                        diagnostics.push(self.diagnostic(
+                if let Some(inner_call) = recv.as_call_node() {
+                    let inner_method = inner_call.name().as_slice();
+                    if let Some(file_recv) = inner_call.receiver() {
+                        if Self::is_file_or_filetest(&file_recv) {
+                            if let Some(inner_args) = inner_call.arguments() {
+                                let ia: Vec<_> = inner_args.arguments().iter().collect();
+                                if ia.len() == 1 {
+                                    if let Some(args) = call.arguments() {
+                                        let arg_list: Vec<_> = args.arguments().iter().collect();
+                                        if arg_list.len() == 1 {
+                                            // File.size(arg) == 0
+                                            if inner_method == b"size" {
+                                                if let Some(int_node) =
+                                                    arg_list[0].as_integer_node()
+                                                {
+                                                    if int_node.location().as_slice() == b"0" {
+                                                        self.report_offense(
                                                             source,
-                                                            line,
-                                                            column,
-                                                            format!(
-                                                                "Use `{}.empty?({})` instead.",
-                                                                file_str, arg_str
-                                                            ),
-                                                        ));
+                                                            &call.location(),
+                                                            &file_recv,
+                                                            &ia[0],
+                                                            diagnostics,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            // File.read(arg) == "" / File.binread(arg) == ""
+                                            if inner_method == b"read" || inner_method == b"binread"
+                                            {
+                                                if let Some(str_node) = arg_list[0].as_string_node()
+                                                {
+                                                    if str_node.unescaped() == b"" {
+                                                        self.report_offense(
+                                                            source,
+                                                            &call.location(),
+                                                            &file_recv,
+                                                            &ia[0],
+                                                            diagnostics,
+                                                        );
                                                     }
                                                 }
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Pattern 5: File.read('path').empty? / File.binread('path').empty?
+        if method_bytes == b"empty?" {
+            if let Some(recv) = call.receiver() {
+                if let Some(read_call) = recv.as_call_node() {
+                    let read_method = read_call.name().as_slice();
+                    if read_method == b"read" || read_method == b"binread" {
+                        if let Some(file_recv) = read_call.receiver() {
+                            if Self::is_file_or_filetest(&file_recv) {
+                                if let Some(read_args) = read_call.arguments() {
+                                    let ra: Vec<_> = read_args.arguments().iter().collect();
+                                    if ra.len() == 1 {
+                                        self.report_offense(
+                                            source,
+                                            &call.location(),
+                                            &file_recv,
+                                            &ra[0],
+                                            diagnostics,
+                                        );
                                     }
                                 }
                             }
