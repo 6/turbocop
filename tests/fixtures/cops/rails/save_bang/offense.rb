@@ -300,3 +300,84 @@ def metafield_example
                                        ^^^^^^ Rails/SaveBang: Use `create!` instead of `create` if the return value is not checked. Or check `persisted?` on model returned from `create`.
   nil
 end
+
+# RDoc merge helpers: modify calls in multi-statement method bodies should still be flagged
+def merge(mod, klass)
+  klass.attributes.concat mod.attributes
+  klass.method_list.concat mod.method_list
+  klass.aliases.concat mod.aliases
+  klass.external_aliases.concat mod.external_aliases
+  klass.constants.concat mod.constants
+  klass.includes.concat mod.includes
+
+  klass.methods_hash.update mod.methods_hash
+                     ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+  klass.constants_hash.update mod.constants_hash
+                       ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+
+  klass.current_section = mod.current_section
+  klass.in_files.concat mod.in_files
+  klass.sections.concat mod.sections
+  klass.unmatched_alias_lists = mod.unmatched_alias_lists
+  klass.current_section = mod.current_section
+  klass.visibility = mod.visibility
+
+  klass.classes_hash.update mod.classes_hash
+                     ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+  klass.modules_hash.update mod.modules_hash
+                     ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+  klass.metadata.update mod.metadata
+                 ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+
+  klass.document_self = mod.received_nodoc ? nil : mod.document_self
+  klass.document_children = mod.document_children
+  klass.force_documentation = mod.force_documentation
+  klass.done_documenting = mod.done_documenting
+end
+
+# Bare update in a multi-statement method body is void context
+def each_port(&block)
+  close_check
+  update
+  ^^^^^^ Rails/SaveBang: Use `update!` instead of `update` if the return value is not checked.
+  @real.each_port(&block)
+end
+
+# Nested block/proc bodies do not exempt create calls
+def self.logmethods(klass, useself = true)
+  Puppet::Util::Log.eachlevel { |level|
+    klass.send(:define_method, level, proc { |args|
+      args = args.join(" ") if args.is_a?(Array)
+      if useself
+        Puppet::Util::Log.create(
+                          ^^^^^^ Rails/SaveBang: Use `create!` instead of `create` if the return value is not checked.
+          :level => level,
+          :source => self,
+          :message => args
+        )
+      else
+        Puppet::Util::Log.create(
+                          ^^^^^^ Rails/SaveBang: Use `create!` instead of `create` if the return value is not checked.
+          :level => level,
+          :message => args
+        )
+      end
+    })
+  }
+end
+
+# Create assigned to a local without persisted? should be flagged
+def execute_windows(command, arguments, stdin, stdout, stderr)
+  process_info = Process.create(
+                         ^^^^^^ Rails/SaveBang: Use `create!` instead of `create` if the return value is not checked. Or check `persisted?` on model returned from `create`.
+    :command_line => command,
+    :startup_info => {:stdin => stdin, :stdout => stdout, :stderr => stderr}
+  )
+  process_info.process_id
+end
+
+# Create in modifier-unless body is void context, not condition context
+def store(time)
+  self.create(time - 5) unless FileTest.exists?(self.path)
+       ^^^^^^ Rails/SaveBang: Use `create!` instead of `create` if the return value is not checked.
+end
