@@ -39,7 +39,7 @@ def test_minimax_uses_claude():
     assert config["log_format"] == "claude"
     assert "ANTHROPIC_BASE_URL" in config["env"]
     assert "guard_backend_secrets.py" in config["setup_cmd"]
-    assert "MINIMAX_API_KEY" in config["setup_cmd"]
+    assert "ANTHROPIC_AUTH_TOKEN" in config["setup_cmd"]
     assert "claude.ai/install.sh" in config["setup_cmd"]
 
 

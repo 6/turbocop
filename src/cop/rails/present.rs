@@ -54,6 +54,27 @@ use crate::parse::source::SourceFile;
 /// Fix: Use `unless_node.keyword_loc()` instead of `node.location()` so the offense is always
 /// reported at the `unless` keyword. Also updated message to include the actual receiver and
 /// predicate source text (matching RuboCop's dynamic message format).
+///
+/// ## Investigation (2026-03-26)
+///
+/// **FN triage result:** Representative corpus snippets like
+/// `add_comment(comment) if comment && ! comment.empty?` and
+/// `if comment and not comment.empty? then` already produce offenses when this cop is invoked
+/// directly through `run_cop_full`. The matcher handles the old `and`/`not` forms and modifier
+/// control-flow wrappers correctly.
+///
+/// **Actual blocker:** The remaining corpus miss is runtime/plugin activation, not matcher logic.
+/// `Rails` is treated as a plugin department, so CLI runs disable `Rails/Present` unless
+/// `rubocop-rails` is considered loaded via config `require:` resolution. `--force-default-config`
+/// and temp overlay configs rooted outside the repo can leave `require_departments` empty or make
+/// `bundle info --path rubocop-rails` run from `/tmp`, so the cop never executes even though the
+/// AST matcher is correct.
+///
+/// **Dead end avoided:** expanding the fixtures and changing offense text did not affect the real
+/// FN, because the direct cop reproduction already passed before any matcher change.
+///
+/// **Correct fix would need:** config/plugin loading work in `src/config/mod.rs` or overlay
+/// working-directory handling, outside this cop.
 pub struct Present;
 
 impl Cop for Present {
@@ -398,5 +419,23 @@ mod tests {
         };
         let source = b"unless x.blank?\n  do_something\nend\n";
         assert_cop_no_offenses_full_with_config(&Present, source, config);
+    }
+
+    #[test]
+    fn detects_modifier_if_exists_and_not_empty() {
+        use crate::testutil::run_cop_full;
+
+        let source =
+            b"comment = description.strip\nadd_comment(comment) if comment && ! comment.empty?\n";
+        let diagnostics = run_cop_full(&Present, source);
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        let diag = &diagnostics[0];
+        assert_eq!(diag.location.line, 2);
+        assert_eq!(diag.location.column, 24);
+        assert_eq!(
+            diag.message,
+            "Use `present?` instead of `!nil? && !empty?`."
+        );
     }
 }

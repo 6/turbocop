@@ -1,8 +1,8 @@
 name: Run Agent
 description: >-
   Execute an AI agent backend with proper secret injection, token masking,
-  and progress monitoring. Backend configuration is resolved entirely from
-  resolve_backend.py — adding a new backend only requires changes there.
+  and progress monitoring. Backend configuration (setup_cmd, run_cmd, env
+  vars) is resolved from resolve_backend.py at runtime.
 
 inputs:
   backend:
@@ -11,10 +11,8 @@ inputs:
   actions_read_token:
     description: Read-only GitHub token (used for GH_TOKEN and masked via guard_backend_secrets)
     required: true
-  # Pass all secrets unconditionally. The action injects only those the
-  # backend actually needs, based on resolve_backend.py's secret mappings.
-  minimax_api_key:
-    description: MiniMax API key secret
+  anthropic_auth_token:
+    description: Anthropic auth token (used by MiniMax backend via Claude CLI)
     default: ''
   anthropic_api_key:
     description: Anthropic API key secret
@@ -29,70 +27,39 @@ inputs:
 runs:
   using: composite
   steps:
-    # Step 1: brief — resolves backend config and writes only the needed
-    # secret(s) to a temp file.  All _SECRET_* env vars are confined here.
-    - name: Resolve backend secrets
+    - name: Setup, mask, and run agent
       shell: bash
       env:
         BACKEND: ${{ inputs.backend }}
-        _SECRET_MINIMAX_API_KEY: ${{ inputs.minimax_api_key }}
-        _SECRET_ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        _SECRET_CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
-        _SECRET_CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        GH_TOKEN: ${{ inputs.actions_read_token }}
+        GH_TOKEN_FOR_ACTIONS_READ: ${{ inputs.actions_read_token }}
+        CARGO_INCREMENTAL: '1'
+        # Every secret under every name a backend might need.
+        # Unused ones are empty strings — the backend ignores them.
+        ANTHROPIC_AUTH_TOKEN: ${{ inputs.anthropic_auth_token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
       run: |
+        # Resolve backend config
         python3 scripts/workflows/resolve_backend.py "$BACKEND" \
           > "$RUNNER_TEMP/backend.env"
-
-        # Write only the needed secret exports to a sourceable file.
-        # Uses Python repr() for safe quoting of arbitrary secret values.
-        python3 - "$RUNNER_TEMP/backend.env" "$RUNNER_TEMP/agent-secrets.env" << 'PY'
-        import os, sys
-        backend_env, secrets_out = sys.argv[1], sys.argv[2]
-        with open(secrets_out, "w") as out:
-            for line in open(backend_env):
-                if line.startswith("secret_"):
-                    key, _, target = line.strip().partition("=")
-                    source_name = key[len("secret_"):]
-                    value = os.environ.get(f"_SECRET_{source_name}", "")
-                    if value:
-                        out.write(f"export {target}={value!r}\n")
-                        if target != source_name:
-                            out.write(f"export {source_name}={value!r}\n")
-        os.chmod(secrets_out, 0o600)
-        PY
-
-    # Step 2: long-running — only GH_TOKEN_FOR_ACTIONS_READ is in env.
-    # Backend secrets come from the temp file and are cleaned up before
-    # the agent starts.
-    - name: Run agent
-      shell: bash
-      env:
-        GH_TOKEN_FOR_ACTIONS_READ: ${{ inputs.actions_read_token }}
-      run: |
         cfg() { sed -n "s/^$1=//p" "$RUNNER_TEMP/backend.env"; }
-
-        # Source backend secrets (only the needed ones), then delete
-        source "$RUNNER_TEMP/agent-secrets.env"
-        rm -f "$RUNNER_TEMP/agent-secrets.env"
 
         # Export non-secret env vars (ANTHROPIC_MODEL, API_TIMEOUT_MS, etc.)
         while IFS='=' read -r key value; do
           export "${key#env_}=$value"
         done < <(grep '^env_' "$RUNNER_TEMP/backend.env")
 
-        export CARGO_INCREMENTAL=1
-        export GH_TOKEN="$GH_TOKEN_FOR_ACTIONS_READ"
-        export GH_TOKEN_FOR_ACTIONS_READ
-
-        # --- Run backend setup (installs CLI, masks backend secret) ---
+        # Run backend setup (installs CLI, masks backend secret)
         eval "$(cfg setup_cmd)"
 
-        # --- Mask read-only GitHub token ---
+        # Mask read-only GitHub token
         python3 scripts/workflows/guard_backend_secrets.py \
           --from-env GH_TOKEN_FOR_ACTIONS_READ \
           emit-masks
 
-        # --- Background progress watcher + agent run ---
+        # Background progress watcher + agent run
         python3 scripts/workflows/agent_logs.py watch \
           --newer-than "$FINAL_TASK_FILE" --interval 30 \
           --backend "$(cfg log_format)" &

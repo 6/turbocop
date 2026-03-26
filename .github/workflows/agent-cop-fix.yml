@@ -244,7 +244,7 @@ jobs:
         with:
           backend: ${{ steps.selected_backend.outputs.backend }}
           actions_read_token: ${{ steps.actions-read-token.outputs.token }}
-          minimax_api_key: ${{ secrets.MINIMAX_API_KEY }}
+          anthropic_auth_token: ${{ secrets.MINIMAX_API_KEY }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -306,7 +306,7 @@ jobs:
         if: always() && steps.task.outputs.code_bugs != '0'
         id: leak_scan
         env:
-          MINIMAX_API_KEY: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
+          ANTHROPIC_AUTH_TOKEN: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
           ANTHROPIC_API_KEY: ${{ (steps.selected_backend.outputs.backend == 'claude-normal' || steps.selected_backend.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
           CODEX_AUTH_JSON: ${{ (steps.selected_backend.outputs.backend == 'codex-normal' || steps.selected_backend.outputs.backend == 'codex-hard') && secrets.CODEX_AUTH_JSON || '' }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ (steps.selected_backend.outputs.backend == 'claude-oauth-normal' || steps.selected_backend.outputs.backend == 'claude-oauth-hard') && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
@@ -314,7 +314,7 @@ jobs:
         run: |
           python3 scripts/workflows/guard_backend_secrets.py \
             --ignore-missing \
-            --from-env MINIMAX_API_KEY \
+            --from-env ANTHROPIC_AUTH_TOKEN \
             --from-env ANTHROPIC_API_KEY \
             --from-env CODEX_AUTH_JSON \
             --from-env CLAUDE_CODE_OAUTH_TOKEN \

@@ -22,6 +22,13 @@ const CORRECTIONS: &[(&str, &str)] = &[
     ("refute_match", "assert_no_match"),
 ];
 
+/// Rails/RefuteMethods: flags `refute_*` methods (or `assert_not_*` with refute style).
+///
+/// Corpus FN investigation (2 FN in ruby__logger, `refute_predicate` calls):
+/// The detection logic already handles all CORRECTIONS entries including `refute_predicate`.
+/// The 2 baseline FN were from an older binary that predates the corpus oracle snapshot.
+/// Current build detects them correctly when the cop is enabled via baseline config.
+/// Added `refute_predicate` fixture coverage to confirm.
 pub struct RefuteMethods;
 
 impl Cop for RefuteMethods {

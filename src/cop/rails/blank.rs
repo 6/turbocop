@@ -90,6 +90,17 @@ use ruby_prism::Visit;
 /// but `pkey_cols&.blank?` would return `nil` (falsy). So the replacement changes semantics.
 ///
 /// Fix: Added `call_operator_loc() == &.` check in `check_not_present` to skip safe navigation.
+///
+/// ## Investigation (2026-03-26)
+///
+/// **FN root cause (14 FN):** `check_nil_or_empty` rebuilt the "instead of" text as
+/// `{left} || {right}`. That normalized valid `or`/`not` source such as
+/// `name.nil? or name.empty?` and `not @params or @params.empty?` into `||` in the
+/// diagnostic message. The AST match still fired, but corpus offense matching treated the
+/// RuboCop-incompatible message text as a miss.
+///
+/// Fix: Use the original `OrNode` source slice for the diagnostic's current expression so
+/// the message preserves `or`, `||`, `not`, and the exact nested subexpression RuboCop reports.
 pub struct Blank;
 
 /// Extract the receiver source text from a CallNode, returning None if absent.
@@ -198,7 +209,7 @@ impl<'pr> BlankVisitor<'_, '_> {
         let left = or_node.left();
         let right = or_node.right();
 
-        if let Some((nil_recv, left_src)) = nil_check_receiver(&left) {
+        if let Some((nil_recv, _left_src)) = nil_check_receiver(&left) {
             // Right side must be `<same>.empty?` — NOT safe navigation (`&.empty?`)
             // RuboCop's NodePattern `(send $_ :empty?)` only matches send, not csend.
             if let Some(right_call) = right.as_call_node() {
@@ -211,19 +222,14 @@ impl<'pr> BlankVisitor<'_, '_> {
                     if nil_recv == empty_recv {
                         let loc = or_node.location();
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                        let left_str = std::str::from_utf8(left_src).unwrap_or("nil?");
-                        let right_str =
-                            std::str::from_utf8(right.location().as_slice()).unwrap_or("empty?");
+                        let current_str =
+                            std::str::from_utf8(loc.as_slice()).unwrap_or("nil? || empty?");
                         let message = match nil_recv {
                             Some(recv_bytes) => {
                                 let recv_str = std::str::from_utf8(recv_bytes).unwrap_or("object");
-                                format!(
-                                    "Use `{recv_str}.blank?` instead of `{left_str} || {right_str}`."
-                                )
+                                format!("Use `{recv_str}.blank?` instead of `{current_str}`.")
                             }
-                            None => {
-                                format!("Use `blank?` instead of `{left_str} || {right_str}`.")
-                            }
+                            None => format!("Use `blank?` instead of `{current_str}`."),
                         };
                         self.diagnostics.push(self.cop.diagnostic(
                             self.source,

@@ -70,7 +70,7 @@ MINIMAX_BACKEND = {
     "cli": "claude",
     "setup_cmd": (
         'python3 scripts/workflows/guard_backend_secrets.py '
-        '--from-env MINIMAX_API_KEY '
+        '--from-env ANTHROPIC_AUTH_TOKEN '
         'emit-masks && '
         'curl -fsSL https://claude.ai/install.sh | bash'
     ),
@@ -91,7 +91,7 @@ MINIMAX_BACKEND = {
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     },
     "secrets": {
-        "MINIMAX_API_KEY": "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_AUTH_TOKEN": "ANTHROPIC_AUTH_TOKEN",
     },
 }
 

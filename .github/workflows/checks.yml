@@ -220,9 +220,6 @@ jobs:
     needs: [cop-detect, cop-check]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - name: Gate check
         id: gate
@@ -237,12 +234,27 @@ jobs:
             echo "result=pass" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Cancelled shards (e.g. from concurrency group cancellation) are
+          # not actionable failures — skip the PR comment entirely.
+          if [ "${{ needs.cop-check.result }}" = "cancelled" ]; then
+            echo "result=cancelled" >> "$GITHUB_OUTPUT"
+            echo "cop-check was cancelled — skipping comment"
+            exit 1
+          fi
           echo "result=fail" >> "$GITHUB_OUTPUT"
           echo "cop-check failed: ${{ needs.cop-check.result }}"
           exit 1
 
+      - name: Generate app token
+        if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
       - name: Download cop-check summaries
-        if: always() && github.event_name == 'pull_request' && steps.gate.outputs.result != 'skip'
+        if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
         uses: actions/download-artifact@v8
         with:
           pattern: cop-check-summary-*
@@ -251,9 +263,9 @@ jobs:
         continue-on-error: true
 
       - name: Comment cop-check summary on PR
-        if: always() && github.event_name == 'pull_request' && steps.gate.outputs.result != 'skip'
+        if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           RESULT="${{ steps.gate.outputs.result }}"
           ICON="✅"

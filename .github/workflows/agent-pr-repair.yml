@@ -275,29 +275,18 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          cat > "$REPAIR_COMMENT_FILE" <<EOF
-          ## Auto-repair Skipped
-
-          - Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})
-          - Reason: ${{ steps.repair.outputs.reason }}
-          - Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          EOF
-          gh pr comment "${{ steps.pr.outputs.number }}" --repo "${{ github.repository }}" --body-file "$REPAIR_COMMENT_FILE"
-          if [ -n "${{ steps.pr.outputs.linked_issue_number }}" ]; then
-            cat > "$REPAIR_COMMENT_FILE" <<EOF
-          Auto-repair skipped for linked PR #${{ steps.pr.outputs.number }}.
-
-          - Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})
-          - Backend: \`${{ steps.repair.outputs.backend || 'n/a' }}\`
-          - Route: \`${{ steps.repair.outputs.route }}\`
-          - Reason: ${{ steps.repair.outputs.reason }}
-          - Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          EOF
-            gh issue comment "${{ steps.pr.outputs.linked_issue_number }}" --repo "${{ github.repository }}" --body-file "$REPAIR_COMMENT_FILE"
-            gh issue edit "${{ steps.pr.outputs.linked_issue_number }}" --repo "${{ github.repository }}" \
-              --remove-label "state:pr-open,state:dispatched,state:backlog" \
-              --add-label "state:blocked" 2>/dev/null || true
-          fi
+          python3 scripts/workflows/repair_retry_policy.py skip-comment \
+            --repo "${{ github.repository }}" \
+            --pr-number "${{ steps.pr.outputs.number }}" \
+            --linked-issue-number "${{ steps.pr.outputs.linked_issue_number }}" \
+            --heading "Auto-repair Skipped" \
+            --reason "${{ steps.repair.outputs.reason }}" \
+            --checks-run-id "${{ steps.target.outputs.checks_run_id }}" \
+            --checks-url "${{ steps.target.outputs.checks_url }}" \
+            --backend-label "${{ steps.repair.outputs.backend || 'n/a' }}" \
+            --route "${{ steps.repair.outputs.route }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Skip bounded auto-repair
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair != 'true'
@@ -305,22 +294,19 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           echo "::notice::Skipping auto-repair: ${{ steps.policy.outputs.skip_reason }}"
-          if [ "${{ steps.policy.outputs.needs_human }}" = "true" ]; then
-            if [ -n "${{ steps.pr.outputs.linked_issue_number }}" ]; then
-              cat > "$REPAIR_COMMENT_FILE" <<EOF
-            Automatic PR repair stopped for linked PR #${{ steps.pr.outputs.number }}.
-
-            - Checks run: [#${{ steps.target.outputs.checks_run_id }}](${{ steps.target.outputs.checks_url }})
-            - Backend: \`${{ steps.backend.outputs.display_label }}\`
-            - Reason: ${{ steps.policy.outputs.skip_reason }}
-            - Repair workflow: [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            EOF
-              gh issue comment "${{ steps.pr.outputs.linked_issue_number }}" --repo "${{ github.repository }}" --body-file "$REPAIR_COMMENT_FILE"
-              gh issue edit "${{ steps.pr.outputs.linked_issue_number }}" --repo "${{ github.repository }}" \
-                --remove-label "state:pr-open,state:dispatched,state:backlog" \
-                --add-label "state:blocked" 2>/dev/null || true
-            fi
-          fi
+          python3 scripts/workflows/repair_retry_policy.py skip-comment \
+            --repo "${{ github.repository }}" \
+            --pr-number "${{ steps.pr.outputs.number }}" \
+            --linked-issue-number "${{ steps.pr.outputs.linked_issue_number }}" \
+            --heading "Automatic PR repair stopped" \
+            --reason "${{ steps.policy.outputs.skip_reason }}" \
+            --checks-run-id "${{ steps.target.outputs.checks_run_id }}" \
+            --checks-url "${{ steps.target.outputs.checks_url }}" \
+            --backend-label "${{ steps.backend.outputs.display_label || 'n/a' }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            ${{ steps.policy.outputs.needs_human == 'true' && '--needs-human' || '' }} \
+            --issue-only-if-needs-human
 
       - name: Cache corpus bundle
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
@@ -430,7 +416,7 @@ jobs:
         with:
           backend: ${{ steps.repair.outputs.backend }}
           actions_read_token: ${{ steps.actions-read-token.outputs.token }}
-          minimax_api_key: ${{ secrets.MINIMAX_API_KEY }}
+          anthropic_auth_token: ${{ secrets.MINIMAX_API_KEY }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
 
@@ -798,14 +784,14 @@ jobs:
         if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
         id: leak_scan
         env:
-          MINIMAX_API_KEY: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
+          ANTHROPIC_AUTH_TOKEN: ${{ steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
           ANTHROPIC_API_KEY: ${{ (steps.repair.outputs.backend == 'claude-normal' || steps.repair.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
           CODEX_AUTH_JSON: ${{ (steps.repair.outputs.backend == 'codex-normal' || steps.repair.outputs.backend == 'codex-hard') && secrets.CODEX_AUTH_JSON || '' }}
           GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
           python3 scripts/workflows/guard_backend_secrets.py \
             --ignore-missing \
-            --from-env MINIMAX_API_KEY \
+            --from-env ANTHROPIC_AUTH_TOKEN \
             --from-env ANTHROPIC_API_KEY \
             --from-env CODEX_AUTH_JSON \
             --from-env GH_TOKEN_FOR_ACTIONS_READ \

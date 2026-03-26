@@ -12,6 +12,7 @@ If the repo has no exclusions, prints the base config path unchanged.
 """
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 EXCLUDES_PATH = Path(__file__).parent / "repo_excludes.json"
@@ -37,8 +38,9 @@ def main():
         return
 
     # Generate a temp YAML that inherits from the base config and adds excludes.
-    # Use absolute paths since the temp config lives in /tmp/ but the base
-    # config and repo are relative to $PWD.
+    # Keep the overlay in its own temp subdirectory instead of directly under
+    # /tmp so explicit --config runs do not recurse into cloned repos under
+    # /tmp/nitrocop_cop_check_*/ and load vendored .rubocop.yml overrides.
     abs_base = str(Path(base_config).resolve())
     abs_repo = str(Path(repo_dir).resolve())
 
@@ -48,7 +50,9 @@ def main():
     for pattern in entry["exclude"]:
         lines.append(f'    - "{abs_repo}/{pattern}"')
 
-    tmp_path = Path(f"/tmp/corpus_config_{repo_id}.yml")
+    tmp_dir = Path(tempfile.gettempdir()) / "nitrocop_corpus_configs"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = tmp_dir / f"corpus_config_{repo_id}.yml"
     tmp_path.write_text("\n".join(lines) + "\n")
     print(str(tmp_path))
 

@@ -144,6 +144,64 @@ def cmd_live_gate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_skip_comment(args: argparse.Namespace) -> int:
+    """Post skip/blocked comments on the PR and optionally the linked issue."""
+    import subprocess
+
+    repo = args.repo
+    pr_number = args.pr_number
+    linked_issue = args.linked_issue_number or ""
+    heading = args.heading
+    reason = args.reason
+    checks_run_id = args.checks_run_id
+    checks_url = args.checks_url
+    backend_label = args.backend_label or "n/a"
+    route = args.route or ""
+    run_id = args.run_id
+    run_url = args.run_url
+    needs_human = args.needs_human
+
+    # PR comment
+    pr_lines = [
+        f"## {heading}",
+        "",
+        f"- Checks run: [#{checks_run_id}]({checks_url})",
+        f"- Reason: {reason}",
+        f"- Repair workflow: [#{run_id}]({run_url})",
+    ]
+    subprocess.run(
+        ["gh", "pr", "comment", str(pr_number), "--repo", repo, "--body", "\n".join(pr_lines)],
+        check=True,
+    )
+
+    # Linked issue comment + label
+    if linked_issue and (needs_human or not args.issue_only_if_needs_human):
+        issue_lines = [
+            f"{heading} for linked PR #{pr_number}.",
+            "",
+            f"- Checks run: [#{checks_run_id}]({checks_url})",
+            f"- Backend: `{backend_label}`",
+        ]
+        if route:
+            issue_lines.append(f"- Route: `{route}`")
+        issue_lines.extend([
+            f"- Reason: {reason}",
+            f"- Repair workflow: [#{run_id}]({run_url})",
+        ])
+        subprocess.run(
+            ["gh", "issue", "comment", linked_issue, "--repo", repo, "--body", "\n".join(issue_lines)],
+            check=True,
+        )
+        subprocess.run(
+            ["gh", "issue", "edit", linked_issue, "--repo", repo,
+             "--remove-label", "state:pr-open,state:dispatched,state:backlog",
+             "--add-label", "state:blocked"],
+            check=False,  # label may not exist
+        )
+
+    return 0
+
+
 def cmd_policy(args: argparse.Namespace) -> int:
     should_run, reason, needs_human = apply_policy(
         route=args.route,
@@ -182,6 +240,22 @@ def main() -> int:
     policy.add_argument("--prior-pushes", type=int, default=0)
     policy.add_argument("--prior-pr-repair-attempts", type=int, default=0)
     policy.set_defaults(func=cmd_policy)
+
+    skip_comment = subparsers.add_parser("skip-comment")
+    skip_comment.add_argument("--repo", required=True)
+    skip_comment.add_argument("--pr-number", required=True)
+    skip_comment.add_argument("--linked-issue-number", default="")
+    skip_comment.add_argument("--heading", required=True)
+    skip_comment.add_argument("--reason", required=True)
+    skip_comment.add_argument("--checks-run-id", required=True)
+    skip_comment.add_argument("--checks-url", required=True)
+    skip_comment.add_argument("--backend-label", default="")
+    skip_comment.add_argument("--route", default="")
+    skip_comment.add_argument("--run-id", required=True)
+    skip_comment.add_argument("--run-url", required=True)
+    skip_comment.add_argument("--needs-human", action="store_true")
+    skip_comment.add_argument("--issue-only-if-needs-human", action="store_true")
+    skip_comment.set_defaults(func=cmd_skip_comment)
 
     args = parser.parse_args()
     return args.func(args)
