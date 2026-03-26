@@ -187,6 +187,45 @@ Root cause: commit 8774941b ("Free disk in corpus collect-results") added
 because the previous oracle run (#161) happened to run before that commit
 landed. Fix: moved the cleanup to after the diff step.
 
+### Oracle run #163 (PR #231): 94.1% conformance, down from 98.5%
+
+After fixing the `rm -rf` bug (run #162 was 0% due to deleted rubocop results),
+run #163 produced real data. Key numbers:
+
+| Metric | Old | New | Delta |
+|--------|-----|-----|-------|
+| Match rate | 98.5% | 94.1% | -4.4% |
+| Matches | 29,571,533 | 28,313,268 | -1,258,265 |
+| FP | 39,063 | 40,168 | +1,105 |
+| FN | 411,172 | 1,707,967 | +1,296,795 |
+| 100% repos | 441 | 224 | -217 |
+| Exact cops | 371 | 110 | -261 |
+
+Department breakdown (FN changes):
+- Style: 215,547 → 1,031,471 (+815,924)
+- Layout: 173,726 → 408,407 (+234,681)
+- Lint: 16,151 → 168,323 (+152,172)
+- Metrics: 3,270 → 31,105 (+27,835)
+- RSpec: 333 → 20,215 (+19,882)
+- Naming: 1,221 → 19,830 (+18,609)
+- Rails: 444 → 16,301 (+15,857, FP: 92 → 7,661)
+- Performance: 416 → 6,679 (+6,263)
+- Gemspec: 0 → 3,901
+- Bundler: 0 → 743
+
+FP is mostly flat (+1,105 overall), confirming both tools are symmetrically
+fixed. But Rails FP jumped +7,569 (expected — migration cops now fire).
+
+The massive FN increase affects ALL departments, including cops WITHOUT Include
+patterns (Layout, Style, Lint, Metrics, Naming). This means the `base_dir`
+change affects more than just cop-level Include patterns — it changes how
+AllCops.Exclude and cop-level Exclude patterns resolve too. Under investigation.
+
+Hypothesis: the old 98.5% was inflated because both tools were equally broken
+on pattern resolution. Many "matches" were from cops running on files they
+shouldn't have (both tools making the same mistake). The 94.1% is closer to
+real conformance, but the specific regression needs analysis.
+
 ### PR #229 is stale
 
 Corpus oracle PR #229 was generated while the reverted target_dir fix was on
