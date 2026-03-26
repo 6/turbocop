@@ -22,15 +22,24 @@ use crate::parse::source::SourceFile;
 /// nodes, so it flags these. Fixed by checking call.block() for BlockArgumentNode when
 /// arguments() is None.
 ///
-/// ## Corpus investigation (2026-03-25) — full corpus verification
+/// ## Corpus investigation (2026-03-26) — remaining oracle FN are not in this cop
 ///
-/// Corpus oracle reported FP=0, FN=36. All 36 FN verified FIXED by
-/// `verify_cop_locations.py` — cop logic is correct for all patterns (bare `open`
-/// with variable args, `open` with block, etc.). The FN gap was a corpus oracle
-/// config/path resolution artifact: repos cloned under `vendor/corpus/` had their
-/// files matched by the `vendor/**/*` AllCops.Exclude pattern when run from the
-/// project root. Running from the repo's own directory (as CI does) finds all
-/// offenses correctly.
+/// Corpus oracle still reports FP=0, FN=36. The current fixture already covers the
+/// reported block forms (`open flag_file do`, `open cache_path, 'rb' do`, etc.), and
+/// `cargo test --lib -- cop::security::open` passes without code changes.
+///
+/// Repro:
+/// - `target/release/nitrocop --only Security/Open --force-default-config <file>`
+///   flags the known FN files.
+/// - Running from the corpus repo root with the oracle env/config and a relative
+///   path also flags the exact locations (for example `heroku/.../rdoc.rb:184,220`
+///   and `examples/vendored-puppet/.../util.rb:281`).
+/// - But invoking nitrocop with the same config and an absolute nested file path
+///   fails before linting: `No lockfile found for ... Run 'nitrocop --init' first.`
+///
+/// So the remaining FN are caused by project-root / lockfile resolution for explicit
+/// nested file paths, not by `Security/Open` detection. A real fix belongs in the
+/// config / repo-root handling that `verify_cop_locations.py` exercises, not here.
 pub struct Open;
 
 /// Check if the argument is a "safe" string literal.
