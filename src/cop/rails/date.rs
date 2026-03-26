@@ -16,6 +16,16 @@ use crate::parse::source::SourceFile;
 /// FN=1: netzke/netzke-basepack — `to_time_in_current_zone` deprecated method was not detected.
 /// Fixed by adding an explicit check for `to_time_in_current_zone` that fires regardless of
 /// EnforcedStyle, matching RuboCop's DEPRECATED_METHODS behavior.
+///
+/// ## Corpus investigation (2026-03-26)
+///
+/// Corpus oracle reported FP=5, FN=0.
+///
+/// FP=5: All 5 FPs from cjstewart88/Tubalr — `to_time_in_current_zone` called without an
+/// explicit receiver (implicit `self`) inside ActiveSupport's own core_ext/date/ files.
+/// RuboCop's `on_send` starts with `return unless node.receiver && ...`, so implicit-self
+/// calls are never flagged. Fixed by adding a `call.receiver().is_some()` check before
+/// flagging `to_time_in_current_zone` (and `to_time` for the same reason).
 pub struct Date;
 
 impl Cop for Date {
@@ -50,8 +60,10 @@ impl Cop for Date {
 
         let method = call.name().as_slice();
 
-        // `to_time_in_current_zone` is always deprecated, regardless of EnforcedStyle
-        if method == b"to_time_in_current_zone" {
+        // `to_time_in_current_zone` is always deprecated, regardless of EnforcedStyle.
+        // RuboCop requires a receiver (`node.receiver && ...`), so implicit-self calls
+        // like bare `to_time_in_current_zone` inside ActiveSupport are not flagged.
+        if method == b"to_time_in_current_zone" && call.receiver().is_some() {
             let msg_loc = match call.message_loc() {
                 Some(loc) => loc,
                 None => return,
@@ -66,8 +78,9 @@ impl Cop for Date {
             return;
         }
 
-        // In strict mode, also flag `to_time`
-        if method == b"to_time" && !allow_to_time && style == "strict" {
+        // In strict mode, also flag `to_time` (requires explicit receiver, same as RuboCop)
+        if method == b"to_time" && call.receiver().is_some() && !allow_to_time && style == "strict"
+        {
             let msg_loc = match call.message_loc() {
                 Some(loc) => loc,
                 None => return,
