@@ -31,6 +31,14 @@ use std::collections::HashSet;
 ///    CallNodes, suppressing strings whose nearest send ancestor was NOT the allowed method.
 ///    Fix: stop traversal at CallNode boundaries (`collect_shallow_string_offsets`), matching
 ///    RuboCop's `each_ancestor(:send).first` check.
+///
+/// Remaining corpus FN (2026-03): single-line heredoc receivers used with `%`, e.g.
+/// `<<-'SQL' % [cols, vals]`. The previous multiline skip treated every multiline `StringNode`
+/// in format context as losing format context, which was correct for multiline percent literals
+/// and multiline heredocs (Parser treats those as `dstr`) but too broad for single-line
+/// heredocs. RuboCop keeps single-line heredoc receivers as `str` in this context and still
+/// reports `%s` tokens. Fix: only keep format context for heredoc receivers whose content is
+/// a single line; multiline heredocs and percent literals still lose format context.
 pub struct FormatStringToken;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,6 +387,32 @@ struct FormatStringTokenVisitor<'a> {
 }
 
 impl FormatStringTokenVisitor<'_> {
+    fn loses_format_context_when_multiline(node: &ruby_prism::StringNode<'_>) -> bool {
+        let content = node.content_loc().as_slice();
+        if !content.contains(&b'\n') {
+            return false;
+        }
+
+        let Some(opening) = node.opening_loc() else {
+            // Bare StringNode parts only appear inside a larger dstr-like construct.
+            return true;
+        };
+        let opening = opening.as_slice();
+
+        if opening.starts_with(b"<<") {
+            // Parser keeps single-line heredocs as `str` here, but multiline heredocs
+            // become `dstr`, so their parts lose format context.
+            let newline_count = content.iter().filter(|&&b| b == b'\n').count();
+            return newline_count > 1;
+        }
+
+        if opening.starts_with(b"%") {
+            return true;
+        }
+
+        true
+    }
+
     fn check_string_content(
         &mut self,
         content: &[u8],
@@ -528,11 +562,10 @@ impl<'pr> Visit<'pr> for FormatStringTokenVisitor<'_> {
         let content_loc = node.content_loc();
         let content = content_loc.as_slice();
 
-        // Multi-line strings (heredocs, %[...] literals) in format context: in RuboCop's
-        // Parser gem, these become dstr nodes whose str parts lose format context (the
-        // str part's parent is dstr, not the format call). Match this by treating
-        // multi-line format-context strings as NOT in format context.
-        let in_format_context = raw_format_context && !content.contains(&b'\n');
+        // Some multiline Prism StringNodes correspond to Parser dstr nodes whose parts lose
+        // format context. Keep single-quoted heredoc receivers in format context.
+        let in_format_context =
+            raw_format_context && !Self::loses_format_context_when_multiline(node);
         let content_start = content_loc.start_offset();
 
         self.check_string_content(content, content_start, in_format_context);

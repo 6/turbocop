@@ -27,3 +27,9 @@ a3 = "items/%s/%s...%s" % [file, ver1, ver2]
             ^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over unannotated tokens (like `%s`).
                ^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over unannotated tokens (like `%s`).
                     ^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over unannotated tokens (like `%s`).
+
+sql = <<-'SQL' % [columns, values]
+  INSERT OR REPLACE INTO moz_cookies (%s) VALUES (%s)
+                                      ^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over unannotated tokens (like `%s`).
+                                                  ^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over unannotated tokens (like `%s`).
+SQL

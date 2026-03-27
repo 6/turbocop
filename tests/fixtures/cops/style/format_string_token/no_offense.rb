@@ -38,6 +38,12 @@ r = <<-TEXT % [name, target, score, result, elapsed, verify]
   time: %f
   verify: %f
 TEXT
+# Single-quoted multiline heredoc with % operator: unannotated tokens still not flagged
+# because Parser treats multiline heredocs as dstr in this context.
+r2 = <<-'TEXT' % [name, target]
+  block %s
+  target: %s
+TEXT
 # Multi-line %[] string literal with % operator: unannotated tokens not flagged
 # (RuboCop's Parser gem produces dstr for multi-line strings, so parts lose format context)
 s = %[service %s
