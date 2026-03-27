@@ -1,8 +1,17 @@
-use crate::cop::node_type::{CALL_NODE, ELSE_NODE, IF_NODE};
+use crate::cop::node_type::IF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Fixes the main Prism parity gaps for this cop:
+/// - nitrocop only handled ternary `if` nodes and returned early for keyword
+///   `if` and `elsif`, which missed corpus cases like threshold guards and
+///   clamp-like helper methods.
+/// - parenthesized ternary predicates such as `(a >= b) ? b : a` wrap the
+///   comparison in `ParenthesesNode`, so `predicate.as_call_node()` missed
+///   RuboCop-covered cases.
+/// - The fix keeps RuboCop's shape: only single-expression branches with a
+///   final `else` are compared, while the predicate may be parenthesized.
 pub struct MinMaxComparison;
 
 impl Cop for MinMaxComparison {
@@ -11,7 +20,7 @@ impl Cop for MinMaxComparison {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, ELSE_NODE, IF_NODE]
+        &[IF_NODE]
     }
 
     fn check_node(
@@ -23,34 +32,13 @@ impl Cop for MinMaxComparison {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Looking for: a > b ? a : b  (max)  or  a < b ? a : b  (min), etc.
-        let ternary = match node.as_if_node() {
-            Some(n) => n,
+        let if_node = match node.as_if_node() {
+            Some(if_node) => if_node,
             None => return,
         };
 
-        // Must be a ternary (has if_keyword "?" syntax) -- check for consequent and alternative
-        let consequent = match ternary.statements() {
-            Some(s) => s,
-            None => return,
-        };
-        let alternative = match ternary.subsequent() {
-            Some(a) => a,
-            None => return,
-        };
-
-        // Must be a ternary expression.
-        // In Prism, ternary (a ? b : c) has if_keyword_loc() == None.
-        // Regular if/unless has if_keyword_loc() == Some("if"/"unless").
-        if ternary.if_keyword_loc().is_some() {
-            return;
-        }
-
-        // The condition must be a comparison: a > b, a >= b, a < b, a <= b
-        let condition = ternary.predicate();
-
-        let cmp_call = match condition.as_call_node() {
-            Some(c) => c,
+        let cmp_call = match extract_comparison_call(if_node.predicate()) {
+            Some(call) => call,
             None => return,
         };
 
@@ -61,12 +49,12 @@ impl Cop for MinMaxComparison {
         }
 
         let cmp_lhs = match cmp_call.receiver() {
-            Some(r) => r,
+            Some(receiver) => receiver,
             None => return,
         };
 
         let cmp_args = match cmp_call.arguments() {
-            Some(args) => args,
+            Some(arguments) => arguments,
             None => return,
         };
         let cmp_arg_list: Vec<_> = cmp_args.arguments().iter().collect();
@@ -75,37 +63,21 @@ impl Cop for MinMaxComparison {
         }
         let cmp_rhs = &cmp_arg_list[0];
 
-        // Get consequent and alternative expressions
-        let cons_stmts: Vec<_> = consequent.body().iter().collect();
-        if cons_stmts.len() != 1 {
-            return;
-        }
-        let cons_expr = &cons_stmts[0];
-
-        // alternative is an ElseNode
-        let else_node = match alternative.as_else_node() {
-            Some(e) => e,
+        let cons_expr = match extract_single_stmt(if_node.statements()) {
+            Some(expr) => expr,
             None => return,
         };
-        let alt_stmts = match else_node.statements() {
-            Some(s) => s,
+        let alt_expr = match extract_else_stmt(if_node.subsequent()) {
+            Some(expr) => expr,
             None => return,
         };
-        let alt_body: Vec<_> = alt_stmts.body().iter().collect();
-        if alt_body.len() != 1 {
-            return;
-        }
-        let alt_expr = &alt_body[0];
 
-        // Compare source text of expressions
-        let lhs_src = std::str::from_utf8(cmp_lhs.location().as_slice()).unwrap_or("");
-        let rhs_src = std::str::from_utf8(cmp_rhs.location().as_slice()).unwrap_or("");
-        let cons_src = std::str::from_utf8(cons_expr.location().as_slice()).unwrap_or("");
-        let alt_src = std::str::from_utf8(alt_expr.location().as_slice()).unwrap_or("");
+        let lhs_src = node_source(source, &cmp_lhs);
+        let rhs_src = node_source(source, cmp_rhs);
+        let cons_src = node_source(source, &cons_expr);
+        let alt_src = node_source(source, &alt_expr);
 
-        // Determine if it's max or min pattern
         let suggestion = match op_bytes {
-            // a > b ? a : b  => max  |  a > b ? b : a  => min
             b">" | b">=" => {
                 if lhs_src == cons_src && rhs_src == alt_src {
                     "max"
@@ -115,7 +87,6 @@ impl Cop for MinMaxComparison {
                     return;
                 }
             }
-            // a < b ? a : b  => min  |  a < b ? b : a  => max
             b"<" | b"<=" => {
                 if lhs_src == cons_src && rhs_src == alt_src {
                     "min"
@@ -137,6 +108,56 @@ impl Cop for MinMaxComparison {
             format!("Use `[{lhs_src}, {rhs_src}].{suggestion}` instead."),
         ));
     }
+}
+
+fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
+    let mut current = node;
+
+    while let Some(paren) = current.as_parentheses_node() {
+        let Some(body) = paren.body() else {
+            break;
+        };
+        let Some(statements) = body.as_statements_node() else {
+            break;
+        };
+        let stmt_body = statements.body();
+        if stmt_body.len() != 1 {
+            break;
+        }
+
+        current = stmt_body.iter().next().unwrap();
+    }
+
+    current
+}
+
+fn extract_comparison_call<'a>(node: ruby_prism::Node<'a>) -> Option<ruby_prism::CallNode<'a>> {
+    unwrap_parentheses(node).as_call_node()
+}
+
+fn extract_single_stmt<'a>(
+    statements: Option<ruby_prism::StatementsNode<'a>>,
+) -> Option<ruby_prism::Node<'a>> {
+    let statements = statements?;
+    let body = statements.body();
+    if body.len() != 1 {
+        return None;
+    }
+
+    body.iter().next()
+}
+
+fn extract_else_stmt<'a>(subsequent: Option<ruby_prism::Node<'a>>) -> Option<ruby_prism::Node<'a>> {
+    let else_node = subsequent?.as_else_node()?;
+    extract_single_stmt(else_node.statements())
+}
+
+fn node_source<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> &'a str {
+    source.byte_slice(
+        node.location().start_offset(),
+        node.location().end_offset(),
+        "",
+    )
 }
 
 #[cfg(test)]
