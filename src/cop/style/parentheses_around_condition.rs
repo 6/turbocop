@@ -3,16 +3,23 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-17)
+/// ## Corpus investigation
 ///
+/// 2026-03-17:
 /// FP=5: All `begin...end while (cond)` or `begin...end until (cond)` patterns.
 /// RuboCop has separate `while_post`/`until_post` node types for do-while loops
 /// and only registers `on_while`/`on_until` (not `on_while_post`/`on_until_post`).
 /// In Prism, these are regular WhileNode/UntilNode in modifier form with a
 /// BeginNode body. Fix: detect this form (no closing_loc + BeginNode body) and skip.
 ///
-/// FN=1: In `rubyworks/facets`, a `while (x = next_val)` inside a method.
-/// Appears to be a config issue (AllowSafeAssignment overrides).
+/// 2026-03-27:
+/// FN=3: `if (...)` conditions using the case-equality operator `===` inside a
+/// `begin` block, `{ ... }` block, and `do ... end` block were skipped.
+/// Root cause: the safe-assignment exemption treated any call name ending in `=`
+/// as a setter except for a short denylist, but `===` was missing from that list.
+/// Fix: exclude `===` from the setter heuristic so case-equality conditions are
+/// still flagged while real setters like `foo.bar = baz` and `foo[0] = baz`
+/// remain allowed when `AllowSafeAssignment` is enabled.
 pub struct ParenthesesAroundCondition;
 
 /// Check if the content of a parenthesized node is a safe assignment (=).
@@ -65,10 +72,11 @@ fn is_setter_call(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
         let name = call.name();
         let s = name.as_slice();
-        // Setter methods end with `=` but are not ==, !=, <=, >=, <=>
+        // Setter methods end with `=` but are not comparison operators.
         s.len() >= 2
             && s.last() == Some(&b'=')
             && s != b"=="
+            && s != b"==="
             && s != b"!="
             && s != b"<="
             && s != b">="
