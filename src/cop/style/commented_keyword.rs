@@ -8,13 +8,24 @@ use crate::parse::source::SourceFile;
 ///   Fixed by requiring whitespace after the keyword in `starts_with_keyword`.
 /// - 3 FPs: double-`#` rubocop:disable comments (`end # # rubocop:disable ...`)
 ///   and `:nodoc:` appearing later in comment (`# -> path # :nodoc:`).
-///   Fixed by checking `after_hash_trimmed` for `# rubocop:` prefix and
-///   checking if comment contains `:nodoc:` anywhere.
+///   Fixed by checking `after_hash_trimmed` for `# rubocop:` prefix and, after
+///   the later corpus FN follow-up below, allowing only `#`-prefixed `:nodoc:`
+///   / `:yields:` fragments instead of any `:nodoc:` substring.
 /// - 10 FNs: comments with no space before `#` but keyword IS followed by space
 ///   (e.g., `def self.method dir, txt#comment`). The old `raw_before.ends_with(' ')`
 ///   check rejected these. Fixed by removing that check and instead requiring
 ///   whitespace after the keyword in `starts_with_keyword` (using `trim_start()`
 ///   on raw_before to preserve trailing content).
+/// - 29 FNs remained in corpus checks for two narrower cases:
+///   1. `# @private :nodoc:` is still an offense in RuboCop; only `# :nodoc:`
+///      or a later `# :nodoc:` fragment on the same line is exempt. The old
+///      `contains(":nodoc:")` check skipped too much.
+///   2. One-line defs with multibyte text before the comment
+///      (`def x; "☗"; end # comment`) mixed a UTF-8 character column with a
+///      byte offset when reconstructing the source line, so the extracted
+///      prefix no longer started at `def`. Fixed by using
+///      `SourceFile::line_start_offset(line_num)` instead of
+///      `comment_start - comment_col`.
 pub struct CommentedKeyword;
 
 /// Keywords that should not have comments on the same line.
@@ -56,8 +67,11 @@ impl Cop for CommentedKeyword {
             };
             let after_hash_trimmed = after_hash_str.trim_start();
 
-            // Allow :nodoc: and :yields: (RDoc annotations) anywhere in comment
-            if after_hash_trimmed.contains(":nodoc:") || after_hash_trimmed.starts_with(":yields:")
+            // RuboCop allows `# :nodoc:` / `# :yields:` and later `# :nodoc:`
+            // fragments on the same line (for example `# -> path # :nodoc:`),
+            // but not `# @private :nodoc:`.
+            if contains_allowed_annotation(after_hash_str, ":nodoc:")
+                || contains_allowed_annotation(after_hash_str, ":yields:")
             {
                 continue;
             }
@@ -82,7 +96,7 @@ impl Cop for CommentedKeyword {
             let (line_num, comment_col) = source.offset_to_line_col(comment_start);
 
             // Get the full source line text before the comment
-            let line_start_offset = comment_start - comment_col;
+            let line_start_offset = source.line_start_offset(line_num);
             let raw_before = match std::str::from_utf8(&bytes[line_start_offset..comment_start]) {
                 Ok(s) => s,
                 Err(_) => continue,
@@ -146,6 +160,13 @@ fn starts_with_keyword(trimmed: &str, keyword: &str) -> bool {
     // `;` and `(` are handled transitively: `def x; end # comment` matches on `def`,
     // and `def x(a, b) # comment` also matches `def` followed by space.
     after.starts_with(' ') || after.starts_with('\t')
+}
+
+fn contains_allowed_annotation(comment_body: &str, annotation: &str) -> bool {
+    comment_body
+        .split('#')
+        .map(str::trim_start)
+        .any(|fragment| fragment.starts_with(annotation))
 }
 
 #[cfg(test)]
