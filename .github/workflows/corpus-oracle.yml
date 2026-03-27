@@ -53,58 +53,7 @@ jobs:
 
       - name: Generate matrix
         id: matrix
-        run: |
-          python3 << 'PYEOF'
-          import json, os, sys, hashlib
-
-          # 30 repos/batch → ~187 batches. Rubocop cache is consolidated
-          # (not per-batch), so batch size can be changed freely without
-          # causing cold caches.
-          BATCH_SIZE = 30
-
-          repos = []
-          with open('bench/corpus/manifest.jsonl') as f:
-              for line in f:
-                  line = line.strip()
-                  if line:
-                      repos.append(json.loads(line))
-
-          repo_filter = os.environ.get('REPO_FILTER', 'all')
-          if repo_filter != 'all':
-              repos = [r for r in repos if r['id'] == repo_filter]
-              if not repos:
-                  print(f"ERROR: no repo matching '{repo_filter}' in manifest", file=sys.stderr)
-                  sys.exit(1)
-
-          # Round-robin batching: spread large repos (manifest sorted by stars)
-          # across batches so no single batch gets all the biggest repos
-          num_batches = (len(repos) + BATCH_SIZE - 1) // BATCH_SIZE
-          rr_batches = [[] for _ in range(num_batches)]
-          for i, repo in enumerate(repos):
-              rr_batches[i % num_batches].append(repo)
-
-          batches = []
-          for batch_idx, chunk in enumerate(rr_batches):
-              if not chunk:
-                  continue
-              # Stable cache key: hash of sorted repo IDs so adding repos
-              # doesn't invalidate existing caches
-              batch_repo_ids = '|'.join(sorted(r['id'] for r in chunk))
-              batch_hash = hashlib.md5(batch_repo_ids.encode()).hexdigest()[:12]
-              batches.append({
-                  'batch_id': str(batch_idx),
-                  'batch_hash': batch_hash,
-                  'num_batches': str(num_batches),
-              })
-
-          print(f'{len(repos)} repos in {len(batches)} batches (batch_size={BATCH_SIZE})', file=sys.stderr)
-          if len(batches) > 256:
-              print(f'ERROR: {len(batches)} batches exceeds GitHub Actions matrix limit of 256. Increase BATCH_SIZE.', file=sys.stderr)
-              sys.exit(1)
-          matrix = {'include': batches}
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
-              out.write(f'matrix={json.dumps(matrix)}\n')
-          PYEOF
+        run: python3 bench/corpus/oracle_runner.py compute-matrix --batch-size 30
         env:
           REPO_FILTER: ${{ github.event.inputs.repo_filter || 'all' }}
 
@@ -178,37 +127,11 @@ jobs:
       - name: Compute batch repos
         id: batch-repos
         env:
-          BATCH_ID: ${{ matrix.batch_id }}
-          NUM_BATCHES: ${{ matrix.num_batches }}
           REPO_FILTER: ${{ github.event.inputs.repo_filter || 'all' }}
         run: |
-          python3 << 'PYEOF'
-          import json, os
-
-          batch_id = int(os.environ['BATCH_ID'])
-          num_batches = int(os.environ['NUM_BATCHES'])
-
-          repos = []
-          with open('bench/corpus/manifest.jsonl') as f:
-              for line in f:
-                  line = line.strip()
-                  if line:
-                      repos.append(json.loads(line))
-
-          repo_filter = os.environ.get('REPO_FILTER', 'all')
-          if repo_filter != 'all':
-              repos = [r for r in repos if r['id'] == repo_filter]
-
-          # Same round-robin as compute-matrix
-          rr_batches = [[] for _ in range(num_batches)]
-          for i, repo in enumerate(repos):
-              rr_batches[i % num_batches].append(repo)
-
-          chunk = rr_batches[batch_id] if batch_id < len(rr_batches) else []
-          with open('batch_repos.json', 'w') as f:
-              json.dump([{'id': r['id'], 'repo_url': r['repo_url'], 'sha': r['sha']} for r in chunk], f)
-          print(f'Batch {batch_id}: {len(chunk)} repos')
-          PYEOF
+          python3 bench/corpus/oracle_runner.py compute-batch-repos \
+            --batch-id ${{ matrix.batch_id }} \
+            --batch-size 30
 
       - name: Pre-clone repos (parallel)
         run: |
@@ -256,8 +179,7 @@ jobs:
             ABS_DEST="$(cd "$DEST" && pwd)"
             BASELINE_CONFIG="$WORKSPACE/bench/corpus/baseline_rubocop.yml"
 
-            # Delete known crash-prone files before running.
-            python3 bench/corpus/delete_crash_files.py "$REPO_ID" "$ABS_DEST"
+            python3 bench/corpus/oracle_runner.py delete-crash-files --repo-id "$REPO_ID" --repo-dir "$ABS_DEST"
 
             # Both tools run from inside the repo dir so base_dir = repo root.
             # GIT_CEILING_DIRECTORIES prevents walking up to parent git trees.
@@ -298,32 +220,21 @@ jobs:
               fi
             fi
 
-            # Resolve symlink paths in JSON output before deleting the repo.
-            # RuboCop follows symlinks and reports offenses on both the symlink
-            # path (e.g., docs/gem/foo.gemspec) and the canonical path (gem/foo.gemspec).
-            # This causes phantom FP/FN when the tools pick different paths for the
-            # same physical file. Resolving to realpath while the repo is still on
-            # disk ensures consistent paths in the diff.
-            python3 bench/corpus/resolve_symlink_paths.py \
+            # Resolve symlink paths and extract source context while repo is on disk
+            python3 bench/corpus/oracle_runner.py resolve-symlinks \
               "results/nitrocop/${REPO_ID}.json" \
               "results/rubocop/${REPO_ID}.json" \
               2>/dev/null || true
-
-            # Extract source context around offenses before deleting the repo.
-            # This embeds ~7 lines of source code around each offense location
-            # into the corpus results, enabling investigation without cloning repos.
-            python3 bench/corpus/extract_context.py \
+            python3 bench/corpus/oracle_runner.py extract-context \
               --nitrocop-json "results/nitrocop/${REPO_ID}.json" \
               --rubocop-json "results/rubocop/${REPO_ID}.json" \
               --repo-dir "$DEST" \
               --output "results/context/${REPO_ID}.json" \
-              --context-lines 7 \
               2>/dev/null || true
 
-            # Save rubocop result to cache dir (will be persisted after the batch).
-            # Validate file paths are within the repo to prevent cache poisoning.
+            # Validate and cache rubocop result
             if [ "$RUBOCOP_CACHED" = false ] && [ -f "results/rubocop/${REPO_ID}.json" ]; then
-              if python3 bench/corpus/validate_rubocop_result.py "results/rubocop/${REPO_ID}.json" "$ABS_DEST"; then
+              if python3 bench/corpus/oracle_runner.py validate-rubocop "results/rubocop/${REPO_ID}.json" "$ABS_DEST"; then
                 cp "results/rubocop/${REPO_ID}.json" "rubocop-cache/${REPO_ID}_${REPO_SHA}.json"
               else
                 echo "::warning::Rubocop result for ${REPO_ID} contains out-of-repo paths — not caching"
@@ -435,35 +346,9 @@ jobs:
 
       - name: Consolidate rubocop cache
         run: |
-          # Merge all per-batch rubocop results into a single SHA-indexed cache.
-          # Results are stored as {repo_id}_{sha}.json so manifest SHA changes
-          # automatically invalidate stale entries.
-          mkdir -p rubocop-cache
-          python3 << 'PYEOF'
-          import json, shutil, os
-          manifest = {}
-          with open('bench/corpus/manifest.jsonl') as f:
-              for line in f:
-                  line = line.strip()
-                  if line:
-                      r = json.loads(line)
-                      manifest[r['id']] = r['sha']
-          src = 'all-results/results/rubocop'
-          if not os.path.isdir(src):
-              print('No rubocop results to consolidate')
-          else:
-              count = 0
-              for fname in os.listdir(src):
-                  if not fname.endswith('.json'):
-                      continue
-                  repo_id = fname[:-5]
-                  sha = manifest.get(repo_id)
-                  if sha:
-                      shutil.copy2(os.path.join(src, fname),
-                                   os.path.join('rubocop-cache', f'{repo_id}_{sha}.json'))
-                      count += 1
-              print(f'Consolidated {count} rubocop results')
-          PYEOF
+          python3 bench/corpus/oracle_runner.py consolidate-cache \
+            --results-dir all-results/results/rubocop \
+            --cache-dir rubocop-cache
 
       - name: Compute rubocop cache key
         id: rubocop-cache-key
