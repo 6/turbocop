@@ -30,5 +30,23 @@
     "exclude": [
       "examples/vendored-puppet/**/*"
     ]
+  },
+  "gitlabhq__omnibus-gitlab__d36f1f6": {
+    "comment": "Omnibus packaging files — not project Ruby code. 845 FN across 24 cops.",
+    "exclude": [
+      "files/**/*"
+    ]
+  },
+  "yohasebe__monadic-chat__79cf0fb": {
+    "comment": "Docker container Ruby files — not project code. 392 FN across 42 cops.",
+    "exclude": [
+      "docker/**/*"
+    ]
+  },
+  "wikimedia__mediawiki-vagrant__efa29c3": {
+    "comment": "Puppet modules — not Ruby project code. 241 FN across 30 cops.",
+    "exclude": [
+      "puppet/**/*"
+    ]
   }
 }

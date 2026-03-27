@@ -22,6 +22,8 @@ AllCops:
   Exclude:
     - "vendor/**/*"
     - "vendor*/**/*"
+    - "_vendor/**/*"
+    - "cookbooks/**/*"
     - "node_modules/**/*"
     - "tmp/**/*"
     - "coverage/**/*"
