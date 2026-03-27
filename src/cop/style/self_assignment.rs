@@ -7,6 +7,20 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-27)
+///
+/// Corpus oracle reported FP=0, FN=191.
+///
+/// The dominant FN bucket was `x = x || y` patterns in local assignments,
+/// including modifier-`if` forms such as
+/// `response = response || fallback if condition`.
+///
+/// Root cause: the cop only checked arithmetic `CallNode`s and boolean
+/// `AndNode`s. Prism parses `||` as `OrNode`, so every `||=` shorthand case was
+/// skipped.
+///
+/// Fix: treat `OrNode` the same as `AndNode` by comparing the left operand with
+/// the assignment target and deriving the emitted operator from `operator_loc`.
 pub struct SelfAssignment;
 
 const SELF_ASSIGN_OPS: &[&[u8]] = &[
@@ -38,6 +52,37 @@ impl SelfAssignment {
             return Some(cv.name().as_slice().to_vec());
         }
         None
+    }
+
+    fn check_boolean_assignment(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        value: &ruby_prism::Node<'_>,
+        write_name: &[u8],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let (left, op_loc) = if let Some(and_node) = value.as_and_node() {
+            (and_node.left(), and_node.operator_loc())
+        } else if let Some(or_node) = value.as_or_node() {
+            (or_node.left(), or_node.operator_loc())
+        } else {
+            return;
+        };
+
+        if let Some(read_name) = Self::get_read_name(&left) {
+            if read_name.as_slice() == write_name {
+                let op = std::str::from_utf8(op_loc.as_slice()).unwrap_or("&&");
+                let loc = node.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    format!("Use self-assignment shorthand `{}=`.", op),
+                ));
+            }
+        }
     }
 }
 
@@ -121,24 +166,8 @@ impl Cop for SelfAssignment {
             }
         }
 
-        // Check for boolean operators: `x = x && y`
-        if let Some(and_node) = value.as_and_node() {
-            let left = and_node.left();
-            if let Some(read_name) = Self::get_read_name(&left) {
-                if read_name == write_name {
-                    let op_loc = and_node.operator_loc();
-                    let op = std::str::from_utf8(op_loc.as_slice()).unwrap_or("&&");
-                    let loc = node.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        format!("Use self-assignment shorthand `{}=`.", op),
-                    ));
-                }
-            }
-        }
+        // Check for boolean operators: `x = x && y` and `x = x || y`
+        self.check_boolean_assignment(source, node, &value, &write_name, diagnostics);
     }
 }
 
