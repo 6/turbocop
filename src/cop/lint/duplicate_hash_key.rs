@@ -17,6 +17,27 @@ fn is_literal_binary_operator(name: &[u8]) -> bool {
     )
 }
 
+/// Returns a canonical byte representation of a literal key for duplicate detection.
+///
+/// Prism folds unary `+`/`-` into FloatNode/IntegerNode (e.g., `+0.0` becomes a
+/// FloatNode with source `"+0.0"`, `-0.0` becomes FloatNode with `"-0.0"`).
+/// RuboCop compares float values with `==`, so `+0.0`/`-0.0`/`0.0` are all equal
+/// (IEEE 754: `-0.0 == 0.0`). We normalize floats by parsing to f64 and comparing
+/// by bit pattern (after normalizing negative zero to positive zero).
+fn canonical_key_bytes(node: &ruby_prism::Node<'_>) -> Vec<u8> {
+    if node.as_float_node().is_some() {
+        if let Ok(s) = std::str::from_utf8(node.location().as_slice()) {
+            let cleaned: String = s.chars().filter(|&c| c != '_').collect();
+            if let Ok(val) = cleaned.parse::<f64>() {
+                // Normalize -0.0 to +0.0 since they compare equal in Ruby
+                let normalized = if val == 0.0 { 0.0_f64 } else { val };
+                return format!("__f:{}", normalized.to_bits()).into_bytes();
+            }
+        }
+    }
+    node.location().as_slice().to_vec()
+}
+
 /// Returns true if a node is a pure literal (no method calls or variable references).
 /// Matches RuboCop's behavior: only flag duplicate keys when the key is entirely literal.
 fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
@@ -173,6 +194,17 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
 ///   (dynamic constant assignment error), so it reports 0 offenses. Prism
 ///   parses it successfully, so nitrocop correctly detects duplicates. These
 ///   are parser-difference artifacts, not cop logic bugs.
+///
+/// ## Investigation (2026-03-26)
+///
+/// Found 5 FNs in ruby-rdf/rdf: `+0.0` and `-0.0` (and `0.0e0`/`-0.0e0`) were
+/// not detected as duplicate keys. Prism folds unary `+`/`-` into FloatNode
+/// directly (unlike the Parser gem which produces `(float 0.0)` for both), so
+/// the source texts `"+0.0"` and `"-0.0"` differ even though the values are
+/// equal (IEEE 754: `-0.0 == 0.0`). Fixed by normalizing float keys via f64
+/// parsing in `canonical_key_bytes`, so all representations of the same float
+/// value map to the same canonical key.
+/// The 4 noosfero FPs remain as parser-difference artifacts (unchanged).
 pub struct DuplicateHashKey;
 
 impl Cop for DuplicateHashKey {
@@ -220,9 +252,9 @@ impl Cop for DuplicateHashKey {
             }
 
             let key_loc = key.location();
-            let key_text = key_loc.as_slice();
+            let canonical = canonical_key_bytes(&key);
 
-            if !seen.insert(key_text.to_vec()) {
+            if !seen.insert(canonical) {
                 let (line, column) = source.offset_to_line_col(key_loc.start_offset());
                 diagnostics.push(self.diagnostic(
                     source,
