@@ -45,8 +45,15 @@ use crate::parse::source::SourceFile;
 /// Fix: changed `normalize_directive_cop_name` to return just the department
 /// token (the part before `::`) instead of converting `::` to `/`.
 ///
-/// FP=2 (vendor-path): `is_utf8?` in noosfero/noosfero `vendor/` dir.
-/// Systemic vendor-path config/exclusion noise, not a cop bug.
+/// FP=2 (vendor-path): `is_utf8?` in noosfero/noosfero
+/// `vendor/plugins/xss_terminate/lib/html5lib_sanitize.rb:133`.
+/// Root cause: the corpus oracle runs RuboCop with `--force-exclusion`, so
+/// baseline `AllCops: Exclude: vendor/**/*` suppresses this file. Nitrocop's
+/// corpus rerun path currently still visits the discovered absolute file under
+/// the custom baseline config, so this cop sees it and reports the otherwise
+/// correct `is_utf8?` offense. The isolated method matches RuboCop, so there is
+/// no cop-local detection fix here; the real fix belongs in config/file-filter
+/// handling, not in `Naming/PredicatePrefix`.
 pub struct PredicatePrefix;
 
 impl PredicatePrefix {
