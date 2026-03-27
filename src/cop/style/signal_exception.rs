@@ -4,6 +4,23 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03-27):
+///
+/// FN=1 remained in `oriuminc__vagrant-ariadne__bb22d52` at
+/// `cookbooks-override/ariadne/libraries/helpers.rb:42`.
+/// `Style/SignalException` already detects that `fail ... unless ...` call in
+/// isolation, in fixtures, and when the repo is linted directly against
+/// `bench/corpus/baseline_rubocop.yml`.
+///
+/// The miss only reproduces through the corpus helper's generated overlay config
+/// under `/tmp/nitrocop_corpus_configs/`. That overlay adds an absolute
+/// `AllCops: Exclude: /.../cookbooks/**/*` pattern, and nitrocop's global
+/// exclude matcher currently overmatches sibling directories such as
+/// `cookbooks-override/**/*`, filtering the file out before this cop runs.
+///
+/// No cop-local detection change is needed here; the correct fix belongs in the
+/// config/file-selection pipeline (`src/config/mod.rs` or corpus overlay path
+/// handling) so absolute exclude globs keep directory-segment boundaries.
 pub struct SignalException;
 
 impl Cop for SignalException {
