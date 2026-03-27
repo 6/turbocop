@@ -1,11 +1,26 @@
 use crate::cop::node_type::{
     CALL_NODE, CLASS_VARIABLE_AND_WRITE_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE,
-    CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE,
+    CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/ClassVars: flags assignments to class variables and `class_variable_set`.
+///
+/// ## Investigation findings (2026-03-27)
+///
+/// FN root cause (37 corpus misses):
+/// - Parallel assignment uses `MultiWriteNode` with `ClassVariableTargetNode`
+///   children, so patterns like `@@a, @@b = foo` never reached the direct
+///   `ClassVariable*WriteNode` handlers.
+/// - The enclosing context varied (method bodies, begin/ensure blocks, modules,
+///   and blocks), but the bug was the same Prism node shape in each case.
+///
+/// Fix:
+/// - Added `MULTI_WRITE_NODE` handling and recursive traversal of nested
+///   `MultiTargetNode` / `SplatNode` targets so every class-variable target in a
+///   parallel assignment is flagged, matching RuboCop's per-target behavior.
 pub struct ClassVars;
 
 impl Cop for ClassVars {
@@ -20,6 +35,7 @@ impl Cop for ClassVars {
             CLASS_VARIABLE_OPERATOR_WRITE_NODE,
             CLASS_VARIABLE_OR_WRITE_NODE,
             CLASS_VARIABLE_WRITE_NODE,
+            MULTI_WRITE_NODE,
         ]
     }
 
@@ -34,58 +50,52 @@ impl Cop for ClassVars {
     ) {
         // Check class variable write: @@foo = 1
         if let Some(cvasgn) = node.as_class_variable_write_node() {
-            let name = cvasgn.name();
-            let name_str = String::from_utf8_lossy(name.as_slice());
-            let loc = cvasgn.name_loc();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
+            self.push_class_var_diagnostic(
                 source,
-                line,
-                column,
-                format!("Replace class var {} with a class instance var.", name_str),
-            ));
+                cvasgn.name().as_slice(),
+                cvasgn.name_loc().start_offset(),
+                diagnostics,
+            );
+            return;
         }
 
         // Check class variable and-write: @@foo &&= 1
         if let Some(cvasgn) = node.as_class_variable_and_write_node() {
-            let name = cvasgn.name();
-            let name_str = String::from_utf8_lossy(name.as_slice());
-            let loc = cvasgn.name_loc();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
+            self.push_class_var_diagnostic(
                 source,
-                line,
-                column,
-                format!("Replace class var {} with a class instance var.", name_str),
-            ));
+                cvasgn.name().as_slice(),
+                cvasgn.name_loc().start_offset(),
+                diagnostics,
+            );
+            return;
         }
 
         // Check class variable or-write: @@foo ||= 1
         if let Some(cvasgn) = node.as_class_variable_or_write_node() {
-            let name = cvasgn.name();
-            let name_str = String::from_utf8_lossy(name.as_slice());
-            let loc = cvasgn.name_loc();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
+            self.push_class_var_diagnostic(
                 source,
-                line,
-                column,
-                format!("Replace class var {} with a class instance var.", name_str),
-            ));
+                cvasgn.name().as_slice(),
+                cvasgn.name_loc().start_offset(),
+                diagnostics,
+            );
+            return;
         }
 
         // Check class variable operator-write: @@foo += 1
         if let Some(cvasgn) = node.as_class_variable_operator_write_node() {
-            let name = cvasgn.name();
-            let name_str = String::from_utf8_lossy(name.as_slice());
-            let loc = cvasgn.name_loc();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
+            self.push_class_var_diagnostic(
                 source,
-                line,
-                column,
-                format!("Replace class var {} with a class instance var.", name_str),
-            ));
+                cvasgn.name().as_slice(),
+                cvasgn.name_loc().start_offset(),
+                diagnostics,
+            );
+            return;
+        }
+
+        // Check parallel assignment targets: @@foo, @@bar = value
+        if let Some(multi_write) = node.as_multi_write_node() {
+            self.check_multi_write_targets(source, multi_write, diagnostics);
+            return;
         }
 
         // Check class_variable_set(:@@foo, value) call
@@ -109,6 +119,80 @@ impl Cop for ClassVars {
                         ));
                     }
                 }
+            }
+        }
+    }
+}
+
+impl ClassVars {
+    fn push_class_var_diagnostic(
+        &self,
+        source: &SourceFile,
+        name: &[u8],
+        start_offset: usize,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let (line, column) = source.offset_to_line_col(start_offset);
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!(
+                "Replace class var {} with a class instance var.",
+                String::from_utf8_lossy(name),
+            ),
+        ));
+    }
+
+    fn check_multi_write_targets(
+        &self,
+        source: &SourceFile,
+        multi_write: ruby_prism::MultiWriteNode<'_>,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        for target in multi_write.lefts().iter() {
+            self.check_target_node(source, &target, diagnostics);
+        }
+        if let Some(rest) = multi_write.rest() {
+            self.check_target_node(source, &rest, diagnostics);
+        }
+        for target in multi_write.rights().iter() {
+            self.check_target_node(source, &target, diagnostics);
+        }
+    }
+
+    fn check_target_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if let Some(target) = node.as_class_variable_target_node() {
+            self.push_class_var_diagnostic(
+                source,
+                target.name().as_slice(),
+                target.location().start_offset(),
+                diagnostics,
+            );
+            return;
+        }
+
+        if let Some(splat) = node.as_splat_node() {
+            if let Some(expr) = splat.expression() {
+                self.check_target_node(source, &expr, diagnostics);
+            }
+            return;
+        }
+
+        if let Some(targets) = node.as_multi_target_node() {
+            for target in targets.lefts().iter() {
+                self.check_target_node(source, &target, diagnostics);
+            }
+            if let Some(rest) = targets.rest() {
+                self.check_target_node(source, &rest, diagnostics);
+            }
+            for target in targets.rights().iter() {
+                self.check_target_node(source, &target, diagnostics);
             }
         }
     }
