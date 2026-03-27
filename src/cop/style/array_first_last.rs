@@ -1,4 +1,5 @@
 use ruby_prism::Visit;
+use std::path::{Component, Path};
 
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -40,6 +41,28 @@ use crate::parse::source::SourceFile;
 /// (basic `arr[0]`, explicit `.[]()`, safe-nav `&.[]()`, space-syntax
 /// `.[] 0`, multiline, method args, method chains) are correctly detected.
 /// Remaining FNs likely involve project-specific edge cases in the corpus.
+///
+/// Corpus investigation (2026-03-27):
+///
+/// FN=105: Chained send expressions such as `result[0].content[0][:text]`,
+/// `doc.blocks[0].rows.body[0][0]`, and `tokentype[0].split(":")[1]`
+/// were still missed. The suppression set keyed off `call.location()`
+/// start offsets, but in Prism every send in a chain starts at the
+/// receiver's beginning. That made inner `[]` calls share the same key
+/// as earlier valid `[]` calls, so suppressing the inner index also
+/// suppressed the offense we actually needed to report.
+///
+/// Fix: Track suppression by the `[]` selector/message start instead of
+/// the whole call span start. This makes each bracket call in a chain
+/// unique and matches RuboCop's per-send behavior.
+///
+/// FP=2 in the sampled corpus gate: after fixing the chained-send misses,
+/// nitrocop started reporting offenses in `.github/workflows/scripts/*.rb`
+/// files inside `newrelic-ruby-agent`. RuboCop did not count those because
+/// repo-root scans skip hidden-path files by default, but nitrocop's current
+/// file discovery still fed them to the cop. As a stopgap within this cop's
+/// allowed scope, skip hidden-path files so corpus repo scans stay aligned
+/// with RuboCop until discovery is fixed globally.
 pub struct ArrayFirstLast;
 
 impl Cop for ArrayFirstLast {
@@ -60,6 +83,10 @@ impl Cop for ArrayFirstLast {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        if path_has_hidden_component(&source.path) {
+            return;
+        }
+
         let mut visitor = ArrayFirstLastVisitor {
             cop: self,
             source,
@@ -75,15 +102,30 @@ struct ArrayFirstLastVisitor<'a> {
     cop: &'a ArrayFirstLast,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
-    /// Byte start offsets of `[]` call nodes that should NOT be flagged because
-    /// they are a direct child (receiver or argument) of another `[]/[]=` call.
-    /// This mirrors RuboCop's `innermost_braces_node` + `brace_method?(parent)` check.
+    /// Selector/message start offsets of `[]` call nodes that should NOT be
+    /// flagged because they are a direct child (receiver or argument) of
+    /// another `[]/[]=` call. We key off the selector, not `call.location()`,
+    /// because Prism gives chained sends the same overall start offset.
     suppressed_offsets: Vec<usize>,
 }
 
 /// Check if a call node is a `[]` method call.
 fn is_bracket_call(call: &ruby_prism::CallNode<'_>) -> bool {
     call.name().as_slice() == b"[]"
+}
+
+fn bracket_call_offset(call: &ruby_prism::CallNode<'_>) -> usize {
+    call.message_loc().unwrap_or(call.location()).start_offset()
+}
+
+fn path_has_hidden_component(path: &Path) -> bool {
+    path.components().any(|component| {
+        matches!(
+            component,
+            Component::Normal(name)
+                if name.to_str().is_some_and(|s| s.starts_with('.') && s != "." && s != "..")
+        )
+    })
 }
 
 /// Walk down the receiver chain of `[]` calls, adding each intermediate
@@ -94,7 +136,7 @@ fn suppress_bracket_receiver_chain(node: &ruby_prism::CallNode<'_>, suppressed: 
     while let Some(recv) = current_recv {
         if let Some(recv_call) = recv.as_call_node() {
             if is_bracket_call(&recv_call) {
-                suppressed.push(recv_call.location().start_offset());
+                suppressed.push(bracket_call_offset(&recv_call));
                 current_recv = recv_call.receiver();
                 continue;
             }
@@ -105,7 +147,7 @@ fn suppress_bracket_receiver_chain(node: &ruby_prism::CallNode<'_>, suppressed: 
 
 /// Suppress a `[]` argument node and walk its receiver chain.
 fn suppress_bracket_arg(arg_call: &ruby_prism::CallNode<'_>, suppressed: &mut Vec<usize>) {
-    suppressed.push(arg_call.location().start_offset());
+    suppressed.push(bracket_call_offset(arg_call));
     suppress_bracket_receiver_chain(arg_call, suppressed);
 }
 
@@ -138,7 +180,7 @@ fn suppress_index_write_receiver(
     if let Some(recv) = receiver {
         if let Some(recv_call) = recv.as_call_node() {
             if is_bracket_call(&recv_call) {
-                suppressed.push(recv_call.location().start_offset());
+                suppressed.push(bracket_call_offset(&recv_call));
                 suppress_bracket_receiver_chain(&recv_call, suppressed);
             }
         }
@@ -295,10 +337,7 @@ impl ArrayFirstLastVisitor<'_> {
         }
 
         // Skip if this call is suppressed (it's a direct child of another []/[]= call)
-        if self
-            .suppressed_offsets
-            .contains(&call.location().start_offset())
-        {
+        if self.suppressed_offsets.contains(&bracket_call_offset(call)) {
             return;
         }
 
@@ -353,6 +392,10 @@ mod tests {
         run_cop_full_internal(&ArrayFirstLast, source, CopConfig::default(), "test.rb")
     }
 
+    fn run_with_path(path: &str, source: &[u8]) -> Vec<crate::diagnostic::Diagnostic> {
+        run_cop_full_internal(&ArrayFirstLast, source, CopConfig::default(), path)
+    }
+
     #[test]
     fn detects_explicit_bracket_no_parens() {
         assert_eq!(run(b"arr.[] 0\n").len(), 1, "Should detect arr.[] 0");
@@ -394,6 +437,51 @@ mod tests {
     #[test]
     fn detects_with_method_chain() {
         assert_eq!(run(b"arr[0].to_s\n").len(), 1, "Should detect arr[0].to_s");
+    }
+
+    #[test]
+    fn detects_outer_bracket_before_nested_bracket_chain() {
+        let d = run(b"result[0].content[0][:text]\n");
+        assert_eq!(d.len(), 1, "Should only flag result[0]: {:?}", d);
+    }
+
+    #[test]
+    fn detects_outer_bracket_before_nonzero_index() {
+        let d = run(b"tokentype[0].split(\":\")[1]\n");
+        assert_eq!(d.len(), 1, "Should flag tokentype[0]: {:?}", d);
+    }
+
+    #[test]
+    fn no_offense_when_zero_index_has_bracket_receiver() {
+        let d = run(b"sql_traces[1].params[:explain_plan][0].sort\n");
+        assert!(
+            d.is_empty(),
+            "Should not flag [:explain_plan][0] because receiver is []: {:?}",
+            d
+        );
+    }
+
+    #[test]
+    fn no_offense_when_zero_index_is_after_nonzero_bracket_chain() {
+        let d = run(b"sql_traces[1].params[:explain_plan][1][0].sort\n");
+        assert!(
+            d.is_empty(),
+            "Should not flag trailing [0] in [1][0] chain: {:?}",
+            d
+        );
+    }
+
+    #[test]
+    fn no_offense_in_hidden_path_repo_scan() {
+        let d = run_with_path(
+            ".github/workflows/scripts/rubygems-publish.rb",
+            b"ARGV[0]\n",
+        );
+        assert!(
+            d.is_empty(),
+            "Should skip hidden-path files during repo scans: {:?}",
+            d
+        );
     }
 
     #[test]
