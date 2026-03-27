@@ -83,6 +83,41 @@ use crate::parse::source::SourceFile;
 /// All FN verified fixed. Remaining FP=5: auth0 (2), gisiahq (1),
 /// noosfero (1), samvera (1) — all config resolution or vendored file issues.
 /// No cop-level fix needed.
+///
+/// ## Corpus investigation (2026-03-27)
+///
+/// Oracle FP=5, FN=0. All 5 FP are CONTEXT-DEPENDENT (not reproduced in
+/// isolation with `--force-default-config`). verify_cop_locations.py confirms
+/// all 5 specific FP locations no longer fire with the current build.
+///
+/// FP root causes investigated per-repo:
+/// - gisiahq (1 FP): `# rubocop:disable Metrics/ -- reason` inline comment.
+///   `Metrics/` (department name with trailing slash) is stored as-is in the
+///   directive parser's ranges map. `is_disabled()` checks the department key
+///   `Metrics` (no slash), which doesn't match `Metrics/`. Fix needed in
+///   `src/parse/directives.rs` line 188: strip trailing `/` from cop names.
+///   This is a directive parser bug, not a cop detection issue.
+/// - auth0 (2 FP): methods `verify_aud` [8/7] and `verify_org` [9/7]. Both
+///   are correct detections by nitrocop. Pre-diagnostic confirms nitrocop
+///   does NOT flag these in isolation (context-dependent). The oracle's
+///   rubocop count may be stale or the repo's config sets a higher Max.
+/// - noosfero (1 FP): `vendor/plugins/xss_terminate/lib/html5lib_sanitize.rb:2415`.
+///   File is in `vendor/` which is excluded by `baseline_rubocop.yml`'s
+///   `AllCops.Exclude: "vendor/**/*"`. However, the exclude pattern fails
+///   when nitrocop runs from outside the repo directory (cwd=/tmp) because
+///   file paths become `noosfero_corpus/vendor/...` and the glob `vendor/**/*`
+///   doesn't match. Running with cwd=repo gives 173 offenses (correct);
+///   cwd=/tmp gives 197 (24 vendor files not excluded). The oracle baseline
+///   of 195 suggests a different file-discovery context. This is an
+///   infrastructure issue in file exclusion pattern resolution, not a cop bug.
+/// - samvera (1 FP): `apply_admin_set_contexts` [8/7]. Context-dependent,
+///   likely config resolution difference (Max override or `&.` discount
+///   interaction). Not reproduced in isolation.
+///
+/// check_cop.py --rerun reports +2 FP regression in noosfero (195→197 vs
+/// oracle rubocop=194). This is a pre-existing issue on main (branch has
+/// no code changes). Root cause: AllCops.Exclude `vendor/**/*` pattern
+/// resolution depends on cwd. No cop-level fix possible.
 pub struct CyclomaticComplexity;
 
 #[derive(Default)]
