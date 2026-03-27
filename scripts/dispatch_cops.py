@@ -2039,12 +2039,18 @@ def cmd_dispatch_issues(args: argparse.Namespace) -> int:
         fields = parse_marker_fields(issue.get("body", ""), TRACKER_RE)
         difficulty = fields.get("difficulty", "complex")
         backend_family = args.backend_family_override
+        # Use retry mode if there are prior failed PRs so the agent gets
+        # context about what was already tried and why it failed.
+        prior_prs = find_prior_prs(cop)
+        has_failed_prior = any(not pr.get("mergedAt") for pr in prior_prs)
+        mode = "retry" if has_failed_prior else "fix"
         result["selected"].append(
             {
                 "issue": issue["number"],
                 "cop": cop,
                 "difficulty": difficulty,
                 "backend_family": backend_family,
+                "mode": mode,
             }
         )
         if args.dry_run:
@@ -2054,7 +2060,7 @@ def cmd_dispatch_issues(args: argparse.Namespace) -> int:
             "--repo", repo,
             "-f", f"cop={cop}",
             "-f", f"backend={backend_family}",
-            "-f", "mode=fix",
+            "-f", f"mode={mode}",
             "-f", f"issue_number={issue['number']}",
         ]
         proc = subprocess.run(cmd, capture_output=True, text=True)
