@@ -59,13 +59,13 @@ fn check_class_definition_style(
     source: &SourceFile,
     node: &ruby_prism::Node<'_>,
 ) -> Vec<Diagnostic> {
-    let value = if let Some(const_write) = node.as_constant_write_node() {
-        Some(const_write.value())
-    } else if let Some(const_path_write) = node.as_constant_path_write_node() {
-        Some(const_path_write.value())
-    } else {
-        None
-    };
+    let value = node
+        .as_constant_write_node()
+        .map(|const_write| const_write.value())
+        .or_else(|| {
+            node.as_constant_path_write_node()
+                .map(|const_path_write| const_path_write.value())
+        });
 
     // Check for FooError = Class.new(StandardError) and Mod::Foo = Class.new(Base)
     if let Some(value) = value {
