@@ -46,6 +46,16 @@
 /// 3. The `&&` short-circuit case (`char && block = lambda { ... }`) was already
 ///    handled by default visitor recursion into `AndNode`; the actual blocker was
 ///    cause #1 (`&block` not collected).
+///
+/// Additional FN (4 corpus, 2026-03-27): two root causes:
+/// 1. `collect_param_names`/`find_param_offset` missed `KeywordRestParameterNode`
+///    (`**options`), so shadowing of keyword-rest args was never checked.
+/// 2. Prior-reference filtering was too broad: any read before the *reporting*
+///    assignment suppressed offenses, including reads that occur only after an
+///    earlier shadowing write. RuboCop still reports in those cases (for example,
+///    conditional shadowing followed by later unconditional reassignment), so the
+///    check now only considers reads before the first non-shorthand assignment that
+///    writes the arg without reading it on the RHS.
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -116,6 +126,13 @@ fn collect_param_names(params: &ruby_prism::ParametersNode<'_>) -> Vec<Vec<u8>> 
         }
         if let Some(kp) = kw.as_optional_keyword_parameter_node() {
             names.push(kp.name().as_slice().to_vec());
+        }
+    }
+    if let Some(kw_rest) = params.keyword_rest() {
+        if let Some(kp) = kw_rest.as_keyword_rest_parameter_node() {
+            if let Some(name) = kp.name() {
+                names.push(name.as_slice().to_vec());
+            }
         }
     }
     if let Some(block) = params.block() {
@@ -404,6 +421,17 @@ impl ShadowedArgVisitor<'_, '_> {
             return;
         }
 
+        // References after the first shadowing-style assignment can belong to
+        // the shadowing local variable, not the original argument. Use this as
+        // the cutoff for "used before shadowing" checks.
+        let first_shadowing_offset = assignments
+            .iter()
+            .find(|a| !a.is_shorthand && !a.rhs_uses_param)
+            .map(|a| a.offset);
+        let Some(reference_cutoff) = first_shadowing_offset else {
+            return;
+        };
+
         // Walk assignments in order, mirroring RuboCop's
         // `assignment_without_argument_usage` reduce logic.
         let mut location_known = true;
@@ -432,7 +460,9 @@ impl ShadowedArgVisitor<'_, '_> {
             // Unconditional assignment that doesn't use the param.
             // Before flagging: check if there's a reference before this assignment.
             let assignment_pos = asgn.offset;
-            let has_prior_ref = ref_offsets.iter().any(|&ref_pos| ref_pos <= assignment_pos);
+            let has_prior_ref = ref_offsets
+                .iter()
+                .any(|&ref_pos| ref_pos <= reference_cutoff);
             if has_prior_ref {
                 return;
             }
@@ -539,6 +569,18 @@ fn find_param_offset(params: &ruby_prism::ParametersNode<'_>, name: &[u8]) -> Op
         if let Some(kp) = kw.as_optional_keyword_parameter_node() {
             if kp.name().as_slice() == name {
                 return Some(kp.location().start_offset());
+            }
+        }
+    }
+    if let Some(kw_rest) = params.keyword_rest() {
+        if let Some(kp) = kw_rest.as_keyword_rest_parameter_node() {
+            if let Some(pname) = kp.name() {
+                if pname.as_slice() == name {
+                    if let Some(name_loc) = kp.name_loc() {
+                        return Some(name_loc.start_offset());
+                    }
+                    return Some(kp.location().start_offset());
+                }
             }
         }
     }
