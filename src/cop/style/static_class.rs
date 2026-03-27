@@ -30,6 +30,11 @@ use crate::parse::source::SourceFile;
 ///   now allowed per RuboCop's `equals_asgn?` check.
 /// - `extend` calls were rejected; now allowed per RuboCop's `extend_call?`.
 /// - `class << self` with only public defs/assignments wasn't properly validated.
+/// - Empty `class << self; end` blocks caused `is_convertible_sclass` to return false
+///   (early-exit on empty children), but Ruby's `[].all?` returns true so these are
+///   convertible. Fixed by removing the empty-children guard.
+/// - Multi-assignment (`A, B = expr`) was not recognized by `is_assignment`; added
+///   `MultiWriteNode` to match RuboCop's `equals_asgn?` which includes `masgn`.
 pub struct StaticClass;
 
 impl Cop for StaticClass {
@@ -146,10 +151,8 @@ fn is_convertible_sclass(node: &ruby_prism::Node<'_>) -> bool {
     };
 
     let children = class_elements(sclass.body());
-    if children.is_empty() {
-        return false;
-    }
 
+    // Empty `class << self; end` is a no-op and convertible (Ruby's `[].all?` is true)
     children.iter().all(|child| {
         // Inside class << self, regular defs (no receiver) are class methods
         child.as_def_node().is_some_and(|d| d.receiver().is_none()) || is_assignment(child)
@@ -165,6 +168,7 @@ fn is_assignment(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_instance_variable_write_node().is_some()
         || node.as_class_variable_write_node().is_some()
         || node.as_global_variable_write_node().is_some()
+        || node.as_multi_write_node().is_some()
 }
 
 /// Check if node is an `extend` call.
