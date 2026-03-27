@@ -185,3 +185,28 @@ else
     do_e
   end
 end
+
+# if-else with nested if-elsif in else body — NOT an elsif chain
+# In Parser AST, else body wraps nested if in :begin, so branch_conditions stops.
+# RuboCop does not walk from the outer if into a block if-else in the else body.
+# (only modifier if/unless are walked into, since they are direct if_type in Parser AST)
+if path == "*"
+  true
+else
+  if path.is_a?(Regexp)
+    path.match(stack[i])
+  elsif path.is_a?(Symbol)
+    path.inspect == stack[i]
+  end
+end
+
+# if-else with nested if in else (regexp variant) — outer if is not case-like
+if piped_row =~ /^\s+/
+  last_step_params << piped_row
+else
+  if piped_row =~ /\=\=\=\s/
+    :info
+  elsif piped_row =~ /Build settings/
+    :ignore
+  end
+end
