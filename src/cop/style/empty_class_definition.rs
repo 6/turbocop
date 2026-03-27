@@ -1,11 +1,18 @@
 use crate::cop::node_type::{
-    CALL_NODE, CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, SELF_NODE,
-    STATEMENTS_NODE,
+    CALL_NODE, CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_READ_NODE,
+    CONSTANT_WRITE_NODE, SELF_NODE, STATEMENTS_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus FN root cause: Prism represents qualified constant assignments like
+/// `Win32::Service = Class.new` and `::Foo = Class.new` as
+/// `ConstantPathWriteNode`, but this cop originally only checked
+/// `ConstantWriteNode`. That missed RuboCop-compatible offenses for namespaced
+/// and absolute constant targets. Fixed by matching both assignment node types
+/// while keeping the existing `Class.new` receiver, block, and parent-class
+/// guards unchanged.
 pub struct EmptyClassDefinition;
 
 impl Cop for EmptyClassDefinition {
@@ -18,6 +25,7 @@ impl Cop for EmptyClassDefinition {
             CALL_NODE,
             CLASS_NODE,
             CONSTANT_PATH_NODE,
+            CONSTANT_PATH_WRITE_NODE,
             CONSTANT_READ_NODE,
             CONSTANT_WRITE_NODE,
             SELF_NODE,
@@ -51,9 +59,16 @@ fn check_class_definition_style(
     source: &SourceFile,
     node: &ruby_prism::Node<'_>,
 ) -> Vec<Diagnostic> {
-    // Check for FooError = Class.new(StandardError)
-    if let Some(const_write) = node.as_constant_write_node() {
-        let value = const_write.value();
+    let value = node
+        .as_constant_write_node()
+        .map(|const_write| const_write.value())
+        .or_else(|| {
+            node.as_constant_path_write_node()
+                .map(|const_path_write| const_path_write.value())
+        });
+
+    // Check for FooError = Class.new(StandardError) and Mod::Foo = Class.new(Base)
+    if let Some(value) = value {
         if let Some(call) = value.as_call_node() {
             let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
             if method_name == "new" {
