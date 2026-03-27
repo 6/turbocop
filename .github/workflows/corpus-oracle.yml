@@ -123,6 +123,15 @@ jobs:
 
       - name: Download nitrocop binary
         uses: actions/download-artifact@v8
+        id: download-binary
+        with:
+          name: nitrocop-binary
+          path: bin/
+        continue-on-error: true
+
+      - name: Retry binary download
+        if: steps.download-binary.outcome == 'failure'
+        uses: actions/download-artifact@v8
         with:
           name: nitrocop-binary
           path: bin/
