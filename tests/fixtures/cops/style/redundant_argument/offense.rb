@@ -32,3 +32,19 @@ str.to_i(10)
 
 arr.sum(0)
        ^^^ Style/RedundantArgument: Argument `0` is redundant because it is implied by default.
+
+# Block literal does not make the redundant argument non-redundant
+arr.sum(0) { |x| x * 2 }
+       ^^^ Style/RedundantArgument: Argument `0` is redundant because it is implied by default.
+
+result = ary.each.sum(0) {|x| yielded << x; 2*x }
+                     ^^^ Style/RedundantArgument: Argument `0` is redundant because it is implied by default.
+
+returned_object = "chunky bacon".split(" ") { |str| a << str.capitalize }
+                                      ^^^^^ Style/RedundantArgument: Argument `" "` is redundant because it is implied by default.
+
+# do..end block also should not suppress detection
+str.split(" ") do |s|
+         ^^^^^ Style/RedundantArgument: Argument `" "` is redundant because it is implied by default.
+  puts s
+end
