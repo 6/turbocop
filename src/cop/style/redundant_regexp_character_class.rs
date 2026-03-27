@@ -157,8 +157,7 @@ fn check_regexp_fragment(
                     source,
                     chars,
                     offsets,
-                    i,
-                    end,
+                    i..end,
                     extended_mode,
                     diagnostics,
                 );
@@ -180,11 +179,12 @@ fn check_character_class(
     source: &SourceFile,
     chars: &[char],
     offsets: &[Option<usize>],
-    open: usize,
-    close: usize,
+    class_range: std::ops::Range<usize>,
     extended_mode: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    let open = class_range.start;
+    let close = class_range.end;
     if open + 1 < close {
         check_regexp_fragment(
             cop,
