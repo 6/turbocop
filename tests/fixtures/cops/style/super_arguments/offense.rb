@@ -78,3 +78,60 @@ def outer(a)
   super(a)
   ^^^^^^^^ Style/SuperArguments: Call `super` without arguments and parentheses when the signature is identical.
 end
+
+# Anonymous block forwarding with named keyword rest
+def with_named_kwargs_and_anonymous_block(filter: /UserAudit/, level: :info, **args, &)
+  super(filter:, level:, **args, &)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/SuperArguments: Call `super` without arguments and parentheses when the signature is identical.
+end
+
+# Anonymous block forwarding with positional arguments
+def with_args_and_anonymous_block(level, index, message, payload, exception, &)
+  super(level, index, message, payload, exception, &)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/SuperArguments: Call `super` without arguments and parentheses when the signature is identical.
+end
+
+# Anonymous positional and keyword forwarding
+def with_anonymous_rest_and_keywords(*, **)
+  super(*, **) if defined?(super)
+  ^^^^^^^^^^^^ Style/SuperArguments: Call `super` without arguments and parentheses when the signature is identical.
+end
+
+# Anonymous block forwarding after local mutation
+def with_mutation_before_anonymous_block(xml, &)
+  xml = strip_whitespace(xml)
+  super(xml, &)
+  ^^^^^^^^^^^^^ Style/SuperArguments: Call `super` without arguments and parentheses when the signature is identical.
+end
+
+# Post arguments after rest params should keep Ruby's order
+def with_post_arg(ep, *params, configs)
+  super ep, *params, configs
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/SuperArguments: Call `super` without arguments and parentheses when the signature is identical.
+end
+
+# Anonymous block param with an inline block still reports the positional/keyword message
+def with_inline_block_and_anonymous_block(name, *args, &)
+  super(name, *args) do
+  ^^^^^^^^^^^^^^^^^^ Style/SuperArguments: Call `super` without arguments and parentheses when all positional and keyword arguments are forwarded.
+    instance_eval(&)
+  end
+end
+
+# Anonymous keyword rest forwarding
+def with_anonymous_keyword_rest(quantity: nil, hard_limit: INFINITY, soft_limit: INFINITY, **)
+  super(quantity:, hard_limit:, soft_limit:, **)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/SuperArguments: Call `super` without arguments and parentheses when the signature is identical.
+end
+
+# Named keyword + anonymous keyword rest forwarding
+def with_named_and_anonymous_keyword_rest(io, delete: delete_raw?, **)
+  super(io, delete:, **)
+  ^^^^^^^^^^^^^^^^^^^^^^ Style/SuperArguments: Call `super` without arguments and parentheses when the signature is identical.
+end
+
+# Anonymous keyword rest on its own
+def only_anonymous_keyword_rest(**)
+  super(**)
+  ^^^^^^^^^ Style/SuperArguments: Call `super` without arguments and parentheses when the signature is identical.
+end

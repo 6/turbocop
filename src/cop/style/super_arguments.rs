@@ -15,10 +15,15 @@ use ruby_prism::Visit;
 ///   `block` field, not in `arguments`. The old code treated any `block()` as
 ///   a literal block and excluded the def's block param from matching, causing
 ///   block-only forwarding to be missed entirely.
+/// - FN: anonymous forwarding (`*`, `**`, `&`) was skipped wholesale. RuboCop
+///   still flags `super(*)`, `super(**)`, `super(*, **)`, and `super(&)` when
+///   they exactly match the enclosing method signature.
 /// - FN: `super(...)` forwarding — ForwardingArgumentsNode was not handled.
 /// - FN: `super()` with no-arg def — early return on "both empty" skipped it.
 /// - FN: Ruby 3.1 hash value omission `super(type:, hash:)` — ImplicitNode
 ///   wrapping LocalVariableReadNode was not unwrapped.
+/// - FN: post arguments after a rest parameter (`def f(a, *rest, tail)`) must
+///   stay in Ruby's source order when compared against `super a, *rest, tail`.
 pub struct SuperArguments;
 
 impl Cop for SuperArguments {
@@ -56,14 +61,14 @@ struct SuperArgumentsVisitor<'a> {
 enum DefParam {
     /// Required or optional positional param: `name` or `name = default`
     Positional(Vec<u8>),
-    /// Rest param: `*args`
-    Rest(Vec<u8>),
+    /// Rest param: `*args` or anonymous `*`
+    Rest(Option<Vec<u8>>),
     /// Required or optional keyword param: `name:` or `name: default`
     Keyword(Vec<u8>),
-    /// Keyword rest param: `**kwargs`
-    KeywordRest(Vec<u8>),
-    /// Block param: `&block`
-    Block(Vec<u8>),
+    /// Keyword rest param: `**kwargs` or anonymous `**`
+    KeywordRest(Option<Vec<u8>>),
+    /// Block param: `&block` or anonymous `&`
+    Block(Option<Vec<u8>>),
     /// Forwarding parameter: `...`
     Forwarding,
 }
@@ -82,17 +87,17 @@ fn extract_def_params(params: &ruby_prism::ParametersNode<'_>) -> Vec<DefParam> 
             result.push(DefParam::Positional(op.name().as_slice().to_vec()));
         }
     }
-    // Post params (after rest)
+    if let Some(rest) = params.rest() {
+        if let Some(rp) = rest.as_rest_parameter_node() {
+            result.push(DefParam::Rest(
+                rp.name().map(|name| name.as_slice().to_vec()),
+            ));
+        }
+    }
+    // Post params come after a rest param in Ruby's source order.
     for p in params.posts().iter() {
         if let Some(rp) = p.as_required_parameter_node() {
             result.push(DefParam::Positional(rp.name().as_slice().to_vec()));
-        }
-    }
-    if let Some(rest) = params.rest() {
-        if let Some(rp) = rest.as_rest_parameter_node() {
-            if let Some(name) = rp.name() {
-                result.push(DefParam::Rest(name.as_slice().to_vec()));
-            }
         }
     }
     for p in params.keywords().iter() {
@@ -120,15 +125,15 @@ fn extract_def_params(params: &ruby_prism::ParametersNode<'_>) -> Vec<DefParam> 
         if kw_rest.as_forwarding_parameter_node().is_some() {
             result.push(DefParam::Forwarding);
         } else if let Some(kwr) = kw_rest.as_keyword_rest_parameter_node() {
-            if let Some(name) = kwr.name() {
-                result.push(DefParam::KeywordRest(name.as_slice().to_vec()));
-            }
+            result.push(DefParam::KeywordRest(
+                kwr.name().map(|name| name.as_slice().to_vec()),
+            ));
         }
     }
     if let Some(block) = params.block() {
-        if let Some(name) = block.name() {
-            result.push(DefParam::Block(name.as_slice().to_vec()));
-        }
+        result.push(DefParam::Block(
+            block.name().map(|name| name.as_slice().to_vec()),
+        ));
     }
     result
 }
@@ -144,11 +149,15 @@ fn super_arg_matches_def_param(arg: &ruby_prism::Node<'_>, def_param: &DefParam)
         }
         DefParam::Rest(name) => {
             if let Some(splat) = arg.as_splat_node() {
-                if let Some(expr) = splat.expression() {
-                    if let Some(lv) = expr.as_local_variable_read_node() {
-                        return lv.name().as_slice() == name.as_slice();
+                if let Some(name) = name {
+                    if let Some(expr) = splat.expression() {
+                        if let Some(lv) = expr.as_local_variable_read_node() {
+                            return lv.name().as_slice() == name.as_slice();
+                        }
                     }
+                    return false;
                 }
+                return splat.expression().is_none();
             }
             false
         }
@@ -160,21 +169,29 @@ fn super_arg_matches_def_param(arg: &ruby_prism::Node<'_>, def_param: &DefParam)
         }
         DefParam::KeywordRest(name) => {
             if let Some(splat) = arg.as_assoc_splat_node() {
-                if let Some(value) = splat.value() {
-                    if let Some(lv) = value.as_local_variable_read_node() {
-                        return lv.name().as_slice() == name.as_slice();
+                if let Some(name) = name {
+                    if let Some(value) = splat.value() {
+                        if let Some(lv) = value.as_local_variable_read_node() {
+                            return lv.name().as_slice() == name.as_slice();
+                        }
                     }
+                    return false;
                 }
+                return splat.value().is_none();
             }
             false
         }
         DefParam::Block(name) => {
             if let Some(block_arg) = arg.as_block_argument_node() {
-                if let Some(expr) = block_arg.expression() {
-                    if let Some(lv) = expr.as_local_variable_read_node() {
-                        return lv.name().as_slice() == name.as_slice();
+                if let Some(name) = name {
+                    if let Some(expr) = block_arg.expression() {
+                        if let Some(lv) = expr.as_local_variable_read_node() {
+                            return lv.name().as_slice() == name.as_slice();
+                        }
                     }
+                    return false;
                 }
+                return block_arg.expression().is_none();
             }
             false
         }
@@ -400,34 +417,6 @@ fn has_param_reassignment(body: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
 
 impl<'pr> Visit<'pr> for SuperArgumentsVisitor<'_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        // If the method has an anonymous keyword rest (**), the super call
-        // has different semantics — don't flag it.
-        if let Some(params) = node.parameters() {
-            if let Some(kw_rest) = params.keyword_rest() {
-                if kw_rest
-                    .as_keyword_rest_parameter_node()
-                    .is_some_and(|k| k.name().is_none())
-                {
-                    return;
-                }
-            }
-            // Also skip anonymous rest (*) — Ruby 3.2+
-            if let Some(rest) = params.rest() {
-                if rest
-                    .as_rest_parameter_node()
-                    .is_some_and(|r| r.name().is_none())
-                {
-                    return;
-                }
-            }
-            // Skip anonymous block (&) — Ruby 3.1+
-            if let Some(block) = params.block() {
-                if block.name().is_none() {
-                    return;
-                }
-            }
-        }
-
         let def_params = if let Some(params) = node.parameters() {
             extract_def_params(&params)
         } else {
@@ -440,7 +429,7 @@ impl<'pr> Visit<'pr> for SuperArgumentsVisitor<'_> {
         // super(&block) is not a trivial forwarding
         let has_block_reassignment = if let Some(body) = node.body() {
             def_params.iter().any(|p| {
-                if let DefParam::Block(name) = p {
+                if let DefParam::Block(Some(name)) = p {
                     has_param_reassignment(&body, name)
                 } else {
                     false

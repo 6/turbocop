@@ -91,3 +91,12 @@ end
 def create(promise = nil, &)
   super(promise)
 end
+
+# Mixed anonymous forwarding should not flag when only a subset is forwarded
+def partial_anonymous_forwarding(*, **)
+  super(*)
+end
+
+def partial_anonymous_keyword_forwarding(*, **)
+  super(**)
+end
