@@ -75,11 +75,17 @@ def build_env(repo_dir: str | None = None) -> dict[str, str]:
 def deduplicate_offenses(offenses: list[dict]) -> int:
     """Count offenses deduplicated by (path, line, cop_name).
 
-    The corpus oracle uses this deduplication, so we must match it.
+    Resolve symlink paths before deduplicating so local reruns match the
+    corpus oracle's post-processing. Repos like noosfero contain the same file
+    under both canonical and symlinked paths, which would otherwise overcount
+    offenses during `check_cop.py --rerun`.
     """
     seen: set[tuple[str, int, str]] = set()
     for o in offenses:
-        key = (o.get("path", ""), o.get("line", 0), o.get("cop_name", ""))
+        path = o.get("path", "")
+        if path and os.path.exists(path):
+            path = os.path.realpath(path)
+        key = (path, o.get("line", 0), o.get("cop_name", ""))
         seen.add(key)
     return len(seen)
 
