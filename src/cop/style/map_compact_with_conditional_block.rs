@@ -36,6 +36,13 @@ use crate::parse::source::SourceFile;
 ///   (absent), NOT a NilNode literal. `cond ? param : nil` has a NilNode in the
 ///   else branch which doesn't match `nil?`. Fixed by using `is_bare_next` only
 ///   for Patterns 2/3 (param+next or next+param), not `is_next_or_nil`.
+/// - `filter_map(args)` calls with explicit arguments (e.g., `Parallel.filter_map(list)`)
+///   were incorrectly matched. The vendor pattern `(call _ {:map :filter_map})`
+///   requires no call arguments. Fixed by checking `call.arguments().is_none()`.
+/// - `filter_map` in multi-line method chains (e.g., `receiver\n  .filter_map { ... }`)
+///   reported the offense at the receiver's line instead of the `filter_map` selector
+///   line, causing FP/FN pairs on adjacent lines. Fixed by using `message_loc()`
+///   instead of `call.location()` for the filter_map path.
 ///
 /// The vendor RuboCop NodePattern handles these block body shapes
 /// (plus unless variants of all):
@@ -109,11 +116,18 @@ impl Cop for MapCompactWithConditionalBlock {
             }
         } else if method_name == b"filter_map" {
             // filter_map call — check if it has a conditional block that can be
-            // replaced with select/reject
+            // replaced with select/reject.
+            // RuboCop pattern: (call _ {:map :filter_map}) requires no arguments.
+            // Skip calls like Parallel.filter_map(args) which have explicit arguments.
+            if call.arguments().is_some() {
+                return;
+            }
             if let Some(block) = call.block() {
                 if let Some(block_node) = block.as_block_node() {
                     if check_block_body(source, &block_node) {
-                        let loc = call.location();
+                        // Use message_loc (method name position) for correct line in
+                        // multi-line chains where the receiver is on a different line.
+                        let loc = call.message_loc().unwrap_or(call.location());
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
                         diagnostics.push(self.diagnostic(
                             source,

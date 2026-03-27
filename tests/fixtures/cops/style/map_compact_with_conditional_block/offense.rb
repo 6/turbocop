@@ -120,7 +120,7 @@ end.compact
 
 # filter_map with if/next
 ary.filter_map do |item|
-^^^^^^^^^^^^^^^^^^^^^^^^ Style/MapCompactWithConditionalBlock: Replace `filter_map { ... }` with `select` or `reject`.
+    ^^^^^^^^^^^^^^^^^^^^ Style/MapCompactWithConditionalBlock: Replace `filter_map { ... }` with `select` or `reject`.
   if item.bar?
     item
   else
@@ -130,7 +130,7 @@ end
 
 # filter_map with modifier if
 ary.filter_map { |item| item if item.bar? }
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MapCompactWithConditionalBlock: Replace `filter_map { ... }` with `select` or `reject`.
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MapCompactWithConditionalBlock: Replace `filter_map { ... }` with `select` or `reject`.
 
 # Guard clause: next nil if + item (select with nil guard)
 ary.map do |item|
@@ -147,3 +147,8 @@ ary.map do |item|
 
   item
 end.compact
+
+# filter_map in multi-line method chain (receiver on different line)
+foo.bar
+  .filter_map { |x| x if x.valid? }
+   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MapCompactWithConditionalBlock: Replace `filter_map { ... }` with `select` or `reject`.
