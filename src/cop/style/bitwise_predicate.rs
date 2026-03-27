@@ -103,25 +103,25 @@ impl Cop for BitwisePredicate {
         let method_name = method_name(&call);
 
         // Pattern: (variable & flags).positive? => variable.anybits?(flags)
-        if method_name == "positive?" || method_name == "zero?" {
-            if parenthesized_bit_operation(call.receiver()).is_some() {
-                let predicate = if method_name == "positive?" {
-                    "anybits?"
-                } else {
-                    "nobits?"
-                };
-                let loc = node.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!(
-                        "Replace with `{}` for comparison with bit flags.",
-                        predicate
-                    ),
-                ));
-            }
+        if (method_name == "positive?" || method_name == "zero?")
+            && parenthesized_bit_operation(call.receiver()).is_some()
+        {
+            let predicate = if method_name == "positive?" {
+                "anybits?"
+            } else {
+                "nobits?"
+            };
+            let loc = node.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                format!(
+                    "Replace with `{}` for comparison with bit flags.",
+                    predicate
+                ),
+            ));
         }
 
         // Pattern: (variable & flags) > 0 / != 0 / == 0
