@@ -3,23 +3,18 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
-/// Corpus investigation (FP=24, FN=2):
+/// Corpus investigation:
 ///
-/// Root causes of 24 FPs:
-/// 1. Accepted integer conditions (`when 32`), but RuboCop only allows str/sym.
-/// 2. Accepted nil bodies (`when :x; nil`), but RuboCop's `!nil?` excludes them.
-/// 3. Did not enforce same-type constraint on conditions and bodies. Mixed
-///    true/false, int/float, or string/symbol conditions caused false positives.
+/// Previous fixes removed integer conditions, rejected bare `nil` bodies,
+/// added recursive array/hash literal support, and enforced same-type checks.
 ///
-/// Root cause of 2 FNs:
-/// - Bodies were restricted to scalar literals. RuboCop's `recursive_basic_literal?`
-///   also matches arrays and hashes of literals (e.g., `["#BackupSuccess"]`).
+/// Follow-up corpus check (FP=0, FN=4) exposed two remaining RuboCop nuances:
+/// 1. `!nil?` only rejects the top-level `when` body. Nested `nil` values inside
+///    recursive array/hash literals are still allowed.
+/// 2. Regexp literals count as recursive basic literals.
 ///
-/// Fixes applied:
-/// - Removed integer_node from `is_simple_when` (only str/sym allowed).
-/// - Removed nil_node from `when_body_is_simple_value`.
-/// - Added `is_recursive_basic_literal` to handle array/hash bodies.
-/// - Added same-type check for all condition nodes and all body nodes.
+/// Fix: keep bare `nil` bodies disallowed, but allow nested `nil` while walking
+/// recursive literals and treat regexp literals as supported body nodes.
 pub struct HashLikeCase;
 
 impl Cop for HashLikeCase {
@@ -67,28 +62,31 @@ impl HashLikeCaseVisitor<'_, '_> {
         cond.as_string_node().is_some() || cond.as_symbol_node().is_some()
     }
 
-    /// Matches RuboCop's `[!nil? recursive_basic_literal?]`:
-    /// a basic literal (string, symbol, integer, float, true, false) but NOT nil,
-    /// or an array/hash whose elements are all recursive basic literals.
-    fn is_recursive_basic_literal(node: &ruby_prism::Node<'_>) -> bool {
-        // Scalar literals (excluding nil — RuboCop's !nil? constraint)
+    /// Matches RuboCop's recursive_basic_literal? for the body node after the
+    /// top-level `!nil?` guard has already been checked separately.
+    fn is_recursive_basic_literal(node: &ruby_prism::Node<'_>, allow_nil: bool) -> bool {
+        if allow_nil && node.as_nil_node().is_some() {
+            return true;
+        }
+
         if node.as_string_node().is_some()
             || node.as_symbol_node().is_some()
             || node.as_integer_node().is_some()
             || node.as_float_node().is_some()
             || node.as_true_node().is_some()
             || node.as_false_node().is_some()
+            || node.as_regular_expression_node().is_some()
         {
             return true;
         }
-        // Array of literals
+
         if let Some(arr) = node.as_array_node() {
             return arr
                 .elements()
                 .iter()
-                .all(|el| Self::is_recursive_basic_literal(&el));
+                .all(|el| Self::is_recursive_basic_literal(&el, true));
         }
-        // Hash of literals (HashNode for `{}`, KeywordHashNode for keyword args)
+
         let hash_elements = node
             .as_hash_node()
             .map(|h| h.elements())
@@ -96,8 +94,8 @@ impl HashLikeCaseVisitor<'_, '_> {
         if let Some(elements) = hash_elements {
             return elements.iter().all(|el| {
                 if let Some(assoc) = el.as_assoc_node() {
-                    Self::is_recursive_basic_literal(&assoc.key())
-                        && Self::is_recursive_basic_literal(&assoc.value())
+                    Self::is_recursive_basic_literal(&assoc.key(), true)
+                        && Self::is_recursive_basic_literal(&assoc.value(), true)
                 } else {
                     false
                 }
@@ -110,7 +108,8 @@ impl HashLikeCaseVisitor<'_, '_> {
         if let Some(stmts) = when_node.statements() {
             let body: Vec<_> = stmts.body().iter().collect();
             if body.len() == 1 {
-                return Self::is_recursive_basic_literal(&body[0]);
+                return body[0].as_nil_node().is_none()
+                    && Self::is_recursive_basic_literal(&body[0], false);
             }
         }
         false
@@ -137,6 +136,8 @@ impl HashLikeCaseVisitor<'_, '_> {
             8
         } else if node.as_hash_node().is_some() || node.as_keyword_hash_node().is_some() {
             9
+        } else if node.as_regular_expression_node().is_some() {
+            10
         } else {
             0
         }
