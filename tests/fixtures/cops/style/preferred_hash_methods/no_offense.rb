@@ -4,3 +4,5 @@ hash.value?(42)
 hash.include?(:foo)
 hash.has_key?
 hash.fetch(:foo)
+has_key?
+has_value?

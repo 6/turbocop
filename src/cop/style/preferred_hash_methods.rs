@@ -3,6 +3,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// FN investigation (2026-03):
+/// - Root cause: nitrocop required an explicit receiver before flagging `has_key?` and
+///   `has_value?`, but RuboCop matches any one-argument send with those selectors.
+/// - Missed patterns included receiverless command calls like `return unless has_key? key`
+///   and local helper calls like `if has_key?(x)` inside classes that define `has_key?`.
+/// - Fix: removed the receiver gate and kept the existing one-argument check, matching
+///   RuboCop's unsafe behavior for both explicit and implicit receivers.
 pub struct PreferredHashMethods;
 
 impl Cop for PreferredHashMethods {
@@ -35,11 +42,6 @@ impl Cop for PreferredHashMethods {
                 return;
             }
         } else {
-            return;
-        }
-
-        // Must have a receiver
-        if call.receiver().is_none() {
             return;
         }
 
