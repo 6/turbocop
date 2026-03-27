@@ -42,5 +42,13 @@
     "exclude": [
       "vendor/rails/**/*"
     ]
+  },
+  "noosfero__noosfero__299a0b9": {
+    "comment": "Vendored root libraries/tests under vendor/ began surfacing as clone-only Metrics/ClassLength FP noise. Exclude the affected vendored subtrees in corpus reruns via absolute-path overlay.",
+    "exclude": [
+      "vendor/ezcrypto/**/*",
+      "vendor/gdata/**/*",
+      "vendor/plugins/action_tracker/test/**/*"
+    ]
   }
 }

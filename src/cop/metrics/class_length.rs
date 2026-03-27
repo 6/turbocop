@@ -59,6 +59,28 @@ use crate::parse::source::SourceFile;
 /// verify_cop_locations.py: FP 0 fixed / 2 remain, FN 100 fixed / 0 remain.
 /// All FN verified fixed. Remaining FP=2: auth0 (1, config resolution),
 /// noosfero (1, vendored plugin). No cop-level fix needed.
+///
+/// ## Corpus re-verification (2026-03-27)
+///
+/// Rechecked the two remaining FP examples against upstream behavior before
+/// changing this cop:
+/// - `auth0/omniauth-auth0` `lib/omniauth/auth0/jwt_validator.rb` is covered by
+///   `# rubocop:disable Metrics/`. RuboCop accepts that exact long class, while
+///   still flagging the same long class without the directive. This cop already
+///   matches in isolation, so the corpus mismatch is not a `Metrics/ClassLength`
+///   detection bug.
+/// - `noosfero/noosfero`
+///   `vendor/plugins/xss_terminate/lib/html5lib_sanitize.rb` sits under
+///   root `.rubocop.yml` `AllCops: Exclude: '**/vendor/**/*'`. RuboCop
+///   suppresses the file through path config, not through class-length logic.
+/// - `verify_cop_locations.py Metrics/ClassLength` now reports both original
+///   CI false-positive locations fixed. The remaining sampled `check_cop.py`
+///   delta is additional noosfero-only config/file-selection noise outside the
+///   original CI locations, not a new `Metrics/ClassLength` counting change.
+///
+/// Added a fixture for the department-disable case to guard against future
+/// regressions in directive handling. The remaining vendored-path mismatch
+/// needs config/file-selection work outside this cop's route.
 pub struct ClassLength;
 
 struct LengthSettings<'a> {
@@ -354,7 +376,54 @@ impl Cop for ClassLength {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
+    use std::collections::HashSet;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
     crate::cop_fixture_tests!(ClassLength, "cops/metrics/class_length");
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "nitrocop_class_length_{name}_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_file(dir: &Path, name: &str, content: &[u8]) -> PathBuf {
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, content).unwrap();
+        path
+    }
+
+    fn discovered(files: &[PathBuf]) -> crate::fs::DiscoveredFiles {
+        crate::fs::DiscoveredFiles {
+            files: files.to_vec(),
+            explicit: HashSet::new(),
+        }
+    }
+
+    fn class_length_args() -> crate::cli::Args {
+        let mut args = crate::cli::Args::parse_from(["nitrocop"]);
+        args.only = vec!["Metrics/ClassLength".to_string()];
+        args.format = "text".to_string();
+        args
+    }
+
+    fn long_class_source(prefix: &str) -> Vec<u8> {
+        let mut source = String::from(prefix);
+        for i in 1..=101 {
+            source.push_str(&format!("  x = {i}\n"));
+        }
+        source.push_str("end\n");
+        source.into_bytes()
+    }
 
     #[test]
     fn config_custom_max() {
@@ -412,5 +481,82 @@ mod tests {
 
         assert_eq!(diags.len(), 1, "Nested singleton class should be skipped");
         assert_eq!(diags[0].location.line, 1);
+    }
+
+    #[test]
+    fn department_disable_suppresses_long_class_in_full_pipeline() {
+        let dir = temp_dir("directive_disable");
+        let file = write_file(
+            &dir,
+            "lib/jwt_validator.rb",
+            &long_class_source("# rubocop:disable Metrics/\nclass JWTValidator\n"),
+        );
+
+        let config = crate::config::load_config(None, Some(&dir), None).unwrap();
+        let registry = crate::cop::registry::CopRegistry::default_registry();
+        let tier_map = crate::cop::tiers::TierMap::load();
+        let allowlist = crate::cop::autocorrect_allowlist::AutocorrectAllowlist::load();
+        let args = class_length_args();
+        let result = crate::linter::run_linter(
+            &discovered(&[file]),
+            &config,
+            &registry,
+            &args,
+            &tier_map,
+            &allowlist,
+        );
+
+        assert!(
+            result.diagnostics.is_empty(),
+            "Directive-disabled long class should be suppressed, got: {:?}",
+            result
+                .diagnostics
+                .iter()
+                .map(|d| format!("{d}"))
+                .collect::<Vec<_>>()
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn vendor_exclude_suppresses_long_class_in_full_pipeline() {
+        let dir = temp_dir("vendor_exclude");
+        write_file(
+            &dir,
+            ".rubocop.yml",
+            b"AllCops:\n  Exclude:\n    - '**/vendor/**/*'\n",
+        );
+        let file = write_file(
+            &dir,
+            "vendor/plugins/xss_terminate/lib/html5lib_sanitize.rb",
+            &long_class_source("class String\n"),
+        );
+
+        let config = crate::config::load_config(None, Some(&dir), None).unwrap();
+        let registry = crate::cop::registry::CopRegistry::default_registry();
+        let tier_map = crate::cop::tiers::TierMap::load();
+        let allowlist = crate::cop::autocorrect_allowlist::AutocorrectAllowlist::load();
+        let args = class_length_args();
+        let result = crate::linter::run_linter(
+            &discovered(&[file]),
+            &config,
+            &registry,
+            &args,
+            &tier_map,
+            &allowlist,
+        );
+
+        assert!(
+            result.diagnostics.is_empty(),
+            "Vendored path excluded by AllCops should be suppressed, got: {:?}",
+            result
+                .diagnostics
+                .iter()
+                .map(|d| format!("{d}"))
+                .collect::<Vec<_>>()
+        );
+
+        fs::remove_dir_all(&dir).ok();
     }
 }
