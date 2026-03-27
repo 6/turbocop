@@ -27,3 +27,6 @@ y =~ /#{addr('127.0.0.1')}/
 'dead::beef%eth0'
 # Zone ID with invalid format
 'fe80::1%'
+# Percent-literal strings (RuboCop's source[1...-1] garbles the content)
+%q{10.33.33.33}
+%(0.0.0.0)

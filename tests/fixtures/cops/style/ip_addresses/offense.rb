@@ -19,3 +19,7 @@
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IpAddresses: Do not hardcode IP addresses.
 'fe80:0:0:0:0:0:0:1%eth0'
 ^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IpAddresses: Do not hardcode IP addresses.
+
+# Compressed IPv6 with more than 7 explicit groups (Ruby's Resolv regex permits this)
+data_sample["owner"] = "1::3:4:5:6:7:8:9"
+                       ^^^^^^^^^^^^^^^^^^^^ Style/IpAddresses: Do not hardcode IP addresses.

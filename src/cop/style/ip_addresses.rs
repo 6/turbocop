@@ -41,6 +41,20 @@ use crate::parse::source::SourceFile;
 ///    `Resolv::IPv6::Regex` includes `Regex_LinkLocal_6Hex7` and
 ///    `Regex_LinkLocal_CompressedHex7` patterns for `fe80` prefix addresses
 ///    with `%zone_id` suffixes. Zone ID allows `[-0-9A-Za-z._~]+`.
+///
+/// ## Investigation findings (2026-03-27)
+///
+/// **FP causes (fixed):**
+/// 6. Percent-literal strings (`%q{10.33.33.33}`, `%(0.0.0.0)`) were flagged.
+///    RuboCop's `node.source[1...-1]` strips only the first and last character,
+///    yielding garbled content like `q{10.33.33.33` for percent literals, which
+///    fails the `starts_with_hex_or_colon?` pre-filter. We now skip strings
+///    whose opening delimiter starts with `%`.
+///
+/// **FN causes (fixed):**
+/// 3. Compressed IPv6 with more than 7 explicit groups (`1::3:4:5:6:7:8:9`)
+///    was rejected. Ruby's `Resolv::IPv6::Regex_CompressedHex` has no upper
+///    bound on total group count — removed the `left + right > 7` check.
 pub struct IpAddresses;
 
 /// Maximum length of an IPv6 address string.
@@ -136,32 +150,25 @@ impl IpAddresses {
         }
         // Validate left side: if non-empty, split by ':' and all groups must be valid hex
         // (no empty groups allowed — that would indicate a leading/trailing/extra colon)
-        let left_groups: Vec<&str> = if parts[0].is_empty() {
-            vec![]
-        } else {
-            let groups: Vec<&str> = parts[0].split(':').collect();
-            for g in &groups {
+        if !parts[0].is_empty() {
+            for g in parts[0].split(':') {
                 if !Self::is_valid_hex_group(g) {
                     return false;
                 }
             }
-            groups
-        };
-        // Validate right side similarly
-        let right_groups: Vec<&str> = if parts[1].is_empty() {
-            vec![]
-        } else {
-            let groups: Vec<&str> = parts[1].split(':').collect();
-            for g in &groups {
-                if !Self::is_valid_hex_group(g) {
-                    return false;
-                }
-            }
-            groups
-        };
-        if left_groups.len() + right_groups.len() > 7 {
-            return false;
         }
+        // Validate right side similarly
+        if !parts[1].is_empty() {
+            for g in parts[1].split(':') {
+                if !Self::is_valid_hex_group(g) {
+                    return false;
+                }
+            }
+        }
+        // Note: Ruby's Resolv::IPv6::Regex_CompressedHex does NOT enforce a
+        // maximum group count. It accepts strings like "1::3:4:5:6:7:8:9"
+        // (8 explicit groups + ::) even though that exceeds 8 total groups.
+        // We match this permissive behavior for RuboCop compatibility.
         true
     }
 
@@ -306,7 +313,16 @@ impl IpAddresses {
     ) {
         // Skip string segments inside interpolated strings (no opening delimiter).
         // Matches RuboCop's StringHelp `node.loc?(:begin)` check.
-        if string_node.opening_loc().is_none() {
+        let opening_loc = match string_node.opening_loc() {
+            Some(loc) => loc,
+            None => return,
+        };
+
+        // Skip percent-literal strings (%q{...}, %Q{...}, %(...), etc.).
+        // RuboCop uses `node.source[1...-1]` which strips only the first and last
+        // character. For percent literals like `%q{10.33.33.33}`, this yields
+        // `q{10.33.33.33` which fails the `starts_with_hex_or_colon?` pre-filter.
+        if opening_loc.as_slice().first() == Some(&b'%') {
             return;
         }
 
