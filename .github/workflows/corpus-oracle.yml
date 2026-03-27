@@ -212,7 +212,7 @@ jobs:
                 --format json \
                 --force-exclusion \
                 --cache false \
-                . \
+                "$ABS_DEST" \
                 > "$WORKSPACE/results/rubocop/${REPO_ID}.json" 2>"$WORKSPACE/results/rubocop/${REPO_ID}.err") || rc=$?
 
               if [ "$rc" -eq 124 ]; then
