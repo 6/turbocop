@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+use std::sync::LazyLock;
+
+use regex::Regex;
 use ruby_prism::Visit;
 
 use crate::cop::{Cop, CopConfig};
@@ -62,9 +66,34 @@ use crate::parse::source::SourceFile;
 ///
 /// verify_cop_locations.py: FP 3 fixed / 0 remain, FN 99 fixed / 1 remain.
 /// All 3 FPs verified fixed (rescue_modifier semantics fix). FN=1 remaining:
-/// GoogleCloudPlatform (controls/1.01-iam.rb:79) — known directive dedup
-/// issue (see "Failed fix attempt" section above). Not a cop algorithm bug.
+/// GoogleCloudPlatform (controls/1.01-iam.rb:79) — at the time this was
+/// attributed to directive dedup; later reduced to a cop-level inline-disable
+/// subtree issue and fixed on 2026-03-27.
+///
+/// ## Corpus investigation (2026-03-27)
+///
+/// GoogleCloudPlatform/inspec-gcp-cis-benchmark still had FN=1 at
+/// `controls/1.01-iam.rb:79`. Root cause: this cop eagerly applied its
+/// ignore-subtree optimization as soon as an overflowing parent node was
+/// encountered. When that parent line had an inline
+/// `# rubocop:disable Metrics/BlockNesting`, the global directive filter later
+/// removed the parent diagnostic, but the skipped subtree prevented the child
+/// offense from ever being visited. RuboCop only calls `ignore_node` when an
+/// offense is actually emitted, so inline-disabled overflowing parents must
+/// keep traversing descendants.
+///
+/// Fix: pre-scan inline disable lines for this cop and only skip the subtree
+/// when the overflowing node is NOT disabled by an inline same-line directive.
+/// This keeps the normal ignore-subtree behavior for all other cases and avoids
+/// the broader regression from reverted commit 003b2a06.
+///
+/// Added fixture coverage in
+/// `tests/fixtures/cops/metrics/block_nesting/offense/inline_disable_parent.rb`.
 pub struct BlockNesting;
+
+static INLINE_DISABLE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"#\s*(?:rubocop|nitrocop)\s*:\s*(?:disable|todo)\s+(.+)").unwrap()
+});
 
 impl Cop for BlockNesting {
     fn name(&self) -> &'static str {
@@ -90,6 +119,7 @@ impl Cop for BlockNesting {
             count_blocks,
             count_modifier_forms,
             depth: 0,
+            inline_disabled_lines: inline_disable_lines_for_block_nesting(source, parse_result),
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -120,6 +150,7 @@ struct NestingVisitor<'a> {
     count_blocks: bool,
     count_modifier_forms: bool,
     depth: usize,
+    inline_disabled_lines: HashSet<usize>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -137,10 +168,70 @@ impl NestingVisitor<'_> {
                 message: format!("Avoid more than {} levels of block nesting.", self.max),
                 corrected: false,
             });
-            return true;
+            return !self.inline_disabled_lines.contains(&line);
         }
         false
     }
+}
+
+fn inline_disable_lines_for_block_nesting(
+    source: &SourceFile,
+    parse_result: &ruby_prism::ParseResult<'_>,
+) -> HashSet<usize> {
+    let lines: Vec<&[u8]> = source.lines().collect();
+    let mut inline_disabled_lines = HashSet::new();
+
+    for comment in parse_result.comments() {
+        let loc = comment.location();
+        let comment_bytes = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
+        let Ok(comment_str) = std::str::from_utf8(comment_bytes) else {
+            continue;
+        };
+        let Some(caps) = INLINE_DISABLE_RE.captures(comment_str) else {
+            continue;
+        };
+
+        let (line, col) = source.offset_to_line_col(loc.start_offset());
+        let is_inline = if line >= 1 && line <= lines.len() {
+            let line_bytes = lines[line - 1];
+            let before_comment = &line_bytes[..col.min(line_bytes.len())];
+            before_comment.iter().any(|b| !b.is_ascii_whitespace())
+        } else {
+            false
+        };
+        if !is_inline {
+            continue;
+        }
+
+        let cop_list_raw = caps.get(1).map_or("", |m| m.as_str());
+        let cop_list = match cop_list_raw.find("--") {
+            Some(idx) => &cop_list_raw[..idx],
+            None => cop_list_raw,
+        };
+
+        if cop_list.split(',').any(disables_block_nesting) {
+            inline_disabled_lines.insert(line);
+        }
+    }
+
+    inline_disabled_lines
+}
+
+fn disables_block_nesting(raw_name: &str) -> bool {
+    let name = raw_name.trim();
+    if name.is_empty() {
+        return false;
+    }
+
+    let name = name.split_whitespace().next().unwrap_or(name);
+    let name = name.split('(').next().unwrap_or(name);
+    let name = name.strip_suffix("/*").unwrap_or(name);
+    let name = name.split_once("::").map_or(name, |(dept, _)| dept);
+
+    name.eq_ignore_ascii_case("all")
+        || name.eq_ignore_ascii_case("Metrics")
+        || name.eq_ignore_ascii_case("BlockNesting")
+        || name.eq_ignore_ascii_case("Metrics/BlockNesting")
 }
 
 impl<'pr> Visit<'pr> for NestingVisitor<'_> {
@@ -333,6 +424,9 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse::codemap::CodeMap;
+    use crate::parse::directives::DisabledRanges;
+    use crate::parse::parse_source;
 
     crate::cop_scenario_fixture_tests!(
         BlockNesting,
@@ -346,10 +440,45 @@ mod tests {
         toplevel_nesting = "toplevel_nesting.rb",
         begin_end_while = "begin_end_while.rb",
         ignore_subtree = "ignore_subtree.rb",
+        inline_disable_parent = "inline_disable_parent.rb",
         sibling_violations = "sibling_violations.rb",
         modifier_while = "modifier_while.rb",
         modifier_until = "modifier_until.rb",
         inline_rescue = "inline_rescue.rb",
         method_inside_nesting = "method_inside_nesting.rb",
     );
+
+    #[test]
+    fn inline_disabled_parent_still_reports_child_after_filtering() {
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"def foo\n  if a\n    if b\n      while current_folder_id\n        if folder_resource.exists? # rubocop:disable Metrics/BlockNesting\n          if parent_name.include?('organizations/')\n            org_domain = true\n          end\n        end\n      end\n    end\n  end\nend\n"
+                .to_vec(),
+        );
+        let parse_result = parse_source(source.as_bytes());
+        let code_map = CodeMap::from_parse_result(source.as_bytes(), &parse_result);
+
+        let mut diagnostics = Vec::new();
+        BlockNesting.check_source(
+            &source,
+            &parse_result,
+            &code_map,
+            &CopConfig::default(),
+            &mut diagnostics,
+            None,
+        );
+
+        let mut disabled = DisabledRanges::from_comments(&source, &parse_result);
+        diagnostics.retain(|d| !disabled.check_and_mark_used(&d.cop_name, d.location.line));
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "expected only the child offense after filtering"
+        );
+        let diagnostic = &diagnostics[0];
+        assert_eq!(diagnostic.location.line, 6);
+        assert_eq!(diagnostic.location.column, 10);
+        assert_eq!(diagnostic.cop_name, "Metrics/BlockNesting");
+    }
 }
