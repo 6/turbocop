@@ -135,3 +135,18 @@ describe 'records' do
     _obj
   end
 end
+
+_Base = Spark::Command::Base
+^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+
+_Base = Spark::Command::Base
+^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+
+_Base = Spark::Command::Base
+^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+
+_Base = Spark::Command::Base
+^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+
+_simulation = simulation
+^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
