@@ -69,6 +69,11 @@ impl Cop for NonLocalExitFromIterator {
 /// - Treat `lambda { }` calls (and `-> { }` stabby lambdas) as scope boundaries
 ///   that prevent return-from-iterator detection.
 /// - Exclude safe-navigation block sends (`&.`) from chained-send detection.
+/// - Match RuboCop's ancestor behavior for chained calls with blocks: for
+///   `recv_call { ... return ... }.each { |x| ... }`, the `return` in the
+///   receiver block still has the outer `.each` block as an ancestor. To mirror
+///   this, visit receiver/arguments while the current call's block context is
+///   active, not before pushing it.
 #[derive(Clone)]
 enum StackEntry {
     /// A block attached to a method call.
@@ -158,15 +163,13 @@ impl<'pr> Visit<'pr> for NonLocalExitVisitor<'_, '_> {
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        // Visit receiver first
-        if let Some(recv) = node.receiver() {
-            self.visit(&recv);
-        }
-        // Visit arguments
-        if let Some(args) = node.arguments() {
-            self.visit(&args.as_node());
-        }
-        // If call has a block, push block context and visit block body
+        // RuboCop ancestor walking treats the block attached to this call as an
+        // ancestor even when `return` appears in the receiver subtree
+        // (e.g. `foo { return }.each { |x| ... }`).
+        //
+        // To mirror that behavior, when a call has a concrete block node we
+        // push this block/scope entry first, then visit receiver/arguments/body
+        // while that context is active.
         if let Some(block) = node.block() {
             if let Some(block_node) = block.as_block_node() {
                 let method_name = node.name().as_slice();
@@ -177,6 +180,12 @@ impl<'pr> Visit<'pr> for NonLocalExitVisitor<'_, '_> {
 
                 if is_lambda {
                     self.block_stack.push(StackEntry::Scope);
+                    if let Some(recv) = node.receiver() {
+                        self.visit(&recv);
+                    }
+                    if let Some(args) = node.arguments() {
+                        self.visit(&args.as_node());
+                    }
                     if let Some(body) = block_node.body() {
                         self.visit(&body);
                     }
@@ -195,15 +204,37 @@ impl<'pr> Visit<'pr> for NonLocalExitVisitor<'_, '_> {
                         is_chained_send,
                         is_define_method,
                     });
+                    if let Some(recv) = node.receiver() {
+                        self.visit(&recv);
+                    }
+                    if let Some(args) = node.arguments() {
+                        self.visit(&args.as_node());
+                    }
                     if let Some(body) = block_node.body() {
                         self.visit(&body);
                     }
                     self.block_stack.pop();
                 }
+                return;
             } else {
                 // BlockArgumentNode (&block) - visit it normally
+                if let Some(recv) = node.receiver() {
+                    self.visit(&recv);
+                }
+                if let Some(args) = node.arguments() {
+                    self.visit(&args.as_node());
+                }
                 self.visit(&block);
+                return;
             }
+        }
+
+        // No block on this call.
+        if let Some(recv) = node.receiver() {
+            self.visit(&recv);
+        }
+        if let Some(args) = node.arguments() {
+            self.visit(&args.as_node());
         }
     }
 

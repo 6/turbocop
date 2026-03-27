@@ -44,7 +44,7 @@ def get_latest_checks_run(repo: str) -> dict | None:
 def main():
     parser = argparse.ArgumentParser(description="Wait for healthy main checks")
     parser.add_argument("--repo", required=True, help="GitHub repository (owner/repo)")
-    parser.add_argument("--max-wait", type=int, default=600, help="Max wait seconds (default: 600)")
+    parser.add_argument("--max-wait", type=int, default=900, help="Max wait seconds (default: 900)")
     parser.add_argument("--interval", type=int, default=30, help="Poll interval seconds (default: 30)")
     args = parser.parse_args()
 

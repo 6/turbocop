@@ -64,3 +64,28 @@ class AfterAnnotation
   attr_reader :four
   ^^^^^^^^^^^^^^^^^ Style/AccessorGrouping: Group together all `attr_reader` attributes.
 end
+
+# Accessors after block-form DSL calls are grouped by the call line, not the block end
+class AfterBlockMacro
+  mattr_accessor :items do
+    []
+  end
+  attr_reader :name
+  ^^^^^^^^^^^^^^^^^ Style/AccessorGrouping: Group together all `attr_reader` attributes.
+  attr_reader :url
+  ^^^^^^^^^^^^^^^^ Style/AccessorGrouping: Group together all `attr_reader` attributes.
+  attr_reader :enabled
+  ^^^^^^^^^^^^^^^^^^^^ Style/AccessorGrouping: Group together all `attr_reader` attributes.
+end
+
+# Block-form config DSLs behave the same way as other block calls
+class AfterConfigSection
+  config_section :client, param_name: :clients do
+    config_param :host, :string, default: nil
+  end
+  attr_reader :nodes
+  ^^^^^^^^^^^^^^^^^^ Style/AccessorGrouping: Group together all `attr_reader` attributes.
+
+  attr_reader :sessions
+  ^^^^^^^^^^^^^^^^^^^^^ Style/AccessorGrouping: Group together all `attr_reader` attributes.
+end

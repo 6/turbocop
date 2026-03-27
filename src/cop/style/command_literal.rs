@@ -3,6 +3,15 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus FN investigation (0 FP / 11 FN): RuboCop treats any backtick byte inside
+/// a backtick command body's source as a reason to prefer `%x`, including nested
+/// command literals inside interpolation such as ``#{`status`}`` and multiline
+/// callbacks that call ``block.call(`realpath`)``. The previous implementation only
+/// looked for the escaped `\\`` sequence in backtick literals and, under
+/// `EnforcedStyle: backticks`, never emitted the `%x` offense for backtick literals
+/// whose bodies already contained backticks. Match RuboCop by scanning the literal
+/// body between the opening and closing delimiters for any backtick byte and by
+/// flagging those backtick literals as `%x`.
 pub struct CommandLiteral;
 
 impl Cop for CommandLiteral {
@@ -27,15 +36,17 @@ impl Cop for CommandLiteral {
         let allow_inner_backticks = config.get_bool("AllowInnerBackticks", false);
 
         // Check both XStringNode and InterpolatedXStringNode
-        let (opening_loc, node_loc, node_source) = if let Some(x) = node.as_x_string_node() {
+        let (opening, closing, node_loc, node_source) = if let Some(x) = node.as_x_string_node() {
             (
-                Some(x.opening_loc()),
+                x.opening_loc(),
+                x.closing_loc(),
                 x.location(),
                 x.location().as_slice().to_vec(),
             )
         } else if let Some(x) = node.as_interpolated_x_string_node() {
             (
-                Some(x.opening_loc()),
+                x.opening_loc(),
+                x.closing_loc(),
                 x.location(),
                 x.location().as_slice().to_vec(),
             )
@@ -43,36 +54,29 @@ impl Cop for CommandLiteral {
             return;
         };
 
-        let opening = match opening_loc {
-            Some(loc) => loc,
-            None => return,
-        };
-
         let opening_bytes = opening.as_slice();
+        let body = source
+            .as_bytes()
+            .get(opening.end_offset()..closing.start_offset())
+            .unwrap_or(&[]);
         let is_backtick = opening_bytes == b"`";
         let is_multiline = node_source.iter().filter(|&&b| b == b'\n').count() > 1;
-
-        // Check if inner content contains backticks
-        let content_has_backticks = if is_backtick {
-            // In backtick form, inner backticks are escaped: \`
-            node_source.windows(2).any(|w| w == b"\\`")
-        } else {
-            // In %x form, literal backticks appear as-is
-            let open_len = opening_bytes.len();
-            let inner = if node_source.len() > open_len + 1 {
-                &node_source[open_len..node_source.len() - 1]
-            } else {
-                &[]
-            };
-            inner.contains(&b'`')
-        };
+        let content_has_backticks = body.contains(&b'`');
 
         let disallowed_backtick = !allow_inner_backticks && content_has_backticks;
 
         match enforced_style {
             "backticks" => {
-                // Flag %x usage unless it contains backticks (and AllowInnerBackticks is false)
-                if !is_backtick && !disallowed_backtick {
+                if is_backtick && disallowed_backtick {
+                    let (line, column) = source.offset_to_line_col(node_loc.start_offset());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use `%x` around command string.".to_string(),
+                    ));
+                } else if !is_backtick && !disallowed_backtick {
+                    // Flag %x usage unless it contains backticks (and AllowInnerBackticks is false)
                     let (line, column) = source.offset_to_line_col(node_loc.start_offset());
                     diagnostics.push(self.diagnostic(
                         source,

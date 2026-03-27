@@ -15,3 +15,9 @@ y >= y
 
 1.<(1, 2)
 ^^^^^^^^^ Lint/BinaryOperatorWithIdenticalOperands: Binary operator `<` has identical operands.
+
+@tester.assert("\0REQ" == magic || "\000REQ" == magic)
+               ^ Lint/BinaryOperatorWithIdenticalOperands: Binary operator `||` has identical operands.
+
+arg_name == :_implicitBlockYield || arg_name == :"_implicitBlockYield"
+^ Lint/BinaryOperatorWithIdenticalOperands: Binary operator `||` has identical operands.

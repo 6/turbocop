@@ -54,6 +54,11 @@ items.filter_map do |name, spec|
 end
 # Multi-parameter with unless
 pairs.map { |a, b| a unless b.nil? }.compact
+# filter_map with arguments — not Enumerable#filter_map, e.g. Parallel.filter_map(args)
+# RuboCop's node pattern (call _ {:map :filter_map}) requires no arguments
+Parallel.filter_map(['a', 'b', 'c']) do |x|
+  x if x != 'b'
+end
 # Ternary with nil literal — RuboCop does NOT match nil literal in else
 # (its pattern uses nil? which checks absent, not NilNode)
 ary.map { |x| x.valid? ? x : nil }.compact

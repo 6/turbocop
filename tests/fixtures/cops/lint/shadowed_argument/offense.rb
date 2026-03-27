@@ -116,3 +116,45 @@ def handle(m, *args, &block)
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/ShadowedArgument: Argument `block` was shadowed by a local variable before it was used.
   instance_exec(args.first, &block)
 end
+
+# FN fix: keyword-rest argument shadowed by local assignment
+def regex_apply(text, pattern, flags = "", **options)
+  flags = flags.to_s
+  options = 0
+  ^^^^^^^^^^^ Lint/ShadowedArgument: Argument `options` was shadowed by a local variable before it was used.
+  options |= Regexp::IGNORECASE if flags.include?(?i)
+  Regexp.new(pattern, options) === text
+end
+
+# FN fix: keyword-rest argument shadowed by local assignment (second corpus shape)
+def replace_apply(text, pattern, replacement, flags = "", **options)
+  flags = flags.to_s
+  options = 0
+  ^^^^^^^^^^^ Lint/ShadowedArgument: Argument `options` was shadowed by a local variable before it was used.
+  options |= Regexp::MULTILINE if flags.include?(?m)
+  text.to_s.gsub(Regexp.new(pattern, options), replacement)
+end
+
+# FN fix: optional argument shadowed conditionally, then reassigned unconditionally
+def page(page = nil, options = {})
+                     ^^^^^^^^^^^^ Lint/ShadowedArgument: Argument `options` was shadowed by a local variable before it was used.
+  options, page = page, nil if page.is_a? Hash
+  page_param = pager_option(:page_param, options)
+  options.delete(page_param)
+  query = options.dup
+  collection = scoped_query(options = { limit: 1 }.merge(query))
+  collection
+end
+
+# FN fix: optional argument shadowed in conditional before later unconditional multi-assignment
+def initialize(x, y = nil, &action)
+                  ^^^^^^^ Lint/ShadowedArgument: Argument `y` was shadowed by a local variable before it was used.
+  if x.is_a? Hash
+    y = x[:y]
+    x = x[:x]
+  end
+  use_pair(x, y)
+  _, x, y = check_anchor
+  set_position(x, y)
+  action&.call
+end

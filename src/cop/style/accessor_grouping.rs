@@ -49,6 +49,23 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: added `has_inline_rbs_comment()` check in `is_groupable_accessor()` to
 /// detect `#:` on the previous sibling's source line and return false (not groupable).
+///
+/// ## Investigation findings (2026-03-27, block-form DSL calls)
+///
+/// 3 FNs remained in the corpus when an accessor group followed a block-form DSL call
+/// such as `mattr_accessor ... do` or `config_section ... do`. RuboCop unwraps a
+/// preceding block expression to its inner send and compares the accessor against that
+/// send node's `last_line`, which is the call line rather than the `end` line.
+///
+/// Prism exposes these constructs as a `CallNode` whose `location()` spans through the
+/// block terminator. The previous nitrocop port used that full span, so it treated the
+/// first accessor as immediately adjacent to the block and marked it ungroupable. That
+/// dropped the first accessor in longer groups and suppressed the entire offense when the
+/// group only had two accessors.
+///
+/// Fix: when the previous sibling is a call with a real `BlockNode`, measure blank-line
+/// spacing from the block start line instead of the call's full end line. This matches
+/// RuboCop's unwrapped-send behavior without broadening grouping after ordinary calls.
 pub struct AccessorGrouping;
 
 const ACCESSOR_METHODS: &[&str] = &["attr_reader", "attr_writer", "attr_accessor", "attr"];
@@ -286,16 +303,8 @@ fn is_groupable_accessor(
     // In Prism, a call with a block (like `sig { ... }`) is still a CallNode.
     if let Some(prev_call) = prev.as_call_node() {
         let prev_name = std::str::from_utf8(prev_call.name().as_slice()).unwrap_or("");
-
-        // If previous is a block call (e.g., `sig { returns(Integer) }`),
-        // RuboCop unwraps the block to find the inner send. The inner send is
-        // still a send_type?, so we treat it like a non-accessor send: not groupable
-        // unless there's a blank line gap.
-        if prev_call.block().is_some() {
-            let prev_end_line = source.offset_to_line_col(prev.location().end_offset()).0;
-            let curr_start_line = source.offset_to_line_col(curr.location().start_offset()).0;
-            return curr_start_line - prev_end_line > 1;
-        }
+        let prev_end_line = previous_expression_last_line(source, &prev_call);
+        let curr_start_line = source.offset_to_line_col(curr.location().start_offset()).0;
 
         // RuboCop: accessors with RBS::Inline `#:` annotations on the previous expression
         // are not groupable. Check if the previous sibling's source line contains `#:`.
@@ -318,14 +327,23 @@ fn is_groupable_accessor(
 
         // Previous is some other send (annotation, macro, etc.) — NOT groupable
         // unless there's a blank line gap (> 1 line between them)
-        let prev_end_line = source.offset_to_line_col(prev.location().end_offset()).0;
-        let curr_start_line = source.offset_to_line_col(curr.location().start_offset()).0;
         return curr_start_line - prev_end_line > 1;
     }
 
     // Previous is not a send type (def, class, constant assignment, begin, etc.)
     // Per RuboCop: `return true unless previous_expression.send_type?` -> groupable
     true
+}
+
+/// RuboCop unwraps a previous block expression to its inner send before comparing
+/// line spacing. Prism keeps block-form sends as a single `CallNode` whose location
+/// extends through `end`, so use the block start line to recover the inner send span.
+fn previous_expression_last_line(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -> usize {
+    if let Some(block) = call.block().and_then(|b| b.as_block_node()) {
+        return source.offset_to_line_col(block.location().start_offset()).0;
+    }
+
+    source.offset_to_line_col(call.location().end_offset()).0
 }
 
 /// Check if the source line containing the node at `start_offset` has an inline

@@ -97,3 +97,11 @@ elsif data['status'] == 'pending'
 else
   default_action
 end
+
+# Mixed == and =~ with same target (discourse-like pattern)
+if word == "l"
+^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.
+elsif word =~ /\Aorder:\w+\z/i
+elsif word =~ /\Ain:title\z/i || word == "t"
+elsif word =~ /\Ain:likes\z/i
+end

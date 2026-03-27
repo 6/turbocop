@@ -73,6 +73,10 @@ use ruby_prism::Visit;
 ///   matching RuboCop's actual VariableForce behavior. Also fixed check_lambda
 ///   to filter out reassignments of outer-scope variables (matching check_block
 ///   behavior).
+/// - Class superclass expressions were skipped during read collection, causing
+///   FNs for patterns like `_Base = Spark::Command::Base` followed by
+///   `class Spark::Command::Map < _Base`. Fixed by visiting `ClassNode`
+///   superclasses as twisted-scope reads while still skipping class bodies.
 pub struct UnderscorePrefixedVariableName;
 
 impl Cop for UnderscorePrefixedVariableName {
@@ -787,9 +791,14 @@ impl<'pr> Visit<'pr> for ScopeAwareReadCollector<'_> {
         self.shadowed = old_shadowed;
     }
 
-    // Don't cross into nested defs/classes/modules — they have their own scope.
+    // Don't cross into nested defs/modules — they have their own scope.
+    // Class superclasses are evaluated in the outer scope, so visit them.
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
-    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        if let Some(superclass) = node.superclass() {
+            self.visit(&superclass);
+        }
+    }
     fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
 }
 

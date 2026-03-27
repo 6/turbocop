@@ -17,7 +17,7 @@ User runs `/review-agent-prs` (optionally with filters like `--cop Style/*`).
 ### 1. List open agent PRs
 
 ```bash
-gh pr list --repo 6/nitrocop --label agent-fix --state open \
+gh pr list --repo 6/nitrocop --label type:cop-fix --state open \
   --json number,title,headRefName,statusCheckRollup,labels,createdAt \
   --jq '.[] | "\(.number)\t\(.title)\t\(.labels | map(.name) | join(","))"'
 ```
@@ -77,7 +77,7 @@ Show a table of actions taken:
 
 ## Rules
 
-- Only review PRs with the `agent-fix` label
+- Only review PRs with the `type:cop-fix` label
 - PRs with `validation-failed` label: close with comment explaining why
 - PRs with merge conflicts: close with comment, agent can retry on fresh main
 - When fixing, commit with a clear message explaining what was changed

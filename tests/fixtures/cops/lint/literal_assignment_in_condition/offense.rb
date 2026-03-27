@@ -52,3 +52,15 @@ if !(0..5).include?(count = 0)
                     ^^^^^^^^^ Lint/LiteralAssignmentInCondition: Don't use literal assignment `= 0` in conditional, should be `==` or non-literal operand.
   do_something
 end
+
+unless respond_to?(type_reader = :"#{type}_attrs")
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/LiteralAssignmentInCondition: Don't use literal assignment `= :"#{type}_attrs"` in conditional, should be `==` or non-literal operand.
+
+if service_periods.any? do |service_period|
+  time_range = active_duty_start..active_duty_end
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/LiteralAssignmentInCondition: Don't use literal assignment `= active_duty_start..active_duty_end` in conditional, should be `==` or non-literal operand.
+  time_range.cover?(Date.parse(service_period['activeDutyBeginDate']))
+end
+
+if instance_variable_defined?(ivar = :"@#{type}_fields")
+                              ^^^^^^^^^^^^^^^^^^^^^^^^ Lint/LiteralAssignmentInCondition: Don't use literal assignment `= :"@#{type}_fields"` in conditional, should be `==` or non-literal operand.

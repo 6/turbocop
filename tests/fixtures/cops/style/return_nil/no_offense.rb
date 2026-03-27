@@ -48,36 +48,27 @@ def nested_example
   end
 end
 
-# return nil inside proc blocks should NOT be flagged
-# proc creates non-local exit context — return exits the enclosing method
-def method_with_proc
-  handler = proc do |result|
-    return nil if result.nil?
-  end
+# A block attached to the surrounding call still counts as an ancestor even when
+# `return nil` appears inside the call receiver subtree.
+def find_by_name(ext_name)
+  begin
+    Skylight::Extensions.const_get(ActiveSupport::Inflector.classify(ext_name))
+  rescue NameError
+    return nil
+  end.tap { |const| yield const if block_given? }
 end
 
-# Proc.new also creates non-local exit context
+# Proc.new with block args is suppressed because RuboCop treats it like
+# a chained send in this cop's iterator-block guard.
 def method_with_proc_new
   handler = Proc.new do |result|
     return nil unless result.valid?
   end
 end
 
-# ::Proc.new (qualified constant path) also creates non-local exit context
+# ::Proc.new also stays suppressed for the same reason.
 def method_with_qualified_proc_new
   handler = ::Proc.new do |result|
     return nil if result.error?
   end
-end
-
-# proc inside hash value inside method call
-def method_with_proc_in_hash
-  SomeApi.run(
-    handlers: {
-      '*' => proc do |result|
-        log("error: #{result[:status]}")
-        return nil
-      end
-    }
-  )
 end

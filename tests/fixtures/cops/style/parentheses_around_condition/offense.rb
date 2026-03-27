@@ -31,3 +31,31 @@ result = foo if (bar)
 
 run_task until (done)
                ^ Style/ParenthesesAroundCondition: Don't use parentheses around the condition of an `until`.
+
+def make_admin_if_requested(obj, json)
+  begin
+    return if (json.is_admin === obj.can?(:administer_system))
+              ^ Style/ParenthesesAroundCondition: Don't use parentheses around the condition of an `if`.
+  rescue PermissionNotFound
+  end
+end
+
+def inverse
+  self.each_pair { |k, v|
+    if (Array === v)
+       ^ Style/ParenthesesAroundCondition: Don't use parentheses around the condition of an `if`.
+      v
+    else
+      nil
+    end
+  }
+end
+
+def image_entries(cur_manifest)
+  cur_manifest.entries.each do |entry|
+    if (entry[:entry_type] === :image)
+       ^ Style/ParenthesesAroundCondition: Don't use parentheses around the condition of an `if`.
+      entry.cacheable_url
+    end
+  end
+end

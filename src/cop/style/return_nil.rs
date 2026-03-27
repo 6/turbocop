@@ -3,17 +3,20 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
-/// Corpus investigation (2026-03-17):
-/// - FP=5: All in fastlane, `return nil` inside `proc do |result| ... end` blocks.
-///   Root cause: proc creates non-local exit context (return exits the enclosing method),
-///   so RuboCop suppresses the offense (defers to Lint/NonLocalExitFromIterator).
-///   Fix: detect `proc` and `Proc.new` calls and treat their blocks as iterator blocks.
-/// - FN=2: `return nil` inside `lambda do...end` (method-style lambda, not stabby `-> {}`).
-///   Root cause: Prism parses `lambda do...end` as CallNode (not LambdaNode). The
-///   visit_call_node pushed a block context but didn't reset the block stack like
-///   visit_lambda_node does for stabby lambdas. When nested inside an outer iterator
-///   block, the outer block remained on the stack and suppressed the offense.
-///   Fix: detect `lambda` calls and save/restore block stack (same as visit_lambda_node).
+/// Corpus investigation (2026-03-27):
+/// - FN=7: plain `proc do ... end` blocks were being suppressed as iterator blocks.
+///   RuboCop only suppresses ancestors that are regular chained sends with block
+///   arguments; bare `proc` has no receiver, so `return nil` inside those blocks
+///   remains an offense.
+/// - FN=4: safe-navigation block calls like `messages&.each do |message| ... end`
+///   were also being suppressed. RuboCop's iterator check only matches regular
+///   `send`, not `csend`, so `&.` must not trigger the suppression.
+/// - FP=1: `begin ... rescue ... return nil end.tap { |x| ... }` was flagged because
+///   the visitor only pushed block context after walking the call receiver. RuboCop's
+///   ancestor walk still sees the attached block for returns inside the receiver tree.
+///   Fix: push block context before visiting receiver/arguments/body, keep `lambda`
+///   as a scope boundary, and only treat regular dot calls with receivers as chained
+///   sends.
 pub struct ReturnNil;
 
 impl Cop for ReturnNil {
@@ -68,7 +71,7 @@ impl ReturnNilVisitor<'_, '_> {
     /// Mirrors RuboCop's ancestor walk in `on_return`:
     /// - If we hit a define_method block → stop (it creates its own scope)
     /// - If block has no args → skip, keep looking outward
-    /// - If block has args and is a chained send → suppress (iterator, non-local exit)
+    /// - If block has args and is a regular chained send → suppress
     fn inside_iterator_block(&self) -> bool {
         for ctx in self.block_stack.iter().rev() {
             if ctx.is_define_method {
@@ -83,6 +86,13 @@ impl ReturnNilVisitor<'_, '_> {
         }
         false
     }
+}
+
+fn is_regular_chained_send(node: &ruby_prism::CallNode<'_>) -> bool {
+    node.receiver().is_some()
+        && node
+            .call_operator_loc()
+            .is_none_or(|op: ruby_prism::Location<'_>| op.as_slice() != b"&.")
 }
 
 impl<'pr> Visit<'pr> for ReturnNilVisitor<'_, '_> {
@@ -128,24 +138,25 @@ impl<'pr> Visit<'pr> for ReturnNilVisitor<'_, '_> {
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        // Visit receiver first
-        if let Some(recv) = node.receiver() {
-            self.visit(&recv);
-        }
-        // Visit arguments
-        if let Some(args) = node.arguments() {
-            self.visit(&args.as_node());
-        }
-        // If call has a block, push block context and visit block body
         if let Some(block) = node.block() {
             if let Some(block_node) = block.as_block_node() {
                 let method_name = node.name().as_slice();
+                let has_args = block_node.parameters().is_some();
+                let is_chained_send = is_regular_chained_send(node);
+                let is_define_method =
+                    method_name == b"define_method" || method_name == b"define_singleton_method";
 
                 // `lambda do...end` creates its own scope (like stabby `-> {}`).
                 // In Prism, method-style `lambda` is a CallNode, not LambdaNode.
                 // Save and restore the block stack to isolate the lambda scope.
                 if method_name == b"lambda" && node.receiver().is_none() {
                     let saved = std::mem::take(&mut self.block_stack);
+                    if let Some(recv) = node.receiver() {
+                        self.visit(&recv);
+                    }
+                    if let Some(args) = node.arguments() {
+                        self.visit(&args.as_node());
+                    }
                     if let Some(body) = block_node.body() {
                         self.visit(&body);
                     }
@@ -153,52 +164,38 @@ impl<'pr> Visit<'pr> for ReturnNilVisitor<'_, '_> {
                     return;
                 }
 
-                // `proc do...end` and `Proc.new do...end` create non-local exit
-                // contexts — `return` inside a proc returns from the enclosing
-                // method. Treat as an iterator block to suppress the offense,
-                // matching RuboCop's behavior which defers to
-                // Lint/NonLocalExitFromIterator.
-                let is_proc = (method_name == b"proc" && node.receiver().is_none())
-                    || (method_name == b"new"
-                        && node.receiver().is_some_and(|r| {
-                            r.as_constant_read_node()
-                                .is_some_and(|c| c.name().as_slice() == b"Proc")
-                                || r.as_constant_path_node().is_some_and(|cp| {
-                                    cp.parent().is_none()
-                                        && cp.name().is_some_and(|n| n.as_slice() == b"Proc")
-                                })
-                        }));
-                if is_proc {
-                    self.block_stack.push(BlockContext {
-                        has_args: true,
-                        is_chained_send: true,
-                        is_define_method: false,
-                    });
-                    if let Some(body) = block_node.body() {
-                        self.visit(&body);
-                    }
-                    self.block_stack.pop();
-                    return;
-                }
-
-                let has_args = block_node.parameters().is_some();
-                let is_chained_send = node.receiver().is_some();
-                let is_define_method =
-                    method_name == b"define_method" || method_name == b"define_singleton_method";
-
+                // RuboCop's ancestor walk sees the block attached to this call even
+                // when `return nil` appears in the receiver subtree, so keep this
+                // context active while visiting receiver, arguments, and body.
                 self.block_stack.push(BlockContext {
                     has_args,
                     is_chained_send,
                     is_define_method,
                 });
+                if let Some(recv) = node.receiver() {
+                    self.visit(&recv);
+                }
+                if let Some(args) = node.arguments() {
+                    self.visit(&args.as_node());
+                }
                 if let Some(body) = block_node.body() {
                     self.visit(&body);
                 }
                 self.block_stack.pop();
+                return;
             } else {
-                // BlockArgumentNode (&block) — visit it normally
-                self.visit(&block);
+                // BlockArgumentNode (&block) — handled after receiver/arguments
             }
+        }
+
+        if let Some(recv) = node.receiver() {
+            self.visit(&recv);
+        }
+        if let Some(args) = node.arguments() {
+            self.visit(&args.as_node());
+        }
+        if let Some(block) = node.block() {
+            self.visit(&block);
         }
     }
 

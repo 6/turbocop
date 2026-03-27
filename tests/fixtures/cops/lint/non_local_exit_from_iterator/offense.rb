@@ -48,3 +48,35 @@ class Handler
     end
   end
 end
+
+# Return inside a receiver block of a chained call (and_if_constraint_fails)
+TreeNodes::DB_RETRIES.times do
+  break if finished
+
+  DB.attempt {
+    block.call
+    return
+    ^^^^^^ Lint/NonLocalExitFromIterator: Non-local exit from iterator, without return value. `next`, `break`, `Array#find`, `Array#any?`, etc. is preferred.
+  }.and_if_constraint_fails {|err|
+    last_error = err
+  }
+end
+
+# Return inside fetch block in receiver of `.each`
+def keyspace_changed(keyspace)
+  @conditions.fetch(keyspace.name) { return }.each { |c| c.evaluate(keyspace) }
+                                     ^^^^^^ Lint/NonLocalExitFromIterator: Non-local exit from iterator, without return value. `next`, `break`, `Array#find`, `Array#any?`, etc. is preferred.
+  nil
+end
+
+# Return inside case receiver of a chained map numblock
+def parse_hex(hex)
+  case hex.length
+  when 3 then hex.scan(/./).map { "#{_1}#{_1}" }
+  when 6 then hex.scan(/../)
+  when 9 then hex.scan(/.../)
+  when 12 then hex.scan(/..../)
+  else; return
+        ^^^^^^ Lint/NonLocalExitFromIterator: Non-local exit from iterator, without return value. `next`, `break`, `Array#find`, `Array#any?`, etc. is preferred.
+  end.map { _1[0, 2].to_i(16) }
+end

@@ -52,3 +52,29 @@ class WithSclassAssignment
     def configure; end
   end
 end
+
+class WithEmptySclass
+^^^^^^^^^^^^^^^^^^^^^ Style/StaticClass: Prefer modules to classes with only class methods.
+  class << self
+  end
+end
+
+class WithMultiWrite
+^^^^^^^^^^^^^^^^^^^^ Style/StaticClass: Prefer modules to classes with only class methods.
+  VERSION = "4.2.8"
+  MAJOR, MINOR, TINY = VERSION.split(".")
+end
+
+class WithOnlyMultiWrite
+^^^^^^^^^^^^^^^^^^^^^^^^ Style/StaticClass: Prefer modules to classes with only class methods.
+  MAJOR, MINOR, TINY = "1.2.3".split(".")
+end
+
+module Wrapper
+  class NestedStatic
+  ^^^^^^^^^^^^^^^^^^ Style/StaticClass: Prefer modules to classes with only class methods.
+    @@edited = nil
+    @@switch_index = 0
+    @@dash_prefix, @@dash_suffix = nil, nil
+  end
+end

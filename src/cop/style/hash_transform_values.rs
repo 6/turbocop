@@ -2,6 +2,7 @@ use crate::cop::node_type::{
     ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE,
     CONSTANT_READ_NODE, HASH_NODE, LOCAL_VARIABLE_READ_NODE, MULTI_TARGET_NODE, STATEMENTS_NODE,
 };
+use crate::cop::util::is_simple_constant;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -39,6 +40,11 @@ use crate::parse::source::SourceFile;
 /// - Added `array_receiver?` check to exclude array literals.
 /// - All four patterns share common validation: key must pass through unchanged,
 ///   value must be transformed (not noop), value transformation must not reference the key.
+/// - Fixed `::Hash[...]` (ConstantPathNode) not being recognized — the receiver check
+///   compared raw source bytes which included the `::` prefix. Replaced with
+///   `is_simple_constant` which handles both `Hash` and `::Hash`.
+/// - Multi-line blocks and `do...end` syntax already worked correctly with the
+///   existing Prism-based detection (no code change needed for those patterns).
 pub struct HashTransformValues;
 
 impl Cop for HashTransformValues {
@@ -272,17 +278,12 @@ impl HashTransformValues {
         call: &ruby_prism::CallNode<'_>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        // Receiver must be `Hash` constant
+        // Receiver must be `Hash` or `::Hash` constant
         let recv = match call.receiver() {
             Some(r) => r,
             None => return,
         };
-        if recv.as_constant_read_node().is_none() && recv.as_constant_path_node().is_none() {
-            return;
-        }
-        // Check constant name is "Hash"
-        let recv_src = recv.location().as_slice();
-        if recv_src != b"Hash" {
+        if !is_simple_constant(&recv, b"Hash") {
             return;
         }
 
