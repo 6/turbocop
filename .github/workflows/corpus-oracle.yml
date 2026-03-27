@@ -152,17 +152,12 @@ jobs:
         id: rubocop-cache-key
         run: |
           # Rubocop results are deterministic for a given (repo SHA, rubocop version, config).
-          # Cache key = hash of Gemfile + config + per-repo excludes + parser crash patch.
-          # Including repo_excludes.json ensures cache invalidation when file exclusions change.
-          # Including rescue_parser_crashes.rb ensures cache invalidation when crash handling changes.
-          EXCLUDES_FILE="bench/corpus/repo_excludes.json"
+          # Cache key = hash of Gemfile + config + parser crash patch.
           RESCUE_FILE="bench/corpus/rescue_parser_crashes.rb"
           EXTRA_HASH=""
-          for f in "$EXCLUDES_FILE" "$RESCUE_FILE"; do
-            if [ -f "$f" ]; then
-              EXTRA_HASH="${EXTRA_HASH}$(sha256sum "$f" | cut -c1-16)"
-            fi
-          done
+          if [ -f "$RESCUE_FILE" ]; then
+            EXTRA_HASH="$(sha256sum "$RESCUE_FILE" | cut -c1-16)"
+          fi
           KEY_HASH=$(echo "${EXTRA_HASH}" | cat - bench/corpus/Gemfile bench/corpus/baseline_rubocop.yml | sha256sum | cut -c1-16)
           echo "hash=${KEY_HASH}" >> "$GITHUB_OUTPUT"
 
@@ -263,18 +258,30 @@ jobs:
             # Keeps one slow repo from killing the whole batch.
             REPO_TIMEOUT=900  # 15 minutes
 
-            # Resolve per-repo config (adds file exclusions for repos with known parser crashes)
-            REPO_CONFIG=$(python3 bench/corpus/gen_repo_config.py "$REPO_ID" bench/corpus/baseline_rubocop.yml "$DEST")
-
-            # The overlay config lives under /tmp/ (not inside the repo), so
-            # RuboCop must run from inside the repo dir to resolve base_dir
-            # correctly.  See the `cd "$ABS_DEST"` in the rubocop invocation.
-            # GIT_CEILING_DIRECTORIES prevents walking up to parent git trees.
             WORKSPACE="$PWD"
             ABS_DEST="$(cd "$DEST" && pwd)"
+            BASELINE_CONFIG="$WORKSPACE/bench/corpus/baseline_rubocop.yml"
 
-            # nitrocop — uses shared script for oracle-identical invocation
-            # Pass --cwd to run from inside the repo dir for correct base_dir resolution.
+            # Delete known crash-prone files before running. rescue_parser_crashes.rb
+            # prevents crashes from killing the run, but crashy files produce 0-offense
+            # entries that create phantom FN. Deleting them is simpler than config overlays.
+            case "$REPO_ID" in
+              jruby__jruby__0303464)
+                rm -f "$ABS_DEST/bench/compiler/bench_compilation.rb"
+                rm -f "$ABS_DEST/test/jruby/test_regexp.rb"
+                ;;
+              ruby__logger__00796ec)
+                rm -rf "$ABS_DEST/test/"
+                ;;
+              infochimps-labs__wukong__437eff1)
+                rm -rf "$ABS_DEST/old/"
+                ;;
+            esac
+
+            # Both tools run from inside the repo dir so base_dir = repo root.
+            # GIT_CEILING_DIRECTORIES prevents walking up to parent git trees.
+
+            # nitrocop
             echo "=== nitrocop: ${REPO_ID} ==="
             rc=0
             python3 bench/corpus/run_nitrocop.py "$ABS_DEST" \
@@ -289,10 +296,6 @@ jobs:
             fi
 
             # rubocop — skip if we have a cached result
-            # Run from inside the repo dir so RuboCop resolves base_dir to the
-            # repo root. This matters when --config points to an overlay outside
-            # the repo (e.g., /tmp/nitrocop_corpus_configs/). Without this,
-            # Include/Exclude globs and TargetRubyVersion can resolve incorrectly.
             if [ "$RUBOCOP_CACHED" = false ]; then
               echo "=== rubocop: ${REPO_ID} ==="
               rc=0
@@ -302,7 +305,7 @@ jobs:
                   GIT_CEILING_DIRECTORIES=$(dirname "$ABS_DEST") \
               bundle exec rubocop \
                 --require $WORKSPACE/bench/corpus/rescue_parser_crashes.rb \
-                --config "$REPO_CONFIG" \
+                --config "$BASELINE_CONFIG" \
                 --format json \
                 --force-exclusion \
                 --cache false \
@@ -536,14 +539,11 @@ jobs:
         id: rubocop-cache-key
         run: |
           # Same hash as oracle-repo jobs use — must stay in sync
-          EXCLUDES_FILE="bench/corpus/repo_excludes.json"
           RESCUE_FILE="bench/corpus/rescue_parser_crashes.rb"
           EXTRA_HASH=""
-          for f in "$EXCLUDES_FILE" "$RESCUE_FILE"; do
-            if [ -f "$f" ]; then
-              EXTRA_HASH="${EXTRA_HASH}$(sha256sum "$f" | cut -c1-16)"
-            fi
-          done
+          if [ -f "$RESCUE_FILE" ]; then
+            EXTRA_HASH="$(sha256sum "$RESCUE_FILE" | cut -c1-16)"
+          fi
           KEY_HASH=$(echo "${EXTRA_HASH}" | cat - bench/corpus/Gemfile bench/corpus/baseline_rubocop.yml | sha256sum | cut -c1-16)
           echo "hash=${KEY_HASH}" >> "$GITHUB_OUTPUT"
 

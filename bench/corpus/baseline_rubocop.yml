@@ -30,6 +30,9 @@ AllCops:
     - ".bundle/**/*"
     - ".bundles_cache/**/*"
     - "bin/**/*"
+    # Non-standard vendor directories in corpus repos
+    - "heroku/**/*"
+    - "examples/vendored-puppet/**/*"
 
 # ============================================================================
 # Cops with Enabled: false in vendor defaults — explicitly enable for corpus.

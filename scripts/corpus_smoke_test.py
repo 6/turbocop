@@ -83,7 +83,6 @@ SMOKE_REPOS = [
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE_CONFIG = os.path.join(ROOT, "bench", "corpus", "baseline_rubocop.yml")
-GEN_REPO_CONFIG = os.path.join(ROOT, "bench", "corpus", "gen_repo_config.py")
 SNAPSHOT_PATH = os.path.join(ROOT, "bench", "corpus", "smoke_baseline.json")
 
 # How much worse a repo can get before failing. Allows for minor fluctuations
@@ -194,10 +193,8 @@ def clone_repo(repo: dict, dest: str) -> bool:
 def run_nitrocop(binary: str, repo_dir: str) -> dict:
     # Use shared corpus env for oracle-identical settings
     sys.path.insert(0, os.path.join(ROOT, "bench", "corpus"))
-    from run_nitrocop import build_env, resolve_repo_config
+    from run_nitrocop import build_env
     env = build_env(repo_dir)
-    repo_id = os.path.basename(repo_dir)
-    resolved_config = resolve_repo_config(repo_id, repo_dir)
     with tempfile.TemporaryDirectory(prefix="nitrocop-smoke-cache-") as cache_dir:
         env["NITROCOP_CACHE_DIR"] = cache_dir
         result = subprocess.run(
@@ -210,7 +207,7 @@ def run_nitrocop(binary: str, repo_dir: str) -> dict:
                 "--cache",
                 "false",
                 "--config",
-                resolved_config,
+                BASELINE_CONFIG,
                 repo_dir,
             ],
             capture_output=True,
@@ -270,43 +267,6 @@ def diff_results(rc_data: dict, nc_data: dict) -> tuple[int, int, int, int, int]
     return rc_files, nc_files, matches, fp, fn
 
 
-def run_with_overlay_config(binary: str, repo_dir: str, repo_id: str) -> dict:
-    """Run nitrocop using gen_repo_config.py overlay (simulates corpus oracle per-repo config).
-
-    This catches regressions in inherit_from + AllCops.Exclude merging that affect
-    the corpus oracle but not the direct-baseline smoke runs."""
-    env = os.environ.copy()
-    env["BUNDLE_GEMFILE"] = os.path.join(ROOT, "bench", "corpus", "Gemfile")
-    env["BUNDLE_PATH"] = os.path.join(ROOT, "bench", "corpus", "vendor", "bundle")
-
-    # Generate an overlay config with a dummy exclude (exercises the inherit_from path)
-    overlay_config = subprocess.run(
-        ["python3", GEN_REPO_CONFIG, repo_id, BASELINE_CONFIG, repo_dir],
-        capture_output=True, text=True,
-    ).stdout.strip()
-
-    # If gen_repo_config returned the baseline directly (no excludes for this repo),
-    # create a synthetic overlay to exercise the inherit_from + AllCops.Exclude path.
-    if overlay_config == BASELINE_CONFIG:
-        overlay_path = os.path.join(tempfile.gettempdir(), f"smoke_overlay_{repo_id}.yml")
-        abs_baseline = os.path.abspath(BASELINE_CONFIG)
-        with open(overlay_path, "w") as f:
-            f.write(f"inherit_from: {abs_baseline}\n\n")
-            f.write("AllCops:\n")
-            f.write("  Exclude:\n")
-            f.write('    - "nonexistent_smoke_exclude.rb"\n')
-        overlay_config = overlay_path
-
-    result = subprocess.run(
-        [binary, "--preview", "--format", "json", "--no-cache",
-         "--config", overlay_config, repo_dir],
-        capture_output=True, text=True, env=env, timeout=300,
-    )
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return {}
-
 
 def run_all(binary: str) -> dict:
     """Run smoke test on all repos, return per-repo results."""
@@ -344,30 +304,6 @@ def run_all(binary: str) -> dict:
                 "rate": round(rate, 1),
             }
 
-            # Overlay config check: re-run nitrocop through gen_repo_config.py's
-            # inherit_from + AllCops.Exclude path and verify results match the
-            # direct baseline run. This catches config inheritance bugs that only
-            # manifest when the corpus oracle uses per-repo config overlays.
-            if os.path.isfile(GEN_REPO_CONFIG):
-                print("  Running overlay config check...")
-                overlay_data = run_with_overlay_config(binary, dest, repo_id)
-                _, _, overlay_matches, overlay_fp, overlay_fn = diff_results(rc_data, overlay_data)
-                overlay_total = overlay_matches + overlay_fp + overlay_fn
-                overlay_matches / overlay_total * 100 if overlay_total > 0 else 100.0
-                # The overlay path should produce the same results as the direct path.
-                # Allow a small tolerance for timing-dependent cops.
-                match_delta = abs(matches - overlay_matches)
-                fp_delta = overlay_fp - fp
-                if match_delta > REGRESSION_TOLERANCE or fp_delta > REGRESSION_TOLERANCE:
-                    print("  WARNING: overlay config diverges from direct baseline!")
-                    print(f"    direct:  matches={matches}, FP={fp}, FN={fn}")
-                    print(f"    overlay: matches={overlay_matches}, FP={overlay_fp}, FN={overlay_fn}")
-                    results[repo_id]["overlay_divergence"] = {
-                        "matches": overlay_matches, "fp": overlay_fp, "fn": overlay_fn,
-                        "match_delta": match_delta, "fp_delta": fp_delta,
-                    }
-                else:
-                    print(f"  Overlay config OK (matches={overlay_matches}, FP={overlay_fp})")
 
     return results
 

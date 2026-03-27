@@ -110,7 +110,7 @@ def run_nitrocop_on_repo(
     """Run nitrocop once on all files in a repo, return {filepath: set of offense lines}."""
     # Import shared corpus runner for oracle-identical env/config
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bench" / "corpus"))
-    from run_nitrocop import build_env, resolve_repo_config
+    from run_nitrocop import BASELINE_CONFIG, build_env
 
     repo_dir = corpus_dir / repo_id
     existing = []
@@ -123,7 +123,7 @@ def run_nitrocop_on_repo(
         return result_map
 
     env = build_env(str(repo_dir))
-    resolved_config = resolve_repo_config(repo_id, str(repo_dir))
+    resolved_config = str(BASELINE_CONFIG)
 
     cmd = [
         str(nitrocop_bin),
