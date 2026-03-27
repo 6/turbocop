@@ -51,8 +51,3 @@ s = %[service %s
 # String with interpolation in format specifier: %#{var}s is not a token
 t = format("%#{padding}s: %s", prefix, message)
 u = sprintf("| %-#{width}s | %-#{offset}s |", key, value)
-# Continuation-line template tokens in plain multiline % strings are skipped
-v = _("Status update
-  %{url}") % { url: target_url }
-w = _("Status update
-  details: \n\n%{explanation}") % { explanation: reason }
