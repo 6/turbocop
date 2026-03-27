@@ -114,6 +114,7 @@ use crate::parse::source::SourceFile;
 ///   should NOT register; RuboCop only flags the method-argument form when the
 ///   enclosing call is the sole top-level statement, not when a block/def/body
 ///   is the splat's non-assignment grandparent.
+///
 /// Fix: move `*Array.new(...)` handling to an ancestor-aware `check_source`
 /// visitor that mirrors RuboCop's `node.parent.parent` rule, while preserving
 /// Prism's `ProgramNode` special case for sole top-level statements.
@@ -469,9 +470,7 @@ impl<'pr> ArrayNewSplatVisitor<'_, 'pr> {
         parent: &ruby_prism::Node<'pr>,
         grandparent: Option<&'a ruby_prism::Node<'pr>>,
     ) -> Option<&'a ruby_prism::Node<'pr>> {
-        let Some(node) = grandparent else {
-            return None;
-        };
+        let node = grandparent?;
 
         let Some(program) = node.as_program_node() else {
             return Some(node);
