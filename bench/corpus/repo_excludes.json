@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-repo file exclusions for the corpus oracle. Files listed here are excluded from RuboCop inspection via AllCops/Exclude overlay. With rescue_parser_crashes.rb loaded, crashes no longer kill subsequent files, but these exclusions still prevent known-crashy files from producing misleading 0-offense entries. Paths are relative to the repo root (glob syntax, same as AllCops/Exclude). Note: vendor/**/* is excluded globally in gen_repo_config.py.",
+  "_comment": "Per-repo file exclusions for the corpus oracle. Files listed here are excluded from RuboCop inspection via AllCops/Exclude overlay. With rescue_parser_crashes.rb loaded, crashes no longer kill subsequent files, but these exclusions still prevent known-crashy files from producing misleading 0-offense entries. Paths are relative to the repo root (glob syntax, same as AllCops/Exclude). Note: vendor/**/* is excluded globally in gen_repo_config.py. Both tools run from inside the repo dir (cwd=repo) for correct base_dir resolution.",
   "jruby__jruby__0303464": {
     "comment": "Lint/LiteralAsCondition crash on bench_compilation.rb; Prism::Translation::Parser crashes on invalid multibyte regex escapes in test files, killing ~1000 files as collateral",
     "exclude": [
