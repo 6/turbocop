@@ -3,6 +3,10 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Corpus FN investigation for the 0 FP / 71 FN run found misses like
+/// `logger: Logger.new("/dev/null")` inside keyword-hash values. RuboCop only
+/// exempts strings whose direct parent is an array or pair, so this cop tracks
+/// the immediate parent node instead of suppressing every descendant.
 pub struct FileNull;
 
 impl Cop for FileNull {
@@ -32,7 +36,7 @@ impl Cop for FileNull {
             cop: self,
             diagnostics: Vec::new(),
             contain_dev_null,
-            in_array_or_pair: false,
+            parent_stack: Vec::new(),
         };
         visitor.visit(&root);
         diagnostics.extend(visitor.diagnostics);
@@ -54,32 +58,46 @@ impl<'pr> Visit<'pr> for DevNullFinder {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ParentKind {
+    Array,
+    Assoc,
+    Other,
+}
+
+impl ParentKind {
+    fn from_node(node: &ruby_prism::Node<'_>) -> Self {
+        match node {
+            ruby_prism::Node::ArrayNode { .. } => Self::Array,
+            ruby_prism::Node::AssocNode { .. } => Self::Assoc,
+            _ => Self::Other,
+        }
+    }
+}
+
 struct FileNullVisitor<'a> {
     source: &'a SourceFile,
     cop: &'a FileNull,
     diagnostics: Vec<Diagnostic>,
     contain_dev_null: bool,
-    in_array_or_pair: bool,
+    parent_stack: Vec<ParentKind>,
 }
 
 impl<'a, 'pr> Visit<'pr> for FileNullVisitor<'a> {
-    fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
-        let prev = self.in_array_or_pair;
-        self.in_array_or_pair = true;
-        ruby_prism::visit_array_node(self, node);
-        self.in_array_or_pair = prev;
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.parent_stack.push(ParentKind::from_node(&node));
     }
 
-    fn visit_assoc_node(&mut self, node: &ruby_prism::AssocNode<'pr>) {
-        let prev = self.in_array_or_pair;
-        self.in_array_or_pair = true;
-        ruby_prism::visit_assoc_node(self, node);
-        self.in_array_or_pair = prev;
+    fn visit_branch_node_leave(&mut self) {
+        self.parent_stack.pop();
     }
 
     fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
-        // Skip strings inside arrays or hash pairs
-        if self.in_array_or_pair {
+        // RuboCop only accepts strings directly contained by the array/pair.
+        if matches!(
+            self.parent_stack.last(),
+            Some(ParentKind::Array | ParentKind::Assoc)
+        ) {
             return;
         }
 
