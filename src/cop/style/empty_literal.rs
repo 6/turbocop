@@ -13,8 +13,22 @@ use ruby_prism::Visit;
 /// FP=1: `Hash.new { Hash.new }` was incorrectly flagging the inner `Hash.new`.
 /// RuboCop skips a nested constructor when its parent block belongs to `Hash.new`
 /// or `Array.new`, because the parser parentage is the surrounding block rather than
-/// the constructor call itself. Fixed by walking ancestor blocks and checking the
-/// wrapped constructor call before flagging a nested empty literal constructor.
+/// the constructor call itself.
+///
+/// ## Corpus investigation (2026-03-27)
+///
+/// Corpus oracle reported FP=0, FN=30. The remaining misses came from the nested
+/// constructor exemption being too broad: it skipped any inner `Hash.new`/`Array.new`
+/// anywhere inside an outer constructor block body.
+///
+/// RuboCop is narrower. It only skips the inner constructor when that constructor is
+/// the direct body expression of an outer zero-argument constructor block:
+/// `Hash.new { Hash.new }` and `Array.new { Array.new }` are accepted, but
+/// `Hash.new { |h, k| h[k] = Hash.new }` and `Array.new(n) { Array.new }` are
+/// offenses because the inner constructor is nested under another expression or
+/// the outer constructor has arguments. Fixed by checking only the direct parent
+/// chain (`CallNode -> StatementsNode? -> BlockNode -> outer constructor CallNode`)
+/// instead of any location-contained ancestor block.
 ///
 /// **String.new special case:** RuboCop only flags `String.new` when `frozen_string_literal: false`
 /// is explicitly set. When the comment is absent or set to `true`, `String.new` is needed to
@@ -60,44 +74,78 @@ fn is_matching_constructor_call(call: &ruby_prism::CallNode<'_>, const_name: &[u
     false
 }
 
-struct ConstructorBlockFinder<'a> {
+fn call_has_no_arguments(call_node: &ruby_prism::CallNode<'_>) -> bool {
+    call_node
+        .arguments()
+        .is_none_or(|args| args.arguments().is_empty())
+}
+
+fn is_target_direct_block_body(
+    body: Option<ruby_prism::Node<'_>>,
+    target_start: usize,
+    target_end: usize,
+) -> bool {
+    let Some(body) = body else {
+        return false;
+    };
+
+    if let Some(statements_node) = body.as_statements_node() {
+        if statements_node.body().len() != 1 {
+            return false;
+        }
+
+        let Some(statement) = statements_node.body().iter().next() else {
+            return false;
+        };
+        let loc = statement.location();
+        return loc.start_offset() == target_start && loc.end_offset() == target_end;
+    }
+
+    let loc = body.location();
+    loc.start_offset() == target_start && loc.end_offset() == target_end
+}
+
+struct DirectConstructorBodyFinder<'a> {
     const_name: &'a [u8],
     target_start: usize,
     target_end: usize,
     found: bool,
 }
 
-impl<'a, 'pr> Visit<'pr> for ConstructorBlockFinder<'a> {
+impl<'a, 'pr> Visit<'pr> for DirectConstructorBodyFinder<'a> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         if self.found {
             return;
         }
 
-        if is_matching_constructor_call(node, self.const_name) {
-            if let Some(block_node) = node.block().and_then(|block| block.as_block_node()) {
-                if let Some(body) = block_node.body() {
-                    let body_loc = body.location();
-                    if body_loc.start_offset() <= self.target_start
-                        && self.target_end <= body_loc.end_offset()
-                    {
-                        self.found = true;
-                        return;
-                    }
-                }
-            }
+        if is_matching_constructor_call(node, self.const_name)
+            && call_has_no_arguments(node)
+            && node
+                .block()
+                .and_then(|block| block.as_block_node())
+                .is_some_and(|block_node| {
+                    is_target_direct_block_body(
+                        block_node.body(),
+                        self.target_start,
+                        self.target_end,
+                    )
+                })
+        {
+            self.found = true;
+            return;
         }
 
         ruby_prism::visit_call_node(self, node);
     }
 }
 
-fn wrapped_by_constructor_block(
+fn is_direct_body_of_constructor_block(
     parse_result: &ruby_prism::ParseResult<'_>,
     call_node: &ruby_prism::CallNode<'_>,
     const_name: &[u8],
 ) -> bool {
     let loc = call_node.location();
-    let mut finder = ConstructorBlockFinder {
+    let mut finder = DirectConstructorBodyFinder {
         const_name,
         target_start: loc.start_offset(),
         target_end: loc.end_offset(),
@@ -162,12 +210,9 @@ impl Cop for EmptyLiteral {
         };
 
         // Must have no arguments (empty constructor)
-        if let Some(args) = call_node.arguments() {
-            let arg_list: Vec<_> = args.arguments().iter().collect();
-            if !arg_list.is_empty() {
-                // Exception: Array.new with empty array arg or Array[] with empty
-                return;
-            }
+        if !call_has_no_arguments(&call_node) {
+            // Exception: Array.new with empty array arg or Array[] with empty
+            return;
         }
 
         // Must not have a block (Hash.new { |h, k| h[k] = [] })
@@ -175,15 +220,17 @@ impl Cop for EmptyLiteral {
             return;
         }
 
-        // RuboCop also skips nested constructors inside the body of Array.new/Hash.new
-        // default-value blocks, e.g. Hash.new { Hash.new }.
-        if const_name.as_slice() == b"Array"
-            && wrapped_by_constructor_block(parse_result, &call_node, b"Array")
+        // RuboCop only skips a nested constructor when it is the direct body
+        // expression of an outer zero-argument constructor block.
+        if method_bytes == b"new"
+            && const_name.as_slice() == b"Array"
+            && is_direct_body_of_constructor_block(parse_result, &call_node, b"Array")
         {
             return;
         }
-        if const_name.as_slice() == b"Hash"
-            && wrapped_by_constructor_block(parse_result, &call_node, b"Hash")
+        if method_bytes == b"new"
+            && const_name.as_slice() == b"Hash"
+            && is_direct_body_of_constructor_block(parse_result, &call_node, b"Hash")
         {
             return;
         }
