@@ -1,3 +1,5 @@
+use ruby_prism::Visit;
+
 use crate::cop::node_type::{
     ARRAY_NODE, FLOAT_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, SPLAT_NODE, STRING_NODE,
 };
@@ -97,6 +99,24 @@ use crate::parse::source::SourceFile;
 /// does not cause the splat to be flagged.
 /// FN=1 (`end.call(*Array.new(5) { [] })`) is a corpus artifact — RuboCop's
 /// grandparent check exempts this pattern (call node is not an assignment type).
+///
+/// ## Corpus fix (2026-03-27): FN=9→0
+///
+/// The remaining FNs came from `*Array.new(...)` contexts where the older
+/// source-text heuristic did not match RuboCop's AST rule:
+/// - `schema = [1, *Array.new(3) { |i| i }, 2]` should still register because
+///   RuboCop only exempts the direct `Array.new(...)` send form in
+///   multi-element array literals, not the block form.
+/// - `link1 = fu_clean_components(*Array.new(...), *rest)` and
+///   `result = obj.call(*Array.new(5) { [] })` should register because the
+///   containing call is the direct RHS of an assignment.
+/// - `editor.send_keys(*Array.new(15, [:shift, :left]))` inside a block body
+///   should NOT register; RuboCop only flags the method-argument form when the
+///   enclosing call is the sole top-level statement, not when a block/def/body
+///   is the splat's non-assignment grandparent.
+/// Fix: move `*Array.new(...)` handling to an ancestor-aware `check_source`
+/// visitor that mirrors RuboCop's `node.parent.parent` rule, while preserving
+/// Prism's `ProgramNode` special case for sole top-level statements.
 pub struct RedundantSplatExpansion;
 
 impl Cop for RedundantSplatExpansion {
@@ -117,6 +137,24 @@ impl Cop for RedundantSplatExpansion {
             SPLAT_NODE,
             STRING_NODE,
         ]
+    }
+
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        let mut visitor = ArrayNewSplatVisitor {
+            cop: self,
+            source,
+            diagnostics,
+            ancestors: Vec::new(),
+        };
+        visitor.visit(&parse_result.node());
     }
 
     fn check_node(
@@ -154,62 +192,7 @@ impl Cop for RedundantSplatExpansion {
             return;
         }
 
-        // Array.new has special exemption rules from RuboCop:
-        // - NOT flagged in `when` or `rescue` clauses
-        // - NOT flagged in multi-element array literals (`[1, *Array.new(n), 2]`)
-        // - Flagged in assignments, method args, and single-element array literals
         if is_array_new {
-            let bytes = source.as_bytes();
-            let start = splat.location().start_offset();
-
-            // Check if inside a multi-element array literal (exempt)
-            if is_array_new_inside_multi_element_array(source, &splat) {
-                return;
-            }
-
-            // Check if in when/rescue context (exempt)
-            if is_preceded_by_keyword(bytes, start) {
-                return;
-            }
-
-            // RuboCop's grandparent check: `return if grandparent &&
-            // !ASSIGNMENT_TYPES.include?(grandparent.type)`. The grandparent
-            // is only an assignment type for `x = *Array.new(...)`. In all
-            // other contexts (method call args, [] method calls, paren-free
-            // calls), the grandparent is a non-assignment node and the cop
-            // does not fire.
-            match find_enclosing_bracket(bytes, start) {
-                Some((b'[', bracket_pos)) => {
-                    if is_method_call_bracket(bytes, bracket_pos)
-                        && !is_preceded_by_assignment(bytes, start)
-                    {
-                        return; // exempt: Foo[*Array.new(n)] not in assignment
-                    }
-                    // Inside array literal or assignment — fall through to flag
-                }
-                Some((b'(', bracket_pos)) => {
-                    // Only look for `=` between the enclosing `(` and the splat.
-                    // An `=` before the `(` is an outer assignment wrapping the
-                    // whole call expression (e.g., `escaped = Foo.new(*Array.new(10))`),
-                    // not the splat's assignment context.
-                    if !is_preceded_by_assignment_after(bytes, start, Some(bracket_pos)) {
-                        return; // exempt: method(*Array.new(n)) not in assignment
-                    }
-                    // assignment context like `a = (*Array.new(n))` — flag
-                }
-                None => {
-                    if !is_preceded_by_assignment(bytes, start) {
-                        return; // exempt: paren-free method call
-                    }
-                    // Preceded by = — fall through to flag
-                }
-                _ => return, // other bracket types
-            }
-
-            let loc = splat.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            let message = "Replace splat expansion with comma separated values.";
-            diagnostics.push(self.diagnostic(source, line, column, message.to_string()));
             return;
         }
 
@@ -284,58 +267,6 @@ fn is_array_new_send(call: &ruby_prism::CallNode<'_>) -> bool {
     false
 }
 
-/// Check if a splat containing Array.new is inside a multi-element array literal.
-/// `[1, *Array.new(n), 2]` → exempt (true); `[*Array.new(n)]` → not exempt (false).
-fn is_array_new_inside_multi_element_array(
-    source: &SourceFile,
-    splat: &ruby_prism::SplatNode<'_>,
-) -> bool {
-    let bytes = source.as_bytes();
-    let start = splat.location().start_offset();
-    match find_enclosing_bracket(bytes, start) {
-        Some((b'[', bracket_pos)) => {
-            if is_method_call_bracket(bytes, bracket_pos) {
-                // This is Foo[*Array.new(n)] — a method call, not an array literal
-                return false;
-            }
-            // It's an array literal. Check if there are other elements (commas outside the splat).
-            has_sibling_elements(bytes, bracket_pos, start, splat.location().end_offset())
-        }
-        _ => false,
-    }
-}
-
-/// Check if there are sibling elements in the array literal (i.e., commas outside the splat).
-/// `bracket_pos` is the position of `[`, `splat_start`..`splat_end` is the splat range.
-fn has_sibling_elements(
-    bytes: &[u8],
-    bracket_pos: usize,
-    splat_start: usize,
-    splat_end: usize,
-) -> bool {
-    // Look for a comma between `[` and the splat start
-    let before = &bytes[bracket_pos + 1..splat_start];
-    if before.contains(&b',') {
-        return true;
-    }
-    // Look for a comma after the splat end, scanning until we find `]`
-    let mut depth = 0i32;
-    for &b in &bytes[splat_end..] {
-        match b {
-            b'[' => depth += 1,
-            b']' => {
-                if depth == 0 {
-                    break;
-                }
-                depth -= 1;
-            }
-            b',' if depth == 0 => return true,
-            _ => {}
-        }
-    }
-    false
-}
-
 /// Check if an array node is a percent literal (%w, %W, %i, %I).
 fn is_percent_literal(array_node: &ruby_prism::ArrayNode<'_>) -> bool {
     if let Some(open_loc) = array_node.opening_loc() {
@@ -388,9 +319,8 @@ fn is_method_call_context(source: &SourceFile, splat: &ruby_prism::SplatNode<'_>
     }
 }
 
-/// Check if the `*` at `pos` is preceded (on the same line, skipping whitespace
-/// and commas+args) by a `when` or `rescue` keyword, indicating a non-method context.
-/// Also returns true for assignment operators (`=`).
+/// Check if the `*` at `pos` is preceded (on the same line, skipping whitespace)
+/// by a `when` or `rescue` keyword, indicating a non-method context.
 fn is_preceded_by_keyword(bytes: &[u8], pos: usize) -> bool {
     // Scan backwards to find the start of the statement on this line
     let mut i = pos;
@@ -400,57 +330,23 @@ fn is_preceded_by_keyword(bytes: &[u8], pos: usize) -> bool {
             break;
         }
     }
-    // Extract the text before the `*` on this line
+
     let start = if bytes.get(i) == Some(&b'\n') {
         i + 1
     } else {
         i
     };
     let before = &bytes[start..pos];
-    // Trim leading whitespace
     let trimmed = trim_leading_whitespace(before);
+
     trimmed.starts_with(b"when ")
         || trimmed.starts_with(b"rescue ")
         || trimmed.starts_with(b"rescue\t")
 }
 
-/// Check if the `*` at `pos` is preceded (on the same line) by an assignment
-/// operator (`=`), indicating `x = *Array.new(...)` context.
-/// When `lower_bound` is provided, only scans between that position and `pos`,
-/// so that an `=` before the enclosing bracket is not counted.
-fn is_preceded_by_assignment(bytes: &[u8], pos: usize) -> bool {
-    is_preceded_by_assignment_after(bytes, pos, None)
-}
-
-/// Like `is_preceded_by_assignment`, but only scans from `lower_bound` (exclusive)
-/// to `pos`. If `lower_bound` is None, scans back to the start of the line.
-fn is_preceded_by_assignment_after(bytes: &[u8], pos: usize, lower_bound: Option<usize>) -> bool {
-    let stop = lower_bound.unwrap_or(0);
-    let mut i = pos;
-    while i > stop {
-        i -= 1;
-        match bytes[i] {
-            b'\n' => break,
-            b'=' => {
-                // Make sure it's not `==`, `!=`, `<=`, `>=`, `=>`
-                if i > 0 && matches!(bytes[i - 1], b'=' | b'!' | b'<' | b'>') {
-                    continue;
-                }
-                // Make sure the next char isn't `=` or `>` (for `==` or `=>`)
-                if i + 1 < bytes.len() && matches!(bytes[i + 1], b'=' | b'>') {
-                    continue;
-                }
-                return true;
-            }
-            _ => {}
-        }
-    }
-    false
-}
-
 fn trim_leading_whitespace(bytes: &[u8]) -> &[u8] {
     let mut i = 0;
-    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+    while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') {
         i += 1;
     }
     &bytes[i..]
@@ -509,6 +405,138 @@ fn find_enclosing_bracket(bytes: &[u8], pos: usize) -> Option<(u8, usize)> {
         }
     }
     None
+}
+
+struct ArrayNewSplatVisitor<'a, 'pr> {
+    cop: &'a RedundantSplatExpansion,
+    source: &'a SourceFile,
+    diagnostics: &'a mut Vec<Diagnostic>,
+    ancestors: Vec<ruby_prism::Node<'pr>>,
+}
+
+impl<'pr> ArrayNewSplatVisitor<'_, 'pr> {
+    fn should_flag(&self, splat: &ruby_prism::SplatNode<'pr>) -> bool {
+        let Some(child) = splat.expression() else {
+            return false;
+        };
+        let Some(call) = child.as_call_node() else {
+            return false;
+        };
+        if !is_array_new_send(&call) {
+            return false;
+        }
+
+        if call.block().is_none() {
+            if let Some(parent) = self
+                .meaningful_ancestor(0)
+                .and_then(|node| node.as_array_node())
+            {
+                if parent.elements().len() > 1 {
+                    return false;
+                }
+            }
+        }
+
+        let Some(parent) = self.meaningful_ancestor(0) else {
+            return false;
+        };
+        let grandparent = self.effective_grandparent(parent, self.meaningful_ancestor(1));
+
+        match grandparent {
+            None => true,
+            Some(node) => is_assignment_node(node),
+        }
+    }
+
+    fn meaningful_ancestor(&self, mut skip: usize) -> Option<&ruby_prism::Node<'pr>> {
+        let mut idx = self.ancestors.len();
+        while idx > 1 {
+            idx -= 1;
+            let node = &self.ancestors[idx - 1];
+            if is_transparent_splat_ancestor(node) {
+                continue;
+            }
+            if skip == 0 {
+                return Some(node);
+            }
+            skip -= 1;
+        }
+        None
+    }
+
+    fn effective_grandparent<'a>(
+        &'a self,
+        parent: &ruby_prism::Node<'pr>,
+        grandparent: Option<&'a ruby_prism::Node<'pr>>,
+    ) -> Option<&'a ruby_prism::Node<'pr>> {
+        let Some(node) = grandparent else {
+            return None;
+        };
+
+        let Some(program) = node.as_program_node() else {
+            return Some(node);
+        };
+
+        if is_assignment_node(parent) || program.statements().body().len() == 1 {
+            None
+        } else {
+            Some(node)
+        }
+    }
+}
+
+impl<'pr> Visit<'pr> for ArrayNewSplatVisitor<'_, 'pr> {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.ancestors.push(node);
+    }
+
+    fn visit_branch_node_leave(&mut self) {
+        self.ancestors.pop();
+    }
+
+    fn visit_leaf_node_enter(&mut self, _node: ruby_prism::Node<'pr>) {}
+
+    fn visit_splat_node(&mut self, node: &ruby_prism::SplatNode<'pr>) {
+        if self.should_flag(node) {
+            let (line, column) = self
+                .source
+                .offset_to_line_col(node.location().start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Replace splat expansion with comma separated values.".to_string(),
+            ));
+        }
+
+        ruby_prism::visit_splat_node(self, node);
+    }
+}
+
+fn is_transparent_splat_ancestor(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_arguments_node().is_some()
+        || node.as_parentheses_node().is_some()
+        || node.as_statements_node().is_some()
+        || is_transparent_begin(node)
+}
+
+fn is_transparent_begin(node: &ruby_prism::Node<'_>) -> bool {
+    let Some(begin_node) = node.as_begin_node() else {
+        return false;
+    };
+    begin_node.begin_keyword_loc().is_none()
+        && begin_node.rescue_clause().is_none()
+        && begin_node.else_clause().is_none()
+        && begin_node.ensure_clause().is_none()
+}
+
+fn is_assignment_node(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_local_variable_write_node().is_some()
+        || node.as_instance_variable_write_node().is_some()
+        || node.as_class_variable_write_node().is_some()
+        || node.as_global_variable_write_node().is_some()
+        || node.as_constant_write_node().is_some()
+        || node.as_constant_path_write_node().is_some()
 }
 
 #[cfg(test)]

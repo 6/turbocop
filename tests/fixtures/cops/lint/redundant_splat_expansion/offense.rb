@@ -32,10 +32,26 @@ a = *Array.new(3) { 42 }
 a = *::Array.new(3) { 42 }
     ^^^^^^^^^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
 
-# Single-element array literal with Array.new
-[*Array.new(foo)]
- ^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
+# Single-element array literal with Array.new in assignment context
+a = [*Array.new(foo)]
+     ^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
 
 # Array.new inside [] method call in assignment context — flagged
 ns = NoteSet[*Array.new(n) { |i| notes[(d + (i * 2)) % size] }]
              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
+
+# Block form inside a multi-element array literal is still an offense
+schema = [
+  1,
+  *Array.new(3) { |i| i },
+  ^^^^^^^^^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
+  2,
+]
+
+# Nested call that is the direct RHS of an assignment is still an offense
+result = obj.call(*Array.new(5) { [] })
+                  ^^^^^^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
+
+# Direct assignment RHS method call from the corpus
+link1 = fu_clean_components(*Array.new([n, 0].max, '..'), *srcdirs[i..-1])
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/RedundantSplatExpansion: Replace splat expansion with comma separated values.
