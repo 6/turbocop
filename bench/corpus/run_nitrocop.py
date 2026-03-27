@@ -73,13 +73,18 @@ def build_env(repo_dir: str | None = None) -> dict[str, str]:
 
 
 def deduplicate_offenses(offenses: list[dict]) -> int:
-    """Count offenses deduplicated by (path, line, cop_name).
+    """Count offenses deduplicated by (resolved_path, line, cop_name).
 
-    The corpus oracle uses this deduplication, so we must match it.
+    The corpus oracle resolves symlinked offense paths before diffing results,
+    so local count-only checks need to canonicalize paths the same way or they
+    will overcount duplicate offenses reached through symlink aliases.
     """
     seen: set[tuple[str, int, str]] = set()
     for o in offenses:
-        key = (o.get("path", ""), o.get("line", 0), o.get("cop_name", ""))
+        path = o.get("path", "")
+        if path and os.path.exists(path):
+            path = os.path.realpath(path)
+        key = (path, o.get("line", 0), o.get("cop_name", ""))
         seen.add(key)
     return len(seen)
 
