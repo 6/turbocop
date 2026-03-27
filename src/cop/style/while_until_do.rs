@@ -3,6 +3,14 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Investigation findings:
+/// - FN=12 with 862 existing matches and 0 FP in the corpus.
+/// - Root cause: the original implementation searched only the first source line
+///   of the loop for a trailing `do`, so it missed valid offenses when the
+///   predicate wrapped onto later lines, when `do` carried an inline comment,
+///   or when the loop body started on the same line as `do`.
+/// - Fix: use Prism's `do_keyword_loc()` directly and keep the check narrow to
+///   loops whose full node span is multiline, matching RuboCop's `node.multiline? && node.do?`.
 pub struct WhileUntilDo;
 
 impl Cop for WhileUntilDo {
@@ -25,25 +33,29 @@ impl Cop for WhileUntilDo {
     ) {
         // Check while ... do
         if let Some(while_node) = node.as_while_node() {
-            diagnostics.extend(check_loop(
+            if let Some(diagnostic) = check_loop(
                 self,
                 source,
                 &while_node.location(),
-                while_node.closing_loc(),
+                while_node.do_keyword_loc(),
                 "while",
-            ));
+            ) {
+                diagnostics.push(diagnostic);
+            }
             return;
         }
 
         // Check until ... do
         if let Some(until_node) = node.as_until_node() {
-            diagnostics.extend(check_loop(
+            if let Some(diagnostic) = check_loop(
                 self,
                 source,
                 &until_node.location(),
-                until_node.closing_loc(),
+                until_node.do_keyword_loc(),
                 "until",
-            ));
+            ) {
+                diagnostics.push(diagnostic);
+            }
         }
     }
 }
@@ -51,48 +63,34 @@ impl Cop for WhileUntilDo {
 fn check_loop(
     cop: &WhileUntilDo,
     source: &SourceFile,
-    outer_loc: &ruby_prism::Location<'_>,
-    closing_loc: Option<ruby_prism::Location<'_>>,
+    loop_loc: &ruby_prism::Location<'_>,
+    do_loc: Option<ruby_prism::Location<'_>>,
     keyword: &str,
-) -> Vec<Diagnostic> {
-    // Must be multiline (closing_loc exists and is on a different line than keyword)
-    let closing = match closing_loc {
-        Some(c) => c,
-        None => return Vec::new(),
+) -> Option<Diagnostic> {
+    let do_loc = match do_loc {
+        Some(do_loc) => do_loc,
+        None => return None,
     };
 
-    let (start_line, _) = source.offset_to_line_col(outer_loc.start_offset());
-    let (end_line, _) = source.offset_to_line_col(closing.start_offset());
+    let (start_line, _) = source.offset_to_line_col(loop_loc.start_offset());
+    let end_offset = loop_loc
+        .end_offset()
+        .saturating_sub(1)
+        .max(loop_loc.start_offset());
+    let (end_line, _) = source.offset_to_line_col(end_offset);
 
-    // Single-line: no offense
     if start_line == end_line {
-        return Vec::new();
+        return None;
     }
 
-    // Check if there's a `do` keyword
-    // In Prism, while/until nodes have a keyword_loc and optionally a "do" keyword
-    // We look at source between predicate end and body/closing start for "do"
-    let src = &source.content[outer_loc.start_offset()..outer_loc.end_offset()];
-    let src_str = std::str::from_utf8(src).unwrap_or("");
+    let (line, column) = source.offset_to_line_col(do_loc.start_offset());
 
-    // Find "do" after the keyword line. Look at first line for "do" at end.
-    let first_line = src_str.lines().next().unwrap_or("");
-    let trimmed = first_line.trim_end();
-    if !trimmed.ends_with(" do") && !trimmed.ends_with("\tdo") {
-        return Vec::new();
-    }
-
-    // Find the position of "do" in the source
-    let do_offset_in_first_line = trimmed.len() - 2;
-    let do_offset = outer_loc.start_offset() + do_offset_in_first_line;
-    let (line, column) = source.offset_to_line_col(do_offset);
-
-    vec![cop.diagnostic(
+    Some(cop.diagnostic(
         source,
         line,
         column,
         format!("Do not use `do` with multi-line `{}`.", keyword),
-    )]
+    ))
 }
 
 #[cfg(test)]
