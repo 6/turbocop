@@ -14,6 +14,20 @@ use crate::parse::source::SourceFile;
 /// - Root cause 3: message didn't vary based on Style/EmptyElse EnforcedStyle.
 /// - Fix: handle elsif chains (walk to last subsequent), handle unless keyword,
 ///   inject cross-cop config for UnlessElse.Enabled and EmptyElse.EnforcedStyle.
+///
+/// Investigation (2026-03-27):
+/// - Remaining corpus FN are NOT a cop-side AST traversal bug.
+/// - Added full-context fixtures for the five reported examples from
+///   `oriuminc__vagrant-ariadne__bb22d52`; `cargo test --lib -- cop::style::missing_else`
+///   passes, so `visit_if_node` / `visit_case_node` already detect the real syntax.
+/// - Reproduced the divergence in the CLI path instead:
+///   `target/release/nitrocop --config bench/corpus/baseline_rubocop.yml --only Style/MissingElse`
+///   reports the expected 5 offenses on the cloned repo, but the generated overlay config from
+///   `bench/corpus/gen_repo_config.py` (`/tmp/nitrocop_corpus_configs/...yml`) reports 0.
+/// - The overlay only adds `AllCops: Exclude` and `inherit_from: <baseline>`, so the real bug is
+///   in config inheritance / Enabled-state resolution for inherited configs loaded from that temp
+///   file, not in this cop's detection logic. A cop-local workaround here would mask the config
+///   bug and risks changing real default-enabled behavior.
 pub struct MissingElse;
 
 impl Cop for MissingElse {
