@@ -22,6 +22,22 @@ use ruby_prism::Visit;
 /// 2. Reader with keyword rest params (`def errors(**_args); @errors; end`) was
 ///    flagged as trivial (1 FP from trailblazer). Fixed by checking `keyword_rest`
 ///    in the parameter validation.
+///
+/// ## Investigation notes (2026-03-27)
+///
+/// **FN root cause 1 (endless accessors):** `def foo = @foo` and similar endless
+/// readers were skipped outright because the cop returned early when
+/// `end_keyword_loc().is_none()`. RuboCop still checks endless defs here. Prism
+/// exposes endless bodies directly (for example an `InstanceVariableReadNode`)
+/// instead of wrapping them in a `StatementsNode`, so the cop now normalizes both
+/// body shapes before matching trivial readers/writers.
+///
+/// **FN root cause 2 (top-level multi-statement defs):** RuboCop only exempts a
+/// top-level def when it is the root node (`node.parent.nil?`). nitrocop was
+/// skipping every def outside class/block scopes, which missed files like
+/// `@foo = 1; def foo; @foo; end` and `obj = Object.new; def obj.foo; @foo; end`.
+/// Fixed by exempting only the sole root def in the program body while still
+/// checking other top-level defs.
 pub struct TrivialAccessors;
 
 /// Default AllowedMethods from vendor config (to_ary, to_a, to_c, ... to_sym).
@@ -80,6 +96,16 @@ impl Cop for TrivialAccessors {
         let allow_dsl_writers = config.get_bool("AllowDSLWriters", true);
         let ignore_class_methods = config.get_bool("IgnoreClassMethods", false);
         let allowed_methods = config.get_string_array("AllowedMethods");
+        let sole_root_def_start = parse_result.node().as_program_node().and_then(|program| {
+            let mut body = program.statements().body().iter();
+            let first = body.next()?;
+            if body.next().is_some() {
+                return None;
+            }
+            first
+                .as_def_node()
+                .map(|def_node| def_node.def_keyword_loc().start_offset())
+        });
 
         let mut visitor = TrivialAccessorsVisitor {
             cop: self,
@@ -90,6 +116,7 @@ impl Cop for TrivialAccessors {
             ignore_class_methods,
             allowed_methods: &allowed_methods,
             scope_stack: vec![ScopeKind::TopLevel],
+            sole_root_def_start,
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -106,6 +133,7 @@ struct TrivialAccessorsVisitor<'a> {
     ignore_class_methods: bool,
     allowed_methods: &'a Option<Vec<String>>,
     scope_stack: Vec<ScopeKind>,
+    sole_root_def_start: Option<usize>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -117,34 +145,39 @@ impl<'a> TrivialAccessorsVisitor<'a> {
     /// - Class/SingletonClass → check (return true)
     /// - Module → skip (return false)
     /// - InstanceEval → skip (return false)
-    /// - Block → transparent, keep walking
-    /// - TopLevel → skip unless we've seen a block (methods inside blocks
-    ///   are not "top level" in RuboCop's sense)
+    /// - Block / TopLevel → transparent, keep walking
     fn should_check_def(&self) -> bool {
-        let mut seen_block = false;
         for scope in self.scope_stack.iter().rev() {
             match scope {
                 ScopeKind::Class => return true,
                 ScopeKind::Module => return false,
                 ScopeKind::InstanceEval => return false,
-                ScopeKind::Block => {
-                    seen_block = true;
-                }
-                ScopeKind::TopLevel => {
-                    return seen_block;
-                }
+                ScopeKind::Block | ScopeKind::TopLevel => {}
             }
         }
-        false
+        true
+    }
+
+    fn single_body_node<'pr>(def_node: &ruby_prism::DefNode<'pr>) -> Option<ruby_prism::Node<'pr>> {
+        let body = def_node.body()?;
+        if let Some(stmts) = body.as_statements_node() {
+            let mut body_nodes = stmts.body().iter();
+            let first = body_nodes.next()?;
+            if body_nodes.next().is_some() {
+                return None;
+            }
+            Some(first)
+        } else {
+            Some(body)
+        }
     }
 
     fn check_def(&mut self, def_node: &ruby_prism::DefNode<'_>) {
-        if !self.should_check_def() {
+        if self.sole_root_def_start == Some(def_node.def_keyword_loc().start_offset()) {
             return;
         }
 
-        // Skip endless methods (no end keyword)
-        if def_node.end_keyword_loc().is_none() {
+        if !self.should_check_def() {
             return;
         }
 
@@ -168,22 +201,10 @@ impl<'a> TrivialAccessorsVisitor<'a> {
         }
 
         // Get body statements
-        let body = match def_node.body() {
-            Some(b) => b,
+        let single_stmt = match Self::single_body_node(def_node) {
+            Some(node) => node,
             None => return,
         };
-
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
-        };
-
-        let body_nodes: Vec<_> = stmts.body().into_iter().collect();
-        if body_nodes.len() != 1 {
-            return;
-        }
-
-        let single_stmt = &body_nodes[0];
 
         // Check for trivial reader: `def foo; @foo; end`
         if let Some(ivar_read) = single_stmt.as_instance_variable_read_node() {

@@ -52,3 +52,54 @@ describe "test" do
     @status
   end
 end
+
+# Top-level defs are only exempt when they are the sole root statement
+queue = Object.new
+
+def queue.error
+^^^ Style/TrivialAccessors: Use `attr_reader` to define trivial reader methods.
+  @error
+end
+
+@name = nil
+
+def name
+^^^ Style/TrivialAccessors: Use `attr_reader` to define trivial reader methods.
+  @name
+end
+
+def name=(value)
+^^^ Style/TrivialAccessors: Use `attr_writer` to define trivial writer methods.
+  @name = value
+end
+
+class Camera2D
+  def offset = @offset # standard:disable Style/TrivialAccessors
+  ^^^ Style/TrivialAccessors: Use `attr_reader` to define trivial reader methods.
+
+  def target = @target # standard:disable Style/TrivialAccessors
+  ^^^ Style/TrivialAccessors: Use `attr_reader` to define trivial reader methods.
+end
+
+class RenderTexture
+  def texture = @texture # standard:disable Style/TrivialAccessors
+  ^^^ Style/TrivialAccessors: Use `attr_reader` to define trivial reader methods.
+end
+
+Module.new do
+  @impl_class = Object
+
+  def self.impl_class
+  ^^^ Style/TrivialAccessors: Use `attr_reader` to define trivial reader methods.
+    @impl_class
+  end
+end
+
+Module.new do
+  @klass_name = String
+
+  def self.klass_name
+  ^^^ Style/TrivialAccessors: Use `attr_reader` to define trivial reader methods.
+    @klass_name
+  end
+end

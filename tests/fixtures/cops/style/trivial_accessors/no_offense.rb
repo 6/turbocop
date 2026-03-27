@@ -61,11 +61,6 @@ module MyModule
   end
 end
 
-# Top-level methods are also skipped
-def top_level_reader
-  @top_level_reader
-end
-
 # Methods inside instance_eval blocks are skipped
 something.instance_eval do
   def bar
