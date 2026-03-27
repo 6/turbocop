@@ -51,12 +51,6 @@ use ruby_prism::Visit;
 ///
 /// FP=5, FN=2.
 ///
-/// FP=5: All in victords/minigl (3) and jjyg/metasm (2). These are multiline
-/// `if cond; body\nelse; body; end` patterns. Tested with RuboCop directly and
-/// confirmed RuboCop DOES flag these — so these are corpus artifacts (likely
-/// RuboCop parser crashes dropping those files from RuboCop's output). No code
-/// change needed for FPs.
-///
 /// FN=1 (real): floraison/fugit `cron.rb:875` — `else if at; zt = tt; else; at = tt; end`
 /// inside a `case/when/else` block. The `else` belongs to the `case`, not to an `if`.
 /// The old text-based `is_preceded_by_else` check incorrectly treated this as an
@@ -68,6 +62,23 @@ use ruby_prism::Visit;
 /// FN=1 (not real): waagsociety/citysdk-ld `filters.rb:181` — `if cond\n  ;\nelse`.
 /// The `;` is on a separate line as the body, not between condition and body. Tested
 /// with RuboCop directly: RuboCop does NOT flag this. Corpus artifact.
+///
+/// ## Corpus investigation (2026-03-27, round 5)
+///
+/// FP=5, FN=1.
+///
+/// FP=5: All in victords/minigl (3) and jjyg/metasm (2). These are `if cond; body`
+/// patterns that are the sole statement in another if/unless node's branch. In the
+/// parser gem (used by RuboCop), a sole branch statement's parent IS the if node,
+/// so `node.parent&.if_type?` returns true and RuboCop skips them. With multiple
+/// statements, they're wrapped in a `begin` node and the check is false.
+/// Previously we only handled the else-branch case (`else if` patterns). Fixed by
+/// generalizing `else_if_offsets` → `parent_is_if_offsets` to register sole-child
+/// if/unless nodes in ALL branches (if-branch, elsif-branches, else-branch) of
+/// parent if/unless nodes.
+///
+/// FN=1 (not real): waagsociety/citysdk-ld `filters.rb:181` — same as round 4.
+/// Corpus artifact (`;` is body, not then-keyword).
 pub struct IfWithSemicolon;
 
 impl Cop for IfWithSemicolon {
@@ -89,7 +100,7 @@ impl Cop for IfWithSemicolon {
             source,
             diagnostics: Vec::new(),
             ignored_end_offset: 0,
-            else_if_offsets: Vec::new(),
+            parent_is_if_offsets: Vec::new(),
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -104,24 +115,25 @@ struct IfWithSemicolonVisitor<'a> {
     /// Any node starting before this offset is inside a flagged node and should be skipped
     /// (replicates RuboCop's `ignore_node`/`part_of_ignored_node?` mechanism).
     ignored_end_offset: usize,
-    /// Start offsets of `if` nodes that are the sole body of another `if`/`unless` node's
-    /// else branch (`else if` pattern). These should be skipped per RuboCop's
-    /// `node.parent&.if_type?` check. We collect these during visitation of parent nodes.
-    else_if_offsets: Vec<usize>,
+    /// Start offsets of `if`/`unless` nodes that are the sole statement in any branch
+    /// of another `if`/`unless` node. These should be skipped per RuboCop's
+    /// `node.parent&.if_type?` check — in the parser gem, a sole branch statement's
+    /// parent is the if node itself, while multiple statements are wrapped in `begin`.
+    parent_is_if_offsets: Vec<usize>,
 }
 
 impl<'pr> Visit<'pr> for IfWithSemicolonVisitor<'_> {
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
-        // Before checking/visiting, register any `else if` child so it gets
-        // skipped (mirrors RuboCop's `node.parent&.if_type?`).
-        self.register_else_if_child_of_if(node);
+        // Before checking/visiting, register sole-child if/unless nodes in
+        // all branches so they get skipped (mirrors RuboCop's `node.parent&.if_type?`).
+        self.register_children_of_if(node);
         self.check_if_node(node);
         // Continue visiting child nodes
         ruby_prism::visit_if_node(self, node);
     }
 
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
-        self.register_else_if_child_of_unless(node);
+        self.register_children_of_unless(node);
         self.check_unless_node(node);
         // Continue visiting child nodes
         ruby_prism::visit_unless_node(self, node);
@@ -129,27 +141,25 @@ impl<'pr> Visit<'pr> for IfWithSemicolonVisitor<'_> {
 }
 
 impl IfWithSemicolonVisitor<'_> {
-    /// If the if node has an else branch containing a single `if` node,
-    /// register that child if's start offset so it gets skipped.
-    /// This mirrors RuboCop's `node.parent&.if_type?` check.
-    fn register_else_if_child_of_if(&mut self, if_node: &ruby_prism::IfNode<'_>) {
-        // Walk through subsequent chain to find the final else clause
+    /// Register sole-child if/unless nodes in ALL branches of an if node.
+    /// This mirrors RuboCop's `node.parent&.if_type?` check: in the parser gem,
+    /// when a branch has only one statement, that statement's parent is the if node
+    /// itself (if_type? → true). With multiple statements, they're wrapped in a
+    /// `begin` node (if_type? → false).
+    fn register_children_of_if(&mut self, if_node: &ruby_prism::IfNode<'_>) {
+        // Register sole child in if-branch
+        self.register_sole_if_unless_child(if_node.statements());
+
+        // Walk elsif chain and else
         let mut subsequent = if_node.subsequent();
         while let Some(sub) = subsequent {
             if let Some(elsif_node) = sub.as_if_node() {
-                // This is an elsif — continue to its subsequent
+                // Register sole child in elsif-branch
+                self.register_sole_if_unless_child(elsif_node.statements());
                 subsequent = elsif_node.subsequent();
             } else if let Some(else_node) = sub.as_else_node() {
-                // Found the else clause — check if its body is a single if node
-                if let Some(stmts) = else_node.statements() {
-                    let body = stmts.body();
-                    if body.len() == 1 {
-                        if let Some(inner_if) = body.iter().next().unwrap().as_if_node() {
-                            self.else_if_offsets
-                                .push(inner_if.location().start_offset());
-                        }
-                    }
-                }
+                // Register sole child in else-branch
+                self.register_sole_if_unless_child(else_node.statements());
                 break;
             } else {
                 break;
@@ -157,16 +167,27 @@ impl IfWithSemicolonVisitor<'_> {
         }
     }
 
-    /// Same as above but for unless nodes (unless can have an else clause too).
-    fn register_else_if_child_of_unless(&mut self, unless_node: &ruby_prism::UnlessNode<'_>) {
+    /// Same as above but for unless nodes.
+    fn register_children_of_unless(&mut self, unless_node: &ruby_prism::UnlessNode<'_>) {
+        // Register sole child in unless-branch
+        self.register_sole_if_unless_child(unless_node.statements());
+
+        // Register sole child in else-branch
         if let Some(else_node) = unless_node.else_clause() {
-            if let Some(stmts) = else_node.statements() {
-                let body = stmts.body();
-                if body.len() == 1 {
-                    if let Some(inner_if) = body.iter().next().unwrap().as_if_node() {
-                        self.else_if_offsets
-                            .push(inner_if.location().start_offset());
-                    }
+            self.register_sole_if_unless_child(else_node.statements());
+        }
+    }
+
+    /// If the statements node contains exactly one if or unless node, register
+    /// its start offset so it gets skipped.
+    fn register_sole_if_unless_child(&mut self, stmts: Option<ruby_prism::StatementsNode<'_>>) {
+        if let Some(stmts) = stmts {
+            let body = stmts.body();
+            if body.len() == 1 {
+                let child = body.iter().next().unwrap();
+                if child.as_if_node().is_some() || child.as_unless_node().is_some() {
+                    self.parent_is_if_offsets
+                        .push(child.location().start_offset());
                 }
             }
         }
@@ -189,10 +210,10 @@ impl IfWithSemicolonVisitor<'_> {
             return;
         }
 
-        // Skip `else if` patterns (RuboCop: node.parent&.if_type?)
-        // The parent if/unless registered this node's offset in else_if_offsets.
+        // Skip if this node is the sole statement in another if/unless branch
+        // (RuboCop: node.parent&.if_type?). Covers else-if, sole child in if-branch, etc.
         let loc = if_node.location();
-        if self.else_if_offsets.contains(&loc.start_offset()) {
+        if self.parent_is_if_offsets.contains(&loc.start_offset()) {
             return;
         }
 
@@ -244,8 +265,14 @@ impl IfWithSemicolonVisitor<'_> {
             return;
         }
 
-        // Skip if inside a previously flagged node (RuboCop: part_of_ignored_node?)
+        // Skip if this node is the sole statement in another if/unless branch
+        // (RuboCop: node.parent&.if_type?)
         let loc = unless_node.location();
+        if self.parent_is_if_offsets.contains(&loc.start_offset()) {
+            return;
+        }
+
+        // Skip if inside a previously flagged node (RuboCop: part_of_ignored_node?)
         if loc.start_offset() < self.ignored_end_offset {
             return;
         }

@@ -52,3 +52,26 @@ end
 unless done # not done; keep going
   process
 end
+
+# If with semicolon as sole child of another if's branch (RuboCop: node.parent&.if_type?)
+# In parser gem, sole child's parent IS the if node, so if_type? is true → skip
+if outer_cond
+  if inner_cond; foo
+  else; bar; end
+end
+
+# If with semicolon as sole child of elsif branch
+if cond1
+  foo
+elsif cond2
+  if inner; bar
+  else; baz; end
+end
+
+# If with semicolon as sole child inside nested if (deeper nesting)
+if Mouse.button_released?
+  if @anchor1
+    if @cur_node != @anchor1; @anchor2 = @cur_node
+    else; @anchor1 = nil; end
+  end
+end
