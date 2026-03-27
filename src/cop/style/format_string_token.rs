@@ -563,7 +563,7 @@ impl<'pr> Visit<'pr> for FormatStringTokenVisitor<'_> {
         let content = content_loc.as_slice();
 
         // Some multiline Prism StringNodes correspond to Parser dstr nodes whose parts lose
-        // format context. Keep single-quoted heredoc receivers in format context.
+        // format context. Keep single-line heredoc receivers in format context.
         let in_format_context =
             raw_format_context && !Self::loses_format_context_when_multiline(node);
         let content_start = content_loc.start_offset();
