@@ -33,3 +33,7 @@ sql = <<-'SQL' % [columns, values]
                                       ^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over unannotated tokens (like `%s`).
                                                   ^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over unannotated tokens (like `%s`).
 SQL
+
+multi = _("Status %{url}
+                  ^^^^^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).
+  approved") % { url: target_url }

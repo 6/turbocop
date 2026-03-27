@@ -39,6 +39,12 @@ use std::collections::HashSet;
 /// heredocs. RuboCop keeps single-line heredoc receivers as `str` in this context and still
 /// reports `%s` tokens. Fix: only keep format context for heredoc receivers whose content is
 /// a single line; multiline heredocs and percent literals still lose format context.
+///
+/// Corpus gate compatibility (2026-03): plain multiline quoted strings still overcount named
+/// tokens on continuation lines in `noosfero`. Prism keeps the whole string as one
+/// `StringNode`, but the oracle baseline only keeps first-line named tokens in these cases.
+/// Fix: keep checking the first physical line and skip named tokens reported only on
+/// continuation lines for plain multiline quoted strings.
 pub struct FormatStringToken;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -413,11 +419,26 @@ impl FormatStringTokenVisitor<'_> {
         true
     }
 
+    fn plain_multiline_string_skips_named_continuations(node: &ruby_prism::StringNode<'_>) -> bool {
+        let content = node.content_loc().as_slice();
+        if !content.contains(&b'\n') {
+            return false;
+        }
+
+        let Some(opening) = node.opening_loc() else {
+            return false;
+        };
+        let opening = opening.as_slice();
+
+        !opening.starts_with(b"<<") && !opening.starts_with(b"%")
+    }
+
     fn check_string_content(
         &mut self,
         content: &[u8],
         content_start_offset: usize,
         in_format_context: bool,
+        skip_named_continuations: bool,
     ) {
         let content_str = match std::str::from_utf8(content) {
             Ok(s) => s,
@@ -451,6 +472,7 @@ impl FormatStringTokenVisitor<'_> {
         } else {
             true
         };
+        let (first_line, _) = self.source.offset_to_line_col(content_start_offset);
 
         match self.style.as_str() {
             "annotated" => {
@@ -461,6 +483,9 @@ impl FormatStringTokenVisitor<'_> {
                             let (line, column) = self
                                 .source
                                 .offset_to_line_col(content_start_offset + tok.offset);
+                            if skip_named_continuations && line > first_line {
+                                continue;
+                            }
                             self.diagnostics.push(self.cop.diagnostic(
                                 self.source,
                                 line,
@@ -493,6 +518,9 @@ impl FormatStringTokenVisitor<'_> {
                             let (line, column) = self
                                 .source
                                 .offset_to_line_col(content_start_offset + tok.offset);
+                            if skip_named_continuations && line > first_line {
+                                continue;
+                            }
                             self.diagnostics.push(self.cop.diagnostic(
                                 self.source,
                                 line,
@@ -519,14 +547,17 @@ impl FormatStringTokenVisitor<'_> {
             "unannotated" => {
                 if check_named {
                     for tok in &named {
+                        let (line, column) = self
+                            .source
+                            .offset_to_line_col(content_start_offset + tok.offset);
+                        if skip_named_continuations && line > first_line {
+                            continue;
+                        }
                         let msg = if tok.style == TokenStyle::Annotated {
                             "Prefer unannotated tokens (like `%s`) over annotated tokens (like `%<foo>s`)."
                         } else {
                             "Prefer unannotated tokens (like `%s`) over template tokens (like `%{foo}`)."
                         };
-                        let (line, column) = self
-                            .source
-                            .offset_to_line_col(content_start_offset + tok.offset);
                         self.diagnostics.push(self.cop.diagnostic(
                             self.source,
                             line,
@@ -566,9 +597,17 @@ impl<'pr> Visit<'pr> for FormatStringTokenVisitor<'_> {
         // format context. Keep single-line heredoc receivers in format context.
         let in_format_context =
             raw_format_context && !Self::loses_format_context_when_multiline(node);
+        // The corpus oracle still treats named tokens on continuation lines of plain
+        // multiline quoted strings more conservatively than Prism's single-node shape.
+        let skip_named_continuations = Self::plain_multiline_string_skips_named_continuations(node);
         let content_start = content_loc.start_offset();
 
-        self.check_string_content(content, content_start, in_format_context);
+        self.check_string_content(
+            content,
+            content_start,
+            in_format_context,
+            skip_named_continuations,
+        );
     }
 
     fn visit_interpolated_x_string_node(
