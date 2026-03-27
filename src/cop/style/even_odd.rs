@@ -3,6 +3,10 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Matches RuboCop's `Style/EvenOdd` pattern for `% 2` comparisons against `0` or `1`.
+/// Prism wraps `(x % 2) == 0` as `ParenthesesNode -> StatementsNode -> CallNode`, so
+/// unwrapping parentheses directly to a `CallNode` missed 28 corpus FNs while the cop
+/// otherwise had 0 FPs.
 pub struct EvenOdd;
 
 impl Cop for EvenOdd {
@@ -46,17 +50,7 @@ impl Cop for EvenOdd {
             None => return,
         };
 
-        // Unwrap optional parentheses
-        let modulo_call = if let Some(parens) = receiver.as_parentheses_node() {
-            match parens.body() {
-                Some(body) => body.as_call_node(),
-                None => return,
-            }
-        } else {
-            receiver.as_call_node()
-        };
-
-        let modulo_call = match modulo_call {
+        let modulo_call = match modulo_receiver_call(receiver) {
             Some(c) => c,
             None => return,
         };
@@ -138,6 +132,28 @@ impl Cop for EvenOdd {
         }
         diagnostics.push(diag);
     }
+}
+
+fn modulo_receiver_call(node: ruby_prism::Node<'_>) -> Option<ruby_prism::CallNode<'_>> {
+    if let Some(call) = node.as_call_node() {
+        return Some(call);
+    }
+
+    let parens = node.as_parentheses_node()?;
+    let body = parens.body()?;
+
+    if let Some(call) = body.as_call_node() {
+        return Some(call);
+    }
+
+    let statements = body.as_statements_node()?;
+    let mut children = statements.body().iter();
+    let child = children.next()?;
+    if children.next().is_some() {
+        return None;
+    }
+
+    child.as_call_node()
 }
 
 #[cfg(test)]
