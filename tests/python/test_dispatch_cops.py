@@ -385,7 +385,7 @@ def test_cmd_dispatch_issues_respects_capacity_and_uses_auto_backend():
         },
     ]
     gct.active_agent_fix_count = lambda repo: (1, 1, 1)
-    gct.subprocess.run = lambda *args, **kwargs: None
+    gct.subprocess.run = lambda *args, **kwargs: SimpleNamespace(stdout="[]", stderr="", returncode=0)
     stdout = io.StringIO()
     try:
         with redirect_stdout(stdout):
@@ -410,6 +410,7 @@ def test_cmd_dispatch_issues_respects_capacity_and_uses_auto_backend():
             "cop": "Layout/Foo",
             "difficulty": "simple",
             "backend_family": "auto",
+            "mode": "fix",
         }
     ]
 

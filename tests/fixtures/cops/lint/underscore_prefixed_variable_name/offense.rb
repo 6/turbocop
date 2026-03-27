@@ -135,3 +135,44 @@ describe 'records' do
     _obj
   end
 end
+
+# Variable assigned in module scope, read from a class superclass expression
+module SparkMapCommand
+  _Base = Spark::Command::Base
+  ^^^^^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+
+  class Map < _Base
+  end
+end
+
+module SparkPairCommand
+  _Base = Spark::Command::Base
+  ^^^^^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+
+  class Pair < _Base
+  end
+end
+
+module SparkSortCommand
+  _Base = Spark::Command::Base
+  ^^^^^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+
+  class SortByKey < _Base
+  end
+end
+
+module SparkStatisticCommand
+  _Base = Spark::Command::Base
+  ^^^^^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+
+  class Sample < _Base
+  end
+end
+
+# Variable reassigned and later passed to a method call
+def draw(canvas, x, y, w, h, simulation)
+  _simulation = simulation
+  ^^^^^^^^^^^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+  _simulation = true unless visible?
+  process(canvas, x, y, w, h, _simulation)
+end

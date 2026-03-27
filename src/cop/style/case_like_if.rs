@@ -72,6 +72,14 @@ use crate::parse::source::SourceFile;
 ///   The 1 FN (chatwoot) appears to be a corpus oracle data issue — RuboCop
 ///   with default MinBranchesCount=3 does not flag a 2-branch+else chain,
 ///   verified independently.
+/// - 2 FPs (sixth round): nitrocop flagged `if...else; if...; end; end` patterns
+///   where the outer if has no `elsif` — only an `else` with a nested `if` block.
+///   RuboCop's `should_check?` requires `elsif_conditional?` which checks that
+///   the else_branch is both `if_type?` AND `elsif?` (keyword is 'elsif', not 'if').
+///   In Prism, `elsif` subsequents are IfNodes while `else` subsequents are ElseNodes.
+///   Fix: check that `if_node.subsequent()` is a direct IfNode before processing.
+///   The 6 FNs are 2-branch+else chains where the repos configure MinBranchesCount=2;
+///   RuboCop with default MinBranchesCount=3 does not flag them.
 pub struct CaseLikeIf;
 
 impl Cop for CaseLikeIf {
@@ -129,6 +137,16 @@ impl Cop for CaseLikeIf {
         // Modifier if: no end keyword
         if if_node.end_keyword_loc().is_none() {
             return;
+        }
+
+        // Match RuboCop's `elsif_conditional?` — the if node must have at least
+        // one direct elsif branch. In Prism, elsif branches are IfNode subsequents;
+        // else clauses are ElseNode subsequents. Without this check, `if...else; if...; end; end`
+        // patterns would be incorrectly treated as case-like (the nested if in else
+        // is a separate construct, not an elsif chain).
+        match if_node.subsequent() {
+            Some(ref sub) if sub.as_if_node().is_some() => {} // has elsif
+            _ => return,                                      // no elsif — if-else or standalone if
         }
 
         // Count branches and collect predicates (if + elsif chain).
