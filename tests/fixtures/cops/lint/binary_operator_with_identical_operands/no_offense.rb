@@ -5,3 +5,14 @@ x + x
 a != b
 c >= d
 mask & mask
+
+assert { "123\n456\n" == <<-TEXT
+123
+456
+TEXT
+}
+
+assert { "123\n456\n" == <<-TEXT }
+123
+456
+TEXT
