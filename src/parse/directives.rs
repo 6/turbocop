@@ -22,6 +22,10 @@ static DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// department token, so the range is stored under the department key and
 /// `is_disabled` matches via the department check.
 fn normalize_directive_cop_name(name: &str) -> String {
+    // Strip trailing `/` — users write `# rubocop:disable Metrics/` to mean
+    // the department.  RuboCop treats `Metrics/` identically to `Metrics`.
+    let name = name.strip_suffix('/').unwrap_or(name);
+
     if let Some((dept, _cop)) = name.split_once("::") {
         return dept.to_string();
     }
@@ -554,6 +558,36 @@ mod tests {
         assert!(dr.is_disabled("Metrics/MethodLength", 3));
         // Line after enable is no longer disabled
         assert!(!dr.is_disabled("Metrics/MethodLength", 4));
+    }
+
+    #[test]
+    fn department_disable_trailing_slash() {
+        // `# rubocop:disable Metrics/` (with trailing slash) should work
+        // identically to `# rubocop:disable Metrics`.
+        let src = "# rubocop:disable Metrics/\nx = 1\n# rubocop:enable Metrics/\ny = 2\n";
+        let dr = disabled_ranges(src);
+        assert!(
+            dr.is_disabled("Metrics/MethodLength", 2),
+            "Metrics/ should disable Metrics/MethodLength"
+        );
+        assert!(
+            dr.is_disabled("Metrics/CyclomaticComplexity", 2),
+            "Metrics/ should disable Metrics/CyclomaticComplexity"
+        );
+        assert!(!dr.is_disabled("Layout/LineLength", 2));
+        assert!(!dr.is_disabled("Metrics/MethodLength", 4));
+    }
+
+    #[test]
+    fn department_disable_trailing_slash_inline() {
+        // Inline variant: `x = 1 # rubocop:disable Metrics/ -- reason`
+        let src = "x = 1 # rubocop:disable Metrics/ -- It's more readable this way\ny = 2\n";
+        let dr = disabled_ranges(src);
+        assert!(
+            dr.is_disabled("Metrics/PerceivedComplexity", 1),
+            "inline Metrics/ should disable Metrics cops on same line"
+        );
+        assert!(!dr.is_disabled("Metrics/PerceivedComplexity", 2));
     }
 
     #[test]
