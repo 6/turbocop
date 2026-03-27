@@ -40,10 +40,11 @@ use std::collections::HashSet;
 /// reports `%s` tokens. Fix: only keep format context for heredoc receivers whose content is
 /// a single line; multiline heredocs and percent literals still lose format context.
 ///
-/// Known corpus drift (2026-03): `noosfero` shows +2 named-token offenses in plain
-/// multiline quoted strings. This is a config-resolution issue (likely `AllowedMethods`
-/// or `Mode: conservative` in the project), not a detection bug. Accepted as tolerable
-/// drift rather than adding workarounds that suppress legitimate offenses.
+/// Plain multiline quoted strings (2026-03): Prism keeps `"line1\nline2 %{tok}"` as one
+/// `StringNode`, but Parser splits it into `dstr` parts where continuation-line parts
+/// lose their ancestor context (the `%` send). Named tokens on continuation lines are
+/// therefore not flagged by RuboCop. We skip named tokens past the first physical line
+/// for plain multiline quoted strings to match this behavior.
 pub struct FormatStringToken;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -418,11 +419,28 @@ impl FormatStringTokenVisitor<'_> {
         true
     }
 
+    fn plain_multiline_string_skips_named_continuations(node: &ruby_prism::StringNode<'_>) -> bool {
+        let content = node.content_loc().as_slice();
+        if !content.contains(&b'\n') {
+            return false;
+        }
+
+        let Some(opening) = node.opening_loc() else {
+            return false;
+        };
+        let opening = opening.as_slice();
+
+        // Only plain quoted strings — heredocs and % literals are handled by
+        // loses_format_context_when_multiline already.
+        !opening.starts_with(b"<<") && !opening.starts_with(b"%")
+    }
+
     fn check_string_content(
         &mut self,
         content: &[u8],
         content_start_offset: usize,
         in_format_context: bool,
+        skip_named_continuations: bool,
     ) {
         let content_str = match std::str::from_utf8(content) {
             Ok(s) => s,
@@ -456,6 +474,8 @@ impl FormatStringTokenVisitor<'_> {
         } else {
             true
         };
+        let (first_line, _) = self.source.offset_to_line_col(content_start_offset);
+
         match self.style.as_str() {
             "annotated" => {
                 // Flag template tokens
@@ -465,7 +485,9 @@ impl FormatStringTokenVisitor<'_> {
                             let (line, column) = self
                                 .source
                                 .offset_to_line_col(content_start_offset + tok.offset);
-
+                            if skip_named_continuations && line > first_line {
+                                continue;
+                            }
                             self.diagnostics.push(self.cop.diagnostic(
                                 self.source,
                                 line,
@@ -498,7 +520,9 @@ impl FormatStringTokenVisitor<'_> {
                             let (line, column) = self
                                 .source
                                 .offset_to_line_col(content_start_offset + tok.offset);
-
+                            if skip_named_continuations && line > first_line {
+                                continue;
+                            }
                             self.diagnostics.push(self.cop.diagnostic(
                                 self.source,
                                 line,
@@ -528,6 +552,9 @@ impl FormatStringTokenVisitor<'_> {
                         let (line, column) = self
                             .source
                             .offset_to_line_col(content_start_offset + tok.offset);
+                        if skip_named_continuations && line > first_line {
+                            continue;
+                        }
                         let msg = if tok.style == TokenStyle::Annotated {
                             "Prefer unannotated tokens (like `%s`) over annotated tokens (like `%<foo>s`)."
                         } else {
@@ -572,9 +599,15 @@ impl<'pr> Visit<'pr> for FormatStringTokenVisitor<'_> {
         // format context. Keep single-line heredoc receivers in format context.
         let in_format_context =
             raw_format_context && !Self::loses_format_context_when_multiline(node);
+        let skip_named_continuations = Self::plain_multiline_string_skips_named_continuations(node);
         let content_start = content_loc.start_offset();
 
-        self.check_string_content(content, content_start, in_format_context);
+        self.check_string_content(
+            content,
+            content_start,
+            in_format_context,
+            skip_named_continuations,
+        );
     }
 
     fn visit_interpolated_x_string_node(
