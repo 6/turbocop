@@ -33,3 +33,31 @@ x.to_h { |k, v| [k, v.to_s] }
 
 x.to_h { |k, v| [k, foo(v)] }
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/HashTransformValues: Prefer `transform_values` over `to_h {...}`.
+
+# ::Hash[_.map {...}] with qualified constant path
+::Hash[x.map { |k, v| [k, foo(v)] }]
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/HashTransformValues: Prefer `transform_values` over `Hash[_.map {...}]`.
+
+# Multi-line map { }.to_h
+x.map { |label, klass|
+^ Style/HashTransformValues: Prefer `transform_values` over `map {...}.to_h`.
+  [label, klass.to_s]
+}.to_h
+
+# map do...end.to_h
+x.map do |name, attr|
+^ Style/HashTransformValues: Prefer `transform_values` over `map {...}.to_h`.
+  [name, attr.to_s]
+end.to_h
+
+# Hash[_.map do...end]
+Hash[x.map do |name, members|
+^ Style/HashTransformValues: Prefer `transform_values` over `Hash[_.map {...}]`.
+  [name, members.sort]
+end]
+
+# ::Hash[_.map { }] multi-line
+::Hash[raw_fonts.map { |label, font|
+^ Style/HashTransformValues: Prefer `transform_values` over `Hash[_.map {...}]`.
+  [label, font.to_s]
+}]
