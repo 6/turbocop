@@ -26,21 +26,37 @@ use ruby_prism::Visit;
 /// body of `describe "x" do`, `it "y" do`, `context "z" do`, etc. to be
 /// incorrectly suppressed — a massive miss in spec-heavy repos. Fixed by
 /// scoping the flag to only the arguments subtree, not the block body.
+///
+/// ## Corpus investigation (2026-03-27)
+///
+/// Corpus oracle reported FP=3, FN=7 on 56,120 matches.
+///
+/// FN root causes:
+/// - Prism stores both real block literals (`do ... end`, `{ ... }`) and
+///   block-pass arguments (`&block`, `&(method :foo)`) in `call.block()`.
+///   RuboCop's `invalid_percent_array_context?` only suppresses direct array
+///   arguments of real block literals. nitrocop treated block-pass calls as
+///   ambiguous too, incorrectly skipping offenses like
+///   `hooks.register [:pages, :documents], :pre_render, &(method :before_render)`.
+/// - The ambiguity suppression was still too broad for nested arrays. RuboCop
+///   skips only the outer direct argument array, not nested symbol subarrays
+///   within it. nitrocop suppressed the whole subtree, missing nested offenses
+///   like `_GET_ [[:f, [:_ROOT_, :_TEMP_]], ...] do`.
+/// - Invalid `%I` arrays were not implemented. RuboCop flags percent symbol
+///   arrays whose contents require bracket syntax, such as `%I[#{1 + 1}]` and
+///   `%I( one  two #{ 1 } )`, and includes the bracket-array replacement in the
+///   message. Added the percent-array path plus RuboCop-like message building.
 pub struct SymbolArray;
 
 /// Delimiter characters that cannot appear unmatched in %i arrays.
 const DELIMITERS: &[char] = &['[', ']', '(', ')'];
+const BARE_OPERATOR_SYMBOLS: &[&[u8]] = &[
+    b"+", b"-", b"*", b"/", b"%", b"&", b"|", b"^", b"<<", b">>", b"<", b">", b"<=", b">=", b"==",
+    b"!=", b"===", b"<=>", b"=~", b"!~", b"!", b"~", b"+@", b"-@", b"**", b"[]", b"[]=", b"`",
+];
+const SPECIAL_GLOBAL_CHARS: &[u8] = b"?!~@;,/\\=<>.*:+&`'\"0$";
 
-/// Check if a symbol has "complex content" that %i can't represent.
-/// Matches RuboCop's `complex_content?` method: symbols with spaces or
-/// unmatched delimiters (after removing balanced non-space-containing pairs).
-fn symbol_has_complex_content(sym_node: &ruby_prism::SymbolNode<'_>) -> bool {
-    let value = sym_node.unescaped();
-    let content = match std::str::from_utf8(value) {
-        Ok(s) => s,
-        Err(_) => return true,
-    };
-
+fn symbol_content_is_complex(content: &str) -> bool {
     if content.contains(' ') {
         return true;
     }
@@ -86,15 +102,258 @@ fn find_simple_close(chars: &[char], start: usize, close: char) -> Option<usize>
     None
 }
 
-fn array_has_complex_content(array_node: &ruby_prism::ArrayNode<'_>) -> bool {
+fn is_exact_delimiter_symbol_source(node: &ruby_prism::Node<'_>) -> bool {
+    let Some(sym) = node.as_symbol_node() else {
+        return false;
+    };
+    matches!(sym.location().as_slice(), b"[" | b"]" | b"(" | b")")
+}
+
+fn source_slice(source: &SourceFile, start: usize, end: usize) -> String {
+    String::from_utf8_lossy(&source.as_bytes()[start..end]).into_owned()
+}
+
+fn symbol_content_from_element(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<String> {
+    if let Some(sym) = node.as_symbol_node() {
+        let content = std::str::from_utf8(sym.unescaped()).ok()?;
+        return Some(content.to_string());
+    }
+
+    let interp = node.as_interpolated_symbol_node()?;
+    let mut content = String::new();
+    for part in interp.parts().iter() {
+        if let Some(string_part) = part.as_string_node() {
+            let text = std::str::from_utf8(string_part.unescaped()).ok()?;
+            content.push_str(text);
+        } else {
+            content.push_str(&source_slice(
+                source,
+                part.location().start_offset(),
+                part.location().end_offset(),
+            ));
+        }
+    }
+    Some(content)
+}
+
+fn array_has_complex_content(source: &SourceFile, array_node: &ruby_prism::ArrayNode<'_>) -> bool {
     for elem in array_node.elements().iter() {
-        if let Some(sym) = elem.as_symbol_node() {
-            if symbol_has_complex_content(&sym) {
-                return true;
-            }
+        if is_exact_delimiter_symbol_source(&elem) {
+            return false;
+        }
+
+        let Some(content) = symbol_content_from_element(source, &elem) else {
+            return true;
+        };
+        if symbol_content_is_complex(&content) {
+            return true;
         }
     }
     false
+}
+
+fn is_char_identifier_start(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphabetic() || !ch.is_ascii()
+}
+
+fn is_char_identifier_continue(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric() || !ch.is_ascii()
+}
+
+fn is_valid_identifier(value: &[u8]) -> bool {
+    let s = match std::str::from_utf8(value) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(ch) if is_char_identifier_start(ch) => chars.all(is_char_identifier_continue),
+        _ => false,
+    }
+}
+
+fn is_method_name_symbol(value: &[u8]) -> bool {
+    if value.is_empty() {
+        return false;
+    }
+
+    let main = match value.last() {
+        Some(b'!' | b'?' | b'=') => &value[..value.len() - 1],
+        _ => value,
+    };
+
+    !main.is_empty() && is_valid_identifier(main)
+}
+
+fn is_instance_variable_symbol(value: &[u8]) -> bool {
+    value.len() > 1 && value[0] == b'@' && is_valid_identifier(&value[1..])
+}
+
+fn is_class_variable_symbol(value: &[u8]) -> bool {
+    value.len() > 2 && value.starts_with(b"@@") && is_valid_identifier(&value[2..])
+}
+
+fn is_global_variable_symbol(value: &[u8]) -> bool {
+    if value.len() < 2 || value[0] != b'$' {
+        return false;
+    }
+
+    if is_valid_identifier(&value[1..]) {
+        return true;
+    }
+
+    if value[1].is_ascii_digit() {
+        return value[2..].iter().all(|b| b.is_ascii_digit());
+    }
+
+    if value.len() == 2 && SPECIAL_GLOBAL_CHARS.contains(&value[1]) {
+        return true;
+    }
+
+    value.len() == 3 && value[1] == b'-' && value[2].is_ascii_alphabetic()
+}
+
+fn can_be_unquoted_symbol(value: &[u8]) -> bool {
+    is_method_name_symbol(value)
+        || is_instance_variable_symbol(value)
+        || is_class_variable_symbol(value)
+        || is_global_variable_symbol(value)
+        || BARE_OPERATOR_SYMBOLS.contains(&value)
+}
+
+fn escape_double_quoted_symbol(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    let bytes = value.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match b {
+            b'\\' => escaped.push_str("\\\\"),
+            b'"' => escaped.push_str("\\\""),
+            b'\n' => escaped.push_str("\\n"),
+            b'\r' => escaped.push_str("\\r"),
+            b'\t' => escaped.push_str("\\t"),
+            0x0C => escaped.push_str("\\f"),
+            0x07 => escaped.push_str("\\a"),
+            0x08 => escaped.push_str("\\b"),
+            0x0B => escaped.push_str("\\v"),
+            0x1B => escaped.push_str("\\e"),
+            b'#' if i + 1 < bytes.len()
+                && (bytes[i + 1] == b'{' || bytes[i + 1] == b'$' || bytes[i + 1] == b'@') =>
+            {
+                escaped.push_str("\\#");
+            }
+            _ if b < 0x20 || b == 0x7F => escaped.push_str(&format!("\\x{b:02X}")),
+            _ if b > 0x7F => {
+                if let Some(ch) = value[i..].chars().next() {
+                    escaped.push(ch);
+                    i += ch.len_utf8();
+                    continue;
+                }
+                escaped.push_str(&format!("\\x{b:02X}"));
+            }
+            _ => escaped.push(b as char),
+        }
+        i += 1;
+    }
+    escaped
+}
+
+fn symbol_literal_from_value(value: &[u8]) -> String {
+    match std::str::from_utf8(value) {
+        Ok(value_str) if can_be_unquoted_symbol(value) => format!(":{value_str}"),
+        Ok(value_str) => format!(":\"{}\"", escape_double_quoted_symbol(value_str)),
+        Err(_) => {
+            let mut escaped = String::new();
+            for &b in value {
+                if b.is_ascii_graphic() || b == b' ' {
+                    escaped.push(b as char);
+                } else {
+                    escaped.push_str(&format!("\\x{b:02X}"));
+                }
+            }
+            format!(":\"{escaped}\"")
+        }
+    }
+}
+
+fn build_bracketed_symbol_element(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+) -> Option<String> {
+    if let Some(sym) = node.as_symbol_node() {
+        return Some(symbol_literal_from_value(sym.unescaped()));
+    }
+
+    let interp = node.as_interpolated_symbol_node()?;
+    let mut result = String::from(":\"");
+    for part in interp.parts().iter() {
+        if let Some(string_part) = part.as_string_node() {
+            let content = std::str::from_utf8(string_part.unescaped()).ok()?;
+            result.push_str(&escape_double_quoted_symbol(content));
+        } else {
+            result.push_str(&source_slice(
+                source,
+                part.location().start_offset(),
+                part.location().end_offset(),
+            ));
+        }
+    }
+    result.push('"');
+    Some(result)
+}
+
+fn build_bracketed_array(source: &SourceFile, node: &ruby_prism::ArrayNode<'_>) -> Option<String> {
+    let elements = node.elements();
+    if elements.is_empty() {
+        return Some("[]".to_string());
+    }
+
+    let opening = node.opening_loc()?;
+    let closing = node.closing_loc()?;
+    let element_vec: Vec<_> = elements.iter().collect();
+    let leading = source_slice(
+        source,
+        opening.end_offset(),
+        element_vec[0].location().start_offset(),
+    );
+    let between = if element_vec.len() >= 2 {
+        source_slice(
+            source,
+            element_vec[0].location().end_offset(),
+            element_vec[1].location().start_offset(),
+        )
+    } else {
+        " ".to_string()
+    };
+    let trailing = source_slice(
+        source,
+        element_vec[element_vec.len() - 1].location().end_offset(),
+        closing.start_offset(),
+    );
+    let mut converted = Vec::with_capacity(element_vec.len());
+    for element in &element_vec {
+        converted.push(build_bracketed_symbol_element(source, element)?);
+    }
+
+    Some(format!(
+        "[{}{}{}]",
+        leading,
+        converted.join(&format!(",{between}")),
+        trailing
+    ))
+}
+
+fn build_bracket_array_message(
+    source: &SourceFile,
+    node: &ruby_prism::ArrayNode<'_>,
+) -> Option<String> {
+    let bracketed_array = build_bracketed_array(source, node)?;
+    if bracketed_array.contains('\n') {
+        Some("Use an array literal `[...]` for an array of symbols.".to_string())
+    } else {
+        Some(format!("Use `{bracketed_array}` for an array of symbols."))
+    }
 }
 
 impl Cop for SymbolArray {
@@ -124,7 +383,7 @@ impl Cop for SymbolArray {
             parse_result,
             min_size,
             diagnostics: Vec::new(),
-            in_ambiguous_block_context: false,
+            ambiguous_array_arg_start_offset: None,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -137,18 +396,33 @@ struct SymbolArrayVisitor<'a, 'src, 'pr> {
     parse_result: &'a ruby_prism::ParseResult<'pr>,
     min_size: usize,
     diagnostics: Vec<Diagnostic>,
-    /// True when we're inside arguments of a non-parenthesized call with a block.
-    in_ambiguous_block_context: bool,
+    /// Start offset of the direct array argument currently exempted by
+    /// `invalid_percent_array_context?`.
+    ambiguous_array_arg_start_offset: Option<usize>,
 }
 
 impl<'pr> SymbolArrayVisitor<'_, '_, 'pr> {
     fn check_array(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
-        // Must have `[` opening (not %i or %I)
         let opening = match node.opening_loc() {
             Some(loc) => loc,
             None => return,
         };
 
+        if opening.as_slice().starts_with(b"%i") || opening.as_slice().starts_with(b"%I") {
+            if !array_has_complex_content(self.source, node) {
+                return;
+            }
+
+            let Some(message) = build_bracket_array_message(self.source, node) else {
+                return;
+            };
+            let (line, column) = self.source.offset_to_line_col(opening.start_offset());
+            self.diagnostics
+                .push(self.cop.diagnostic(self.source, line, column, message));
+            return;
+        }
+
+        // Must have `[` opening (not %i or %I)
         if opening.as_slice() != b"[" {
             return;
         }
@@ -159,8 +433,8 @@ impl<'pr> SymbolArrayVisitor<'_, '_, 'pr> {
             return;
         }
 
-        // Skip if in ambiguous block context (invalid_percent_array_context?)
-        if self.in_ambiguous_block_context {
+        // Skip only the direct array argument in ambiguous block context.
+        if self.ambiguous_array_arg_start_offset == Some(node.location().start_offset()) {
             return;
         }
 
@@ -182,7 +456,7 @@ impl<'pr> SymbolArrayVisitor<'_, '_, 'pr> {
         }
 
         // Skip arrays with complex content (spaces, unmatched delimiters)
-        if array_has_complex_content(node) {
+        if array_has_complex_content(self.source, node) {
             return;
         }
 
@@ -198,8 +472,12 @@ impl<'pr> SymbolArrayVisitor<'_, '_, 'pr> {
     /// Check if a call node represents an ambiguous block context:
     /// non-parenthesized method call with a block.
     fn is_ambiguous_block_call(&self, call: &ruby_prism::CallNode<'pr>) -> bool {
-        // Must have a block
-        if call.block().is_none() {
+        // Must have a real block. BlockArgumentNode (`&block`, `&(method :foo)`)
+        // is not ambiguous for percent arrays.
+        if call
+            .block()
+            .is_none_or(|block| block.as_block_node().is_none())
+        {
             return false;
         }
         // Must have arguments
@@ -227,12 +505,13 @@ impl<'pr> Visit<'pr> for SymbolArrayVisitor<'_, '_, 'pr> {
             // matching RuboCop's `parent.arguments.include?(node)` check.
             // Arrays nested inside keyword hashes are NOT ambiguous.
             if let Some(args) = node.arguments() {
-                let prev = self.in_ambiguous_block_context;
+                let prev = self.ambiguous_array_arg_start_offset;
                 for arg in args.arguments().iter() {
-                    if arg.as_array_node().is_some() {
-                        self.in_ambiguous_block_context = true;
+                    if let Some(array) = arg.as_array_node() {
+                        self.ambiguous_array_arg_start_offset =
+                            Some(array.location().start_offset());
                         self.visit(&arg);
-                        self.in_ambiguous_block_context = prev;
+                        self.ambiguous_array_arg_start_offset = prev;
                     } else {
                         self.visit(&arg);
                     }
