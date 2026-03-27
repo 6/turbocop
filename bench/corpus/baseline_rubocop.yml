@@ -20,10 +20,9 @@ AllCops:
   TargetRailsVersion: 7.0
   # Standard junk exclusions — same for both tools
   Exclude:
-    - "vendor/**/*"
-    - "vendor*/**/*"
-    - "_vendor/**/*"
-    - "cookbooks/**/*"
+    # NOTE: vendor*/**/* patterns are in gen_repo_config.py (as absolute paths
+    # in the overlay), not here. Relative patterns here resolve to bench/corpus/
+    # (the config file's parent), not the repo dir.
     - "node_modules/**/*"
     - "tmp/**/*"
     - "coverage/**/*"

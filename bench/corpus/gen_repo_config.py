@@ -35,10 +35,16 @@ def main():
     entry = excludes.get(repo_id)
     repo_patterns = entry.get("exclude", []) if entry else []
 
-    # Always exclude vendor/ — RuboCop's default config excludes it via
-    # AllCops.Exclude but the glob fails when running from outside the repo
-    # dir (base_dir mismatch).  This matches RuboCop's intended behavior.
-    global_patterns = ["vendor/**/*"]
+    # Exclude vendor-ish directories with absolute paths. The baseline config
+    # has these as relative patterns, but they resolve relative to the config
+    # file's parent (bench/corpus/), not the repo dir. The overlay converts
+    # them to absolute paths so they actually match.
+    global_patterns = [
+        "vendor/**/*",
+        "vendor*/**/*",
+        "_vendor/**/*",
+        "cookbooks/**/*",
+    ]
 
     all_patterns = global_patterns + repo_patterns
     if not all_patterns:
