@@ -24,6 +24,22 @@ use ruby_prism::Visit;
 /// explained by `jruby` file-drop noise (RuboCop parser crashes) plus one `rails/sprockets`
 /// count mismatch that did not reproduce from the generic local fixture
 /// `if File.exist?(path = "./.sprocketsrc")`.
+///
+/// ## Corpus investigation (2026-03-27)
+///
+/// Corpus oracle reported FP=1, FN=3.
+///
+/// FN:
+/// - `unless respond_to?(type_reader = :"#{type}_attrs")` and
+///   `instance_variable_defined?(ivar = :"@#{type}_fields")` were missed because
+///   `InterpolatedSymbolNode` (`dsym`) was not treated as literal.
+/// - `time_range = active_duty_start..active_duty_end` inside a conditional block was missed
+///   because `RangeNode` was not treated as literal for this cop.
+///
+/// Fix:
+/// - Extend `is_literal()` to treat `InterpolatedSymbolNode` and `RangeNode` as literals,
+///   matching RuboCop's `all_literals?` behavior for this cop while still excluding
+///   interpolated string/xstring (`dstr`/`xstr`).
 pub struct LiteralAssignmentInCondition;
 
 impl Cop for LiteralAssignmentInCondition {
@@ -97,10 +113,12 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_float_node().is_some()
         || node.as_string_node().is_some()
         || node.as_symbol_node().is_some()
+        || node.as_interpolated_symbol_node().is_some()
         || node.as_nil_node().is_some()
         || node.as_true_node().is_some()
         || node.as_false_node().is_some()
         || node.as_regular_expression_node().is_some()
+        || node.as_range_node().is_some()
 }
 
 fn hash_elements_are_literals<'pr>(
