@@ -21,7 +21,14 @@ use crate::parse::source::SourceFile;
 /// `"a b".split(" ", &proc {})` was flagged as redundant because Prism stores
 /// `&expr` block arguments in `call.block()` rather than in `arguments()`, so
 /// `arg_list.len() == 1` and the cop only saw `" "`. Added early return when
-/// `call.block().is_some()` since a block argument changes method semantics.
+/// the block is a `BlockArgumentNode` since a block-pass argument changes method
+/// semantics.
+///
+/// ## Fix: block literal FN (7 FN):
+/// The original block check (`call.block().is_some()`) was too broad — it also
+/// skipped literal blocks (`{ }` / `do..end`), but those don't make the
+/// positional argument non-redundant (e.g., `sum(0) { |x| x }` still has
+/// redundant `0`). Narrowed the check to only skip `BlockArgumentNode` (`&expr`).
 pub struct RedundantArgument;
 
 impl Cop for RedundantArgument {
@@ -62,11 +69,14 @@ impl Cop for RedundantArgument {
             return;
         }
 
-        // If the call has a block (do..end or {}) or any argument is a block
-        // argument (&proc, &block), the default argument is not redundant
-        // because the block changes method semantics.
-        if call.block().is_some() {
-            return;
+        // If the call has a block-pass argument (&proc, &block), the default
+        // argument is not redundant because the block-pass changes method semantics.
+        // However, a literal block ({ } or do..end) does NOT affect redundancy
+        // of the positional argument — `sum(0) { |x| x }` still has redundant `0`.
+        if let Some(block) = call.block() {
+            if block.as_block_argument_node().is_some() {
+                return;
+            }
         }
 
         let arg = &arg_list[0];
