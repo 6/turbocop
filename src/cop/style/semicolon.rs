@@ -52,6 +52,19 @@ use crate::parse::source::SourceFile;
 ///   expression separator detection for StatementsNodes inside BeginNode.
 /// - 4 FPs are from `.rb.spec` files in the rufo repo — file discovery issues, not cop bugs.
 /// - 2 FPs are from `begin; 1; 2; end` style patterns in rufo (also begin...end).
+///
+/// Investigation findings (2026-03-27):
+///
+/// Root causes of remaining false negatives (FN=2):
+/// - Implicit `BeginNode` wrappers for `def ... rescue ... end` bodies were treated the
+///   same as explicit `begin...end`. Prism uses `BeginNode` for both, but only explicit
+///   begin blocks have `begin_keyword_loc()`. The previous visitor skipped ALL BeginNode
+///   bodies, so expression-separator semicolons on rescue lines were missed. Fix: only
+///   suppress StatementsNode scanning for explicit begin blocks.
+/// - Semicolons before `}` with a trailing comma at end-of-line were missed, e.g.
+///   `parameters: foo { bar; },`. RuboCop still flags this because the brace/comma pair
+///   is the end of the line. Fix: allow `; } ,` when the comma is the last non-whitespace
+///   token on the line, while still ignoring cases like `foo { bar; }, baz`.
 pub struct Semicolon;
 
 impl Cop for Semicolon {
@@ -300,7 +313,11 @@ fn is_semicolon_before_closing_brace(bytes: &[u8], pos: usize, code_map: &CodeMa
         return true;
     }
 
-    // Check if only whitespace follows `}` until end of line
+    // Pattern 3: `}` is followed by a trailing comma at end of line.
+    // RuboCop still flags `; } ,` when the comma is the last non-whitespace token
+    // on the line (e.g. a hash pair in a multiline literal), but not when more
+    // code follows after the comma (`x = [foo { bar; }, baz]`).
+    let mut saw_trailing_comma = false;
     for &ch in &bytes[brace_off + 1..] {
         if ch == b'\n' || ch == b'\r' {
             return true;
@@ -308,10 +325,15 @@ fn is_semicolon_before_closing_brace(bytes: &[u8], pos: usize, code_map: &CodeMa
         if ch == b' ' || ch == b'\t' {
             continue;
         }
-        // Non-whitespace code follows `}` — positions shift in RuboCop
+        if ch == b',' && !saw_trailing_comma {
+            saw_trailing_comma = true;
+            continue;
+        }
+        // Non-whitespace code follows `}` (or follows the trailing comma) —
+        // positions shift in RuboCop, so this is not an offense.
         return false;
     }
-    // End of file after whitespace
+    // End of file after whitespace or a trailing comma
     true
 }
 
@@ -356,12 +378,20 @@ struct ExprSeparatorVisitor<'a> {
 
 impl<'pr> Visit<'pr> for ExprSeparatorVisitor<'_> {
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
-        // Mark that we're inside an explicit begin...end block.
-        // Don't detect expression separators for its inner StatementsNode.
-        let prev = self.inside_explicit_begin;
-        self.inside_explicit_begin = true;
-        ruby_prism::visit_begin_node(self, node);
-        self.inside_explicit_begin = prev;
+        if node.begin_keyword_loc().is_some() {
+            // Explicit begin...end maps to Parser's kwbegin. RuboCop's on_begin
+            // does not fire for it, so skip expression-separator detection for
+            // the direct StatementsNode body only in this case.
+            let prev = self.inside_explicit_begin;
+            self.inside_explicit_begin = true;
+            ruby_prism::visit_begin_node(self, node);
+            self.inside_explicit_begin = prev;
+        } else {
+            // Implicit BeginNode wrappers come from rescue/ensure bodies in defs,
+            // blocks, and lambdas. RuboCop still treats their statements like
+            // regular begin bodies for Style/Semicolon.
+            ruby_prism::visit_begin_node(self, node);
+        }
     }
 
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {

@@ -62,6 +62,7 @@ foo { bar; } # comment
 
 # Semicolon before `}` with code after is NOT flagged (code shifts token positions)
 foo { bar; }.baz
+x = [foo { bar; }, baz]
 
 # String interpolation: semicolon before `}` but with content AFTER `}` in the string
 # (RuboCop's token positions shift, not flagged)
