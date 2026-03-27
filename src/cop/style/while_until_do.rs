@@ -67,10 +67,7 @@ fn check_loop(
     do_loc: Option<ruby_prism::Location<'_>>,
     keyword: &str,
 ) -> Option<Diagnostic> {
-    let do_loc = match do_loc {
-        Some(do_loc) => do_loc,
-        None => return None,
-    };
+    let do_loc = do_loc?;
 
     let (start_line, _) = source.offset_to_line_col(loop_loc.start_offset());
     let end_offset = loop_loc
