@@ -74,14 +74,12 @@ use ruby_prism::Visit;
 /// `config/mod.rs` by applying `fallback_default_excludes()` in the no-config case.
 ///
 /// FN=1: `def self.String(s)` in skylight/vendor/cli/highline/string_extensions.rb.
-/// Unit tests confirm the `has_class_emitter_in_scope` logic correctly flags
-/// `def self.String` when no `class String` sibling exists. The FN likely stems
-/// from a more complex file structure in the actual corpus file (possibly a
-/// `class String < ::String` defined later in the same class body, which nitrocop
-/// correctly recognizes as an emitter but RuboCop may handle differently in
-/// `c.loc.name.is?(name.to_s)` due to inheritance syntax). Cannot reproduce
-/// without the actual source file (extended-corpus-only repo). Deferred (1 FN
-/// in vendored code, 100.0% match rate on 28,934 offenses).
+/// Root cause: `collect_emitter_name` used `last_constant_segment` to extract
+/// just "String" from `class HighLine::String`, which incorrectly matched
+/// `def self.String` as a class emitter method. RuboCop's
+/// `c.loc.name.is?(name.to_s)` compares the full constant path text
+/// ("HighLine::String" != "String"), so it correctly flags the offense.
+/// Fixed by using the full constant path text in `collect_emitter_name`.
 pub struct MethodName;
 
 /// Bundles config values needed for method name checking.
@@ -703,24 +701,12 @@ fn collect_direct_child_emitters(body: Option<ruby_prism::Node<'_>>) -> Vec<Vec<
 fn collect_emitter_name(node: ruby_prism::Node<'_>, emitters: &mut Vec<Vec<u8>>) {
     // RuboCop only checks :class children, NOT :module children.
     // See configurable_formatting.rb: node.parent.each_child_node(:class)
+    // RuboCop compares c.loc.name.is?(name.to_s), which uses the full constant
+    // path text (e.g. "HighLine::String"), NOT just the last segment ("String").
+    // So `class HighLine::String` does NOT exempt `def self.String`.
     if let Some(class_node) = node.as_class_node() {
-        emitters
-            .push(last_constant_segment(class_node.constant_path().location().as_slice()).to_vec());
+        emitters.push(class_node.constant_path().location().as_slice().to_vec());
     }
-}
-
-fn last_constant_segment(path: &[u8]) -> &[u8] {
-    let mut start = 0;
-    let mut i = 0;
-    while i + 1 < path.len() {
-        if path[i] == b':' && path[i + 1] == b':' {
-            start = i + 2;
-            i += 2;
-        } else {
-            i += 1;
-        }
-    }
-    &path[start..]
 }
 
 #[cfg(test)]

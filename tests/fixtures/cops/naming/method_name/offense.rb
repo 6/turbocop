@@ -88,3 +88,15 @@ module Registry
   module Registry
   end
 end
+
+# Qualified class name (HighLine::String) should NOT exempt the emitter method —
+# RuboCop only matches when c.loc.name equals the method name exactly
+class HighLine
+  def self.String(s)
+           ^^^^^^ Naming/MethodName: Use snake_case for method names.
+    HighLine::String.new(s)
+  end
+
+  class HighLine::String < ::String
+  end
+end
