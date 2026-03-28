@@ -163,3 +163,23 @@ if Dir.exist?(catalogs_path) == false
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Remove unnecessary existence check `Dir.exist?`.
   FileUtils.mkdir_p catalogs_path
 end
+
+# Postfix if with parenthesized condition
+File.unlink(socket_file) if (File.exists?(socket_file))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Remove unnecessary existence check `File.exists?`.
+^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Use atomic file operation method `FileUtils.rm_f`.
+
+# Force method with no-arg call path normalization
+FileUtils.mkdir_p(results_path()) unless File.exist?(results_path)
+                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Remove unnecessary existence check `File.exist?`.
+
+# Parenthesized postfix if with compound condition
+Dir.delete(redundant_specs_dir) if (Dir.exist?(redundant_specs_dir) && Dir.glob(redundant_specs_dir + '/' + '*').empty?)
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Remove unnecessary existence check `Dir.exist?`.
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Use atomic file operation method `FileUtils.rm_f`.
+
+# Parenthesized block if with compound condition
+if(path && File.exists?(path))
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NonAtomicFileOperation: Remove unnecessary existence check `File.exists?`.
+  FileUtils.rm_rf(path)
+end
