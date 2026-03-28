@@ -77,8 +77,6 @@ jobs:
           key: agent-target-${{ hashFiles('Cargo.lock') }}
           restore-keys: agent-target-
 
-      - uses: astral-sh/setup-uv@v6
-
       - name: Initialize runtime layout
         run: |
           python3 scripts/workflows/agent_runtime.py agent-cop-fix \

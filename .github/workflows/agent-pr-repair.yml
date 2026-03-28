@@ -322,32 +322,11 @@ jobs:
           path: vendor/corpus
           key: pr-repair-corpus-${{ hashFiles('bench/corpus/manifest.jsonl') }}
 
-      # --- Environment setup (Rust, Ruby, mold, corpus) ---
-      - uses: dtolnay/rust-toolchain@stable
+      # --- Shared environment setup (Rust, Ruby, mold, uv, corpus) ---
+      - uses: ./.github/actions/setup-agent-env
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
         with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-      - name: Install mold linker
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
-      - uses: ruby/setup-ruby@v1
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        with:
-          ruby-version: '4.0'
-          bundler-cache: false
-      - uses: astral-sh/setup-uv@v6
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-      - name: Install Python deps
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        run: uv sync --frozen
-      - name: Install corpus bundle
-        if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        run: |
-          cd bench/corpus
-          bundle config set --local path vendor/bundle
-          bundle install --jobs 4 --retry 3
+          rust_components: rustfmt, clippy
 
       - name: Build release binary for local cop-check diagnosis
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.verify_meta.outputs.needs_local_cop_check == 'true'

@@ -8,6 +8,9 @@ inputs:
   install_vendor_gems:
     description: Install RuboCop gems from vendor submodule tags (cop-fix only)
     default: 'false'
+  install_python:
+    description: Install uv and sync Python deps from lockfile
+    default: 'true'
 
 runs:
   using: composite
@@ -37,6 +40,14 @@ runs:
         V_RSPEC=$(cd vendor/rubocop-rspec && git describe --tags --abbrev=0 | sed 's/^v//')
         gem install "rubocop:$V_RC" "rubocop-performance:$V_PERF" \
           "rubocop-rails:$V_RAILS" "rubocop-rspec:$V_RSPEC" prism --no-document
+
+    - uses: astral-sh/setup-uv@v6
+      if: inputs.install_python == 'true'
+
+    - name: Install Python deps
+      if: inputs.install_python == 'true'
+      shell: bash
+      run: uv sync --frozen
 
     - name: Install corpus bundle
       shell: bash
