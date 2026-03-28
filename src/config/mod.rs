@@ -3502,6 +3502,91 @@ mod tests {
     }
 
     #[test]
+    fn corpus_overlay_config_absolute_excludes_load_correctly() {
+        // Integration test: mimics the overlay config that gen_repo_config.py
+        // produces. The overlay lives in a temp dir (config_dir != base_dir)
+        // and adds absolute-path Exclude entries. This catches regressions
+        // where absolute paths are silently misclassified (e.g., treated as
+        // Ruby regexps) and dropped from the GlobSet.
+        let dir = std::env::temp_dir().join("nitrocop_test_corpus_overlay_config");
+        let _ = fs::remove_dir_all(&dir);
+        let fake_repo = dir.join("repo");
+        let overlay_dir = dir.join("overlays");
+        fs::create_dir_all(&fake_repo).unwrap();
+        fs::create_dir_all(&overlay_dir).unwrap();
+
+        // Write a minimal baseline config
+        let baseline = fake_repo.join("baseline.yml");
+        fs::write(
+            &baseline,
+            "AllCops:\n  Exclude:\n    - 'node_modules/**/*'\n",
+        )
+        .unwrap();
+
+        // Write overlay config with absolute-path Exclude entries (like gen_repo_config.py)
+        let overlay = overlay_dir.join("corpus_config_test.yml");
+        fs::write(
+            &overlay,
+            format!(
+                "inherit_from: {baseline}\n\nAllCops:\n  Exclude:\n    - \"{repo}/vendor/**/*\"\n    - \"{repo}/cookbooks/**/*\"\n",
+                baseline = baseline.display(),
+                repo = fake_repo.display(),
+            ),
+        )
+        .unwrap();
+
+        let config = load_config(Some(&overlay), None, None).unwrap();
+        let excludes = config.global_excludes();
+
+        // The absolute patterns must be present in the resolved excludes
+        let vendor_pat = format!("{}/vendor/**/*", fake_repo.display());
+        let cookbooks_pat = format!("{}/cookbooks/**/*", fake_repo.display());
+        assert!(
+            excludes.contains(&vendor_pat),
+            "absolute vendor pattern should be in global_excludes, got: {excludes:?}"
+        );
+        assert!(
+            excludes.contains(&cookbooks_pat),
+            "absolute cookbooks pattern should be in global_excludes, got: {excludes:?}"
+        );
+
+        // Build filter set and verify matching works end-to-end
+        let pats: Vec<&str> = excludes.iter().map(|s| s.as_str()).collect();
+        let global_exclude = build_glob_set(&pats).unwrap_or_else(GlobSet::empty);
+        let filter_set = CopFilterSet {
+            global_exclude,
+            global_exclude_patterns: pats.iter().map(|p| p.to_string()).collect(),
+            global_exclude_re: build_regex_set(&pats),
+            filters: Vec::new(),
+            config_dir: Some(overlay_dir.clone()),
+            base_dir: Some(fake_repo.clone()),
+            sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
+            migrated_schema_version: None,
+        };
+
+        assert!(
+            filter_set.is_globally_excluded(&fake_repo.join("vendor/gems/foo.rb")),
+            "absolute vendor pattern should exclude vendor/ files"
+        );
+        assert!(
+            filter_set.is_globally_excluded(&fake_repo.join("cookbooks/helpers.rb")),
+            "absolute cookbooks pattern should exclude cookbooks/ files"
+        );
+        assert!(
+            !filter_set.is_globally_excluded(&fake_repo.join("cookbooks-override/helpers.rb")),
+            "cookbooks pattern must NOT exclude cookbooks-override/"
+        );
+        assert!(
+            !filter_set.is_globally_excluded(&fake_repo.join("app/models/user.rb")),
+            "non-matching paths should not be excluded"
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn global_exclude_does_not_match_prefixed_nested_repo_path() {
         let pats = vec!["bin/**/*"];
         let global_exclude = build_glob_set(&pats).unwrap_or_else(GlobSet::empty);
