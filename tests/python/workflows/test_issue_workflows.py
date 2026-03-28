@@ -16,6 +16,7 @@ RUN_REPO_WRITE_REMOTE = ROOT / ".github" / "actions" / "run-repo-write-remote" /
 REMOTE_AGENT_BRIDGE = ROOT / "scripts" / "workflows" / "remote_agent_bridge.py"
 REMOTE_REPO_WRITE_BRIDGE = ROOT / "scripts" / "workflows" / "remote_repo_write_bridge.py"
 BOT_COMMAND = ROOT / "scripts" / "workflows" / "bot_command.py"
+COP_FIX_PUBLISH = ROOT / "scripts" / "workflows" / "cop_fix_publish.py"
 REPAIR_PUBLISH = ROOT / "scripts" / "workflows" / "repair_publish.py"
 COP_ISSUE_SYNC = ROOT / ".github" / "workflows" / "cop-issue-sync.yml"
 CORPUS_ORACLE = ROOT / ".github" / "workflows" / "corpus-oracle.yml"
@@ -33,10 +34,12 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "cop_fix_lifecycle.py claim-pr" in yml
     assert "cop_fix_lifecycle.py finalize" in yml
     assert "uses: ./.github/actions/run-agent-remote" in yml
+    assert "uses: ./.github/actions/run-repo-write-remote" in yml
     assert "control_repo_token: ${{ steps.bot-control-token.outputs.token }}" in yml
     assert "target_ref: refs/heads/main" in yml
     assert "setup_profile: nitrocop" in yml
     assert "setup_config_json:" in yml
+    assert "cop_fix_publish.py cleanup-request" in yml
 
     # Logic now lives in cop_fix_lifecycle.py
     assert "dispatch_cops.py" in py
@@ -47,6 +50,11 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "docs/agent-ci.md" in py
     assert "validate_agent_changes.py" in py
     assert '"gh", "pr", "merge"' in py
+    publish = COP_FIX_PUBLISH.read_text()
+    assert '"type": "close_pr"' in publish
+    assert '"match_mode": match_mode' in publish
+    assert 'match_mode: str = "contained"' in publish
+    assert '"type": "edit_issue_labels"' in publish
 
     # Removed patterns should not appear in either
     assert "prepare_agent_workspace.py" not in yml
@@ -101,6 +109,8 @@ def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
     assert "CODEX_AUTH_JSON" not in content
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in content
     assert "ANTHROPIC_API_KEY" not in content
+    assert "cop_fix_publish.py reset-issue-request" in content
+    assert "Reset linked tracker issue remotely" in content
 
 
 def test_agent_pr_repair_checks_out_repo_before_running_local_scripts():

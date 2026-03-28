@@ -29,6 +29,7 @@ def test_public_and_workflow_scripts_run_without_pythonpath():
     run_help(ROOT / "scripts" / "dispatch_cops.py")
     run_help(ROOT / "scripts" / "workflows" / "prepare_pr_repair.py")
     run_help(ROOT / "scripts" / "workflows" / "repair_publish.py")
+    run_help(ROOT / "scripts" / "workflows" / "cop_fix_publish.py")
     run_help(ROOT / "scripts" / "workflows" / "bot_command.py")
     run_help(ROOT / "scripts" / "workflows" / "agent_logs.py")
     run_help(ROOT / "scripts" / "workflows" / "remote_agent_bridge.py")

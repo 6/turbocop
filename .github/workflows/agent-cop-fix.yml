@@ -314,29 +314,44 @@ jobs:
 
       - name: Close draft PR on failure
         if: failure() && steps.claim.outputs.pr_url
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          python3 scripts/workflows/cop_fix_lifecycle.py cleanup-failure \
+          REQUEST_DIR="$RUNNER_TEMP/cop-fix-cleanup-request"
+          python3 scripts/workflows/cop_fix_publish.py cleanup-request \
+            --output-dir "$REQUEST_DIR" \
             --cop "${{ github.event.inputs.cop }}" \
-            --pr-url "${{ steps.claim.outputs.pr_url }}" \
+            --pr "${{ steps.claim.outputs.pr_url }}" \
             --issue-number "${{ github.event.inputs.issue_number }}" \
-            --repo "${{ github.repository }}" \
             --backend-label "${{ steps.selected_backend.outputs.display_label || github.event.inputs.backend }}" \
             --model-label "${{ steps.backend.outputs.model_label || 'n/a' }}" \
             --mode "${{ github.event.inputs.mode }}" \
-            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            --file-guard-valid "${{ steps.finalize.outputs.file_guard_valid || '' }}"
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Publish cleanup remotely
+        if: failure() && steps.claim.outputs.pr_url
+        uses: ./.github/actions/run-repo-write-remote
+        with:
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
+          target_sha: ${{ github.sha }}
+          target_ref: refs/heads/main
+          request_file: ${{ runner.temp }}/cop-fix-cleanup-request/request.json
 
       - name: Comment linked issue on failure before PR claim
         if: failure() && !steps.claim.outputs.pr_url && github.event.inputs.issue_number != ''
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          python3 scripts/workflows/cop_fix_lifecycle.py cleanup-failure \
+          REQUEST_DIR="$RUNNER_TEMP/cop-fix-preclaim-failure-request"
+          python3 scripts/workflows/cop_fix_publish.py cleanup-request \
+            --output-dir "$REQUEST_DIR" \
             --cop "${{ github.event.inputs.cop }}" \
             --issue-number "${{ github.event.inputs.issue_number }}" \
-            --repo "${{ github.repository }}" \
             --backend-label "${{ github.event.inputs.backend }}" \
             --mode "${{ github.event.inputs.mode }}" \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Publish pre-claim failure remotely
+        if: failure() && !steps.claim.outputs.pr_url && github.event.inputs.issue_number != ''
+        uses: ./.github/actions/run-repo-write-remote
+        with:
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
+          target_sha: ${{ github.sha }}
+          target_ref: refs/heads/main
+          request_file: ${{ runner.temp }}/cop-fix-preclaim-failure-request/request.json
