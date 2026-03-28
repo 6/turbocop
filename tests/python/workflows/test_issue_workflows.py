@@ -9,6 +9,8 @@ ROOT = Path(__file__).parents[3]
 AGENT_COP_FIX = ROOT / ".github" / "workflows" / "agent-cop-fix.yml"
 COP_FIX_LIFECYCLE = ROOT / "scripts" / "workflows" / "cop_fix_lifecycle.py"
 AGENT_PR_REPAIR = ROOT / ".github" / "workflows" / "agent-pr-repair.yml"
+RUN_AGENT_REMOTE = ROOT / ".github" / "actions" / "run-agent-remote" / "action.yml"
+REMOTE_AGENT_BRIDGE = ROOT / "scripts" / "workflows" / "remote_agent_bridge.py"
 COP_ISSUE_SYNC = ROOT / ".github" / "workflows" / "cop-issue-sync.yml"
 CORPUS_ORACLE = ROOT / ".github" / "workflows" / "corpus-oracle.yml"
 
@@ -20,9 +22,15 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     # Workflow inputs and orchestrator calls
     assert "issue_number:" in yml
     assert "- auto" in yml
+    assert "Generate bot control token" in yml
     assert "cop_fix_lifecycle.py select-backend" in yml
     assert "cop_fix_lifecycle.py claim-pr" in yml
     assert "cop_fix_lifecycle.py finalize" in yml
+    assert "uses: ./.github/actions/run-agent-remote" in yml
+    assert "control_repo_token: ${{ steps.bot-control-token.outputs.token }}" in yml
+    assert "target_ref: refs/heads/main" in yml
+    assert "setup_profile: nitrocop" in yml
+    assert "setup_config_json:" in yml
 
     # Logic now lives in cop_fix_lifecycle.py
     assert "dispatch_cops.py" in py
@@ -39,6 +47,9 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "CI_SCRIPTS_DIR" not in yml
     assert "tmp: clean workspace" not in yml
     assert "git apply --3way" not in yml
+    assert "CODEX_AUTH_JSON" not in yml
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in yml
+    assert "ANTHROPIC_API_KEY" not in yml
 
 
 def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
@@ -46,6 +57,7 @@ def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
     assert '--json state --jq \'.state\'' in content
     assert "--json number,title,url,body,state" in content
     assert "--require-trusted-bot" in content
+    assert "Generate bot control token" in content
     assert "types: [closed]" in content
     assert "github.event.pull_request.number" in content
     assert "linked_issue_number" in content
@@ -55,6 +67,11 @@ def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
     assert "Reconfirm PR is still repairable before agent" in content
     assert "Skip closed or moved PR before agent" in content
     assert "python3 scripts/workflows/repair_retry_policy.py live-gate" in content
+    assert "uses: ./.github/actions/run-agent-remote" in content
+    assert "control_repo_token: ${{ steps.bot-control-token.outputs.token }}" in content
+    assert "target_ref: refs/heads/${{ steps.pr.outputs.head_branch }}" in content
+    assert "setup_profile: nitrocop" in content
+    assert "setup_config_json:" in content
     assert "Skip closed or moved PR before publish" not in content
     assert 'echo "result=stale_pr" >> "$GITHUB_OUTPUT"' in content
     assert "Local Cop-Check Diagnosis" in content or "Precompute local cop-check diagnosis packet" in content
@@ -70,6 +87,9 @@ def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
     assert "CI_SCRIPTS_DIR" not in content
     assert "repair-workspace-" not in content
     assert "git apply --3way" not in content
+    assert "CODEX_AUTH_JSON" not in content
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in content
+    assert "ANTHROPIC_API_KEY" not in content
 
 
 def test_agent_pr_repair_checks_out_repo_before_running_local_scripts():
@@ -95,6 +115,24 @@ def test_agent_pr_repair_distinguishes_agent_failure_from_verify_failure():
     assert "## Auto-repair Verification Did Not Run" in content
     assert "## Auto-repair Rejected" in content
     assert "(verification did not run)" in content
+
+
+def test_remote_agent_bridge_contract_targets_6_bot():
+    action = RUN_AGENT_REMOTE.read_text()
+    bridge = REMOTE_AGENT_BRIDGE.read_text()
+
+    assert "default: 6/bot" in action
+    assert "remote_agent_bridge.py prepare-input" in action
+    assert "remote_agent_bridge.py dispatch" in action
+    assert "remote_agent_bridge.py await-output" in action
+    assert "--target-ref" in action
+    assert "--setup-profile" in action
+    assert "--setup-config-json" in action
+    assert '"event_type": "run_agent"' in bridge
+    assert '"target_ref": args.target_ref' in bridge
+    assert '"setup_profile": args.setup_profile' in bridge
+    assert '"setup_config_json": json.loads(args.setup_config_json)' in bridge
+    assert 'dispatch.add_argument("--target-ref", required=True)' in bridge
 
 
 def test_issue_sync_workflow_uses_app_token_and_dispatch_script():

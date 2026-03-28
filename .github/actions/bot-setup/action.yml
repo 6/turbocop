@@ -1,0 +1,58 @@
+name: Bot Setup
+description: Standard setup action for the 6/bot remote runner
+
+inputs:
+  setup_profile:
+    description: Setup profile requested by the control-plane runner
+    default: nitrocop
+  setup_config_json:
+    description: JSON configuration for the selected setup profile
+    default: '{}'
+
+runs:
+  using: composite
+  steps:
+    - name: Decode setup config
+      id: cfg
+      shell: bash
+      env:
+        SETUP_PROFILE: ${{ inputs.setup_profile }}
+        SETUP_CONFIG_JSON: ${{ inputs.setup_config_json }}
+      run: |
+        python3 - <<'PY' >> "$GITHUB_OUTPUT"
+        import json
+        import os
+
+        profile = os.environ["SETUP_PROFILE"].strip() or "nitrocop"
+        if profile != "nitrocop":
+            raise SystemExit(f"unsupported setup_profile: {profile}")
+
+        config = json.loads(os.environ["SETUP_CONFIG_JSON"] or "{}")
+        rust_components = str(config.get("rust_components", "rustfmt"))
+        install_vendor_gems = "true" if config.get("install_vendor_gems", False) else "false"
+        install_python = "true" if config.get("install_python", True) else "false"
+        cargo_linker = str(config.get("cargo_linker", ""))
+        rustflags = str(config.get("rustflags", ""))
+
+        print(f"rust_components={rust_components}")
+        print(f"install_vendor_gems={install_vendor_gems}")
+        print(f"install_python={install_python}")
+        print(f"cargo_linker={cargo_linker}")
+        print(f"rustflags={rustflags}")
+        PY
+
+    - name: Export nitrocop build env
+      shell: bash
+      run: |
+        if [ -n "${{ steps.cfg.outputs.cargo_linker }}" ]; then
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=${{ steps.cfg.outputs.cargo_linker }}" >> "$GITHUB_ENV"
+        fi
+        if [ -n "${{ steps.cfg.outputs.rustflags }}" ]; then
+          echo "RUSTFLAGS=${{ steps.cfg.outputs.rustflags }}" >> "$GITHUB_ENV"
+        fi
+
+    - uses: ./.github/actions/setup-agent-env
+      with:
+        rust_components: ${{ steps.cfg.outputs.rust_components }}
+        install_vendor_gems: ${{ steps.cfg.outputs.install_vendor_gems }}
+        install_python: ${{ steps.cfg.outputs.install_python }}

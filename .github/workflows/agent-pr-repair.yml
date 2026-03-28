@@ -88,6 +88,15 @@ jobs:
           permission-metadata: read
           permission-pull-requests: read
 
+      - name: Generate bot control token
+        id: bot-control-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: 6
+          repositories: bot
+
       - name: Resolve target PR
         id: target
         env:
@@ -406,16 +415,18 @@ jobs:
       - name: Run repair agent
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.pre_agent_live_pr.outputs.should_continue == 'true'
         id: agent
-        uses: ./.github/actions/run-agent
+        uses: ./.github/actions/run-agent-remote
         timeout-minutes: 50
         with:
           backend: ${{ steps.repair.outputs.backend }}
-          actions_read_token: ${{ steps.actions-read-token.outputs.token }}
-          anthropic_auth_token: ${{ secrets.MINIMAX_API_KEY }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
+          target_sha: ${{ steps.prep.outputs.base_sha }}
+          target_ref: refs/heads/${{ steps.pr.outputs.head_branch }}
           base_sha: ${{ steps.prep.outputs.base_sha }}
           workflow: agent-pr-repair
+          setup_profile: nitrocop
+          setup_config_json: >-
+            {"rust_components":"rustfmt, clippy","install_vendor_gems":false,"install_python":true,"cargo_linker":"clang","rustflags":"-C link-arg=-fuse-ld=mold"}
 
       - name: Validate repair change scope
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.pre_agent_live_pr.outputs.should_continue == 'true'

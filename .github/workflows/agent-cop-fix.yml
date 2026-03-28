@@ -111,6 +111,15 @@ jobs:
           permission-metadata: read
           permission-pull-requests: read
 
+      - name: Generate bot control token
+        id: bot-control-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: 6
+          repositories: bot
+
       # --- Build (before task generation for pre-diagnostic) ---
 
       - name: Build binary
@@ -147,8 +156,6 @@ jobs:
         id: selected_backend
         env:
           GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           python3 scripts/workflows/cop_fix_lifecycle.py select-backend \
             --cop "${{ github.event.inputs.cop }}" \
@@ -238,18 +245,19 @@ jobs:
       - name: Run agent
         if: steps.task.outputs.code_bugs != '0'
         id: agent
-        uses: ./.github/actions/run-agent
+        uses: ./.github/actions/run-agent-remote
         timeout-minutes: 50
         with:
           backend: ${{ steps.selected_backend.outputs.backend }}
-          actions_read_token: ${{ steps.actions-read-token.outputs.token }}
-          anthropic_auth_token: ${{ secrets.MINIMAX_API_KEY }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
+          target_sha: ${{ steps.prepare.outputs.branch_base_sha }}
+          target_ref: refs/heads/main
           base_sha: ${{ steps.prepare.outputs.branch_base_sha }}
           workflow: agent-cop-fix
           diff_paths: 'src/cop/ tests/fixtures/cops/ bench/corpus/'
+          setup_profile: nitrocop
+          setup_config_json: >-
+            {"rust_components":"rustfmt","install_vendor_gems":true,"install_python":true,"cargo_linker":"clang","rustflags":"-C link-arg=-fuse-ld=mold"}
 
       # --- Post-agent ---
 
