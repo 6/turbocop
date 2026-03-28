@@ -7,7 +7,7 @@ use crate::parse::source::SourceFile;
 /// Style/YodaExpression: Forbids Yoda expressions where a constant/numeric
 /// value appears on the LHS of a commutative operator.
 ///
-/// Corpus investigation: FP=4 FN=8.
+/// Corpus investigation: FP=4 FN=8 (fixed), then FP=0 FN=1 (fixed).
 ///
 /// FP root cause: Missing `offended_ancestor?` check. When a Yoda expression
 /// like `3.0 * method_call(x)` is nested inside another Yoda expression like
@@ -24,11 +24,15 @@ use crate::parse::source::SourceFile;
 ///    negative integer literal. RuboCop's Parser gem folds this into a numeric
 ///    node. nitrocop's `is_constant_portion` didn't recognize unary minus/plus
 ///    on numeric literals as constant.
+/// 3. `__LINE__` keyword (1 FN): `__LINE__ + off` — Prism represents `__LINE__`
+///    as `SourceLineNode`, while RuboCop's Parser gem folds it into an integer
+///    literal matched by `:numeric`. Added `SourceLineNode` to `is_constant_portion`.
 ///
 /// Fix: (1) Switch from `check_node` to `check_source` with a custom visitor
 /// that tracks offended node byte ranges, suppressing nested Yoda expressions.
 /// (2) Check only the first argument instead of requiring exactly one argument.
 /// (3) Recognize unary `-@`/`+@` on numeric literals as constant portions.
+/// (4) Recognize `__LINE__` (`SourceLineNode`) as a constant portion.
 pub struct YodaExpression;
 
 impl Cop for YodaExpression {
@@ -135,6 +139,7 @@ fn is_constant_portion(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_float_node().is_some()
         || node.as_rational_node().is_some()
         || node.as_imaginary_node().is_some()
+        || node.as_source_line_node().is_some()
         || node.as_constant_read_node().is_some()
         || node.as_constant_path_node().is_some()
     {

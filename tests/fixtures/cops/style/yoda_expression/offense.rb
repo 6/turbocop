@@ -24,3 +24,6 @@ Sequel.&(*predicates, cond)
 
 5.0 + (3.0 * compute(phi))
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/YodaExpression: Prefer placing the expression on the left side of the operator.
+
+__LINE__ + x
+^^^^^^^^^^^^ Style/YodaExpression: Prefer placing the expression on the left side of the operator.
