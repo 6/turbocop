@@ -66,9 +66,12 @@ jobs:
 
       - uses: actions/cache@v5
         with:
-          path: target
-          key: agent-target-${{ hashFiles('Cargo.lock') }}
-          restore-keys: agent-target-
+          path: |
+            target
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+          key: agent-container-${{ hashFiles('Cargo.lock') }}
+          restore-keys: agent-container-
 
       - name: Initialize runtime layout
         run: |
@@ -125,8 +128,8 @@ jobs:
           wc -l "$TASK_FILE"
           grep -c "CODE BUG\|CONFIG/CONTEXT\|CONFIRMED\|NOT REPRODUCED" "$TASK_FILE" || echo "no diagnostics"
 
-          CODE_BUGS=$(grep -c "CODE BUG" "$TASK_FILE" || echo "0")
-          CONFIG_ISSUES=$(grep -c "CONFIG/CONTEXT" "$TASK_FILE" || echo "0")
+          CODE_BUGS=$(grep -c "CODE BUG" "$TASK_FILE" || true)
+          CONFIG_ISSUES=$(grep -c "CONFIG/CONTEXT" "$TASK_FILE" || true)
           echo "code_bugs=$CODE_BUGS" >> "$GITHUB_OUTPUT"
           echo "Code bugs: $CODE_BUGS, Config issues: $CONFIG_ISSUES"
 
