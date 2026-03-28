@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -48,7 +48,8 @@ use ruby_prism::Visit;
 ///   into blocks). Reads still cross into blocks to catch outer-scope references.
 /// - To prevent double-reporting when a variable is written at def level and
 ///   reassigned inside a block, blocks skip writes for names already declared
-///   in an enclosing scope (tracked via `outer_var_names`).
+///   earlier in an enclosing scope (tracked via `outer_var_offsets`). Later
+///   same-name declarations do not suppress block-local offenses.
 /// - Class/module bodies are visited so blocks within them are checked.
 ///
 /// Historical bugs fixed:
@@ -73,6 +74,9 @@ use ruby_prism::Visit;
 ///   matching RuboCop's actual VariableForce behavior. Also fixed check_lambda
 ///   to filter out reassignments of outer-scope variables (matching check_block
 ///   behavior).
+/// - Same-named underscore vars assigned later in an enclosing scope suppressed
+///   block-local offenses (FN). Fixed by tracking enclosing declaration offsets
+///   and only treating earlier declarations as outer-scope reassignments.
 /// - Class superclass expressions were skipped during read collection, causing
 ///   FNs for patterns like `_Base = Spark::Command::Base` followed by
 ///   `class Spark::Command::Map < _Base`. Fixed by visiting `ClassNode`
@@ -103,7 +107,7 @@ impl Cop for UnderscorePrefixedVariableName {
             source,
             allow_keyword_block_args,
             diagnostics: Vec::new(),
-            outer_var_names: HashSet::new(),
+            outer_var_offsets: HashMap::new(),
         };
         // Check top-level scope first
         visitor.check_scope_body(&parse_result.node());
@@ -118,9 +122,10 @@ struct ScopeFinder<'a, 'src> {
     source: &'src SourceFile,
     allow_keyword_block_args: bool,
     diagnostics: Vec<Diagnostic>,
-    /// Variable names declared in enclosing scopes. Used by check_block to
-    /// skip reassignments of outer-scope variables (avoids double-reporting).
-    outer_var_names: HashSet<String>,
+    /// Earliest declaration offsets for underscore vars in enclosing scopes.
+    /// Used by check_block/check_lambda to skip true reassignments of
+    /// outer-scope variables without suppressing later same-name declarations.
+    outer_var_offsets: HashMap<String, usize>,
 }
 
 impl<'pr> Visit<'pr> for ScopeFinder<'_, '_> {
@@ -140,33 +145,33 @@ impl<'pr> Visit<'pr> for ScopeFinder<'_, '_> {
 
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
         // Enter class body so blocks inside it are visited.
-        // Reset outer_var_names since class creates a new variable scope.
-        let old_outer = std::mem::take(&mut self.outer_var_names);
+        // Reset outer_var_offsets since class creates a new variable scope.
+        let old_outer = std::mem::take(&mut self.outer_var_offsets);
         if let Some(body) = node.body() {
             self.check_scope_body(&body);
             self.visit(&body);
         }
-        self.outer_var_names = old_outer;
+        self.outer_var_offsets = old_outer;
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
         // Enter module body so blocks inside it are visited.
-        let old_outer = std::mem::take(&mut self.outer_var_names);
+        let old_outer = std::mem::take(&mut self.outer_var_offsets);
         if let Some(body) = node.body() {
             self.check_scope_body(&body);
             self.visit(&body);
         }
-        self.outer_var_names = old_outer;
+        self.outer_var_offsets = old_outer;
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
         // Enter singleton class body so blocks inside it are visited.
-        let old_outer = std::mem::take(&mut self.outer_var_names);
+        let old_outer = std::mem::take(&mut self.outer_var_offsets);
         if let Some(body) = node.body() {
             self.check_scope_body(&body);
             self.visit(&body);
         }
-        self.outer_var_names = old_outer;
+        self.outer_var_offsets = old_outer;
     }
 }
 
@@ -188,12 +193,11 @@ impl ScopeFinder<'_, '_> {
         }
 
         // Build the set of variable names declared at this def level
-        let def_var_names: HashSet<String> =
-            underscore_vars.iter().map(|v| v.name.clone()).collect();
+        let def_var_offsets = variable_offsets(&underscore_vars);
 
         if !underscore_vars.is_empty() {
             // Collect all local variable reads in the body, respecting block scoping
-            let mut reads = HashSet::new();
+            let mut reads = HashMap::new();
             if let Some(body) = def_node.body() {
                 collect_reads_scope_aware(&body, &mut reads);
             }
@@ -212,19 +216,20 @@ impl ScopeFinder<'_, '_> {
             self.emit_diagnostics(&underscore_vars, &reads, has_forwarding);
         }
 
-        // Set outer_var_names for nested blocks within this def
-        let old_outer = std::mem::replace(&mut self.outer_var_names, def_var_names);
+        // Set outer_var_offsets for nested blocks within this def
+        let old_outer = std::mem::replace(&mut self.outer_var_offsets, def_var_offsets);
 
         // Always visit body for nested scopes (blocks, lambdas, nested defs)
         if let Some(body) = def_node.body() {
             self.visit(&body);
         }
 
-        self.outer_var_names = old_outer;
+        self.outer_var_offsets = old_outer;
     }
 
     fn check_block(&mut self, block_node: &ruby_prism::BlockNode<'_>) {
         let mut underscore_vars: Vec<UnderscoreVar> = Vec::new();
+        let block_start = block_node.location().start_offset();
 
         // Collect block parameters
         if let Some(params) = block_node.parameters() {
@@ -242,19 +247,18 @@ impl ScopeFinder<'_, '_> {
             let mut write_collector = WriteCollector { writes: Vec::new() };
             write_collector.visit(&body);
             for write in write_collector.writes {
-                if !self.outer_var_names.contains(&write.name) {
+                if !self.has_visible_outer_declaration(&write.name, block_start) {
                     underscore_vars.push(write);
                 }
             }
         }
 
-        // Build block-level var names for nested scope tracking
-        let block_var_names: HashSet<String> =
-            underscore_vars.iter().map(|v| v.name.clone()).collect();
+        // Build block-level vars for nested scope tracking
+        let block_var_offsets = variable_offsets(&underscore_vars);
 
         if !underscore_vars.is_empty() {
             // Collect reads in body, respecting nested block scoping
-            let mut reads = HashSet::new();
+            let mut reads = HashMap::new();
             if let Some(body) = block_node.body() {
                 collect_reads_scope_aware(&body, &mut reads);
             }
@@ -267,20 +271,21 @@ impl ScopeFinder<'_, '_> {
             self.emit_diagnostics(&underscore_vars, &reads, false);
         }
 
-        // Update outer_var_names for nested blocks: include both enclosing + this block's vars
-        let old_outer = self.outer_var_names.clone();
-        self.outer_var_names.extend(block_var_names);
+        // Update outer_var_offsets for nested blocks: include both enclosing + this block's vars
+        let old_outer = self.outer_var_offsets.clone();
+        merge_variable_offsets(&mut self.outer_var_offsets, &block_var_offsets);
 
         // Visit body for nested scopes
         if let Some(body) = block_node.body() {
             self.visit(&body);
         }
 
-        self.outer_var_names = old_outer;
+        self.outer_var_offsets = old_outer;
     }
 
     fn check_lambda(&mut self, lambda_node: &ruby_prism::LambdaNode<'_>) {
         let mut underscore_vars: Vec<UnderscoreVar> = Vec::new();
+        let lambda_start = lambda_node.location().start_offset();
 
         if let Some(params) = lambda_node.parameters() {
             if let Some(params_node) = params.as_block_parameters_node() {
@@ -296,18 +301,17 @@ impl ScopeFinder<'_, '_> {
             let mut write_collector = WriteCollector { writes: Vec::new() };
             write_collector.visit(&body);
             for write in write_collector.writes {
-                if !self.outer_var_names.contains(&write.name) {
+                if !self.has_visible_outer_declaration(&write.name, lambda_start) {
                     underscore_vars.push(write);
                 }
             }
         }
 
-        let lambda_var_names: HashSet<String> =
-            underscore_vars.iter().map(|v| v.name.clone()).collect();
+        let lambda_var_offsets = variable_offsets(&underscore_vars);
 
         if !underscore_vars.is_empty() {
             // Collect reads in body
-            let mut reads = HashSet::new();
+            let mut reads = HashMap::new();
             if let Some(body) = lambda_node.body() {
                 collect_reads_scope_aware(&body, &mut reads);
             }
@@ -320,15 +324,15 @@ impl ScopeFinder<'_, '_> {
             self.emit_diagnostics(&underscore_vars, &reads, false);
         }
 
-        // Lambdas create new scopes — reset outer_var_names
-        let old_outer = std::mem::replace(&mut self.outer_var_names, lambda_var_names);
+        // Lambdas create new scopes — reset outer_var_offsets
+        let old_outer = std::mem::replace(&mut self.outer_var_offsets, lambda_var_offsets);
 
         // Visit body for nested scopes
         if let Some(body) = lambda_node.body() {
             self.visit(&body);
         }
 
-        self.outer_var_names = old_outer;
+        self.outer_var_offsets = old_outer;
     }
 
     /// Check a scope body for local variable writes: top-level, class, module.
@@ -343,13 +347,12 @@ impl ScopeFinder<'_, '_> {
             return;
         }
 
-        // Set outer var names for nested blocks
-        let scope_var_names: HashSet<String> =
-            underscore_vars.iter().map(|v| v.name.clone()).collect();
-        self.outer_var_names.extend(scope_var_names);
+        // Set outer vars for nested blocks
+        let scope_var_offsets = variable_offsets(&underscore_vars);
+        merge_variable_offsets(&mut self.outer_var_offsets, &scope_var_offsets);
 
         // Collect reads at this scope level, respecting scoping
-        let mut reads = HashSet::new();
+        let mut reads = HashMap::new();
         collect_reads_scope_aware(node, &mut reads);
 
         self.emit_diagnostics(&underscore_vars, &reads, false);
@@ -358,7 +361,7 @@ impl ScopeFinder<'_, '_> {
     fn emit_diagnostics(
         &mut self,
         underscore_vars: &[UnderscoreVar],
-        reads: &HashSet<String>,
+        reads: &HashMap<String, usize>,
         has_forwarding: bool,
     ) {
         // Deduplicate: only flag the first occurrence of each variable name
@@ -371,11 +374,11 @@ impl ScopeFinder<'_, '_> {
 
             // If there's bare super/binding and the var is NOT explicitly read,
             // don't flag it (it's implicitly forwarded)
-            if has_forwarding && !reads.contains(var.name.as_str()) {
+            if has_forwarding && !has_read_after_declaration(reads, var) {
                 continue;
             }
 
-            if reads.contains(var.name.as_str()) {
+            if has_read_after_declaration(reads, var) {
                 let (line, col) = self.source.offset_to_line_col(var.offset);
                 self.diagnostics.push(self.cop.diagnostic(
                     self.source,
@@ -385,6 +388,12 @@ impl ScopeFinder<'_, '_> {
                 ));
             }
         }
+    }
+
+    fn has_visible_outer_declaration(&self, name: &str, scope_start: usize) -> bool {
+        self.outer_var_offsets
+            .get(name)
+            .is_some_and(|offset| *offset < scope_start)
     }
 }
 
@@ -399,6 +408,41 @@ struct UnderscoreVar {
 /// starting with `_`, including bare `_`.
 fn should_be_unused(name: &str) -> bool {
     name.starts_with('_')
+}
+
+fn variable_offsets(vars: &[UnderscoreVar]) -> HashMap<String, usize> {
+    let mut offsets: HashMap<String, usize> = HashMap::new();
+
+    for var in vars {
+        offsets
+            .entry(var.name.clone())
+            .and_modify(|offset: &mut usize| *offset = (*offset).min(var.offset))
+            .or_insert(var.offset);
+    }
+
+    offsets
+}
+
+fn merge_variable_offsets(target: &mut HashMap<String, usize>, vars: &HashMap<String, usize>) {
+    for (name, offset) in vars {
+        target
+            .entry(name.clone())
+            .and_modify(|current: &mut usize| *current = (*current).min(*offset))
+            .or_insert(*offset);
+    }
+}
+
+fn record_read_offset(reads: &mut HashMap<String, usize>, name: &str, offset: usize) {
+    reads
+        .entry(name.to_string())
+        .and_modify(|current: &mut usize| *current = (*current).max(offset))
+        .or_insert(offset);
+}
+
+fn has_read_after_declaration(reads: &HashMap<String, usize>, var: &UnderscoreVar) -> bool {
+    reads
+        .get(var.name.as_str())
+        .is_some_and(|offset| *offset >= var.offset)
 }
 
 fn collect_underscore_params(
@@ -681,7 +725,7 @@ impl<'pr> Visit<'pr> for WriteCollector {
 }
 
 /// Collects local variable reads while respecting block/lambda parameter scoping.
-fn collect_reads_scope_aware(node: &ruby_prism::Node<'_>, reads: &mut HashSet<String>) {
+fn collect_reads_scope_aware(node: &ruby_prism::Node<'_>, reads: &mut HashMap<String, usize>) {
     let mut collector = ScopeAwareReadCollector {
         reads,
         shadowed: HashSet::new(),
@@ -694,7 +738,7 @@ fn collect_reads_scope_aware(node: &ruby_prism::Node<'_>, reads: &mut HashSet<St
 /// keyword default is a read.
 fn collect_reads_from_param_defaults(
     params: &ruby_prism::ParametersNode<'_>,
-    reads: &mut HashSet<String>,
+    reads: &mut HashMap<String, usize>,
 ) {
     // Optional positional params: their default values may read other params
     for param in params.optionals().iter() {
@@ -711,7 +755,7 @@ fn collect_reads_from_param_defaults(
 }
 
 struct ScopeAwareReadCollector<'a> {
-    reads: &'a mut HashSet<String>,
+    reads: &'a mut HashMap<String, usize>,
     shadowed: HashSet<String>,
 }
 
@@ -720,7 +764,7 @@ impl<'pr> Visit<'pr> for ScopeAwareReadCollector<'_> {
         let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
         // Only record reads for names not shadowed by an inner block param
         if !self.shadowed.contains(name) {
-            self.reads.insert(name.to_string());
+            record_read_offset(self.reads, name, node.location().start_offset());
         }
     }
 
@@ -731,7 +775,7 @@ impl<'pr> Visit<'pr> for ScopeAwareReadCollector<'_> {
     ) {
         let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
         if !self.shadowed.contains(name) {
-            self.reads.insert(name.to_string());
+            record_read_offset(self.reads, name, node.name_loc().start_offset());
         }
         self.visit(&node.value());
     }
@@ -742,7 +786,7 @@ impl<'pr> Visit<'pr> for ScopeAwareReadCollector<'_> {
     ) {
         let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
         if !self.shadowed.contains(name) {
-            self.reads.insert(name.to_string());
+            record_read_offset(self.reads, name, node.name_loc().start_offset());
         }
         self.visit(&node.value());
     }
@@ -753,7 +797,7 @@ impl<'pr> Visit<'pr> for ScopeAwareReadCollector<'_> {
     ) {
         let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
         if !self.shadowed.contains(name) {
-            self.reads.insert(name.to_string());
+            record_read_offset(self.reads, name, node.name_loc().start_offset());
         }
         self.visit(&node.value());
     }
@@ -1000,6 +1044,23 @@ mod tests {
             1,
             "Expected 1 offense (at first assignment only), got: {:?}",
             diags
+        );
+    }
+
+    #[test]
+    fn test_block_local_same_name_with_later_outer_write() {
+        let cop = UnderscorePrefixedVariableName;
+        let source = b"def foo(flag)\n  if flag\n    [1].each do\n      _foo = 2\n      puts _foo\n    end\n  else\n    _foo = 1\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&cop, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for the block-local _foo, got: {:?}",
+            diags
+        );
+        assert_eq!(
+            diags[0].location.line, 4,
+            "Expected offense on the block write"
         );
     }
 

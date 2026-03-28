@@ -176,3 +176,18 @@ def draw(canvas, x, y, w, h, simulation)
   _simulation = true unless visible?
   process(canvas, x, y, w, h, _simulation)
 end
+
+# Block-local variable remains an offense when same name is assigned later in the method
+def draw_with_branch(simulation, around_draw_procs)
+  if around_draw_procs.empty?
+    [1].each do |pro,|
+      _simulation = simulation
+      ^^^^^^^^^^^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+      _simulation = true
+      pro.to_s
+      puts _simulation
+    end
+  else
+    _simulation = simulation
+  end
+end
