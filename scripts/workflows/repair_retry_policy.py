@@ -9,8 +9,6 @@ import re
 
 MARKER_RE = re.compile(r"<!--\s*nitrocop-auto-repair:\s*(.*?)\s*-->")
 PR_ISSUE_RE = re.compile(r"<!--\s*nitrocop-cop-issue:\s*(.*?)\s*-->")
-TRUSTED_AUTHOR = "6[bot]"
-TRUSTED_BRANCH_PREFIX = "fix/"
 
 
 def parse_marker_fields(body: str) -> list[dict[str, str]]:
@@ -73,17 +71,9 @@ def inspect_attempts(comments: list[dict], current_head_sha: str) -> dict[str, i
     }
 
 
-def gate_pr(
-    pr: dict,
-    repo: str,
-    checks_head_sha: str,
-    *,
-    require_trusted_bot: bool,
-) -> tuple[bool, str]:
+def gate_pr(pr: dict, repo: str, checks_head_sha: str) -> tuple[bool, str]:
     labels = [label["name"] for label in pr.get("labels", [])]
     head_repo = (pr.get("headRepository") or {}).get("nameWithOwner", "")
-    author_login = (pr.get("author") or {}).get("login", "")
-    head_branch = pr.get("headRefName", "")
 
     if pr.get("state") != "OPEN":
         return False, "PR is not open"
@@ -95,11 +85,6 @@ def gate_pr(
         return False, f"PR head repository {head_repo} does not match {repo}"
     if "type:cop-fix" not in labels:
         return False, "PR is not labeled type:cop-fix"
-    if require_trusted_bot:
-        if author_login != TRUSTED_AUTHOR:
-            return False, f"PR author {author_login or '(missing)'} is not trusted for automatic repair"
-        if not head_branch.startswith(TRUSTED_BRANCH_PREFIX):
-            return False, f"PR branch {head_branch or '(missing)'} is not a trusted fix/* branch"
     if checks_head_sha and pr.get("headRefOid") and pr["headRefOid"] != checks_head_sha:
         return False, "PR head moved after the failed Checks run"
     return True, ""
@@ -129,12 +114,7 @@ def apply_policy(
 def cmd_pr_state(args: argparse.Namespace) -> int:
     pr = json.loads(args.pr_json)
     comments = json.loads(args.comments_json)
-    should_run, reason = gate_pr(
-        pr,
-        args.repo,
-        args.checks_head_sha,
-        require_trusted_bot=args.require_trusted_bot,
-    )
+    should_run, reason = gate_pr(pr, args.repo, args.checks_head_sha)
     attempts = inspect_attempts(comments, pr.get("headRefOid", ""))
     linked_issue_number, linked_cop = parse_linked_issue(pr.get("body", ""))
 
@@ -158,12 +138,7 @@ def cmd_pr_state(args: argparse.Namespace) -> int:
 
 def cmd_live_gate(args: argparse.Namespace) -> int:
     pr = json.loads(args.pr_json)
-    should_run, reason = gate_pr(
-        pr,
-        args.repo,
-        args.checks_head_sha,
-        require_trusted_bot=args.require_trusted_bot,
-    )
+    should_run, reason = gate_pr(pr, args.repo, args.checks_head_sha)
     print(f"should_continue={'true' if should_run else 'false'}")
     print(f"skip_reason={reason}")
     return 0
@@ -250,14 +225,12 @@ def main() -> int:
     pr_state.add_argument("--comments-json", required=True)
     pr_state.add_argument("--repo", required=True)
     pr_state.add_argument("--checks-head-sha", default="")
-    pr_state.add_argument("--require-trusted-bot", action="store_true")
     pr_state.set_defaults(func=cmd_pr_state)
 
     live_gate = subparsers.add_parser("live-gate")
     live_gate.add_argument("--pr-json", required=True)
     live_gate.add_argument("--repo", required=True)
     live_gate.add_argument("--checks-head-sha", default="")
-    live_gate.add_argument("--require-trusted-bot", action="store_true")
     live_gate.set_defaults(func=cmd_live_gate)
 
     policy = subparsers.add_parser("policy")

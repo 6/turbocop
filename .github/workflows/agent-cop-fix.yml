@@ -243,10 +243,10 @@ jobs:
         with:
           backend: ${{ steps.selected_backend.outputs.backend }}
           actions_read_token: ${{ steps.actions-read-token.outputs.token }}
-          anthropic_auth_token: ${{ steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || '' }}
-          anthropic_api_key: ${{ (steps.selected_backend.outputs.backend == 'claude-normal' || steps.selected_backend.outputs.backend == 'claude-hard') && secrets.ANTHROPIC_API_KEY || '' }}
-          codex_auth_json: ${{ startsWith(steps.selected_backend.outputs.backend, 'codex-') && secrets.CODEX_AUTH_JSON || '' }}
-          claude_code_oauth_token: ${{ startsWith(steps.selected_backend.outputs.backend, 'claude-oauth-') && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          anthropic_auth_token: ${{ secrets.MINIMAX_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           base_sha: ${{ steps.prepare.outputs.branch_base_sha }}
           workflow: agent-cop-fix
           diff_paths: 'src/cop/ tests/fixtures/cops/ bench/corpus/'
