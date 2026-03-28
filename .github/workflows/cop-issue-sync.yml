@@ -31,13 +31,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-
       - name: Install mold linker
         run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
 
@@ -46,7 +39,7 @@ jobs:
 
       - name: Sync tracker issues
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           ARGS=(
             --repo "${{ github.repository }}"

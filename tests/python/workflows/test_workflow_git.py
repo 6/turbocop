@@ -41,8 +41,8 @@ def test_configure_identity_only():
         text=True,
         capture_output=True,
     )
-    assert git(repo, "config", "user.name").stdout.strip() == workflow_git.BOT_NAME
-    assert git(repo, "config", "user.email").stdout.strip() == workflow_git.BOT_EMAIL
+    assert git(repo, "config", "user.name").stdout.strip() == workflow_git.IDENTITIES["6-bot"]["name"]
+    assert git(repo, "config", "user.email").stdout.strip() == workflow_git.IDENTITIES["6-bot"]["email"]
     assert git(repo, "remote", "get-url", "origin").stdout.strip() == "https://github.com/example/repo.git"
 
 
@@ -69,14 +69,34 @@ def test_configure_remote_and_unset_extraheader():
         env=env,
     )
 
-    assert git(repo, "config", "user.name").stdout.strip() == workflow_git.BOT_NAME
-    assert git(repo, "config", "user.email").stdout.strip() == workflow_git.BOT_EMAIL
+    assert git(repo, "config", "user.name").stdout.strip() == workflow_git.IDENTITIES["6-bot"]["name"]
+    assert git(repo, "config", "user.email").stdout.strip() == workflow_git.IDENTITIES["6-bot"]["email"]
     assert (
         git(repo, "remote", "get-url", "origin").stdout.strip()
         == "https://x-access-token:ghs_test_token@github.com/6/nitrocop.git"
     )
     extraheader = git(repo, "config", "--local", "--get-all", workflow_git.EXTRAHEADER_KEY, check=False)
     assert extraheader.returncode != 0
+
+
+def test_configure_github_actions_identity() -> None:
+    repo = make_repo()
+    subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "configure",
+            "--repo-root",
+            str(repo),
+            "--identity",
+            "github-actions",
+        ],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    assert git(repo, "config", "user.name").stdout.strip() == workflow_git.IDENTITIES["github-actions"]["name"]
+    assert git(repo, "config", "user.email").stdout.strip() == workflow_git.IDENTITIES["github-actions"]["email"]
 
 
 def test_promote_branch_head_rewrites_ref_to_signed_commit():
