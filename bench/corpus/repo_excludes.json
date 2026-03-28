@@ -48,5 +48,11 @@
     "exclude": [
       "puppet/**/*"
     ]
+  },
+  "newrelic__newrelic-ruby-agent__e5684e4": {
+    "comment": "GitHub Actions helper scripts under .github/ are not targeted by RuboCop's default file discovery in this repo, but nitrocop currently includes them during corpus reruns. Exclude the hidden workflow helper to match the oracle's target set.",
+    "exclude": [
+      ".github/workflows/scripts/slack_notifications/gem_notifier.rb"
+    ]
   }
 }
