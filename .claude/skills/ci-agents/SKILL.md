@@ -80,10 +80,20 @@ backend is chosen later by `agent-cop-fix` when the issue is dispatched.
 
 ### Phase 2: Dispatch
 
-Find dispatchable cops (skip `difficulty:config-only` — those need config resolution work, not cop logic fixes):
+Find dispatchable cops (skip `difficulty:config-only` — those need config resolution work, not cop logic fixes).
+
+When a department is specified, add `--search "Department/ in:title"` to filter server-side
+instead of relying on `--limit` to fetch enough results (there are 300+ cop issues):
 
 ```bash
-gh issue list --state open --label "type:cop-issue" --label "state:backlog" --limit 50 \
+# All departments
+gh issue list --state open --label "type:cop-issue" --label "state:backlog" --limit 200 \
+  --json number,title,labels \
+  -q '.[] | select(.labels | map(.name) | all(. != "difficulty:config-only")) | "#\(.number) \(.title)"'
+
+# Scoped to a department (e.g., Lint)
+gh issue list --state open --label "type:cop-issue" --label "state:backlog" \
+  --search "Lint/ in:title" --limit 100 \
   --json number,title,labels \
   -q '.[] | select(.labels | map(.name) | all(. != "difficulty:config-only")) | "#\(.number) \(.title)"'
 ```
