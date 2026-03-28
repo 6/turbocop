@@ -215,6 +215,34 @@ use ruby_prism::Visit;
 /// block boundaries. When the enclosing block IS the else_branch of
 /// the if, `variable_node == if.else_branch` is true, so RuboCop
 /// suppresses (not an offense).
+///
+/// ## Corpus fix (2026-03-28): FP still 0, FN 7→0
+///
+/// `verify_cop_locations.py` on 2026-03-28 showed the prompt's 21 FP
+/// locations were already fixed in this checkout; the remaining misses
+/// were all FNs from three separate gaps:
+///
+/// 1. **Condition-assigned locals were suppressed too broadly.**
+///    Check 3 treated any block in the same conditional branch as
+///    equivalent to RuboCop's `variable_node == outer_local_variable_node`,
+///    even for multi-statement branch bodies or blocks nested inside
+///    larger expressions like `ret << s.inject { |s| ... }`. RuboCop only
+///    suppresses the direct single-statement body case such as
+///    `if item = page.menu_item; item.tap { |item| } end`.
+///
+/// 2. **Inherited conditional suppression flowed through multi-statement
+///    outer blocks.** The inherited `if`/`else` context was passed to all
+///    nested blocks, but RuboCop's `variable_node` only keeps matching the
+///    conditional while each intervening block body is a single statement.
+///    If an outer block body becomes `begin`-wrapped (`choose do ... end`
+///    or `xml.daogrp { ... }` with multiple statements), the suppression
+///    stops and the inner block should still be an offense.
+///
+/// 3. **Operator writes expose the local before the RHS.**
+///    `||=`, `&&=`, and `+=` all treat the local as already in scope while
+///    their RHS block runs, so `total ||= enum.inject { |total| ... }`
+///    should report shadowing. Visiting those RHS expressions before
+///    declaring the local missed that behavior.
 pub struct ShadowingOuterLocalVariable;
 
 impl Cop for ShadowingOuterLocalVariable {
@@ -333,6 +361,10 @@ struct CondBranchEntry {
     /// applies for else. But for then-bodies and elsif bodies, suppression
     /// only applies for single-stmt (where block.parent = conditional node).
     is_else_clause: bool,
+    /// Expression depth when this conditional branch was entered. A block is
+    /// only "nested in expression" for conditional suppression if it adds
+    /// more expression nesting than the branch entry already had.
+    expression_depth_base: usize,
 }
 
 struct ShadowVisitor<'a, 'src> {
@@ -437,6 +469,12 @@ impl ShadowVisitor<'_, '_> {
         matches!(self.conditional_branch_stack.last(), Some(e) if e.is_else_clause)
     }
 
+    fn current_is_nested_in_expression(&self) -> bool {
+        self.conditional_branch_stack
+            .last()
+            .is_some_and(|e| self.expression_depth > e.expression_depth_base)
+    }
+
     /// Visit an if/elsif/else node. Each IfNode uses its own offset as the
     /// conditional identity. The then-body and else/subsequent share this offset
     /// but with different branch_offsets. This matches RuboCop's Parser-gem
@@ -466,6 +504,7 @@ impl ShadowVisitor<'_, '_> {
             is_if_type: true,
             single_stmt: then_single_stmt,
             is_else_clause: false,
+            expression_depth_base: self.expression_depth,
         });
         self.visit(&node.predicate());
         self.conditional_branch_stack.pop();
@@ -480,6 +519,7 @@ impl ShadowVisitor<'_, '_> {
                 is_if_type: true,
                 single_stmt: then_single_stmt,
                 is_else_clause: false,
+                expression_depth_base: self.expression_depth,
             });
             self.visit_statements_node(&stmts);
             self.conditional_branch_stack.pop();
@@ -499,6 +539,7 @@ impl ShadowVisitor<'_, '_> {
                     is_if_type: true,
                     single_stmt: false, // not directly relevant; elsif pushes its own entry
                     is_else_clause: true, // elsif IS the else_branch of the outer if
+                    expression_depth_base: self.expression_depth,
                 });
                 self.visit_if_node_impl(&elsif_node);
                 self.conditional_branch_stack.pop();
@@ -517,6 +558,7 @@ impl ShadowVisitor<'_, '_> {
                     is_if_type: true,
                     single_stmt: else_single_stmt,
                     is_else_clause: true,
+                    expression_depth_base: self.expression_depth,
                 });
                 self.visit(&subsequent);
                 self.conditional_branch_stack.pop();
@@ -551,6 +593,7 @@ impl ShadowVisitor<'_, '_> {
             is_if_type: false,
             single_stmt: false,
             is_else_clause: false,
+            expression_depth_base: self.expression_depth,
         });
         for condition in node.conditions().iter() {
             self.visit(&condition);
@@ -721,39 +764,43 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         &mut self,
         node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
     ) {
-        self.expression_depth += 1;
-        self.visit(&node.value());
-        self.expression_depth -= 1;
         let name = std::str::from_utf8(node.name().as_slice())
             .unwrap_or("")
             .to_string();
+        // `||=` exposes the local before evaluating the RHS, even when this
+        // is the first assignment in scope.
         self.add_local(&name);
+        self.expression_depth += 1;
+        self.visit(&node.value());
+        self.expression_depth -= 1;
     }
 
     fn visit_local_variable_and_write_node(
         &mut self,
         node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
     ) {
-        self.expression_depth += 1;
-        self.visit(&node.value());
-        self.expression_depth -= 1;
         let name = std::str::from_utf8(node.name().as_slice())
             .unwrap_or("")
             .to_string();
+        // `&&=` also reads the local before the RHS runs.
         self.add_local(&name);
+        self.expression_depth += 1;
+        self.visit(&node.value());
+        self.expression_depth -= 1;
     }
 
     fn visit_local_variable_operator_write_node(
         &mut self,
         node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
     ) {
-        self.expression_depth += 1;
-        self.visit(&node.value());
-        self.expression_depth -= 1;
         let name = std::str::from_utf8(node.name().as_slice())
             .unwrap_or("")
             .to_string();
+        // Compound writes like `+=` read the existing local before the RHS.
         self.add_local(&name);
+        self.expression_depth += 1;
+        self.visit(&node.value());
+        self.expression_depth -= 1;
     }
 
     fn visit_local_variable_target_node(
@@ -848,7 +895,9 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
             self.expression_depth -= 1;
         }
         if let Some(arguments) = node.arguments() {
+            self.expression_depth += 1;
             self.visit_arguments_node(&arguments);
+            self.expression_depth -= 1;
         }
         if let Some(block) = node.block() {
             self.visit(&block);
@@ -857,15 +906,19 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let outer_locals = self.current_locals();
+        let block_body_single_stmt = node
+            .body()
+            .and_then(|body| body.as_statements_node())
+            .is_none_or(|body| body.body().len() <= 1);
         let bctx = BlockContext {
             cond_branch: self.current_conditional_branch(),
             is_in_body: self.current_is_body(),
             single_stmt: self.current_is_single_stmt(),
             in_when_body_of_case: self.in_when_body_of_case,
-            // expression_depth > 0 means block is nested inside an assignment
-            // RHS or other compound expression. Direct call statements have
-            // expression_depth == 0 when visiting the block child.
-            is_nested_in_expression: self.expression_depth > 0,
+            // Compare against the branch entry depth, not global depth.
+            // A conditional nested inside an assignment can still contain a
+            // direct branch block (`record = if item = ...; item.tap { ... }`).
+            is_nested_in_expression: self.current_is_nested_in_expression(),
             is_in_else_clause: self.current_is_else_clause(),
             // Inherited conditional context from enclosing blocks — allows
             // different-branch suppression for deeply nested blocks.
@@ -911,13 +964,16 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         // fire even when a block is deeply nested inside other blocks.
         // RuboCop's `same_conditions_node_different_branch?` walks up the
         // AST through block boundaries — we approximate this by passing
-        // the outermost conditional context down.
+        // the outermost conditional context down, but only through a chain
+        // of single-statement block bodies. Once an intervening block body
+        // is begin-wrapped, Parser's `variable_node` no longer matches the
+        // enclosing conditional branch.
         let saved_inherited = self.inherited_cond_branch;
-        // Use the current block's conditional context if available, otherwise
-        // keep the already-inherited context from an outer block.
-        if bctx.cond_branch.is_some() {
-            self.inherited_cond_branch = bctx.cond_branch;
-        }
+        self.inherited_cond_branch = if block_body_single_stmt {
+            bctx.cond_branch.or(bctx.inherited_cond_branch)
+        } else {
+            None
+        };
         ruby_prism::visit_block_node(self, node);
         self.conditional_branch_stack = saved_cond_stack;
         self.in_when_body_of_case = saved_when_body;
@@ -928,12 +984,16 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
         // Lambdas behave like blocks for shadowing purposes
         let outer_locals = self.current_locals();
+        let lambda_body_single_stmt = node
+            .body()
+            .and_then(|body| body.as_statements_node())
+            .is_none_or(|body| body.body().len() <= 1);
         let bctx = BlockContext {
             cond_branch: self.current_conditional_branch(),
             is_in_body: self.current_is_body(),
             single_stmt: self.current_is_single_stmt(),
             in_when_body_of_case: self.in_when_body_of_case,
-            is_nested_in_expression: self.expression_depth > 0,
+            is_nested_in_expression: self.current_is_nested_in_expression(),
             is_in_else_clause: self.current_is_else_clause(),
             inherited_cond_branch: self.inherited_cond_branch,
         };
@@ -964,9 +1024,11 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         let saved_cond_stack = std::mem::take(&mut self.conditional_branch_stack);
         let saved_when_body = self.in_when_body_of_case.take();
         let saved_inherited = self.inherited_cond_branch;
-        if bctx.cond_branch.is_some() {
-            self.inherited_cond_branch = bctx.cond_branch;
-        }
+        self.inherited_cond_branch = if lambda_body_single_stmt {
+            bctx.cond_branch.or(bctx.inherited_cond_branch)
+        } else {
+            None
+        };
         ruby_prism::visit_lambda_node(self, node);
         self.conditional_branch_stack = saved_cond_stack;
         self.in_when_body_of_case = saved_when_body;
@@ -1012,6 +1074,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
                 is_if_type: true,
                 single_stmt: else_single_stmt,
                 is_else_clause: false, // In Parser gem, this is the then-body
+                expression_depth_base: self.expression_depth,
             });
             self.visit_else_node(&else_clause);
             self.conditional_branch_stack.pop();
@@ -1028,6 +1091,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
                 is_if_type: true,
                 single_stmt: body_single_stmt,
                 is_else_clause: true, // In Parser gem, this is the else
+                expression_depth_base: self.expression_depth,
             });
             self.visit_statements_node(&stmts);
             self.conditional_branch_stack.pop();
@@ -1051,6 +1115,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
             is_if_type: false,
             single_stmt: false,
             is_else_clause: false,
+            expression_depth_base: self.expression_depth,
         });
         ruby_prism::visit_while_node(self, node);
         self.conditional_branch_stack.pop();
@@ -1067,6 +1132,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
             is_if_type: false,
             single_stmt: false,
             is_else_clause: false,
+            expression_depth_base: self.expression_depth,
         });
         ruby_prism::visit_until_node(self, node);
         self.conditional_branch_stack.pop();
@@ -1087,6 +1153,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
                 is_if_type: false,
                 single_stmt: true,
                 is_else_clause: false,
+                expression_depth_base: self.expression_depth,
             });
             self.visit(&pred);
             self.conditional_branch_stack.pop();
@@ -1107,6 +1174,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
                 is_if_type: false,
                 single_stmt: when_single_stmt,
                 is_else_clause: false,
+                expression_depth_base: self.expression_depth,
             });
             if let Some(when_node) = condition.as_when_node() {
                 self.visit_when_node_with_case_offset(&when_node, case_offset);
@@ -1128,6 +1196,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
                 is_if_type: false,
                 single_stmt: else_single_stmt,
                 is_else_clause: true,
+                expression_depth_base: self.expression_depth,
             });
             self.visit_else_node(&else_clause);
             self.conditional_branch_stack.pop();
@@ -1230,7 +1299,11 @@ fn is_different_conditional_branch(
     // condition where the var was assigned. Without this check, vars
     // assigned in one when's condition would suppress blocks in a
     // different when's condition (both sharing the case cond_offset).
-    if outer_info.is_condition_var {
+    if outer_info.is_condition_var
+        && block_is_in_body
+        && block_single_stmt
+        && !is_nested_in_expression
+    {
         if let Some((outer_cond, outer_branch)) = outer_info.conditional_branch {
             if outer_cond == block_branch.0 && outer_branch == block_branch.1 {
                 return true;
