@@ -37,6 +37,18 @@
       "files/**/*"
     ]
   },
+  "scarpe-team__scarpe__b3939e6": {
+    "comment": "Committed AppImage payload with bundled Ruby runtime under HelloScarpe.AppDir; not first-party project code. Dominates corpus divergence with stdlib/rubygems paths.",
+    "exclude": [
+      "HelloScarpe.AppDir/**/*"
+    ]
+  },
+  "rubyworks__facets__12326d4": {
+    "comment": "work/ is scratch/reference material (rejected, trash, OLD_COMPARE, sandbox, consider) and is not part of the packaged gem manifest. Divergence examples cluster there rather than in shipped library code.",
+    "exclude": [
+      "work/**/*"
+    ]
+  },
   "yohasebe__monadic-chat__79cf0fb": {
     "comment": "Docker container Ruby files — not project code. 392 FN across 42 cops.",
     "exclude": [
