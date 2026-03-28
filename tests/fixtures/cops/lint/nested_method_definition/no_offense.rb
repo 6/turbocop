@@ -60,6 +60,30 @@ class Foo
   end
 end
 
+# def on parenthesized method call receiver
+class Foo
+  def x
+    def (ActiveRecord::Base.connection).index_name_exists?(*)
+      false
+    end
+  end
+end
+
+# def on parenthesized safe-navigation method call receiver
+class Foo
+  def x
+    def (do_something&.y).z
+    end
+  end
+end
+
+# def on `it` block parameter receiver
+def foo
+  [1].each do
+    def it.attached? = true
+  end
+end
+
 # Scope-creating calls suppress offense
 def foo
   self.class.class_eval do

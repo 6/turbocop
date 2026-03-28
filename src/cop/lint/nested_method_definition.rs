@@ -7,7 +7,7 @@ use crate::parse::source::SourceFile;
 
 /// Checks for nested method definitions.
 ///
-/// ## Investigation findings (2026-03-14)
+/// ## Investigation findings
 ///
 /// Root causes of FP/FN:
 /// 1. **FN (def self.y):** nitrocop skipped ALL defs with receivers, but RuboCop only
@@ -26,11 +26,19 @@ use crate::parse::source::SourceFile;
 ///    was above the outer def. Fix: switch from `check_node` on `DEF_NODE` to
 ///    `check_source` with a full-tree visitor that tracks both def depth and scope
 ///    depth across the entire AST.
-/// 5. **FN (parenthesized receivers, 2026-03-20):** `has_allowed_receiver` incorrectly
-///    treated `ParenthesesNode` as an allowed receiver type. In RuboCop (Parser gem),
-///    `def (expr).method` produces a `begin` node as receiver, which does not match
-///    `variable?`, `const_type?`, or `call_type?`. Pattern: `def (obj = Object.new).helper`
-///    inside another def was missed. Fix: removed the `as_parentheses_node()` check.
+/// 5. **FP (parenthesized allowed receivers / `it`, 2026-03-28):**
+///    Prism preserves receiver parens as `ParenthesesNode`, so `has_allowed_receiver`
+///    missed allowed receivers wrapped in parens and implicit `it` locals. RuboCop
+///    still allows `def (ActiveRecord::Base.connection).index_name_exists?`,
+///    `def (Kernel.const_get(...)).const_get`, `def (do_something&.y).z`, and
+///    `def it.attached? = true` because the wrapped subject is still a call/const/variable.
+///    Fix: unwrap single-expression parens and treat `ItLocalVariableReadNode` as allowed.
+/// 6. **FN (qualified constructor paths, 2026-03-28):** `is_scope_creating_call` used
+///    `constant_name()`, which only returns the last constant segment. That incorrectly
+///    treated `Object::Module.new` as `Module.new`, suppressing real offenses like
+///    nested `def self.session` in the SugarCRM corpus. Fix: require a simple/top-level
+///    constant via `util::is_simple_constant()`, so only `Module.new`, `::Module.new`,
+///    `Class.new`, `Struct.new`, and `Data.define` create scope.
 pub struct NestedMethodDefinition;
 
 /// Full-tree visitor that tracks def nesting depth and scope-creating context depth.
@@ -62,32 +70,48 @@ struct FullTreeWalker<'a> {
 /// RuboCop allows `def obj.method` when the receiver is a variable (local,
 /// instance, class, global), a constant, or a method call. The `self` keyword
 /// is NOT allowed — `def self.method` nested inside another def IS an offense.
-fn has_allowed_receiver(def_node: &ruby_prism::DefNode<'_>) -> bool {
-    let receiver = match def_node.receiver() {
-        Some(r) => r,
-        None => return false, // No receiver = regular def, not a defs
-    };
-    // Variables: local, instance, class, global
-    if receiver.as_local_variable_read_node().is_some()
-        || receiver.as_instance_variable_read_node().is_some()
-        || receiver.as_class_variable_read_node().is_some()
-        || receiver.as_global_variable_read_node().is_some()
+fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
+    let mut current = node;
+    while let Some(paren) = current.as_parentheses_node() {
+        let Some(body) = paren.body() else {
+            break;
+        };
+        if let Some(stmts) = body.as_statements_node() {
+            let body_nodes = stmts.body();
+            if body_nodes.len() == 1 {
+                current = body_nodes.iter().next().unwrap();
+                continue;
+            }
+        }
+        current = body;
+    }
+    current
+}
+
+fn is_allowed_receiver_node(node: ruby_prism::Node<'_>) -> bool {
+    let node = unwrap_parentheses(node);
+    // Variables: local, instance, class, global, implicit `it`
+    if node.as_local_variable_read_node().is_some()
+        || node.as_it_local_variable_read_node().is_some()
+        || node.as_instance_variable_read_node().is_some()
+        || node.as_class_variable_read_node().is_some()
+        || node.as_global_variable_read_node().is_some()
     {
         return true;
     }
     // Constants
-    if receiver.as_constant_read_node().is_some() || receiver.as_constant_path_node().is_some() {
+    if node.as_constant_read_node().is_some() || node.as_constant_path_node().is_some() {
         return true;
     }
-    // Method calls (e.g., def do_something.y)
-    if receiver.as_call_node().is_some() {
+    // Method calls, including safe-navigation calls.
+    if node.as_call_node().is_some() {
         return true;
     }
-    // Parenthesized expressions are NOT allowed receivers. In the Parser gem,
-    // `def (expr).method` produces a `begin` node as receiver, and `begin` does
-    // not match `variable?`, `const_type?`, or `call_type?`.
-    // self is NOT allowed — def self.y inside def is still an offense
     false
+}
+
+fn has_allowed_receiver(def_node: &ruby_prism::DefNode<'_>) -> bool {
+    def_node.receiver().is_some_and(is_allowed_receiver_node)
 }
 
 impl<'pr> Visit<'pr> for FullTreeWalker<'_> {
@@ -166,24 +190,18 @@ fn is_scope_creating_call(node: &ruby_prism::Node<'_>) -> bool {
     ) {
         return true;
     }
-    // Module.new, Class.new, Struct.new (also handles qualified like ::Module.new via constant_path_node)
+    // Module.new, Class.new, Struct.new (also handles root-qualified like ::Module.new)
     if method_name == b"new" {
         if let Some(receiver) = call.receiver() {
-            if let Some(name) = crate::cop::util::constant_name(&receiver) {
-                if name == b"Module" || name == b"Class" || name == b"Struct" {
-                    return true;
-                }
-            }
+            return crate::cop::util::is_simple_constant(&receiver, b"Module")
+                || crate::cop::util::is_simple_constant(&receiver, b"Class")
+                || crate::cop::util::is_simple_constant(&receiver, b"Struct");
         }
     }
     // Data.define (Ruby 3.2+, recognized by rubocop-ast class_constructor?)
     if method_name == b"define" {
         if let Some(receiver) = call.receiver() {
-            if let Some(name) = crate::cop::util::constant_name(&receiver) {
-                if name == b"Data" {
-                    return true;
-                }
-            }
+            return crate::cop::util::is_simple_constant(&receiver, b"Data");
         }
     }
     false

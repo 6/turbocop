@@ -68,12 +68,38 @@ def test_method
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NestedMethodDefinition: Method definitions must not be nested. Use `lambda` instead.
 end
 
-# Parenthesized safe-navigation receiver — NOT an allowed receiver type
-# In Parser gem, (begin (csend ...)) is the receiver; begin is not call_type?
-class Foo
-  def x
-    def (do_something&.y).z
+# Qualified constant paths like Object::Module.new are not scope-creating
+def generate_namespace_module
+  namespace_module = Object::Module.new do
+    @session = nil
+    def self.session
+    ^^^^^^^^^^^^^^^^ Lint/NestedMethodDefinition: Method definitions must not be nested. Use `lambda` instead.
+      @session
+    end
+    def self.session=(sess)
     ^^^^^^^^^^^^^^^^^^^^^^^ Lint/NestedMethodDefinition: Method definitions must not be nested. Use `lambda` instead.
+      @session = sess
+    end
+    def self.current_user
+    ^^^^^^^^^^^^^^^^^^^^^ Lint/NestedMethodDefinition: Method definitions must not be nested. Use `lambda` instead.
+      (@session.namespace_const)::User.find_by_user_name(@session.config[:username])
+    end
+    def self.respond_to?(sym)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NestedMethodDefinition: Method definitions must not be nested. Use `lambda` instead.
+      return true if @session.respond_to? sym
+      super
+    end
+    def self.method_missing(sym, *args, &block)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NestedMethodDefinition: Method definitions must not be nested. Use `lambda` instead.
+      raise unless @session.respond_to? sym
+      @session.send(sym, *args, &block)
+    end
+
+    if RUBY_VERSION > '1.9'
+      def self.const_defined?(sym, inherit=false)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NestedMethodDefinition: Method definitions must not be nested. Use `lambda` instead.
+        super
+      end
     end
   end
 end
