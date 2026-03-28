@@ -196,6 +196,27 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: accept `%s"` and `%s'` as valid opening patterns in `check_symbol_node`,
 /// while still rejecting `%s(`, `%s[`, and other non-quote delimiters.
+///
+/// ## FN fix (2026-03-28)
+///
+/// Corpus oracle reported FP=0, FN=21. The remaining misses fell into two
+/// narrow buckets:
+///
+/// - Colon-style hash keys that still require quotes but start with an ASCII
+///   identifier character, such as `"string \"\€\"":`. RuboCop's
+///   `correct_hash_key` still normalizes these through `node.value.inspect`,
+///   only skipping keys whose first character fails `/\A[a-z0-9_]/i`.
+/// - `%s(...)` symbol literals whose body contains quote characters, such as
+///   `%s(assign (index Class 2) "Class")`. RuboCop treats `%s` literals as
+///   "properly quoted" only when the source contains no quote characters at
+///   all, so these remain offenses even with non-quote delimiters.
+///
+/// Fix: make colon-style hash keys reuse the same symbol correction logic as
+/// RuboCop's `node.value.inspect.delete_prefix(':')`, comparing the key source
+/// without its trailing `:` against the canonical correction, and treat all
+/// `%s` openings as candidates while still short-circuiting when the source has
+/// no quote characters. This fixes the FN set without broadening `%i/%I`
+/// handling or relaxing the existing rocket-key guards.
 pub struct SymbolConversion;
 
 const BARE_OPERATOR_SYMBOLS: &[&[u8]] = &[
@@ -246,33 +267,6 @@ fn is_method_name_symbol(value: &[u8]) -> bool {
     let main = match value.last() {
         Some(b'!' | b'?' | b'=') => &value[..value.len() - 1],
         _ => value,
-    };
-
-    !main.is_empty() && is_valid_identifier(main)
-}
-
-fn is_hash_label_symbol(value: &[u8]) -> bool {
-    if value.is_empty() {
-        return false;
-    }
-
-    // RuboCop's correct_hash_key checks /\A[a-z0-9_]/i — ASCII only.
-    // Non-ASCII-start keys (æ, Cyrillic а, etc.) are not converted to bare labels.
-    if !value
-        .first()
-        .is_some_and(|&b| b.is_ascii_alphanumeric() || b == b'_')
-    {
-        return false;
-    }
-
-    let main = if let Some(&last) = value.last() {
-        if last == b'!' || last == b'?' {
-            &value[..value.len() - 1]
-        } else {
-            value
-        }
-    } else {
-        return false;
     };
 
     !main.is_empty() && is_valid_identifier(main)
@@ -399,11 +393,12 @@ fn symbol_correction(value: &[u8]) -> Option<String> {
 }
 
 fn hash_key_correction(value: &[u8]) -> Option<String> {
-    if !is_hash_label_symbol(value) {
+    if !value_starts_with_identifier(value) {
         return None;
     }
 
-    Some(std::str::from_utf8(value).ok()?.to_string())
+    let correction = symbol_correction(value)?;
+    Some(correction.strip_prefix(':')?.to_string())
 }
 
 /// Escape only double-quote characters in raw source content when converting
@@ -546,6 +541,15 @@ fn source_matches_correction(source: &[u8], correction: &str) -> bool {
             .is_some_and(|normalized| normalized == correction)
 }
 
+fn source_contains_quote_chars(source: &[u8]) -> bool {
+    source.contains(&b'\'') || source.contains(&b'"')
+}
+
+fn properly_quoted_source(source: &[u8], correction: &str) -> bool {
+    (!source_contains_quote_chars(source) || correction.ends_with('='))
+        || source_matches_correction(source, correction)
+}
+
 impl Cop for SymbolConversion {
     fn name(&self) -> &'static str {
         "Lint/SymbolConversion"
@@ -610,8 +614,14 @@ impl SymbolConversion {
 
         if is_colon_hash_key {
             // Hash key with colon style: 'foo': val or "foo": val
-            // Only flag if the value can be a bare hash key
+            // RuboCop normalizes any key whose value starts with /[a-z0-9_]/i,
+            // even when the canonical form still needs quotes.
             if let Some(value_str) = hash_key_correction(value) {
+                let source_without_colon = src.strip_suffix(b":").unwrap_or(src);
+                if properly_quoted_source(source_without_colon, &value_str) {
+                    return;
+                }
+
                 let loc = sym.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
@@ -626,16 +636,13 @@ impl SymbolConversion {
 
         // For standalone symbols or rocket-style hash keys/values:
         // Check if the symbol is unnecessarily quoted.
-        // Opening must be :" or :' (quoted symbol syntax), OR %s with a
-        // quote delimiter (%s"..." or %s'...'). RuboCop's `properly_quoted?`
-        // checks `source.match?(/['"]/)` — so %s with quote delimiters IS
-        // flagged, but %s with non-quote delimiters (parens, brackets) is not.
-        let is_percent_s_quote = matches!(opening, Some(o) if o.starts_with(b"%s")
-            && o.len() == 3
-            && (o[2] == b'"' || o[2] == b'\''));
+        // Opening must be :" or :' (quoted symbol syntax), OR %s with any
+        // delimiter. RuboCop then decides whether it is already "properly
+        // quoted" based on whether the source contains any quote characters.
+        let is_percent_s = matches!(opening, Some(o) if o.starts_with(b"%s"));
         match opening {
             Some(b":\"" | b":'") => {}
-            _ if is_percent_s_quote => {}
+            _ if is_percent_s => {}
             _ => return,
         }
 
@@ -665,12 +672,7 @@ impl SymbolConversion {
             None => return,
         };
 
-        // RuboCop leaves quoted setter-like symbols alone in strict mode.
-        if correction.ends_with('=') {
-            return;
-        }
-
-        if source_matches_correction(src, &correction) {
+        if properly_quoted_source(src, &correction) {
             return;
         }
 

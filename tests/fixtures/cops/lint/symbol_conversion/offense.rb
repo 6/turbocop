@@ -154,3 +154,27 @@ instance_variable_get :"@ivar"
 # Percent-s with double-quote delimiter
 %s"test"
 ^^^^^^^^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:test` instead.
+
+{ "string \"\€\"": [[:seq, '€'], %{"€"}] }
+  ^ Lint/SymbolConversion: Unnecessary symbol conversion; use `"string \"€\"":` instead.
+
+{ "string \"\€\"": [[:seq, '€'], %{%x20AC}] }
+  ^ Lint/SymbolConversion: Unnecessary symbol conversion; use `"string \"€\"":` instead.
+
+{ "string \"\€\"": [:seq, '€'] }
+  ^ Lint/SymbolConversion: Unnecessary symbol conversion; use `"string \"€\"":` instead.
+
+%s(printf "define_method %s\n" (callm (callm sym to_s) __get_raw))
+^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:"printf \"define_method %s\\n\" (callm (callm sym to_s) __get_raw)"` instead.
+
+%s(printf "attr_reader %s\n" (callm (callm sym to_s) __get_raw))
+^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:"printf \"attr_reader %s\\n\" (callm (callm sym to_s) __get_raw)"` instead.
+
+%s(printf "attr_writer %s\n" (callm (callm sym to_s) __get_raw))
+^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:"printf \"attr_writer %s\\n\" (callm (callm sym to_s) __get_raw)"` instead.
+
+%s(printf "Class#include: self=%p, mod=%p\n" self mod)
+^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:"printf \"Class#include: self=%p, mod=%p\\n\" self mod"` instead.
+
+%s(assign (index Class 2) "Class")
+^ Lint/SymbolConversion: Unnecessary symbol conversion; use `:"assign (index Class 2) \"Class\""` instead.
