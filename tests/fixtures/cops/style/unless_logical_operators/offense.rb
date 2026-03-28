@@ -24,3 +24,39 @@ unless a || b or c
 ^^^^^^ Style/UnlessLogicalOperators: Do not use mixed logical operators in `unless` conditions.
   do_something
 end
+
+# Parenthesized mixed operators — RuboCop still flags these
+unless (a || b) && c
+^^^^^^ Style/UnlessLogicalOperators: Do not use mixed logical operators in `unless` conditions.
+  do_something
+end
+
+unless (a && b) || c
+^^^^^^ Style/UnlessLogicalOperators: Do not use mixed logical operators in `unless` conditions.
+  do_something
+end
+
+unless (a || b) && (c || d)
+^^^^^^ Style/UnlessLogicalOperators: Do not use mixed logical operators in `unless` conditions.
+  do_something
+end
+
+# AND with parenthesized OR child
+unless a && (b || c)
+^^^^^^ Style/UnlessLogicalOperators: Do not use mixed logical operators in `unless` conditions.
+  do_something
+end
+
+# Modifier form with parenthesized OR
+return 0 unless width && (default_width || max_width)
+         ^^^^^^ Style/UnlessLogicalOperators: Do not use mixed logical operators in `unless` conditions.
+
+# Chained OR with nested AND in parens
+unless a || b || (c && d)
+^^^^^^ Style/UnlessLogicalOperators: Do not use mixed logical operators in `unless` conditions.
+  do_something
+end
+
+# OR with parenthesized AND child
+return false unless a || (b && c)
+             ^^^^^^ Style/UnlessLogicalOperators: Do not use mixed logical operators in `unless` conditions.
