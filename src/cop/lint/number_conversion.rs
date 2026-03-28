@@ -226,11 +226,11 @@ impl NumberConversion {
         let ignored_classes = config
             .get_string_array("IgnoredClasses")
             .unwrap_or_else(|| vec!["Time".to_string(), "DateTime".to_string()]);
-        if is_ignored_class(&receiver, &ignored_classes) {
+        if is_ignored_class(receiver, &ignored_classes) {
             return;
         }
 
-        let recv_src = node_source(source, &receiver);
+        let recv_src = node_source(source, receiver);
         let method_str = std::str::from_utf8(conversion.0).unwrap_or("to_i");
         let corrected = conversion.1.replace("%s", recv_src);
 
