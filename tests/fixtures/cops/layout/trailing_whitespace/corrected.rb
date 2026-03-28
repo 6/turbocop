@@ -8,3 +8,8 @@ wide = :a
 #
 nbsp = :a
 # note
+
+file = StringIO.new <<-RUBY
+__END__
+RUBY
+after = 1

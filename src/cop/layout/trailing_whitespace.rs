@@ -88,6 +88,31 @@ use crate::parse::source::SourceFile;
 /// with invalid UTF-8 and no encoding magic comment (e.g., `# encoding:
 /// iso-8859-1`) are now skipped entirely, matching RuboCop's behavior.
 /// Files WITH an encoding comment are still processed.
+///
+/// ## Corpus investigation (2026-03-28)
+///
+/// CI baseline reported FP=0, FN=4. The prompt's pre-diagnostic labeled
+/// three misses as config/context issues, but the pinned repos showed all
+/// four were code bugs in the line scanner:
+///
+/// 1. **Over-broad `__END__` stop condition**: RuboCop does not treat
+///    `__END__` at the top of a file (or after only blank lines) as a data
+///    section marker. The old line scan stopped on any raw `__END__` line,
+///    causing FNs in `shawn42/gamebox`. Fixed by only starting the data
+///    section after a prior nonblank line.
+///
+/// 2. **`receiver <<-HEREDOC` misclassified as shift**: the shift/operator
+///    guard rejected `StringIO.new <<-RUBY` because it looked left, saw an
+///    identifier, and skipped heredoc tracking. That let `__END__` inside the
+///    heredoc terminate scanning early, causing the three `appscrolls` FNs.
+///    Fixed by treating `<<-` and `<<~` as heredoc openers before applying
+///    the left-context shift heuristic. The digit guard for `1<<-1` remains.
+///
+/// Full-repo reruns still report the same four oracle FN locations because
+/// both pinned repos fail nitrocop's project setup without
+/// `--force-default-config`: they have `Gemfile`s but no lockfiles, so the
+/// binary exits before this cop runs. That remaining mismatch is a config /
+/// environment issue outside this cop's file scope.
 pub struct TrailingWhitespace;
 
 fn strip_line_ending_carriage_return(line: &[u8]) -> &[u8] {
@@ -123,6 +148,10 @@ fn trailing_whitespace_start(line: &[u8]) -> Option<usize> {
     found.then_some(end)
 }
 
+fn line_has_nonblank_content(line: &[u8]) -> bool {
+    !line.is_empty() && trailing_whitespace_start(line) != Some(0)
+}
+
 impl Cop for TrailingWhitespace {
     fn name(&self) -> &'static str {
         "Layout/TrailingWhitespace"
@@ -147,6 +176,7 @@ impl Cop for TrailingWhitespace {
         // Track heredoc regions: stack of terminators to support multiple
         // heredocs opened on the same line (e.g., `method(<<~A, <<~B)`).
         let mut heredoc_terminators: Vec<Vec<u8>> = Vec::new();
+        let mut saw_nonblank_line = false;
 
         for (i, line) in lines.iter().enumerate() {
             // Strip trailing \r early for CRLF compatibility.
@@ -168,7 +198,10 @@ impl Cop for TrailingWhitespace {
 
             // Stop checking after __END__ marker (data section), but only when
             // not inside a heredoc (where __END__ is just string content).
-            if stripped == b"__END__" && heredoc_terminators.is_empty() {
+            // RuboCop only starts the data section once a nonblank line has
+            // already appeared; leading blank lines plus `__END__` do not stop
+            // scanning.
+            if stripped == b"__END__" && heredoc_terminators.is_empty() && saw_nonblank_line {
                 break;
             }
 
@@ -184,6 +217,9 @@ impl Cop for TrailingWhitespace {
                     {
                         let pos = search_from + rel_pos;
                         search_from = pos + 2;
+                        let raw_after = &stripped[pos + 2..];
+                        let prefixed_heredoc =
+                            raw_after.starts_with(b"~") || raw_after.starts_with(b"-");
 
                         // Distinguish heredoc `<<` from shift/append `<<`:
                         // A heredoc opener follows `=`, `(`, `[`, `,`, or
@@ -191,7 +227,7 @@ impl Cop for TrailingWhitespace {
                         // follows an expression (identifier, number, `)`,
                         // `]`, `}`). Look back past whitespace to find the
                         // meaningful preceding token.
-                        if pos > 0 {
+                        if !prefixed_heredoc && pos > 0 {
                             let mut check_pos = pos - 1;
                             // Skip whitespace backwards
                             while check_pos > 0
@@ -212,11 +248,10 @@ impl Cop for TrailingWhitespace {
                             }
                         }
 
-                        let after = &stripped[pos + 2..];
-                        let after = if after.starts_with(b"~") || after.starts_with(b"-") {
-                            &after[1..]
+                        let after = if prefixed_heredoc {
+                            &raw_after[1..]
                         } else {
-                            after
+                            raw_after
                         };
                         // Strip quotes around terminator
                         let (after, _quoted) =
@@ -282,6 +317,10 @@ impl Cop for TrailingWhitespace {
                     diag.corrected = true;
                 }
                 diagnostics.push(diag);
+            }
+
+            if line_has_nonblank_content(stripped) {
+                saw_nonblank_line = true;
             }
         }
     }
@@ -543,5 +582,46 @@ mod tests {
             "Should flag trailing whitespace after bit shift operator"
         );
         assert_eq!(diags[0].location.line, 2);
+    }
+
+    #[test]
+    fn leading_end_marker_does_not_stop_scanning() {
+        let source = SourceFile::from_bytes("test.rb", b"__END__\nx = 1   \n".to_vec());
+        let mut diags = Vec::new();
+        TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 2);
+    }
+
+    #[test]
+    fn blank_line_before_end_marker_does_not_start_data_section() {
+        let source = SourceFile::from_bytes("test.rb", b"\n__END__\nx = 1   \n".to_vec());
+        let mut diags = Vec::new();
+        TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 3);
+    }
+
+    #[test]
+    fn comment_before_end_marker_still_starts_data_section() {
+        let source = SourceFile::from_bytes("test.rb", b"# comment\n__END__\nx = 1   \n".to_vec());
+        let mut diags = Vec::new();
+        TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert!(
+            diags.is_empty(),
+            "Comment before __END__ should still start the data section"
+        );
+    }
+
+    #[test]
+    fn method_receiver_heredoc_keeps_inner_end_marker_from_stopping_scan() {
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"file = StringIO.new <<-RUBY\n__END__\nRUBY\nafter = 1   \n".to_vec(),
+        );
+        let mut diags = Vec::new();
+        TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 4);
     }
 }

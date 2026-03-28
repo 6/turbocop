@@ -17,3 +17,9 @@ nbsp = :a 
          ^ Layout/TrailingWhitespace: Trailing whitespace detected.
 # note 
       ^ Layout/TrailingWhitespace: Trailing whitespace detected.
+
+file = StringIO.new <<-RUBY
+__END__
+RUBY
+after = 1 
+         ^ Layout/TrailingWhitespace: Trailing whitespace detected.
