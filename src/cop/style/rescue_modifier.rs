@@ -3,6 +3,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// The lone corpus FN (oriuminc/vagrant-ariadne, cookbooks-override/ariadne/libraries/helpers.rb:48)
+/// was a config bug, not a detection bug. Absolute AllCops.Exclude paths like
+/// `/tmp/repo/cookbooks/**/*` were misidentified as Ruby regexp patterns by
+/// `extract_ruby_regexp` (because they start with `/` and contain other `/`
+/// characters). The extracted regex matched `cookbooks` as a substring, falsely
+/// excluding `cookbooks-override/` files. Fixed in `extract_ruby_regexp` by
+/// requiring the closing `/` delimiter to be at the end of the string.
 pub struct RescueModifier;
 
 impl Cop for RescueModifier {

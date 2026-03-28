@@ -520,9 +520,14 @@ fn load_dir_overrides(root: &Path) -> Vec<(PathBuf, ConfigLayer)> {
 fn extract_ruby_regexp(s: &str) -> Option<&str> {
     let s = s.trim();
     if s.starts_with('/') && s.len() > 1 {
-        // Find the closing `/`, which may be followed by flags like `i`, `x`, `m`
-        if let Some(end) = s[1..].rfind('/') {
-            return Some(&s[1..end + 1]);
+        // The closing `/` must be at or near the end of the string, followed
+        // only by optional Ruby regex flags (i, m, x, o, n, e, s, u).
+        // Using `rfind` alone would misidentify absolute file paths like
+        // `/tmp/repo/cookbooks/**/*` by picking up an intermediate `/` as
+        // the closing delimiter.
+        let tail = s[1..].trim_end_matches(|c: char| "imxonsu".contains(c));
+        if tail.ends_with('/') && tail.len() > 1 {
+            return Some(&tail[..tail.len() - 1]);
         }
     }
     None
@@ -3366,6 +3371,16 @@ mod tests {
         assert_eq!(extract_ruby_regexp(""), None);
         // Single slash only — not a valid regexp
         assert_eq!(extract_ruby_regexp("/"), None);
+        // Absolute file paths must NOT be treated as regexps
+        assert_eq!(
+            extract_ruby_regexp("/tmp/vagrant-ariadne/cookbooks/**/*"),
+            None
+        );
+        assert_eq!(extract_ruby_regexp("/abs/path/vendor/**/*"), None);
+        assert_eq!(extract_ruby_regexp("/home/user/project/lib/**/*.rb"), None);
+        // Regexp with flags
+        assert_eq!(extract_ruby_regexp("/pattern/i"), Some("pattern"));
+        assert_eq!(extract_ruby_regexp("/foo|bar/im"), Some("foo|bar"));
     }
 
     #[test]
