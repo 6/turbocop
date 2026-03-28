@@ -100,12 +100,12 @@ def _try_gh(repo: str | None) -> tuple[Path, int, str] | None:
     if not shutil.which("gh"):
         return None
 
-    # Check if gh is authenticated
+    # Check if gh has auth available (stored credentials or GH_TOKEN env var)
     auth_check = subprocess.run(
         ["gh", "auth", "status"],
         capture_output=True, text=True,
     )
-    if auth_check.returncode != 0:
+    if auth_check.returncode != 0 and not os.environ.get("GH_TOKEN"):
         print("gh CLI found but not authenticated, trying other methods...", file=sys.stderr)
         return None
 
@@ -229,7 +229,8 @@ def _try_curl_api(repo: str | None) -> tuple[Path, int, str] | None:
     # List recent successful runs
     try:
         data = _github_api_get(
-            f"{api_base}/actions/workflows/corpus-oracle.yml/runs?status=success&per_page=100"
+            f"{api_base}/actions/workflows/corpus-oracle.yml/runs?status=success&per_page=100",
+            token,
         )
     except (HTTPError, URLError) as e:
         print(f"GitHub API error listing runs: {e}", file=sys.stderr)
