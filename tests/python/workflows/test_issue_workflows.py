@@ -11,6 +11,7 @@ COP_FIX_LIFECYCLE = ROOT / "scripts" / "workflows" / "cop_fix_lifecycle.py"
 AGENT_PR_REPAIR = ROOT / ".github" / "workflows" / "agent-pr-repair.yml"
 COP_ISSUE_SYNC = ROOT / ".github" / "workflows" / "cop-issue-sync.yml"
 CORPUS_ORACLE = ROOT / ".github" / "workflows" / "corpus-oracle.yml"
+RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 
 
 def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
@@ -123,6 +124,19 @@ def test_corpus_oracle_workflow_uses_dynamic_pr_renderer():
     assert "--body-file \"$PR_BODY_FILE\" \\" in content
 
 
+def test_release_workflow_commits_directly_to_main() -> None:
+    content = RELEASE.read_text()
+    assert "Release workflow must run from main" in content
+    assert "GH_TOKEN: ${{ github.token }}" in content
+    assert "--identity github-actions" in content
+    assert "git checkout -B main origin/main" in content
+    assert "git push origin main" in content
+    assert "--branch main \\" in content
+    assert 'gh pr create' not in content
+    assert 'gh pr merge' not in content
+    assert "actions/create-github-app-token@v3" not in content
+
+
 if __name__ == "__main__":
     test_agent_cop_fix_supports_issue_linking_and_auto_backend()
     test_agent_pr_repair_reads_linked_issue_and_can_update_it()
@@ -131,4 +145,5 @@ if __name__ == "__main__":
     test_issue_sync_workflow_uses_github_token_and_dispatch_script()
     test_issue_close_workflow_uses_github_token()
     test_corpus_oracle_workflow_uses_dynamic_pr_renderer()
+    test_release_workflow_commits_directly_to_main()
     print("All tests passed.")
