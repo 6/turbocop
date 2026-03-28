@@ -9,3 +9,12 @@ case c
 when ?\ , ?\t, ?\r
   true
 end
+
+command './configure' \
+        " --disable-lz4" \
+        , env: env
+
+buffer.insert(iter, "foo \
+bar \
+baz\n\n" ,
+              :tags => ["rtl_quote"])
