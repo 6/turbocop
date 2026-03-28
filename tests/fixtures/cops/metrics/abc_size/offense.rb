@@ -251,3 +251,29 @@ def method_with_nested_rescue_in_body
     end
   end
 end
+
+# Compound assignment with `super` value: RuboCop's compound_assignment counts
+# super/yield as extra assignments (SuperNode/YieldNode include MethodDispatchNode
+# and respond_to?(:setter_method?) → true, setter_method? → false).
+# 16 regular assignments + `keys += super` (A+1 for op_asgn + A+1 for super compound)
+# = A=18, B=0, C=0 => score = 18.0 > 17
+def method_with_super_compound
+^^^ Metrics/AbcSize: Assignment Branch Condition size for method_with_super_compound is too high. [18.00/17]
+  a = 1
+  b = 2
+  c = 3
+  d = 4
+  e = 5
+  f = 6
+  g = 7
+  h = 8
+  i = 9
+  j = 10
+  k = 11
+  l = 12
+  m = 13
+  n = 14
+  o = 15
+  p = 16
+  p += super
+end

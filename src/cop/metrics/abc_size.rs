@@ -256,6 +256,21 @@ use crate::parse::source::SourceFile;
 /// is a directive-resolution edge case, not a cop algorithm bug. See WARNING
 /// comment in `parse/directives.rs:447` — tightening case sensitivity caused
 /// +292 FP in a previous attempt.
+///
+/// ## Corpus investigation (2026-03-28)
+///
+/// Corpus oracle reported FP=0, FN=7 (6 Coursemology + 1 websocket-ruby).
+///
+/// FN=6 Coursemology: same case-sensitive directive issue as 2026-03-25.
+///
+/// FN=1 websocket-ruby: `keys += super` in compound assignment was not counting
+/// `super`/`zsuper` as an extra assignment. In RuboCop's Parser AST, `SuperNode`,
+/// `ForwardingSuperNode`, and `YieldNode` include `MethodDispatchNode`, so they
+/// respond to `setter_method?` (returning false). RuboCop's `compound_assignment`
+/// counts all children that `respond_to?(:setter_method?) && !setter_method?` as
+/// extra A+1. In Prism these are separate node types (not CallNode), so
+/// `value_compound_extra` didn't catch them. Fix: added checks for
+/// `ForwardingSuperNode`, `SuperNode`, and `YieldNode` in `value_compound_extra`.
 pub struct AbcSize;
 
 /// Known iterating method names that make blocks count toward conditions.
@@ -504,6 +519,17 @@ impl AbcCounter {
             if !is_setter_method(call.name().as_slice()) {
                 return 1;
             }
+        }
+        // In RuboCop's Parser AST, SuperNode, ForwardingSuperNode, and YieldNode
+        // include MethodDispatchNode, so they respond to `setter_method?` (returning
+        // false). This means compound_assignment counts them as extra assignments
+        // just like non-setter sends. In Prism these are separate node types, not
+        // CallNodes, so we must check for them explicitly.
+        if v.as_forwarding_super_node().is_some()
+            || v.as_super_node().is_some()
+            || v.as_yield_node().is_some()
+        {
+            return 1;
         }
         0
     }
