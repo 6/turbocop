@@ -193,7 +193,7 @@ python3 scripts/ci-agents.py tiers
 - The task prompt contains all context the agent needs
 - `workflow_dispatch` requires write access — safe on public repos
 - Retries auto-close stale PRs and include prior attempt context
-- `agent-cop-fix` now supports `backend=auto`; simple issue-backed fixes use `gpt-5.3-codex`, while harder fixes and repairs use `gpt-5.4`
+- `agent-cop-fix` now supports `backend=auto`; all codex-backed fixes use `gpt-5.4` (normal=high effort, hard=xhigh effort)
 - `claude` and `minimax` manual overrides still exist for experiments, but do not use them as the default recommendation
 - Tracker issues should be created by the GitHub App (`6[bot]`), not manually
 - Monitor ChatGPT usage at chatgpt.com/codex/settings/usage — dispatch in small batches

@@ -3,9 +3,9 @@
 Automated system for fixing corpus conformance gaps by dispatching Codex agents to fix one cop at a time. The current flow is issue-backed: sync one tracker issue per diverging cop from the corpus, then fill a bounded queue of those issues into `agent-cop-fix`. Each cop runs in a GitHub Actions runner with Codex CLI, which edits the code, validates with `cargo test`, and opens a PR.
 
 The recommended workflow is Codex-first:
-- `gpt-5.3-codex` with `high` for `difficulty:simple` initial cop-fix issues
-- `gpt-5.4` with `xhigh` for `difficulty:medium|complex`, retries, and PR repairs
-- Legacy manual overrides for `claude` and `minimax` still exist, but are not recommended.
+- `gpt-5.4` with `high` effort for `difficulty:simple` initial cop-fix issues
+- `gpt-5.4` with `xhigh` effort for `difficulty:medium|complex`, retries, and PR repairs
+- Manual overrides for `claude` and `minimax` still exist for experiments.
 
 ## Architecture
 
@@ -19,7 +19,7 @@ GitHub Actions (agent-cop-fix.yml)
   │  1. Checkout repo + build Rust (cached, ~1 min)
   │  2. dispatch_cops.py task → self-contained task prompt
   │  3. codex exec --dangerously-bypass-approvals-and-sandbox
-  │     → auto-routed to gpt-5.3-codex or gpt-5.4
+  │     → auto-routed to gpt-5.4 (high or xhigh effort)
   │  4. cargo test --lib → validate the fix compiles + tests pass
   │  5. Commit, push branch, open PR
   ▼
