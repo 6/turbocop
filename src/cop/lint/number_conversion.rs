@@ -1,4 +1,6 @@
-use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, RATIONAL_NODE};
+use crate::cop::node_type::{
+    CALL_NODE, CALL_OR_WRITE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, RATIONAL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -54,6 +56,18 @@ use crate::parse::source::SourceFile;
 /// `is_ignored_class` function compared the full source text `::Time` against
 /// IgnoredClasses `["Time", "DateTime"]` — the `::` prefix prevented matching.
 /// Fix: strip leading `::` before comparing against IgnoredClasses.
+///
+/// ## Corpus investigation (2026-03-28)
+///
+/// Corpus oracle reported FP=0, FN=6.
+///
+/// FN=4: `receiver.to_i ||= fallback` forms were missed because Prism collapses
+/// the read side into `CallOrWriteNode` instead of exposing a nested `CallNode`
+/// for `to_i`. RuboCop still sees the inner `send` and flags it, so nitrocop
+/// must treat `CallOrWriteNode#read_name` like a direct conversion call.
+///
+/// Fix: subscribe to `CALL_OR_WRITE_NODE` and run the same receiver checks and
+/// message construction against the node's receiver/read_name pair.
 pub struct NumberConversion;
 
 const CONVERSION_METHODS: &[(&[u8], &str)] = &[
@@ -82,6 +96,7 @@ impl Cop for NumberConversion {
     fn interested_node_types(&self) -> &'static [u8] {
         &[
             CALL_NODE,
+            CALL_OR_WRITE_NODE,
             FLOAT_NODE,
             IMAGINARY_NODE,
             INTEGER_NODE,
@@ -100,7 +115,28 @@ impl Cop for NumberConversion {
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return,
+            None => {
+                let Some(call) = node.as_call_or_write_node() else {
+                    return;
+                };
+
+                let method_name = call.read_name().as_slice();
+                if let Some(conversion) = CONVERSION_METHODS.iter().find(|(m, _)| *m == method_name)
+                {
+                    let Some(receiver) = call.receiver() else {
+                        return;
+                    };
+                    self.handle_direct_conversion_like(
+                        source,
+                        node,
+                        &receiver,
+                        conversion,
+                        config,
+                        diagnostics,
+                    );
+                }
+                return;
+            }
         };
 
         let method_name = call.name().as_slice();
@@ -138,6 +174,25 @@ impl NumberConversion {
             return;
         }
 
+        self.handle_direct_conversion_like(
+            source,
+            node,
+            &receiver,
+            conversion,
+            config,
+            diagnostics,
+        );
+    }
+
+    fn handle_direct_conversion_like(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        receiver: &ruby_prism::Node<'_>,
+        conversion: &(&[u8], &str),
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Skip if receiver is numeric (already a number)
         if receiver.as_integer_node().is_some()
             || receiver.as_float_node().is_some()
@@ -150,15 +205,20 @@ impl NumberConversion {
         // Skip if receiver itself is a conversion method or Kernel conversion
         if let Some(recv_call) = receiver.as_call_node() {
             let recv_method = recv_call.name().as_slice();
-            if CONVERSION_METHODS.iter().any(|(m, _)| *m == recv_method) {
-                return;
-            }
-            if KERNEL_CONVERSION_METHODS.contains(&recv_method) {
-                return;
-            }
-            // Skip allowed methods from config
-            if self.is_allowed_method(recv_method, config) {
-                return;
+            // RuboCop's `receiver.send_type?` excludes `csend`, so safe-navigation
+            // receivers like `foo&.second.to_f` must still be flagged even when
+            // `second` appears in AllowedMethods (e.g. from rubocop-rails).
+            if !is_safe_navigation_call(&recv_call) {
+                if CONVERSION_METHODS.iter().any(|(m, _)| *m == recv_method) {
+                    return;
+                }
+                if KERNEL_CONVERSION_METHODS.contains(&recv_method) {
+                    return;
+                }
+                // Skip allowed methods from config
+                if self.is_allowed_method(recv_method, config) {
+                    return;
+                }
             }
         }
 
@@ -317,8 +377,52 @@ fn node_source<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> &'a s
     source.byte_slice(loc.start_offset(), loc.end_offset(), "...")
 }
 
+fn is_safe_navigation_call(call: &ruby_prism::CallNode<'_>) -> bool {
+    call.call_operator_loc()
+        .is_some_and(|loc| loc.as_slice() == b"&.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    use serde_yml::Value;
+
+    fn config_with_allowed_methods(methods: &[&str]) -> CopConfig {
+        CopConfig {
+            options: HashMap::from([(
+                "AllowedMethods".to_string(),
+                Value::Sequence(
+                    methods
+                        .iter()
+                        .map(|method| Value::String((*method).to_string()))
+                        .collect(),
+                ),
+            )]),
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn allowed_method_receiver_skips_regular_send() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &NumberConversion,
+            b"10.seconds.to_i\n",
+            config_with_allowed_methods(&["second", "seconds"]),
+        );
+    }
+
+    #[test]
+    fn allowed_method_receiver_does_not_skip_safe_navigation_send() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &NumberConversion,
+            br#"f = flow_data[i]&.second.to_f
+    ^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `flow_data[i]&.second.to_f`, use stricter `Float(flow_data[i]&.second)`.
+"#,
+            config_with_allowed_methods(&["second", "seconds"]),
+        );
+    }
+
     crate::cop_fixture_tests!(NumberConversion, "cops/lint/number_conversion");
 }
