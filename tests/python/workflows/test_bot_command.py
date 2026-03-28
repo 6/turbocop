@@ -17,49 +17,41 @@ sys.modules["bot_command"] = bot_command
 SPEC.loader.exec_module(bot_command)
 
 
-def test_parse_force_and_context_extracts_force_flag() -> None:
-    force, context = bot_command.parse_force_and_context("--force retry after corpus check")
-    assert force is True
-    assert context == "retry after corpus check"
-
-
-def test_route_payload_maps_repair_command() -> None:
+def test_route_payload_maps_pr_mention_to_repair() -> None:
     routed = bot_command.route_payload(
         {
             "source_repo": "6/nitrocop",
+            "trigger_kind": "mention",
             "subject_kind": "pull_request",
             "issue_number": 42,
-            "command": "/6bot repair",
-            "command_args": "--force rerun after latest push",
             "pr_number": 42,
-            "comment_id": 99,
             "requested_by": "6",
             "requested_by_association": "OWNER",
-            "comment_url": "https://github.com/6/nitrocop/pull/42#issuecomment-99",
+            "request_url": "https://github.com/6/nitrocop/pull/42#issuecomment-99",
+            "prompt_text": "Please retry with narrower changes.",
         },
         repo="6/nitrocop",
     )
 
     assert routed.action == "repair_pr"
-    assert routed.force is True
-    assert routed.extra_context == "rerun after latest push"
+    assert routed.trigger_kind == "mention"
+    assert routed.prompt_text == "Please retry with narrower changes."
     assert routed.pr_number == 42
     assert routed.issue_number == 42
 
 
-def test_route_payload_maps_fix_issue_command() -> None:
+def test_route_payload_maps_issue_mention_to_fix() -> None:
     routed = bot_command.route_payload(
         {
             "source_repo": "6/nitrocop",
+            "trigger_kind": "mention",
             "subject_kind": "issue",
             "issue_number": 17,
-            "command": "/6bot fix",
-            "command_args": "please prioritize the corpus FN examples",
             "pr_number": None,
-            "comment_id": 99,
             "requested_by": "6",
             "requested_by_association": "OWNER",
-            "comment_url": "https://github.com/6/nitrocop/issues/17#issuecomment-99",
+            "request_url": "https://github.com/6/nitrocop/issues/17#issuecomment-99",
+            "prompt_text": "please prioritize the corpus FN examples",
         },
         repo="6/nitrocop",
     )
@@ -67,28 +59,35 @@ def test_route_payload_maps_fix_issue_command() -> None:
     assert routed.action == "fix_issue"
     assert routed.pr_number is None
     assert routed.issue_number == 17
-    assert routed.extra_context == "please prioritize the corpus FN examples"
+    assert routed.prompt_text == "please prioritize the corpus FN examples"
 
 
-def test_route_payload_rejects_fix_on_pr_comments() -> None:
+def test_route_payload_maps_issue_assignment_to_fix() -> None:
     routed = bot_command.route_payload(
         {
             "source_repo": "6/nitrocop",
-            "subject_kind": "pull_request",
-            "issue_number": 42,
-            "command": "/6bot fix",
-            "command_args": "",
-            "pr_number": 42,
-            "comment_id": 99,
+            "trigger_kind": "assignment",
+            "subject_kind": "issue",
+            "issue_number": 17,
+            "pr_number": None,
             "requested_by": "6",
             "requested_by_association": "OWNER",
-            "comment_url": "https://github.com/6/nitrocop/pull/42#issuecomment-99",
+            "request_url": "https://github.com/6/nitrocop/issues/17",
+            "issue_title": "[cop] Style/FooBar",
+            "issue_body": "Please focus on the edge cases.\n<!-- nitrocop-cop-tracker: cop=Style/FooBar -->",
         },
         repo="6/nitrocop",
     )
 
-    assert routed.action == "comment_only"
-    assert "cop tracker issue comments" in routed.reason
+    assert routed.action == "fix_issue"
+    assert routed.trigger_kind == "assignment"
+    assert routed.trigger_summary == "issue assignment to @6"
+    assert routed.prompt_text == (
+        "## Tracker Issue Title\n"
+        "[cop] Style/FooBar\n\n"
+        "## Tracker Issue Body\n"
+        "Please focus on the edge cases."
+    )
 
 
 def test_choose_failed_checks_run_prefers_failed_current_head() -> None:
@@ -124,3 +123,17 @@ def test_extract_cop_from_issue_prefers_tracker_marker() -> None:
         }
     )
     assert cop == "Style/Foo"
+
+
+def test_build_issue_assignment_prompt_strips_tracker_marker() -> None:
+    prompt = bot_command.build_issue_assignment_prompt(
+        "[cop] Style/Foo",
+        "<!-- nitrocop-cop-tracker: cop=Style/Foo -->\nPlease use the issue text as the prompt.",
+    )
+
+    assert prompt == (
+        "## Tracker Issue Title\n"
+        "[cop] Style/Foo\n\n"
+        "## Tracker Issue Body\n"
+        "Please use the issue text as the prompt."
+    )

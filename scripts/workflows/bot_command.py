@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
-"""Route GitHub App bot commands into nitrocop workflows."""
+"""Route GitHub App bot triggers into nitrocop workflows."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import re
-import shlex
 import subprocess
 from dataclasses import dataclass
 
-REPAIR_COMMAND = "/6bot repair"
-FIX_COMMAND = "/6bot fix"
 CHECKS_WORKFLOW_FILE = "checks.yml"
 FAILED_CONCLUSIONS = {"failure", "cancelled", "timed_out", "action_required", "startup_failure"}
 COP_TRACKER_RE = re.compile(r"<!--\s*nitrocop-cop-tracker:\s*(.*?)\s*-->")
 ISSUE_TITLE_PREFIX = "[cop] "
+MENTION_TRIGGER = "mention"
+ASSIGNMENT_TRIGGER = "assignment"
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -30,6 +29,13 @@ def _output(key: str, value: str) -> None:
     print(f"{key}={value}")
 
 
+def _output_multiline(key: str, value: str) -> None:
+    delim = "MULTILINE_EOF_9b37"
+    print(f"{key}<<{delim}")
+    print(value, end="" if value.endswith("\n") else "\n")
+    print(delim)
+
+
 def _sanitize_output(value: object) -> str:
     return str(value).replace("\n", " ").replace("\r", " ").strip()
 
@@ -37,36 +43,16 @@ def _sanitize_output(value: object) -> str:
 @dataclass(frozen=True)
 class RoutedCommand:
     action: str
-    command: str
+    trigger_kind: str
     subject_kind: str
     issue_number: int
     pr_number: int | None
-    comment_id: int
     requested_by: str
     requested_by_association: str
-    comment_url: str
-    force: bool
-    extra_context: str
+    request_url: str
+    prompt_text: str
+    trigger_summary: str
     reason: str = ""
-
-
-def parse_force_and_context(args_text: str) -> tuple[bool, str]:
-    if not args_text.strip():
-        return False, ""
-
-    try:
-        tokens = shlex.split(args_text)
-    except ValueError:
-        tokens = args_text.split()
-
-    force = False
-    remaining: list[str] = []
-    for token in tokens:
-        if token == "--force":
-            force = True
-            continue
-        remaining.append(token)
-    return force, " ".join(remaining).strip()
 
 
 def parse_marker_fields(body: str, pattern: re.Pattern[str]) -> dict[str, str]:
@@ -93,6 +79,24 @@ def extract_cop_from_issue(issue: dict) -> str | None:
     return None
 
 
+def build_issue_assignment_prompt(issue_title: str, issue_body: str) -> str:
+    cleaned_body = COP_TRACKER_RE.sub("", issue_body or "").strip()
+    parts: list[str] = []
+
+    title = issue_title.strip()
+    if title:
+        parts.append("## Tracker Issue Title")
+        parts.append(title)
+
+    if cleaned_body:
+        if parts:
+            parts.append("")
+        parts.append("## Tracker Issue Body")
+        parts.append(cleaned_body)
+
+    return "\n".join(parts).strip()
+
+
 def route_payload(payload: dict, *, repo: str) -> RoutedCommand:
     source_repo = str(payload.get("source_repo", "")).strip()
     if not source_repo:
@@ -100,92 +104,96 @@ def route_payload(payload: dict, *, repo: str) -> RoutedCommand:
     if source_repo != repo:
         raise ValueError(f"payload.source_repo {source_repo} does not match {repo}")
 
-    command = str(payload.get("command", "")).strip()
-    if not command:
-        raise ValueError("payload.command is required")
-
+    trigger_kind = str(payload.get("trigger_kind", "")).strip()
     subject_kind = str(payload.get("subject_kind", "")).strip()
     issue_number = payload.get("issue_number")
     pr_number = payload.get("pr_number")
-    comment_id = payload.get("comment_id")
     requested_by = str(payload.get("requested_by", "")).strip()
     association = str(payload.get("requested_by_association", "")).strip()
-    comment_url = str(payload.get("comment_url", "")).strip()
-    args_text = str(payload.get("command_args", "")).strip()
+    request_url = str(payload.get("request_url", "")).strip()
+    prompt_text = str(payload.get("prompt_text", ""))
+    issue_title = str(payload.get("issue_title", "")).strip()
+    issue_body = str(payload.get("issue_body", ""))
 
+    if trigger_kind not in {MENTION_TRIGGER, ASSIGNMENT_TRIGGER}:
+        raise ValueError("payload.trigger_kind must be mention or assignment")
     if subject_kind not in {"issue", "pull_request"}:
         raise ValueError("payload.subject_kind must be issue or pull_request")
     if not isinstance(issue_number, int):
         raise ValueError("payload.issue_number must be an integer")
     if pr_number is not None and not isinstance(pr_number, int):
         raise ValueError("payload.pr_number must be an integer when present")
-    if not isinstance(comment_id, int):
-        raise ValueError("payload.comment_id must be an integer")
     if not requested_by:
         raise ValueError("payload.requested_by is required")
 
-    if command == REPAIR_COMMAND:
-        if subject_kind != "pull_request" or pr_number is None:
-            return RoutedCommand(
-                action="comment_only",
-                command=command,
-                subject_kind=subject_kind,
-                issue_number=issue_number,
-                pr_number=pr_number,
-                comment_id=comment_id,
-                requested_by=requested_by,
-                requested_by_association=association,
-                comment_url=comment_url,
-                force=False,
-                extra_context="",
-                reason="`/6bot repair` only works on pull request comments.",
-            )
-        force, extra_context = parse_force_and_context(args_text)
-        return RoutedCommand(
-            action="repair_pr",
-            command=command,
-            subject_kind=subject_kind,
-            issue_number=issue_number,
-            pr_number=pr_number,
-            comment_id=comment_id,
-            requested_by=requested_by,
-            requested_by_association=association,
-            comment_url=comment_url,
-            force=force,
-            extra_context=extra_context,
-        )
-
-    if command == FIX_COMMAND:
+    if trigger_kind == ASSIGNMENT_TRIGGER:
         if subject_kind != "issue":
             return RoutedCommand(
                 action="comment_only",
-                command=command,
+                trigger_kind=trigger_kind,
                 subject_kind=subject_kind,
                 issue_number=issue_number,
                 pr_number=pr_number,
-                comment_id=comment_id,
                 requested_by=requested_by,
                 requested_by_association=association,
-                comment_url=comment_url,
-                force=False,
-                extra_context="",
-                reason="`/6bot fix` is only wired for cop tracker issue comments in nitrocop.",
+                request_url=request_url,
+                prompt_text="",
+                trigger_summary="issue assignment to @6",
+                reason="Assigning @6 only works on cop tracker issues.",
             )
         return RoutedCommand(
             action="fix_issue",
-            command=command,
-            subject_kind=subject_kind,
+            trigger_kind=trigger_kind,
+            subject_kind="issue",
             issue_number=issue_number,
             pr_number=None,
-            comment_id=comment_id,
             requested_by=requested_by,
             requested_by_association=association,
-            comment_url=comment_url,
-            force=False,
-            extra_context=args_text,
+            request_url=request_url,
+            prompt_text=build_issue_assignment_prompt(issue_title, issue_body),
+            trigger_summary="issue assignment to @6",
         )
 
-    raise ValueError(f"unsupported command: {command}")
+    if subject_kind == "pull_request":
+        if pr_number is None:
+            return RoutedCommand(
+                action="comment_only",
+                trigger_kind=trigger_kind,
+                subject_kind=subject_kind,
+                issue_number=issue_number,
+                pr_number=pr_number,
+                requested_by=requested_by,
+                requested_by_association=association,
+                request_url=request_url,
+                prompt_text=prompt_text,
+                trigger_summary="@6 mention",
+                reason="The @6 trigger only works on pull request comments or issue tracker items.",
+            )
+        return RoutedCommand(
+            action="repair_pr",
+            trigger_kind=trigger_kind,
+            subject_kind="pull_request",
+            issue_number=issue_number,
+            pr_number=pr_number,
+            requested_by=requested_by,
+            requested_by_association=association,
+            request_url=request_url,
+            prompt_text=prompt_text.strip(),
+            trigger_summary="@6 mention",
+        )
+
+    return RoutedCommand(
+        action="fix_issue",
+        trigger_kind=trigger_kind,
+        subject_kind="issue",
+        issue_number=issue_number,
+        pr_number=None,
+        requested_by=requested_by,
+        requested_by_association=association,
+        request_url=request_url,
+        prompt_text=prompt_text.strip(),
+        trigger_summary="@6 mention",
+    )
 
 
 def choose_failed_checks_run(runs: list[dict], *, head_sha: str) -> tuple[dict | None, str]:
@@ -241,22 +249,21 @@ def cmd_route(args: argparse.Namespace) -> int:
     payload = json.loads(args.payload_json)
     routed = route_payload(payload, repo=args.repo)
 
-    outputs = {
+    single_line_outputs = {
         "action": routed.action,
-        "command": routed.command,
+        "trigger_kind": routed.trigger_kind,
         "subject_kind": routed.subject_kind,
         "issue_number": str(routed.issue_number),
         "pr_number": str(routed.pr_number or ""),
-        "comment_id": str(routed.comment_id),
         "requested_by": routed.requested_by,
         "requested_by_association": routed.requested_by_association,
-        "comment_url": routed.comment_url,
-        "force": "true" if routed.force else "false",
-        "extra_context": routed.extra_context,
+        "request_url": routed.request_url,
+        "trigger_summary": routed.trigger_summary,
         "reason": routed.reason,
     }
-    for key, value in outputs.items():
+    for key, value in single_line_outputs.items():
         _output(key, _sanitize_output(value))
+    _output_multiline("prompt_text", routed.prompt_text)
     return 0
 
 

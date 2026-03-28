@@ -158,7 +158,7 @@ def test_bot_command_workflow_dispatches_local_pr_repair() -> None:
     workflow = BOT_COMMAND_WORKFLOW.read_text()
     helper = BOT_COMMAND.read_text()
 
-    assert 'name: Bot Command' in workflow
+    assert 'name: Bot Trigger' in workflow
     assert "workflow_dispatch:" in workflow
     assert "python3 scripts/workflows/bot_command.py route" in workflow
     assert "python3 scripts/workflows/bot_command.py resolve-repair" in workflow
@@ -167,15 +167,15 @@ def test_bot_command_workflow_dispatches_local_pr_repair() -> None:
     assert 'actions/workflows/agent-cop-fix.yml/dispatches' in workflow
     assert "## Bot repair not started" in workflow
     assert "## Bot fix not started" in workflow
-    assert "## Bot command not started" in workflow
+    assert "## Bot request not started" in workflow
     assert "Requested by @" in workflow
-
-    assert 'REPAIR_COMMAND = "/6bot repair"' in helper
-    assert 'FIX_COMMAND = "/6bot fix"' in helper
-    assert 'CHECKS_WORKFLOW_FILE = "checks.yml"' in helper
-    assert 'subject_kind' in helper
-    assert 'COP_TRACKER_RE' in helper
-    assert 'repos/{repo}/actions/workflows/{CHECKS_WORKFLOW_FILE}/runs' in helper
+    assert "Trigger URL:" in workflow
+    assert 'force": "false"' in workflow
+    assert "issue assignment to @6" in helper
+    assert 'MENTION_TRIGGER = "mention"' in helper
+    assert 'ASSIGNMENT_TRIGGER = "assignment"' in helper
+    assert "build_issue_assignment_prompt" in helper
+    assert 'payload.trigger_kind must be mention or assignment' in helper
     assert 'Checks is not currently failing for the current PR head' in helper
     assert 'source_repo input must match the target repository' in workflow
 

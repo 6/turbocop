@@ -1,5 +1,5 @@
-name: Bot Command
-run-name: bot-command ${{ inputs.request_id }}
+name: Bot Trigger
+run-name: bot-trigger ${{ inputs.request_id }}
 
 permissions:
   actions: write
@@ -24,7 +24,7 @@ on:
         type: string
 
 concurrency:
-  group: bot-command-${{ inputs.request_id }}
+  group: bot-trigger-${{ inputs.request_id }}
   cancel-in-progress: false
 
 jobs:
@@ -36,7 +36,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Resolve bot command
+      - name: Resolve bot trigger
         id: command
         env:
           INPUT_PAYLOAD: ${{ inputs.payload }}
@@ -50,36 +50,42 @@ jobs:
             --payload-json "$INPUT_PAYLOAD" \
             >> "$GITHUB_OUTPUT"
 
-      - name: Comment unsupported command
+      - name: Comment unsupported pull request trigger
         if: steps.command.outputs.action == 'comment_only' && steps.command.outputs.subject_kind == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           BODY_FILE="$RUNNER_TEMP/bot-command-not-started.md"
           cat > "$BODY_FILE" <<EOF
-          ## Bot command not started
+          ## Bot request not started
 
           - Reason: ${{ steps.command.outputs.reason }}
           - Requested by: @${{ steps.command.outputs.requested_by }}
-          - Comment: ${{ steps.command.outputs.comment_url }}
+          - Trigger: ${{ steps.command.outputs.trigger_summary }}
           EOF
+          if [ -n "${{ steps.command.outputs.request_url }}" ]; then
+            echo "- Request: ${{ steps.command.outputs.request_url }}" >> "$BODY_FILE"
+          fi
           gh pr comment "${{ steps.command.outputs.pr_number }}" \
             --repo "${{ github.repository }}" \
             --body-file "$BODY_FILE"
 
-      - name: Comment unsupported issue command
+      - name: Comment unsupported issue trigger
         if: steps.command.outputs.action == 'comment_only' && steps.command.outputs.subject_kind == 'issue'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           BODY_FILE="$RUNNER_TEMP/bot-command-not-started.md"
           cat > "$BODY_FILE" <<EOF
-          ## Bot command not started
+          ## Bot request not started
 
           - Reason: ${{ steps.command.outputs.reason }}
           - Requested by: @${{ steps.command.outputs.requested_by }}
-          - Comment: ${{ steps.command.outputs.comment_url }}
+          - Trigger: ${{ steps.command.outputs.trigger_summary }}
           EOF
+          if [ -n "${{ steps.command.outputs.request_url }}" ]; then
+            echo "- Request: ${{ steps.command.outputs.request_url }}" >> "$BODY_FILE"
+          fi
           gh issue comment "${{ steps.command.outputs.issue_number }}" \
             --repo "${{ github.repository }}" \
             --body-file "$BODY_FILE"
@@ -117,8 +123,11 @@ jobs:
 
           - Reason: ${{ steps.repair.outputs.reason }}
           - Requested by: @${{ steps.command.outputs.requested_by }}
-          - Comment: ${{ steps.command.outputs.comment_url }}
+          - Trigger: ${{ steps.command.outputs.trigger_summary }}
           EOF
+          if [ -n "${{ steps.command.outputs.request_url }}" ]; then
+            echo "- Request: ${{ steps.command.outputs.request_url }}" >> "$BODY_FILE"
+          fi
           gh pr comment "${{ steps.command.outputs.pr_number }}" \
             --repo "${{ github.repository }}" \
             --body-file "$BODY_FILE"
@@ -134,8 +143,11 @@ jobs:
 
           - Reason: ${{ steps.fix.outputs.reason }}
           - Requested by: @${{ steps.command.outputs.requested_by }}
-          - Comment: ${{ steps.command.outputs.comment_url }}
+          - Trigger: ${{ steps.command.outputs.trigger_summary }}
           EOF
+          if [ -n "${{ steps.command.outputs.request_url }}" ]; then
+            echo "- Request: ${{ steps.command.outputs.request_url }}" >> "$BODY_FILE"
+          fi
           gh issue comment "${{ steps.command.outputs.issue_number }}" \
             --repo "${{ github.repository }}" \
             --body-file "$BODY_FILE"
@@ -147,9 +159,9 @@ jobs:
           PR_NUMBER: ${{ steps.command.outputs.pr_number }}
           CHECKS_RUN_ID: ${{ steps.repair.outputs.checks_run_id }}
           REQUESTED_BY: ${{ steps.command.outputs.requested_by }}
-          COMMENT_URL: ${{ steps.command.outputs.comment_url }}
-          COMMAND_ARGS: ${{ steps.command.outputs.extra_context }}
-          FORCE_REPAIR: ${{ steps.command.outputs.force }}
+          REQUEST_URL: ${{ steps.command.outputs.request_url }}
+          PROMPT_TEXT: ${{ steps.command.outputs.prompt_text }}
+          TRIGGER_SUMMARY: ${{ steps.command.outputs.trigger_summary }}
         run: |
           PAYLOAD_FILE="$RUNNER_TEMP/agent-pr-repair-dispatch.json"
           python3 - <<'PY' > "$PAYLOAD_FILE"
@@ -157,16 +169,18 @@ jobs:
           import os
 
           requested_by = os.environ["REQUESTED_BY"]
-          comment_url = os.environ["COMMENT_URL"]
-          command_args = os.environ["COMMAND_ARGS"].strip()
+          request_url = os.environ["REQUEST_URL"].strip()
+          prompt_text = os.environ["PROMPT_TEXT"].strip()
+          trigger_summary = os.environ["TRIGGER_SUMMARY"]
 
           extra_lines = [
-              f"Requested by @{requested_by} via /6bot repair.",
-              f"Command comment: {comment_url}",
+              f"Requested by @{requested_by} via {trigger_summary}.",
           ]
-          if command_args:
+          if request_url:
+              extra_lines.append(f"Trigger URL: {request_url}")
+          if prompt_text:
               extra_lines.append("")
-              extra_lines.append(f"Additional command context: {command_args}")
+              extra_lines.append(prompt_text)
 
           payload = {
               "ref": "main",
@@ -176,7 +190,7 @@ jobs:
                   "backend": "auto",
                   "strength": "auto",
                   "extra_context": "\n".join(extra_lines),
-                  "force": os.environ["FORCE_REPAIR"],
+                  "force": "false",
               },
           }
           print(json.dumps(payload))
@@ -192,8 +206,9 @@ jobs:
           COP: ${{ steps.fix.outputs.cop }}
           ISSUE_NUMBER: ${{ steps.command.outputs.issue_number }}
           REQUESTED_BY: ${{ steps.command.outputs.requested_by }}
-          COMMENT_URL: ${{ steps.command.outputs.comment_url }}
-          COMMAND_ARGS: ${{ steps.command.outputs.extra_context }}
+          REQUEST_URL: ${{ steps.command.outputs.request_url }}
+          PROMPT_TEXT: ${{ steps.command.outputs.prompt_text }}
+          TRIGGER_SUMMARY: ${{ steps.command.outputs.trigger_summary }}
         run: |
           PAYLOAD_FILE="$RUNNER_TEMP/agent-cop-fix-dispatch.json"
           python3 - <<'PY' > "$PAYLOAD_FILE"
@@ -201,16 +216,18 @@ jobs:
           import os
 
           requested_by = os.environ["REQUESTED_BY"]
-          comment_url = os.environ["COMMENT_URL"]
-          command_args = os.environ["COMMAND_ARGS"].strip()
+          request_url = os.environ["REQUEST_URL"].strip()
+          prompt_text = os.environ["PROMPT_TEXT"].strip()
+          trigger_summary = os.environ["TRIGGER_SUMMARY"]
 
           extra_lines = [
-              f"Requested by @{requested_by} via /6bot fix.",
-              f"Command comment: {comment_url}",
+              f"Requested by @{requested_by} via {trigger_summary}.",
           ]
-          if command_args:
+          if request_url:
+              extra_lines.append(f"Trigger URL: {request_url}")
+          if prompt_text:
               extra_lines.append("")
-              extra_lines.append(f"Additional command context: {command_args}")
+              extra_lines.append(prompt_text)
 
           payload = {
               "ref": "main",
