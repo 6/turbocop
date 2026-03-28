@@ -72,7 +72,7 @@ Show a table of actions taken:
 ## Rules
 
 - Only review PRs with the `type:cop-fix` label
-- Skip draft PRs entirely
+- Agent PRs start as drafts, then the workflow marks them ready after the agent finishes. A draft PR with all CI checks passing is ready for review. Only skip draft PRs that have no checks or pending/failing checks — those are still being worked on.
 - Skip PRs with failing or pending CI checks — only review PRs where all checks have passed
 - PRs with `validation-failed` label: close with comment explaining why
 - PRs with merge conflicts: close with comment, agent can retry on fresh main
