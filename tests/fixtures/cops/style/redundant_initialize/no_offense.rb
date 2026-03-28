@@ -108,6 +108,25 @@ end
 # Single-line def with inline comment after end — not redundant (loofah pattern)
 def initialize; end # rubocop:disable Lint/MissingSuper
 
+# Comment-only initialize as the ONLY child in a class — not redundant (AllowComments: true)
+class OnlyChild
+  def initialize
+    # comment
+  end
+end
+
+# Comment-only initialize with right sibling — not redundant (comments found via sibling range)
+class WithSibling
+  include Something
+
+  def initialize
+    # comment
+  end
+
+  def other_method
+  end
+end
+
 # super(args) with trailing blank lines (twilio-ruby pattern)
 class Resource
   # @param [Version] version Version that contains the resource
