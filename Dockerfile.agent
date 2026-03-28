@@ -29,9 +29,10 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Node.js LTS (required by GitHub Actions JS-based actions) ---
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+ARG NODE_VERSION=22.14.0
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+      | tar xJ --strip-components=1 -C /usr/local \
+    && node --version && npm --version
 
 # --- Rust (via rustup) ---
 ENV RUSTUP_HOME=/usr/local/rustup \
