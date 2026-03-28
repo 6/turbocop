@@ -1,4 +1,4 @@
-use crate::cop::node_type::{CALL_NODE, STRING_NODE};
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -6,12 +6,17 @@ use std::path::Path;
 
 /// Detects `require_relative` calls that require the file itself.
 ///
-/// ## FP fix (2026-03-24): non-.rb file extensions
-/// Ruby's `require_relative` only appends `.rb` when no extension is given.
-/// So `require_relative './bin'` in `bin.rake` loads `bin.rb`, not `bin.rake`.
-/// The fix skips flagging when the current file is not `.rb` and the required
-/// path has no explicit extension — those cannot be self-requires.
-/// This resolved 11 FPs (6 from wxRuby3 .rake files, 1 from jubilee .ru, etc.).
+/// ## Investigation (2026-03-28): RuboCop compares raw strings, not resolved paths
+/// Corpus had 4 false positives (`./rspec`, `utils.rb`, `./create_fuzzer_dlg`,
+/// `router.rb`) and 3 false negatives (`changelog.rake`, `mutex_m.gemspec`,
+/// `rexml.gemspec`) after a previous heuristic tried to model how
+/// `require_relative` resolves file extensions.
+///
+/// RuboCop's actual cop is much narrower: it flags only when the string argument
+/// matches the processed file path string exactly, or matches the current file's
+/// basename without extension. Mirroring that string comparison removes the FP
+/// cases that only share a basename while restoring the `.rake` and `.gemspec`
+/// offenses that RuboCop still reports.
 pub struct RequireRelativeSelfPath;
 
 impl Cop for RequireRelativeSelfPath {
@@ -24,7 +29,7 @@ impl Cop for RequireRelativeSelfPath {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, STRING_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -73,52 +78,13 @@ impl Cop for RequireRelativeSelfPath {
             Err(_) => return,
         };
 
-        // Get the current file's basename without extension
         let file_path = Path::new(source.path_str());
-        let file_stem = match file_path.file_stem() {
-            Some(s) => s.to_str().unwrap_or(""),
+        let file_stem = match file_path.file_stem().and_then(|s| s.to_str()) {
+            Some(stem) => stem,
             None => return,
         };
 
-        // The required path's filename (last component)
-        let required_path_obj = Path::new(required_str);
-        let required_stem = match required_path_obj.file_stem() {
-            Some(s) => s.to_str().unwrap_or(""),
-            None => return,
-        };
-
-        // Check if the extension (if any) is `.rb` or absent
-        let required_ext = required_path_obj
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-
-        if !required_ext.is_empty() && required_ext != "rb" {
-            return;
-        }
-
-        // Ruby's require_relative only appends `.rb` when the path has no extension.
-        // If the current file is not `.rb` (e.g., `.rake`, `.ru`), then
-        // `require_relative 'same_name'` resolves to `same_name.rb`, not the
-        // current file — so it is NOT a self-require.
-        // Only flag non-.rb files if the required path has an explicit `.rb` extension
-        // that happens to match the full filename (e.g., `foo.rake` requiring `foo.rake`
-        // — though this is extremely unlikely in practice).
-        let file_ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if file_ext != "rb" && required_ext.is_empty() {
-            return;
-        }
-
-        // Check if it's requiring itself (same directory, same name)
-        // Only flag if the required path has no directory component or its directory
-        // resolves to the same file
-        let required_parent = required_path_obj.parent();
-        let is_same_dir = match required_parent {
-            None => true,
-            Some(p) => p.as_os_str().is_empty() || p.as_os_str() == ".",
-        };
-
-        if is_same_dir && required_stem == file_stem {
+        if source.path_str() == required_str || file_stem == required_str {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(
@@ -134,31 +100,66 @@ impl Cop for RequireRelativeSelfPath {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(
+    crate::cop_scenario_fixture_tests!(
         RequireRelativeSelfPath,
-        "cops/lint/require_relative_self_path"
+        "cops/lint/require_relative_self_path",
+        same_basename = "same_basename.rb",
+        same_basename_with_ext = "same_basename_with_ext.rb",
+        rake_same_basename = "rake_same_basename.rb",
+        mutex_m_gemspec_rescue = "mutex_m_gemspec_rescue.rb",
+        rexml_gemspec_rescue = "rexml_gemspec_rescue.rb",
     );
 
     #[test]
-    fn no_offense_rake_file_same_basename() {
-        // .rake file requiring same basename — resolves to .rb, not self
-        let source = b"require_relative './bin'\nrequire_relative 'bin'\n";
+    fn no_offense_nested_rb_file_same_basename_with_ext() {
+        let source = b"require_relative 'utils.rb'\n";
         let diags = crate::testutil::run_cop_full_internal(
             &RequireRelativeSelfPath,
             source,
             crate::cop::CopConfig::default(),
-            "rakelib/bin.rake",
+            "lib/shodanz/apis/utils.rb",
         );
         assert!(
             diags.is_empty(),
-            "Expected no offenses for .rake file but got: {:?}",
+            "Expected no offenses for nested .rb file but got: {:?}",
             diags
         );
     }
 
     #[test]
-    fn no_offense_ru_file_same_basename() {
-        // .ru file requiring same basename — resolves to .rb, not self
+    fn no_offense_nested_rb_file_same_basename_with_dot_prefix() {
+        let source = b"require_relative './rspec'\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &RequireRelativeSelfPath,
+            source,
+            crate::cop::CopConfig::default(),
+            "features/support/rspec.rb",
+        );
+        assert!(
+            diags.is_empty(),
+            "Expected no offenses for nested .rb file but got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_non_rb_file_same_basename_with_rb_ext() {
+        let source = b"require_relative 'router.rb'\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &RequireRelativeSelfPath,
+            source,
+            crate::cop::CopConfig::default(),
+            "rackup/router.ru",
+        );
+        assert!(
+            diags.is_empty(),
+            "Expected no offenses for non-.rb file but got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_non_rb_file_same_basename_with_dot_prefix() {
         let source = b"require_relative './persistent'\n";
         let diags = crate::testutil::run_cop_full_internal(
             &RequireRelativeSelfPath,
@@ -168,21 +169,8 @@ mod tests {
         );
         assert!(
             diags.is_empty(),
-            "Expected no offenses for .ru file but got: {:?}",
+            "Expected no offenses for non-.rb file but got: {:?}",
             diags
         );
-    }
-
-    #[test]
-    fn offense_rb_file_still_detected() {
-        // .rb file requiring same basename — IS a self-require
-        let source = b"require_relative './foo'\n";
-        let diags = crate::testutil::run_cop_full_internal(
-            &RequireRelativeSelfPath,
-            source,
-            crate::cop::CopConfig::default(),
-            "lib/foo.rb",
-        );
-        assert_eq!(diags.len(), 1, "Expected 1 offense for .rb self-require");
     }
 }
