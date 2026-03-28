@@ -116,3 +116,13 @@ rescue Mongoid::Errors::DocumentNotFound
   head :not_found
   return false
 end
+
+# Nested def under assignment value with implicit rescue begin is still allowed
+HTTP_TIMEOUT = Class.new do
+  def timeout
+    return @validated_timeout if @validated_timeout
+    @validated_timeout = Integer(@timeout)
+  rescue ArgumentError
+    puts "error"
+  end
+end

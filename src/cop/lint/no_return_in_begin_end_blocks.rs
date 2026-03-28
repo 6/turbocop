@@ -59,6 +59,23 @@ use ruby_prism::Visit;
 /// on assignment nodes (`on_lvasgn`, `on_ivasgn`, etc.) and should NOT flag these
 /// standalone begin blocks. These are likely corpus oracle artifacts (possibly from a
 /// broader RuboCop version or configuration). No code change needed.
+///
+/// ## FN=8 fix (2026-03-28)
+///
+/// The remaining corpus misses were not standalone begin blocks after all. The full
+/// repo context wraps those methods inside outer assignment values such as
+/// `@webMockNetHTTP = Class.new(...) do ... end`,
+/// `@@new_function ||= Puppet::Functions.create_loaded_function(...) do ... end`,
+/// and `@new_function ||= ... do ... end`. RuboCop's `each_node(:kwbegin)` on the
+/// outer assignment walks into nested defs, so explicit `begin..end` blocks inside
+/// those defs still count as assignment-context begins.
+///
+/// The visitor was clearing `in_assignment_value` in `visit_def_node`, which made it
+/// miss explicit `begin..ensure..end` and `begin..rescue..end` blocks inside nested
+/// defs under assignment-valued blocks. Fix: keep the outer assignment context when
+/// recursing into nested defs, while continuing to rely on
+/// `begin_keyword_loc().is_some()` so implicit rescue-wrapping `BeginNode`s in nested
+/// defs remain non-offenses.
 pub struct NoReturnInBeginEndBlocks;
 
 impl Cop for NoReturnInBeginEndBlocks {
@@ -325,16 +342,11 @@ impl<'pr> Visit<'pr> for NoReturnVisitor<'_, '_> {
         }
     }
 
-    // Recurse into methods/classes/modules but reset the assignment-value
-    // flag so nested scopes start fresh. RuboCop's `each_node(:return)` walks
-    // into nested defs without any scope boundary, so `in_begin_assignment`
-    // must NOT be reset — returns inside nested defs within begin..end
-    // assignment blocks are still flagged.
+    // RuboCop walks assignment subtrees into nested defs, so explicit kwbegin
+    // descendants of assignment-valued blocks stay in assignment context even
+    // when the `return` is inside a nested method body.
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        let old = self.in_assignment_value;
-        self.in_assignment_value = false;
         ruby_prism::visit_def_node(self, node);
-        self.in_assignment_value = old;
     }
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
         let old = self.in_begin_assignment;

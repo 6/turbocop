@@ -188,3 +188,82 @@ def fetch_data
     end
   end
 end
+
+# Nested def under outer ||= block assignment with explicit begin
+@@new_function ||= Puppet::Functions.create_loaded_function(:new, loader) do
+  def from_convertible(from, radix)
+    case from
+    when Integer
+      from
+    else
+      begin
+        if from[0] == '0'
+          second_char = (from[1] || '').downcase
+          if second_char == 'b' || second_char == 'x'
+            return Integer(from)
+            ^^^^^^ Lint/NoReturnInBeginEndBlocks: Do not `return` in `begin..end` blocks in assignment contexts.
+          end
+        end
+
+        Puppet::Pops::Utils.to_n(from)
+      rescue TypeError => e
+        raise TypeConversionError, e.message
+      rescue ArgumentError => e
+        match = Patterns::WS_BETWEEN_SIGN_AND_NUMBER.match(from)
+        if match
+          begin
+            return from_args(match[1] + match[2], radix)
+            ^^^^^^ Lint/NoReturnInBeginEndBlocks: Do not `return` in `begin..end` blocks in assignment contexts.
+          rescue TypeConversionError
+          end
+        end
+        raise TypeConversionError, e.message
+      end
+    end
+  end
+end
+
+# Nested def under outer ||= block assignment with nested rescue begin
+@new_function ||= Puppet::Functions.create_loaded_function(:new_float, loader) do
+  def from_convertible(from)
+    case from
+    when Float
+      from
+    else
+      begin
+        Float(from)
+      rescue TypeError => e
+        raise TypeConversionError, e.message
+      rescue ArgumentError => e
+        match = Patterns::WS_BETWEEN_SIGN_AND_NUMBER.match(from)
+        if match
+          begin
+            return from_args(match[1] + match[2])
+            ^^^^^^ Lint/NoReturnInBeginEndBlocks: Do not `return` in `begin..end` blocks in assignment contexts.
+          rescue TypeConversionError
+          end
+        end
+        raise TypeConversionError, e.message
+      end
+    end
+  end
+end
+
+# Nested def under assignment value with begin..ensure
+@web_mock_http = Class.new do
+  def start_without_connect
+    if block_given?
+      begin
+        @socket = Net::HTTP.socket_type.new
+        @started = true
+        return yield(self)
+        ^^^^^^ Lint/NoReturnInBeginEndBlocks: Do not `return` in `begin..end` blocks in assignment contexts.
+      ensure
+        do_finish
+      end
+    end
+    @socket = Net::HTTP.socket_type.new
+    @started = true
+    self
+  end
+end
