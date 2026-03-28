@@ -15,6 +15,14 @@ use crate::parse::source::SourceFile;
 /// normalized to `*`). When followed by `?`, this was incorrectly flagged as
 /// a redundant `{,}` + `?` pair. Fixed by extending the escape handler to
 /// recognize `\p`, `\P`, and `\u` and skip through the closing `}`.
+///
+/// ## Investigation (2026-03-28)
+/// FP=0, FN=1. Corpus repo `Fuzzapi__API-fuzzer__ad3512d` used
+/// `/\A(\w+)=(.?*)\z/`, which RuboCop flags as redundant `?` + `*`. nitrocop
+/// missed it because detection only covered `(?:...Q1)Q2` groups and the
+/// special `{...}?` normalization path. Fixed by adding a narrow stacked-atom
+/// detector for a single terminal or character class followed by two plain
+/// greedy quantifiers such as `.?*`.
 pub struct RedundantRegexpQuantifiers;
 
 impl Cop for RedundantRegexpQuantifiers {
@@ -70,6 +78,10 @@ impl Cop for RedundantRegexpQuantifiers {
         // regexp_parser treats these as implicit non-capturing groups, so RuboCop
         // flags them as redundant quantifier pairs.
         check_interval_with_reluctant(self, source, content_str, &regexp, diagnostics);
+
+        // Find stacked greedy quantifiers on a single terminal or character set
+        // (e.g. `.?*`, `[ab]?*`). RuboCop treats these the same as the grouped form.
+        check_stacked_atom_quantifiers(self, source, content_str, &regexp, diagnostics);
     }
 }
 
@@ -514,6 +526,113 @@ fn check_interval_with_reluctant(
             i += 1;
         }
     }
+}
+
+fn check_stacked_atom_quantifiers(
+    cop: &RedundantRegexpQuantifiers,
+    source: &SourceFile,
+    pattern: &str,
+    regexp: &ruby_prism::RegularExpressionNode<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let bytes = pattern.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        let atom_end = if bytes[i] == b'\\' {
+            skip_escaped_sequence(bytes, i)
+        } else if bytes[i] == b'[' {
+            skip_character_class(bytes, i)
+        } else {
+            i + 1
+        };
+
+        if atom_end <= i || atom_end > len {
+            i += 1;
+            continue;
+        }
+
+        let Some((inner_q, inner_q_end)) = parse_quantifier(bytes, atom_end) else {
+            i = atom_end;
+            continue;
+        };
+
+        if matches!(inner_q, Quantifier::Interval(_, _))
+            || (inner_q_end < len && (bytes[inner_q_end] == b'?' || bytes[inner_q_end] == b'+'))
+        {
+            i = inner_q_end.min(len);
+            continue;
+        }
+
+        let Some((outer_q, outer_q_end)) = parse_quantifier(bytes, inner_q_end) else {
+            i = inner_q_end;
+            continue;
+        };
+
+        if matches!(outer_q, Quantifier::Interval(_, _))
+            || (outer_q_end < len && (bytes[outer_q_end] == b'?' || bytes[outer_q_end] == b'+'))
+        {
+            i = outer_q_end.min(len);
+            continue;
+        }
+
+        let loc = regexp.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        diagnostics.push(cop.diagnostic(
+            source,
+            line,
+            column,
+            format!(
+                "Replace redundant quantifiers `{}` and `{}` with a single `{}`.",
+                quantifier_display(&inner_q),
+                quantifier_display(&outer_q),
+                quantifier_display(&combine_quantifiers(&inner_q, &outer_q))
+            ),
+        ));
+
+        i = outer_q_end;
+    }
+}
+
+fn skip_escaped_sequence(bytes: &[u8], start: usize) -> usize {
+    if start + 1 >= bytes.len() {
+        return bytes.len();
+    }
+
+    let mut i = start + 2;
+    if matches!(bytes[start + 1], b'p' | b'P' | b'u') && i < bytes.len() && bytes[i] == b'{' {
+        while i < bytes.len() && bytes[i] != b'}' {
+            i += 1;
+        }
+        if i < bytes.len() {
+            i += 1;
+        }
+    }
+
+    i
+}
+
+fn skip_character_class(bytes: &[u8], start: usize) -> usize {
+    let len = bytes.len();
+    let mut i = start + 1;
+
+    if i < len && bytes[i] == b'^' {
+        i += 1;
+    }
+    if i < len && bytes[i] == b']' {
+        i += 1;
+    }
+
+    while i < len && bytes[i] != b']' {
+        if bytes[i] == b'\\' {
+            i = skip_escaped_sequence(bytes, i);
+        } else {
+            i += 1;
+        }
+    }
+
+    if i < len { i + 1 } else { len }
 }
 
 fn contains_capture_group(pattern: &str) -> bool {
