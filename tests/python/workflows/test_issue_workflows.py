@@ -10,7 +10,10 @@ AGENT_COP_FIX = ROOT / ".github" / "workflows" / "agent-cop-fix.yml"
 COP_FIX_LIFECYCLE = ROOT / "scripts" / "workflows" / "cop_fix_lifecycle.py"
 AGENT_PR_REPAIR = ROOT / ".github" / "workflows" / "agent-pr-repair.yml"
 RUN_AGENT_REMOTE = ROOT / ".github" / "actions" / "run-agent-remote" / "action.yml"
+RUN_REPO_WRITE_REMOTE = ROOT / ".github" / "actions" / "run-repo-write-remote" / "action.yml"
 REMOTE_AGENT_BRIDGE = ROOT / "scripts" / "workflows" / "remote_agent_bridge.py"
+REMOTE_REPO_WRITE_BRIDGE = ROOT / "scripts" / "workflows" / "remote_repo_write_bridge.py"
+REPAIR_PUBLISH = ROOT / "scripts" / "workflows" / "repair_publish.py"
 COP_ISSUE_SYNC = ROOT / ".github" / "workflows" / "cop-issue-sync.yml"
 CORPUS_ORACLE = ROOT / ".github" / "workflows" / "corpus-oracle.yml"
 
@@ -54,35 +57,39 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
 
 def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
     content = AGENT_PR_REPAIR.read_text()
+    publish = REPAIR_PUBLISH.read_text()
     assert '--json state --jq \'.state\'' in content
     assert "--json number,title,url,body,state" in content
     assert "--require-trusted-bot" in content
-    assert "Generate bot control token" in content
     assert "types: [closed]" in content
     assert "github.event.pull_request.number" in content
     assert "linked_issue_number" in content
-    assert 'gh issue comment "${{ steps.pr.outputs.linked_issue_number }}"' in content
-    assert '--add-label "state:blocked"' in content
     assert "Skip closed PRs" in content
     assert "Reconfirm PR is still repairable before agent" in content
     assert "Skip closed or moved PR before agent" in content
     assert "python3 scripts/workflows/repair_retry_policy.py live-gate" in content
     assert "uses: ./.github/actions/run-agent-remote" in content
-    assert "control_repo_token: ${{ steps.bot-control-token.outputs.token }}" in content
+    assert "uses: ./.github/actions/run-repo-write-remote" in content
+    assert "control_repo_token: ${{ secrets.BOT_CONTROL_REPO_TOKEN }}" in content
     assert "target_ref: refs/heads/${{ steps.pr.outputs.head_branch }}" in content
     assert "setup_profile: nitrocop" in content
     assert "setup_config_json:" in content
+    assert "scripts/workflows/repair_publish.py" in content
+    assert "Generate bot control token" not in content
+    assert "Generate read-only GitHub token" not in content
+    assert "Refresh app token" not in content
     assert "Skip closed or moved PR before publish" not in content
     assert 'echo "result=stale_pr" >> "$GITHUB_OUTPUT"' in content
     assert "Local Cop-Check Diagnosis" in content or "Precompute local cop-check diagnosis packet" in content
-    assert '<summary>Task prompt (${{ steps.prompt.outputs.tokens }} tokens)</summary>' in content
-    assert 'cat "$FINAL_TASK_FILE"' in content
     assert "Detect local cop-check verification" in content
     assert 'steps.verify_meta.outputs.needs_local_cop_check == \'true\'' in content
     assert "validate_agent_changes.py" in content
     assert "guard_profile" in content
     assert 'python3 scripts/workflows/precompute_repair_cop_check.py' in content
     assert 'python3 scripts/workflows/count_tokens.py "$FINAL_TASK_FILE"' in content
+    assert "<summary>Task prompt (" in publish
+    assert "## Auto-repair Succeeded" in publish
+    assert "## Auto-repair Failed Verification" in publish
     assert "prepare_agent_workspace.py" not in content
     assert "CI_SCRIPTS_DIR" not in content
     assert "repair-workspace-" not in content
@@ -106,14 +113,15 @@ def test_agent_pr_repair_live_gate_reads_branch_name():
 
 def test_agent_pr_repair_distinguishes_agent_failure_from_verify_failure():
     content = AGENT_PR_REPAIR.read_text()
+    publish = REPAIR_PUBLISH.read_text()
     assert "id: agent" in content
     assert 'if: always() && steps.pr.outputs.should_run == \'true\'' in content
     assert 'if [ "${{ steps.agent.outcome }}" != "success" ]; then' in content
     assert 'echo "result=agent_failed" >> "$GITHUB_OUTPUT"' in content
     assert 'echo "result=file_guard_failed" >> "$GITHUB_OUTPUT"' in content
-    assert "## Auto-repair Agent Failed" in content
-    assert "## Auto-repair Verification Did Not Run" in content
-    assert "## Auto-repair Rejected" in content
+    assert "## Auto-repair Agent Failed" in publish
+    assert "## Auto-repair Verification Did Not Run" in publish
+    assert "## Auto-repair Rejected" in publish
     assert "(verification did not run)" in content
 
 
@@ -132,6 +140,19 @@ def test_remote_agent_bridge_contract_targets_6_bot():
     assert '"target_ref": args.target_ref' in bridge
     assert '"setup_profile": args.setup_profile' in bridge
     assert '"setup_config_json": json.loads(args.setup_config_json)' in bridge
+    assert 'dispatch.add_argument("--target-ref", required=True)' in bridge
+
+
+def test_remote_repo_write_bridge_contract_targets_6_bot():
+    action = RUN_REPO_WRITE_REMOTE.read_text()
+    bridge = REMOTE_REPO_WRITE_BRIDGE.read_text()
+
+    assert "default: 6/bot" in action
+    assert "remote_repo_write_bridge.py prepare-input" in action
+    assert "remote_repo_write_bridge.py dispatch" in action
+    assert "remote_repo_write_bridge.py await-output" in action
+    assert '"event_type": "repo_write"' in bridge
+    assert '"target_ref": args.target_ref' in bridge
     assert 'dispatch.add_argument("--target-ref", required=True)' in bridge
 
 
