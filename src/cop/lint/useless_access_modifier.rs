@@ -49,6 +49,12 @@ use ruby_prism::Visit;
 ///   method definitions. In Prism, these are CallNodes with a DefNode argument. RuboCop handles
 ///   this by recursing into child nodes of the send node, finding the inner `def`. We handle it
 ///   by checking CallNode arguments for DefNode in `is_method_definition`.
+/// - Config-aware scope bug: `ContextCreatingMethods` blocks (notably `included` from
+///   `rubocop-rails`) were marked as new scopes by `is_new_scope`, but `visit_call_node`
+///   only analyzed `class_eval`/constructor blocks. In corpus runs this skipped
+///   `included do ... end` bodies entirely, producing false negatives for useless
+///   `private` before singleton defs. Fixed by checking configured context-creating
+///   blocks as separate scopes in `visit_call_node` too.
 pub struct UselessAccessModifier;
 
 impl Cop for UselessAccessModifier {
@@ -740,7 +746,14 @@ impl<'pr> Visit<'pr> for UselessAccessVisitor<'_, '_> {
                     } else {
                         false
                     };
-                    if is_eval_scope {
+                    let is_context_scope =
+                        if !self.context_creating_methods.is_empty() && node.receiver().is_none() {
+                            let name_str = std::str::from_utf8(name).unwrap_or("");
+                            self.context_creating_methods.iter().any(|m| m == name_str)
+                        } else {
+                            false
+                        };
+                    if is_eval_scope || is_context_scope {
                         if let Some(body) = block.body() {
                             if let Some(stmts) = body.as_statements_node() {
                                 check_body(
@@ -764,5 +777,41 @@ impl<'pr> Visit<'pr> for UselessAccessVisitor<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_yml::Value;
+
+    fn context_creating_methods_config(methods: &[&str]) -> CopConfig {
+        let mut config = CopConfig::default();
+        config.options.insert(
+            "ContextCreatingMethods".to_string(),
+            Value::Sequence(
+                methods
+                    .iter()
+                    .map(|method| Value::String((*method).to_string()))
+                    .collect(),
+            ),
+        );
+        config
+    }
+
     crate::cop_fixture_tests!(UselessAccessModifier, "cops/lint/useless_access_modifier");
+
+    #[test]
+    fn offense_in_included_block_with_context_creating_methods_config() {
+        let fixture = b"module WithIncludedSingletonMethod\n  extend ActiveSupport::Concern\n\n  included do\n    private\n    ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.\n\n    def self.singleton_method_added(method_name)\n      method_name\n    end\n  end\nend\n";
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &UselessAccessModifier,
+            fixture,
+            context_creating_methods_config(&["included"]),
+        );
+    }
+
+    #[test]
+    fn offense_after_singleton_def_in_included_block_with_context_creating_methods_config() {
+        let fixture = b"module WithIncludedSingletonMethodsAroundPrivate\n  SOME_CONSTANT = 42\n\n  included do\n    def self.method_missing(name, *)\n      name\n    end\n\n    private\n    ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.\n\n    def self.all_types\n      []\n    end\n  end\nend\n";
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &UselessAccessModifier,
+            fixture,
+            context_creating_methods_config(&["included"]),
+        );
+    }
 }

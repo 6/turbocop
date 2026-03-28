@@ -124,3 +124,77 @@ class WithBlockVisibilityLeak
     Helper.new
   end
 end
+
+# FN fix: included do is still analyzed when the surrounding module body has
+# multiple statements, matching the corpus ActiveSupport::Concern pattern
+module WithIncludedSingletonMethod
+  extend ActiveSupport::Concern
+
+  included do
+    private
+    ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.
+
+    def self.singleton_method_added(method_name)
+      method_name
+    end
+  end
+end
+
+# FN fix: prior singleton defs inside an included block do not make a later
+# private meaningful when the block is reached through the enclosing module body
+module WithIncludedSingletonMethodsAroundPrivate
+  SOME_CONSTANT = 42
+
+  included do
+    def self.method_missing(name, *)
+      name
+    end
+
+    private
+    ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.
+
+    def self.all_types
+      []
+    end
+  end
+end
+
+# FN fix: private after a singleton def in a class body is still useless
+class WithSingletonDefs
+  def self.page(page)
+    page
+  end
+
+  private
+  ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.
+
+  def self.base_options(options)
+    options
+  end
+end
+
+# FN fix: private after an instance method but before only singleton defs is useless
+module WithSingletonDefAfterInstanceMethod
+  def helper
+    42
+  end
+
+  private
+  ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.
+
+  def self.create_related_elements(doc)
+    doc
+  end
+end
+
+# FN fix: singleton defs written as one-liners still do not use private visibility
+class WithOneLineSingletonDef
+  def self.variants; constants; end
+
+  private
+  ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.
+
+  def self.guard_context(obj)
+    obj
+  end
+end
