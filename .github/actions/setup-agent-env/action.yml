@@ -38,6 +38,10 @@ runs:
         gem install "rubocop:$V_RC" "rubocop-performance:$V_PERF" \
           "rubocop-rails:$V_RAILS" "rubocop-rspec:$V_RSPEC" prism --no-document
 
+    - name: Install Python deps
+      shell: bash
+      run: uv sync --frozen
+
     - name: Install corpus bundle
       shell: bash
       run: |
