@@ -72,6 +72,7 @@ jobs:
           cargo update -p nitrocop
           python3 scripts/workflows/workflow_git.py configure \
             --repo "${{ github.repository }}" \
+            --identity github-actions \
             --unset-extraheader
           git add Cargo.toml Cargo.lock gem/lib/nitrocop.rb
           COMMIT_MSG="Release v${{ steps.version.outputs.tag }}"
