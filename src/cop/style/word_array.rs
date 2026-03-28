@@ -32,9 +32,17 @@ const DEFAULT_WORD_REGEX: &str = r"^(?:\w|\w-\w|\n|\t)+$";
 /// (e.g., `[["foo", "bar", 0], ["baz", "qux"]]`) to be wrongly classified as
 /// complex-content matrices, suppressing pure-string subarrays. (FN=314 fixed)
 ///
-/// **Remaining FN (158):** Primarily `brackets` style enforcement direction
-/// (flagging `%w[...]` arrays for conversion to brackets), which is not yet
-/// implemented, plus some edge cases in deeply nested structures.
+/// **FN fix 2 (percent-to-brackets):** When enforced style is `percent`
+/// (default), `%w`/`%W` arrays whose elements contain spaces (via backslash
+/// escaping, e.g. `%w(Cucumber\ features features)`) should be flagged for
+/// conversion to bracket syntax `[...]`. This matches RuboCop's
+/// `invalid_percent_array_contents?` check. Single-line arrays get a message
+/// with the explicit bracket form; multi-line arrays use the generic
+/// `Use an array literal [...]` message.
+///
+/// **Remaining FN:** Primarily `brackets` style enforcement direction
+/// (flagging ALL `%w[...]` arrays for conversion to brackets), which is not
+/// yet implemented.
 pub struct WordArray;
 
 /// Extract a Ruby regexp pattern from a string like `/pattern/flags`.
@@ -267,6 +275,40 @@ impl<'pr> WordArrayVisitor<'_, '_, 'pr> {
         ));
     }
 
+    /// Check a `%w` or `%W` array for invalid percent contents (spaces).
+    /// When enforced style is `percent`, percent arrays with spaces should
+    /// use bracket syntax instead.
+    fn check_percent_word_array(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
+        let opening = match node.opening_loc() {
+            Some(loc) => loc,
+            None => return,
+        };
+
+        let opening_bytes = opening.as_slice();
+        if opening_bytes.len() < 2
+            || opening_bytes[0] != b'%'
+            || (opening_bytes[1] != b'w' && opening_bytes[1] != b'W')
+        {
+            return;
+        }
+
+        if !has_invalid_percent_word_contents(node) {
+            return;
+        }
+
+        let closing_offset = node.closing_loc().map(|c| c.start_offset());
+        let message = build_percent_offense_message(
+            node,
+            self.source,
+            opening.start_offset(),
+            closing_offset,
+        );
+
+        let (line, column) = self.source.offset_to_line_col(opening.start_offset());
+        self.diagnostics
+            .push(self.cop.diagnostic(self.source, line, column, message));
+    }
+
     /// Check if a call node represents an ambiguous block context:
     /// non-parenthesized method call with a block.
     fn is_ambiguous_block_call(&self, call: &ruby_prism::CallNode<'pr>) -> bool {
@@ -293,6 +335,7 @@ impl<'pr> Visit<'pr> for WordArrayVisitor<'_, '_, 'pr> {
         }
 
         self.check_array(node);
+        self.check_percent_word_array(node);
 
         // Visit children to check nested arrays
         ruby_prism::visit_array_node(self, node);
@@ -328,6 +371,61 @@ impl<'pr> Visit<'pr> for WordArrayVisitor<'_, '_, 'pr> {
             ruby_prism::visit_call_node(self, node);
         }
     }
+}
+
+/// Check if a `%w` or `%W` array has invalid contents for percent syntax:
+/// any string element that contains a space or has invalid encoding.
+/// Matches RuboCop's `invalid_percent_array_contents?` override in WordArray.
+fn has_invalid_percent_word_contents(node: &ruby_prism::ArrayNode<'_>) -> bool {
+    for elem in node.elements().iter() {
+        let string_node = match elem.as_string_node() {
+            Some(s) => s,
+            None => continue, // skip non-string elements (interpolated, etc.)
+        };
+        let unescaped = string_node.unescaped();
+        if unescaped.contains(&b' ') {
+            return true;
+        }
+        if std::str::from_utf8(unescaped).is_err() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Build the bracket array representation for the offense message.
+/// Returns the full message string.
+fn build_percent_offense_message(
+    node: &ruby_prism::ArrayNode<'_>,
+    source: &SourceFile,
+    opening_offset: usize,
+    closing_offset: Option<usize>,
+) -> String {
+    let start_line = source.offset_to_line_col(opening_offset).0;
+    let end_line = closing_offset
+        .map(|o| source.offset_to_line_col(o).0)
+        .unwrap_or(start_line);
+
+    if start_line != end_line {
+        return "Use an array literal `[...]` for an array of words.".to_string();
+    }
+
+    // Single-line: build the bracket representation
+    let mut words = Vec::new();
+    for elem in node.elements().iter() {
+        if let Some(string_node) = elem.as_string_node() {
+            let unescaped = string_node.unescaped();
+            let content = String::from_utf8_lossy(unescaped);
+            if content.contains('\'') {
+                words.push(format!("\"{}\"", content));
+            } else {
+                words.push(format!("'{}'", content));
+            }
+        } else {
+            return "Use an array literal `[...]` for an array of words.".to_string();
+        }
+    }
+    format!("Use `[{}]` for an array of words.", words.join(", "))
 }
 
 /// Check if there are any comments within a byte offset range.
