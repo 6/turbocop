@@ -24,6 +24,8 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "cop_fix_lifecycle.py select-backend" in yml
     assert "cop_fix_lifecycle.py claim-pr" in yml
     assert "cop_fix_lifecycle.py finalize" in yml
+    assert "Generate read-only GitHub token" not in yml
+    assert "GH_TOKEN: ${{ github.token }}" in yml
 
     # Logic now lives in cop_fix_lifecycle.py
     assert "dispatch_cops.py" in py
