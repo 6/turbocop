@@ -37,3 +37,21 @@ Faker::Time.backward(days: 365).to_i
 # Symbol argument with regular block (not block argument) should still be flagged
 receive(:to_i) { 1 }
 ^^^^^^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `:to_i`, use stricter `{ |i| Integer(i, 10) }`.
+
+retry_after = e.response.headers[:retry_after]&.to_i ||= (0.5 * (retry_count + 1))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `e.response.headers[:retry_after].to_i`, use stricter `Integer(e.response.headers[:retry_after], 10)`.
+
+retry_after = e.response.headers[:retry_after]&.to_i ||= (0.5 * (retry_count + 1))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `e.response.headers[:retry_after].to_i`, use stricter `Integer(e.response.headers[:retry_after], 10)`.
+
+retry_after = e.response.headers[:retry_after]&.to_i ||= (0.5 * (retry_count + 1))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `e.response.headers[:retry_after].to_i`, use stricter `Integer(e.response.headers[:retry_after], 10)`.
+
+port = opts[:port].to_i ||= 8888
+       ^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `opts[:port].to_i`, use stricter `Integer(opts[:port], 10)`.
+
+f = flow_data[i]&.second.to_f
+    ^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `flow_data[i]&.second.to_f`, use stricter `Float(flow_data[i]&.second)`.
+
+f = flow_data[i]&.second.to_f
+    ^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/NumberConversion: Replace unsafe number conversion with number class parsing, instead of using `flow_data[i]&.second.to_f`, use stricter `Float(flow_data[i]&.second)`.
