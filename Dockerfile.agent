@@ -1,0 +1,71 @@
+# Pre-built environment for agent-cop-fix CI runs.
+# Contains Rust, Ruby, mold, gems, uv, Node — everything except
+# secrets, target/, and agent CLIs (Claude/Codex install at runtime).
+#
+# Rebuild: gh workflow run build-agent-image.yml
+# Used by: .github/workflows/agent-cop-fix.yml via `container:`
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
+
+# --- System dependencies ---
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
+      build-essential \
+      clang \
+      curl \
+      git \
+      jq \
+      locales \
+      mold \
+      libffi-dev \
+      libreadline-dev \
+      libssl-dev \
+      libyaml-dev \
+      zlib1g-dev \
+    && locale-gen en_US.UTF-8 \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Node.js LTS (required by GitHub Actions JS-based actions) ---
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Rust (via rustup) ---
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH="/usr/local/cargo/bin:$PATH"
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain stable --component rustfmt \
+    && rustc --version && cargo --version
+
+# --- Ruby (via ruby-install) ---
+ARG RUBY_VERSION=4.0.2
+RUN curl -fsSL https://github.com/postmodern/ruby-install/releases/download/v0.9.3/ruby-install-0.9.3.tar.gz \
+      | tar xz -C /tmp \
+    && cd /tmp/ruby-install-0.9.3 \
+    && make install \
+    && ruby-install --system ruby ${RUBY_VERSION} -- --disable-install-doc \
+    && rm -rf /tmp/ruby-install-0.9.3 \
+    && ruby --version
+
+# --- RuboCop gems (extracted from corpus Gemfile — auto-tracks vendor submodule versions) ---
+COPY bench/corpus/Gemfile /tmp/
+RUN grep '^gem "rubocop' /tmp/Gemfile \
+      | sed 's/gem "\([^"]*\)", "\([^"]*\)"/\1:\2/' \
+      | xargs gem install prism --no-document
+
+# --- uv (Python package manager) ---
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# --- Verify ---
+RUN rustc --version && cargo --version \
+    && ruby --version && gem --version \
+    && mold --version \
+    && node --version \
+    && uv --version \
+    && echo "All tools verified"

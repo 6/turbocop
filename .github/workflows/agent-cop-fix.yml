@@ -3,6 +3,7 @@ name: Agent Cop Fix
 permissions:
   contents: write
   actions: read
+  packages: read
   pull-requests: write
 
 on:
@@ -40,6 +41,7 @@ on:
 jobs:
   fix:
     runs-on: ubuntu-24.04
+    container: ghcr.io/${{ github.repository }}/agent:latest
     timeout-minutes: 60
     env:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
@@ -51,33 +53,26 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # --- Shared environment setup (Rust, Ruby, mold, corpus) ---
-      - uses: ./.github/actions/setup-agent-env
-        with:
-          rust_components: rustfmt
-          install_vendor_gems: 'true'
-
-      # On self-hosted: copy pre-warmed target into job workspace (each job
-      # gets its own copy to avoid concurrent cargo lock contention)
-      # On GitHub-hosted: use actions/cache to save/restore target/
-      - name: Set up cargo cache
+      # Tools (Rust, Ruby, mold, uv, Node) are pre-installed in the container
+      # image built by build-agent-image.yml. Validate they're present.
+      - name: Validate container environment
         run: |
-          if [ -d "/home/runner/cargo-target-seed" ]; then
-            echo "Self-hosted runner — seeding target/ from pre-warmed cache"
-            cp -al /home/runner/cargo-target-seed target 2>/dev/null || \
-              cp -r /home/runner/cargo-target-seed target
-            echo "seeded=true" >> "$GITHUB_OUTPUT"
-          fi
-        id: cargo-cache
+          for cmd in rustc cargo ruby mold python3 uv node git; do
+            command -v "$cmd" >/dev/null 2>&1 || { echo "::error::Missing $cmd in container image — rebuild with: gh workflow run build-agent-image.yml"; exit 1; }
+          done
+          rustc --version; ruby --version; mold --version
+
+      - name: Install corpus bundle
+        run: |
+          cd bench/corpus
+          bundle config set --local path vendor/bundle
+          bundle install --jobs 4 --retry 3
 
       - uses: actions/cache@v5
-        if: steps.cargo-cache.outputs.seeded != 'true'
         with:
           path: target
           key: agent-target-${{ hashFiles('Cargo.lock') }}
           restore-keys: agent-target-
-
-      - uses: astral-sh/setup-uv@v6
 
       - name: Initialize runtime layout
         run: |
