@@ -304,3 +304,12 @@ def void_interp_symbol_array
   ^^^^^^^^^^^^^^^^^^^^^^ Lint/Void: Void value expression detected.
   do_something
 end
+
+# Hashes with range values are still entirely literal in RuboCop
+def void_hash_range_values
+  { foo: ...bar }
+  ^^^^^^^^^^^^^^^ Lint/Void: Void value expression detected.
+  { foo: ..bar }
+  ^^^^^^^^^^^^^^ Lint/Void: Void value expression detected.
+  top
+end

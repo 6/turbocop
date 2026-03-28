@@ -154,6 +154,24 @@ use ruby_prism::Visit;
 /// returning false for `AssocSplatNode` (`{ **x }`). RuboCop's `each_key`/`each_value`
 /// skip `kwsplat` nodes (only iterate over `pair` children), so `{ **x }` vacuously
 /// passes `entirely_literal?`. Fixed by treating `AssocSplatNode` as vacuously true.
+///
+/// ## Investigation findings (2026-03-28)
+///
+/// **FN: recursive literal check missed range nodes** — RuboCop's
+/// `entirely_literal?` falls back to `node.literal?`, and `irange`/`erange`
+/// return true there. Our `is_entirely_literal` did not include `RangeNode`, so
+/// hash literals like `{ foo: ...bar }` and `{ foo: ..bar }` were rejected as
+/// non-literal containers and missed in void context. The fix is intentionally
+/// scoped to the recursive literal helper only; top-level range expressions stay
+/// exempt because `Lint/Void` still skips `range_type?` in the main literal check.
+///
+/// **Remaining corpus mismatch is outside this cop** — after the `RangeNode`
+/// fix, `./target/release/nitrocop --force-default-config --only Lint/Void
+/// test/corpus/literal/range.rb` reports the expected offenses at lines 11 and
+/// 14 in `mbj__unparser__15c57a1`. The corpus location verifier still shows
+/// them as missing because non-default-config runs against that cloned repo fail
+/// early with `No lockfile found ...`, so the remaining mismatch is in
+/// config/root resolution rather than `Lint/Void` detection.
 pub struct Void;
 
 impl Cop for Void {
@@ -577,6 +595,7 @@ fn is_entirely_literal(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_false_node().is_some()
         || node.as_rational_node().is_some()
         || node.as_imaginary_node().is_some()
+        || node.as_range_node().is_some()
         || node.as_regular_expression_node().is_some()
         || node.as_interpolated_string_node().is_some()
         || node.as_interpolated_symbol_node().is_some()
