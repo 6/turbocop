@@ -115,7 +115,5 @@ if __name__ == "__main__":
     test_agent_pr_repair_checks_out_repo_before_running_local_scripts()
     test_agent_pr_repair_distinguishes_agent_failure_from_verify_failure()
     test_issue_sync_workflow_uses_app_token_and_dispatch_script()
-    test_issue_dispatch_workflow_uses_github_token_and_dispatch_script()
-    test_investigate_regression_workflow_uses_script()
     test_corpus_oracle_workflow_uses_dynamic_pr_renderer()
     print("All tests passed.")
