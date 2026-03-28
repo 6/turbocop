@@ -26,6 +26,20 @@ use crate::parse::source::SourceFile;
 /// 3. **FN (slim 1):** `@parent.lambda(name, &block)` — nitrocop required no
 ///    receiver, but RuboCop's `RESTRICT_ON_SEND` only filters by method name and
 ///    doesn't check receiver. Fix: remove receiver check.
+///
+/// ## Investigation findings (2026-03-28)
+///
+/// FN=1: `reduce(&lambda(&method(:longest_words)))` in ruby-spark. The manual
+/// `visit_call_node` walk skipped `BlockArgumentNode` children entirely, so
+/// nested `lambda` calls inside another call's `&...` block pass were never
+/// visited. Fix: visit `BlockArgumentNode` expressions, but keep them
+/// non-transparent for `parent_is_block_body` tracking so only direct block-body
+/// children stay exempt, matching RuboCop's `node.parent&.block_type?`.
+///
+/// The remaining corpus FN from matplotlib.rb (`lambda(&b).call`) is detected in
+/// isolation, indicating a repo config/context issue rather than another
+/// detection bug. We intentionally keep this fix narrow to avoid regressing the
+/// 14 existing matches.
 pub struct LambdaWithoutLiteralBlock;
 
 impl Cop for LambdaWithoutLiteralBlock {
@@ -98,8 +112,15 @@ impl<'pr> Visit<'pr> for LambdaWalker<'_> {
                     self.visit(&params);
                 }
                 self.parent_is_block_body = saved;
+            } else {
+                self.visit(&block);
             }
-            // BlockArgumentNode children don't need visiting for this cop
+        }
+    }
+
+    fn visit_block_argument_node(&mut self, node: &ruby_prism::BlockArgumentNode<'pr>) {
+        if let Some(expr) = node.expression() {
+            self.visit(&expr);
         }
     }
 
