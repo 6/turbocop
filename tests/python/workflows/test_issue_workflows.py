@@ -235,6 +235,8 @@ def test_issue_close_workflow_uses_github_token() -> None:
 def test_corpus_oracle_workflow_uses_dynamic_pr_renderer():
     content = CORPUS_ORACLE.read_text()
     assert "scripts/workflows/render_corpus_oracle_pr.py" in content
+    assert "GH_TOKEN: ${{ github.token }}" in content
+    assert "actions/create-github-app-token@v3" not in content
     assert "--identity github-actions" in content
     assert "COMMIT_MSG=$(printf '%s' \"$PR_META\" | jq -r '.commit_message')" in content
     assert "PR_TITLE=$(printf '%s' \"$PR_META\" | jq -r '.pr_title')" in content

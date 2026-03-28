@@ -703,16 +703,9 @@ jobs:
             docs/cop_coverage.md
           retention-days: 30
 
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-
       - name: Open PR if tiers, README, or corpus report changed
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           CHANGED=false
 
