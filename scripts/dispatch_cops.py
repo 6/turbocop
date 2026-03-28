@@ -272,15 +272,32 @@ def find_fixtures(dept: str, snake: str) -> tuple[str | None, str | None]:
     return offense, no_offense
 
 
-def get_corpus_data(cop: str, input_path: Path | None) -> dict:
+def get_corpus_data(
+    cop: str,
+    input_path: Path | None,
+    *,
+    require_examples: bool = False,
+) -> dict:
     """Get FP/FN data from corpus-results.json.
 
-    Returns dict with counts and raw example lists."""
+    Returns dict with counts and raw example lists.
+
+    If require_examples is True, fails hard when only summary data is available
+    (e.g. docs/corpus.md fallback) — used in CI task generation where the
+    pre-diagnostic gate needs real per-file examples.
+    """
     if input_path is None:
         try:
             input_path, _, _ = _download_corpus()
         except Exception as e:
             print(f"Warning: could not download corpus data: {e}", file=sys.stderr)
+            if require_examples:
+                print(
+                    "Error: task generation requires full corpus-results.json with "
+                    "per-file examples, but download failed.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
             return {
                 "fp": 0,
                 "fn": 0,
@@ -290,6 +307,18 @@ def get_corpus_data(cop: str, input_path: Path | None) -> dict:
                 "repo_breakdown": {},
                 "available": False,
             }
+
+    data = json.loads(input_path.read_text())
+    source = data.get("_source", "")
+    if require_examples and "summary only" in source:
+        print(
+            f"Error: corpus data is summary-only (from {source}). "
+            "Task generation requires full corpus-results.json with per-file "
+            "examples for pre-diagnostic. Check that GH_TOKEN has actions:read "
+            "scope and corpus-oracle artifacts are not expired.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     data = json.loads(input_path.read_text())
     by_cop = data.get("by_cop", [])
@@ -929,7 +958,10 @@ def generate_task(
     spec_path = find_vendor_spec(dept, snake)
 
     offense_fixture, no_offense_fixture = find_fixtures(dept, snake)
-    corpus = get_corpus_data(cop, input_path)
+    corpus = get_corpus_data(
+        cop, input_path,
+        require_examples=binary_path is not None,
+    )
 
     # Run pre-diagnostic if binary is available
     diagnostics = None
