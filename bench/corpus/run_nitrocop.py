@@ -84,6 +84,33 @@ def deduplicate_offenses(offenses: list[dict]) -> int:
     return len(seen)
 
 
+def normalize_offenses(offenses: list[dict]) -> list[dict]:
+    """Resolve symlinked offense paths and deduplicate by canonical location.
+
+    The corpus oracle runs resolve_symlink_paths.py before diffing results.
+    Local reruns need the same normalization so cops don't appear to regress
+    purely because the same file was discovered via both canonical and symlink
+    paths.
+    """
+    seen: set[tuple[str, int, str]] = set()
+    deduped: list[dict] = []
+    for offense in offenses:
+        normalized = offense.copy()
+        path = normalized.get("path", "")
+        if path and os.path.exists(path):
+            normalized["path"] = os.path.realpath(path)
+        key = (
+            normalized.get("path", ""),
+            normalized.get("line", 0),
+            normalized.get("cop_name", ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(normalized)
+    return deduped
+
+
 def run_nitrocop(
     repo_dir: str,
     *,
@@ -128,7 +155,7 @@ def run_nitrocop(
 
     try:
         data = json.loads(result.stdout)
-        offenses = data.get("offenses", [])
+        offenses = normalize_offenses(data.get("offenses", []))
         count = deduplicate_offenses(offenses)
         return {"raw": result.stdout, "offenses": offenses, "count": count, "error": None}
     except json.JSONDecodeError as e:
