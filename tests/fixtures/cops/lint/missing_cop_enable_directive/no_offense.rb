@@ -64,3 +64,20 @@ RSpec.describe Example do
     expect(result).to be_truthy
   end
 end
+
+# Trailing explanation text should not create a phantom department after a comma
+# rubocop:disable Style/RescueModifier Intentionally ugly, fix the spec-fixtures and specs to allow for more realistic spec
+subject = imap_mail.subject rescue nil
+# rubocop:enable Style/RescueModifier
+
+# Trailing explanation after `:` should not create a phantom department after a comma
+# rubocop:disable RSpec/InstanceVariable : replacing before with let breaks the tests, variables need to be altered within it block : multi
+before :each do
+  @resource = 1
+end
+# rubocop:enable RSpec/InstanceVariable
+
+# Trailing explanation in parentheses should not create a phantom department after a comma
+# rubocop:disable RSpec/RepeatedDescription (these aren't repeated, rubocop)
+its(:fields) { is_expected.to have_key('based_near') }
+# rubocop:enable RSpec/RepeatedDescription

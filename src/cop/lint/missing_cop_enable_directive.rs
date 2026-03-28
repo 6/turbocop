@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -37,7 +37,26 @@ use crate::parse::source::SourceFile;
 /// `# rubocop:disable /BlockLength, Metrics/`, RuboCop ignores both malformed
 /// tokens entirely, so no later enable is required. Fix: reject tokens that do
 /// not start with an alphanumeric character or that end with `/`.
+///
+/// **Round 5** — FP=3, FN=3. RuboCop treats directive parsing as a valid-prefix
+/// scan, not a blind comma split. That means `# rubocop:disable Metrics/`
+/// still disables the `Metrics` department, while malformed mixed directives
+/// like `# rubocop:disable /BlockLength, Metrics/` disable nothing because the
+/// first token is invalid. RuboCop also keeps only the leading valid cop list
+/// and ignores freeform trailing text for this cop, even when
+/// `Lint/CopDirectiveSyntax` would flag the directive separately. Fixes here:
+/// parse only the leading valid cop prefix, ignore inline `# rubocop:enable`
+/// comments when closing a multi-line disable, use the directive's actual
+/// column, and dedupe multiple missing cops on the same directive location so
+/// we match RuboCop's single reported offense per comment range.
 pub struct MissingCopEnableDirective;
+
+#[derive(Clone)]
+struct OpenDisable {
+    line: usize,
+    col: usize,
+    order: usize,
+}
 
 impl Cop for MissingCopEnableDirective {
     fn name(&self) -> &'static str {
@@ -58,8 +77,9 @@ impl Cop for MissingCopEnableDirective {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max_range = get_max_range_size(config);
-        // Track open disables: cop_name -> (line_number, column)
-        let mut open_disables: HashMap<String, (usize, usize)> = HashMap::new();
+        // Track open disables: cop_name -> directive location and insertion order.
+        let mut open_disables: HashMap<String, OpenDisable> = HashMap::new();
+        let mut disable_order = 0usize;
         let lines: Vec<&[u8]> = source.lines().collect();
 
         let mut byte_offset = 0usize;
@@ -93,46 +113,43 @@ impl Cop for MissingCopEnableDirective {
                     let is_inline = !before.trim().is_empty();
                     if !is_inline {
                         for cop in &cops {
-                            open_disables.insert(cop.to_string(), (i + 1, col));
+                            open_disables.insert(
+                                cop.to_string(),
+                                OpenDisable {
+                                    line: i + 1,
+                                    col,
+                                    order: disable_order,
+                                },
+                            );
+                            disable_order += 1;
                         }
                     }
                 }
                 "enable" => {
-                    // `rubocop:enable all` closes ALL open disables
-                    let is_enable_all = cops.iter().any(|c| c == "all");
-                    if is_enable_all {
-                        let all_open: Vec<(String, (usize, usize))> =
-                            open_disables.drain().collect();
-                        for (cop, (start_line, _)) in &all_open {
-                            if max_range.is_finite() {
-                                let range_size = (i + 1) - start_line - 1;
-                                if range_size > max_range as usize {
-                                    diagnostics.push(self.diagnostic(
-                                        source,
-                                        *start_line,
-                                        0,
-                                        format_message(cop, Some(max_range as usize)),
-                                    ));
-                                }
-                            }
-                        }
-                    } else {
-                        for cop in &cops {
-                            if let Some((start_line, _)) = open_disables.remove(cop.as_str()) {
-                                // Check if range exceeds MaximumRangeSize
-                                if max_range.is_finite() {
-                                    let range_size = (i + 1) - start_line - 1; // lines between disable and enable
-                                    if range_size > max_range as usize {
-                                        diagnostics.push(self.diagnostic(
-                                            source,
-                                            start_line,
-                                            0,
-                                            format_message(cop, Some(max_range as usize)),
-                                        ));
-                                    }
-                                }
-                            }
-                        }
+                    let before = &line_str[..col];
+                    let is_inline = !before.trim().is_empty();
+                    if is_inline {
+                        byte_offset += line.len() + 1;
+                        continue;
+                    }
+
+                    let mut closed: Vec<(String, OpenDisable)> =
+                        if cops.iter().any(|cop| cop == "all") {
+                            open_disables.drain().collect()
+                        } else {
+                            cops.iter()
+                                .filter_map(|cop| {
+                                    open_disables
+                                        .remove(cop.as_str())
+                                        .map(|info| (cop.clone(), info))
+                                })
+                                .collect()
+                        };
+
+                    if max_range.is_finite() {
+                        let max_range = max_range as usize;
+                        closed.retain(|(_, info)| (i + 1) - info.line - 1 > max_range);
+                        push_unique_diagnostics(self, source, diagnostics, closed, Some(max_range));
                     }
                 }
                 _ => {}
@@ -141,25 +158,46 @@ impl Cop for MissingCopEnableDirective {
             byte_offset += line.len() + 1;
         }
 
-        // Report all remaining open disables (never re-enabled)
-        for (cop, (line, _col)) in &open_disables {
-            if max_range.is_finite() {
-                let range_size = lines.len().saturating_sub(*line);
-                if range_size > max_range as usize {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        *line,
-                        0,
-                        format_message(cop, Some(max_range as usize)),
-                    ));
-                }
-            } else {
-                diagnostics.push(self.diagnostic(source, *line, 0, format_message(cop, None)));
-            }
+        // Report all remaining open disables (never re-enabled).
+        let mut remaining: Vec<(String, OpenDisable)> = open_disables.into_iter().collect();
+        if max_range.is_finite() {
+            let max_range = max_range as usize;
+            remaining.retain(|(_, info)| lines.len().saturating_sub(info.line) > max_range);
+            push_unique_diagnostics(self, source, diagnostics, remaining, Some(max_range));
+        } else {
+            push_unique_diagnostics(self, source, diagnostics, remaining, None);
         }
 
-        // Sort by line number for deterministic output
-        diagnostics.sort_by_key(|d| d.location.line);
+        // Sort by location for deterministic output.
+        diagnostics.sort_by(|a, b| {
+            (a.location.line, a.location.column, a.message.as_str()).cmp(&(
+                b.location.line,
+                b.location.column,
+                b.message.as_str(),
+            ))
+        });
+    }
+}
+
+fn push_unique_diagnostics(
+    cop: &MissingCopEnableDirective,
+    source: &SourceFile,
+    diagnostics: &mut Vec<Diagnostic>,
+    mut entries: Vec<(String, OpenDisable)>,
+    max_range: Option<usize>,
+) {
+    entries.sort_by_key(|(_, info)| info.order);
+
+    let mut seen_locations = HashSet::new();
+    for (cop_name, info) in entries {
+        if seen_locations.insert((info.line, info.col)) {
+            diagnostics.push(cop.diagnostic(
+                source,
+                info.line,
+                info.col,
+                format_message(&cop_name, max_range),
+            ));
+        }
     }
 }
 
@@ -218,11 +256,9 @@ fn parse_directive(line: &str) -> Option<(&str, Vec<String>, usize)> {
         return None;
     }
 
-    // Strip `--` trailing comment marker (RuboCop convention) before parsing cop names.
-    // Without this, explanations like `-- use bar, baz instead` would split on the comma
-    // and incorrectly parse `baz` as a cop name.
-    let cops_str = after_prefix[action_end..].split("--").next().unwrap_or("");
-    let cops: Vec<String> = cops_str.split(',').filter_map(parse_cop_token).collect();
+    // RuboCop parses only the leading valid cop list and ignores trailing freeform
+    // text for this cop, even when another cop later flags the directive as malformed.
+    let cops = parse_cop_list(&after_prefix[action_end..]);
     if cops.is_empty() {
         return None;
     }
@@ -241,21 +277,57 @@ fn parse_directive(line: &str) -> Option<(&str, Vec<String>, usize)> {
     Some((action_str, cops, hash_pos))
 }
 
-fn parse_cop_token(raw: &str) -> Option<String> {
-    let trimmed = raw.trim_start();
-    let first = *trimmed.as_bytes().first()?;
-    if !first.is_ascii_alphanumeric() {
+fn parse_cop_list(raw: &str) -> Vec<String> {
+    let mut remaining = raw;
+    let mut cops = Vec::new();
+
+    loop {
+        remaining = remaining.trim_start();
+        let Some((cop, rest)) = parse_cop_prefix(remaining) else {
+            break;
+        };
+
+        cops.push(cop);
+        remaining = rest.trim_start();
+
+        let Some(rest_after_comma) = remaining.strip_prefix(',') else {
+            break;
+        };
+        remaining = rest_after_comma;
+    }
+
+    cops
+}
+
+fn parse_cop_prefix(raw: &str) -> Option<(String, &str)> {
+    let bytes = raw.as_bytes();
+    let mut idx = 0usize;
+
+    if !bytes.get(idx)?.is_ascii_alphabetic() {
         return None;
     }
-    let end = trimmed
-        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '/' || c == '_'))
-        .unwrap_or(trimmed.len());
-    let token = trimmed[..end].trim_end_matches('.');
-    if token.is_empty() || token.ends_with('/') {
-        None
-    } else {
-        Some(token.to_string())
+
+    idx += 1;
+    while idx < bytes.len() && (bytes[idx].is_ascii_alphanumeric() || bytes[idx] == b'_') {
+        idx += 1;
     }
+
+    while idx < bytes.len() && bytes[idx] == b'/' {
+        let segment_start = idx + 1;
+        let Some(next) = bytes.get(segment_start) else {
+            break;
+        };
+        if !next.is_ascii_alphabetic() {
+            break;
+        }
+
+        idx = segment_start + 1;
+        while idx < bytes.len() && (bytes[idx].is_ascii_alphanumeric() || bytes[idx] == b'_') {
+            idx += 1;
+        }
+    }
+
+    Some((raw[..idx].to_string(), &raw[idx..]))
 }
 
 #[cfg(test)]
@@ -266,6 +338,9 @@ mod tests {
         "cops/lint/missing_cop_enable_directive",
         missing_enable_cop = "missing_enable_cop.rb",
         missing_enable_dept = "missing_enable_dept.rb",
+        missing_enable_dept_trailing_slash = "missing_enable_dept_trailing_slash.rb",
+        missing_enable_parameter_lists = "missing_enable_parameter_lists.rb",
+        missing_enable_multi_metrics = "missing_enable_multi_metrics.rb",
         missing_enable_two = "missing_enable_two.rb",
         missing_enable_spaced = "missing_enable_spaced.rb",
     );
