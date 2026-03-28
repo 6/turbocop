@@ -9,10 +9,12 @@ ROOT = Path(__file__).parents[3]
 AGENT_COP_FIX = ROOT / ".github" / "workflows" / "agent-cop-fix.yml"
 COP_FIX_LIFECYCLE = ROOT / "scripts" / "workflows" / "cop_fix_lifecycle.py"
 AGENT_PR_REPAIR = ROOT / ".github" / "workflows" / "agent-pr-repair.yml"
+BOT_COMMAND_WORKFLOW = ROOT / ".github" / "workflows" / "bot-command.yml"
 RUN_AGENT_REMOTE = ROOT / ".github" / "actions" / "run-agent-remote" / "action.yml"
 RUN_REPO_WRITE_REMOTE = ROOT / ".github" / "actions" / "run-repo-write-remote" / "action.yml"
 REMOTE_AGENT_BRIDGE = ROOT / "scripts" / "workflows" / "remote_agent_bridge.py"
 REMOTE_REPO_WRITE_BRIDGE = ROOT / "scripts" / "workflows" / "remote_repo_write_bridge.py"
+BOT_COMMAND = ROOT / "scripts" / "workflows" / "bot_command.py"
 REPAIR_PUBLISH = ROOT / "scripts" / "workflows" / "repair_publish.py"
 COP_ISSUE_SYNC = ROOT / ".github" / "workflows" / "cop-issue-sync.yml"
 CORPUS_ORACLE = ROOT / ".github" / "workflows" / "corpus-oracle.yml"
@@ -125,6 +127,32 @@ def test_agent_pr_repair_distinguishes_agent_failure_from_verify_failure():
     assert "(verification did not run)" in content
 
 
+def test_bot_command_workflow_dispatches_local_pr_repair() -> None:
+    workflow = BOT_COMMAND_WORKFLOW.read_text()
+    helper = BOT_COMMAND.read_text()
+
+    assert 'name: Bot Command' in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "python3 scripts/workflows/bot_command.py route" in workflow
+    assert "python3 scripts/workflows/bot_command.py resolve-repair" in workflow
+    assert "python3 scripts/workflows/bot_command.py resolve-fix" in workflow
+    assert 'actions/workflows/agent-pr-repair.yml/dispatches' in workflow
+    assert 'actions/workflows/agent-cop-fix.yml/dispatches' in workflow
+    assert "## Bot repair not started" in workflow
+    assert "## Bot fix not started" in workflow
+    assert "## Bot command not started" in workflow
+    assert "Requested by @" in workflow
+
+    assert 'REPAIR_COMMAND = "/6bot repair"' in helper
+    assert 'FIX_COMMAND = "/6bot fix"' in helper
+    assert 'CHECKS_WORKFLOW_FILE = "checks.yml"' in helper
+    assert 'subject_kind' in helper
+    assert 'COP_TRACKER_RE' in helper
+    assert 'repos/{repo}/actions/workflows/{CHECKS_WORKFLOW_FILE}/runs' in helper
+    assert 'Checks is not currently failing for the current PR head' in helper
+    assert 'source_repo input must match the target repository' in workflow
+
+
 def test_remote_agent_bridge_contract_targets_6_bot():
     action = RUN_AGENT_REMOTE.read_text()
     bridge = REMOTE_AGENT_BRIDGE.read_text()
@@ -136,10 +164,13 @@ def test_remote_agent_bridge_contract_targets_6_bot():
     assert "--target-ref" in action
     assert "--setup-profile" in action
     assert "--setup-config-json" in action
-    assert '"event_type": "run_agent"' in bridge
+    assert 'f"repos/{args.control_repo}/actions/workflows/{REMOTE_AGENT_WORKFLOW}/dispatches"' in bridge
+    assert '"ref": CONTROL_REF' in bridge
+    assert '"payload": json.dumps(payload)' in bridge
     assert '"target_ref": args.target_ref' in bridge
     assert '"setup_profile": args.setup_profile' in bridge
     assert '"setup_config_json": json.loads(args.setup_config_json)' in bridge
+    assert '"workflow_dispatch"' in bridge
     assert 'dispatch.add_argument("--target-ref", required=True)' in bridge
 
 
@@ -151,8 +182,11 @@ def test_remote_repo_write_bridge_contract_targets_6_bot():
     assert "remote_repo_write_bridge.py prepare-input" in action
     assert "remote_repo_write_bridge.py dispatch" in action
     assert "remote_repo_write_bridge.py await-output" in action
-    assert '"event_type": "repo_write"' in bridge
+    assert 'f"repos/{args.control_repo}/actions/workflows/{REMOTE_REPO_WRITE_WORKFLOW}/dispatches"' in bridge
+    assert '"ref": CONTROL_REF' in bridge
+    assert '"payload": json.dumps(payload)' in bridge
     assert '"target_ref": args.target_ref' in bridge
+    assert '"workflow_dispatch"' in bridge
     assert 'dispatch.add_argument("--target-ref", required=True)' in bridge
 
 

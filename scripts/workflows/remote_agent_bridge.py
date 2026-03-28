@@ -12,6 +12,9 @@ import tempfile
 import time
 from pathlib import Path
 
+CONTROL_REF = "main"
+REMOTE_AGENT_WORKFLOW = "remote-agent.yml"
+
 
 def _env_path(name: str) -> Path:
     value = os.environ.get(name)
@@ -52,26 +55,31 @@ def cmd_prepare_input(args: argparse.Namespace) -> int:
 
 def cmd_dispatch(args: argparse.Namespace) -> int:
     payload = {
-        "event_type": "run_agent",
-        "client_payload": {
+        "request_id": args.request_id,
+        "source_repo": args.source_repo,
+        "source_run_id": args.source_run_id,
+        "input_artifact": args.input_artifact,
+        "output_artifact": args.output_artifact,
+        "target_sha": args.target_sha,
+        "target_ref": args.target_ref,
+        "backend": args.backend,
+        "base_sha": args.base_sha,
+        "workflow": args.workflow,
+        "diff_paths": args.diff_paths,
+        "setup_profile": args.setup_profile,
+        "setup_config_json": json.loads(args.setup_config_json),
+    }
+    request = {
+        "ref": CONTROL_REF,
+        "inputs": {
             "request_id": args.request_id,
             "source_repo": args.source_repo,
-            "source_run_id": args.source_run_id,
-            "input_artifact": args.input_artifact,
-            "output_artifact": args.output_artifact,
-            "target_sha": args.target_sha,
-            "target_ref": args.target_ref,
-            "backend": args.backend,
-            "base_sha": args.base_sha,
-            "workflow": args.workflow,
-            "diff_paths": args.diff_paths,
-            "setup_profile": args.setup_profile,
-            "setup_config_json": json.loads(args.setup_config_json),
+            "payload": json.dumps(payload),
         },
     }
 
     with tempfile.NamedTemporaryFile("w", delete=False) as f:
-        json.dump(payload, f)
+        json.dump(request, f)
         f.write("\n")
         payload_path = f.name
 
@@ -80,7 +88,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
             [
                 "gh",
                 "api",
-                f"repos/{args.control_repo}/dispatches",
+                f"repos/{args.control_repo}/actions/workflows/{REMOTE_AGENT_WORKFLOW}/dispatches",
                 "--method",
                 "POST",
                 "--input",
@@ -103,9 +111,9 @@ def _find_run(control_repo: str, request_id: str) -> dict | None:
             "-R",
             control_repo,
             "-w",
-            "remote-agent.yml",
+            REMOTE_AGENT_WORKFLOW,
             "--event",
-            "repository_dispatch",
+            "workflow_dispatch",
             "--json",
             "databaseId,displayTitle,status,conclusion,url",
             "-L",

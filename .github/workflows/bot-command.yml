@@ -1,0 +1,229 @@
+name: Bot Command
+run-name: bot-command ${{ inputs.request_id }}
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+  pull-requests: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Unique request identifier for tracking
+        required: true
+        type: string
+      source_repo:
+        description: Source repository (owner/name)
+        required: true
+        type: string
+      payload:
+        description: Full JSON webhook payload from 6/bot
+        required: true
+        type: string
+
+concurrency:
+  group: bot-command-${{ inputs.request_id }}
+  cancel-in-progress: false
+
+jobs:
+  route:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve bot command
+        id: command
+        env:
+          INPUT_PAYLOAD: ${{ inputs.payload }}
+        run: |
+          if [ "${{ inputs.source_repo }}" != "${{ github.repository }}" ]; then
+            echo "::error::source_repo input must match the target repository"
+            exit 1
+          fi
+          python3 scripts/workflows/bot_command.py route \
+            --repo "${{ github.repository }}" \
+            --payload-json "$INPUT_PAYLOAD" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Comment unsupported command
+        if: steps.command.outputs.action == 'comment_only' && steps.command.outputs.subject_kind == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY_FILE="$RUNNER_TEMP/bot-command-not-started.md"
+          cat > "$BODY_FILE" <<EOF
+          ## Bot command not started
+
+          - Reason: ${{ steps.command.outputs.reason }}
+          - Requested by: @${{ steps.command.outputs.requested_by }}
+          - Comment: ${{ steps.command.outputs.comment_url }}
+          EOF
+          gh pr comment "${{ steps.command.outputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file "$BODY_FILE"
+
+      - name: Comment unsupported issue command
+        if: steps.command.outputs.action == 'comment_only' && steps.command.outputs.subject_kind == 'issue'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY_FILE="$RUNNER_TEMP/bot-command-not-started.md"
+          cat > "$BODY_FILE" <<EOF
+          ## Bot command not started
+
+          - Reason: ${{ steps.command.outputs.reason }}
+          - Requested by: @${{ steps.command.outputs.requested_by }}
+          - Comment: ${{ steps.command.outputs.comment_url }}
+          EOF
+          gh issue comment "${{ steps.command.outputs.issue_number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file "$BODY_FILE"
+
+      - name: Resolve failed Checks run for repair
+        if: steps.command.outputs.action == 'repair_pr'
+        id: repair
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/workflows/bot_command.py resolve-repair \
+            --repo "${{ github.repository }}" \
+            --pr-number "${{ steps.command.outputs.pr_number }}" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Resolve cop tracker issue for fix
+        if: steps.command.outputs.action == 'fix_issue'
+        id: fix
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/workflows/bot_command.py resolve-fix \
+            --repo "${{ github.repository }}" \
+            --issue-number "${{ steps.command.outputs.issue_number }}" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Comment when repair is not dispatchable
+        if: steps.command.outputs.action == 'repair_pr' && steps.repair.outputs.should_dispatch != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY_FILE="$RUNNER_TEMP/bot-repair-not-started.md"
+          cat > "$BODY_FILE" <<EOF
+          ## Bot repair not started
+
+          - Reason: ${{ steps.repair.outputs.reason }}
+          - Requested by: @${{ steps.command.outputs.requested_by }}
+          - Comment: ${{ steps.command.outputs.comment_url }}
+          EOF
+          gh pr comment "${{ steps.command.outputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file "$BODY_FILE"
+
+      - name: Comment when fix is not dispatchable
+        if: steps.command.outputs.action == 'fix_issue' && steps.fix.outputs.should_dispatch != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY_FILE="$RUNNER_TEMP/bot-fix-not-started.md"
+          cat > "$BODY_FILE" <<EOF
+          ## Bot fix not started
+
+          - Reason: ${{ steps.fix.outputs.reason }}
+          - Requested by: @${{ steps.command.outputs.requested_by }}
+          - Comment: ${{ steps.command.outputs.comment_url }}
+          EOF
+          gh issue comment "${{ steps.command.outputs.issue_number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file "$BODY_FILE"
+
+      - name: Dispatch agent PR repair
+        if: steps.command.outputs.action == 'repair_pr' && steps.repair.outputs.should_dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.command.outputs.pr_number }}
+          CHECKS_RUN_ID: ${{ steps.repair.outputs.checks_run_id }}
+          REQUESTED_BY: ${{ steps.command.outputs.requested_by }}
+          COMMENT_URL: ${{ steps.command.outputs.comment_url }}
+          COMMAND_ARGS: ${{ steps.command.outputs.extra_context }}
+          FORCE_REPAIR: ${{ steps.command.outputs.force }}
+        run: |
+          PAYLOAD_FILE="$RUNNER_TEMP/agent-pr-repair-dispatch.json"
+          python3 - <<'PY' > "$PAYLOAD_FILE"
+          import json
+          import os
+
+          requested_by = os.environ["REQUESTED_BY"]
+          comment_url = os.environ["COMMENT_URL"]
+          command_args = os.environ["COMMAND_ARGS"].strip()
+
+          extra_lines = [
+              f"Requested by @{requested_by} via /6bot repair.",
+              f"Command comment: {comment_url}",
+          ]
+          if command_args:
+              extra_lines.append("")
+              extra_lines.append(f"Additional command context: {command_args}")
+
+          payload = {
+              "ref": "main",
+              "inputs": {
+                  "pr_number": os.environ["PR_NUMBER"],
+                  "checks_run_id": os.environ["CHECKS_RUN_ID"],
+                  "backend": "auto",
+                  "strength": "auto",
+                  "extra_context": "\n".join(extra_lines),
+                  "force": os.environ["FORCE_REPAIR"],
+              },
+          }
+          print(json.dumps(payload))
+          PY
+          gh api "repos/${{ github.repository }}/actions/workflows/agent-pr-repair.yml/dispatches" \
+            --method POST \
+            --input "$PAYLOAD_FILE"
+
+      - name: Dispatch agent cop fix
+        if: steps.command.outputs.action == 'fix_issue' && steps.fix.outputs.should_dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COP: ${{ steps.fix.outputs.cop }}
+          ISSUE_NUMBER: ${{ steps.command.outputs.issue_number }}
+          REQUESTED_BY: ${{ steps.command.outputs.requested_by }}
+          COMMENT_URL: ${{ steps.command.outputs.comment_url }}
+          COMMAND_ARGS: ${{ steps.command.outputs.extra_context }}
+        run: |
+          PAYLOAD_FILE="$RUNNER_TEMP/agent-cop-fix-dispatch.json"
+          python3 - <<'PY' > "$PAYLOAD_FILE"
+          import json
+          import os
+
+          requested_by = os.environ["REQUESTED_BY"]
+          comment_url = os.environ["COMMENT_URL"]
+          command_args = os.environ["COMMAND_ARGS"].strip()
+
+          extra_lines = [
+              f"Requested by @{requested_by} via /6bot fix.",
+              f"Command comment: {comment_url}",
+          ]
+          if command_args:
+              extra_lines.append("")
+              extra_lines.append(f"Additional command context: {command_args}")
+
+          payload = {
+              "ref": "main",
+              "inputs": {
+                  "cop": os.environ["COP"],
+                  "backend": "auto",
+                  "mode": "fix",
+                  "issue_number": os.environ["ISSUE_NUMBER"],
+                  "extra_context": "\n".join(extra_lines),
+              },
+          }
+          print(json.dumps(payload))
+          PY
+          gh api "repos/${{ github.repository }}/actions/workflows/agent-cop-fix.yml/dispatches" \
+            --method POST \
+            --input "$PAYLOAD_FILE"

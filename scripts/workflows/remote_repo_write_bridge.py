@@ -11,6 +11,9 @@ import tempfile
 import time
 from pathlib import Path
 
+CONTROL_REF = "main"
+REMOTE_REPO_WRITE_WORKFLOW = "remote-repo-write.yml"
+
 
 def _run(cmd: list[str], *, capture: bool = True, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -70,20 +73,25 @@ def cmd_prepare_input(args: argparse.Namespace) -> int:
 
 def cmd_dispatch(args: argparse.Namespace) -> int:
     payload = {
-        "event_type": "repo_write",
-        "client_payload": {
+        "request_id": args.request_id,
+        "source_repo": args.source_repo,
+        "source_run_id": args.source_run_id,
+        "input_artifact": args.input_artifact,
+        "output_artifact": args.output_artifact,
+        "target_sha": args.target_sha,
+        "target_ref": args.target_ref,
+    }
+    request = {
+        "ref": CONTROL_REF,
+        "inputs": {
             "request_id": args.request_id,
             "source_repo": args.source_repo,
-            "source_run_id": args.source_run_id,
-            "input_artifact": args.input_artifact,
-            "output_artifact": args.output_artifact,
-            "target_sha": args.target_sha,
-            "target_ref": args.target_ref,
+            "payload": json.dumps(payload),
         },
     }
 
     with tempfile.NamedTemporaryFile("w", delete=False) as handle:
-        json.dump(payload, handle)
+        json.dump(request, handle)
         handle.write("\n")
         payload_path = handle.name
 
@@ -92,7 +100,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
             [
                 "gh",
                 "api",
-                f"repos/{args.control_repo}/dispatches",
+                f"repos/{args.control_repo}/actions/workflows/{REMOTE_REPO_WRITE_WORKFLOW}/dispatches",
                 "--method",
                 "POST",
                 "--input",
@@ -115,9 +123,9 @@ def _find_run(control_repo: str, request_id: str) -> dict | None:
             "-R",
             control_repo,
             "-w",
-            "remote-repo-write.yml",
+            REMOTE_REPO_WRITE_WORKFLOW,
             "--event",
-            "repository_dispatch",
+            "workflow_dispatch",
             "--json",
             "databaseId,displayTitle,status,conclusion,url",
             "-L",
