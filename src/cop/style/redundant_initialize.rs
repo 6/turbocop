@@ -36,12 +36,19 @@ use crate::parse::source::SourceFile;
 /// only checking subsequent lines. Fixed by scanning the remainder of the `end` line
 /// for `#` in `has_comment_after_end` before advancing to the next line.
 ///
-/// 2 FNs remain (fastlane: inline comment on def line `def initialize # required`;
-/// fluentd: comment after super in body). Both involve comments that nitrocop correctly
-/// detects via `has_comment_in_body`, yet RuboCop still flags them. The root cause
-/// appears to be a subtle difference in RuboCop's `each_comment_in_lines` range
-/// calculation that excludes these specific comments. Not worth fixing — 2 FNs out
-/// of 167 total offenses (98.8% location match after FP fix).
+/// FN fix (2026-03): 12 FNs caused by RuboCop's `find_end_line` quirk in
+/// `CommentsHelp`. When a `def initialize` is the last child in a multi-statement
+/// body (parent is `begin` node without `end` loc), `find_end_line` returns
+/// `parent.loc.line` (first statement's line), creating a backward/empty range
+/// for `contains_comments?`, making it return false even when comments exist.
+/// Similarly, modifier-if wrapping (`def initialize; end if false`) makes the
+/// IfNode parent lack `end`, so `find_end_line` returns the IfNode's start line.
+/// Fixed via `is_last_child_in_multi_statement_body` which detects this pattern
+/// by checking indentation of siblings and parent `end`. Also fixed
+/// `has_comment_after_end` to handle same-line code after `end` (e.g.,
+/// `def initialize; end if false # dummy`) by returning false when non-whitespace
+/// precedes `#` on the same line, and not scanning subsequent lines when there is
+/// code after `end` on the same line.
 pub struct RedundantInitialize;
 
 impl Cop for RedundantInitialize {
@@ -87,20 +94,21 @@ impl Cop for RedundantInitialize {
                     return;
                 }
                 if allow_comments {
-                    // Check for comments inside the method
                     let def_start = def_node.location().start_offset();
                     let def_end = def_node.location().end_offset();
-                    let body_bytes = &source.as_bytes()[def_start..def_end];
-                    if has_comment_in_body(body_bytes) {
-                        return;
-                    }
-                    // Also check for comments after the end keyword, up to the
-                    // next code line. RuboCop's `find_end_line` extends the
-                    // comment range to the next sibling node's line, so comments
-                    // in the gap between `end` and the next method/expression
-                    // cause `allow_comments?` to return true.
-                    if has_comment_after_end(source.as_bytes(), def_end) {
-                        return;
+                    // When the def is the last child in a multi-statement body,
+                    // RuboCop's find_end_line quirk creates an empty comment
+                    // range, so comments are NOT found and the offense fires.
+                    // Skip comment checks in this case to match RuboCop.
+                    if !is_last_child_in_multi_statement_body(source.as_bytes(), def_start, def_end)
+                    {
+                        let body_bytes = &source.as_bytes()[def_start..def_end];
+                        if has_comment_in_body(body_bytes) {
+                            return;
+                        }
+                        if has_comment_after_end(source.as_bytes(), def_end) {
+                            return;
+                        }
                     }
                 }
                 let loc = def_node.location();
@@ -182,12 +190,14 @@ impl Cop for RedundantInitialize {
         if allow_comments {
             let def_start = def_node.location().start_offset();
             let def_end = def_node.location().end_offset();
-            let body_bytes = &source.as_bytes()[def_start..def_end];
-            if has_comment_in_body(body_bytes) {
-                return;
-            }
-            if has_comment_after_end(source.as_bytes(), def_end) {
-                return;
+            if !is_last_child_in_multi_statement_body(source.as_bytes(), def_start, def_end) {
+                let body_bytes = &source.as_bytes()[def_start..def_end];
+                if has_comment_in_body(body_bytes) {
+                    return;
+                }
+                if has_comment_after_end(source.as_bytes(), def_end) {
+                    return;
+                }
             }
         }
 
@@ -244,14 +254,26 @@ fn has_comment_after_end(source_bytes: &[u8], def_end_offset: usize) -> bool {
     // Scan forward from the end of the def node
     let remaining = &source_bytes[def_end_offset..];
     // First check the rest of the current line (after `end`) for an inline comment.
-    // For single-line defs like `def initialize; end # comment`, the comment is
-    // on the same line as `end` but outside the def node's location range.
+    // Only count `#` as a comment if there's no non-whitespace content between `end`
+    // and the `#`. This handles `def initialize; end if false # dummy` where the
+    // `if false` is code, not a comment trigger.
     let mut pos = 0;
+    let mut saw_non_whitespace = false;
     while pos < remaining.len() && remaining[pos] != b'\n' {
-        if remaining[pos] == b'#' {
+        if remaining[pos] == b'#' && !saw_non_whitespace {
             return true;
         }
+        if remaining[pos] != b' ' && remaining[pos] != b'\t' {
+            saw_non_whitespace = true;
+        }
         pos += 1;
+    }
+    // If there was code after `end` on the same line (e.g., `if false`), the def
+    // is wrapped in a modifier construct. In RuboCop, the modifier node becomes the
+    // def's parent, and find_end_line returns the modifier's start line (same line),
+    // creating an empty comment range. Don't check subsequent lines in this case.
+    if saw_non_whitespace {
+        return false;
     }
     if pos < remaining.len() {
         pos += 1; // skip the newline
@@ -279,6 +301,115 @@ fn has_comment_after_end(source_bytes: &[u8], def_end_offset: usize) -> bool {
                     return true; // found a comment
                 }
                 return false; // found code, stop
+            }
+        }
+    }
+    false
+}
+
+/// Detect when the def node is the last child in a multi-statement scope body.
+/// In this case, RuboCop's `find_end_line` returns the parent begin-node's start line
+/// (which is before the def), creating an empty comment range. This means
+/// `contains_comments?` returns false even when comments exist inside the method body,
+/// so `allow_comments?` returns false and the offense IS registered.
+///
+/// This quirk affects class/module bodies with multiple statements where the
+/// def is the last one. We detect it by checking:
+/// 1. The next non-blank, non-comment line after def's end is `end` at lower indent
+/// 2. There's code at the same indent level before the def (not class/module keyword)
+fn is_last_child_in_multi_statement_body(
+    source_bytes: &[u8],
+    def_start: usize,
+    def_end: usize,
+) -> bool {
+    let def_indent = column_of(source_bytes, def_start);
+    if def_indent == 0 {
+        // Top-level def — not inside a class/module body
+        return false;
+    }
+
+    // Step 1: next non-blank, non-comment line after def's end is `end` at lower indent
+    if !next_code_is_parent_end(source_bytes, def_end, def_indent) {
+        return false;
+    }
+
+    // Step 2: there's sibling code before the def at the same indent level
+    has_sibling_before(source_bytes, def_start, def_indent)
+}
+
+/// Get the column (0-indexed) of the byte at the given offset.
+fn column_of(source_bytes: &[u8], offset: usize) -> usize {
+    let before = &source_bytes[..offset];
+    match before.iter().rposition(|&b| b == b'\n') {
+        Some(nl_pos) => offset - nl_pos - 1,
+        None => offset,
+    }
+}
+
+/// Check if the next non-blank, non-comment line after `def_end` is an `end` keyword
+/// at a lower indentation level than the def.
+fn next_code_is_parent_end(source_bytes: &[u8], def_end: usize, def_indent: usize) -> bool {
+    let remaining = &source_bytes[def_end..];
+    let mut pos = 0;
+
+    // Skip rest of current line
+    while pos < remaining.len() && remaining[pos] != b'\n' {
+        pos += 1;
+    }
+    if pos < remaining.len() {
+        pos += 1;
+    }
+
+    // Scan subsequent lines
+    while pos < remaining.len() {
+        let line_start = pos;
+        while pos < remaining.len() && remaining[pos] != b'\n' {
+            pos += 1;
+        }
+        let line = &remaining[line_start..pos];
+        if pos < remaining.len() {
+            pos += 1;
+        }
+
+        let trimmed_idx = line.iter().position(|&b| b != b' ' && b != b'\t');
+        match trimmed_idx {
+            None => continue, // blank line
+            Some(idx) => {
+                if line[idx] == b'#' {
+                    continue; // comment line
+                }
+                let content = &line[idx..];
+                let is_end = content.starts_with(b"end")
+                    && (content.len() == 3
+                        || (!content[3].is_ascii_alphanumeric() && content[3] != b'_'));
+                return idx < def_indent && is_end;
+            }
+        }
+    }
+    false // EOF
+}
+
+/// Check if there's code at the same indentation level before the def,
+/// indicating a multi-statement body (i.e., the def has left siblings).
+fn has_sibling_before(source_bytes: &[u8], def_start: usize, def_indent: usize) -> bool {
+    let before = &source_bytes[..def_start];
+    for line in before.rsplit(|&b| b == b'\n') {
+        let trimmed_idx = line.iter().position(|&b| b != b' ' && b != b'\t');
+        match trimmed_idx {
+            None => continue, // blank line
+            Some(idx) => {
+                if line[idx] == b'#' {
+                    continue; // comment line
+                }
+                if idx == def_indent {
+                    // Code at same indentation — this is a sibling
+                    return true;
+                }
+                if idx < def_indent {
+                    // Code at lower indentation — enclosing structure, stop
+                    return false;
+                }
+                // Higher indentation — nested block, skip
             }
         }
     }
