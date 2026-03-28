@@ -94,6 +94,30 @@ use ruby_prism::Visit;
 /// `CallTargetNode` (not `CallNode`). Added `CALL_TARGET_NODE` to interested node
 /// types and handling in `check_node` for `CallTargetNode` with `&.` and non-nil
 /// receiver (self, constant, literal).
+///
+/// ## Corpus investigation (2026-03-28) — nested `if` expressions inside `||` / parens
+///
+/// Remaining default-config FNs were AllowedMethods calls such as
+/// `scope&.respond_to?(:context)` buried inside ternary or modifier-`if`
+/// expressions that themselves appear under `||` or parentheses:
+///
+/// - `(receiver&.respond_to?(:foo) ? receiver.foo : nil) || fallback`
+/// - `memo || (value if receiver&.respond_to?(:value))`
+///
+/// `visit_or_node` intentionally short-circuits the default Prism traversal, but
+/// `visit_conditional_subtree` only descended through calls, `&&`/`||`, parens,
+/// and `StatementsNode`. When the subtree hit an `IfNode`, recursion stopped and
+/// the predicate was never inspected. Fixed by teaching the subtree walk to
+/// descend through nested `IfNode`/`UnlessNode`/`ElseNode`/`WhileNode`/`UntilNode`
+/// structures: predicates stay in direct conditional context, while bodies recurse
+/// in non-direct context so nested boolean operators still work without turning
+/// ordinary method bodies into false positives.
+///
+/// The remaining lorint/brick `snags&.present?` corpus reports did not reproduce
+/// in oracle-identical file runs against the cloned repos, and the repo has no
+/// `Lint/RedundantSafeNavigation` override that would add `present?` to
+/// `AllowedMethods`. Keep `present?` as a default-config no-offense unless a
+/// real config-loading bug is identified elsewhere.
 pub struct RedundantSafeNavigation;
 
 /// Methods guaranteed to exist on every instance (their receivers can't be nil)
@@ -392,7 +416,9 @@ impl<'a> ConditionalAllowedMethodVisitor<'a> {
     /// boolean operator (`&&`/`||`), or negation (`!`). RuboCop only flags AllowedMethods
     /// when their immediate parent is one of these; parentheses break the chain.
     /// For example, `if (foo&.is_a?(X))` is NOT flagged (parens wrap the csend),
-    /// but `if foo&.is_a?(X)` IS flagged.
+    /// but `if foo&.is_a?(X)` IS flagged. Nested modifier-`if` / ternary expressions
+    /// are handled explicitly because Prism represents them as `IfNode`s inside the
+    /// surrounding `||` / parentheses tree.
     fn visit_conditional_subtree(&mut self, node: &ruby_prism::Node<'_>, direct: bool) {
         if let Some(call) = node.as_call_node() {
             if direct {
@@ -428,6 +454,51 @@ impl<'a> ConditionalAllowedMethodVisitor<'a> {
         if let Some(parens) = node.as_parentheses_node() {
             if let Some(body) = parens.body() {
                 self.visit_conditional_subtree(&body, false);
+            }
+            return;
+        }
+
+        if let Some(if_node) = node.as_if_node() {
+            self.visit_conditional_subtree(&if_node.predicate(), true);
+            if let Some(stmts) = if_node.statements() {
+                self.visit_conditional_subtree(&stmts.as_node(), false);
+            }
+            if let Some(sub) = if_node.subsequent() {
+                self.visit_conditional_subtree(&sub, false);
+            }
+            return;
+        }
+
+        if let Some(unless_node) = node.as_unless_node() {
+            self.visit_conditional_subtree(&unless_node.predicate(), true);
+            if let Some(stmts) = unless_node.statements() {
+                self.visit_conditional_subtree(&stmts.as_node(), false);
+            }
+            if let Some(else_clause) = unless_node.else_clause() {
+                self.visit_conditional_subtree(&else_clause.as_node(), false);
+            }
+            return;
+        }
+
+        if let Some(else_node) = node.as_else_node() {
+            if let Some(stmts) = else_node.statements() {
+                self.visit_conditional_subtree(&stmts.as_node(), false);
+            }
+            return;
+        }
+
+        if let Some(while_node) = node.as_while_node() {
+            self.visit_conditional_subtree(&while_node.predicate(), true);
+            if let Some(stmts) = while_node.statements() {
+                self.visit_conditional_subtree(&stmts.as_node(), false);
+            }
+            return;
+        }
+
+        if let Some(until_node) = node.as_until_node() {
+            self.visit_conditional_subtree(&until_node.predicate(), true);
+            if let Some(stmts) = until_node.statements() {
+                self.visit_conditional_subtree(&stmts.as_node(), false);
             }
             return;
         }

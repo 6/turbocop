@@ -20,6 +20,8 @@ bar&.to_s(:db) || ''
 foo&.respond_to?(:bar)
 foo&.is_a?(String)
 foo&.kind_of?(Hash)
+if snags&.present?
+end
 
 # AllowedMethods inside body of if (not in predicate) — no offense
 if condition

@@ -147,3 +147,23 @@ rescue => self&.captured_error
               ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
   handle
 end
+
+# AllowedMethod in ternary condition nested under ||
+( response&.result&.respond_to?( :error_description ) ? response.result.error_description : nil ) || ''
+                  ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
+
+# AllowedMethod in ternary condition nested under ||
+offset = seconds || (current_user&.respond_to?(:auto_timeout) ? current_user.auto_timeout : nil)
+                                 ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
+
+# AllowedMethod in modifier if nested under ||
+@current_ability || (scope.current_ability if scope&.respond_to?(:current_ability))
+                                                   ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
+
+# AllowedMethod in modifier if nested under ||
+@collection || (scope.context[:collection] if scope&.respond_to?(:context))
+                                                   ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
+
+# AllowedMethod in modifier if nested under || with other safe-nav calls nearby
+linked_to_studies = a&.studies.present? || (a&.study.present? if a&.respond_to?(:study))
+                                                                  ^^ Lint/RedundantSafeNavigation: Redundant safe navigation detected, use `.` instead.
