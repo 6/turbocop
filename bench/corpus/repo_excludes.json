@@ -48,5 +48,12 @@
     "exclude": [
       "puppet/**/*"
     ]
+  },
+  "samvera__hyrax__87877a3": {
+    "comment": "Hidden app copies under .dassie/ and .koppie/ are skipped by RuboCop's default hidden-dir discovery, but nitrocop's corpus scan still lints them and picked up 2 FP for Lint/RedundantSafeNavigation.",
+    "exclude": [
+      ".dassie/**/*",
+      ".koppie/**/*"
+    ]
   }
 }
