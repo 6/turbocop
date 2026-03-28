@@ -191,7 +191,6 @@ jobs:
 
       - name: Build remote claim request
         if: steps.task.outputs.code_bugs != '0'
-        env:
         run: |
           git fetch origin main
           REQUEST_DIR="$RUNNER_TEMP/cop-fix-claim-request"

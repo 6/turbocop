@@ -31,8 +31,10 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "- auto" in yml
     assert "Generate bot control token" in yml
     assert "cop_fix_lifecycle.py select-backend" in yml
+    assert "cop_fix_publish.py skip-fixed-request" in yml
     assert "cop_fix_publish.py claim-request" in yml
     assert "cop_fix_lifecycle.py finalize" in yml
+    assert "cop_fix_publish.py finalize-request" in yml
     assert "uses: ./.github/actions/run-agent-remote" in yml
     assert "uses: ./.github/actions/run-repo-write-remote" in yml
     assert "control_repo_token: ${{ steps.bot-control-token.outputs.token }}" in yml
@@ -40,6 +42,8 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "setup_profile: nitrocop" in yml
     assert "setup_config_json:" in yml
     assert "cop_fix_publish.py cleanup-request" in yml
+    assert "Publish skip remotely" in yml
+    assert "Publish finalize remotely" in yml
     assert 'gh pr list \\' in yml
     assert "--head \"${{ steps.init.outputs.branch }}\"" in yml
 
@@ -48,17 +52,20 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "offense_fixtures_have_no_unannotated_blocks" in py
     assert "Refs #{" in py
     assert "nitrocop-cop-issue" in py
-    assert '"gh", "issue", "comment"' in py
     assert "docs/agent-ci.md" in py
     assert "validate_agent_changes.py" in py
-    assert '"gh", "pr", "merge"' in py
+    assert '"gh", "issue", "comment"' not in py
+    assert '"gh", "pr", "merge"' not in py
     publish = COP_FIX_PUBLISH.read_text()
     assert '"type": "create_branch"' in publish
     assert '"type": "create_pr"' in publish
     assert '"type": "edit_pr"' in publish
+    assert '"type": "ready_pr"' in publish
+    assert '"type": "merge_pr"' in publish
     assert '"type": "close_pr"' in publish
     assert '"match_mode": match_mode' in publish
     assert 'match_mode: str = "contained"' in publish
+    assert '"type": "comment_pr"' in publish
     assert '"type": "edit_issue_labels"' in publish
 
     # Removed patterns should not appear in either

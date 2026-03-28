@@ -134,6 +134,25 @@ def test_claim_request_builds_remote_claim_flow(tmp_path: Path) -> None:
     assert "Code bugs:** 5" in task_body
 
 
+def _init_repo(tmp_path: Path) -> tuple[Path, str]:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True, capture_output=True, text=True)
+    (repo / "README.md").write_text("base\n")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True, capture_output=True, text=True)
+    base_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return repo, base_sha
+
+
 def test_cleanup_request_without_pr_only_comments_issue(tmp_path: Path) -> None:
     output_dir = tmp_path / "cleanup"
     _run(
@@ -163,6 +182,221 @@ def test_cleanup_request_without_pr_only_comments_issue(tmp_path: Path) -> None:
     ]
     body = (output_dir / "issue-comment.md").read_text()
     assert "before it could create a draft PR" in body
+
+
+def test_skip_fixed_request_comments_issue(tmp_path: Path) -> None:
+    output_dir = tmp_path / "skip-fixed"
+    _run(
+        "skip-fixed-request",
+        "--output-dir",
+        str(output_dir),
+        "--cop",
+        "Style/NegatedWhile",
+        "--issue-number",
+        "77",
+        "--backend-input",
+        "auto",
+        "--mode",
+        "fix",
+        "--run-url",
+        "https://github.com/6/nitrocop/actions/runs/1",
+    )
+
+    request = json.loads((output_dir / "request.json").read_text())
+    assert request == {
+        "match_mode": "contained",
+        "operations": [
+            {
+                "type": "comment_issue",
+                "issue_number": 77,
+                "body_file": "issue-comment.md",
+            }
+        ],
+    }
+    body = (output_dir / "issue-comment.md").read_text()
+    assert "no reproducible code bugs" in body
+    assert "`Style/NegatedWhile`" in body
+
+
+def test_finalize_request_docs_only_pushes_patch_and_marks_issue_blocked(tmp_path: Path) -> None:
+    repo, base_sha = _init_repo(tmp_path)
+    output_dir = tmp_path / "finalize-docs"
+    pr_body = tmp_path / "pr-body.md"
+    pr_body.write_text("PR body\n")
+    (repo / "README.md").write_text("base\ndocs only\n")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "docs"], cwd=repo, check=True, capture_output=True, text=True)
+
+    _run(
+        "finalize-request",
+        "--output-dir",
+        str(output_dir),
+        "--repo-root",
+        str(repo),
+        "--result",
+        "docs_only",
+        "--cop",
+        "Style/NegatedWhile",
+        "--backend",
+        "claude-normal",
+        "--backend-label",
+        "claude / normal",
+        "--model-label",
+        "Claude Sonnet",
+        "--mode",
+        "fix",
+        "--issue-number",
+        "77",
+        "--run-url",
+        "https://github.com/6/nitrocop/actions/runs/1",
+        "--base-sha",
+        base_sha,
+        "--pr-url",
+        "https://github.com/6/nitrocop/pull/123",
+        "--pr-number",
+        "123",
+        "--pr-body-file",
+        str(pr_body),
+    )
+
+    request = json.loads((output_dir / "request.json").read_text())
+    assert request["match_mode"] == "current_head"
+    assert [operation["type"] for operation in request["operations"]] == [
+        "push_patch",
+        "edit_pr",
+        "ready_pr",
+        "merge_pr",
+        "comment_issue",
+        "edit_issue_labels",
+    ]
+    assert (output_dir / "cop-fix.patch").read_text()
+    assert request["operations"][2] == {
+        "type": "ready_pr",
+        "pr": "https://github.com/6/nitrocop/pull/123",
+    }
+    assert request["operations"][3] == {
+        "type": "merge_pr",
+        "pr": "https://github.com/6/nitrocop/pull/123",
+        "auto": True,
+        "squash": True,
+        "delete_branch": True,
+    }
+    assert request["operations"][5] == {
+        "type": "edit_issue_labels",
+        "issue_number": 77,
+        "remove_labels": ["state:pr-open", "state:dispatched", "state:backlog"],
+        "add_labels": ["state:blocked"],
+        "ignore_failure": True,
+    }
+
+
+def test_finalize_request_no_changes_closes_pr_and_resets_issue(tmp_path: Path) -> None:
+    repo, base_sha = _init_repo(tmp_path)
+    output_dir = tmp_path / "finalize-no-changes"
+    pr_body = tmp_path / "pr-body.md"
+    pr_body.write_text("PR body\n")
+
+    _run(
+        "finalize-request",
+        "--output-dir",
+        str(output_dir),
+        "--repo-root",
+        str(repo),
+        "--result",
+        "no_changes",
+        "--cop",
+        "Style/NegatedWhile",
+        "--backend",
+        "claude-normal",
+        "--backend-label",
+        "claude / normal",
+        "--model-label",
+        "Claude Sonnet",
+        "--mode",
+        "fix",
+        "--issue-number",
+        "77",
+        "--run-url",
+        "https://github.com/6/nitrocop/actions/runs/1",
+        "--base-sha",
+        base_sha,
+        "--pr-url",
+        "https://github.com/6/nitrocop/pull/123",
+        "--pr-number",
+        "123",
+        "--pr-body-file",
+        str(pr_body),
+    )
+
+    request = json.loads((output_dir / "request.json").read_text())
+    assert request["operations"][0] == {
+        "type": "close_pr",
+        "pr": "https://github.com/6/nitrocop/pull/123",
+        "comment": "Agent produced no changes.",
+        "delete_branch": True,
+    }
+    assert request["operations"][1]["type"] == "comment_issue"
+    assert request["operations"][2] == {
+        "type": "edit_issue_labels",
+        "issue_number": 77,
+        "remove_labels": ["state:pr-open", "state:dispatched"],
+        "add_labels": ["state:backlog"],
+        "ignore_failure": True,
+    }
+
+
+def test_finalize_request_rejected_comments_pr_and_issue(tmp_path: Path) -> None:
+    repo, base_sha = _init_repo(tmp_path)
+    output_dir = tmp_path / "finalize-rejected"
+    pr_body = tmp_path / "pr-body.md"
+    pr_body.write_text("PR body\n")
+    scope_report = tmp_path / "scope-report.txt"
+    scope_report.write_text("edited files outside allowed scope\n")
+
+    _run(
+        "finalize-request",
+        "--output-dir",
+        str(output_dir),
+        "--repo-root",
+        str(repo),
+        "--result",
+        "rejected",
+        "--cop",
+        "Style/NegatedWhile",
+        "--backend",
+        "claude-normal",
+        "--backend-label",
+        "claude / normal",
+        "--model-label",
+        "Claude Sonnet",
+        "--mode",
+        "fix",
+        "--issue-number",
+        "77",
+        "--run-url",
+        "https://github.com/6/nitrocop/actions/runs/1",
+        "--base-sha",
+        base_sha,
+        "--pr-url",
+        "https://github.com/6/nitrocop/pull/123",
+        "--pr-number",
+        "123",
+        "--pr-body-file",
+        str(pr_body),
+        "--scope-report-file",
+        str(scope_report),
+    )
+
+    request = json.loads((output_dir / "request.json").read_text())
+    assert [operation["type"] for operation in request["operations"]] == [
+        "comment_pr",
+        "close_pr",
+        "comment_issue",
+        "edit_issue_labels",
+    ]
+    rejected_body = (output_dir / "rejected.md").read_text()
+    assert "Agent Fix Rejected" in rejected_body
+    assert "outside allowed scope" in rejected_body
 
 
 def test_reset_issue_request_edits_labels(tmp_path: Path) -> None:
