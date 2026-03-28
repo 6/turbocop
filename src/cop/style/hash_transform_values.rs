@@ -6,6 +6,7 @@ use crate::cop::util::is_simple_constant;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 /// Style/HashTransformValues detects hash iteration patterns that can be
 /// replaced with `transform_values`.
@@ -45,6 +46,12 @@ use crate::parse::source::SourceFile;
 ///   `is_simple_constant` which handles both `Hash` and `::Hash`.
 /// - Multi-line blocks and `do...end` syntax already worked correctly with the
 ///   existing Prism-based detection (no code change needed for those patterns).
+/// - Replaced text-based `contains_identifier` with AST-based `node_contains_lvar_read`
+///   for checking whether value expressions reference the key or memo parameter.
+///   The text-based approach falsely matched key param names appearing as Ruby symbols
+///   (`:name`, `&:label`) or keyword arguments (`name: nil`), causing false negatives
+///   in patterns like `x.map { |name, attr| [name, Param.new(name: nil)] }.to_h`
+///   where `name:` is a keyword arg, not a local variable reference to `name`.
 pub struct HashTransformValues;
 
 impl Cop for HashTransformValues {
@@ -245,19 +252,17 @@ impl HashTransformValues {
         }
 
         // Value expression must actually use the value parameter
-        let value_loc = aargs[1].location();
-        let value_src = value_loc.as_slice();
-        if !contains_identifier(value_src, value_param_name.as_slice()) {
+        if !node_contains_lvar_read(&aargs[1], value_param_name.as_slice()) {
             return;
         }
 
         // Value expression must NOT reference the key variable
-        if contains_identifier(value_src, key_param_name.as_slice()) {
+        if node_contains_lvar_read(&aargs[1], key_param_name.as_slice()) {
             return;
         }
 
         // Value expression must NOT reference the memo variable
-        if contains_identifier(value_src, memo_param_name.as_slice()) {
+        if node_contains_lvar_read(&aargs[1], memo_param_name.as_slice()) {
             return;
         }
 
@@ -519,14 +524,13 @@ impl HashTransformValues {
         }
 
         // Value expression must reference the value param
-        let value_loc = elements[1].location();
-        let value_src = value_loc.as_slice();
-        if !contains_identifier(value_src, value_param_name.as_slice()) {
+        if !node_contains_lvar_read(&elements[1], value_param_name.as_slice()) {
             return false;
         }
 
-        // Value expression must NOT reference the key param
-        if contains_identifier(value_src, key_param_name.as_slice()) {
+        // Value expression must NOT reference the key param (AST-based to avoid
+        // false matches on symbols like `:name` or keyword args like `name:`)
+        if node_contains_lvar_read(&elements[1], key_param_name.as_slice()) {
             return false;
         }
 
@@ -575,28 +579,26 @@ fn is_empty_hash(node: &ruby_prism::Node<'_>) -> bool {
     }
 }
 
-/// Check if `haystack` contains `needle` as a whole identifier (word boundary check).
-fn contains_identifier(haystack: &[u8], needle: &[u8]) -> bool {
-    if needle.is_empty() || haystack.len() < needle.len() {
-        return false;
-    }
-    for i in 0..=haystack.len() - needle.len() {
-        if &haystack[i..i + needle.len()] == needle {
-            // Check word boundary before
-            let before_ok = i == 0 || !is_ident_char(haystack[i - 1]);
-            // Check word boundary after
-            let after_ok =
-                i + needle.len() >= haystack.len() || !is_ident_char(haystack[i + needle.len()]);
-            if before_ok && after_ok {
-                return true;
-            }
-        }
-    }
-    false
+/// Check if a node's subtree contains a `LocalVariableReadNode` with the given name.
+/// Unlike `contains_identifier`, this uses AST traversal so it won't match
+/// symbols (`:name`), keyword arguments (`name:`), or other non-variable occurrences.
+fn node_contains_lvar_read(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
+    let mut finder = LvarFinder { name, found: false };
+    finder.visit(node);
+    finder.found
 }
 
-fn is_ident_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_'
+struct LvarFinder<'a> {
+    name: &'a [u8],
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for LvarFinder<'_> {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+        if node.name().as_slice() == self.name {
+            self.found = true;
+        }
+    }
 }
 
 #[cfg(test)]
