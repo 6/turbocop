@@ -83,3 +83,16 @@ rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
 rescue ActiveRecord::RecordInvalid
   logger.warn("failed")
 end
+
+# Unresolved third-party duplicates should not be treated as equivalent
+begin
+  yield
+rescue Stripe::CardError,
+       Stripe::InvalidRequestError,
+       Stripe::RateLimitError,
+       Stripe::InvalidRequestError,
+       Stripe::AuthenticationError,
+       Stripe::APIConnectionError,
+       Stripe::StripeError => e
+  StripeLogger.error(e.json_body.try(:[], :error))
+end
