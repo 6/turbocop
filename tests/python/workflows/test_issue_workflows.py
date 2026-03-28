@@ -215,11 +215,19 @@ def test_remote_repo_write_bridge_contract_targets_6_bot():
     assert 'dispatch.add_argument("--target-ref", required=True)' in bridge
 
 
-def test_issue_sync_workflow_uses_app_token_and_dispatch_script():
+def test_issue_sync_workflow_uses_github_token_and_dispatch_script():
     content = COP_ISSUE_SYNC.read_text()
-    assert "actions/create-github-app-token@v3" in content
+    assert "actions/create-github-app-token@v3" not in content
+    assert "GH_TOKEN: ${{ github.token }}" in content
     assert "python3 scripts/dispatch_cops.py issues-sync" in content
     assert "--binary target/debug/nitrocop" in content
+
+
+def test_issue_close_workflow_uses_github_token() -> None:
+    content = ROOT.joinpath(".github", "workflows", "cop-issue-close.yml").read_text()
+    assert "actions/create-github-app-token@v3" not in content
+    assert "GH_TOKEN: ${{ github.token }}" in content
+    assert "gh issue close" in content
 
 
 
@@ -238,6 +246,7 @@ if __name__ == "__main__":
     test_agent_pr_repair_reads_linked_issue_and_can_update_it()
     test_agent_pr_repair_checks_out_repo_before_running_local_scripts()
     test_agent_pr_repair_distinguishes_agent_failure_from_verify_failure()
-    test_issue_sync_workflow_uses_app_token_and_dispatch_script()
+    test_issue_sync_workflow_uses_github_token_and_dispatch_script()
+    test_issue_close_workflow_uses_github_token()
     test_corpus_oracle_workflow_uses_dynamic_pr_renderer()
     print("All tests passed.")

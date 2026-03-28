@@ -30,18 +30,10 @@ jobs:
             echo "Found: cop=$COP issue=#$ISSUE"
           fi
 
-      - name: Generate app token
-        if: steps.extract.outputs.issue != ''
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-
       - name: Close tracker issue
         if: steps.extract.outputs.issue != ''
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           ISSUE="${{ steps.extract.outputs.issue }}"
           COP="${{ steps.extract.outputs.cop }}"

@@ -10,8 +10,17 @@ import subprocess
 import time
 from pathlib import Path
 
-BOT_NAME = "6[bot]"
-BOT_EMAIL = "129682364+6[bot]@users.noreply.github.com"
+IDENTITIES = {
+    "6-bot": {
+        "name": "6[bot]",
+        "email": "129682364+6[bot]@users.noreply.github.com",
+    },
+    "github-actions": {
+        "name": "github-actions[bot]",
+        "email": "41898282+github-actions[bot]@users.noreply.github.com",
+    },
+}
+DEFAULT_IDENTITY = "6-bot"
 EXTRAHEADER_KEY = "http.https://github.com/.extraheader"
 
 
@@ -41,9 +50,11 @@ def configure_git(
     repo: str | None,
     token_env: str | None,
     unset_extraheader: bool,
+    identity: str,
 ) -> None:
-    run_git(repo_root, "config", "user.name", BOT_NAME)
-    run_git(repo_root, "config", "user.email", BOT_EMAIL)
+    profile = IDENTITIES[identity]
+    run_git(repo_root, "config", "user.name", profile["name"])
+    run_git(repo_root, "config", "user.email", profile["email"])
 
     if unset_extraheader:
         run_git(repo_root, "config", "--local", "--unset-all", EXTRAHEADER_KEY, check=False)
@@ -125,6 +136,12 @@ def main() -> int:
         action="store_true",
         help="Remove checkout-injected GitHub auth header before setting origin URL",
     )
+    configure_parser.add_argument(
+        "--identity",
+        choices=sorted(IDENTITIES),
+        default=DEFAULT_IDENTITY,
+        help="Git author identity to configure",
+    )
 
     promote_parser = subparsers.add_parser("promote", help="Promote branch head to a verified commit")
     promote_parser.add_argument("--repo", required=True, help="owner/repo")
@@ -139,6 +156,7 @@ def main() -> int:
             repo=args.repo,
             token_env=args.token_env if args.repo else None,
             unset_extraheader=args.unset_extraheader,
+            identity=args.identity,
         )
         return 0
 
