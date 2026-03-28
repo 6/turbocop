@@ -51,6 +51,8 @@ if FileTest.exist?(path) && File.stat(path).socket?
   FileUtils.mkdir(path)
 end
 
+FileUtils.mkdir(path) if FileTest.exist?(path) && File.stat(path).socket?
+
 # Complex conditional with ||
 if FileTest.exist?(path) || condition
   FileUtils.mkdir(path)

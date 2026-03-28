@@ -43,6 +43,24 @@ use crate::parse::source::SourceFile;
 /// 2. `if Dir.exist?(catalogs_path) == false` — the `== false` negation pattern was not
 ///    recognized by find_exist_info. Fixed by handling `== false` and `== true` as wrappers
 ///    around the exist? call, extracting the receiver of the `==` call.
+///
+/// ## Fix: parenthesized predicates and no-arg call normalization (6 FN)
+///
+/// Remaining corpus misses came from Prism preserving `ParenthesesNode` and
+/// `StatementsNode` wrappers in conditions that RuboCop still inspects:
+/// - `File.unlink(path) if (File.exists?(path))`
+/// - `if (path && File.exists?(path))`
+/// - `Dir.delete(path) if (Dir.exist?(path) && ...)`
+///
+/// The previous matcher only looked at bare `CallNode` predicates, so these wrapped
+/// conditions were invisible. It also compared `results_path()` and `results_path`
+/// by raw source, which mismatched even though RuboCop treats them as the same send.
+/// Fixed by recursing through `ParenthesesNode`/`StatementsNode` in `find_exist_info`,
+/// searching inside parenthesized `&&`/`||`, and canonicalizing call arguments so
+/// optional parentheses on zero-arg sends do not change equality.
+///
+/// Important: we still skip top-level unparenthesized `&&`/`||` conditions to match
+/// RuboCop's no-offense cases such as `if File.exist?(path) && other`.
 pub struct NonAtomicFileOperation;
 
 const MAKE_METHODS: &[&[u8]] = &[b"mkdir"];
@@ -118,12 +136,65 @@ fn is_exist_call(call: &ruby_prism::CallNode<'_>) -> bool {
 
 /// Extract a canonical representation of an argument node for comparison.
 /// For string nodes, uses the unescaped content (so `'foo'` == `"foo"`).
+/// For call nodes, builds a structural fingerprint so `results_path()` == `results_path`.
 /// For everything else, uses the raw source bytes.
 fn canonical_arg(node: &ruby_prism::Node<'_>) -> Vec<u8> {
+    if let Some(parens) = node.as_parentheses_node() {
+        if let Some(body) = parens.body() {
+            return canonical_arg(&body);
+        }
+    }
+
+    if let Some(stmts) = node.as_statements_node() {
+        let mut iter = stmts.body().iter();
+        if let Some(first) = iter.next() {
+            if iter.next().is_none() {
+                return canonical_arg(&first);
+            }
+        }
+    }
+
     if let Some(s) = node.as_string_node() {
         s.unescaped().to_vec()
+    } else if let Some(call) = node.as_call_node() {
+        let mut out = Vec::new();
+        append_canonical_call(&mut out, &call);
+        out
     } else {
         node.location().as_slice().to_vec()
+    }
+}
+
+fn append_canonical_call(out: &mut Vec<u8>, call: &ruby_prism::CallNode<'_>) {
+    out.extend_from_slice(b"C:");
+
+    if let Some(recv) = call.receiver() {
+        out.extend_from_slice(&canonical_arg(&recv));
+        if let Some(op) = call.call_operator_loc() {
+            out.extend_from_slice(op.as_slice());
+        } else {
+            out.push(b'.');
+        }
+    }
+
+    out.extend_from_slice(call.name().as_slice());
+    out.push(b'(');
+
+    if let Some(args) = call.arguments() {
+        for (i, arg) in args.arguments().iter().enumerate() {
+            if i > 0 {
+                out.push(b',');
+            }
+            out.extend_from_slice(&canonical_arg(&arg));
+        }
+    }
+
+    out.push(b')');
+
+    if let Some(block) = call.block() {
+        out.push(b'{');
+        out.extend_from_slice(&canonical_arg(&block));
+        out.push(b'}');
     }
 }
 
@@ -153,13 +224,35 @@ fn exist_info_from_call(call: &ruby_prism::CallNode<'_>) -> Option<ExistInfo> {
 /// or negated with `== false` / `== true`).
 /// Returns the exist call's first argument and receiver/method info for diagnostics.
 fn find_exist_info(condition: &ruby_prism::Node<'_>) -> Option<ExistInfo> {
+    if let Some(parens) = condition.as_parentheses_node() {
+        if let Some(body) = parens.body() {
+            return find_exist_info(&body);
+        }
+        return None;
+    }
+
+    if let Some(stmts) = condition.as_statements_node() {
+        for stmt in stmts.body().iter() {
+            if let Some(info) = find_exist_info(&stmt) {
+                return Some(info);
+            }
+        }
+        return None;
+    }
+
+    if let Some(and_node) = condition.as_and_node() {
+        return find_exist_info(&and_node.left()).or_else(|| find_exist_info(&and_node.right()));
+    }
+
+    if let Some(or_node) = condition.as_or_node() {
+        return find_exist_info(&or_node.left()).or_else(|| find_exist_info(&or_node.right()));
+    }
+
     if let Some(call) = condition.as_call_node() {
         if call.name().as_slice() == b"!" {
             // Negated: `!File.exist?(path)`
             if let Some(inner) = call.receiver() {
-                if let Some(inner_call) = inner.as_call_node() {
-                    return exist_info_from_call(&inner_call);
-                }
+                return find_exist_info(&inner);
             }
             return None;
         }
@@ -172,9 +265,7 @@ fn find_exist_info(condition: &ruby_prism::Node<'_>) -> Option<ExistInfo> {
                         || arg_list[0].as_false_node().is_some())
                 {
                     if let Some(recv) = call.receiver() {
-                        if let Some(recv_call) = recv.as_call_node() {
-                            return exist_info_from_call(&recv_call);
-                        }
+                        return find_exist_info(&recv);
                     }
                 }
             }
@@ -292,7 +383,8 @@ impl Cop for NonAtomicFileOperation {
             return;
         }
 
-        // Skip compound conditions (&&, ||)
+        // Skip unparenthesized compound conditions (&&, ||). Parenthesized
+        // compounds are handled in find_exist_info to match RuboCop.
         if is_operator_condition(&condition) {
             return;
         }
