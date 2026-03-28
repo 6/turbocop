@@ -59,6 +59,23 @@ use ruby_prism::Visit;
 /// shallow — `(send (lvar :k) :to_sym)` does NOT match `(lvar :k)`. Only bare
 /// `result[key]` is acceptable; `result[key.to_sym]` is an offense. Replaced
 /// with `lvar_used_shallow`.
+///
+/// ## Corpus investigation (2026-03-28)
+///
+/// Corpus oracle reported FP=6, FN=7. The FNs came from two narrow mismatches
+/// with RuboCop:
+///
+/// 1. Bare method calls like `type(e)` and `record_flavor_usage(flavor)` were
+///    incorrectly treated as "element modified" because the port only checked
+///    whether the element appeared anywhere in the argument list. RuboCop only
+///    treats bare calls as mutation-like when the element is passed as a bare
+///    local variable alongside at least one additional argument (`method(el, ...)`).
+///
+/// 2. Returns like `k[:permitted_attributes] || {}` were missed because the port
+///    only recognized simple element expressions, not boolean fallbacks whose
+///    only variable-bearing branch still depends solely on the element. Added a
+///    narrow `||` case that still preserves method-chain no-offenses like
+///    `entity[:indices].last || []`.
 pub struct UnmodifiedReduceAccumulator;
 
 impl Cop for UnmodifiedReduceAccumulator {
@@ -481,13 +498,12 @@ fn element_modified_recursive(node: &ruby_prism::Node<'_>, el_name: &str) -> boo
                 }
             }
         }
-        // method(acc, foo, el) — bare method with el and other vars
+        // method(el, ...) — bare method with the element plus another argument
         if call.receiver().is_none() {
             if let Some(args) = call.arguments() {
                 let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
-                let has_el = arg_list.iter().any(|a| references_var(a, el_name));
-                let has_other = arg_list.iter().any(|a| has_any_local_var(a));
-                if has_el && has_other {
+                let has_bare_el = arg_list.iter().any(|a| bare_local_read(a, el_name));
+                if has_bare_el && arg_list.len() > 1 {
                     return true;
                 }
             }
@@ -659,6 +675,19 @@ fn references_var(node: &ruby_prism::Node<'_>, var_name: &str) -> bool {
 /// considered "only element" because they may return a transformed value that serves as
 /// a valid new accumulator (matching RuboCop's behavior via expression_values).
 fn is_only_element_expr(node: &ruby_prism::Node<'_>, acc_name: &str, el_name: &str) -> bool {
+    if let Some(or_node) = node.as_or_node() {
+        let left = or_node.left();
+        let right = or_node.right();
+        let left_is_only_element = is_only_element_expr(&left, acc_name, el_name);
+        let right_is_only_element = is_only_element_expr(&right, acc_name, el_name);
+        let left_is_literalish = !has_rubocop_expression_values(&left);
+        let right_is_literalish = !has_rubocop_expression_values(&right);
+
+        return (left_is_only_element || left_is_literalish)
+            && (right_is_only_element || right_is_literalish)
+            && (left_is_only_element || right_is_only_element);
+    }
+
     // Direct element read
     if let Some(read) = node.as_local_variable_read_node() {
         return std::str::from_utf8(read.name().as_slice()).unwrap_or("") == el_name;
@@ -714,6 +743,92 @@ fn is_only_element_expr(node: &ruby_prism::Node<'_>, acc_name: &str, el_name: &s
     }
 
     false
+}
+
+fn bare_local_read(node: &ruby_prism::Node<'_>, var_name: &str) -> bool {
+    node.as_local_variable_read_node()
+        .is_some_and(|read| std::str::from_utf8(read.name().as_slice()).unwrap_or("") == var_name)
+}
+
+fn has_rubocop_expression_values(node: &ruby_prism::Node<'_>) -> bool {
+    struct ExpressionValueFinder {
+        found: bool,
+    }
+
+    impl<'pr> Visit<'pr> for ExpressionValueFinder {
+        fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+            self.found = true;
+            ruby_prism::visit_call_node(self, node);
+        }
+
+        fn visit_local_variable_read_node(
+            &mut self,
+            node: &ruby_prism::LocalVariableReadNode<'pr>,
+        ) {
+            self.found = true;
+            ruby_prism::visit_local_variable_read_node(self, node);
+        }
+
+        fn visit_local_variable_write_node(
+            &mut self,
+            node: &ruby_prism::LocalVariableWriteNode<'pr>,
+        ) {
+            self.found = true;
+            ruby_prism::visit_local_variable_write_node(self, node);
+        }
+
+        fn visit_instance_variable_read_node(
+            &mut self,
+            node: &ruby_prism::InstanceVariableReadNode<'pr>,
+        ) {
+            self.found = true;
+            ruby_prism::visit_instance_variable_read_node(self, node);
+        }
+
+        fn visit_instance_variable_write_node(
+            &mut self,
+            node: &ruby_prism::InstanceVariableWriteNode<'pr>,
+        ) {
+            self.found = true;
+            ruby_prism::visit_instance_variable_write_node(self, node);
+        }
+
+        fn visit_class_variable_read_node(
+            &mut self,
+            node: &ruby_prism::ClassVariableReadNode<'pr>,
+        ) {
+            self.found = true;
+            ruby_prism::visit_class_variable_read_node(self, node);
+        }
+
+        fn visit_class_variable_write_node(
+            &mut self,
+            node: &ruby_prism::ClassVariableWriteNode<'pr>,
+        ) {
+            self.found = true;
+            ruby_prism::visit_class_variable_write_node(self, node);
+        }
+
+        fn visit_global_variable_read_node(
+            &mut self,
+            node: &ruby_prism::GlobalVariableReadNode<'pr>,
+        ) {
+            self.found = true;
+            ruby_prism::visit_global_variable_read_node(self, node);
+        }
+
+        fn visit_global_variable_write_node(
+            &mut self,
+            node: &ruby_prism::GlobalVariableWriteNode<'pr>,
+        ) {
+            self.found = true;
+            ruby_prism::visit_global_variable_write_node(self, node);
+        }
+    }
+
+    let mut finder = ExpressionValueFinder { found: false };
+    finder.visit(node);
+    finder.found
 }
 
 /// Check if an expression contains any local variable reference.

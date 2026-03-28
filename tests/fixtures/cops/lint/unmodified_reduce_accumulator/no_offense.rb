@@ -50,3 +50,20 @@ end
 scopes.reverse_each.reduce(compiled) do |body, scope|
   scope.wrap(body: [body])
 end
+
+# Bare calls only count as element modification when the element is passed alongside
+# at least one other argument, matching RuboCop's `method(el, ...)` behavior.
+values.reduce do |acc, el|
+  method(el, 1)
+  el
+end
+
+# Boolean fallbacks still accept method-chain returns that go beyond the bare element.
+entities.reduce(0) do |index, entity|
+  entity[:indices].last || []
+end
+
+# A fallback method call adds a non-element expression value, so it stays acceptable.
+registry_set.map { |ext| ext.actions }.flatten.inject({}) do |h, k|
+  k[:permitted_attributes] || fallback
+end

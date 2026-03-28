@@ -70,3 +70,49 @@ hierarchy.reduce(location_map) do |map, val|
   map[db[val]]
   ^^^^^^^^^^^^ Lint/UnmodifiedReduceAccumulator: Do not return an element of the accumulator in `reduce`.
 end
+
+# FN fix: bare method call with the element as its only argument
+ast.expressions.reduce(DynType) do |t, e|
+  type(e)
+  ^^^^^^^ Lint/UnmodifiedReduceAccumulator: Ensure the accumulator `t` will be modified by `reduce`.
+end
+
+# FN fix: element-only bare call inside an assignment target
+children = choice.children.inject('') do |memo, child|
+  list_item_for_choice(child)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/UnmodifiedReduceAccumulator: Ensure the accumulator `memo` will be modified by `inject`.
+end
+
+# FN fix: preceding bare call with element interpolation should not count as element mutation
+tags.inject(nil) do |prev, tag|
+  task("logs/ChangeLog-#{tag}") { |t| changelog[t.name, tag, prev] }
+  tag
+  ^^^ Lint/UnmodifiedReduceAccumulator: Ensure the accumulator `prev` will be modified by `inject`.
+end
+
+# FN fix: same pattern inside an enclosing conditional
+unless tags.empty?
+  tags.inject(nil) do |prev, tag|
+    task("logs/ChangeLog-#{tag}") { |t| changelog[t.name, tag, prev] }
+    tag
+    ^^^ Lint/UnmodifiedReduceAccumulator: Ensure the accumulator `prev` will be modified by `inject`.
+  end
+end
+
+# FN fix: bare method call with underscore accumulator
+%w[free_ipa posix active_directory].reduce({}) do |_acc, flavor|
+  record_flavor_usage(flavor)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/UnmodifiedReduceAccumulator: Ensure the accumulator `_acc` will be modified by `reduce`.
+end
+
+# FN fix: boolean-or fallback still returns an element-only value
+registry_set.map { |ext| ext.actions }.flatten.inject({}) do |h, k|
+  k[:permitted_attributes] || {}
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/UnmodifiedReduceAccumulator: Ensure the accumulator `h` will be modified by `inject`.
+end
+
+# FN fix: boolean-or fallback with underscore accumulator
+registry_set.map { |ext| ext.triggers }.flatten.inject([]) do |_, trigger|
+  trigger[:permitted_attributes] || []
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/UnmodifiedReduceAccumulator: Ensure the accumulator `_` will be modified by `inject`.
+end
