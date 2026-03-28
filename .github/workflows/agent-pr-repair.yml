@@ -246,6 +246,16 @@ jobs:
           python3 scripts/workflows/resolve_backend.py "${{ steps.repair.outputs.backend }}" \
             >> "$GITHUB_OUTPUT"
 
+      - name: Generate bot control token
+        if: steps.pr.outputs.should_run == 'true'
+        id: bot-control-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: 6
+          repositories: bot
+
       - name: Append available helper scripts to prompt
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
         run: |
@@ -274,7 +284,7 @@ jobs:
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route == 'skip'
         uses: ./.github/actions/run-repo-write-remote
         with:
-          control_repo_token: ${{ secrets.BOT_CONTROL_REPO_TOKEN }}
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
           target_sha: ${{ steps.pr.outputs.head_sha }}
           target_ref: refs/heads/${{ steps.pr.outputs.head_branch }}
           request_file: ${{ runner.temp }}/repair-skip-request/request.json
@@ -304,7 +314,7 @@ jobs:
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair != 'true'
         uses: ./.github/actions/run-repo-write-remote
         with:
-          control_repo_token: ${{ secrets.BOT_CONTROL_REPO_TOKEN }}
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
           target_sha: ${{ steps.pr.outputs.head_sha }}
           target_ref: refs/heads/${{ steps.pr.outputs.head_branch }}
           request_file: ${{ runner.temp }}/repair-bounded-request/request.json
@@ -382,7 +392,7 @@ jobs:
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
         uses: ./.github/actions/run-repo-write-remote
         with:
-          control_repo_token: ${{ secrets.BOT_CONTROL_REPO_TOKEN }}
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
           target_sha: ${{ steps.pr.outputs.head_sha }}
           target_ref: refs/heads/${{ steps.pr.outputs.head_branch }}
           request_file: ${{ runner.temp }}/repair-attempt-request/request.json
@@ -415,7 +425,7 @@ jobs:
         timeout-minutes: 50
         with:
           backend: ${{ steps.repair.outputs.backend }}
-          control_repo_token: ${{ secrets.BOT_CONTROL_REPO_TOKEN }}
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
           target_sha: ${{ steps.prep.outputs.base_sha }}
           target_ref: refs/heads/${{ steps.pr.outputs.head_branch }}
           base_sha: ${{ steps.prep.outputs.base_sha }}
@@ -529,7 +539,7 @@ jobs:
         id: publish
         uses: ./.github/actions/run-repo-write-remote
         with:
-          control_repo_token: ${{ secrets.BOT_CONTROL_REPO_TOKEN }}
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
           target_sha: ${{ steps.pr.outputs.head_sha }}
           target_ref: refs/heads/${{ steps.pr.outputs.head_branch }}
           request_file: ${{ runner.temp }}/repair-result-request/request.json

@@ -715,9 +715,9 @@ def cmd_snapshot(args: list[str]) -> int:
     """Generate cop-specific summary from agent outputs.
 
     Git snapshot, log finding, git activity capture, artifact manifest,
-    and leak scanning are handled by the run-agent composite action
-    (for both CLI and action backend paths).  This command only generates
-    the cop-specific summary markdown and prints the agent result.
+    and leak scanning are handled by the remote agent runner in 6/bot.
+    This command only generates the cop-specific summary markdown and
+    prints the agent result after those runtime files have been populated.
     """
     import argparse
 
@@ -732,7 +732,7 @@ def cmd_snapshot(args: list[str]) -> int:
 
     summary_file = _env_path("SUMMARY_FILE")
 
-    # Generate summary (reads from files already populated by run-agent action)
+    # Generate summary from the runtime files populated by the remote runner.
     summary = _generate_summary(
         opts.cop, opts.backend, opts.mode,
         opts.run_url, opts.run_number, opts.base_sha,

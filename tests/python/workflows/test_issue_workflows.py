@@ -11,6 +11,7 @@ COP_FIX_LIFECYCLE = ROOT / "scripts" / "workflows" / "cop_fix_lifecycle.py"
 AGENT_PR_REPAIR = ROOT / ".github" / "workflows" / "agent-pr-repair.yml"
 BOT_COMMAND_WORKFLOW = ROOT / ".github" / "workflows" / "bot-command.yml"
 RUN_AGENT_REMOTE = ROOT / ".github" / "actions" / "run-agent-remote" / "action.yml"
+RUN_AGENT_LOCAL = ROOT / ".github" / "actions" / "run-agent" / "action.yml"
 RUN_REPO_WRITE_REMOTE = ROOT / ".github" / "actions" / "run-repo-write-remote" / "action.yml"
 REMOTE_AGENT_BRIDGE = ROOT / "scripts" / "workflows" / "remote_agent_bridge.py"
 REMOTE_REPO_WRITE_BRIDGE = ROOT / "scripts" / "workflows" / "remote_repo_write_bridge.py"
@@ -72,12 +73,13 @@ def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
     assert "python3 scripts/workflows/repair_retry_policy.py live-gate" in content
     assert "uses: ./.github/actions/run-agent-remote" in content
     assert "uses: ./.github/actions/run-repo-write-remote" in content
-    assert "control_repo_token: ${{ secrets.BOT_CONTROL_REPO_TOKEN }}" in content
+    assert "Generate bot control token" in content
+    assert "control_repo_token: ${{ steps.bot-control-token.outputs.token }}" in content
+    assert "repositories: bot" in content
     assert "target_ref: refs/heads/${{ steps.pr.outputs.head_branch }}" in content
     assert "setup_profile: nitrocop" in content
     assert "setup_config_json:" in content
     assert "scripts/workflows/repair_publish.py" in content
-    assert "Generate bot control token" not in content
     assert "Generate read-only GitHub token" not in content
     assert "Refresh app token" not in content
     assert "Skip closed or moved PR before publish" not in content
@@ -157,6 +159,7 @@ def test_remote_agent_bridge_contract_targets_6_bot():
     action = RUN_AGENT_REMOTE.read_text()
     bridge = REMOTE_AGENT_BRIDGE.read_text()
 
+    assert not RUN_AGENT_LOCAL.exists()
     assert "default: 6/bot" in action
     assert "remote_agent_bridge.py prepare-input" in action
     assert "remote_agent_bridge.py dispatch" in action
