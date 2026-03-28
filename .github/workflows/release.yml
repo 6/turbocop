@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -29,16 +28,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-
       - name: Validate and normalize version
         id: version
         run: |
+          if [ "${{ github.ref_name }}" != "main" ]; then
+            echo "::error::Release workflow must run from main"
+            exit 1
+          fi
           INPUT="${{ inputs.version }}"
           if ! echo "$INPUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9]+)?$'; then
             echo "::error::Invalid version format. Use semver like 0.1.0 or 0.0.1-pre2"
@@ -65,7 +61,7 @@ jobs:
 
       - name: Bump version and tag
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           sed -i 's/^version = ".*"/version = "${{ steps.version.outputs.cargo }}"/' Cargo.toml
           sed -i 's/VERSION = ".*"/VERSION = "${{ steps.version.outputs.gem }}"/' gem/lib/nitrocop.rb
@@ -74,25 +70,18 @@ jobs:
             --repo "${{ github.repository }}" \
             --identity github-actions \
             --unset-extraheader
+          git checkout -B main origin/main
           git add Cargo.toml Cargo.lock gem/lib/nitrocop.rb
           COMMIT_MSG="Release v${{ steps.version.outputs.tag }}"
           git commit -m "$COMMIT_MSG"
-          BRANCH="release/v${{ steps.version.outputs.tag }}"
-          git checkout -b "$BRANCH"
-          gh api "repos/${{ github.repository }}/git/refs/tags/v${{ steps.version.outputs.tag }}" -X DELETE 2>/dev/null || true
-          git push origin --delete "$BRANCH" 2>/dev/null || true
-          git push origin "$BRANCH" --force
+          git push origin main
           eval "$(python3 scripts/workflows/workflow_git.py promote \
             --repo "${{ github.repository }}" \
-            --branch "$BRANCH" \
+            --branch main \
             --message "$COMMIT_MSG")"
           gh api "repos/${{ github.repository }}/git/refs" \
             -f ref="refs/tags/v${{ steps.version.outputs.tag }}" \
             -f sha="$signed_sha"
-          gh pr create --title "Release v${{ steps.version.outputs.tag }}" \
-            --body "Version bump from release workflow. Auto-merges after CI passes." \
-            --base main --head "$BRANCH"
-          gh pr merge "$BRANCH" --auto --squash --delete-branch
 
   build:
     needs: prepare
