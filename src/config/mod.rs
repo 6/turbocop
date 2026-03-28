@@ -676,6 +676,19 @@ impl ResolvedConfig {
             migrated_schema_version: None,
         }
     }
+
+    /// Enable plugin departments for cops listed in `--only`.
+    /// When `--only Rails/Present` is used with `--force-default-config`,
+    /// the Rails department should be enabled so the cop actually runs.
+    pub fn enable_departments_for_cops(&mut self, cops: &[String]) {
+        for cop in cops {
+            if let Some(dept) = cop.split('/').next() {
+                if is_plugin_department(dept) {
+                    self.require_departments.insert(dept.to_string());
+                }
+            }
+        }
+    }
 }
 
 /// A single parsed config layer (before merging).

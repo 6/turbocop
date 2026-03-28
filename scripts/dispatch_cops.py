@@ -1379,32 +1379,11 @@ def classify_issue_difficulty(entry: dict, recommendation: dict[str, object]) ->
     return "medium"
 
 
-PLUGIN_DEPARTMENTS = {
-    "Rails": "rubocop-rails",
-    "Migration": "rubocop-rails",
-    "RSpec": "rubocop-rspec",
-    "RSpecRails": "rubocop-rspec_rails",
-    "FactoryBot": "rubocop-factory_bot",
-    "Capybara": "rubocop-capybara",
-    "Performance": "rubocop-performance",
-}
-
-
 def run_nitrocop(binary: Path, cwd: str, cop: str) -> list[dict]:
-    # Write a minimal .rubocop.yml so plugin department cops actually run.
-    # --force-default-config ignores config files, so we drop it and use
-    # --only to isolate the cop instead.
-    dept = cop.split("/")[0]
-    config_lines = ["AllCops:", "  TargetRailsVersion: 7.0", "  NewCops: enable"]
-    plugin = PLUGIN_DEPARTMENTS.get(dept)
-    if plugin:
-        config_lines.insert(0, f"require:\n  - {plugin}")
-    config_path = os.path.join(cwd, ".rubocop.yml")
-    with open(config_path, "w") as f:
-        f.write("\n".join(config_lines) + "\n")
-
+    # --force-default-config + --only: the Rust side auto-enables the cop's
+    # plugin department so Rails/RSpec/Performance cops actually run.
     proc = subprocess.run(
-        [str(binary), "--only", cop, "--format", "json", "test.rb"],
+        [str(binary), "--force-default-config", "--only", cop, "--format", "json", "test.rb"],
         capture_output=True,
         text=True,
         timeout=15,
@@ -1455,10 +1434,7 @@ def diagnose_examples(binary: Path, cop: str, examples: list, kind: str) -> tupl
             pass
         finally:
             try:
-                for f in ("test.rb", ".rubocop.yml"):
-                    p = os.path.join(tmp, f)
-                    if os.path.exists(p):
-                        os.unlink(p)
+                os.unlink(os.path.join(tmp, "test.rb"))
                 os.rmdir(tmp)
             except OSError:
                 pass
