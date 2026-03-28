@@ -21,6 +21,21 @@ use crate::parse::source::SourceFile;
 /// `jruby` adds +33 offenses from RuboCop file-drop noise, and local reruns no
 /// longer reproduce two baseline offenses in `peritor`, which suggests corpus
 /// drift or repo-local execution differences rather than a confirmed new cop bug.
+///
+/// ## Corpus investigation (2026-03-28)
+///
+/// Corpus oracle reported FP=0, FN=1 in `jjyg__metasm__a70271c`
+/// (`samples/lindebug.rb:626`): `when ?\ ..?~`.
+///
+/// Root cause: Prism reports the left operand location as `"?\\ "`, so the
+/// trailing space character belongs to the operand token itself and there is no
+/// byte gap between `left.end_offset()` and `operator_loc.start_offset()`.
+/// RuboCop still flags this because it checks whitespace directly adjacent to
+/// the operator in `node.source`, not only the inter-node gap.
+///
+/// Fix: keep the existing gap-based checks, but add a fallback that treats a
+/// trailing horizontal-whitespace run immediately before the operator as an
+/// interior-space offense even when that whitespace is part of the left token.
 pub struct SpaceInsideRangeLiteral;
 
 impl Cop for SpaceInsideRangeLiteral {
@@ -70,6 +85,11 @@ impl Cop for SpaceInsideRangeLiteral {
                     has_space = true;
                     space_before_range = Some((left_end, op_start));
                 }
+            } else if let Some(start) =
+                horizontal_whitespace_run_before(bytes, node.location().start_offset(), op_start)
+            {
+                has_space = true;
+                space_before_range = Some((start, op_start));
             }
         }
 
@@ -138,6 +158,23 @@ fn is_pure_multiline_gap(bytes: &[u8]) -> bool {
     }
 
     false
+}
+
+fn horizontal_whitespace_run_before(
+    bytes: &[u8],
+    lower_bound: usize,
+    upper_bound: usize,
+) -> Option<usize> {
+    if upper_bound == 0 || upper_bound <= lower_bound {
+        return None;
+    }
+
+    let mut start = upper_bound;
+    while start > lower_bound && matches!(bytes[start - 1], b' ' | b'\t') {
+        start -= 1;
+    }
+
+    (start < upper_bound).then_some(start)
 }
 
 #[cfg(test)]
