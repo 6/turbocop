@@ -72,3 +72,9 @@ end
 
 (receipt, ) = foo
          ^ Layout/SpaceInsideParens: Space inside parentheses detected.
+
+include_node?(node) and ( child.nil? or child.equal?(Nothing) or
+                         ^ Layout/SpaceInsideParens: Space inside parentheses detected.
+
+return "#{set}call0(#{obj.name},#{meth.id});" if obj and ( params.empty? or params[0]==nil or params[0]==obj)
+                                                          ^ Layout/SpaceInsideParens: Space inside parentheses detected.

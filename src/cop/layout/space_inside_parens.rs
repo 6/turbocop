@@ -58,6 +58,29 @@ use crate::parse::source::SourceFile;
 /// `MultiWriteNode` (not `MultiTargetNode`) for the outer parens. Fixed by
 /// adding `MULTI_WRITE_NODE` to interested nodes and extracting lparen/rparen
 /// from `MultiWriteNode` in `paren_offsets()`.
+///
+/// ## Corpus investigation (2026-03-28)
+///
+/// The workflow prompt still cited FP=8/FN=2, but
+/// `verify_cop_locations.py Layout/SpaceInsideParens` on this branch showed
+/// those exact corpus FP locations already fixed. Focused fixtures exposed the
+/// remaining shared root cause instead:
+///
+/// 1. **Command-form opening-side suppression was text-based and too narrow.**
+///    `command_form_prefix` only accepted bare method names before `(`, so
+///    receiver calls like `JSON.generate ( { ... })` and
+///    `BSON::Binary.new ( value )` still flagged the opening side even though
+///    RuboCop ignores it.
+/// 2. **The same heuristic was too broad for boolean operators.** It treated
+///    `and (` like a command-form call, so grouped expressions such as
+///    `obj and ( cond )` skipped the opening-side check entirely, matching the
+///    two live FN fixture cases.
+///
+/// Fix: keep the opening-side exemption source-based, but widen it only enough
+/// to treat receiver method calls (`foo.bar ( value)`, `foo&.bar ( value)`) as
+/// command form while explicitly denying boolean keywords like `and`/`or`.
+/// That preserves `check ( value )`, fixes receiver-call FPs, and keeps
+/// boolean grouping parens checked.
 pub struct SpaceInsideParens;
 
 const MSG: &str = "Space inside parentheses detected.";
@@ -348,7 +371,7 @@ fn command_form_prefix(bytes: &[u8], open_start: usize) -> Option<&[u8]> {
 
     if word_start > line_start {
         let prev = bytes[word_start - 1];
-        if is_identifier_tail(prev) || matches!(prev, b'.' | b':' | b'@') {
+        if is_identifier_tail(prev) || matches!(prev, b':' | b'@') {
             return None;
         }
     }
@@ -371,7 +394,9 @@ fn is_identifier_tail(byte: u8) -> bool {
 fn denied_command_prefix(word: &[u8]) -> bool {
     matches!(
         word,
-        b"if"
+        b"and"
+            | b"or"
+            | b"if"
             | b"unless"
             | b"while"
             | b"until"
