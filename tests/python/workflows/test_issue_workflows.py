@@ -6,10 +6,10 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).parents[3]
-AGENT_COP_FIX = ROOT / ".github" / "workflows" / "agent-cop-fix.yml"
 COP_FIX_LIFECYCLE = ROOT / "scripts" / "workflows" / "cop_fix_lifecycle.py"
 AGENT_PR_REPAIR = ROOT / ".github" / "workflows" / "agent-pr-repair.yml"
 BOT_COMMAND_WORKFLOW = ROOT / ".github" / "workflows" / "bot-command.yml"
+REPO_TASK = ROOT / "scripts" / "workflows" / "repo_task.py"
 RUN_AGENT_REMOTE = ROOT / ".github" / "actions" / "run-agent-remote" / "action.yml"
 RUN_AGENT_LOCAL = ROOT / ".github" / "actions" / "run-agent" / "action.yml"
 RUN_REPO_WRITE_REMOTE = ROOT / ".github" / "actions" / "run-repo-write-remote" / "action.yml"
@@ -23,32 +23,19 @@ CORPUS_ORACLE = ROOT / ".github" / "workflows" / "corpus-oracle.yml"
 RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 
 
-def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
-    yml = AGENT_COP_FIX.read_text()
+def test_cop_fix_logic_lives_in_repo_task_and_publish_helpers():
+    planner = REPO_TASK.read_text()
     py = COP_FIX_LIFECYCLE.read_text()
 
-    # Workflow inputs and orchestrator calls
-    assert "issue_number:" in yml
-    assert "- auto" in yml
-    assert "Generate bot control token" in yml
-    assert "cop_fix_lifecycle.py select-backend" in yml
-    assert "cop_fix_publish.py skip-fixed-request" in yml
-    assert "cop_fix_publish.py claim-request" in yml
-    assert "cop_fix_lifecycle.py finalize" in yml
-    assert "cop_fix_publish.py finalize-request" in yml
-    assert "uses: ./.github/actions/run-agent-remote" in yml
-    assert "uses: ./.github/actions/run-repo-write-remote" in yml
-    assert "control_repo_token: ${{ steps.bot-control-token.outputs.token }}" in yml
-    assert "target_ref: refs/heads/main" in yml
-    assert "setup_profile: nitrocop" in yml
-    assert "setup_config_json:" in yml
-    assert "cop_fix_publish.py cleanup-request" in yml
-    assert "Publish skip remotely" in yml
-    assert "Publish finalize remotely" in yml
-    assert "Generate read-only GitHub token" not in yml
-    assert "GH_TOKEN: ${{ github.token }}" in yml
-    assert 'gh pr list \\' in yml
-    assert "--head \"${{ steps.init.outputs.branch }}\"" in yml
+    assert '"select-backend"' in planner
+    assert '"skip-fixed-request"' in planner
+    assert '"claim-request"' in planner
+    assert '"finalize"' in planner
+    assert '"finalize-request"' in planner
+    assert '"cleanup-request"' in planner
+    assert "wait_healthy_main.py" in planner
+    assert "GH_APP_PRIVATE_KEY" not in planner
+    assert "gh workflow run agent-cop-fix.yml" not in planner
 
     # Logic now lives in cop_fix_lifecycle.py
     assert "dispatch_cops.py" in py
@@ -72,13 +59,9 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert '"type": "edit_issue_labels"' in publish
 
     # Removed patterns should not appear in either
-    assert "prepare_agent_workspace.py" not in yml
-    assert "CI_SCRIPTS_DIR" not in yml
-    assert "tmp: clean workspace" not in yml
-    assert "git apply --3way" not in yml
-    assert "CODEX_AUTH_JSON" not in yml
-    assert "CLAUDE_CODE_OAUTH_TOKEN" not in yml
-    assert "ANTHROPIC_API_KEY" not in yml
+    assert "prepare_agent_workspace.py" not in planner
+    assert "CI_SCRIPTS_DIR" not in planner
+    assert "gh workflow run agent-cop-fix.yml" not in planner
 
 
 def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
@@ -162,11 +145,8 @@ def test_bot_command_workflow_dispatches_local_pr_repair() -> None:
     assert "workflow_dispatch:" in workflow
     assert "python3 scripts/workflows/bot_command.py route" in workflow
     assert "python3 scripts/workflows/bot_command.py resolve-repair" in workflow
-    assert "python3 scripts/workflows/bot_command.py resolve-fix" in workflow
     assert 'actions/workflows/agent-pr-repair.yml/dispatches' in workflow
-    assert 'actions/workflows/agent-cop-fix.yml/dispatches' in workflow
     assert "## Bot repair not started" in workflow
-    assert "## Bot fix not started" in workflow
     assert "## Bot request not started" in workflow
     assert "Requested by @" in workflow
     assert "Trigger URL:" in workflow
@@ -178,6 +158,20 @@ def test_bot_command_workflow_dispatches_local_pr_repair() -> None:
     assert 'payload.trigger_kind must be mention or assignment' in helper
     assert 'Checks is not currently failing for the current PR head' in helper
     assert 'source_repo input must match the target repository' in workflow
+
+
+def test_repo_task_script_drives_issue_fix_for_control_plane() -> None:
+    content = REPO_TASK.read_text()
+
+    assert '"""Generic repo-owned task planner/executor entrypoint for 6/bot."""' in content
+    assert "import bot_command" in content
+    assert 'setup_profile' not in content.lower() or 'SETUP_PROFILE = "nitrocop"' in content
+    assert '"fix_issue"' in content
+    assert '"comment_only"' in content
+    assert "cop_fix_lifecycle.py" in content
+    assert "cop_fix_publish.py" in content
+    assert "wait_healthy_main.py" in content
+    assert 'args.default_branch != "main"' in content
 
 
 def test_remote_agent_bridge_contract_targets_6_bot():
@@ -261,7 +255,7 @@ def test_release_workflow_commits_directly_to_main() -> None:
 
 
 if __name__ == "__main__":
-    test_agent_cop_fix_supports_issue_linking_and_auto_backend()
+    test_cop_fix_logic_lives_in_repo_task_and_publish_helpers()
     test_agent_pr_repair_reads_linked_issue_and_can_update_it()
     test_agent_pr_repair_checks_out_repo_before_running_local_scripts()
     test_agent_pr_repair_distinguishes_agent_failure_from_verify_failure()

@@ -3,6 +3,7 @@
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 SCRIPT = Path(__file__).parents[2] / "scripts" / "investigate_regression.py"
 SPEC = importlib.util.spec_from_file_location("investigate_regression", SCRIPT)
@@ -84,6 +85,41 @@ def test_render_report_mentions_issue_and_action():
     assert "Style/Foo" in report
     assert "#12" in report
     assert "manual_investigation" in report
+
+
+def test_dispatch_simple_repair_comments_with_bot_mention():
+    original_run = mod.subprocess.run
+    calls = []
+
+    def fake_run(cmd, *args, **kwargs):  # noqa: ANN001
+        calls.append(cmd)
+        return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    try:
+        mod.subprocess.run = fake_run
+        mod.dispatch_simple_repair(
+            "6/nitrocop",
+            {"number": 12},
+            {
+                "cop": "Style/Foo",
+                "before_run_id": 1,
+                "after_run_id": 2,
+            },
+        )
+    finally:
+        mod.subprocess.run = original_run
+
+    assert calls == [[
+        "gh",
+        "issue",
+        "comment",
+        "12",
+        "--repo",
+        "6/nitrocop",
+        "--body",
+        "@6 Main regressed for Style/Foo between corpus runs 1 and 2. "
+        "Investigate the regression introduced after merge and keep the fix narrow.",
+    ]]
 
 
 if __name__ == "__main__":

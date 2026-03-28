@@ -99,9 +99,10 @@ PR_ISSUE_MARKER = "nitrocop-cop-issue"
 ISSUE_TITLE_PREFIX = "[cop] "
 TRACKER_LABEL = "type:cop-issue"
 STATE_BACKLOG = "state:backlog"
+STATE_DISPATCHED = "state:dispatched"
 STATE_PR_OPEN = "state:pr-open"
 STATE_BLOCKED = "state:blocked"
-STATE_LABELS = [STATE_BACKLOG, STATE_PR_OPEN, STATE_BLOCKED]
+STATE_LABELS = [STATE_BACKLOG, STATE_DISPATCHED, STATE_PR_OPEN, STATE_BLOCKED]
 DIFFICULTY_LABELS = {
     "simple": "difficulty:simple",
     "medium": "difficulty:medium",
@@ -111,6 +112,7 @@ DIFFICULTY_LABELS = {
 LABEL_COLORS = {
     TRACKER_LABEL: "1d76db",
     STATE_BACKLOG: "fbca04",
+    STATE_DISPATCHED: "1d76db",
     STATE_PR_OPEN: "0e8a16",
     STATE_BLOCKED: "b60205",
     "difficulty:simple": "0e8a16",
@@ -1988,21 +1990,13 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
 def active_agent_fix_count(repo: str) -> tuple[int, int, int]:
     open_prs = list_agent_fix_prs(repo, state="open")
     open_count = len(open_prs)
-    try:
-        runs_json = run_gh([
-            "api",
-            f"repos/{repo}/actions/workflows/agent-cop-fix.yml/runs?per_page=100",
-        ])
-    except subprocess.CalledProcessError:
-        return open_count, 0, open_count
-
-    runs = json.loads(runs_json or "{}").get("workflow_runs", [])
-    in_progress = sum(
+    issues = list_tracker_issues(repo)
+    dispatched = sum(
         1
-        for run in runs
-        if run.get("status") in {"queued", "in_progress"}
+        for issue in issues
+        if issue.get("state") == "OPEN" and STATE_DISPATCHED in issue_label_names(issue)
     )
-    return open_count, in_progress, max(open_count, in_progress)
+    return open_count, dispatched, open_count + dispatched
 
 
 def sorted_dispatch_candidates(issues: list[dict]) -> list[dict]:
@@ -2043,6 +2037,7 @@ def _main_checks_healthy(repo: str) -> tuple[bool, str]:
 
 def cmd_dispatch_issues(args: argparse.Namespace) -> int:
     repo = args.repo
+    repo_owner = repo.split("/", 1)[0]
 
     if not args.dry_run:
         import time as _time
@@ -2106,12 +2101,9 @@ def cmd_dispatch_issues(args: argparse.Namespace) -> int:
         if args.dry_run:
             continue
         cmd = [
-            "gh", "workflow", "run", "agent-cop-fix.yml",
+            "gh", "issue", "edit", str(issue["number"]),
             "--repo", repo,
-            "-f", f"cop={cop}",
-            "-f", f"backend={backend_family}",
-            "-f", f"mode={mode}",
-            "-f", f"issue_number={issue['number']}",
+            "--add-assignee", repo_owner,
         ]
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:

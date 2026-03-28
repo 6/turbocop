@@ -374,27 +374,18 @@ def reopen_and_comment_issue(repo: str, issue: dict, comment: str) -> None:
 
 
 def dispatch_simple_repair(repo: str, issue: dict, regression: dict) -> None:
-    extra_context = (
-        f"Main regressed for {regression['cop']} between corpus runs {regression['before_run_id']} "
-        f"and {regression['after_run_id']}. "
-        "Investigate the regression introduced after merge and keep the fix narrow."
+    prompt = (
+        "@6 Main regressed for "
+        f"{regression['cop']} between corpus runs {regression['before_run_id']} "
+        f"and {regression['after_run_id']}. Investigate the regression introduced "
+        "after merge and keep the fix narrow."
     )
     cmd = [
-        "gh", "workflow", "run", "agent-cop-fix.yml",
+        "gh", "issue", "comment", str(issue["number"]),
         "--repo", repo,
-        "-f", f"cop={regression['cop']}",
-        "-f", "backend=auto",
-        "-f", "mode=retry",
-        "-f", f"issue_number={issue['number']}",
-        "-f", f"extra_context={extra_context}",
+        "--body", prompt,
     ]
-    # Use DISPATCH_TOKEN (GITHUB_TOKEN with actions:write) for workflow dispatch,
-    # since the default GH_TOKEN is an app token that lacks actions permission.
-    env = {**os.environ}
-    dispatch_token = os.environ.get("DISPATCH_TOKEN")
-    if dispatch_token:
-        env["GH_TOKEN"] = dispatch_token
-    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         print(f"ERROR dispatching repair for {regression['cop']}: {proc.stderr.strip()}", file=sys.stderr)
         proc.check_returncode()

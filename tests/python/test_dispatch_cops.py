@@ -415,6 +415,85 @@ def test_cmd_dispatch_issues_respects_capacity_and_uses_auto_backend():
     ]
 
 
+def test_active_agent_fix_count_uses_open_prs_and_dispatched_issues():
+    original_list_agent_fix_prs = gct.list_agent_fix_prs
+    original_list_tracker_issues = gct.list_tracker_issues
+    try:
+        gct.list_agent_fix_prs = lambda repo, state="all": [{"number": 1}, {"number": 2}]
+        gct.list_tracker_issues = lambda repo: [
+            {"number": 10, "state": "OPEN", "labels": [{"name": "state:dispatched"}]},
+            {"number": 11, "state": "OPEN", "labels": [{"name": "state:backlog"}]},
+        ]
+        open_prs, dispatched, active = gct.active_agent_fix_count("6/nitrocop")
+    finally:
+        gct.list_agent_fix_prs = original_list_agent_fix_prs
+        gct.list_tracker_issues = original_list_tracker_issues
+
+    assert open_prs == 2
+    assert dispatched == 1
+    assert active == 3
+
+
+def test_cmd_dispatch_issues_assigns_issue_and_marks_dispatched():
+    original_list_tracker_issues = gct.list_tracker_issues
+    original_active_agent_fix_count = gct.active_agent_fix_count
+    original_run = gct.subprocess.run
+    calls = []
+
+    def fake_run(cmd, *args, **kwargs):  # noqa: ANN001
+        calls.append(cmd)
+        return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    try:
+        gct.list_tracker_issues = lambda repo: [
+            {
+                "number": 21,
+                "title": "[cop] Layout/Foo",
+                "state": "OPEN",
+                "body": "<!-- nitrocop-cop-tracker: cop=Layout/Foo fp=1 fn=2 total=3 matches=60 difficulty=simple -->",
+                "labels": [{"name": "type:cop-issue"}, {"name": "state:backlog"}, {"name": "difficulty:simple"}],
+            },
+        ]
+        gct.active_agent_fix_count = lambda repo: (0, 0, 0)
+        gct.subprocess.run = fake_run
+        gct.cmd_dispatch_issues(
+            SimpleNamespace(
+                repo="6/nitrocop",
+                max_active=1,
+                dry_run=False,
+                backend_family_override="auto",
+                department=None,
+            )
+        )
+    finally:
+        gct.list_tracker_issues = original_list_tracker_issues
+        gct.active_agent_fix_count = original_active_agent_fix_count
+        gct.subprocess.run = original_run
+
+    assert calls[-2] == [
+        "gh",
+        "issue",
+        "edit",
+        "21",
+        "--repo",
+        "6/nitrocop",
+        "--add-assignee",
+        "6",
+    ]
+    assert calls[-1] == [
+        "gh",
+        "issue",
+        "edit",
+        "21",
+        "--repo",
+        "6/nitrocop",
+        "--remove-label",
+        "state:backlog",
+        "--add-label",
+        "state:dispatched",
+    ]
+
+
 if __name__ == "__main__":
     test_pascal_to_snake()
     test_parse_cop_name()

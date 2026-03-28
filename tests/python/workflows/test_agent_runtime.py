@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).parents[3] / "scripts" / "workflows"))
 import agent_runtime
 
 SCRIPT = Path(__file__).parents[3] / "scripts" / "workflows" / "agent_runtime.py"
-AGENT_COP_FIX = Path(__file__).parents[3] / ".github" / "workflows" / "agent-cop-fix.yml"
 AGENT_PR_REPAIR = Path(__file__).parents[3] / ".github" / "workflows" / "agent-pr-repair.yml"
 
 
@@ -72,7 +71,6 @@ def test_cli_emits_env_assignments_and_creates_directories():
 
 
 def test_agent_workflows_do_not_hardcode_tmp_paths():
-    assert "/tmp/" not in AGENT_COP_FIX.read_text()
     assert "/tmp/" not in AGENT_PR_REPAIR.read_text()
 
 
