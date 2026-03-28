@@ -35,3 +35,24 @@ foo(['bar', 'baz']) { qux }
 # (non-string elements like 0 don't make a subarray "complex" for matrix check)
 [["foo", "bar", 0], ["baz", "qux"]]
                     ^ Style/WordArray: Use `%w` or `%W` for an array of words.
+
+# %w with backslash-escaped space — single line, various styles
+%w(Cucumber\ features features)
+^ Style/WordArray: Use `['Cucumber features', 'features']` for an array of words.
+
+%w[hello\ world foo]
+^ Style/WordArray: Use `['hello world', 'foo']` for an array of words.
+
+# %W with backslash-escaped space — multi-line
+x = %W(
+    ^ Style/WordArray: Use an array literal `[...]` for an array of words.
+  normal
+  hello\ world
+)
+
+# %w with backslash-escaped space — multi-line
+y = %w(
+    ^ Style/WordArray: Use an array literal `[...]` for an array of words.
+  hello\ world
+  foo
+)
