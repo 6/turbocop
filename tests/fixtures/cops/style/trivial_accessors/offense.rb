@@ -103,3 +103,50 @@ Module.new do
     @klass_name
   end
 end
+
+# Methods defined inside other method bodies should be flagged (nested defs)
+class TestHelpers
+  def start
+    http = Object.new
+    def http.parent=(val)
+    ^^^ Style/TrivialAccessors: Use `attr_writer` to define trivial writer methods.
+      @parent = val
+    end
+
+    def http.status
+    ^^^ Style/TrivialAccessors: Use `attr_reader` to define trivial reader methods.
+      @status
+    end
+  end
+end
+
+# Singleton class inside a method body should be flagged
+class FlexSpec
+  def test_example
+    flex = Object.new
+    class << flex
+      def foo=(x)
+      ^^^ Style/TrivialAccessors: Use `attr_writer` to define trivial writer methods.
+        @foo = x
+      end
+
+      def foo
+      ^^^ Style/TrivialAccessors: Use `attr_reader` to define trivial reader methods.
+        @foo
+      end
+    end
+  end
+end
+
+# Block inside a method body — nested defs should be flagged
+class RailsTest
+  def test_error
+    queue = Object.new
+    obj.stub_const(:Rails, rails) do
+      def queue.error
+      ^^^ Style/TrivialAccessors: Use `attr_reader` to define trivial reader methods.
+        @error
+      end
+    end
+  end
+end

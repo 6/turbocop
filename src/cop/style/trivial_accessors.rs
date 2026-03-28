@@ -38,6 +38,15 @@ use ruby_prism::Visit;
 /// `@foo = 1; def foo; @foo; end` and `obj = Object.new; def obj.foo; @foo; end`.
 /// Fixed by exempting only the sole root def in the program body while still
 /// checking other top-level defs.
+///
+/// ## Investigation notes (2026-03-28)
+///
+/// **FN root cause (57 offenses, nested defs):** `visit_def_node` did not recurse
+/// into def bodies, so nested defs (def inside def), singleton classes inside defs,
+/// and blocks inside defs were all invisible to the visitor. RuboCop's `on_def`
+/// fires for ALL def nodes regardless of nesting, and its `in_module_or_instance_eval?`
+/// ancestor walk does not include `:def`/`:defs` in the searched types — defs are
+/// scope-transparent. Fixed by recursing into def bodies without pushing any scope.
 pub struct TrivialAccessors;
 
 /// Default AllowedMethods from vendor config (to_ary, to_a, to_c, ... to_sym).
@@ -346,7 +355,12 @@ impl<'pr> Visit<'pr> for TrivialAccessorsVisitor<'_> {
 
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         self.check_def(node);
-        // Don't recurse into nested defs — they have their own scope
+        // Recurse into def bodies so nested defs, classes, and blocks are visited.
+        // Defs are scope-transparent, matching RuboCop's ancestor walk which does
+        // not include :def/:defs in the searched ancestor types.
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
     }
 }
 
