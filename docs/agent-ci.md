@@ -9,6 +9,7 @@ These rules apply when `GITHUB_ACTIONS` is set and the workflow is driving the a
 - Do not use `git stash`.
 - Do not revert the branch to `origin/main` or collapse the PR into an empty diff.
 - Commit on the current branch only when the task explicitly requires a commit.
+- Do not push. You do not have push permission. The workflow's finalize step handles all git push operations after the agent exits.
 
 ## Scope Rules
 

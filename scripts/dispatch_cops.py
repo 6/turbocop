@@ -1067,6 +1067,7 @@ condition that matches the SPECIFIC differentiating context.
 - Run `python3 scripts/check_cop.py {cop} --rerun --clone --sample 15` before committing to catch regressions
 - Do NOT touch unrelated files
 - Do NOT use `git stash`
+- Do NOT push — you do not have push permission; the workflow handles pushing after you exit
 """)
 
     # Prism pitfall notes
