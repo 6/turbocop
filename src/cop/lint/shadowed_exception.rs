@@ -41,6 +41,35 @@ use crate::parse::source::SourceFile;
 /// ordering only checks `is_ancestor_of` (true ancestor/descendant relationships).
 /// The `equivalent_exception_classes` check remains in `contains_multiple_levels`
 /// for within-group alias detection (e.g., RSAError/DSAError in same rescue).
+///
+/// ## Corpus investigation (2026-03-28)
+///
+/// Corpus oracle reported FP=2, FN=9.
+///
+/// FN=9 came from missing runtime hierarchy edges that RuboCop resolves via
+/// `Kernel.const_get(... ) <=> ...`:
+/// - `JSON::JSONError < StandardError`, with `JSON::ParserError` and
+///   `JSON::GeneratorError` underneath it.
+/// - `EncodingError < StandardError`, with
+///   `Encoding::UndefinedConversionError` underneath it.
+/// - `Net::HTTPError < Net::ProtocolError`.
+/// - `Resolv::ResolvTimeout < Timeout::Error`.
+///
+/// The remaining FP/FN pair in `tdiary/filter/spam.rb` was a location mismatch:
+/// once `Resolv::ResolvTimeout` is recognized under `Timeout::Error`, RuboCop
+/// flags the earlier rescue clause and stops. nitrocop was emitting every
+/// shadowing rescue in the chain, so it landed on the later
+/// `Resolv::ResolvError, Exception` clause instead. Fix: match RuboCop's
+/// `find_shadowing_rescue` behavior and report only the first offending rescue
+/// per rescue chain.
+///
+/// The remaining `archonic/limestone` FP came from unresolved third-party
+/// duplicates. RuboCop only flags `rescue NameError, NameError`-style duplicates
+/// when `Kernel.const_get` resolves the constants. The old static port treated
+/// any identical source strings as equivalent, so unknown entries like
+/// `Stripe::InvalidRequestError, Stripe::InvalidRequestError` were falsely
+/// reported. Fix: only treat exact duplicates as shadowing when the class is in
+/// the known built-in hierarchy (or in an explicit equivalent-alias group).
 pub struct ShadowedException;
 
 // Known Ruby exception hierarchy — matches relationships that RuboCop's runtime
@@ -80,6 +109,9 @@ const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
             "ZeroDivisionError",
             "ThreadError",
             "SystemCallError",
+            "EncodingError",
+            "JSON::JSONError",
+            "Net::ProtocolError",
             "Timeout::Error",
             "SocketError",
             "StopIteration",
@@ -99,8 +131,13 @@ const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
         &["Date::Error", "IPAddr::InvalidAddressError"],
     ),
     ("RangeError", &["FloatDomainError"]),
+    ("EncodingError", &["Encoding::UndefinedConversionError"]),
     ("IOError", &["EOFError"]),
     ("IndexError", &["KeyError", "StopIteration"]),
+    (
+        "JSON::JSONError",
+        &["JSON::ParserError", "JSON::GeneratorError"],
+    ),
     (
         "SystemCallError",
         &[
@@ -116,10 +153,18 @@ const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
         ],
     ),
     ("Errno::EAGAIN", &["IO::EWOULDBLOCKWaitReadable"]),
-    ("Timeout::Error", &["Net::OpenTimeout", "Net::ReadTimeout"]),
+    (
+        "Timeout::Error",
+        &[
+            "Net::OpenTimeout",
+            "Net::ReadTimeout",
+            "Resolv::ResolvTimeout",
+        ],
+    ),
     ("SocketError", &["Socket::ResolutionError"]),
     // Standard library exception hierarchies
     ("IPAddr::Error", &["IPAddr::InvalidAddressError"]),
+    ("Net::ProtocolError", &["Net::HTTPError"]),
     ("Net::HTTPError", &["Net::HTTPServerException"]),
     (
         "OpenSSL::PKey::PKeyError",
@@ -155,12 +200,23 @@ fn normalize_exception_name(name: &str) -> &str {
     name.trim().trim_start_matches("::")
 }
 
+fn is_known_exception_class(name: &str) -> bool {
+    let name = normalize_exception_name(name);
+
+    EXCEPTION_HIERARCHY
+        .iter()
+        .any(|(parent, children)| *parent == name || children.contains(&name))
+        || EQUIVALENT_EXCEPTION_GROUPS
+            .iter()
+            .any(|group| group.contains(&name))
+}
+
 fn equivalent_exception_classes(a: &str, b: &str) -> bool {
     let a = normalize_exception_name(a);
     let b = normalize_exception_name(b);
 
     if a == b {
-        return true;
+        return is_known_exception_class(a);
     }
 
     EQUIVALENT_EXCEPTION_GROUPS
@@ -256,6 +312,35 @@ fn groups_sorted(earlier: &[String], later: &[String]) -> bool {
     true
 }
 
+fn resolved_group(exceptions: &[String]) -> Vec<String> {
+    if exceptions.is_empty() {
+        vec!["StandardError".to_string()]
+    } else {
+        exceptions.to_vec()
+    }
+}
+
+fn find_shadowing_clause_offset(all_clauses: &[(Vec<String>, usize)]) -> Option<usize> {
+    let resolved_groups: Vec<Vec<String>> = all_clauses
+        .iter()
+        .map(|(exceptions, _)| resolved_group(exceptions))
+        .collect();
+
+    for (group, (_, offset)) in resolved_groups.iter().zip(all_clauses.iter()) {
+        if contains_multiple_levels(group) {
+            return Some(*offset);
+        }
+    }
+
+    for (i, groups) in resolved_groups.windows(2).enumerate() {
+        if !groups_sorted(&groups[0], &groups[1]) {
+            return Some(all_clauses[i].1);
+        }
+    }
+
+    None
+}
+
 impl Cop for ShadowedException {
     fn name(&self) -> &'static str {
         "Lint/ShadowedException"
@@ -302,76 +387,17 @@ impl Cop for ShadowedException {
             rescue_opt = rescue_node.subsequent();
         }
 
-        if all_clauses.len() < 2 && all_clauses.iter().all(|(excs, _)| excs.len() <= 1) {
+        let Some(offset) = find_shadowing_clause_offset(&all_clauses) else {
             return;
-        }
+        };
 
-        let groups: Vec<&Vec<String>> = all_clauses.iter().map(|(excs, _)| excs).collect();
-
-        // Check if any single group has multiple levels
-        let has_multi_level = groups.iter().any(|g| contains_multiple_levels(g));
-
-        // Check if groups are sorted
-        let all_sorted = groups.windows(2).all(|w| {
-            let earlier = if w[0].is_empty() {
-                vec!["StandardError".to_string()]
-            } else {
-                w[0].clone()
-            };
-            let later = if w[1].is_empty() {
-                vec!["StandardError".to_string()]
-            } else {
-                w[1].clone()
-            };
-            groups_sorted(&earlier, &later)
-        });
-
-        if !has_multi_level && all_sorted {
-            return;
-        }
-
-        // Find the first offending rescue clause (matching RuboCop's find_shadowing_rescue)
-        // First check: any group with multiple levels
-        for (excs, offset) in all_clauses.iter() {
-            let group = if excs.is_empty() {
-                vec!["StandardError".to_string()]
-            } else {
-                excs.clone()
-            };
-            if contains_multiple_levels(&group) {
-                let (line, column) = source.offset_to_line_col(*offset);
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Do not shadow rescued Exceptions.".to_string(),
-                ));
-            }
-        }
-
-        // Second check: first clause that makes ordering unsorted
-        let resolved_groups: Vec<Vec<String>> = all_clauses
-            .iter()
-            .map(|(excs, _)| {
-                if excs.is_empty() {
-                    vec!["StandardError".to_string()]
-                } else {
-                    excs.clone()
-                }
-            })
-            .collect();
-
-        for i in 0..resolved_groups.len().saturating_sub(1) {
-            if !groups_sorted(&resolved_groups[i], &resolved_groups[i + 1]) {
-                let (line, column) = source.offset_to_line_col(all_clauses[i].1);
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Do not shadow rescued Exceptions.".to_string(),
-                ));
-            }
-        }
+        let (line, column) = source.offset_to_line_col(offset);
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Do not shadow rescued Exceptions.".to_string(),
+        ));
     }
 }
 
