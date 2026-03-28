@@ -92,14 +92,6 @@ jobs:
             --run-id "${{ github.run_id }}" \
             >> "$GITHUB_OUTPUT"
 
-      # --- App token (needed for push + PR creation as 6[bot]) ---
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-
       - name: Generate read-only GitHub token
         id: actions-read-token
         uses: actions/create-github-app-token@v3
@@ -178,16 +170,24 @@ jobs:
 
       - name: Skip if already fixed
         if: steps.task.outputs.code_bugs == '0'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          python3 scripts/workflows/cop_fix_lifecycle.py skip-fixed \
+          REQUEST_DIR="$RUNNER_TEMP/cop-fix-skip-request"
+          python3 scripts/workflows/cop_fix_publish.py skip-fixed-request \
+            --output-dir "$REQUEST_DIR" \
             --cop "${{ github.event.inputs.cop }}" \
             --issue-number "${{ github.event.inputs.issue_number }}" \
-            --repo "${{ github.repository }}" \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --backend-input "${{ github.event.inputs.backend }}" \
             --mode "${{ github.event.inputs.mode }}"
+
+      - name: Publish skip remotely
+        if: steps.task.outputs.code_bugs == '0' && github.event.inputs.issue_number != ''
+        uses: ./.github/actions/run-repo-write-remote
+        with:
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
+          target_sha: ${{ github.sha }}
+          target_ref: refs/heads/main
+          request_file: ${{ runner.temp }}/cop-fix-skip-request/request.json
 
       - name: Build remote claim request
         if: steps.task.outputs.code_bugs != '0'
@@ -227,16 +227,19 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
         run: |
-          PR_URL=$(gh pr list \
+          PR_JSON=$(gh pr list \
             --repo "${{ github.repository }}" \
             --state open \
             --head "${{ steps.init.outputs.branch }}" \
-            --json url --jq '.[0].url // empty')
+            --json number,url --jq '.[0]')
+          PR_URL=$(printf '%s' "$PR_JSON" | jq -r '.url // empty')
           if [ -z "$PR_URL" ]; then
             echo "::error::Remote claim did not leave an open PR on branch ${{ steps.init.outputs.branch }}"
             exit 1
           fi
+          PR_NUMBER=$(printf '%s' "$PR_JSON" | jq -r '.number')
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Build prompt
         if: steps.task.outputs.code_bugs != '0'
@@ -318,9 +321,6 @@ jobs:
       - name: Finalize PR
         if: steps.task.outputs.code_bugs != '0'
         id: finalize
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
         run: |
           python3 scripts/workflows/cop_fix_lifecycle.py finalize \
             --cop "${{ github.event.inputs.cop }}" \
@@ -337,6 +337,36 @@ jobs:
             --run-number "${{ github.run_number }}" \
             --tokens "${{ steps.task.outputs.tokens }}" \
             >> "$GITHUB_OUTPUT"
+
+      - name: Build finalize publish request
+        if: steps.task.outputs.code_bugs != '0'
+        run: |
+          REQUEST_DIR="$RUNNER_TEMP/cop-fix-finalize-request"
+          python3 scripts/workflows/cop_fix_publish.py finalize-request \
+            --output-dir "$REQUEST_DIR" \
+            --repo-root "$PWD" \
+            --result "${{ steps.finalize.outputs.result }}" \
+            --cop "${{ github.event.inputs.cop }}" \
+            --backend "${{ steps.selected_backend.outputs.backend }}" \
+            --backend-label "${{ steps.selected_backend.outputs.display_label }}" \
+            --model-label "${{ steps.backend.outputs.model_label }}" \
+            --mode "${{ github.event.inputs.mode }}" \
+            --issue-number "${{ github.event.inputs.issue_number }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --base-sha "${{ steps.prepare.outputs.branch_base_sha }}" \
+            --pr-url "${{ steps.claim.outputs.pr_url }}" \
+            --pr-number "${{ steps.claim.outputs.pr_number }}" \
+            --pr-body-file "$PR_BODY_FILE" \
+            --scope-report-file "$AGENT_SCOPE_REPORT_FILE"
+
+      - name: Publish finalize remotely
+        if: steps.task.outputs.code_bugs != '0'
+        uses: ./.github/actions/run-repo-write-remote
+        with:
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
+          target_sha: ${{ steps.prepare.outputs.branch_base_sha }}
+          target_ref: refs/heads/${{ steps.init.outputs.branch }}
+          request_file: ${{ runner.temp }}/cop-fix-finalize-request/request.json
 
       # --- Cleanup: close draft PR if agent failed ---
 

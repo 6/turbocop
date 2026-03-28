@@ -255,43 +255,6 @@ def cmd_resolve_backend(args: list[str]) -> int:
     return 0
 
 
-# ── skip-fixed ──────────────────────────────────────────────────────────
-
-def cmd_skip_fixed(args: list[str]) -> int:
-    """Handle the case where pre-diagnostic found no code bugs."""
-    import argparse
-
-    p = argparse.ArgumentParser(prog="cop_fix_lifecycle.py skip-fixed")
-    p.add_argument("--cop", required=True)
-    p.add_argument("--issue-number", default="")
-    p.add_argument("--repo", required=True)
-    p.add_argument("--run-url", required=True)
-    p.add_argument("--backend-input", default="")
-    p.add_argument("--mode", default="fix")
-    opts = p.parse_args(args)
-
-    _warning("No code bugs found — cop appears already fixed. Skipping agent.")
-    _log("All FP/FN examples are config/context issues or already detected.")
-
-    if opts.issue_number:
-        body = (
-            f"No fix PR was created for `{opts.cop}`.\n\n"
-            f"Pre-diagnostic found no reproducible code bugs in the current "
-            f"corpus examples, so the workflow skipped agent execution.\n\n"
-            f"- Backend input: `{opts.backend_input}`\n"
-            f"- Mode: `{opts.mode}`\n"
-            f"- Run: {opts.run_url}\n"
-        )
-        claim_body = _env_path("CLAIM_BODY_FILE")
-        write_and_read(claim_body, body)
-        _run_ok([
-            "gh", "issue", "comment", opts.issue_number,
-            "--repo", opts.repo,
-            "--body-file", str(claim_body),
-        ])
-    return 0
-
-
 # ── build-prompt ────────────────────────────────────────────────────────
 
 def cmd_build_prompt(args: list[str]) -> int:
@@ -755,19 +718,11 @@ def cmd_snapshot(args: list[str]) -> int:
     return 0
 
 
-def _is_docs_only_change(signed_sha: str, repo: str) -> bool:
-    """Check if .rs file changes are only doc comments (///) — no logic changes.
-
-    Fixture files (.rb) are always allowed. Returns True only when every
-    added/modified line in .rs files is a doc comment or blank.
-    """
-    r = _run_ok(["gh", "api", f"repos/{repo}/compare/main...{signed_sha}",
-                 "--jq", '.files[] | select(.filename | endswith(".rs")) | .patch // empty'])
-    if r.returncode != 0:
-        return False
+def _is_docs_only_local_change(base_sha: str) -> bool:
+    """Return True when the current local diff only adds Rust doc comments or fixtures."""
+    r = _git("diff", f"{base_sha}..HEAD", "--", "src/cop", check=False)
     rs_patch = r.stdout.strip()
     if not rs_patch:
-        # No .rs files changed at all — only fixtures. That's docs-only.
         return True
     for line in rs_patch.splitlines():
         if not line.startswith("+") or line.startswith("+++"):
@@ -775,78 +730,11 @@ def _is_docs_only_change(signed_sha: str, repo: str) -> bool:
         content = line[1:].strip()
         if not content or content.startswith("///"):
             continue
-        # Any non-doc, non-blank added line in .rs means real logic
         return False
     return True
 
 
 # ── finalize ────────────────────────────────────────────────────────────
-
-def _close_pr_no_changes(
-    pr_url: str,
-    cop: str,
-    backend_label: str,
-    model_label: str,
-    mode: str,
-    run_url: str,
-    issue_number: str,
-    repo: str,
-) -> None:
-    if issue_number:
-        body = (
-            f"No fix PR was produced for `{cop}`.\n\n"
-            f"- Backend: `{backend_label}`\n"
-            f"- Model: `{model_label}`\n"
-            f"- Mode: `{mode}`\n"
-            f"- Run: {run_url}\n\n"
-            f"The agent did not produce any branch changes.\n"
-        )
-        claim_body = _env_path("CLAIM_BODY_FILE")
-        write_and_read(claim_body, body)
-        _run_ok(["gh", "issue", "comment", issue_number, "--repo", repo, "--body-file", str(claim_body)])
-        _run_ok([
-            "gh", "issue", "edit", issue_number, "--repo", repo,
-            "--remove-label", "state:pr-open,state:dispatched",
-            "--add-label", "state:backlog",
-        ])
-    _run_ok(["gh", "pr", "close", pr_url, "--comment", "Agent produced no changes.", "--delete-branch"])
-
-
-def _close_pr_rejected(
-    pr_url: str,
-    cop: str,
-    issue_number: str,
-    repo: str,
-    run_url: str,
-    scope_report: str,
-) -> None:
-    body = (
-        f"## Agent Fix Rejected\n\n"
-        f"The workflow rejected this attempt because it edited files outside "
-        f"the allowed scope for `agent-cop-fix`.\n\n"
-        f"{scope_report}\n"
-        f"- Run: {run_url}\n"
-    )
-    claim_body = _env_path("CLAIM_BODY_FILE")
-    write_and_read(claim_body, body)
-    _run_ok(["gh", "pr", "comment", pr_url, "--repo", repo, "--body-file", str(claim_body)])
-
-    if issue_number:
-        _run_ok(["gh", "issue", "comment", issue_number, "--repo", repo, "--body-file", str(claim_body)])
-        # Return to backlog so the cop can be retried — scope violations are
-        # transient (e.g., agent scratch files), not permanent blockers.
-        _run_ok([
-            "gh", "issue", "edit", issue_number, "--repo", repo,
-            "--remove-label", "state:pr-open,state:dispatched,state:blocked",
-            "--add-label", "state:backlog",
-        ])
-
-    _run_ok([
-        "gh", "pr", "close", pr_url,
-        "--comment", "Agent edited files outside the allowed scope.",
-        "--delete-branch",
-    ])
-
 
 def _build_final_pr_body(
     cop: str,
@@ -861,6 +749,7 @@ def _build_final_pr_body(
     parent_sha: str,
     repo: str,
     *,
+    base_sha: str | None = None,
     docs_only: bool = False,
 ) -> str:
     agent_result_file = _env_path("AGENT_RESULT_FILE")
@@ -878,10 +767,15 @@ def _build_final_pr_body(
 
     # Diff stat
     diff_stat = ""
-    r = _git("diff", "--stat", f"{parent_sha}..{signed_sha}", check=False)
-    if r.returncode == 0 and r.stdout.strip():
-        diff_stat = r.stdout.strip().splitlines()[-1]
-    if not diff_stat:
+    if parent_sha and signed_sha:
+        r = _git("diff", "--stat", f"{parent_sha}..{signed_sha}", check=False)
+        if r.returncode == 0 and r.stdout.strip():
+            diff_stat = r.stdout.strip().splitlines()[-1]
+    if not diff_stat and base_sha:
+        r = _git("diff", "--stat", f"{base_sha}..HEAD", check=False)
+        if r.returncode == 0 and r.stdout.strip():
+            diff_stat = r.stdout.strip().splitlines()[-1]
+    if not diff_stat and parent_sha and signed_sha:
         r2 = _run_ok([
             "gh", "api", f"repos/{repo}/compare/{parent_sha}...{signed_sha}",
             "--jq", r'"\(.files | length) files changed"',
@@ -959,7 +853,7 @@ def _build_final_pr_body(
 
 
 def cmd_finalize(args: list[str]) -> int:
-    """Post-agent decision tree: validate, format, push, update PR, gate, mark ready."""
+    """Validate and prepare cop-fix results for remote publish."""
     import argparse
 
     p = argparse.ArgumentParser(prog="cop_fix_lifecycle.py finalize")
@@ -988,12 +882,9 @@ def cmd_finalize(args: list[str]) -> int:
 
     if not has_changes:
         _log("No changes made")
-        _close_pr_no_changes(
-            opts.pr_url, opts.cop, opts.backend_label, opts.model_label,
-            opts.mode, opts.run_url, opts.issue_number, opts.repo,
-        )
         _output("result", "no_changes")
         _output("has_pr", "false")
+        _output("file_guard_valid", "true")
         return 0
 
     _log("Changes detected on claimed branch")
@@ -1018,22 +909,15 @@ def cmd_finalize(args: list[str]) -> int:
             scope_valid = line.split("=", 1)[1] == "true"
 
     if not scope_valid:
-        scope_report = read_file_or(scope_report_file)
-        _close_pr_rejected(
-            opts.pr_url, opts.cop, opts.issue_number,
-            opts.repo, opts.run_url, scope_report,
-        )
         _output("result", "rejected")
         _output("has_pr", "false")
+        _output("file_guard_valid", "false")
         return 0
 
-    # 3. Configure git for push
-    _run([
-        sys.executable, str(SCRIPTS_DIR / "workflow_git.py"),
-        "configure",
-        "--repo", opts.repo,
-        "--unset-extraheader",
-    ])
+    _output("file_guard_valid", "true")
+
+    # 3. Configure git identity for local formatting commits only.
+    _run([sys.executable, str(SCRIPTS_DIR / "workflow_git.py"), "configure"])
 
     # 4. Auto-format changed Rust cop files
     r = _git("diff", "--name-only", opts.base_sha, "--", "src/cop", check=False)
@@ -1051,152 +935,24 @@ def cmd_finalize(args: list[str]) -> int:
         _git("add", "-A")
         _git("commit", "-m", f"Fix {opts.cop}: agent-generated fix{retry_note} ({opts.backend})")
 
-    # 7. Push + promote
-    _git("push", "origin", f"HEAD:{opts.branch}", "--force")
-    r = _run([
-        sys.executable, str(SCRIPTS_DIR / "workflow_git.py"),
-        "promote",
-        "--repo", opts.repo,
-        "--branch", opts.branch,
-        "--message", f"Fix {opts.cop}: agent-generated fix{retry_note} ({opts.backend})",
-    ])
-    promote_result = {}
-    for line in r.stdout.strip().splitlines():
-        if "=" in line:
-            k, _, v = line.partition("=")
-            promote_result[k] = v
-
-    signed_sha = promote_result.get("signed_sha", "")
-    parent_sha = promote_result.get("parent_sha", "")
-
-    # 8. Check for empty PR after push
-    r = _run_ok([
-        "gh", "api", f"repos/{opts.repo}/compare/main...{signed_sha}",
-        "--jq", "(.files | length) // 0",
-    ])
-    file_count = r.stdout.strip() if r.returncode == 0 else ""
-    if file_count == "0":
-        _log("Final PR diff is empty after replay/push")
-        _close_pr_no_changes(
-            opts.pr_url, opts.cop, opts.backend_label, opts.model_label,
-            opts.mode, opts.run_url, opts.issue_number, opts.repo,
-        )
-        _output("result", "empty")
-        _output("has_pr", "false")
-        return 0
-
-    # 8b. Detect docs-only changes (no real cop logic fix)
-    docs_only = _is_docs_only_change(signed_sha, opts.repo)
+    # 7. Detect docs-only changes (no real cop logic fix).
+    docs_only = _is_docs_only_local_change(opts.base_sha)
     if docs_only:
         _log("Docs-only change — will merge documentation but keep issue open as blocked")
 
-    # 9. Build and update PR body
+    # 8. Build PR body for the remote publish step.
     body = _build_final_pr_body(
         opts.cop, opts.mode, opts.backend_label, opts.model_label,
         opts.run_url, opts.run_number, opts.issue_number, opts.tokens,
-        signed_sha, parent_sha, opts.repo,
+        "", "", opts.repo,
+        base_sha=opts.base_sha,
         docs_only=docs_only,
     )
     write_and_read(pr_body_file, body)
-    _run(["gh", "pr", "edit", opts.pr_url, "--body-file", str(pr_body_file)])
-
-    # 10. Mark PR ready + auto-merge
-    _run(["gh", "pr", "ready", opts.pr_url])
-    _log(f"PR ready: {opts.pr_url}")
-    _run(["gh", "pr", "merge", opts.pr_url, "--auto", "--squash", "--delete-branch"])
-
-    # 11. If docs-only, mark issue blocked (don't close it — the gap is still open)
-    if docs_only and opts.issue_number:
-        body = (
-            f"Agent investigated `{opts.cop}` and documented findings, "
-            f"but no cop logic was changed.\n\n"
-            f"- Backend: `{opts.backend_label}`\n"
-            f"- Model: `{opts.model_label}`\n"
-            f"- Mode: `{opts.mode}`\n"
-            f"- Run: {opts.run_url}\n\n"
-            f"The FP/FN gap is likely caused by file-discovery or config differences, "
-            f"not a cop detection bug. Documentation PR was merged. "
-            f"Marking as blocked for manual investigation.\n"
-        )
-        claim_body = _env_path("CLAIM_BODY_FILE")
-        write_and_read(claim_body, body)
-        _run_ok(["gh", "issue", "comment", opts.issue_number, "--repo", opts.repo,
-                 "--body-file", str(claim_body)])
-        _run_ok([
-            "gh", "issue", "edit", opts.issue_number, "--repo", opts.repo,
-            "--remove-label", "state:pr-open,state:dispatched,state:backlog",
-            "--add-label", "state:blocked",
-        ])
 
     _output("result", "docs_only" if docs_only else "success")
     _output("has_pr", "true")
     _output("pr_url", opts.pr_url)
-    return 0
-
-
-# ── cleanup-failure ─────────────────────────────────────────────────────
-
-def cmd_cleanup_failure(args: list[str]) -> int:
-    """Close draft PR and comment on linked issue when the workflow fails."""
-    import argparse
-
-    p = argparse.ArgumentParser(prog="cop_fix_lifecycle.py cleanup-failure")
-    p.add_argument("--cop", required=True)
-    p.add_argument("--pr-url", default="")
-    p.add_argument("--issue-number", default="")
-    p.add_argument("--repo", required=True)
-    p.add_argument("--backend-label", default="n/a")
-    p.add_argument("--model-label", default="n/a")
-    p.add_argument("--mode", default="fix")
-    p.add_argument("--run-url", required=True)
-    p.add_argument("--file-guard-valid", default="")
-    opts = p.parse_args(args)
-
-    claim_body = _env_path("CLAIM_BODY_FILE")
-
-    # If scope validation explicitly failed, the reject step already closed the PR
-    if opts.file_guard_valid == "false":
-        return 0
-
-    if opts.pr_url:
-        _run_ok([
-            "gh", "pr", "close", opts.pr_url,
-            "--comment", f"Agent failed. See run: {opts.run_url}",
-            "--delete-branch",
-        ])
-
-    if opts.issue_number:
-        if opts.pr_url:
-            body = (
-                f"Agent fix failed before producing a usable PR for `{opts.cop}`.\n\n"
-                f"- Backend: `{opts.backend_label}`\n"
-                f"- Model: `{opts.model_label}`\n"
-                f"- Mode: `{opts.mode}`\n"
-                f"- Run: {opts.run_url}\n\n"
-                f"See the workflow summary and uploaded artifacts for the agent result and recovery patch.\n"
-            )
-        else:
-            body = (
-                f"Agent fix failed before it could create a draft PR for `{opts.cop}`.\n\n"
-                f"- Backend input: `{opts.backend_label}`\n"
-                f"- Mode: `{opts.mode}`\n"
-                f"- Run: {opts.run_url}\n\n"
-                f"Review the failed workflow run for details.\n"
-            )
-        write_and_read(claim_body, body)
-        _run_ok([
-            "gh", "issue", "comment", opts.issue_number,
-            "--repo", opts.repo,
-            "--body-file", str(claim_body),
-        ])
-        if opts.pr_url:
-            _run_ok([
-                "gh", "issue", "edit", opts.issue_number,
-                "--repo", opts.repo,
-                "--remove-label", "state:pr-open,state:dispatched",
-                "--add-label", "state:backlog",
-            ])
-
     return 0
 
 
@@ -1206,13 +962,11 @@ COMMANDS = {
     "init": cmd_init,
     "select-backend": cmd_select_backend,
     "resolve-backend": cmd_resolve_backend,
-    "skip-fixed": cmd_skip_fixed,
     "build-prompt": cmd_build_prompt,
     "claim-pr": cmd_claim_pr,
     "prepare-branch": cmd_prepare_branch,
     "snapshot": cmd_snapshot,
     "finalize": cmd_finalize,
-    "cleanup-failure": cmd_cleanup_failure,
 }
 
 
