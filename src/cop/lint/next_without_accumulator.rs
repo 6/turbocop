@@ -5,12 +5,23 @@ use ruby_prism::Visit;
 
 /// Detects bare `next` (without accumulator argument) inside `reduce`/`inject` blocks.
 ///
-/// Corpus investigation (FN=2): Both FN cases were `next unless condition` inside
-/// reduce/inject blocks. Prism parses `next unless cond` as an UnlessNode containing
-/// a NextNode — the default Visit traversal correctly descends into UnlessNode and
-/// finds the bare NextNode. The cop logic is correct and test fixtures cover both
-/// FN patterns (`next unless memo` in reduce, `next unless Integer === value` in inject).
-/// Corpus FN=2 is a stale baseline issue; a re-run should clear it.
+/// ## Corpus investigation (2026-03-28)
+///
+/// Corpus oracle reported FP=0, FN=6.
+///
+/// **FN root cause 1:** the visitor overrode `visit_def_node`, `visit_class_node`,
+/// and `visit_module_node` to skip recursion entirely. The fixture only covered
+/// top-level reduce blocks, so the cop appeared to work there, but real-world
+/// offenses inside method bodies were never visited.
+///
+/// **FN root cause 2:** the cop tracked reduce context with a single boolean.
+/// That would have flagged bare `next` inside nested blocks after recursion was
+/// fixed, while RuboCop only flags `next` whose nearest enclosing block is the
+/// current `reduce`/`inject` block.
+///
+/// Fix: recurse normally through method/class/module bodies, and track actual
+/// block depth plus the active reduce-block depth so nested blocks are ignored
+/// unless they are themselves `reduce`/`inject` blocks.
 pub struct NextWithoutAccumulator;
 
 impl Cop for NextWithoutAccumulator {
@@ -35,7 +46,8 @@ impl Cop for NextWithoutAccumulator {
             cop: self,
             source,
             diagnostics: Vec::new(),
-            in_reduce_block: false,
+            block_depth: 0,
+            reduce_block_depths: Vec::new(),
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -46,30 +58,40 @@ struct NextWithoutAccVisitor<'a, 'src> {
     cop: &'a NextWithoutAccumulator,
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
-    in_reduce_block: bool,
+    block_depth: usize,
+    reduce_block_depths: Vec<usize>,
 }
 
 impl<'pr> Visit<'pr> for NextWithoutAccVisitor<'_, '_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        let method_name = node.name().as_slice();
-        let is_reduce = method_name == b"reduce" || method_name == b"inject";
-
-        if is_reduce && node.receiver().is_some() {
-            // Check if this call has a block
-            if let Some(block) = node.block() {
-                if let Some(block_node) = block.as_block_node() {
-                    let old = self.in_reduce_block;
-                    self.in_reduce_block = true;
-                    if let Some(body) = block_node.body() {
-                        self.visit(&body);
-                    }
-                    self.in_reduce_block = old;
-                    return;
-                }
+        if let Some(block_node) = node.block().and_then(|block| block.as_block_node()) {
+            if let Some(recv) = node.receiver() {
+                self.visit(&recv);
             }
+            if let Some(args) = node.arguments() {
+                self.visit(&args.as_node());
+            }
+
+            self.block_depth += 1;
+
+            let method_name = node.name().as_slice();
+            let is_reduce =
+                node.receiver().is_some() && (method_name == b"reduce" || method_name == b"inject");
+            if is_reduce {
+                self.reduce_block_depths.push(self.block_depth);
+            }
+
+            if let Some(body) = block_node.body() {
+                self.visit(&body);
+            }
+
+            if is_reduce {
+                self.reduce_block_depths.pop();
+            }
+            self.block_depth -= 1;
+            return;
         }
 
-        // Visit receiver and arguments normally
         if let Some(recv) = node.receiver() {
             self.visit(&recv);
         }
@@ -81,8 +103,21 @@ impl<'pr> Visit<'pr> for NextWithoutAccVisitor<'_, '_> {
         }
     }
 
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        self.block_depth += 1;
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+        self.block_depth -= 1;
+    }
+
     fn visit_next_node(&mut self, node: &ruby_prism::NextNode<'pr>) {
-        if self.in_reduce_block && node.arguments().is_none() {
+        if node.arguments().is_none()
+            && self
+                .reduce_block_depths
+                .last()
+                .is_some_and(|depth| *depth == self.block_depth)
+        {
             let loc = node.location();
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
             self.diagnostics.push(self.cop.diagnostic(
@@ -93,11 +128,6 @@ impl<'pr> Visit<'pr> for NextWithoutAccVisitor<'_, '_> {
             ));
         }
     }
-
-    // Don't recurse into nested methods/classes
-    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
-    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
-    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
 }
 
 #[cfg(test)]
