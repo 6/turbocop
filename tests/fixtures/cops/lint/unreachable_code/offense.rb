@@ -141,3 +141,14 @@ def test_unreachable_inside_begin_ensure
     finalize
   end
 end
+
+# retry inside rescue is flow-breaking
+def test_retry_in_rescue
+  begin
+    update_group
+  rescue ActiveRecord::RecordNotUnique
+    retry
+    was_resolved = error_group.status == "resolved"
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/UnreachableCode: Unreachable code detected.
+  end
+end

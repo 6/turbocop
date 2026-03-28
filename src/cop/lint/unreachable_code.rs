@@ -70,6 +70,18 @@ use ruby_prism::Visit;
 /// nodes matching RuboCop's approach. `is_flow_call()` returns false for
 /// bare calls to redefined methods and for any method call inside
 /// `instance_eval` blocks.
+///
+/// ## Investigation (2026-03-28)
+///
+/// FN=1: `retry` inside a `rescue` body was no longer treated as flow-breaking,
+/// so code immediately after it was missed (`faultline`'s
+/// `rescue ActiveRecord::RecordNotUnique; retry; was_resolved = ...`).
+///
+/// A previous pass removed `RetryNode` handling entirely based on the assumption
+/// that Prism-mode RuboCop would not report it. Re-checking RuboCop with
+/// `PARSER_ENGINE=parser_prism` showed that it still flags unreachable code
+/// after `retry`, including the corpus example. Fixed by restoring
+/// `node.as_retry_node().is_some()` to `is_flow_command()`.
 pub struct UnreachableCode;
 
 impl Cop for UnreachableCode {
@@ -126,6 +138,7 @@ fn is_flow_command(
     node.as_return_node().is_some()
         || node.as_break_node().is_some()
         || node.as_next_node().is_some()
+        || node.as_retry_node().is_some()
         || node.as_redo_node().is_some()
         || is_flow_call(node, redefined, instance_eval_count)
 }
