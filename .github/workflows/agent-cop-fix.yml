@@ -3,7 +3,6 @@ name: Agent Cop Fix
 permissions:
   contents: write
   actions: read
-  packages: read
   pull-requests: write
 
 on:
@@ -41,7 +40,6 @@ on:
 jobs:
   fix:
     runs-on: ubuntu-24.04
-    container: ghcr.io/${{ github.repository }}/agent:latest
     timeout-minutes: 60
     env:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
@@ -53,29 +51,33 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # Container user differs from repo owner — mark safe for git/gh
-      - name: Mark repo safe
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      # --- Shared environment setup (Rust, Ruby, mold, corpus) ---
+      - uses: ./.github/actions/setup-agent-env
+        with:
+          rust_components: rustfmt
+          install_vendor_gems: 'true'
 
-      # Tools (Rust, Ruby, mold, gems, uv, gh, rg) are pre-installed in
-      # the container image. Only workspace-dependent steps run here.
-      - name: Install Python deps
-        run: uv sync --frozen
-
-      - name: Install corpus bundle
+      # On self-hosted: copy pre-warmed target into job workspace (each job
+      # gets its own copy to avoid concurrent cargo lock contention)
+      # On GitHub-hosted: use actions/cache to save/restore target/
+      - name: Set up cargo cache
         run: |
-          cd bench/corpus
-          bundle config set --local path vendor/bundle
-          bundle install --jobs 4 --retry 3
+          if [ -d "/home/runner/cargo-target-seed" ]; then
+            echo "Self-hosted runner — seeding target/ from pre-warmed cache"
+            cp -al /home/runner/cargo-target-seed target 2>/dev/null || \
+              cp -r /home/runner/cargo-target-seed target
+            echo "seeded=true" >> "$GITHUB_OUTPUT"
+          fi
+        id: cargo-cache
 
       - uses: actions/cache@v5
+        if: steps.cargo-cache.outputs.seeded != 'true'
         with:
-          path: |
-            target
-            /usr/local/cargo/registry
-            /usr/local/cargo/git
-          key: agent-container-${{ hashFiles('Cargo.lock') }}
-          restore-keys: agent-container-
+          path: target
+          key: agent-target-${{ hashFiles('Cargo.lock') }}
+          restore-keys: agent-target-
+
+      - uses: astral-sh/setup-uv@v6
 
       - name: Initialize runtime layout
         run: |
