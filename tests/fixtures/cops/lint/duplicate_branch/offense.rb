@@ -237,3 +237,45 @@ when :alias
 ^^^^^^^^^^^^^^^^ Lint/DuplicateBranch: Duplicate branch body detected.
   add_typing node, type: AST::Builtin.nil_type
 end
+
+# case/when with return call with and without parens are duplicates
+case node.type
+when :instance_variable_or_write_node, :local_variable_or_write_node
+  return user_input?(node.value)
+when :instance_variable_write_node, :local_variable_write_node
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateBranch: Duplicate branch body detected.
+  return user_input? node.value
+end
+
+# case/when with nested return call with and without parens are duplicates
+case node.type
+when :instance_variable_or_write, :local_variable_or_write_node
+  return model_attribute?(node.value)
+when :instance_variable_write_node, :local_variable_write_node
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateBranch: Duplicate branch body detected.
+  return model_attribute? node.value
+end
+
+# case/when with do-end vs braces inside a nested block are duplicates
+case kind
+when :string_literal
+  content_nodes = node[1].children
+  content_nodes.each do |node|
+    walk_node node, value: false
+  end
+when :dyna_symbol
+^^^^^^^^^^^^^^^^^ Lint/DuplicateBranch: Duplicate branch body detected.
+  content_nodes = node[1].children
+  content_nodes.each { |node| walk_node node, value: false }
+end
+
+# case/when with keyword hash and explicit hash call args are duplicates
+case style
+when :kwargs
+  object.call(1, a: 2)
+when :hash
+^^^^^^^^^^ Lint/DuplicateBranch: Duplicate branch body detected.
+  object.call(1, {a: 2})
+when :kwrest
+  object.call(1, **{a: 2})
+end

@@ -110,6 +110,23 @@ use crate::parse::source::SourceFile;
 ///    Prism may parse `-0.0` as `FloatNode(-0.0)` or `CallNode(-@, FloatNode)`.
 ///    Fix: `is_negated_zero_float()` checks for `-@` on zero, and the FloatNode
 ///    path checks `val == 0.0` (which matches both `0.0` and `-0.0` per IEEE 754).
+///
+/// ## Follow-up (2026-03-28) — nested structural fingerprints
+///
+/// Remaining FN=4 at 99.9% were still caused by source-based fallback on nodes
+/// that wrap or contain AST-equivalent subexpressions:
+///
+/// 1. `ReturnNode` wrappers around calls with and without optional parens
+///    (`return user_input?(node.value)` vs `return user_input? node.value`).
+/// 2. `BlockNode` delimiters under nested calls (`do .. end` vs `{ ... }`).
+/// 3. Prism's `HashNode` vs `KeywordHashNode` split for equivalent call args
+///    (`object.call(1, {a: 2})` vs `object.call(1, a: 2)`), while preserving
+///    `**{a: 2}` as distinct via `AssocSplatNode`.
+///
+/// Fix: keep source-based comparison as the default, but add structural
+/// fingerprints for `ReturnNode`, block nodes, local/instance variable writes,
+/// and hash-like nodes so nested AST-equivalent bodies compare equal without
+/// broad comment/whitespace suppression across unrelated node kinds.
 pub struct DuplicateBranch;
 
 impl Cop for DuplicateBranch {
@@ -218,6 +235,10 @@ impl Cop for DuplicateBranch {
 ///    equivalent escape spellings compare equal.
 /// 3. For other nodes, extend ranges for heredocs and normalize whitespace.
 fn stmts_source(source: &SourceFile, stmts: &Option<ruby_prism::StatementsNode<'_>>) -> Vec<u8> {
+    stmts_fingerprint(source.as_bytes(), stmts)
+}
+
+fn stmts_fingerprint(bytes: &[u8], stmts: &Option<ruby_prism::StatementsNode<'_>>) -> Vec<u8> {
     match stmts {
         Some(s) => {
             let body = s.body();
@@ -240,7 +261,6 @@ fn stmts_source(source: &SourceFile, stmts: &Option<ruby_prism::StatementsNode<'
             // Iterating body nodes individually skips inter-statement comments.
             // node_fingerprint preserves string/regex content verbatim while
             // normalizing whitespace outside literals.
-            let bytes = source.as_bytes();
             let mut fingerprint = Vec::new();
 
             for (i, node) in body.iter().enumerate() {
@@ -381,6 +401,46 @@ fn node_fingerprint(bytes: &[u8], node: &ruby_prism::Node<'_>, out: &mut Vec<u8>
         return;
     }
 
+    if let Some(ret) = node.as_return_node() {
+        return_node_fingerprint(bytes, &ret, out);
+        return;
+    }
+
+    if let Some(block) = node.as_block_node() {
+        block_node_fingerprint(bytes, &block, out);
+        return;
+    }
+
+    if let Some(write) = node.as_local_variable_write_node() {
+        variable_write_fingerprint(bytes, b"LVW:", write.name().as_slice(), &write.value(), out);
+        return;
+    }
+
+    if let Some(write) = node.as_instance_variable_write_node() {
+        variable_write_fingerprint(bytes, b"IVW:", write.name().as_slice(), &write.value(), out);
+        return;
+    }
+
+    if let Some(hash) = node.as_hash_node() {
+        hash_fingerprint(bytes, hash.elements().iter(), out);
+        return;
+    }
+
+    if let Some(hash) = node.as_keyword_hash_node() {
+        hash_fingerprint(bytes, hash.elements().iter(), out);
+        return;
+    }
+
+    if let Some(assoc) = node.as_assoc_node() {
+        assoc_fingerprint(bytes, &assoc, out);
+        return;
+    }
+
+    if let Some(assoc_splat) = node.as_assoc_splat_node() {
+        assoc_splat_fingerprint(bytes, &assoc_splat, out);
+        return;
+    }
+
     // Float literal: normalize so 0.0 fingerprints consistently
     if let Some(float_node) = node.as_float_node() {
         let val = float_node.value();
@@ -391,6 +451,87 @@ fn node_fingerprint(bytes: &[u8], node: &ruby_prism::Node<'_>, out: &mut Vec<u8>
     }
 
     source_fingerprint(bytes, node, out);
+}
+
+fn return_node_fingerprint(bytes: &[u8], ret: &ruby_prism::ReturnNode<'_>, out: &mut Vec<u8>) {
+    out.extend_from_slice(b"RET(");
+    if let Some(args) = ret.arguments() {
+        for (i, arg) in args.arguments().iter().enumerate() {
+            if i > 0 {
+                out.push(b',');
+            }
+            node_fingerprint(bytes, &arg, out);
+        }
+    }
+    out.push(b')');
+}
+
+fn block_node_fingerprint(bytes: &[u8], block: &ruby_prism::BlockNode<'_>, out: &mut Vec<u8>) {
+    out.extend_from_slice(b"BLK(");
+    match block.parameters() {
+        Some(params) => node_fingerprint(bytes, &params, out),
+        None => out.push(b'-'),
+    }
+    out.push(b'|');
+    if let Some(body) = block.body() {
+        if let Some(stmts) = body.as_statements_node() {
+            let mut body_fp = stmts_fingerprint(bytes, &Some(stmts));
+            out.append(&mut body_fp);
+        } else {
+            node_fingerprint(bytes, &body, out);
+        }
+    }
+    out.push(b')');
+}
+
+fn variable_write_fingerprint(
+    bytes: &[u8],
+    prefix: &[u8],
+    name: &[u8],
+    value: &ruby_prism::Node<'_>,
+    out: &mut Vec<u8>,
+) {
+    out.extend_from_slice(prefix);
+    out.extend_from_slice(name);
+    out.push(b'=');
+    node_fingerprint(bytes, value, out);
+}
+
+fn hash_fingerprint<'pr, I>(bytes: &[u8], elements: I, out: &mut Vec<u8>)
+where
+    I: Iterator<Item = ruby_prism::Node<'pr>>,
+{
+    out.extend_from_slice(b"H{");
+    for (i, element) in elements.enumerate() {
+        if i > 0 {
+            out.push(b',');
+        }
+        node_fingerprint(bytes, &element, out);
+    }
+    out.push(b'}');
+}
+
+fn assoc_fingerprint(bytes: &[u8], assoc: &ruby_prism::AssocNode<'_>, out: &mut Vec<u8>) {
+    out.extend_from_slice(b"P(");
+    let key = assoc.key();
+    node_fingerprint(bytes, &key, out);
+    out.extend_from_slice(b"=>");
+    let value = assoc.value();
+    node_fingerprint(bytes, &value, out);
+    out.push(b')');
+}
+
+fn assoc_splat_fingerprint(
+    bytes: &[u8],
+    assoc_splat: &ruby_prism::AssocSplatNode<'_>,
+    out: &mut Vec<u8>,
+) {
+    out.extend_from_slice(b"AS:");
+    if let Some(value) = assoc_splat.value() {
+        node_fingerprint(bytes, &value, out);
+    } else {
+        out.push(b'-');
+    }
 }
 
 /// Build a source-based fingerprint for a node: strips comments and normalizes
