@@ -19,3 +19,11 @@ result = constants.inject({}) do |memo, name|
   memo[name] = value
   memo
 end
+
+result = [(1..3), (4..6)].reduce([]) do |acc, elems|
+  elems.each_with_index do |elem, i|
+    next if i == 1
+    acc << elem
+  end
+  acc
+end
