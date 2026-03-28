@@ -14,6 +14,20 @@ use crate::parse::source::SourceFile;
 ///    returns an integer (file size), not a collection. Fixed by checking if the receiver
 ///    of `.size`/`.length` is a call on a constant (e.g., `File.stat`), which indicates
 ///    a non-collection context.
+///
+/// ## Investigation findings (2026-03-28)
+/// FP=1, FN=87. Two code bugs found:
+/// 1. `is_non_collection_receiver` was too broad — it excluded ANY `.size`/`.length` where
+///    the receiver chain included a constant (e.g., `Post.find_all.length > 0`,
+///    `ENV['X'].size > 0`, `Object.methods.length > 0`). RuboCop only excludes
+///    `File.stat`, `File/Tempfile/StringIO.new/open`. Fixed by matching those specific
+///    constants and methods only.
+/// 2. Safe navigation was blocked for ALL comparisons. RuboCop allows safe nav on
+///    `.length`/`.size` for zero-length checks (`x&.length == 0`, `x&.length < 1`) but
+///    not for nonzero checks (`x&.length > 0`). Fixed by splitting the comparison logic:
+///    zero checks allow safe nav on the inner call, nonzero checks require no safe nav.
+/// 3. The single FP (octocatalog-diff multiline block `.size.zero?`) was context-dependent
+///    and resolved itself with the non-collection receiver fix.
 pub struct ZeroLengthPredicate;
 
 impl ZeroLengthPredicate {
@@ -23,22 +37,52 @@ impl ZeroLengthPredicate {
             .is_some_and(|op: ruby_prism::Location<'_>| op.as_slice() == b"&.")
     }
 
-    /// Check if the receiver of `.size`/`.length` is a call on a constant,
-    /// indicating a non-collection return type (e.g., `File.stat(path).size`).
+    /// Check if the receiver of `.size`/`.length` is a non-polymorphic collection type
+    /// that doesn't have `empty?` (File, Tempfile, StringIO).
+    /// Matches: File.stat(x).size, File/Tempfile/StringIO.new/open(...).size
     fn is_non_collection_receiver(call: &ruby_prism::CallNode<'_>) -> bool {
         if let Some(receiver) = call.receiver() {
             if let Some(recv_call) = receiver.as_call_node() {
                 if let Some(recv_recv) = recv_call.receiver() {
-                    return recv_recv.as_constant_read_node().is_some()
-                        || recv_recv.as_constant_path_node().is_some();
+                    if let Some(const_name) = Self::bare_constant_name(&recv_recv) {
+                        let method_bytes = recv_call.name().as_slice();
+                        // File.stat(x).size/length
+                        if const_name == b"File" && method_bytes == b"stat" {
+                            return true;
+                        }
+                        // File/Tempfile/StringIO.new/open(...).size/length
+                        if (const_name == b"File"
+                            || const_name == b"Tempfile"
+                            || const_name == b"StringIO")
+                            && (method_bytes == b"new" || method_bytes == b"open")
+                        {
+                            return true;
+                        }
+                    }
                 }
             }
         }
         false
     }
 
+    /// Extract bare constant name from ConstantReadNode or top-level ConstantPathNode (::File).
+    fn bare_constant_name<'a>(node: &ruby_prism::Node<'a>) -> Option<&'a [u8]> {
+        if let Some(cr) = node.as_constant_read_node() {
+            Some(cr.name().as_slice())
+        } else if let Some(cp) = node.as_constant_path_node() {
+            // Only match top-level (::File) — parent must be None
+            if cp.parent().is_none() {
+                cp.name().map(|n| n.as_slice())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     /// Check if a call is `.length` or `.size` on a collection receiver
-    /// (excludes safe navigation and non-collection receivers)
+    /// (excludes non-collection receivers like File.stat, but allows safe navigation)
     fn is_length_or_size(node: &ruby_prism::Node<'_>) -> bool {
         if let Some(call) = node.as_call_node() {
             let name = call.name();
@@ -46,13 +90,18 @@ impl ZeroLengthPredicate {
             if (name_bytes == b"length" || name_bytes == b"size")
                 && call.arguments().is_none()
                 && call.receiver().is_some()
-                && !Self::uses_safe_navigation(&call)
                 && !Self::is_non_collection_receiver(&call)
             {
                 return true;
             }
         }
         false
+    }
+
+    /// Check if a length/size call uses safe navigation (`&.`)
+    fn length_or_size_has_safe_nav(node: &ruby_prism::Node<'_>) -> bool {
+        node.as_call_node()
+            .is_some_and(|call| Self::uses_safe_navigation(&call))
     }
 
     /// Get the integer value from a node
@@ -124,17 +173,18 @@ impl Cop for ZeroLengthPredicate {
                         // x.length == 0 or x.length < 1
                         if Self::is_length_or_size(&receiver) {
                             let arg_val = Self::int_value(&arg_list[0]);
-                            let is_zero_check = match method_bytes {
-                                b"==" => arg_val == Some(0),
-                                b"<" => arg_val == Some(1),
-                                b"!=" | b">" => arg_val == Some(0),
-                                _ => false,
-                            };
-                            if is_zero_check {
+                            // Zero checks (empty?) — allowed with safe nav on length/size
+                            let is_zero_check = (method_bytes == b"==" && arg_val == Some(0))
+                                || (method_bytes == b"<" && arg_val == Some(1));
+                            // Nonzero checks (!empty?) — NOT allowed with safe nav
+                            let is_nonzero_check = (method_bytes == b"!=" || method_bytes == b">")
+                                && arg_val == Some(0)
+                                && !Self::length_or_size_has_safe_nav(&receiver);
+                            if is_zero_check || is_nonzero_check {
                                 let loc = node.location();
                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                                 let src = std::str::from_utf8(loc.as_slice()).unwrap_or("");
-                                let msg = if method_bytes == b"!=" || method_bytes == b">" {
+                                let msg = if is_nonzero_check {
                                     format!("Use `!empty?` instead of `{}`.", src)
                                 } else {
                                     format!("Use `empty?` instead of `{}`.", src)
@@ -145,18 +195,20 @@ impl Cop for ZeroLengthPredicate {
                         // 0 == x.length, 1 > x.length
                         if let Some(recv_val) = Self::int_value(&receiver) {
                             if Self::is_length_or_size(&arg_list[0]) {
-                                let is_zero_check = match method_bytes {
-                                    b"==" => recv_val == 0,
-                                    b">" => recv_val == 1,
-                                    b"!=" | b"<" => recv_val == 0,
-                                    _ => false,
-                                };
-                                if is_zero_check {
+                                // Zero checks (empty?) — allowed with safe nav
+                                let is_zero_check = (method_bytes == b"==" && recv_val == 0)
+                                    || (method_bytes == b">" && recv_val == 1);
+                                // Nonzero checks (!empty?) — NOT allowed with safe nav
+                                let is_nonzero_check = (method_bytes == b"!="
+                                    || method_bytes == b"<")
+                                    && recv_val == 0
+                                    && !Self::length_or_size_has_safe_nav(&arg_list[0]);
+                                if is_zero_check || is_nonzero_check {
                                     let loc = node.location();
                                     let (line, column) =
                                         source.offset_to_line_col(loc.start_offset());
                                     let src = std::str::from_utf8(loc.as_slice()).unwrap_or("");
-                                    let msg = if method_bytes == b"!=" || method_bytes == b"<" {
+                                    let msg = if is_nonzero_check {
                                         format!("Use `!empty?` instead of `{}`.", src)
                                     } else {
                                         format!("Use `empty?` instead of `{}`.", src)
