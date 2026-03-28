@@ -7,6 +7,8 @@ import argparse
 import json
 from pathlib import Path
 
+from cop_fix_lifecycle import _build_claim_body, _build_task_body
+
 
 def _write(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +84,85 @@ def cmd_cleanup_request(args: argparse.Namespace) -> int:
     return _dump_request(output_dir, operations=operations)
 
 
+def cmd_claim_request(args: argparse.Namespace) -> int:
+    output_dir = Path(args.output_dir)
+    model_label_name = f"model:{args.backend}"
+    retry_note = " (retry)" if args.mode == "retry" else ""
+
+    claim_body = _build_claim_body(
+        args.cop,
+        args.mode,
+        args.backend_label,
+        args.model_label,
+        args.backend_reason,
+        args.run_url,
+        args.issue_number,
+    )
+    task_body = _build_task_body(
+        args.cop,
+        args.mode,
+        args.backend_label,
+        args.model_label,
+        args.run_url,
+        args.issue_number,
+        args.code_bugs,
+        args.tokens,
+        Path(args.task_file).read_text(),
+    )
+    _write(output_dir / "claim-body.md", claim_body)
+    _write(output_dir / "task-body.md", task_body)
+
+    operations: list[dict] = [
+        {
+            "type": "ensure_labels",
+            "labels": [
+                {"name": "type:cop-fix", "color": "0e8a16"},
+                {"name": model_label_name, "color": "c2e0c6"},
+                {"name": "state:backlog", "color": "fbca04"},
+                {"name": "state:dispatched", "color": "1d76db"},
+                {"name": "state:pr-open", "color": "0e8a16"},
+                {"name": "state:blocked", "color": "b60205"},
+            ],
+        },
+        {
+            "type": "create_branch",
+            "branch": args.branch,
+            "commit_message": f"[bot] Fix {args.cop}: in progress",
+            "promote_message": f"[bot] Fix {args.cop}: in progress",
+        },
+        {
+            "type": "create_pr",
+            "base": "main",
+            "head": args.branch,
+            "title": f"[bot] Fix {args.cop}{retry_note}",
+            "draft": True,
+            "labels": ["type:cop-fix", model_label_name],
+            "body_file": "claim-body.md",
+        },
+    ]
+
+    if args.issue_number:
+        operations.append(
+            {
+                "type": "edit_issue_labels",
+                "issue_number": int(args.issue_number),
+                "remove_labels": ["state:backlog", "state:dispatched", "state:blocked"],
+                "add_labels": ["state:pr-open"],
+                "ignore_failure": True,
+            }
+        )
+
+    operations.append(
+        {
+            "type": "edit_pr",
+            "pr": "{{PR_URL}}",
+            "body_file": "task-body.md",
+        }
+    )
+
+    return _dump_request(output_dir, operations=operations, match_mode="current_head")
+
+
 def cmd_reset_issue_request(args: argparse.Namespace) -> int:
     output_dir = Path(args.output_dir)
     return _dump_request(
@@ -112,6 +193,22 @@ def main() -> int:
     cleanup_request.add_argument("--mode", required=True)
     cleanup_request.add_argument("--run-url", required=True)
     cleanup_request.set_defaults(func=cmd_cleanup_request)
+
+    claim_request = subparsers.add_parser("claim-request")
+    claim_request.add_argument("--output-dir", required=True)
+    claim_request.add_argument("--cop", required=True)
+    claim_request.add_argument("--mode", required=True)
+    claim_request.add_argument("--branch", required=True)
+    claim_request.add_argument("--backend", required=True)
+    claim_request.add_argument("--backend-label", required=True)
+    claim_request.add_argument("--model-label", required=True)
+    claim_request.add_argument("--backend-reason", required=True)
+    claim_request.add_argument("--run-url", required=True)
+    claim_request.add_argument("--issue-number", default="")
+    claim_request.add_argument("--code-bugs", required=True)
+    claim_request.add_argument("--tokens", required=True)
+    claim_request.add_argument("--task-file", required=True)
+    claim_request.set_defaults(func=cmd_claim_request)
 
     reset_issue_request = subparsers.add_parser("reset-issue-request")
     reset_issue_request.add_argument("--output-dir", required=True)

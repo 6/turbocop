@@ -31,7 +31,7 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "- auto" in yml
     assert "Generate bot control token" in yml
     assert "cop_fix_lifecycle.py select-backend" in yml
-    assert "cop_fix_lifecycle.py claim-pr" in yml
+    assert "cop_fix_publish.py claim-request" in yml
     assert "cop_fix_lifecycle.py finalize" in yml
     assert "uses: ./.github/actions/run-agent-remote" in yml
     assert "uses: ./.github/actions/run-repo-write-remote" in yml
@@ -40,6 +40,8 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "setup_profile: nitrocop" in yml
     assert "setup_config_json:" in yml
     assert "cop_fix_publish.py cleanup-request" in yml
+    assert 'gh pr list \\' in yml
+    assert "--head \"${{ steps.init.outputs.branch }}\"" in yml
 
     # Logic now lives in cop_fix_lifecycle.py
     assert "dispatch_cops.py" in py
@@ -51,6 +53,9 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "validate_agent_changes.py" in py
     assert '"gh", "pr", "merge"' in py
     publish = COP_FIX_PUBLISH.read_text()
+    assert '"type": "create_branch"' in publish
+    assert '"type": "create_pr"' in publish
+    assert '"type": "edit_pr"' in publish
     assert '"type": "close_pr"' in publish
     assert '"match_mode": match_mode' in publish
     assert 'match_mode: str = "contained"' in publish

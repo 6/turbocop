@@ -65,6 +65,75 @@ def test_cleanup_request_with_pr_and_issue(tmp_path: Path) -> None:
     assert "`Style/NegatedWhile`" in body
 
 
+def test_claim_request_builds_remote_claim_flow(tmp_path: Path) -> None:
+    output_dir = tmp_path / "claim"
+    task_file = tmp_path / "task.md"
+    task_file.write_text("## Task\n\nFix the cop.\n")
+
+    _run(
+        "claim-request",
+        "--output-dir",
+        str(output_dir),
+        "--cop",
+        "Style/NegatedWhile",
+        "--mode",
+        "fix",
+        "--branch",
+        "fix/style-negated_while-123",
+        "--backend",
+        "claude-normal",
+        "--backend-label",
+        "claude / normal",
+        "--model-label",
+        "Claude Sonnet",
+        "--backend-reason",
+        "auto-selected",
+        "--run-url",
+        "https://github.com/6/nitrocop/actions/runs/1",
+        "--issue-number",
+        "77",
+        "--code-bugs",
+        "5",
+        "--tokens",
+        "1200",
+        "--task-file",
+        str(task_file),
+    )
+
+    request = json.loads((output_dir / "request.json").read_text())
+    assert request["match_mode"] == "current_head"
+    operations = request["operations"]
+    assert operations[0]["type"] == "ensure_labels"
+    assert operations[1] == {
+        "type": "create_branch",
+        "branch": "fix/style-negated_while-123",
+        "commit_message": "[bot] Fix Style/NegatedWhile: in progress",
+        "promote_message": "[bot] Fix Style/NegatedWhile: in progress",
+    }
+    assert operations[2]["type"] == "create_pr"
+    assert operations[2]["head"] == "fix/style-negated_while-123"
+    assert operations[2]["draft"] is True
+    assert operations[2]["labels"] == ["type:cop-fix", "model:claude-normal"]
+    assert operations[3] == {
+        "type": "edit_issue_labels",
+        "issue_number": 77,
+        "remove_labels": ["state:backlog", "state:dispatched", "state:blocked"],
+        "add_labels": ["state:pr-open"],
+        "ignore_failure": True,
+    }
+    assert operations[4] == {
+        "type": "edit_pr",
+        "pr": "{{PR_URL}}",
+        "body_file": "task-body.md",
+    }
+    claim_body = (output_dir / "claim-body.md").read_text()
+    task_body = (output_dir / "task-body.md").read_text()
+    assert "Refs #77" in claim_body
+    assert "<!-- nitrocop-cop-issue: number=77 cop=Style/NegatedWhile -->" in claim_body
+    assert "## Task" in task_body
+    assert "Code bugs:** 5" in task_body
+
+
 def test_cleanup_request_without_pr_only_comments_issue(tmp_path: Path) -> None:
     output_dir = tmp_path / "cleanup"
     _run(

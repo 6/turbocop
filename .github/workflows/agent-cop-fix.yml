@@ -189,13 +189,14 @@ jobs:
             --backend-input "${{ github.event.inputs.backend }}" \
             --mode "${{ github.event.inputs.mode }}"
 
-      - name: Claim PR
+      - name: Build remote claim request
         if: steps.task.outputs.code_bugs != '0'
-        id: claim
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          python3 scripts/workflows/cop_fix_lifecycle.py claim-pr \
+          git fetch origin main
+          REQUEST_DIR="$RUNNER_TEMP/cop-fix-claim-request"
+          python3 scripts/workflows/cop_fix_publish.py claim-request \
+            --output-dir "$REQUEST_DIR" \
             --cop "${{ github.event.inputs.cop }}" \
             --mode "${{ github.event.inputs.mode }}" \
             --branch "${{ steps.init.outputs.branch }}" \
@@ -203,12 +204,39 @@ jobs:
             --backend-label "${{ steps.selected_backend.outputs.display_label }}" \
             --model-label "${{ steps.backend.outputs.model_label }}" \
             --backend-reason "${{ steps.selected_backend.outputs.reason }}" \
-            --repo "${{ github.repository }}" \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --issue-number "${{ github.event.inputs.issue_number }}" \
             --code-bugs "${{ steps.task.outputs.code_bugs }}" \
             --tokens "${{ steps.task.outputs.tokens }}" \
+            --task-file "$TASK_FILE" \
             >> "$GITHUB_OUTPUT"
+          echo "target_sha=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+
+      - name: Claim PR remotely
+        if: steps.task.outputs.code_bugs != '0'
+        uses: ./.github/actions/run-repo-write-remote
+        with:
+          control_repo_token: ${{ steps.bot-control-token.outputs.token }}
+          target_sha: ${{ steps.claim_request.outputs.target_sha }}
+          target_ref: refs/heads/main
+          request_file: ${{ runner.temp }}/cop-fix-claim-request/request.json
+
+      - name: Resolve claimed PR
+        if: steps.task.outputs.code_bugs != '0'
+        id: claim
+        env:
+          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
+        run: |
+          PR_URL=$(gh pr list \
+            --repo "${{ github.repository }}" \
+            --state open \
+            --head "${{ steps.init.outputs.branch }}" \
+            --json url --jq '.[0].url // empty')
+          if [ -z "$PR_URL" ]; then
+            echo "::error::Remote claim did not leave an open PR on branch ${{ steps.init.outputs.branch }}"
+            exit 1
+          fi
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
 
       - name: Build prompt
         if: steps.task.outputs.code_bugs != '0'
