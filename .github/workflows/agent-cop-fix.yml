@@ -62,6 +62,9 @@ jobs:
           done
           rustc --version; ruby --version; mold --version
 
+      - name: Install Python deps
+        run: uv sync --frozen
+
       - name: Install corpus bundle
         run: |
           cd bench/corpus

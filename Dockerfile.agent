@@ -23,6 +23,7 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends \
       fd-find \
       git \
       jq \
+      python3 \
       locales \
       mold \
       ripgrep \
@@ -66,12 +67,15 @@ RUN grep '^gem "rubocop' /tmp/Gemfile \
       | xargs gem install prism --no-document
 
 # --- uv (Python package manager) ---
+# python3 from apt for bare interpreter; uv sync runs at workflow time
+# against the checked-out workspace to install lockfile deps (tiktoken, etc.)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
 # --- Verify ---
 RUN rustc --version && cargo --version \
     && ruby --version && gem --version \
+    && python3 --version \
     && mold --version \
     && node --version \
     && gh --version \
