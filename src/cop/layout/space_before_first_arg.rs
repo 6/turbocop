@@ -31,6 +31,16 @@ use crate::parse::source::SourceFile;
 ///    aligned line was separated by differently-indented lines (FPs), and
 ///    could falsely detect alignment from a 2nd non-blank line that RuboCop
 ///    wouldn't consider (FNs).
+///
+/// ## Investigation findings (2026-03-28)
+///
+/// FN=19 from corpus. The fallback alignment check was comparing only a short
+/// token fragment from the first argument (for example `@`, `Token`, or `&`)
+/// instead of the full first-argument source. That caused false alignment on
+/// lines like `assert  @gateway...` versus `assert !@gateway...`, which share a
+/// prefix at the same column but are not aligned by RuboCop's
+/// `aligned_words?` check. Fixed by comparing the full first-argument source,
+/// matching RuboCop's `range.source` behavior.
 pub struct SpaceBeforeFirstArg;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
@@ -58,24 +68,26 @@ fn is_setter_method(name: &[u8]) -> bool {
 ///
 /// Alignment is detected by:
 /// - Mode 1: space-then-non-space at `arg_col - 1` (token boundary alignment)
-/// - Mode 2: exact token text match at `arg_col`
-fn is_aligned_with_adjacent(source: &SourceFile, line: usize, arg_col: usize) -> bool {
+/// - Mode 2: exact first-argument source match at `arg_col`
+fn is_aligned_with_adjacent(
+    source: &SourceFile,
+    line: usize,
+    arg_col: usize,
+    current_arg: &[u8],
+) -> bool {
     let lines: Vec<&[u8]> = source.lines().collect();
     let current_line_idx = line - 1; // Convert 1-indexed to 0-indexed
-
-    // Extract the token starting at arg_col on the current line for Mode 2
     let current_line = lines.get(current_line_idx).copied().unwrap_or(&[]);
-    let current_token = extract_token_at(current_line, arg_col);
 
     // Pass 1: check the nearest non-blank, non-comment line in each direction.
     // RuboCop's aligned_with_line? yields the first qualifying line and returns.
     if let Some(adj) = find_nearest_nonblank(&lines, current_line_idx, Direction::Up, None) {
-        if check_alignment_at(adj, arg_col, current_token) {
+        if check_alignment_at(adj, arg_col, current_arg) {
             return true;
         }
     }
     if let Some(adj) = find_nearest_nonblank(&lines, current_line_idx, Direction::Down, None) {
-        if check_alignment_at(adj, arg_col, current_token) {
+        if check_alignment_at(adj, arg_col, current_arg) {
             return true;
         }
     }
@@ -85,14 +97,14 @@ fn is_aligned_with_adjacent(source: &SourceFile, line: usize, arg_col: usize) ->
     if let Some(adj) =
         find_nearest_nonblank(&lines, current_line_idx, Direction::Up, Some(base_indent))
     {
-        if check_alignment_at(adj, arg_col, current_token) {
+        if check_alignment_at(adj, arg_col, current_arg) {
             return true;
         }
     }
     if let Some(adj) =
         find_nearest_nonblank(&lines, current_line_idx, Direction::Down, Some(base_indent))
     {
-        if check_alignment_at(adj, arg_col, current_token) {
+        if check_alignment_at(adj, arg_col, current_arg) {
             return true;
         }
     }
@@ -151,7 +163,7 @@ fn line_indentation(line: &[u8]) -> usize {
 
 /// Check if there's a token boundary at `col` on the given line,
 /// mirroring RuboCop's `aligned_words?`.
-fn check_alignment_at(adj_line: &[u8], col: usize, current_token: &[u8]) -> bool {
+fn check_alignment_at(adj_line: &[u8], col: usize, current_arg: &[u8]) -> bool {
     if col >= adj_line.len() {
         return false;
     }
@@ -165,40 +177,15 @@ fn check_alignment_at(adj_line: &[u8], col: usize, current_token: &[u8]) -> bool
         return true;
     }
 
-    // Mode 2: exact token match at the same position
-    if !current_token.is_empty()
-        && col + current_token.len() <= adj_line.len()
-        && &adj_line[col..col + current_token.len()] == current_token
+    // Mode 2: exact first-argument source match at the same position
+    if !current_arg.is_empty()
+        && col + current_arg.len() <= adj_line.len()
+        && &adj_line[col..col + current_arg.len()] == current_arg
     {
         return true;
     }
 
     false
-}
-
-/// Extract a token-like string starting at the given byte column.
-fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
-    if col >= line.len() {
-        return &[];
-    }
-    let ch = line[col];
-    if ch.is_ascii_alphanumeric() || ch == b'_' || ch == b':' {
-        let end = line[col..]
-            .iter()
-            .position(|&b| !b.is_ascii_alphanumeric() && b != b'_' && b != b':')
-            .map_or(line.len(), |p| col + p);
-        &line[col..end]
-    } else if ch == b'"' || ch == b'\'' {
-        if let Some(close_pos) = line[col + 1..].iter().position(|&b| b == ch) {
-            &line[col..col + 1 + close_pos + 1]
-        } else {
-            &line[col..col + 1]
-        }
-    } else if ch == b' ' || ch == b'\t' {
-        &[]
-    } else {
-        &line[col..col + 1]
-    }
 }
 
 /// Check if a line is blank or a comment-only line.
@@ -241,10 +228,20 @@ impl Cop for SpaceBeforeFirstArg {
             return;
         }
 
-        // Must have arguments
-        let args = match call.arguments() {
-            Some(a) => a,
-            None => return,
+        // Must have regular arguments or a block-pass argument (`&arg`)
+        let (arg_start, arg_end) = if let Some(args) = call.arguments() {
+            match args.arguments().iter().next() {
+                Some(arg) => {
+                    let loc = arg.location();
+                    (loc.start_offset(), loc.end_offset())
+                }
+                None => return,
+            }
+        } else if let Some(block_arg) = call.block().and_then(|b| b.as_block_argument_node()) {
+            let loc = block_arg.location();
+            (loc.start_offset(), loc.end_offset())
+        } else {
+            return;
         };
 
         // Skip operator methods (e.g. `2**128`, `x + 1`) and setter methods (e.g. `self.foo=`)
@@ -262,13 +259,7 @@ impl Cop for SpaceBeforeFirstArg {
             None => return,
         };
 
-        let first_arg = match args.arguments().iter().next() {
-            Some(a) => a,
-            None => return,
-        };
-
         let method_end = msg_loc.end_offset();
-        let arg_start = first_arg.location().start_offset();
 
         // Must be on the same line
         let (method_line, _) = source.offset_to_line_col(method_end);
@@ -298,10 +289,11 @@ impl Cop for SpaceBeforeFirstArg {
                 // When AllowForAlignment is true (default), check if the argument
                 // is actually aligned with a token on an adjacent line.
                 if allow_for_alignment {
+                    let current_arg = &bytes[arg_start..arg_end];
                     // Compute the byte column of the first argument on its line
                     let line_start = source.line_start_offset(method_line);
                     let arg_byte_col = arg_start - line_start;
-                    if is_aligned_with_adjacent(source, method_line, arg_byte_col) {
+                    if is_aligned_with_adjacent(source, method_line, arg_byte_col, current_arg) {
                         return;
                     }
                 }

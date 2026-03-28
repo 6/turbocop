@@ -46,3 +46,29 @@ xxxxxxxxxxz :thing
 x :y
 short       :sym
      ^^^^^^^ Layout/SpaceBeforeFirstArg: Put one space between the method name and the first argument.
+
+# A shared prefix like `@`, `Token`, or `&` does not count as alignment.
+assert !@loader.load(generate_input(yaml, :environment => 'dev'))[:phoenix_mode]
+assert  @loader.load(generate_input(yaml, :environment => 'production'))[:phoenix_mode]
+      ^^ Layout/SpaceBeforeFirstArg: Put one space between the method name and the first argument.
+
+assert !@gateway.authorize(1000, check(account_number: CHECK_FAILURE_PLACEHOLDER, number: nil)).success?
+assert  @gateway.authorize(1000, check(account_number: CHECK_SUCCESS_PLACEHOLDER, number: nil)).success?
+      ^^ Layout/SpaceBeforeFirstArg: Put one space between the method name and the first argument.
+
+assert_equal 64, @app.run(['foo']), "Expected exit status to be 64"
+assert  @fake_stderr.contained?(/requires these options.*flag/), @fake_stderr.strings.inspect
+      ^^ Layout/SpaceBeforeFirstArg: Put one space between the method name and the first argument.
+assert !@called
+
+assert !Token.exists?(t1.id)
+assert  Token.exists?(t2.id)
+      ^^ Layout/SpaceBeforeFirstArg: Put one space between the method name and the first argument.
+
+expect(@fixture.set_block  &a).to eq(a)
+                         ^^ Layout/SpaceBeforeFirstArg: Put one space between the method name and the first argument.
+expect(@fixture.call_block  &b).to eq(@a)
+                          ^^ Layout/SpaceBeforeFirstArg: Put one space between the method name and the first argument.
+
+b.environment  new_resource.environment
+             ^^ Layout/SpaceBeforeFirstArg: Put one space between the method name and the first argument.
