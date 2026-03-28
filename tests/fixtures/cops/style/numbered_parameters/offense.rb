@@ -12,3 +12,13 @@ data.select do
 ^^^^^^^^^^^^^^ Style/NumberedParameters: Avoid using numbered parameters for multi-line blocks.
   _1 > 0
 end
+
+-> do
+^ Style/NumberedParameters: Avoid using numbered parameters for multi-line blocks.
+  _1.to_s
+end
+
+-> {
+^ Style/NumberedParameters: Avoid using numbered parameters for multi-line blocks.
+  _1 + _2
+}

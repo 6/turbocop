@@ -1,8 +1,11 @@
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, NUMBERED_PARAMETERS_NODE};
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, LAMBDA_NODE, NUMBERED_PARAMETERS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Also handles `LambdaNode` (`-> do ... end` / `-> { ... }`) with numbered
+/// parameters, not just method-call blocks. RuboCop's `on_numblock` fires for
+/// both block types.
 pub struct NumberedParameters;
 
 impl Cop for NumberedParameters {
@@ -11,7 +14,7 @@ impl Cop for NumberedParameters {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, NUMBERED_PARAMETERS_NODE]
+        &[BLOCK_NODE, CALL_NODE, LAMBDA_NODE, NUMBERED_PARAMETERS_NODE]
     }
 
     fn check_node(
@@ -25,7 +28,41 @@ impl Cop for NumberedParameters {
     ) {
         let style = config.get_str("EnforcedStyle", "allow_single_line");
 
-        // Check for blocks that use numbered parameters
+        // Handle LambdaNode (-> do...end / -> {...}) with numbered parameters.
+        if let Some(lambda) = node.as_lambda_node() {
+            let params = match lambda.parameters() {
+                Some(p) => p,
+                None => return,
+            };
+            if params.as_numbered_parameters_node().is_none() {
+                return;
+            }
+
+            let loc = lambda.location();
+            let (start_line, column) = source.offset_to_line_col(loc.start_offset());
+
+            if style == "disallow" {
+                diagnostics.push(self.diagnostic(
+                    source,
+                    start_line,
+                    column,
+                    "Avoid using numbered parameters.".to_string(),
+                ));
+            } else if style == "allow_single_line" {
+                let (end_line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+                if start_line != end_line {
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        start_line,
+                        column,
+                        "Avoid using numbered parameters for multi-line blocks.".to_string(),
+                    ));
+                }
+            }
+            return;
+        }
+
+        // Check for method-call blocks that use numbered parameters.
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
