@@ -32,6 +32,17 @@ use crate::parse::source::SourceFile;
 ///   Unwrap single-expression parentheses before checking whether the receiver
 ///   is already string/symbol/array/hash-like, so `(...).to_s` is treated the
 ///   same as the underlying expression.
+///
+/// ## Corpus investigation (2026-03-28)
+///
+/// Corpus oracle reported FP=0, FN=1 at `clio__ten_years_rails__a8389a2:
+/// exe/deprecations:43` for `#{__FILE__.to_s}` inside a heredoc banner.
+///
+/// FN fix:
+/// - Prism represents `__FILE__` as `SourceFileNode`, not `StringNode`.
+///   RuboCop still treats `__FILE__.to_s` as redundant because `__FILE__`
+///   always yields a String. Treat `SourceFileNode` as string-like for
+///   `to_s` redundancy checks.
 pub struct RedundantTypeConversion;
 
 fn unwrap_parentheses<'a>(mut node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
@@ -119,6 +130,7 @@ impl Cop for RedundantTypeConversion {
             b"to_s" => {
                 receiver.as_string_node().is_some()
                     || receiver.as_interpolated_string_node().is_some()
+                    || receiver.as_source_file_node().is_some()
                     || is_constructor(&receiver, b"String", b"new")
                     || is_chained_method(&receiver, b"to_s")
                     || is_chained_method(&receiver, b"inspect")
