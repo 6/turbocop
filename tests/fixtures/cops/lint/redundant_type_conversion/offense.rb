@@ -10,3 +10,9 @@ foo.to_json(arg).to_s
                  ^^^^ Lint/RedundantTypeConversion: Redundant `to_s` detected.
 ("#{left}:#{right}").to_s
                      ^^^^ Lint/RedundantTypeConversion: Redundant `to_s` detected.
+option_parser = OptionParser.new do |opts|
+  opts.banner = <<-MESSAGE
+    Usage: #{__FILE__.to_s} [options] [mode]
+                      ^^^^ Lint/RedundantTypeConversion: Redundant `to_s` detected.
+  MESSAGE
+end
