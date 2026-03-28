@@ -402,3 +402,98 @@ def write_database(connection, table_name, if_table_exists)
   end
 end
 
+# FN fix: condition-assigned local, block in multi-statement then-body
+def switch_items(all_buildable_items, pod_names_to_switch, pod_name)
+  if pod = (all_buildable_items.detect { |t| t.name == pod_name } || all_buildable_items.detect { |t| t.root_name == pod_name })
+    dependencies = []
+    all_buildable_items.each do |pod|
+                                 ^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `pod`.
+      if !(pod.dependency_names & pod_names_to_switch).empty?
+        dependencies.push(pod.root_name)
+      end
+    end
+    pod_names_to_switch += dependencies
+  end
+end
+
+# FN fix: variable in elsif body, block nested in multi-statement else block
+def serialize_dao(file_versions_to_display, digital_object, xml, content, fragments)
+  if file_versions_to_display.empty?
+    xml.dao({})
+  elsif file_versions_to_display.length == 1
+    file_version = file_versions_to_display.first
+    xml.dao(file_version) {}
+  else
+    xml.daogrp({}) {
+      xml.daodesc { sanitize_mixed_content(content, xml, fragments, true) } if content
+      file_versions_to_display.each do |file_version|
+                                        ^^^^^^^^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `file_version`.
+        xml.daoloc(file_version)
+      end
+    }
+  end
+end
+
+# FN fix: condition-assigned local, block in multi-statement body
+def build_non_att(non_att_children)
+  if (nac = non_att_children).any?
+    handle(nac)
+    non_att_children.each { |nac| duplicate(nac) }
+                             ^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `nac`.
+  end
+end
+
+# FN fix: condition-assigned local, block nested in expression
+def decorate_output(stdout)
+  ret = +""
+  if @output_stdout && (s = stdout.read) != ""
+    ret << s.inject("") { |s, line| s + "# >> #{line}".chomp + "\n" }
+                           ^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `s`.
+  end
+  ret
+end
+
+# FN fix: outer var from if-branch, block nested in multi-statement Proc body
+def build_hook(block)
+  if block
+    hook_name = :before
+    options = {}
+    hook = { block: block, options: options, name: hook_name }
+    use(hook)
+  else
+    Proc.new {
+      filtered_hooks = hooks.reject { |hook| hook[:options] }
+                                       ^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `hook`.
+      filtered_hooks
+    }
+  end
+end
+
+# FN fix: outer var from multi-statement if-branch, inner block in multi-statement else block body
+def get_login_info(accounts, uri)
+  username, password = nil, nil
+  unless accounts.empty? || force_new
+    if force_account
+      host, username, password = accounts.find { |h, u, p| force_account == "#{u}@#{h}" }
+      unless username && password
+        say "No previous account"
+      end
+    else
+      choose do |menu|
+        accounts.each do |host, olduser, oldpw|
+                          ^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `host`.
+          menu.choice("Use the account info for #{olduser}@#{host}") { username, password = olduser, oldpw }
+        end
+        menu.choice("Use a new account") { }
+        menu.prompt = "Account selection? "
+      end
+    end
+  end
+end
+
+# FN fix: operator write exposes local before RHS block runs
+def total_sum_at_index(index)
+  total ||= (0..@number_of_plots - 1).inject(0) { |total, i| total + data[i][index] }
+                                                   ^^^^^ Lint/ShadowingOuterLocalVariable: Shadowing outer local variable - `total`.
+  total
+end
