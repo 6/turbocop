@@ -85,8 +85,12 @@ alias :"foo" :"bar"
 %s(CourierNew)
 %s(CourierNew,Italic)
 %s[bar]
+# %I arrays are ignored even when an element's source text contains quotes
+%I(foo "bar" baz)
 # Multi-line symbols — RuboCop does not flag these
 :"a\\
 b"
 # Symbols with \v escape — quoting IS necessary
 :" \t\n\r\v "
+# Already-canonical quoted hash key with embedded quotes remains no offense
+{ "string \"€\"": 1 }
