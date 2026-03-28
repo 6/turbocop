@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[3]
 AGENT_COP_FIX = ROOT / ".github" / "workflows" / "agent-cop-fix.yml"
+RUN_AGENT_ACTION = ROOT / ".github" / "actions" / "run-agent" / "action.yml"
 COP_FIX_LIFECYCLE = ROOT / "scripts" / "workflows" / "cop_fix_lifecycle.py"
 AGENT_PR_REPAIR = ROOT / ".github" / "workflows" / "agent-pr-repair.yml"
 COP_ISSUE_SYNC = ROOT / ".github" / "workflows" / "cop-issue-sync.yml"
@@ -23,6 +24,9 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "cop_fix_lifecycle.py select-backend" in yml
     assert "cop_fix_lifecycle.py claim-pr" in yml
     assert "cop_fix_lifecycle.py finalize" in yml
+    assert "steps.selected_backend.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || ''" in yml
+    assert "startsWith(steps.selected_backend.outputs.backend, 'codex-') && secrets.CODEX_AUTH_JSON || ''" in yml
+    assert "startsWith(steps.selected_backend.outputs.backend, 'claude-oauth-') && secrets.CLAUDE_CODE_OAUTH_TOKEN || ''" in yml
 
     # Logic now lives in cop_fix_lifecycle.py
     assert "dispatch_cops.py" in py
@@ -63,6 +67,9 @@ def test_agent_pr_repair_reads_linked_issue_and_can_update_it():
     assert 'steps.verify_meta.outputs.needs_local_cop_check == \'true\'' in content
     assert "validate_agent_changes.py" in content
     assert "guard_profile" in content
+    assert "steps.repair.outputs.backend == 'minimax' && secrets.MINIMAX_API_KEY || ''" in content
+    assert "startsWith(steps.repair.outputs.backend, 'codex-') && secrets.CODEX_AUTH_JSON || ''" in content
+    assert "startsWith(steps.repair.outputs.backend, 'claude-oauth-') && secrets.CLAUDE_CODE_OAUTH_TOKEN || ''" in content
     assert 'python3 scripts/workflows/precompute_repair_cop_check.py' in content
     assert 'python3 scripts/workflows/count_tokens.py "$FINAL_TASK_FILE"' in content
     assert "prepare_agent_workspace.py" not in content
@@ -76,6 +83,28 @@ def test_agent_pr_repair_checks_out_repo_before_running_local_scripts():
     checkout_index = content.index("uses: actions/checkout@v6")
     pr_state_index = content.index("python3 scripts/workflows/repair_retry_policy.py pr-state")
     assert checkout_index < pr_state_index
+
+
+def test_agent_pr_repair_mints_privileged_tokens_only_after_gate():
+    content = AGENT_PR_REPAIR.read_text()
+    pr_state_index = content.index("python3 scripts/workflows/repair_retry_policy.py pr-state")
+    app_token_index = content.index("- name: Generate app token")
+    read_token_index = content.index("- name: Generate read-only GitHub token")
+    assert pr_state_index < app_token_index
+    assert pr_state_index < read_token_index
+    assert "--require-trusted-bot" in content
+    assert 'GH_TOKEN: ${{ github.token }}' in content
+
+
+def test_run_agent_only_exports_selected_backend_secret():
+    content = RUN_AGENT_ACTION.read_text()
+    assert "Missing required secret $REQUIRED_SECRET_ENV for backend $BACKEND" in content
+    assert "required_secret_env=" in content
+    assert "inputs.backend == 'minimax' && inputs.anthropic_auth_token || ''" in content
+    assert "(inputs.backend == 'claude-normal' || inputs.backend == 'claude-hard') && inputs.anthropic_api_key || ''" in content
+    assert "startsWith(inputs.backend, 'codex-') && inputs.codex_auth_json || ''" in content
+    assert "startsWith(inputs.backend, 'claude-oauth-') && inputs.claude_code_oauth_token || ''" in content
+    assert "Every secret under every name a backend might need" not in content
 
 
 def test_agent_pr_repair_distinguishes_agent_failure_from_verify_failure():
@@ -113,6 +142,8 @@ if __name__ == "__main__":
     test_agent_cop_fix_supports_issue_linking_and_auto_backend()
     test_agent_pr_repair_reads_linked_issue_and_can_update_it()
     test_agent_pr_repair_checks_out_repo_before_running_local_scripts()
+    test_agent_pr_repair_mints_privileged_tokens_only_after_gate()
+    test_run_agent_only_exports_selected_backend_secret()
     test_agent_pr_repair_distinguishes_agent_failure_from_verify_failure()
     test_issue_sync_workflow_uses_app_token_and_dispatch_script()
     test_corpus_oracle_workflow_uses_dynamic_pr_renderer()

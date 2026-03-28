@@ -69,26 +69,80 @@ def test_gate_pr_accepts_trusted_bot_pr():
         "isCrossRepository": False,
         "headRepository": {"nameWithOwner": "6/nitrocop"},
         "author": {"login": "6[bot]"},
+        "headRefName": "fix/style-negated-while-123",
         "labels": [{"name": "type:cop-fix"}],
         "headRefOid": "abc",
     }
-    should_run, reason = repair_retry_policy.gate_pr(pr, "6/nitrocop", "abc")
+    should_run, reason = repair_retry_policy.gate_pr(
+        pr,
+        "6/nitrocop",
+        "abc",
+        require_trusted_bot=True,
+    )
     assert should_run is True
     assert reason == ""
 
 
-def test_gate_pr_accepts_human_author_with_label():
+def test_gate_pr_accepts_manual_dispatch_for_same_repo_human_pr():
     pr = {
         "state": "OPEN",
         "baseRefName": "main",
         "isCrossRepository": False,
         "headRepository": {"nameWithOwner": "6/nitrocop"},
         "author": {"login": "6"},
+        "headRefName": "feature/manual-rerun",
         "labels": [{"name": "type:cop-fix"}],
         "headRefOid": "abc",
     }
-    should_run, reason = repair_retry_policy.gate_pr(pr, "6/nitrocop", "abc")
+    should_run, reason = repair_retry_policy.gate_pr(
+        pr,
+        "6/nitrocop",
+        "abc",
+        require_trusted_bot=False,
+    )
     assert should_run is True
+
+
+def test_gate_pr_rejects_human_author_for_automatic_repair():
+    pr = {
+        "state": "OPEN",
+        "baseRefName": "main",
+        "isCrossRepository": False,
+        "headRepository": {"nameWithOwner": "6/nitrocop"},
+        "author": {"login": "6"},
+        "headRefName": "fix/style-negated-while-123",
+        "labels": [{"name": "type:cop-fix"}],
+        "headRefOid": "abc",
+    }
+    should_run, reason = repair_retry_policy.gate_pr(
+        pr,
+        "6/nitrocop",
+        "abc",
+        require_trusted_bot=True,
+    )
+    assert should_run is False
+    assert reason == "PR author 6 is not trusted for automatic repair"
+
+
+def test_gate_pr_rejects_non_fix_branch_for_automatic_repair():
+    pr = {
+        "state": "OPEN",
+        "baseRefName": "main",
+        "isCrossRepository": False,
+        "headRepository": {"nameWithOwner": "6/nitrocop"},
+        "author": {"login": "6[bot]"},
+        "headRefName": "chore/release-notes",
+        "labels": [{"name": "type:cop-fix"}],
+        "headRefOid": "abc",
+    }
+    should_run, reason = repair_retry_policy.gate_pr(
+        pr,
+        "6/nitrocop",
+        "abc",
+        require_trusted_bot=True,
+    )
+    assert should_run is False
+    assert reason == "PR branch chore/release-notes is not a trusted fix/* branch"
 
 
 def test_gate_pr_rejects_closed_pr():
@@ -98,10 +152,16 @@ def test_gate_pr_rejects_closed_pr():
         "isCrossRepository": False,
         "headRepository": {"nameWithOwner": "6/nitrocop"},
         "author": {"login": "6[bot]"},
+        "headRefName": "fix/style-negated-while-123",
         "labels": [{"name": "type:cop-fix"}],
         "headRefOid": "abc",
     }
-    should_run, reason = repair_retry_policy.gate_pr(pr, "6/nitrocop", "abc")
+    should_run, reason = repair_retry_policy.gate_pr(
+        pr,
+        "6/nitrocop",
+        "abc",
+        require_trusted_bot=True,
+    )
     assert should_run is False
     assert reason == "PR is not open"
 
@@ -113,10 +173,16 @@ def test_gate_pr_rejects_head_moved_after_failed_checks():
         "isCrossRepository": False,
         "headRepository": {"nameWithOwner": "6/nitrocop"},
         "author": {"login": "6[bot]"},
+        "headRefName": "fix/style-negated-while-123",
         "labels": [{"name": "type:cop-fix"}],
         "headRefOid": "def",
     }
-    should_run, reason = repair_retry_policy.gate_pr(pr, "6/nitrocop", "abc")
+    should_run, reason = repair_retry_policy.gate_pr(
+        pr,
+        "6/nitrocop",
+        "abc",
+        require_trusted_bot=True,
+    )
     assert should_run is False
     assert reason == "PR head moved after the failed Checks run"
 

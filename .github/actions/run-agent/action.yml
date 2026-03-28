@@ -62,10 +62,12 @@ runs:
         python3 scripts/workflows/resolve_backend.py "$BACKEND" \
           > "$RUNNER_TEMP/backend.env"
         cfg() { sed -n "s/^$1=//p" "$RUNNER_TEMP/backend.env"; }
+        REQUIRED_SECRET_ENV=$(sed -n 's/^secret_[^=]*=//p' "$RUNNER_TEMP/backend.env" | head -n1)
 
         echo "action=$(cfg action)" >> "$GITHUB_OUTPUT"
         echo "model=$(cfg model)" >> "$GITHUB_OUTPUT"
         echo "reasoning_effort=$(cfg reasoning_effort)" >> "$GITHUB_OUTPUT"
+        echo "required_secret_env=$REQUIRED_SECRET_ENV" >> "$GITHUB_OUTPUT"
 
         # Action backends need prompt as a step output since `uses:` steps
         # can't read files directly.
@@ -79,6 +81,43 @@ runs:
 
     # --- CLI backend path ---
 
+    - name: Validate backend secret availability
+      shell: bash
+      env:
+        BACKEND: ${{ inputs.backend }}
+        REQUIRED_SECRET_ENV: ${{ steps.resolve.outputs.required_secret_env }}
+        ANTHROPIC_AUTH_TOKEN: ${{ inputs.backend == 'minimax' && inputs.anthropic_auth_token || '' }}
+        ANTHROPIC_API_KEY: ${{ (inputs.backend == 'claude-normal' || inputs.backend == 'claude-hard') && inputs.anthropic_api_key || '' }}
+        CODEX_AUTH_JSON: ${{ startsWith(inputs.backend, 'codex-') && inputs.codex_auth_json || '' }}
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ startsWith(inputs.backend, 'claude-oauth-') && inputs.claude_code_oauth_token || '' }}
+      run: |
+        case "$REQUIRED_SECRET_ENV" in
+          "")
+            exit 0
+            ;;
+          ANTHROPIC_AUTH_TOKEN)
+            REQUIRED_VALUE="$ANTHROPIC_AUTH_TOKEN"
+            ;;
+          ANTHROPIC_API_KEY)
+            REQUIRED_VALUE="$ANTHROPIC_API_KEY"
+            ;;
+          CODEX_AUTH_JSON)
+            REQUIRED_VALUE="$CODEX_AUTH_JSON"
+            ;;
+          CLAUDE_CODE_OAUTH_TOKEN)
+            REQUIRED_VALUE="$CLAUDE_CODE_OAUTH_TOKEN"
+            ;;
+          *)
+            echo "::error::Unknown required secret env $REQUIRED_SECRET_ENV for backend $BACKEND"
+            exit 1
+            ;;
+        esac
+
+        if [ -z "$REQUIRED_VALUE" ]; then
+          echo "::error::Missing required secret $REQUIRED_SECRET_ENV for backend $BACKEND"
+          exit 1
+        fi
+
     - name: Setup, mask, and run agent (CLI)
       if: steps.resolve.outputs.action != 'true'
       shell: bash
@@ -87,12 +126,10 @@ runs:
         GH_TOKEN: ${{ inputs.actions_read_token }}
         GH_TOKEN_FOR_ACTIONS_READ: ${{ inputs.actions_read_token }}
         CARGO_INCREMENTAL: '1'
-        # Every secret under every name a backend might need.
-        # Unused ones are empty strings — the backend ignores them.
-        ANTHROPIC_AUTH_TOKEN: ${{ inputs.anthropic_auth_token }}
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
-        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        ANTHROPIC_AUTH_TOKEN: ${{ inputs.backend == 'minimax' && inputs.anthropic_auth_token || '' }}
+        ANTHROPIC_API_KEY: ${{ (inputs.backend == 'claude-normal' || inputs.backend == 'claude-hard') && inputs.anthropic_api_key || '' }}
+        CODEX_AUTH_JSON: ${{ startsWith(inputs.backend, 'codex-') && inputs.codex_auth_json || '' }}
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ startsWith(inputs.backend, 'claude-oauth-') && inputs.claude_code_oauth_token || '' }}
       run: |
         # Resolve backend config
         python3 scripts/workflows/resolve_backend.py "$BACKEND" \
@@ -138,7 +175,7 @@ runs:
       id: action_agent
       uses: anthropics/claude-code-action@v1
       with:
-        claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
+        claude_code_oauth_token: ${{ startsWith(inputs.backend, 'claude-oauth-') && inputs.claude_code_oauth_token || '' }}
         prompt: ${{ steps.resolve.outputs.prompt_content }}
         claude_args: "--dangerously-skip-permissions --model ${{ steps.resolve.outputs.model }} --effort ${{ steps.resolve.outputs.reasoning_effort }}"
         github_token: ${{ inputs.actions_read_token }}
@@ -173,10 +210,10 @@ runs:
         WORKFLOW: ${{ inputs.workflow }}
         BACKEND: ${{ inputs.backend }}
         # Secrets needed for leak scanning
-        ANTHROPIC_AUTH_TOKEN: ${{ inputs.anthropic_auth_token }}
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
-        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        ANTHROPIC_AUTH_TOKEN: ${{ inputs.backend == 'minimax' && inputs.anthropic_auth_token || '' }}
+        ANTHROPIC_API_KEY: ${{ (inputs.backend == 'claude-normal' || inputs.backend == 'claude-hard') && inputs.anthropic_api_key || '' }}
+        CODEX_AUTH_JSON: ${{ startsWith(inputs.backend, 'codex-') && inputs.codex_auth_json || '' }}
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ startsWith(inputs.backend, 'claude-oauth-') && inputs.claude_code_oauth_token || '' }}
         GH_TOKEN_FOR_ACTIONS_READ: ${{ inputs.actions_read_token }}
       run: |
         # Resolve backend config (re-read; step env is isolated)
