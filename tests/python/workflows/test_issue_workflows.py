@@ -45,6 +45,8 @@ def test_agent_cop_fix_supports_issue_linking_and_auto_backend():
     assert "cop_fix_publish.py cleanup-request" in yml
     assert "Publish skip remotely" in yml
     assert "Publish finalize remotely" in yml
+    assert "Generate read-only GitHub token" not in yml
+    assert "GH_TOKEN: ${{ github.token }}" in yml
     assert 'gh pr list \\' in yml
     assert "--head \"${{ steps.init.outputs.branch }}\"" in yml
 

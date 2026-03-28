@@ -92,17 +92,6 @@ jobs:
             --run-id "${{ github.run_id }}" \
             >> "$GITHUB_OUTPUT"
 
-      - name: Generate read-only GitHub token
-        id: actions-read-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          permission-actions: read
-          permission-contents: read
-          permission-metadata: read
-          permission-pull-requests: read
-
       - name: Generate bot control token
         id: bot-control-token
         uses: actions/create-github-app-token@v3
@@ -123,7 +112,7 @@ jobs:
 
       - name: Generate task prompt
         env:
-          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/dispatch_cops.py task \
             "${{ github.event.inputs.cop }}" \
@@ -147,7 +136,7 @@ jobs:
         if: steps.task.outputs.code_bugs != '0'
         id: selected_backend
         env:
-          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/workflows/cop_fix_lifecycle.py select-backend \
             --cop "${{ github.event.inputs.cop }}" \
@@ -224,7 +213,7 @@ jobs:
         if: steps.task.outputs.code_bugs != '0'
         id: claim
         env:
-          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           PR_JSON=$(gh pr list \
             --repo "${{ github.repository }}" \
@@ -243,7 +232,7 @@ jobs:
       - name: Build prompt
         if: steps.task.outputs.code_bugs != '0'
         env:
-          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/workflows/cop_fix_lifecycle.py build-prompt \
             --cop "${{ github.event.inputs.cop }}" \
@@ -255,7 +244,7 @@ jobs:
       - name: Wait for healthy main
         if: steps.task.outputs.code_bugs != '0'
         env:
-          GH_TOKEN: ${{ steps.actions-read-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/workflows/wait_healthy_main.py --repo "${{ github.repository }}"
 
       # --- Prepare agent ---
