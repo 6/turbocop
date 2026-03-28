@@ -29,6 +29,19 @@ use crate::parse::source::SourceFile;
 /// These are corpus oracle artifacts — RuboCop should not flag these, and nitrocop
 /// correctly does not. No code change needed.
 ///
+/// ## FN fix (2026-03-28): recurse into assignment values
+///
+/// Corpus oracle reported FP=0, FN=7 (3 oracle artifacts from above + 1 config
+/// issue + 3 real code bugs). The 3 code bugs were all the same root cause:
+/// `traverse_condition` reported an assignment and returned immediately, without
+/// recursing into the assignment's value. This missed nested assignments like:
+/// - `if x = foo && y = bar` (parsed as `x = (foo && (y = bar))`)
+/// - `if klass = begin; inner = ...; end`
+/// - `if a && b = c && d = e` (triple chain)
+///
+/// Fix: after reporting an equals or call assignment, recurse into the value node.
+/// This mirrors RuboCop's `traverse_node` which unconditionally walks all children.
+///
 /// ## Fix:
 /// Rewrote to use recursive condition traversal matching RuboCop's `traverse_node`:
 /// - Recursively walks condition tree finding assignments at any depth
@@ -168,6 +181,11 @@ fn traverse_condition(
     if let Some(op_loc) = get_equals_assignment_operator_loc(node) {
         let (line, column) = source.offset_to_line_col(op_loc);
         diagnostics.push(cop.diagnostic(source, line, column, msg.to_string()));
+        // Continue recursing into the value — it may contain nested assignments
+        // e.g., `x = foo && y = bar` parses as `x = (foo && (y = bar))`
+        if let Some(value) = get_assignment_value(node) {
+            traverse_condition(source, &value, allow_safe, msg, cop, diagnostics);
+        }
         return;
     }
 
@@ -178,6 +196,12 @@ fn traverse_condition(
             if let Some(eq_offset) = find_call_assignment_equals(source, &call) {
                 let (line, column) = source.offset_to_line_col(eq_offset);
                 diagnostics.push(cop.diagnostic(source, line, column, msg.to_string()));
+            }
+            // Continue recursing into arguments (the assigned value)
+            if let Some(args) = call.arguments() {
+                for arg in args.arguments().iter() {
+                    traverse_condition(source, &arg, allow_safe, msg, cop, diagnostics);
+                }
             }
             return;
         }
@@ -228,6 +252,33 @@ fn get_equals_assignment_operator_loc(node: &ruby_prism::Node<'_>) -> Option<usi
     }
     if let Some(n) = node.as_multi_write_node() {
         return Some(n.operator_loc().start_offset());
+    }
+    None
+}
+
+/// Get the value (right-hand side) of an equals assignment node.
+/// Used to recurse into the value after reporting the assignment offense.
+fn get_assignment_value<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
+    if let Some(n) = node.as_local_variable_write_node() {
+        return Some(n.value());
+    }
+    if let Some(n) = node.as_instance_variable_write_node() {
+        return Some(n.value());
+    }
+    if let Some(n) = node.as_class_variable_write_node() {
+        return Some(n.value());
+    }
+    if let Some(n) = node.as_global_variable_write_node() {
+        return Some(n.value());
+    }
+    if let Some(n) = node.as_constant_write_node() {
+        return Some(n.value());
+    }
+    if let Some(n) = node.as_constant_path_write_node() {
+        return Some(n.value());
+    }
+    if let Some(n) = node.as_multi_write_node() {
+        return Some(n.value());
     }
     None
 }

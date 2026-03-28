@@ -137,3 +137,27 @@ return nil unless valid? || begin
       ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
   uri.present?
 end
+
+# Nested assignment: value of outer assignment contains another assignment via &&
+if a = foo &&
+     ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+    b = bar
+      ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+end
+
+# Nested assignment inside begin block that is assignment value in condition
+if klass = begin
+         ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+    result_id = lookup
+              ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+    result_id.present?
+  rescue
+  end
+end
+
+# Triple-chain: call && assignment whose value is && assignment
+if check && student = find_user &&
+                    ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+    offering = find_offering
+             ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+end
