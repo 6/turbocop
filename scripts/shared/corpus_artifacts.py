@@ -98,15 +98,18 @@ def _try_gh(repo: str | None) -> tuple[Path, int, str] | None:
     "corpus-report" artifact.
     """
     if not shutil.which("gh"):
+        print("corpus-dl: gh CLI not found", file=sys.stderr)
         return None
+
+    has_gh_token = bool(os.environ.get("GH_TOKEN"))
 
     # Check if gh has auth available (stored credentials or GH_TOKEN env var)
     auth_check = subprocess.run(
         ["gh", "auth", "status"],
         capture_output=True, text=True,
     )
-    if auth_check.returncode != 0 and not os.environ.get("GH_TOKEN"):
-        print("gh CLI found but not authenticated, trying other methods...", file=sys.stderr)
+    if auth_check.returncode != 0 and not has_gh_token:
+        print("corpus-dl: gh not authenticated and no GH_TOKEN", file=sys.stderr)
         return None
 
     # Build the command with optional repo flag
@@ -119,10 +122,12 @@ def _try_gh(repo: str | None) -> tuple[Path, int, str] | None:
         capture_output=True, text=True,
     )
     if result.returncode != 0:
+        print(f"corpus-dl: gh run list failed: {result.stderr.strip()}", file=sys.stderr)
         return None
 
     runs = json.loads(result.stdout)
     if not runs:
+        print("corpus-dl: no successful corpus-oracle runs found", file=sys.stderr)
         return None
 
     for run in runs:
@@ -143,6 +148,11 @@ def _try_gh(repo: str | None) -> tuple[Path, int, str] | None:
             capture_output=True, text=True,
         )
         if dl_result.returncode != 0:
+            print(
+                f"corpus-dl: gh run download {run_id} failed: "
+                f"{dl_result.stderr.strip()}",
+                file=sys.stderr,
+            )
             shutil.rmtree(tmpdir, ignore_errors=True)
             continue
 
