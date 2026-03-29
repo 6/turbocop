@@ -56,3 +56,18 @@ HTML
 			^^^^^^^^^^^^ Layout/FirstArgumentIndentation: Indent the first argument one step more than the start of the previous line.
 			"svg" => "SVG"
 		)
+
+# Dotted operator call inside a block — should still be checked
+foo.where { Sequel.|(
+             { :level_enum__value => SERIES_LEVELS },
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/FirstArgumentIndentation: Indent the first argument one step more than the start of the previous line.
+             Sequel.&({ :level_enum__value => "otherlevel" },
+                      { Sequel.function(:lower, :other_level) => OTHERLEVEL_SERIES_LEVELS })
+) }
+
+# Dotted operator call as an inner argument — message should use the base range
+foo.filter(Sequel.|(
+      Sequel.~(:agent_person_id => nil),
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/FirstArgumentIndentation: Indent the first argument one step more than `Sequel.|(`.
+      Sequel.~(:agent_family_id => nil)
+))
