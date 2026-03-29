@@ -40,6 +40,17 @@ prototype_path = "sig/prototype"
 generated_path = "sig/generated"
 paths.reject { |path| path == prototype_path || path == generated_path }
 
+# Later repeated subchains after a different variable are not flagged.
+a = 1
+b = 2
+a == 1 || b == 2 || b == 3
+
+# A non-comparison prefix prevents flagging later repeated comparisons.
+a = 1
+if 1 == 1 || 1 == 2 || a == 3 || a == 4
+  nil
+end
+
 # Only one literal comparison value (below threshold)
 actual_height = 100
 expected_height = 200
