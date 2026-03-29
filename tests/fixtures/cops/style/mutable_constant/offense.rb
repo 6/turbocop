@@ -48,3 +48,35 @@ CONST13 = `uname`
 
 CONST14 = `echo hello`
           ^^^^^^^^^^^^ Style/MutableConstant: Freeze mutable objects assigned to constants.
+
+BLOCKED_KEYWORDS =
+  'data|at will|equal|status|eligibility|analysis|300 log|delayed' \
+  ^ Style/MutableConstant: Freeze mutable objects assigned to constants.
+  '|(histor)(y|ies)' \
+  "|#{Date.current.year.to_s}" \
+  "|#{BLOCKED_PHRASES}" \
+  "|(#{SIMPLE_SINGULARS.join('|')})s?"
+
+ENTERPRISE_VERIFICATION_URL =
+  "https://recaptchaenterprise.googleapis.com/v1/projects/#{GOOGLE_CLOUD_PROJECT_ID}/" \
+  ^ Style/MutableConstant: Freeze mutable objects assigned to constants.
+  "assessments?key=#{GlobalConfig.get("ENTERPRISE_RECAPTCHA_API_KEY")}"
+
+INVALID_ACCESS_KEY_ID_FORMAT =
+  "invalid 'access_key_id' parameter format. The access key ID must be a " \
+  ^ Style/MutableConstant: Freeze mutable objects assigned to constants.
+  "valid AWS access key ID. The valid format is: " \
+  "#{ACCESS_KEY_ID_FIELD_VALID_FORMAT}"
+
+INVALID_SECRET_ACCESS_KEY_FORMAT =
+  "invalid 'secret_access_key' parameter format. The secret access key " \
+  ^ Style/MutableConstant: Freeze mutable objects assigned to constants.
+  "must be a valid AWS secret access key. The valid format is: " \
+  "#{SECRET_ACCESS_KEY_FIELD_VALID_FORMAT}"
+
+ETCD_URL = "https://github.com/coreos/etcd/releases/download/" \
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MutableConstant: Freeze mutable objects assigned to constants.
+           "#{ETCD_VERSION}/etcd-#{ETCD_VERSION}-linux-amd64.tar.gz"
+
+FILE_PATH = __FILE__
+            ^^^^^^^^ Style/MutableConstant: Freeze mutable objects assigned to constants.

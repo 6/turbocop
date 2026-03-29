@@ -8,21 +8,18 @@ use crate::parse::source::SourceFile;
 
 /// Style/MutableConstant: freeze mutable objects assigned to constants.
 ///
-/// ## Root cause analysis (extended corpus FP=336, FN=119, 98.7% match)
+/// ## 2026-03-29 investigation
 ///
-/// **FN root causes (resolved):**
-/// - Missing `CONST ||= value` handling (`ConstantOrWriteNode` / `ConstantPathOrWriteNode`)
-/// - `frozen_string_literal: true` incorrectly suppressed interpolated strings;
-///   Ruby 3.0+ only freezes non-interpolated string literals with the magic comment
-/// - `EnforcedStyle: strict` not implemented — strict mode flags all non-frozen
-///   non-immutable RHS values (including method calls like `Something.new`)
-/// - Missing `shareable_constant_value` magic comment handling (caused FPs)
-/// - Missing XStringNode (backtick literal) and InterpolatedXStringNode handling;
-///   these are mutable literals per RuboCop's MUTABLE_LITERALS = %i[str dstr xstr ...]
-///
-/// **FP root causes (resolved):**
-/// - `shareable_constant_value: literal` / `experimental_everything` / `experimental_copy`
-///   magic comments suppress offenses in Ruby 3.0+, but were not implemented
+/// - FP: plain string constants were still flagged when the file used a long
+///   leading comment block before `# frozen_string_literal: true`, or the
+///   hyphenated `# frozen-string-literal: true` spelling that RuboCop accepts.
+/// - FN: continued strings like `"foo #{bar}" \ "baz"` were treated as plain
+///   strings under `frozen_string_literal: true` because Prism wraps them in an
+///   outer `InterpolatedStringNode` whose nested parts must be inspected
+///   recursively to find interpolation.
+/// - Fix: scan the full leading comment block for both frozen-string-literal
+///   spellings, and recurse through nested interpolated-string parts before
+///   treating a continued string as already frozen.
 pub struct MutableConstant;
 
 impl MutableConstant {
@@ -35,6 +32,7 @@ impl MutableConstant {
             || node.as_hash_node().is_some()
             || node.as_keyword_hash_node().is_some()
             || node.as_string_node().is_some()
+            || node.as_source_file_node().is_some()
             || Self::is_interpolated_string(source, node)
             // XStringNode = backtick literal (`command`), always mutable
             || node.as_x_string_node().is_some()
@@ -44,7 +42,7 @@ impl MutableConstant {
 
     /// Check if node is a non-interpolated string literal (StringNode only, no heredocs
     /// with interpolation). `frozen_string_literal: true` only freezes these.
-    fn is_plain_string(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
+    fn is_plain_string(_source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
         if let Some(s) = node.as_string_node() {
             // Heredocs are mutable even with frozen_string_literal: true in Ruby 3.0+
             // ... actually no: plain (non-interpolated) heredocs ARE frozen with the magic comment.
@@ -61,20 +59,26 @@ impl MutableConstant {
         // Multiline string concatenation with `\` produces InterpolatedStringNode.
         // We need to check if it actually has interpolation.
         if let Some(isn) = node.as_interpolated_string_node() {
-            // Check if it has no embedded expressions — just string parts
-            let has_interpolation = isn.parts().iter().any(|part| {
-                part.as_embedded_statements_node().is_some()
-                    || part.as_embedded_variable_node().is_some()
-            });
-            if !has_interpolation {
+            if !Self::interpolated_string_has_interpolation(&isn) {
                 // Also check: is it a heredoc?
                 // Non-interpolated heredocs are frozen with the magic comment.
                 // Non-interpolated multiline strings are frozen too.
-                let _ = source;
                 return true;
             }
         }
         false
+    }
+
+    fn interpolated_string_has_interpolation(
+        node: &ruby_prism::InterpolatedStringNode<'_>,
+    ) -> bool {
+        node.parts().iter().any(|part| {
+            part.as_embedded_statements_node().is_some()
+                || part.as_embedded_variable_node().is_some()
+                || part
+                    .as_interpolated_string_node()
+                    .is_some_and(|nested| Self::interpolated_string_has_interpolation(&nested))
+        })
     }
 
     /// Check if node is an InterpolatedStringNode (which includes heredocs with interpolation).
@@ -114,6 +118,8 @@ impl MutableConstant {
             || node.as_nil_node().is_some()
             || node.as_rational_node().is_some()
             || node.as_imaginary_node().is_some()
+            || node.as_source_line_node().is_some()
+            || node.as_source_encoding_node().is_some()
             // Regexp and Range are frozen since Ruby 3.0
             || node.as_regular_expression_node().is_some()
             || node.as_interpolated_regular_expression_node().is_some()
@@ -256,46 +262,89 @@ impl MutableConstant {
         false
     }
 
-    /// Check if the source file has `# frozen_string_literal: true` in the
-    /// first few lines (before any code). This magic comment makes plain string
-    /// literals frozen (but NOT interpolated strings in Ruby 3.0+).
-    ///
-    /// Supports both simple format (`# frozen_string_literal: true`) and
-    /// Emacs format (`# -*- frozen_string_literal: true -*-`).
-    fn has_frozen_string_literal_true(source: &SourceFile) -> bool {
-        let lines = source.lines();
-        for (i, line) in lines.enumerate() {
-            if i >= 3 {
-                break;
-            }
-            let s = match std::str::from_utf8(line) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            let s = s.trim();
-            if s.is_empty() {
-                continue;
-            }
-            if let Some(rest) = s.strip_prefix('#') {
-                let rest = rest.trim_start();
-                // Simple format: # frozen_string_literal: true
-                if let Some(value) = rest.strip_prefix("frozen_string_literal:") {
-                    return value.trim() == "true";
-                }
-                // Emacs format: # -*- frozen_string_literal: true -*-
-                if rest.starts_with("-*-") && rest.ends_with("-*-") {
-                    // Extract token content between -*- markers
-                    let inner = &rest[3..rest.len() - 3].trim();
-                    // Split by ';' for multiple directives
-                    for directive in inner.split(';') {
-                        let directive = directive.trim();
-                        if let Some(value) = directive.strip_prefix("frozen_string_literal:") {
-                            return value.trim() == "true";
-                        }
-                    }
-                }
+    fn is_blank_line(line: &[u8]) -> bool {
+        line.iter()
+            .all(|&b| b == b' ' || b == b'\t' || b == b'\r')
+    }
+
+    fn is_comment_line(line: &[u8]) -> bool {
+        let trimmed = line.iter().skip_while(|&&b| b == b' ' || b == b'\t');
+        matches!(trimmed.clone().next(), Some(b'#'))
+    }
+
+    fn starts_with_frozen_string_literal_key(s: &str) -> bool {
+        let lower = s.to_ascii_lowercase();
+        let bytes = lower.as_bytes();
+        bytes.starts_with(b"frozen")
+            && bytes.len() >= 22
+            && (bytes[6] == b'_' || bytes[6] == b'-')
+            && bytes[7..].starts_with(b"string")
+            && (bytes[13] == b'_' || bytes[13] == b'-')
+            && bytes[14..].starts_with(b"literal:")
+    }
+
+    fn strip_prefix_frozen_string_literal_key(s: &str) -> Option<&str> {
+        if Self::starts_with_frozen_string_literal_key(s) {
+            Some(&s[22..])
+        } else {
+            None
+        }
+    }
+
+    fn strip_frozen_string_literal_key(s: &str) -> Option<&str> {
+        let lower = s.to_ascii_lowercase();
+        let bytes = lower.as_bytes();
+
+        for i in 0..bytes.len() {
+            if bytes[i..].starts_with(b"frozen")
+                && i + 22 <= bytes.len()
+                && (bytes[i + 6] == b'_' || bytes[i + 6] == b'-')
+                && bytes[i + 7..].starts_with(b"string")
+                && (bytes[i + 13] == b'_' || bytes[i + 13] == b'-')
+                && bytes[i + 14..].starts_with(b"literal:")
+            {
+                return Some(&s[i + 22..]);
             }
         }
+
+        None
+    }
+
+    fn is_frozen_string_literal_true_comment(line: &[u8]) -> bool {
+        let s = match std::str::from_utf8(line) {
+            Ok(s) => s.trim_start(),
+            Err(_) => return false,
+        };
+        let trimmed = s.strip_prefix('#').unwrap_or("").trim_start();
+
+        if trimmed.starts_with("-*-") && trimmed.ends_with("-*-") {
+            if let Some(after_key) = Self::strip_frozen_string_literal_key(trimmed) {
+                let value = after_key.split([';', '-']).next().unwrap_or("");
+                return value.trim() == "true";
+            }
+            return false;
+        }
+
+        Self::strip_prefix_frozen_string_literal_key(trimmed)
+            .is_some_and(|value| value.trim() == "true")
+    }
+
+    /// Check if the source file has a leading frozen string literal magic comment.
+    /// This makes plain string literals frozen, but not interpolated strings.
+    fn has_frozen_string_literal_true(source: &SourceFile) -> bool {
+        for line in source.lines() {
+            if Self::is_blank_line(line) {
+                continue;
+            }
+            if Self::is_comment_line(line) {
+                if Self::is_frozen_string_literal_true_comment(line) {
+                    return true;
+                }
+                continue;
+            }
+            break;
+        }
+
         false
     }
 
@@ -531,6 +580,66 @@ mod tests {
             diags.len(),
             0,
             "Emacs-style combined magic comment should suppress plain string offense, got {:?}",
+            diags
+        );
+    }
+
+    /// Long header comments and hyphenated magic comments still freeze plain strings.
+    #[test]
+    fn hyphenated_frozen_string_literal_after_header() {
+        let cop = MutableConstant;
+        let source = b"# Copyright 2026 Nitrocop\n#\n# frozen-string-literal: true\n\nCONST = \"/\"\n";
+        let diags =
+            crate::testutil::run_cop_full_internal(&cop, source, CopConfig::default(), "test.rb");
+        assert_eq!(
+            diags.len(),
+            0,
+            "header + frozen-string-literal should suppress plain string offense, got {:?}",
+            diags
+        );
+    }
+
+    /// Continued strings with nested interpolation remain mutable with frozen string literals.
+    #[test]
+    fn continued_interpolated_string_flagged_with_frozen_string_literal() {
+        let cop = MutableConstant;
+        let source = b"# frozen_string_literal: true\n\nETCD_URL = \"https://github.com/coreos/etcd/releases/download/\" \\\n           \"#{ETCD_VERSION}/etcd-#{ETCD_VERSION}-linux-amd64.tar.gz\"\n";
+        let diags =
+            crate::testutil::run_cop_full_internal(&cop, source, CopConfig::default(), "test.rb");
+        assert_eq!(
+            diags.len(),
+            1,
+            "continued interpolated strings should still be flagged with frozen_string_literal, got {:?}",
+            diags
+        );
+    }
+
+    /// `__FILE__` behaves like a mutable string and should be flagged.
+    #[test]
+    fn source_file_node_flagged() {
+        let cop = MutableConstant;
+        let source = b"FILE_PATH = __FILE__\n";
+        let diags =
+            crate::testutil::run_cop_full_internal(&cop, source, CopConfig::default(), "test.rb");
+        assert_eq!(
+            diags.len(),
+            1,
+            "__FILE__ should be flagged like a mutable string, got {:?}",
+            diags
+        );
+    }
+
+    /// `__LINE__` remains an immutable numeric literal.
+    #[test]
+    fn source_line_node_not_flagged() {
+        let cop = MutableConstant;
+        let source = b"LINE_NO = __LINE__\n";
+        let diags =
+            crate::testutil::run_cop_full_internal(&cop, source, CopConfig::default(), "test.rb");
+        assert_eq!(
+            diags.len(),
+            0,
+            "__LINE__ should remain immutable, got {:?}",
             diags
         );
     }
