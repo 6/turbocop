@@ -6,18 +6,20 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-10)
+/// ## Corpus investigation (2026-03-29)
 ///
-/// Corpus oracle reported FP=0, FN=12.
+/// Corpus oracle reported FP=0, FN=1.
 ///
 /// FP=0: no corpus false positives are currently known.
 ///
-/// FN=12: all remaining misses came from indexed operator writes like
-/// `value [0] += 1` in `jruby`. Prism represents spaced bracket writes as
-/// `Call*WriteNode` variants with `read_name == "[]"`, while unspaced indexed
-/// writes use `Index*WriteNode` variants. The original cop only handled `[]` /
-/// `[]=` call nodes, so it never visited the write-node forms. This cop now
-/// applies the same whitespace-gap check to both families.
+/// FN=1: `SUSE__machinery__e41b642` split a chained `[]` call across a
+/// backslash-newline continuation:
+/// `description_hash["patterns"]["_attributes"] \` then `["patterns_system"]`.
+/// Prism still exposes the second access as a `CallNode` with `name == "[]"`,
+/// but the gap between the receiver end and `opening_loc` is `" \\\n  "` rather
+/// than plain spaces. The previous implementation only accepted spaces/tabs, so
+/// it missed this RuboCop offense. This cop now treats a single escaped newline
+/// surrounded by horizontal space as the same receiver-to-bracket gap.
 pub struct SpaceBeforeBrackets;
 
 impl Cop for SpaceBeforeBrackets {
@@ -189,7 +191,7 @@ fn check_receiver_gap_before_brackets(
 
     let bytes = source.as_bytes();
     let gap = &bytes[receiver_end..selector_start];
-    if !gap.iter().all(|&b| b == b' ' || b == b'\t') {
+    if !is_bracket_gap(gap) {
         return;
     }
 
@@ -200,6 +202,41 @@ fn check_receiver_gap_before_brackets(
         col,
         "Remove the space before the opening brackets.".to_string(),
     ));
+}
+
+fn is_bracket_gap(gap: &[u8]) -> bool {
+    if gap.is_empty() {
+        return false;
+    }
+
+    if gap.iter().all(|&byte| is_horizontal_space(byte)) {
+        return true;
+    }
+
+    let Some(backslash_pos) = gap.iter().position(|&byte| byte == b'\\') else {
+        return false;
+    };
+
+    if !gap[..backslash_pos]
+        .iter()
+        .all(|&byte| is_horizontal_space(byte))
+    {
+        return false;
+    }
+
+    let after_backslash = &gap[backslash_pos + 1..];
+    let Some(after_newline) = after_backslash
+        .strip_prefix(b"\r\n")
+        .or_else(|| after_backslash.strip_prefix(b"\n"))
+    else {
+        return false;
+    };
+
+    after_newline.iter().all(|&byte| is_horizontal_space(byte))
+}
+
+fn is_horizontal_space(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t')
 }
 
 fn check_receiver_gap_before_scanned_brackets(
@@ -231,6 +268,27 @@ mod tests {
             diagnostics.len(),
             1,
             "Expected one offense: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn continued_bracket_chain_offense() {
+        let source = b"foo[1] \\\n  [0]\n";
+        let diagnostics = crate::testutil::run_cop_full(&SpaceBeforeBrackets, source);
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Expected one offense for continued bracket access: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn continued_array_argument_no_offense() {
+        let source = b"foo \\\n  [0]\n";
+        let diagnostics = crate::testutil::run_cop_full(&SpaceBeforeBrackets, source);
+        assert!(
+            diagnostics.is_empty(),
+            "Expected no offenses for continued array argument: {diagnostics:?}"
         );
     }
 }
