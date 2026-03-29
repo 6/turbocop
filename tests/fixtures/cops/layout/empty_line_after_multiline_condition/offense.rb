@@ -108,3 +108,9 @@ begin
 rescue StandardError
   state_id = :unknown
 end
+
+unless case option
+^ Layout/EmptyLineAfterMultilineCondition: Use empty line after multiline condition.
+
+countderef[r.rexpr.name] += 1 if r.kind_of?(C::CExpression) and not r.op and r.rexpr.kind_of?(C::Variable) and
+^ Layout/EmptyLineAfterMultilineCondition: Use empty line after multiline condition.
