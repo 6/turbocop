@@ -730,7 +730,8 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    assert_eq!(registry.len(), 915, "Expected 915 registered cops");
+    // 910 supported + 5 no-ops (obsolete on Ruby 3.4+)
+    assert_eq!(registry.len(), 910 + 5);
 
     let names = registry.names();
     let expected = [

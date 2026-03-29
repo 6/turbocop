@@ -22,13 +22,13 @@ RuboCop CLI flags that nitrocop should accept for drop-in compatibility.
 | `-r` / `--require LIB` | `--require` | Accepted with warning (plugins handled via `require:` in config) |
 | `--ignore-disable-comments` | `--ignore-disable-comments` | Ignore all `# rubocop:disable` inline directives |
 | `--force-default-config` | `--force-default-config` | Ignore all config files, use built-in defaults only |
+| `-a` / `--autocorrect` | `--autocorrect` | Safe autocorrect only (partial — not all cops have fixers yet) |
+| `-A` / `--autocorrect-all` | `--autocorrect-all` | All autocorrects including unsafe (partial — not all cops have fixers yet) |
 
 ## Not Yet Implemented
 
 | Flag | Impact | Difficulty | Notes |
 |------|--------|------------|-------|
-| `-a` / `--autocorrect` | High | Hard | Safe autocorrect only. Requires fixer infrastructure (M7). |
-| `-A` / `--autocorrect-all` | High | Hard | All autocorrects including unsafe. Same dependency on M7. |
 | `--auto-gen-config` | Medium | Hard | Generate `.rubocop_todo.yml`. Needs offense counting + YAML generation. |
 
 ## Format Values
