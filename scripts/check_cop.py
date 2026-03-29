@@ -998,6 +998,8 @@ def main():
         resolved_fn = 0
         total_baseline_fp = 0
         total_baseline_fn = 0
+        total_local_fp = 0
+        total_local_fn = 0
         fp_repos = []
         fn_repos = []
         # Build per-repo baseline counts from the oracle.
@@ -1040,6 +1042,8 @@ def main():
             # How far is the local nitrocop from rubocop?
             local_fp = max(0, local_count - baseline_rc)
             local_fn = max(0, baseline_rc - local_count)
+            total_local_fp += local_fp
+            total_local_fn += local_fn
             # Track both regressions and improvements
             fp_increase = max(0, local_fp - baseline_fp)
             fn_increase = max(0, local_fn - baseline_fn)
@@ -1104,8 +1108,10 @@ def main():
             print()
 
         # Machine-readable summary for CI aggregation
+        # Format: cop|baseline_fp|baseline_fn|local_fp|local_fn|result
+        # local_fp/fn are the actual FP/FN counts from this run (not just regressions)
         result_str = "fail" if failed else "pass"
-        print(f"SUMMARY|{args.cop}|{total_baseline_fp}|{total_baseline_fn}|{new_fp}|{new_fn}|{result_str}")
+        print(f"SUMMARY|{args.cop}|{total_baseline_fp}|{total_baseline_fn}|{total_local_fp}|{total_local_fn}|{result_str}")
 
         if failed:
             sys.exit(1)

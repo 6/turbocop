@@ -275,21 +275,21 @@ jobs:
           [ "$RESULT" = "fail" ] && ICON="❌"
 
           BODY="${ICON} **Cop-check results** (8 shards)\n\n"
-          BODY+="| Cop | Baseline FP | Baseline FN | New FP | New FN | FP Δ | FN Δ | Result |\n"
+          BODY+="| Cop | Baseline FP | Baseline FN | Local FP | Local FN | FP Δ | FN Δ | Result |\n"
           BODY+="|-----|-----------|-----------|--------|--------|------|------|--------|\n"
 
           if [ -d summaries ]; then
             for f in summaries/*.txt; do
               [ -f "$f" ] || continue
-              while IFS='|' read -r cop bl_fp bl_fn new_fp new_fn shard_result; do
+              while IFS='|' read -r cop bl_fp bl_fn local_fp local_fn shard_result; do
                 STATUS="✅"
                 [ "$shard_result" = "fail" ] && STATUS="❌"
-                fp_delta=$((new_fp - bl_fp))
-                fn_delta=$((new_fn - bl_fn))
+                fp_delta=$((local_fp - bl_fp))
+                fn_delta=$((local_fn - bl_fn))
                 # Show sign explicitly: +N for regressions, -N for improvements, 0 for unchanged
                 [ "$fp_delta" -gt 0 ] && fp_delta="+${fp_delta}"
                 [ "$fn_delta" -gt 0 ] && fn_delta="+${fn_delta}"
-                BODY+="| \`${cop}\` | ${bl_fp} | ${bl_fn} | ${new_fp} | ${new_fn} | ${fp_delta} | ${fn_delta} | ${STATUS} |\n"
+                BODY+="| \`${cop}\` | ${bl_fp} | ${bl_fn} | ${local_fp} | ${local_fn} | ${fp_delta} | ${fn_delta} | ${STATUS} |\n"
               done < "$f"
             done
           else

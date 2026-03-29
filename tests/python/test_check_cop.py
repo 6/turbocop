@@ -157,11 +157,8 @@ def test_rerun_local_per_repo_always_uses_per_repo_mode():
 def _compute_gate(by_repo_cop, cop, per_repo):
     """Replicate the gate logic from check_cop.py for testing.
 
-    Returns (new_fp, new_fn, resolved_fp, resolved_fn, net_fp, net_fn).
-
-    Gate behavior depends on mode:
-    - Strict (default, used by agents): FAIL when new_fp > 0 or new_fn > 0
-    - --allow-net-improvement (CI): FAIL when net_fp > 0 or net_fn > 0
+    Returns dict with: new_fp, new_fn, resolved_fp, resolved_fn, net_fp, net_fn,
+    total_baseline_fp, total_baseline_fn, total_local_fp, total_local_fn.
     """
     oracle_nitrocop_counts = {}
     oracle_rubocop_counts = {}
@@ -176,6 +173,8 @@ def _compute_gate(by_repo_cop, cop, per_repo):
 
     new_fp, new_fn = 0, 0
     resolved_fp, resolved_fn = 0, 0
+    total_baseline_fp, total_baseline_fn = 0, 0
+    total_local_fp, total_local_fn = 0, 0
     for repo_id, local_count in per_repo.items():
         bl_nc = oracle_nitrocop_counts.get(repo_id)
         bl_rc = oracle_rubocop_counts.get(repo_id)
@@ -183,8 +182,12 @@ def _compute_gate(by_repo_cop, cop, per_repo):
             continue
         baseline_fp = max(0, bl_nc - bl_rc)
         baseline_fn = max(0, bl_rc - bl_nc)
+        total_baseline_fp += baseline_fp
+        total_baseline_fn += baseline_fn
         local_fp = max(0, local_count - bl_rc)
         local_fn = max(0, bl_rc - local_count)
+        total_local_fp += local_fp
+        total_local_fn += local_fn
         fp_increase = max(0, local_fp - baseline_fp)
         fn_increase = max(0, local_fn - baseline_fn)
         fp_decrease = max(0, baseline_fp - local_fp)
@@ -195,7 +198,13 @@ def _compute_gate(by_repo_cop, cop, per_repo):
         resolved_fn += fn_decrease
     net_fp = new_fp - resolved_fp
     net_fn = new_fn - resolved_fn
-    return new_fp, new_fn, resolved_fp, resolved_fn, net_fp, net_fn
+    return {
+        "new_fp": new_fp, "new_fn": new_fn,
+        "resolved_fp": resolved_fp, "resolved_fn": resolved_fn,
+        "net_fp": net_fp, "net_fn": net_fn,
+        "total_baseline_fp": total_baseline_fp, "total_baseline_fn": total_baseline_fn,
+        "total_local_fp": total_local_fp, "total_local_fn": total_local_fn,
+    }
 
 
 def test_gate_preexisting_fn_does_not_regress():
@@ -207,10 +216,8 @@ def test_gate_preexisting_fn_does_not_regress():
         },
     }
     # Local produces same as oracle nitrocop → no regression
-    _new_fp, _new_fn, _r_fp, _r_fn, net_fp, net_fn = _compute_gate(
-        by_repo_cop, "Style/Foo", {"repo-a": 12}
-    )
-    assert net_fp <= 0 and net_fn <= 0
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 12})
+    assert g["net_fp"] <= 0 and g["net_fn"] <= 0
 
 
 def test_gate_improvement_passes():
@@ -222,10 +229,8 @@ def test_gate_improvement_passes():
         },
     }
     # Local=13 matches rubocop exactly (fixed the FN)
-    _new_fp, _new_fn, _r_fp, _r_fn, net_fp, net_fn = _compute_gate(
-        by_repo_cop, "Style/Foo", {"repo-a": 13}
-    )
-    assert net_fp <= 0 and net_fn <= 0
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 13})
+    assert g["net_fp"] <= 0 and g["net_fn"] <= 0
 
 
 def test_gate_new_fp_detected():
@@ -237,11 +242,9 @@ def test_gate_new_fp_detected():
         },
     }
     # Local=15 → 2 more FP than rubocop, baseline had 0 excess over rubocop
-    new_fp, _new_fn, _r_fp, _r_fn, net_fp, _net_fn = _compute_gate(
-        by_repo_cop, "Style/Foo", {"repo-a": 15}
-    )
-    assert new_fp == 2
-    assert net_fp == 2  # no resolved FP to offset
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 15})
+    assert g["new_fp"] == 2
+    assert g["net_fp"] == 2  # no resolved FP to offset
 
 
 def test_gate_new_fn_detected():
@@ -253,11 +256,9 @@ def test_gate_new_fn_detected():
         },
     }
     # Local=9 → FN=4 vs rubocop, baseline had FN=1, so +3 new FN
-    _new_fp, new_fn, _r_fp, _r_fn, _net_fp, net_fn = _compute_gate(
-        by_repo_cop, "Style/Foo", {"repo-a": 9}
-    )
-    assert new_fn == 3
-    assert net_fn == 3  # no resolved FN to offset
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 9})
+    assert g["new_fn"] == 3
+    assert g["net_fn"] == 3  # no resolved FN to offset
 
 
 def test_gate_exact_match_no_regression():
@@ -267,10 +268,8 @@ def test_gate_exact_match_no_regression():
             "Style/Foo": {"matches": 50, "fp": 0, "fn": 0},
         },
     }
-    _new_fp, _new_fn, _r_fp, _r_fn, net_fp, net_fn = _compute_gate(
-        by_repo_cop, "Style/Foo", {"repo-a": 50}
-    )
-    assert net_fp <= 0 and net_fn <= 0
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 50})
+    assert g["net_fp"] <= 0 and g["net_fn"] <= 0
 
 
 def test_gate_net_improvement_passes():
@@ -285,13 +284,11 @@ def test_gate_net_improvement_passes():
         "repo-a": 3,   # worse: FN=7, was 5 → +2 new FN
         "repo-b": 15,  # better: FN=5, was 20 → resolved 15 FN
     }
-    new_fp, new_fn, _r_fp, resolved_fn, net_fp, net_fn = _compute_gate(
-        by_repo_cop, "Style/Foo", per_repo
-    )
-    assert new_fn == 2        # repo-a regressed by 2
-    assert resolved_fn == 15  # repo-b improved by 15
-    assert net_fn < 0         # net improvement
-    assert net_fp <= 0
+    g = _compute_gate(by_repo_cop, "Style/Foo", per_repo)
+    assert g["new_fn"] == 2        # repo-a regressed by 2
+    assert g["resolved_fn"] == 15  # repo-b improved by 15
+    assert g["net_fn"] < 0         # net improvement
+    assert g["net_fp"] <= 0
 
 
 def test_gate_net_regression_fails():
@@ -306,12 +303,10 @@ def test_gate_net_regression_fails():
         "repo-a": 0,  # worse: FN=10, was 0 → +10 new FN
         "repo-b": 3,  # better: FN=0, was 3 → resolved 3 FN
     }
-    _new_fp, new_fn, _r_fp, resolved_fn, _net_fp, net_fn = _compute_gate(
-        by_repo_cop, "Style/Foo", per_repo
-    )
-    assert new_fn == 10
-    assert resolved_fn == 3
-    assert net_fn == 7  # net regression
+    g = _compute_gate(by_repo_cop, "Style/Foo", per_repo)
+    assert g["new_fn"] == 10
+    assert g["resolved_fn"] == 3
+    assert g["net_fn"] == 7  # net regression
 
 
 def test_gate_net_zero_passes():
@@ -324,12 +319,10 @@ def test_gate_net_zero_passes():
         "repo-a": 5,  # worse: FN=5, was 0 → +5 new FN
         "repo-b": 5,  # better: FN=0, was 5 → resolved 5 FN
     }
-    _new_fp, new_fn, _r_fp, resolved_fn, _net_fp, net_fn = _compute_gate(
-        by_repo_cop, "Style/Foo", per_repo
-    )
-    assert new_fn == 5
-    assert resolved_fn == 5
-    assert net_fn == 0  # exactly offset — should pass (gate checks > threshold)
+    g = _compute_gate(by_repo_cop, "Style/Foo", per_repo)
+    assert g["new_fn"] == 5
+    assert g["resolved_fn"] == 5
+    assert g["net_fn"] == 0  # exactly offset — should pass (gate checks > threshold)
 
 
 def test_gate_fp_net_improvement_passes():
@@ -344,13 +337,11 @@ def test_gate_fp_net_improvement_passes():
         "repo-a": 13,  # FP=3, was 5 → resolved 2 FP
         "repo-b": 11,  # FP=1, was 2 → resolved 1 FP (improved)
     }
-    new_fp, _new_fn, resolved_fp, _r_fn, net_fp, net_fn = _compute_gate(
-        by_repo_cop, "Style/Foo", per_repo
-    )
-    assert new_fp == 0
-    assert resolved_fp == 3
-    assert net_fp < 0
-    assert net_fn <= 0
+    g = _compute_gate(by_repo_cop, "Style/Foo", per_repo)
+    assert g["new_fp"] == 0
+    assert g["resolved_fp"] == 3
+    assert g["net_fp"] < 0
+    assert g["net_fn"] <= 0
 
 
 def test_gate_strict_fails_on_any_regression():
@@ -363,11 +354,36 @@ def test_gate_strict_fails_on_any_regression():
         "repo-a": 3,   # worse: +2 new FN
         "repo-b": 15,  # better: resolved 15 FN
     }
-    _new_fp, new_fn, _r_fp, resolved_fn, _net_fp, net_fn = _compute_gate(
-        by_repo_cop, "Style/Foo", per_repo
-    )
+    g = _compute_gate(by_repo_cop, "Style/Foo", per_repo)
     # Net is an improvement
-    assert net_fn < 0
+    assert g["net_fn"] < 0
     # But strict mode (default) uses new_fn, not net_fn
-    assert new_fn == 2  # would FAIL in strict mode (agents)
+    assert g["new_fn"] == 2  # would FAIL in strict mode (agents)
     # --allow-net-improvement uses net_fn which is negative → PASS in CI
+
+
+def test_summary_emits_total_local_fp_fn_not_regressions():
+    """SUMMARY line should report total local FP/FN, not just regressions."""
+    by_repo_cop = {
+        # repo-a: oracle nitrocop=1064, rubocop=1061 → baseline FP=3
+        "repo-a": {"Metrics/MethodLength": {"matches": 1061, "fp": 3, "fn": 0}},
+    }
+    # Local produces same as oracle nitrocop → no regression, but FP=3 remains
+    g = _compute_gate(by_repo_cop, "Metrics/MethodLength", {"repo-a": 1064})
+    assert g["new_fp"] == 0           # no regression
+    assert g["total_baseline_fp"] == 3
+    assert g["total_local_fp"] == 3   # should report actual FP, not 0
+    # SUMMARY should use total_local_fp (3), not new_fp (0)
+
+
+def test_summary_shows_improvement_correctly():
+    """When local FP is lower than baseline, SUMMARY should reflect that."""
+    by_repo_cop = {
+        "repo-a": {"Style/Foo": {"matches": 10, "fp": 5, "fn": 0}},
+    }
+    # Local=12 → FP=2, baseline FP=5 → improvement
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 12})
+    assert g["total_baseline_fp"] == 5
+    assert g["total_local_fp"] == 2
+    assert g["resolved_fp"] == 3
+    assert g["new_fp"] == 0
