@@ -72,16 +72,19 @@ def build_env(repo_dir: str | None = None) -> dict[str, str]:
     return env
 
 
-def deduplicate_offenses(offenses: list[dict]) -> int:
-    """Count offenses deduplicated by (path, line, cop_name).
+def count_offenses(offenses: list[dict]) -> int:
+    """Count offenses by (path, line, cop_name) with multiplicity.
 
-    The corpus oracle uses this deduplication, so we must match it.
+    Multiple offenses at the same (path, line, cop) are counted separately
+    (e.g. two bad param names on one line). This matches the corpus oracle's
+    counter-based comparison.
     """
-    seen: set[tuple[str, int, str]] = set()
+    from collections import Counter
+    counter: Counter[tuple[str, int, str]] = Counter()
     for o in offenses:
         key = (o.get("path", ""), o.get("line", 0), o.get("cop_name", ""))
-        seen.add(key)
-    return len(seen)
+        counter[key] += 1
+    return sum(counter.values())
 
 
 def normalize_offenses(offenses: list[dict]) -> list[dict]:
@@ -91,8 +94,14 @@ def normalize_offenses(offenses: list[dict]) -> list[dict]:
     Local reruns need the same normalization so cops don't appear to regress
     purely because the same file was discovered via both canonical and symlink
     paths.
+
+    Uses (path, line, cop_name, column) as the dedup key so that genuine
+    multi-offenses at different columns on the same line are preserved
+    (e.g. two bad param names on ``def foo(a, b)``), while symlink
+    duplicates (same physical location via different discovery paths) are
+    still collapsed.
     """
-    seen: set[tuple[str, int, str]] = set()
+    seen: set[tuple[str, int, str, int]] = set()
     deduped: list[dict] = []
     for offense in offenses:
         normalized = offense.copy()
@@ -103,6 +112,7 @@ def normalize_offenses(offenses: list[dict]) -> list[dict]:
             normalized.get("path", ""),
             normalized.get("line", 0),
             normalized.get("cop_name", ""),
+            normalized.get("column", 0),
         )
         if key in seen:
             continue
@@ -156,7 +166,7 @@ def run_nitrocop(
     try:
         data = json.loads(result.stdout)
         offenses = normalize_offenses(data.get("offenses", []))
-        count = deduplicate_offenses(offenses)
+        count = count_offenses(offenses)
         return {"raw": result.stdout, "offenses": offenses, "count": count, "error": None}
     except json.JSONDecodeError as e:
         return {"raw": result.stdout, "offenses": [], "count": -1,

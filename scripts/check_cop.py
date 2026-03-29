@@ -552,6 +552,125 @@ def rerun_local_per_repo(
     )
 
 
+def _parse_example_loc(loc_str: str) -> tuple[str, str, int]:
+    """Parse 'repo_id: filepath:line' into (repo_id, filepath, line)."""
+    repo_id, rest = loc_str.split(": ", 1)
+    last_colon = rest.rfind(":")
+    filepath = rest[:last_colon]
+    line = int(rest[last_colon + 1:])
+    return repo_id, filepath, line
+
+
+def spot_check_examples(cop_name: str, data: dict) -> tuple[int, int, int, int]:
+    """Spot-check oracle FP/FN examples against local nitrocop.
+
+    Runs nitrocop on the specific files referenced in the oracle's fp_examples
+    and fn_examples, then checks whether each known issue persists or is resolved.
+
+    Returns (fp_remain, fp_resolved, fn_remain, fn_resolved).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from run_nitrocop import build_env, resolve_repo_config
+
+    by_cop = {c["cop"]: c for c in data.get("by_cop", [])}
+    cop_data = by_cop.get(cop_name)
+    if not cop_data:
+        return 0, 0, 0, 0
+
+    fp_examples = cop_data.get("fp_examples", [])
+    fn_examples = cop_data.get("fn_examples", [])
+    if not fp_examples and not fn_examples:
+        return 0, 0, 0, 0
+
+    corpus_dir = _get_corpus_dir()
+
+    # Collect all (repo_id, filepath, line, kind) we need to check
+    checks: list[tuple[str, str, int, str]] = []
+    for ex in fp_examples:
+        loc = ex["loc"] if isinstance(ex, dict) else ex
+        try:
+            repo_id, filepath, line = _parse_example_loc(loc)
+            checks.append((repo_id, filepath, line, "fp"))
+        except (ValueError, IndexError):
+            pass
+    for ex in fn_examples:
+        loc = ex["loc"] if isinstance(ex, dict) else ex
+        try:
+            repo_id, filepath, line = _parse_example_loc(loc)
+            checks.append((repo_id, filepath, line, "fn"))
+        except (ValueError, IndexError):
+            pass
+
+    # Group files by repo for batched execution
+    repo_files: dict[str, set[str]] = {}
+    for repo_id, filepath, _line, _kind in checks:
+        repo_files.setdefault(repo_id, set()).add(filepath)
+
+    # Run nitrocop on each repo's files and collect offense lines
+    nitrocop_lines: dict[tuple[str, str], set[int]] = {}
+
+    def _check_repo(repo_id: str, files: list[str]) -> dict[str, set[int]]:
+        repo_dir = corpus_dir / repo_id
+        existing = [fp for fp in files if (repo_dir / fp).exists()]
+        result_map: dict[str, set[int]] = {fp: set() for fp in files}
+        if not existing:
+            return result_map
+
+        env = build_env(str(repo_dir))
+        config = resolve_repo_config(repo_id, str(repo_dir))
+        cmd = [
+            str(NITROCOP_BIN), "--only", cop_name, "--format", "json",
+            "--no-cache", "--cache", "false", "--config", config, "--preview",
+        ] + [str(repo_dir / fp) for fp in existing]
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=120, env=env,
+            )
+            out = json.loads(result.stdout)
+            for o in out.get("offenses", []):
+                if o.get("cop_name") != cop_name:
+                    continue
+                line_num = o.get("line", 0)
+                offense_path = o.get("path", "")
+                for fp in existing:
+                    if offense_path.endswith(fp) or offense_path == str(repo_dir / fp):
+                        result_map[fp].add(line_num)
+                        break
+        except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError):
+            pass
+        return result_map
+
+    workers = min(os.cpu_count() or 4, 16)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_check_repo, repo_id, sorted(files)): repo_id
+            for repo_id, files in repo_files.items()
+        }
+        for future in as_completed(futures):
+            repo_id = futures[future]
+            for filepath, lines in future.result().items():
+                nitrocop_lines[(repo_id, filepath)] = lines
+
+    # Evaluate each example
+    fp_remain = fp_resolved = fn_remain = fn_resolved = 0
+    for repo_id, filepath, line, kind in checks:
+        lines = nitrocop_lines.get((repo_id, filepath), set())
+        if kind == "fp":
+            if line in lines:
+                fp_remain += 1
+            else:
+                fp_resolved += 1
+        else:
+            if line in lines:
+                fn_resolved += 1
+            else:
+                fn_remain += 1
+
+    return fp_remain, fp_resolved, fn_remain, fn_resolved
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Check a cop against the corpus for aggregate count regressions")
@@ -852,6 +971,9 @@ def main():
     if file_drop_offenses > 0:
         print(f"  File-drop noise:      {file_drop_offenses:>10,}  "
               f"({len(file_drop_repos)} repos with RuboCop parser crashes)")
+        adjusted_excess = max(0, excess - file_drop_offenses)
+        print(f"  Excess (adjusted):    {adjusted_excess:>10,}  "
+              f"(excess minus file-drop noise)")
     print()
 
     print("  Gate type: count-only / cop-level regression")
@@ -963,6 +1085,24 @@ def main():
 
         if failed:
             sys.exit(1)
+
+        # Per-line spot-check: verify known FP/FN examples from the oracle.
+        # This catches regressions that cancel out in per-repo counts
+        # (e.g. +5 FP and -5 FN in the same repo = net 0 change).
+        fp_remain, fp_resolved, fn_remain, fn_resolved = spot_check_examples(
+            args.cop, data,
+        )
+        total_examples = fp_remain + fp_resolved + fn_remain + fn_resolved
+        if total_examples > 0:
+            print(f"  Spot-check ({total_examples} oracle examples):")
+            if fp_remain + fp_resolved > 0:
+                print(f"    FP: {fp_resolved} resolved, {fp_remain} remain "
+                      f"(of {fp_remain + fp_resolved})")
+            if fn_remain + fn_resolved > 0:
+                print(f"    FN: {fn_resolved} resolved, {fn_remain} remain "
+                      f"(of {fn_remain + fn_resolved})")
+            print()
+
         print("PASS: no per-repo regressions vs baseline")
         sys.exit(0)
 

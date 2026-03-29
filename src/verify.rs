@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::process::Command;
 
 use anyhow::{Context, Result};
@@ -65,31 +65,63 @@ fn normalize_path(path: &str) -> &str {
     path.strip_prefix("./").unwrap_or(path)
 }
 
-fn diagnostics_to_set(diagnostics: &[Diagnostic]) -> HashSet<Offense> {
-    diagnostics
-        .iter()
-        .map(|d| {
-            let path = normalize_path(&d.path);
-            (path.to_string(), d.location.line, d.cop_name.clone())
-        })
-        .collect()
+type OffenseCounter = HashMap<Offense, usize>;
+
+fn diagnostics_to_counter(diagnostics: &[Diagnostic]) -> OffenseCounter {
+    let mut counter = OffenseCounter::new();
+    for d in diagnostics {
+        let path = normalize_path(&d.path);
+        let key = (path.to_string(), d.location.line, d.cop_name.clone());
+        *counter.entry(key).or_insert(0) += 1;
+    }
+    counter
 }
 
-fn rubocop_to_set(output: &RubocopOutput, covered: &HashSet<&str>) -> HashSet<Offense> {
-    output
-        .files
-        .iter()
-        .flat_map(|f| {
-            let path = normalize_path(&f.path);
-            f.offenses.iter().filter_map(move |o| {
-                if covered.contains(o.cop_name.as_str()) {
-                    Some((path.to_string(), o.location.start_line, o.cop_name.clone()))
-                } else {
-                    None
-                }
-            })
-        })
-        .collect()
+fn rubocop_to_counter(output: &RubocopOutput, covered: &HashSet<&str>) -> OffenseCounter {
+    let mut counter = OffenseCounter::new();
+    for f in &output.files {
+        let path = normalize_path(&f.path);
+        for o in &f.offenses {
+            if covered.contains(o.cop_name.as_str()) {
+                let key = (path.to_string(), o.location.start_line, o.cop_name.clone());
+                *counter.entry(key).or_insert(0) += 1;
+            }
+        }
+    }
+    counter
+}
+
+/// Compare two offense counters using multiset arithmetic.
+/// Returns (matches, fp, fn, per_cop_breakdown).
+fn counter_diff(
+    a: &OffenseCounter,
+    b: &OffenseCounter,
+) -> (usize, usize, usize, BTreeMap<String, CopStats>) {
+    let all_keys: HashSet<&Offense> = a.keys().chain(b.keys()).collect();
+    let mut total_matches = 0usize;
+    let mut total_fp = 0usize;
+    let mut total_fn = 0usize;
+    let mut per_cop: BTreeMap<String, CopStats> = BTreeMap::new();
+
+    for key in all_keys {
+        let ca = a.get(key).copied().unwrap_or(0);
+        let cb = b.get(key).copied().unwrap_or(0);
+        let matched = ca.min(cb);
+        let fp = ca.saturating_sub(cb);
+        let fn_ = cb.saturating_sub(ca);
+
+        total_matches += matched;
+        total_fp += fp;
+        total_fn += fn_;
+
+        let cop = &key.2;
+        let entry = per_cop.entry(cop.clone()).or_default();
+        entry.matches += matched;
+        entry.fp += fp;
+        entry.fn_ += fn_;
+    }
+
+    (total_matches, total_fp, total_fn, per_cop)
 }
 
 // ---------- Core verify logic ----------
@@ -104,7 +136,7 @@ pub fn run_verify(
     // 1. Run nitrocop internally
     let discovered = discover_files(&args.paths, config)?;
     let lint_result = run_linter(&discovered, config, registry, args, tier_map, allowlist);
-    let nitrocop_set = diagnostics_to_set(&lint_result.diagnostics);
+    let nitrocop_counter = diagnostics_to_counter(&lint_result.diagnostics);
 
     // 2. Run RuboCop subprocess
     let rubocop_json = run_rubocop(args)?;
@@ -113,37 +145,26 @@ pub fn run_verify(
 
     // 3. Build covered cop set
     let covered: HashSet<&str> = registry.cops().iter().map(|c| c.name()).collect();
-    let rubocop_set = rubocop_to_set(&rubocop_output, &covered);
+    let rubocop_counter = rubocop_to_counter(&rubocop_output, &covered);
 
-    // 4. Compute set operations
-    let matches: HashSet<&Offense> = nitrocop_set.intersection(&rubocop_set).collect();
-    let fps: HashSet<&Offense> = nitrocop_set.difference(&rubocop_set).collect();
-    let fns: HashSet<&Offense> = rubocop_set.difference(&nitrocop_set).collect();
-    let total = nitrocop_set.union(&rubocop_set).count();
+    // 4. Compute counter operations (multiset arithmetic)
+    let (n_matches, n_fp, n_fn, per_cop) = counter_diff(&nitrocop_counter, &rubocop_counter);
+
+    let nitrocop_count: usize = nitrocop_counter.values().sum();
+    let rubocop_count: usize = rubocop_counter.values().sum();
+    let total = n_matches + n_fp + n_fn;
     let match_rate = if total == 0 {
         100.0
     } else {
-        matches.len() as f64 / total as f64 * 100.0
+        n_matches as f64 / total as f64 * 100.0
     };
 
-    // 5. Per-cop breakdown
-    let mut per_cop: BTreeMap<String, CopStats> = BTreeMap::new();
-    for (_, _, cop) in &matches {
-        per_cop.entry(cop.clone()).or_default().matches += 1;
-    }
-    for (_, _, cop) in &fps {
-        per_cop.entry(cop.clone()).or_default().fp += 1;
-    }
-    for (_, _, cop) in &fns {
-        per_cop.entry(cop.clone()).or_default().fn_ += 1;
-    }
-
     Ok(VerifyResult {
-        nitrocop_count: nitrocop_set.len(),
-        rubocop_count: rubocop_set.len(),
-        matches: matches.len(),
-        false_positives: fps.len(),
-        false_negatives: fns.len(),
+        nitrocop_count,
+        rubocop_count,
+        matches: n_matches,
+        false_positives: n_fp,
+        false_negatives: n_fn,
         match_rate,
         per_cop,
     })
@@ -291,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn rubocop_to_set_filters_covered_cops() {
+    fn rubocop_to_counter_filters_covered_cops() {
         let json = r#"{
             "files": [
                 {
@@ -314,13 +335,16 @@ mod tests {
 
         let output: RubocopOutput = serde_json::from_str(json).unwrap();
         let covered: HashSet<&str> = ["CoveredCop"].into_iter().collect();
-        let set = rubocop_to_set(&output, &covered);
-        assert_eq!(set.len(), 1);
-        assert!(set.contains(&("test.rb".to_string(), 1, "CoveredCop".to_string())));
+        let counter = rubocop_to_counter(&output, &covered);
+        assert_eq!(counter.len(), 1);
+        assert_eq!(
+            counter[&("test.rb".to_string(), 1, "CoveredCop".to_string())],
+            1
+        );
     }
 
     #[test]
-    fn diagnostics_to_set_normalizes_paths() {
+    fn diagnostics_to_counter_normalizes_paths() {
         let diags = vec![Diagnostic {
             path: "./foo/bar.rb".to_string(),
             location: crate::diagnostic::Location { line: 3, column: 0 },
@@ -329,8 +353,58 @@ mod tests {
             message: "msg".to_string(),
             corrected: false,
         }];
-        let set = diagnostics_to_set(&diags);
-        assert_eq!(set.len(), 1);
-        assert!(set.contains(&("foo/bar.rb".to_string(), 3, "Style/Test".to_string())));
+        let counter = diagnostics_to_counter(&diags);
+        assert_eq!(counter.len(), 1);
+        assert_eq!(
+            counter[&("foo/bar.rb".to_string(), 3, "Style/Test".to_string())],
+            1
+        );
+    }
+
+    #[test]
+    fn counter_preserves_multiplicity() {
+        // Two offenses by the same cop on the same line (e.g. two bad param names)
+        let diags = vec![
+            Diagnostic {
+                path: "test.rb".to_string(),
+                location: crate::diagnostic::Location { line: 1, column: 5 },
+                severity: crate::diagnostic::Severity::Convention,
+                cop_name: "Naming/MethodParameterName".to_string(),
+                message: "param a too short".to_string(),
+                corrected: false,
+            },
+            Diagnostic {
+                path: "test.rb".to_string(),
+                location: crate::diagnostic::Location { line: 1, column: 8 },
+                severity: crate::diagnostic::Severity::Convention,
+                cop_name: "Naming/MethodParameterName".to_string(),
+                message: "param b too short".to_string(),
+                corrected: false,
+            },
+        ];
+        let counter = diagnostics_to_counter(&diags);
+        // Same (path, line, cop) key, but count should be 2
+        let key = (
+            "test.rb".to_string(),
+            1,
+            "Naming/MethodParameterName".to_string(),
+        );
+        assert_eq!(counter[&key], 2);
+    }
+
+    #[test]
+    fn counter_diff_handles_multiplicity() {
+        let mut a = OffenseCounter::new();
+        let mut b = OffenseCounter::new();
+        let key = ("test.rb".to_string(), 1, "Cop/A".to_string());
+
+        // nitrocop fires 3 times, rubocop fires 2 times on same (path, line, cop)
+        a.insert(key.clone(), 3);
+        b.insert(key, 2);
+
+        let (matches, fp, fn_, _per_cop) = counter_diff(&a, &b);
+        assert_eq!(matches, 2); // min(3, 2)
+        assert_eq!(fp, 1); // 3 - 2
+        assert_eq!(fn_, 0); // 2 - 3 = 0
     }
 }

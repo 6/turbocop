@@ -5,7 +5,6 @@
 # Usage: compare.rb [--json out.json] <nitrocop.json> <rubocop.json> [covered-cops.txt] [repo-dir]
 
 require "json"
-require "set"
 
 # Parse --json flag
 json_output_file = nil
@@ -22,7 +21,7 @@ end
 
 # Load covered cops list (one per line from --list-cops output)
 covered = if covered_cops_file && File.exist?(covered_cops_file)
-            File.readlines(covered_cops_file).map(&:strip).reject(&:empty?).to_set
+            Set.new(File.readlines(covered_cops_file).map(&:strip).reject(&:empty?))
           end
 
 # Path normalization: strip repo_dir prefix from nitrocop paths so both
@@ -36,15 +35,15 @@ end
 
 # Parse nitrocop JSON (flat: { offenses: [ { path, line, cop_name } ] })
 nitrocop_data = JSON.parse(File.read(nitrocop_file))
-nitrocop_offenses = Set.new
+nitrocop_counts = Hash.new(0)
 nitrocop_data["offenses"].each do |o|
   path = normalize_path(o["path"], repo_prefix)
-  nitrocop_offenses << [path, o["line"], o["cop_name"]]
+  nitrocop_counts[[path, o["line"], o["cop_name"]]] += 1
 end
 
 # Parse rubocop JSON (nested: { files: [ { path, offenses: [ { location: { start_line }, cop_name } ] } ] })
 rubocop_data = JSON.parse(File.read(rubocop_file))
-rubocop_offenses = Set.new
+rubocop_counts = Hash.new(0)
 rubocop_data["files"].each do |file_entry|
   path = file_entry["path"]
   (file_entry["offenses"] || []).each do |o|
@@ -52,32 +51,53 @@ rubocop_data["files"].each do |file_entry|
     # Filter to only cops nitrocop covers
     next if covered && !covered.include?(cop)
     line = o.dig("location", "start_line") || o.dig("location", "line")
-    rubocop_offenses << [path, line, cop]
+    rubocop_counts[[path, line, cop]] += 1
   end
 end
 
-# Compare
-false_positives = nitrocop_offenses - rubocop_offenses
-false_negatives = rubocop_offenses - nitrocop_offenses
-matches = nitrocop_offenses & rubocop_offenses
-total = (nitrocop_offenses | rubocop_offenses).size
-match_rate = total.zero? ? 100.0 : (matches.size.to_f / total * 100)
+# Compare using counter arithmetic (multiset)
+all_keys = (nitrocop_counts.keys + rubocop_counts.keys).uniq
+n_matches = 0
+n_fp = 0
+n_fn = 0
+per_cop = Hash.new { |h, k| h[k] = {fp: 0, fn: 0, match: 0} }
+
+all_keys.each do |key|
+  nc = nitrocop_counts[key]
+  rc = rubocop_counts[key]
+  matched = [nc, rc].min
+  excess = [nc - rc, 0].max
+  deficit = [rc - nc, 0].max
+  cop = key[2]
+
+  n_matches += matched
+  per_cop[cop][:match] += matched
+
+  if excess > 0
+    n_fp += excess
+    per_cop[cop][:fp] += excess
+  end
+  if deficit > 0
+    n_fn += deficit
+    per_cop[cop][:fn] += deficit
+  end
+end
+
+nitrocop_total = nitrocop_counts.values.sum
+rubocop_total = rubocop_counts.values.sum
+total = n_matches + n_fp + n_fn
+match_rate = total.zero? ? 100.0 : (n_matches.to_f / total * 100)
 
 puts "=== Conformance Report ==="
-puts "  nitrocop offenses:  #{nitrocop_offenses.size}"
-puts "  rubocop offenses: #{rubocop_offenses.size} (filtered to covered cops)"
-puts "  matches:          #{matches.size}"
-puts "  false positives:  #{false_positives.size} (nitrocop only)"
-puts "  false negatives:  #{false_negatives.size} (rubocop only)"
+puts "  nitrocop offenses:  #{nitrocop_total}"
+puts "  rubocop offenses: #{rubocop_total} (filtered to covered cops)"
+puts "  matches:          #{n_matches}"
+puts "  false positives:  #{n_fp} (nitrocop only)"
+puts "  false negatives:  #{n_fn} (rubocop only)"
 puts "  match rate:       #{"%.1f" % match_rate}%"
 puts ""
 
 # Per-cop breakdown (only cops with differences)
-per_cop = Hash.new { |h, k| h[k] = {fp: 0, fn: 0, match: 0} }
-false_positives.each { |_, _, cop| per_cop[cop][:fp] += 1 }
-false_negatives.each { |_, _, cop| per_cop[cop][:fn] += 1 }
-matches.each { |_, _, cop| per_cop[cop][:match] += 1 }
-
 divergent = per_cop.select { |_, v| v[:fp] > 0 || v[:fn] > 0 }
   .sort_by { |_, v| -(v[:fp] + v[:fn]) }
 
@@ -96,11 +116,11 @@ end
 # Write machine-readable JSON for report.rb
 if json_output_file
   report = {
-    nitrocop_count: nitrocop_offenses.size,
-    rubocop_count: rubocop_offenses.size,
-    matches: matches.size,
-    false_positives: false_positives.size,
-    false_negatives: false_negatives.size,
+    nitrocop_count: nitrocop_total,
+    rubocop_count: rubocop_total,
+    matches: n_matches,
+    false_positives: n_fp,
+    false_negatives: n_fn,
     match_rate: match_rate.round(1),
     per_cop: per_cop.transform_values { |v| {match: v[:match], fp: v[:fp], fn: v[:fn]} }
   }

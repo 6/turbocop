@@ -16,7 +16,7 @@ import argparse
 import json
 import math
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -84,7 +84,7 @@ def read_err_snippet(json_path: Path, tool: str) -> str:
     return ""
 
 
-def parse_nitrocop_json(path: Path) -> tuple[set, dict] | None:
+def parse_nitrocop_json(path: Path) -> tuple[Counter, dict] | None:
     """Parse nitrocop JSON output. Format: {"offenses": [...]}
     Returns (offenses_set, messages_dict) or None if the file is missing/empty/unparseable.
     messages_dict maps (filepath, line, cop) -> message."""
@@ -99,7 +99,7 @@ def parse_nitrocop_json(path: Path) -> tuple[set, dict] | None:
     except json.JSONDecodeError:
         return None
 
-    offenses = set()
+    offenses: Counter[tuple[str, int, str]] = Counter()
     messages = {}
     for o in data.get("offenses", []):
         filepath = strip_repo_prefix(o.get("path", ""))
@@ -107,14 +107,14 @@ def parse_nitrocop_json(path: Path) -> tuple[set, dict] | None:
         cop = o.get("cop_name", "")
         if filepath and cop:
             key = (filepath, line, cop)
-            offenses.add(key)
+            offenses[key] += 1
             msg = o.get("message", "")
             if msg:
                 messages[key] = msg
     return offenses, messages
 
 
-def parse_rubocop_json(path: Path) -> tuple[set, dict, set, int, int] | None:
+def parse_rubocop_json(path: Path) -> tuple[Counter, dict, set, int, int] | None:
     """Parse RuboCop JSON output. Format: {"files": [{"path": ..., "offenses": [...]}]}
     Returns (offenses, messages, inspected_files, target_file_count, inspected_file_count)
     or None if the file is missing/empty/unparseable.
@@ -132,7 +132,7 @@ def parse_rubocop_json(path: Path) -> tuple[set, dict, set, int, int] | None:
     except json.JSONDecodeError:
         return None
 
-    offenses = set()
+    offenses: Counter[tuple[str, int, str]] = Counter()
     messages = {}
     inspected_files = set()
     zero_offense_files = set()
@@ -147,7 +147,7 @@ def parse_rubocop_json(path: Path) -> tuple[set, dict, set, int, int] | None:
             cop = o.get("cop_name", "")
             if filepath and cop:
                 key = (filepath, line, cop)
-                offenses.add(key)
+                offenses[key] += 1
                 msg = o.get("message", "")
                 if msg:
                     messages[key] = msg
@@ -280,8 +280,8 @@ def main():
 
         # Filter to covered cops only (drop offenses from cops nitrocop doesn't implement)
         if covered_cops is not None:
-            tc_offenses = {o for o in tc_offenses if o[2] in covered_cops}
-            rc_offenses = {o for o in rc_offenses if o[2] in covered_cops}
+            tc_offenses = Counter({k: v for k, v in tc_offenses.items() if k[2] in covered_cops})
+            rc_offenses = Counter({k: v for k, v in rc_offenses.items() if k[2] in covered_cops})
 
         # Only compare files RuboCop actually inspected. RuboCop silently drops
         # files when its parser crashes mid-batch, producing phantom FPs for every
@@ -306,21 +306,35 @@ def main():
         # check_cop.py doesn't run RuboCop, so it can't replicate the
         # file-filtering step. The unfiltered count is stored in the
         # artifact so check-cop can compare against it instead.
-        for _, _, cop in tc_offenses:
-            by_cop_unfiltered[cop] = by_cop_unfiltered.get(cop, 0) + 1
+        for key, count in tc_offenses.items():
+            cop = key[2]
+            by_cop_unfiltered[cop] = by_cop_unfiltered.get(cop, 0) + count
             if multi_repo:
-                by_repo_cop[repo_id][cop]["nitro_unfiltered"] += 1
+                by_repo_cop[repo_id][cop]["nitro_unfiltered"] += count
 
         if rc_inspected_files:
-            tc_offenses = {o for o in tc_offenses if o[0] in rc_inspected_files}
+            tc_offenses = Counter({k: v for k, v in tc_offenses.items() if k[0] in rc_inspected_files})
 
-        matches = tc_offenses & rc_offenses
-        fp = tc_offenses - rc_offenses  # nitrocop-only (false positives)
-        fn = rc_offenses - tc_offenses  # rubocop-only (false negatives)
+        # Counter arithmetic: compare offense multiplicities, not just presence
+        all_keys = set(tc_offenses) | set(rc_offenses)
+        n_matches = 0
+        n_fp = 0
+        n_fn = 0
+        fp_keys = []   # (key, excess) for example generation
+        fn_keys = []   # (key, deficit) for example generation
+        for key in all_keys:
+            tc = tc_offenses[key]
+            rc = rc_offenses[key]
+            n_matches += min(tc, rc)
+            excess = tc - rc
+            deficit = rc - tc
+            if excess > 0:
+                n_fp += excess
+                fp_keys.append((key, excess))
+            if deficit > 0:
+                n_fn += deficit
+                fn_keys.append((key, deficit))
 
-        n_matches = len(matches)
-        n_fp = len(fp)
-        n_fn = len(fn)
         total = n_matches + n_fp + n_fn
         match_rate = n_matches / total if total > 0 else 1.0
 
@@ -354,28 +368,31 @@ def main():
             return loc
 
         # Per-cop aggregation
-        for _, _, cop in matches:
-            by_cop_matches[cop] += 1
-            if multi_repo:
-                by_repo_cop[repo_id][cop]["matches"] += 1
-        for filepath, line, cop in sorted(fp):
-            by_cop_fp[cop] += 1
-            key = (filepath, line, cop)
+        for key in all_keys:
+            cop = key[2]
+            matched = min(tc_offenses[key], rc_offenses[key])
+            if matched > 0:
+                by_cop_matches[cop] += matched
+                if multi_repo:
+                    by_repo_cop[repo_id][cop]["matches"] += matched
+        for (filepath, line, cop), excess in sorted(fp_keys):
+            by_cop_fp[cop] += excess
             loc = f"{repo_id}: {filepath}:{line}" if multi_repo else f"{filepath}:{line}"
             # FP = nitrocop fires but RuboCop doesn't → message comes from nitrocop
+            key = (filepath, line, cop)
             msg = tc_messages.get(key, "")
             by_cop_fp_examples[cop].append(_make_example(loc, msg, filepath, line, cop))
             if multi_repo:
-                by_repo_cop[repo_id][cop]["fp"] += 1
-        for filepath, line, cop in sorted(fn):
-            by_cop_fn[cop] += 1
-            key = (filepath, line, cop)
+                by_repo_cop[repo_id][cop]["fp"] += excess
+        for (filepath, line, cop), deficit in sorted(fn_keys):
+            by_cop_fn[cop] += deficit
             loc = f"{repo_id}: {filepath}:{line}" if multi_repo else f"{filepath}:{line}"
             # FN = RuboCop fires but nitrocop doesn't → message comes from RuboCop
+            key = (filepath, line, cop)
             msg = rc_messages.get(key, "")
             by_cop_fn_examples[cop].append(_make_example(loc, msg, filepath, line, cop))
             if multi_repo:
-                by_repo_cop[repo_id][cop]["fn"] += 1
+                by_repo_cop[repo_id][cop]["fn"] += deficit
 
         result = {
             "repo": repo_id,
@@ -384,8 +401,8 @@ def main():
             "matches": n_matches,
             "fp": n_fp,
             "fn": n_fn,
-            "nitrocop_total": len(tc_offenses),
-            "rubocop_total": len(rc_offenses),
+            "nitrocop_total": sum(tc_offenses.values()),
+            "rubocop_total": sum(rc_offenses.values()),
             "files_inspected": len(rc_inspected_files),
         }
 
