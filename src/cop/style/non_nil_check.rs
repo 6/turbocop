@@ -3,6 +3,10 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Matches `!= nil` while preserving RuboCop's predicate-method exception:
+/// only the final predicate expression itself is exempt, not nested checks
+/// inside a larger `&&`/`rescue` expression, while parenthesized final checks
+/// are still exempt.
 pub struct NonNilCheck;
 
 impl Cop for NonNilCheck {
@@ -26,7 +30,7 @@ impl Cop for NonNilCheck {
             diagnostics: Vec::new(),
             include_semantic_changes,
             in_predicate_method: false,
-            predicate_last_stmt_offset: None,
+            predicate_last_expr_span: None,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -39,8 +43,43 @@ struct NonNilCheckVisitor<'a, 'src> {
     diagnostics: Vec<Diagnostic>,
     include_semantic_changes: bool,
     in_predicate_method: bool,
-    /// Start offset of the last statement in the current predicate method body.
-    predicate_last_stmt_offset: Option<usize>,
+    /// Span of the final predicate expression after unwrapping transparent wrappers.
+    predicate_last_expr_span: Option<NodeSpan>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct NodeSpan {
+    start: usize,
+    end: usize,
+}
+
+impl NodeSpan {
+    fn from_node(node: &ruby_prism::Node<'_>) -> Self {
+        let loc = node.location();
+        Self {
+            start: loc.start_offset(),
+            end: loc.end_offset(),
+        }
+    }
+}
+
+fn last_predicate_expression<'pr>(node: ruby_prism::Node<'pr>) -> Option<ruby_prism::Node<'pr>> {
+    if let Some(statements) = node.as_statements_node() {
+        statements
+            .body()
+            .iter()
+            .last()
+            .and_then(last_predicate_expression)
+    } else if let Some(begin) = node.as_begin_node() {
+        begin
+            .statements()
+            .and_then(|statements| statements.body().iter().last())
+            .and_then(last_predicate_expression)
+    } else if let Some(parentheses) = node.as_parentheses_node() {
+        parentheses.body().and_then(last_predicate_expression)
+    } else {
+        Some(node)
+    }
 }
 
 impl<'pr> Visit<'pr> for NonNilCheckVisitor<'_, '_> {
@@ -49,18 +88,13 @@ impl<'pr> Visit<'pr> for NonNilCheckVisitor<'_, '_> {
         let is_predicate = name.ends_with(b"?");
 
         let prev_in_predicate = self.in_predicate_method;
-        let prev_last_offset = self.predicate_last_stmt_offset;
+        let prev_last_expr_span = self.predicate_last_expr_span;
 
         self.in_predicate_method = is_predicate;
-        self.predicate_last_stmt_offset = if is_predicate {
-            node.body().and_then(|body| {
-                if let Some(stmts) = body.as_statements_node() {
-                    let body_stmts: Vec<_> = stmts.body().iter().collect();
-                    body_stmts.last().map(|n| n.location().start_offset())
-                } else {
-                    Some(body.location().start_offset())
-                }
-            })
+        self.predicate_last_expr_span = if is_predicate {
+            node.body()
+                .and_then(last_predicate_expression)
+                .map(|node| NodeSpan::from_node(&node))
         } else {
             None
         };
@@ -68,7 +102,7 @@ impl<'pr> Visit<'pr> for NonNilCheckVisitor<'_, '_> {
         ruby_prism::visit_def_node(self, node);
 
         self.in_predicate_method = prev_in_predicate;
-        self.predicate_last_stmt_offset = prev_last_offset;
+        self.predicate_last_expr_span = prev_last_expr_span;
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
@@ -84,7 +118,8 @@ impl<'pr> Visit<'pr> for NonNilCheckVisitor<'_, '_> {
                 {
                     // RuboCop skips the last expression of predicate methods (def foo?)
                     let is_predicate_return = self.in_predicate_method
-                        && self.predicate_last_stmt_offset == Some(node.location().start_offset());
+                        && self.predicate_last_expr_span
+                            == Some(NodeSpan::from_node(&node.as_node()));
                     if !is_predicate_return {
                         let loc = node.location();
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
@@ -121,8 +156,8 @@ impl<'pr> Visit<'pr> for NonNilCheckVisitor<'_, '_> {
                         && inner_call.receiver().is_some()
                     {
                         let is_predicate_return = self.in_predicate_method
-                            && self.predicate_last_stmt_offset
-                                == Some(node.location().start_offset());
+                            && self.predicate_last_expr_span
+                                == Some(NodeSpan::from_node(&node.as_node()));
                         if !is_predicate_return {
                             let loc = node.location();
                             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
