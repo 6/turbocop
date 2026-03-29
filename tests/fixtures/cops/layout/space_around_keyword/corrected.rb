@@ -43,3 +43,12 @@ end
 message = <<~EOS
   Actual response code: #{response.code if (response)}
 EOS
+
+it "can make a new query with a new limit" do :w
+  nil
+end
+
+case conf[:mode]
+when :new_ring
+  nil
+end

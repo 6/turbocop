@@ -7,7 +7,7 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-10, updated 2026-03-14)
+/// ## Corpus investigation (2026-03-10, updated 2026-03-29)
 ///
 /// **Round 1 (FP=4, FN=87):** FPs were `.when(...)` Arel method calls.
 /// Fixed by checking for `.` or `&.` before keyword. FNs were missing
@@ -71,6 +71,18 @@ use crate::parse::source::SourceFile;
 ///   a comment sentence (e.g., `# some explanation.` on the previous line).
 ///   Fixed by passing `code_map` to `is_method_call` and requiring the `.` or
 ///   `::` to be in code (not inside a comment/string).
+///
+/// **Round 7 (local follow-up on 2026-03-29):**
+/// - `verify_cop_locations.py` showed the earlier 30 FP corpus mismatches were
+///   already fixed on this branch; only 2 FN remained.
+/// - FN: `do:w` and `when:new_ring` were both suppressed by the text-only
+///   `is_hash_key` heuristic, which treated any `keyword:` as a label.
+/// - Fixed by replacing that heuristic with AST-collected label-key positions
+///   from Prism `AssocNode`s. Real labels like `case:` still skip, but symbol
+///   literals after keywords (`when:new_ring`, `do:w`) are now flagged.
+/// - FP regression guard: RuboCop accepts `then'foo'` / `then:bar` inside
+///   `when` branches because it only checks `then` for `if` nodes. We now skip
+///   `WhenNode.then_keyword_loc()` positions while still checking `if ... then`.
 pub struct SpaceAroundKeyword;
 
 /// Keywords that accept `(` immediately after them (no space required).
@@ -217,13 +229,17 @@ impl Cop for SpaceAroundKeyword {
         diagnostics: &mut Vec<Diagnostic>,
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Collect `end` keyword positions that RuboCop does not check
-        // (def, class, module, singleton class).
-        let mut collector = EndSkipCollector {
-            skip_positions: HashSet::new(),
+        // Collect source offsets where RuboCop's AST semantics differ from
+        // raw keyword text scanning.
+        let mut collector = KeywordSkipCollector {
+            skip_end_positions: HashSet::new(),
+            hash_key_positions: HashSet::new(),
+            when_then_positions: HashSet::new(),
         };
         collector.visit(&parse_result.node());
-        let skip_end_positions = collector.skip_positions;
+        let skip_end_positions = collector.skip_end_positions;
+        let hash_key_positions = collector.hash_key_positions;
+        let when_then_positions = collector.when_then_positions;
 
         let bytes = source.as_bytes();
         let len = bytes.len();
@@ -309,12 +325,17 @@ impl Cop for SpaceAroundKeyword {
                     }
                 }
 
-                // Check if used as a hash key (`end:`, `case:`) — not a keyword
-                if is_hash_key(bytes, i, kw_len) {
+                // AST-collected keyword labels (`case:`, `end:`) are symbol keys,
+                // not executable keywords.
+                if hash_key_positions.contains(&i) {
                     continue;
                 }
 
                 let kw_str = std::str::from_utf8(kw).unwrap_or("");
+
+                if kw == b"then" && when_then_positions.contains(&i) {
+                    continue;
+                }
 
                 // --- Check "space before missing" ---
                 // Skip `end` keywords from def/class/module — RuboCop doesn't check those.
@@ -438,23 +459,6 @@ fn is_symbol_literal(bytes: &[u8], i: usize) -> bool {
     true
 }
 
-/// Check if the keyword at position `i` is used as a hash key (`end:`, `case:`)
-/// where a colon follows the keyword without space. The colon must NOT be `::`.
-fn is_hash_key(bytes: &[u8], i: usize, kw_len: usize) -> bool {
-    let end_pos = i + kw_len;
-    if end_pos >= bytes.len() {
-        return false;
-    }
-    if bytes[end_pos] != b':' {
-        return false;
-    }
-    // Make sure it's not `::` (namespace operator)
-    if end_pos + 1 < bytes.len() && bytes[end_pos + 1] == b':' {
-        return false;
-    }
-    true
-}
-
 /// Returns true if this keyword accepts `(` immediately after it.
 fn is_accept_left_paren(kw: &[u8]) -> bool {
     ACCEPT_LEFT_PAREN.contains(&kw)
@@ -469,35 +473,58 @@ fn is_accept_left_bracket(kw: &[u8]) -> bool {
 /// "space before". RuboCop only checks `end` for: begin..end, do..end blocks,
 /// if/unless/case (with 'then' begin_keyword), while/until/for with `do`.
 /// It does NOT check `end` for: def, class, module, singleton class.
-struct EndSkipCollector {
-    skip_positions: HashSet<usize>,
+struct KeywordSkipCollector {
+    skip_end_positions: HashSet<usize>,
+    hash_key_positions: HashSet<usize>,
+    when_then_positions: HashSet<usize>,
 }
 
-impl<'pr> Visit<'pr> for EndSkipCollector {
+impl<'pr> Visit<'pr> for KeywordSkipCollector {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         if let Some(end_loc) = node.end_keyword_loc() {
-            self.skip_positions.insert(end_loc.start_offset());
+            self.skip_end_positions.insert(end_loc.start_offset());
         }
         // Continue visiting children (nested defs, etc.)
         ruby_prism::visit_def_node(self, node);
     }
 
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
-        self.skip_positions
+        self.skip_end_positions
             .insert(node.end_keyword_loc().start_offset());
         ruby_prism::visit_class_node(self, node);
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        self.skip_positions
+        self.skip_end_positions
             .insert(node.end_keyword_loc().start_offset());
         ruby_prism::visit_module_node(self, node);
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
-        self.skip_positions
+        self.skip_end_positions
             .insert(node.end_keyword_loc().start_offset());
         ruby_prism::visit_singleton_class_node(self, node);
+    }
+
+    fn visit_assoc_node(&mut self, node: &ruby_prism::AssocNode<'pr>) {
+        // Label keys like `case:` / `end:` have no opening `:` in Prism, unlike
+        // symbol literals after keywords (`when:new_ring`, `do:w`) which do.
+        if node.operator_loc().is_none() {
+            if let Some(symbol) = node.key().as_symbol_node() {
+                if symbol.opening_loc().is_none() {
+                    self.hash_key_positions
+                        .insert(symbol.location().start_offset());
+                }
+            }
+        }
+        ruby_prism::visit_assoc_node(self, node);
+    }
+
+    fn visit_when_node(&mut self, node: &ruby_prism::WhenNode<'pr>) {
+        if let Some(then_loc) = node.then_keyword_loc() {
+            self.when_then_positions.insert(then_loc.start_offset());
+        }
+        ruby_prism::visit_when_node(self, node);
     }
 }
 
