@@ -83,6 +83,17 @@ use crate::parse::source::SourceFile;
 /// All FN verified fixed. Remaining FP=5: auth0 (2), gisiahq (1),
 /// noosfero (1), samvera (1) — all config resolution or vendored file issues.
 /// No cop-level fix needed.
+///
+/// ## Inline enable directive fix (2026-03-29)
+///
+/// FP root cause: `end # rubocop:enable Cop` (inline/trailing enable) was
+/// incorrectly closing block `# rubocop:disable Cop` directives. In RuboCop,
+/// inline enables are no-ops — they do NOT close an open block disable. Only
+/// standalone `# rubocop:enable Cop` (on its own line) closes a block disable.
+/// This caused the samvera/hyrax FP: the file had a block disable for
+/// CyclomaticComplexity with an inline enable on the `end` line, making the
+/// disable extend to EOF in RuboCop but not in nitrocop.
+/// Fix: skip inline enables in `src/parse/directives.rs`.
 pub struct CyclomaticComplexity;
 
 #[derive(Default)]

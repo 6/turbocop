@@ -366,6 +366,13 @@ impl DisabledRanges {
                     }
                 }
                 "enable" => {
+                    // Inline enables (trailing comment on a code line) do NOT
+                    // close block disables in RuboCop. Only standalone enables
+                    // (on their own line) close open block disables. An inline
+                    // enable is effectively a no-op.
+                    if is_inline {
+                        continue;
+                    }
                     for &cop in &cop_names {
                         // Normalize Department::CopName -> Department/CopName
                         let cop = normalize_directive_cop_name(cop);
@@ -898,6 +905,40 @@ mod tests {
         let dr = disabled_ranges("# rubocop:enable Foo/Bar\nx = 1\n");
         assert!(!dr.is_disabled("Foo/Bar", 1));
         assert!(!dr.is_disabled("Foo/Bar", 2));
+    }
+
+    #[test]
+    fn inline_enable_does_not_close_block_disable() {
+        // RuboCop: inline `# rubocop:enable` (trailing comment on a code line)
+        // does NOT close a block `# rubocop:disable`. The block disable stays
+        // open to EOF. Only standalone enables close block disables.
+        let src = "# rubocop:disable Foo/Bar\nx = 1\nend # rubocop:enable Foo/Bar\ny = 2\nz = 3\n";
+        let dr = disabled_ranges(src);
+        assert!(dr.is_disabled("Foo/Bar", 1), "block disable should cover line 1");
+        assert!(dr.is_disabled("Foo/Bar", 2), "block disable should cover line 2");
+        assert!(
+            dr.is_disabled("Foo/Bar", 3),
+            "block disable should cover the inline enable line"
+        );
+        assert!(
+            dr.is_disabled("Foo/Bar", 4),
+            "block disable should extend past inline enable (to EOF)"
+        );
+        assert!(
+            dr.is_disabled("Foo/Bar", 5),
+            "block disable should extend to EOF"
+        );
+    }
+
+    #[test]
+    fn standalone_enable_does_close_block_disable() {
+        // Standalone `# rubocop:enable` on its own line DOES close a block disable.
+        let src = "# rubocop:disable Foo/Bar\nx = 1\n# rubocop:enable Foo/Bar\ny = 2\n";
+        let dr = disabled_ranges(src);
+        assert!(dr.is_disabled("Foo/Bar", 1));
+        assert!(dr.is_disabled("Foo/Bar", 2));
+        assert!(dr.is_disabled("Foo/Bar", 3)); // enable line itself is still in range
+        assert!(!dr.is_disabled("Foo/Bar", 4)); // after enable, no longer disabled
     }
 
     #[test]
