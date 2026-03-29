@@ -49,6 +49,35 @@ begin
   install_ri
 rescue NameError; nil end
 
+begin
+  install_ri
+
+rescue NameError; nil end
+
+def foo
+  work rescue nil
+
+  other
+end
+
+def multi_statement_method
+  first
+
+  work rescue nil
+end
+
+foo do
+  work rescue nil
+
+  other
+end
+
+foo do
+  first
+
+  work rescue nil
+end
+
 def install_rdoc
   install_rdoc_yard
 end
