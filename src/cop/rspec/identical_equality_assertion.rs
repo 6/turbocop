@@ -128,7 +128,9 @@ impl Cop for IdenticalEqualityAssertion {
     }
 }
 
-fn matcher_argument<'pr>(matcher_call: &ruby_prism::CallNode<'pr>) -> Option<ruby_prism::Node<'pr>> {
+fn matcher_argument<'pr>(
+    matcher_call: &ruby_prism::CallNode<'pr>,
+) -> Option<ruby_prism::Node<'pr>> {
     let matcher_args = matcher_call.arguments()?;
     let mut matcher_arg_list = matcher_args.arguments().iter();
     let matcher_arg = matcher_arg_list.next()?;
