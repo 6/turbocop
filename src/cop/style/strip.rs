@@ -7,12 +7,15 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Investigation notes
 ///
-/// Historical corpus mismatches came from implicit-receiver chains like
-/// `lstrip.rstrip` and `lstrip.rstrip.gsub(...)`. The previous implementation
-/// required the inner strip call to have an explicit receiver, so methods that
-/// implicitly target `self` were skipped. RuboCop still flags those forms, so
-/// this cop now accepts a missing inner receiver and autocorrects it to
-/// `strip` rather than `.strip`.
+/// Historical corpus mismatches came from two contexts:
+/// - implicit-receiver chains like `lstrip.rstrip`, which RuboCop still flags
+/// - multiline receiver chains ending in `lstrip.rstrip`, where `node.location()`
+///   starts at the beginning of the whole receiver chain instead of the first
+///   strip selector
+///
+/// The cop now accepts missing inner receivers and reports/autocorrects from
+/// the first strip selector (`inner_call.message_loc()`), matching RuboCop's
+/// `first_send.loc.selector`.
 pub struct Strip;
 
 impl Cop for Strip {
@@ -73,26 +76,21 @@ impl Cop for Strip {
                 let outer_str = std::str::from_utf8(outer_bytes).unwrap_or("");
                 let methods = format!("{}.{}", inner_str, outer_str);
 
-                let loc = node.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                let inner_loc = inner_call.message_loc().unwrap_or_else(|| inner_call.location());
+                let (line, column) = source.offset_to_line_col(inner_loc.start_offset());
                 let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Use `strip` instead of `{}`.", methods),
                 );
-                // Autocorrect: preserve whether the inner strip call had an explicit receiver.
+                // Autocorrect only the strip pair so multiline chaining keeps its
+                // existing call operator, whitespace, and indentation.
                 if let Some(ref mut corr) = corrections {
-                    let (start, replacement) = if let Some(inner_receiver) = inner_call.receiver() {
-                        (inner_receiver.location().end_offset(), ".strip".to_string())
-                    } else {
-                        (node.location().start_offset(), "strip".to_string())
-                    };
-
                     corr.push(crate::correction::Correction {
-                        start,
+                        start: inner_loc.start_offset(),
                         end: node.location().end_offset(),
-                        replacement,
+                        replacement: "strip".to_string(),
                         cop_name: self.name(),
                         cop_index: 0,
                     });
