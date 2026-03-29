@@ -537,27 +537,51 @@ def _find_enclosing_structure(
 
     Scans backwards from the offense line looking for block-opening keywords
     to help the agent understand what context makes a FP/FN different."""
+    chain = _find_enclosing_structures(source_lines, offense_line_idx)
+    return chain[0] if chain else None
+
+
+def _find_enclosing_structures(
+    source_lines: list[str], offense_line_idx: int | None,
+    *, real_line_offset: int = 0,
+) -> list[str]:
+    """Identify ALL enclosing Ruby structures around the offense line.
+
+    Returns a list from innermost to outermost.  *real_line_offset* is added
+    to the 0-based index when building the ``(line N: ...)`` label so that
+    callers using a full-file slice can report real line numbers."""
     if offense_line_idx is None or offense_line_idx == 0:
-        return None
+        return []
 
-    # Get indentation of offense line
-    offense = source_lines[offense_line_idx]
-    offense_indent = len(offense) - len(offense.lstrip())
+    results: list[str] = []
+    current_indent = len(source_lines[offense_line_idx]) - len(
+        source_lines[offense_line_idx].lstrip()
+    )
 
-    # Scan backwards for enclosing structure with less indentation
+    # Scan backwards, collecting every enclosing block at decreasing indent
     for i in range(offense_line_idx - 1, -1, -1):
         line = source_lines[i]
         stripped = line.lstrip()
         if not stripped or stripped.startswith("#"):
             continue
         line_indent = len(line) - len(stripped)
-        if line_indent < offense_indent:
+        if line_indent < current_indent:
+            real_line = i + 1 + real_line_offset  # 1-indexed
+            matched = False
             for pattern, desc in _ENCLOSING_PATTERNS:
                 if re.match(pattern, line):
-                    return f"{desc} (line: `{stripped.rstrip()}`)"
-            # Generic: just report the line
-            return f"enclosing line: `{stripped.rstrip()}`"
-    return None
+                    results.append(f"{desc} (line {real_line}: `{stripped.rstrip()}`)")
+                    matched = True
+                    break
+            if not matched:
+                results.append(
+                    f"enclosing line {real_line}: `{stripped.rstrip()}`"
+                )
+            current_indent = line_indent
+            if line_indent == 0:
+                break  # reached top-level
+
+    return results
 
 
 def _get_prism_node_type(source: str, line: int) -> str | None:
@@ -593,6 +617,70 @@ puts types.join(' > ') unless types.empty?
         return out if out else None
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
+
+
+_MANIFEST_CACHE: dict[str, dict] | None = None
+
+
+def _load_manifest() -> dict[str, dict]:
+    """Load bench/corpus/manifest.jsonl into {repo_id: {repo_url, sha}}."""
+    global _MANIFEST_CACHE
+    if _MANIFEST_CACHE is not None:
+        return _MANIFEST_CACHE
+    manifest_path = PROJECT_ROOT / "bench" / "corpus" / "manifest.jsonl"
+    result: dict[str, dict] = {}
+    try:
+        for line in manifest_path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            rid = entry.get("id", "")
+            if rid:
+                result[rid] = {
+                    "repo_url": entry.get("repo_url", ""),
+                    "sha": entry.get("sha", ""),
+                }
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    _MANIFEST_CACHE = result
+    return result
+
+
+def _fetch_full_file(repo_url: str, sha: str, filepath: str) -> str | None:
+    """Fetch a single file from GitHub via raw.githubusercontent.com.
+
+    Returns file content or None on failure."""
+    # repo_url is like https://github.com/owner/repo
+    parts = repo_url.rstrip("/").split("/")
+    if len(parts) < 2:
+        return None
+    owner, repo = parts[-2], parts[-1]
+    url = f"https://raw.githubusercontent.com/{owner}/{repo}/{sha}/{filepath}"
+    try:
+        import urllib.request
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        return None
+
+
+def _run_nitrocop_on_file(
+    binary_path: Path, file_content: str, cop: str, filename: str = "test.rb",
+) -> list[dict]:
+    """Run nitrocop on arbitrary file content, return offenses list."""
+    tmp_dir = tempfile.mkdtemp(prefix="nitrocop_diag_ff_")
+    tmp_path = os.path.join(tmp_dir, filename)
+    try:
+        with open(tmp_path, "w") as f:
+            f.write(file_content)
+        return _run_nitrocop(binary_path, tmp_dir, cop)
+    finally:
+        try:
+            os.unlink(tmp_path)
+            os.rmdir(tmp_dir)
+        except OSError:
+            pass
 
 
 def _run_nitrocop(binary_path: Path, cwd: str, cop: str = "") -> list[dict]:
@@ -688,6 +776,67 @@ def run_diagnostic(
                         "\n".join(source_lines), offense_line_idx + 1,
                     )
 
+                # --- Full-file fallback ---
+                # When the snippet doesn't detect an FN, the extracted
+                # context may be too narrow (e.g. an `if` wrapping the
+                # entire class 60 lines above).  Fetch the real file and
+                # re-test to distinguish "snippet too narrow" from
+                # "genuine code bug".
+                full_file_detected: bool | None = None
+                full_file_enclosing: str | None = None
+                full_file_context: str | None = None
+                diagnosis_note: str | None = None
+
+                if not detected and kind == "fn":
+                    parsed = _parse_example_loc(loc)
+                    if parsed:
+                        repo_id, filepath, real_line = parsed
+                        manifest = _load_manifest()
+                        entry = manifest.get(repo_id)
+                        if entry and entry["repo_url"] and entry["sha"]:
+                            content = _fetch_full_file(
+                                entry["repo_url"], entry["sha"], filepath,
+                            )
+                            if content is not None:
+                                ff_offenses = _run_nitrocop_on_file(
+                                    binary_path, content, cop,
+                                    filename=os.path.basename(filepath),
+                                )
+                                ff_hit = any(
+                                    o.get("line") == real_line
+                                    for o in ff_offenses
+                                )
+                                full_file_detected = ff_hit
+
+                                # Build enclosing chain from the full file
+                                full_lines = content.splitlines()
+                                if 0 < real_line <= len(full_lines):
+                                    chain = _find_enclosing_structures(
+                                        full_lines, real_line - 1,
+                                        real_line_offset=0,
+                                    )
+                                    if chain:
+                                        full_file_enclosing = " > ".join(chain)
+
+                                    # Provide broader context (30 lines before)
+                                    ctx_start = max(0, real_line - 1 - 30)
+                                    ctx_end = min(len(full_lines), real_line + 7)
+                                    ctx_lines = []
+                                    for ci in range(ctx_start, ctx_end):
+                                        marker = ">>> " if ci == real_line - 1 else "    "
+                                        ctx_lines.append(
+                                            f"{marker}{ci + 1:>5}: {full_lines[ci]}"
+                                        )
+                                    full_file_context = "\n".join(ctx_lines)
+
+                                if ff_hit:
+                                    diagnosis_note = (
+                                        "Snippet too narrow — offense is detected "
+                                        "in the full file but not in the ±7-line "
+                                        "extract. The enclosing structure chain "
+                                        "shows the missing context."
+                                    )
+
                 results.append({
                     "kind": kind, "loc": loc, "msg": msg,
                     "diagnosed": True, "detected": detected,
@@ -696,6 +845,10 @@ def run_diagnostic(
                     "enclosing": enclosing,
                     "node_type": node_type,
                     "source_context": "\n".join(source_lines),
+                    "full_file_detected": full_file_detected,
+                    "full_file_enclosing": full_file_enclosing,
+                    "full_file_context": full_file_context,
+                    "diagnosis_note": diagnosis_note,
                 })
             except Exception as e:
                 results.append({
@@ -740,8 +893,15 @@ def _format_with_diagnostics(
     fn_undiagnosed = [d for d in fn_diags if not d.get("diagnosed")]
     fp_undiagnosed = [d for d in fp_diags if not d.get("diagnosed")]
 
-    # Summary counts
-    fn_code_bugs = sum(1 for d in fn_diagnosed if not d.get("detected"))
+    # Summary counts — full-file fallback can reclassify snippet misses
+    fn_code_bugs = sum(
+        1 for d in fn_diagnosed
+        if not d.get("detected") and not d.get("full_file_detected")
+    )
+    fn_context_narrow = sum(
+        1 for d in fn_diagnosed
+        if not d.get("detected") and d.get("full_file_detected")
+    )
     fn_config = sum(1 for d in fn_diagnosed if d.get("detected"))
     fp_code_bugs = sum(1 for d in fp_diagnosed if d.get("detected"))
     fp_config = sum(1 for d in fp_diagnosed if not d.get("detected"))
@@ -753,7 +913,14 @@ def _format_with_diagnostics(
     lines.append("seems wrong (e.g., your test passes immediately for a 'CODE BUG'), treat it as")
     lines.append("a config/context issue instead.\n")
     if fn_diags:
-        lines.append(f"- **FN:** {fn_code_bugs} code bug(s), {fn_config} config/context issue(s)")
+        parts = []
+        if fn_code_bugs:
+            parts.append(f"{fn_code_bugs} code bug(s)")
+        if fn_context_narrow:
+            parts.append(f"{fn_context_narrow} context-dependent (detected in full file only)")
+        if fn_config:
+            parts.append(f"{fn_config} config/context issue(s)")
+        lines.append(f"- **FN:** {', '.join(parts)}" if parts else "- **FN:** 0 issues")
     if fp_diags:
         lines.append(f"- **FP:** {fp_code_bugs} confirmed code bug(s), {fp_config} context-dependent")
     if fn_diagnosed and fn_undiagnosed:
@@ -791,10 +958,25 @@ def _format_with_diagnostics(
                 lines.append("The corpus FN is caused by the target repo's configuration")
                 lines.append("(Include/Exclude patterns, cop disabled, file outside scope,")
                 lines.append("or `rubocop:disable` comment). Investigate config resolution.")
+            elif d.get("full_file_detected"):
+                lines.append("**DETECTED in full file only — CONTEXT-DEPENDENT**")
+                lines.append("The ±7-line snippet is too narrow to reproduce this offense.")
+                lines.append("The offense depends on file-level structure (e.g., an enclosing")
+                lines.append("`if`/`while`/`unless` far above the offense line).")
+                if d.get("diagnosis_note"):
+                    lines.append(f"\n> {d['diagnosis_note']}")
+                if d.get("full_file_enclosing"):
+                    lines.append(f"\n**Full-file enclosing chain:** {d['full_file_enclosing']}")
+                    lines.append("Read the chain from left (innermost) to right (outermost).")
+                    lines.append("The outermost structure is likely the condition that makes")
+                    lines.append("this assignment an offense. Your test fixture must include")
+                    lines.append("that enclosing structure.")
             else:
                 lines.append("**NOT DETECTED — CODE BUG**")
                 lines.append("The cop fails to detect this pattern. Fix the detection logic.")
-                if d.get("enclosing"):
+                if d.get("full_file_enclosing"):
+                    lines.append(f"\n**Full-file enclosing chain:** {d['full_file_enclosing']}")
+                elif d.get("enclosing"):
                     lines.append(f"\n**Enclosing structure:** {d['enclosing']}")
                     lines.append("The offense is inside this structure — the cop may need")
                     lines.append("to handle this context to detect the pattern.")
@@ -804,7 +986,11 @@ def _format_with_diagnostics(
             if d.get("test_snippet"):
                 lines.append("\nReady-made test snippet (add to offense.rb, adjust `^` count):")
                 lines.append(f"```ruby\n{d['test_snippet']}\n```")
-            if d.get("source_context"):
+            # Prefer full-file context when available (broader view)
+            if d.get("full_file_context"):
+                lines.append("\nFull file context (30 lines before offense):")
+                lines.append(f"```\n{d['full_file_context']}\n```")
+            elif d.get("source_context"):
                 lines.append("\nFull source context:")
                 lines.append(f"```ruby\n{d['source_context']}\n```")
         else:
@@ -978,9 +1164,9 @@ def generate_task(
         for d in diagnostics:
             if not d.get("diagnosed"):
                 continue
-            if d["kind"] == "fn" and not d.get("detected"):
+            if d["kind"] == "fn" and not d.get("detected") and not d.get("full_file_detected"):
                 has_code_bugs = True
-            elif d["kind"] == "fn" and d.get("detected"):
+            elif d["kind"] == "fn" and (d.get("detected") or d.get("full_file_detected")):
                 has_config_issues = True
             elif d["kind"] == "fp" and d.get("detected"):
                 has_code_bugs = True
