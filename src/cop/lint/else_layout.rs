@@ -1,8 +1,13 @@
-use crate::cop::node_type::{ELSE_NODE, IF_NODE};
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+const MSG: &str = "Odd `else` layout detected. Did you mean to use `elsif`?";
+
+/// Mirrors RuboCop's `Lint/ElseLayout`, including Prism's separate `UnlessNode`
+/// handling so multiline `unless ... else expr` branches on the `else` line are
+/// flagged the same way as `if ... else expr`.
 pub struct ElseLayout;
 
 impl Cop for ElseLayout {
@@ -15,7 +20,7 @@ impl Cop for ElseLayout {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ELSE_NODE, IF_NODE]
+        &[IF_NODE, UNLESS_NODE]
     }
 
     fn check_node(
@@ -27,74 +32,81 @@ impl Cop for ElseLayout {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let if_node = match node.as_if_node() {
-            Some(n) => n,
-            None => return,
-        };
+        if let Some(if_node) = node.as_if_node() {
+            let if_kw_loc = match if_node.if_keyword_loc() {
+                Some(loc) => loc,
+                None => return,
+            };
 
-        // Must be a keyword if/unless (not ternary)
-        let if_kw_loc = match if_node.if_keyword_loc() {
-            Some(loc) => loc,
-            None => return,
-        };
-
-        // If the entire if is on a single line, skip (handled by Style/OneLineConditional)
-        let (if_line, _) = source.offset_to_line_col(if_kw_loc.start_offset());
-        let end_offset = node.location().end_offset().saturating_sub(1);
-        let (end_line, _) = source.offset_to_line_col(end_offset);
-        if if_line == end_line {
+            let else_node = if_node.subsequent().and_then(|subsequent| subsequent.as_else_node());
+            check_else_layout(
+                self,
+                source,
+                if_kw_loc.start_offset(),
+                if_node.location().end_offset(),
+                if_node.then_keyword_loc().is_some(),
+                else_node,
+                diagnostics,
+            );
             return;
         }
 
-        // Check the subsequent (else/elsif) clause
-        let subsequent = match if_node.subsequent() {
-            Some(s) => s,
-            None => return,
-        };
-
-        // We only care about else clauses, not elsif
-        // An else clause in Prism is represented as an ElseNode
-        let else_node = match subsequent.as_else_node() {
-            Some(e) => e,
-            None => return,
-        };
-
-        let else_kw_loc = else_node.else_keyword_loc();
-        let (else_line, _) = source.offset_to_line_col(else_kw_loc.start_offset());
-
-        // Check if there's a statement on the same line as else
-        let statements = match else_node.statements() {
-            Some(s) => s,
-            None => return,
-        };
-
-        let body = statements.body();
-        let first_stmt = match body.first() {
-            Some(s) => s,
-            None => return,
-        };
-
-        // If the if uses `then` and the else branch is a single statement, skip.
-        // RuboCop allows `if x then y \n else z \n end` (then-style with single else body).
-        // Only flag when the else body has multiple statements (begin_type in RuboCop).
-        if if_node.then_keyword_loc().is_some() && body.len() == 1 {
-            return;
-        }
-
-        let first_loc = first_stmt.location();
-        let (stmt_line, stmt_col) = source.offset_to_line_col(first_loc.start_offset());
-
-        if stmt_line == else_line {
-            diagnostics.push(
-                self.diagnostic(
-                    source,
-                    stmt_line,
-                    stmt_col,
-                    "Odd `else` layout detected. Code on the same line as `else` is not allowed."
-                        .to_string(),
-                ),
+        if let Some(unless_node) = node.as_unless_node() {
+            check_else_layout(
+                self,
+                source,
+                unless_node.keyword_loc().start_offset(),
+                unless_node.location().end_offset(),
+                unless_node.then_keyword_loc().is_some(),
+                unless_node.else_clause(),
+                diagnostics,
             );
         }
+    }
+}
+
+fn check_else_layout(
+    cop: &ElseLayout,
+    source: &SourceFile,
+    conditional_start: usize,
+    conditional_end: usize,
+    has_then_keyword: bool,
+    else_node: Option<ruby_prism::ElseNode<'_>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let else_node = match else_node {
+        Some(node) => node,
+        None => return,
+    };
+
+    // If the entire conditional is on a single line, skip (handled by Style/OneLineConditional).
+    let (start_line, _) = source.offset_to_line_col(conditional_start);
+    let end_offset = conditional_end.saturating_sub(1);
+    let (end_line, _) = source.offset_to_line_col(end_offset);
+    if start_line == end_line {
+        return;
+    }
+
+    let statements = match else_node.statements() {
+        Some(statements) => statements,
+        None => return,
+    };
+    let body = statements.body();
+    let first_stmt = match body.first() {
+        Some(statement) => statement,
+        None => return,
+    };
+
+    // RuboCop allows `if x then y \n else z \n end` and the equivalent `unless`
+    // form when the else body is a single statement.
+    if has_then_keyword && body.len() == 1 {
+        return;
+    }
+
+    let (else_line, _) = source.offset_to_line_col(else_node.else_keyword_loc().start_offset());
+    let (stmt_line, stmt_col) = source.offset_to_line_col(first_stmt.location().start_offset());
+    if stmt_line == else_line {
+        diagnostics.push(cop.diagnostic(source, stmt_line, stmt_col, MSG.to_string()));
     }
 }
 
