@@ -66,3 +66,10 @@ end
 
 # Single-line lambda (no offense)
 double = ->(x) { x * 2 }
+
+# Block args on multiple lines — acceptable when joining would exceed max line length
+define_command(:grep) do
+  |cmd = read_from_minibuffer("Grep: ",
+                              initial_value: CONFIG[:grep_command] + " ")|
+  shell_execute(cmd, buffer_name: "*grep*", mode: BacktraceMode)
+end
