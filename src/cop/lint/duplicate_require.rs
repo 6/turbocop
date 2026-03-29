@@ -33,6 +33,19 @@ use ruby_prism::Visit;
 /// `"foo"` collide like RuboCop; all other argument node types key on their
 /// exact source slice with a distinct discriminator so `require 'foo'` and
 /// `require foo` remain different.
+///
+/// Fix (2026-03-29): block-attached requires need block parents, not statement
+/// parents. Parser/RuboCop wraps `require(foo) { ... }` in a `block` node whose
+/// parent is shared by both the outer `require` send and calls inside the block
+/// body. Prism keeps the block as a child of `CallNode`, so the outer call must
+/// be keyed by its attached `BlockNode` offset. Prism also wraps single-line
+/// block bodies in `StatementsNode`, but Parser/RuboCop treats the sole inner
+/// send as a direct child of the block, so those statement nodes must preserve
+/// the enclosing block as the effective parent. Multi-statement block bodies
+/// still use the statements node, matching Parser's implicit `begin`.
+/// This fixes the remaining FN for `require(fullpath) { Kernel.require fullpath }`
+/// and avoids false positives between `require('foo') { ... }` and a later
+/// plain `require 'foo'`.
 pub struct DuplicateRequire;
 
 impl Cop for DuplicateRequire {
@@ -59,6 +72,7 @@ impl Cop for DuplicateRequire {
             // Per RuboCop: keyed by parent node identity.
             // We use the parent node's start offset as a proxy for identity.
             required: HashMap::new(),
+            single_statement_block_bodies: HashSet::new(),
             current_parent_offset: 0,
             diagnostics: Vec::new(),
         };
@@ -81,12 +95,22 @@ struct RequireVisitor<'a, 'src> {
     source: &'src SourceFile,
     /// Seen requires keyed by parent node start offset (proxy for identity).
     required: HashMap<usize, HashSet<RequireKey>>,
+    /// StatementsNode offsets that should keep their enclosing BlockNode as the
+    /// effective parent, matching Parser's single-expression block bodies.
+    single_statement_block_bodies: HashSet<usize>,
     /// Start offset of the current parent node being visited.
     current_parent_offset: usize,
     diagnostics: Vec<Diagnostic>,
 }
 
 impl RequireVisitor<'_, '_> {
+    fn parent_offset_for_call(&self, node: &ruby_prism::CallNode<'_>) -> usize {
+        node.block()
+            .and_then(|block| block.as_block_node())
+            .map(|block| block.location().start_offset())
+            .unwrap_or(self.current_parent_offset)
+    }
+
     fn require_argument_key(&self, node: ruby_prism::Node<'_>) -> Option<RequireArgKey> {
         if let Some(string) = node.as_string_node() {
             return Some(RequireArgKey::String(string.unescaped().to_vec()));
@@ -133,8 +157,10 @@ impl RequireVisitor<'_, '_> {
                     if let Some(arg_key) = self.require_argument_key(first) {
                         let key = (method_name.to_vec(), arg_key);
                         let loc = node.location();
-                        let parent_set =
-                            self.required.entry(self.current_parent_offset).or_default();
+                        let parent_set = self
+                            .required
+                            .entry(self.parent_offset_for_call(node))
+                            .or_default();
                         if parent_set.contains(&key) {
                             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                             self.diagnostics.push(self.cop.diagnostic(
@@ -168,9 +194,33 @@ impl<'pr> Visit<'pr> for RequireVisitor<'_, '_> {
 
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
         let prev_parent = self.current_parent_offset;
-        self.current_parent_offset = node.location().start_offset();
+        if !self
+            .single_statement_block_bodies
+            .contains(&node.location().start_offset())
+        {
+            self.current_parent_offset = node.location().start_offset();
+        }
         ruby_prism::visit_statements_node(self, node);
         self.current_parent_offset = prev_parent;
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        let single_statement_body_offset = node
+            .body()
+            .and_then(|body| body.as_statements_node())
+            .and_then(|body| (body.body().len() == 1).then(|| body.location().start_offset()));
+        if let Some(offset) = single_statement_body_offset {
+            self.single_statement_block_bodies.insert(offset);
+        }
+
+        let prev_parent = self.current_parent_offset;
+        self.current_parent_offset = node.location().start_offset();
+        ruby_prism::visit_block_node(self, node);
+        self.current_parent_offset = prev_parent;
+
+        if let Some(offset) = single_statement_body_offset {
+            self.single_statement_block_bodies.remove(&offset);
+        }
     }
 
     fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {

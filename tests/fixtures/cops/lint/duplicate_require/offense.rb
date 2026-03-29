@@ -16,3 +16,6 @@ feature = 'json'
 require feature
 require feature
 ^^^^^^^^^^^^^^^ Lint/DuplicateRequire: Duplicate `require` detected.
+
+require(fullpath){ Kernel.require fullpath }
+                   ^^^^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateRequire: Duplicate `require` detected.

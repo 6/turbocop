@@ -29,3 +29,13 @@ end
 # Wrapped requires have different parents — not duplicates
 assert require('test_helper')
 result = require 'test_helper'
+
+# Block-attached require has a block parent, so a later plain require is independent
+require('block_feature'){ 1 }
+require 'block_feature'
+
+# Multi-statement block body gets its own begin/statements parent
+require('block_nested') do
+  1
+  Kernel.require 'block_nested'
+end
