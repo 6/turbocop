@@ -352,7 +352,7 @@ def test_cleanup_failure_closes_pr_then_deletes_branch_and_requeues_issue(tmp_pa
     assert calls[4] == [
         "gh", "issue", "edit", "376",
         "--repo", "6/nitrocop",
-        "--remove-label", "state:pr-open,state:dispatched",
+        "--remove-label", "state:pr-open",
         "--add-label", "state:backlog",
     ]
     assert "The draft PR was closed automatically." in claim_body.read_text()
@@ -402,7 +402,7 @@ def test_cleanup_failure_warns_and_keeps_issue_state_when_pr_close_fails(tmp_pat
     assert [
         "gh", "issue", "edit", "376",
         "--repo", "6/nitrocop",
-        "--remove-label", "state:pr-open,state:dispatched",
+        "--remove-label", "state:pr-open",
         "--add-label", "state:backlog",
     ] not in calls
     assert "automatic cleanup could not close the draft PR" in claim_body.read_text()

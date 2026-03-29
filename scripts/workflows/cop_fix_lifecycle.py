@@ -494,7 +494,6 @@ def cmd_claim_pr(args: list[str]) -> int:
         ("type:cop-fix", "0e8a16"),
         (model_label_name, "c2e0c6"),
         ("state:backlog", "fbca04"),
-        ("state:dispatched", "1d76db"),
         ("state:pr-open", "0e8a16"),
         ("state:blocked", "b60205"),
     ]:
@@ -524,7 +523,7 @@ def cmd_claim_pr(args: list[str]) -> int:
     if opts.issue_number:
         _run_ok([
             "gh", "issue", "edit", opts.issue_number, "--repo", opts.repo,
-            "--remove-label", "state:backlog,state:dispatched,state:blocked",
+            "--remove-label", "state:backlog,state:blocked",
             "--add-label", "state:pr-open",
         ])
 
@@ -819,7 +818,7 @@ def _close_pr_no_changes(
         _run_ok(["gh", "issue", "comment", issue_number, "--repo", repo, "--body-file", str(claim_body)])
         _run_ok([
             "gh", "issue", "edit", issue_number, "--repo", repo,
-            "--remove-label", "state:pr-open,state:dispatched",
+            "--remove-label", "state:pr-open",
             "--add-label", "state:backlog",
         ])
     _run_ok(["gh", "pr", "close", pr_url, "--comment", "Agent produced no changes.", "--delete-branch"])
@@ -850,7 +849,7 @@ def _close_pr_rejected(
         # transient (e.g., agent scratch files), not permanent blockers.
         _run_ok([
             "gh", "issue", "edit", issue_number, "--repo", repo,
-            "--remove-label", "state:pr-open,state:dispatched,state:blocked",
+            "--remove-label", "state:pr-open,state:blocked",
             "--add-label", "state:backlog",
         ])
 
@@ -1137,7 +1136,7 @@ def cmd_finalize(args: list[str]) -> int:
                  "--body-file", str(claim_body)])
         _run_ok([
             "gh", "issue", "edit", opts.issue_number, "--repo", opts.repo,
-            "--remove-label", "state:pr-open,state:dispatched,state:backlog",
+            "--remove-label", "state:pr-open,state:backlog",
             "--add-label", "state:blocked",
         ])
 
@@ -1250,7 +1249,7 @@ def cmd_cleanup_failure(args: list[str]) -> int:
                 _run_ok([
                     "gh", "issue", "edit", opts.issue_number,
                     "--repo", opts.repo,
-                    "--remove-label", "state:pr-open,state:dispatched",
+                    "--remove-label", "state:pr-open",
                     "--add-label", "state:backlog",
                 ]),
             )

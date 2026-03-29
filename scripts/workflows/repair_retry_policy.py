@@ -217,7 +217,7 @@ def cmd_skip_comment(args: argparse.Namespace) -> int:
         )
         subprocess.run(
             ["gh", "issue", "edit", linked_issue, "--repo", repo,
-             "--remove-label", "state:pr-open,state:dispatched,state:backlog",
+             "--remove-label", "state:pr-open,state:backlog",
              "--add-label", "state:blocked"],
             check=False,  # label may not exist
         )

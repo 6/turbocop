@@ -2193,13 +2193,6 @@ def cmd_dispatch_issues(args: argparse.Namespace) -> int:
         if proc.returncode != 0:
             print(f"ERROR dispatching {cop}: {proc.stderr.strip()}", file=sys.stderr)
             proc.check_returncode()
-        # Mark issue as dispatched immediately to prevent double-dispatch
-        subprocess.run(
-            ["gh", "issue", "edit", str(issue["number"]), "--repo", repo,
-             "--remove-label", "state:backlog",
-             "--add-label", "state:dispatched"],
-            capture_output=True, text=True,
-        )
 
     print(json.dumps(result, indent=2))
     return 0
