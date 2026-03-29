@@ -72,19 +72,16 @@ def build_env(repo_dir: str | None = None) -> dict[str, str]:
     return env
 
 
-def count_offenses(offenses: list[dict]) -> int:
-    """Count offenses by (path, line, cop_name) with multiplicity.
+def deduplicate_offenses(offenses: list[dict]) -> int:
+    """Count offenses deduplicated by (path, line, cop_name).
 
-    Multiple offenses at the same (path, line, cop) are counted separately
-    (e.g. two bad param names on one line). This matches the corpus oracle's
-    counter-based comparison.
+    The corpus oracle uses this deduplication, so we must match it.
     """
-    from collections import Counter
-    counter: Counter[tuple[str, int, str]] = Counter()
+    seen: set[tuple[str, int, str]] = set()
     for o in offenses:
         key = (o.get("path", ""), o.get("line", 0), o.get("cop_name", ""))
-        counter[key] += 1
-    return sum(counter.values())
+        seen.add(key)
+    return len(seen)
 
 
 def normalize_offenses(offenses: list[dict]) -> list[dict]:
@@ -160,7 +157,7 @@ def run_nitrocop(
     try:
         data = json.loads(result.stdout)
         offenses = normalize_offenses(data.get("offenses", []))
-        count = count_offenses(offenses)
+        count = deduplicate_offenses(offenses)
         return {"raw": result.stdout, "offenses": offenses, "count": count, "error": None}
     except json.JSONDecodeError as e:
         return {"raw": result.stdout, "offenses": [], "count": -1,
