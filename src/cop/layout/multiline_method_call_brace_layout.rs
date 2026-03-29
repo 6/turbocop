@@ -16,6 +16,14 @@ use crate::parse::source::SourceFile;
 /// heredoc terminator that forces the closing parenthesis placement. Narrowing
 /// the skip to the last argument fixes heredoc-first calls like
 /// `foo(<<~EOS, arg ... ).call`.
+///
+/// ## Corpus investigation (2026-03-29)
+///
+/// FN=2: outer calls like `wrapper(Hash.from_xml(<<-XML ... XML ))` were still
+/// skipped because the last argument contained a nested heredoc somewhere in
+/// its subtree. RuboCop only skips when that descendant heredoc reaches the
+/// last line of the last-argument node itself. Nested calls whose own closing
+/// `)` lands after the heredoc terminator must still be checked.
 pub struct MultilineMethodCallBraceLayout;
 
 impl Cop for MultilineMethodCallBraceLayout {
@@ -68,10 +76,8 @@ impl Cop for MultilineMethodCallBraceLayout {
             return;
         }
 
-        // Only a heredoc in the last argument can force the closing paren to a
-        // later line. Earlier heredoc arguments do not exempt the call.
         let last_arg = arg_list.last().unwrap();
-        if is_heredoc_node(last_arg) {
+        if last_line_heredoc(source, last_arg) {
             return;
         }
 
@@ -154,50 +160,75 @@ impl Cop for MultilineMethodCallBraceLayout {
     }
 }
 
-/// Check if a node is or contains a heredoc string (opening starts with `<<`).
-/// Also walks into method call receivers to detect `<<~SQL.tr(...)` patterns
-/// where the heredoc is wrapped in a method call, and into keyword hash pairs
-/// to detect heredocs used as keyword argument values (e.g., `key: <<~HEREDOC`).
-fn is_heredoc_node(node: &ruby_prism::Node<'_>) -> bool {
-    if let Some(s) = node.as_interpolated_string_node() {
-        if let Some(open) = s.opening_loc() {
-            return open.as_slice().starts_with(b"<<");
-        }
+fn last_line_heredoc(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
+    use ruby_prism::Visit;
+
+    struct LastLineHeredocDetector<'a> {
+        source: &'a SourceFile,
+        parent_last_line: usize,
+        found: bool,
     }
-    if let Some(s) = node.as_string_node() {
-        if let Some(open) = s.opening_loc() {
-            return open.as_slice().starts_with(b"<<");
-        }
-    }
-    // Check if this is a method call on a heredoc (e.g., <<~SQL.tr("\n", ""))
-    // or a method call with a heredoc argument (e.g., raw(<<~HEREDOC.chomp))
-    if let Some(call) = node.as_call_node() {
-        if let Some(recv) = call.receiver() {
-            if is_heredoc_node(&recv) {
-                return true;
+
+    impl LastLineHeredocDetector<'_> {
+        fn visit_heredoc<'pr>(
+            &mut self,
+            opening: Option<ruby_prism::Location<'pr>>,
+            closing: Option<ruby_prism::Location<'pr>>,
+        ) {
+            let Some(opening) = opening else {
+                return;
+            };
+            if self.found || !opening.as_slice().starts_with(b"<<") {
+                return;
             }
-        }
-        if let Some(args) = call.arguments() {
-            for arg in args.arguments().iter() {
-                if is_heredoc_node(&arg) {
-                    return true;
-                }
-            }
-        }
-    }
-    // Check inside keyword hash nodes (keyword arguments like `key: <<~HEREDOC`)
-    if let Some(kw_hash) = node.as_keyword_hash_node() {
-        for element in kw_hash.elements().iter() {
-            if is_heredoc_node(&element) {
-                return true;
+            let Some(closing) = closing else {
+                return;
+            };
+
+            let end_off = closing
+                .end_offset()
+                .saturating_sub(1)
+                .max(closing.start_offset());
+            let (closing_line, _) = self.source.offset_to_line_col(end_off);
+            if closing_line >= self.parent_last_line {
+                self.found = true;
             }
         }
     }
-    // Check the value side of association (key-value) pairs
-    if let Some(assoc) = node.as_assoc_node() {
-        return is_heredoc_node(&assoc.value());
+
+    impl<'pr> Visit<'pr> for LastLineHeredocDetector<'_> {
+        fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+            self.visit_heredoc(node.opening_loc(), node.closing_loc());
+            if !self.found {
+                ruby_prism::visit_string_node(self, node);
+            }
+        }
+
+        fn visit_interpolated_string_node(
+            &mut self,
+            node: &ruby_prism::InterpolatedStringNode<'pr>,
+        ) {
+            self.visit_heredoc(node.opening_loc(), node.closing_loc());
+            if !self.found {
+                ruby_prism::visit_interpolated_string_node(self, node);
+            }
+        }
     }
-    false
+
+    let parent_last_line = node_last_line(source, node);
+    let mut detector = LastLineHeredocDetector {
+        source,
+        parent_last_line,
+        found: false,
+    };
+    detector.visit(node);
+    detector.found
+}
+
+fn node_last_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {
+    let loc = node.location();
+    let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+    source.offset_to_line_col(end_off).0
 }
 
 #[cfg(test)]
