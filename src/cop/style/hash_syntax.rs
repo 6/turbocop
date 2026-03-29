@@ -94,9 +94,7 @@ impl Cop for HashSyntax {
                     };
                     let key = assoc.key();
                     match key.as_symbol_node() {
-                        Some(ref sym) => {
-                            !is_acceptable_19_symbol(sym, prefer_rockets_nonalnum)
-                        }
+                        Some(ref sym) => !is_acceptable_19_symbol(sym, prefer_rockets_nonalnum),
                         None => true, // Non-symbol key
                     }
                 });
