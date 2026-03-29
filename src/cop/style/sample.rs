@@ -4,14 +4,125 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 /// Detects `shuffle.first`, `shuffle.last`, `shuffle[0]`, `shuffle[-1]`,
-/// `shuffle.at(0)`, `shuffle.at(-1)`, `shuffle.slice(0)`, `shuffle.slice(-1)`.
+/// `shuffle[0, n]`, `shuffle[0..n]`, `shuffle[0...n]`, `shuffle.at(0)`,
+/// `shuffle.at(-1)`, `shuffle.slice(0)`, `shuffle.slice(-1)`,
+/// `shuffle.slice(0, n)`, `shuffle.slice(0..n)`, and `shuffle.slice(0...n)`.
 ///
-/// ## Investigation (2026-03-14)
-/// Original implementation only handled `.first` and `.last` on shuffle calls.
-/// Corpus FNs (4) were caused by missing detection of bracket access (`[]`),
-/// `.at()`, and `.slice()` patterns with integer arguments 0 or -1.
-/// Added handling for these patterns to match RuboCop's Style/Sample cop.
+/// ## Investigation (2026-03-29)
+/// The first implementation only matched `first`/`last` and one-argument
+/// `[]`/`at`/`slice` cases with `0` or `-1`, so corpus examples like
+/// `shuffle[0, 4]`, `shuffle[0..2000]`, and `shuffle[0...1024]` were missed.
+/// It also reported at `node.location()`, which starts at the full receiver
+/// chain instead of the `shuffle` selector. On multiline receivers ending with
+/// `.shuffle.first`, that produced a location mismatch counted as both FP and
+/// FN. Fix: mirror RuboCop's sample-size rules for `[]`/`slice`, then report
+/// from `shuffle_call.message_loc()` through the outer call end.
 pub struct Sample;
+
+#[derive(Clone, Copy)]
+enum ShufflePattern {
+    FirstLast,
+    IndexAccess,
+    At,
+    Slice,
+}
+
+fn parse_integer_literal(node: &ruby_prism::Node<'_>) -> Option<i64> {
+    let int = node.as_integer_node()?;
+    let src = std::str::from_utf8(int.location().as_slice()).ok()?;
+    src.replace('_', "").parse().ok()
+}
+
+fn range_sample_size(range: ruby_prism::RangeNode<'_>) -> Option<i64> {
+    let low = match range.left() {
+        Some(left) => parse_integer_literal(&left)?,
+        None => 0,
+    };
+    let high = parse_integer_literal(&range.right()?)?;
+
+    if low != 0 || high < 0 {
+        return None;
+    }
+
+    Some(if range.is_exclude_end() {
+        high - low
+    } else {
+        high - low + 1
+    })
+}
+
+fn first_argument_source(
+    source: &SourceFile,
+    args: ruby_prism::ArgumentsNode<'_>,
+) -> Option<String> {
+    let arg = args.arguments().iter().next()?;
+    Some(
+        source
+            .byte_slice(arg.location().start_offset(), arg.location().end_offset(), "")
+            .to_string(),
+    )
+}
+
+fn index_sample_arg(
+    call: &ruby_prism::CallNode<'_>,
+    pattern: ShufflePattern,
+) -> Option<Option<String>> {
+    let args = call.arguments()?;
+    let arg_list: Vec<_> = args.arguments().iter().collect();
+
+    match pattern {
+        ShufflePattern::At => {
+            if arg_list.len() != 1 {
+                return None;
+            }
+
+            match parse_integer_literal(&arg_list[0]) {
+                Some(0) | Some(-1) => Some(None),
+                _ => None,
+            }
+        }
+        ShufflePattern::IndexAccess | ShufflePattern::Slice => match arg_list.len() {
+            1 => {
+                if let Some(range) = arg_list[0].as_range_node() {
+                    return range_sample_size(range).map(|size| Some(size.to_string()));
+                }
+
+                match parse_integer_literal(&arg_list[0]) {
+                    Some(0) | Some(-1) => Some(None),
+                    _ => None,
+                }
+            }
+            2 => {
+                if parse_integer_literal(&arg_list[0])? != 0 {
+                    return None;
+                }
+
+                let size = parse_integer_literal(&arg_list[1])?;
+                Some(Some(size.to_string()))
+            }
+            _ => None,
+        },
+        ShufflePattern::FirstLast => None,
+    }
+}
+
+fn format_replacement(sample_arg: Option<String>, shuffle_arg: Option<String>) -> String {
+    let mut args = Vec::new();
+
+    if let Some(sample_arg) = sample_arg.filter(|arg| !arg.is_empty()) {
+        args.push(sample_arg);
+    }
+
+    if let Some(shuffle_arg) = shuffle_arg.filter(|arg| !arg.is_empty()) {
+        args.push(shuffle_arg);
+    }
+
+    if args.is_empty() {
+        "sample".to_string()
+    } else {
+        format!("sample({})", args.join(", "))
+    }
+}
 
 impl Cop for Sample {
     fn name(&self) -> &'static str {
@@ -32,114 +143,60 @@ impl Cop for Sample {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
-            Some(c) => c,
+            Some(call) => call,
             None => return,
         };
 
-        let method_name = call.name();
-        let method_bytes = method_name.as_slice();
-
-        // Determine which pattern we're looking at
-        enum ShufflePattern {
-            FirstLast,   // .first / .last (no args or with count arg)
-            IndexAccess, // [0] / [-1] — method name is `[]`
-            AtOrSlice,   // .at(0) / .at(-1) / .slice(0) / .slice(-1)
-        }
-
-        let pattern = match method_bytes {
+        let pattern = match call.name().as_slice() {
             b"first" | b"last" => ShufflePattern::FirstLast,
             b"[]" => ShufflePattern::IndexAccess,
-            b"at" | b"slice" => ShufflePattern::AtOrSlice,
+            b"at" => ShufflePattern::At,
+            b"slice" => ShufflePattern::Slice,
             _ => return,
         };
 
-        // For [] / at / slice, validate the argument is integer 0 or -1
-        if matches!(
-            pattern,
-            ShufflePattern::IndexAccess | ShufflePattern::AtOrSlice
-        ) {
-            let args = match call.arguments() {
-                Some(a) => a,
-                None => return,
-            };
-            let arg_list: Vec<_> = args.arguments().iter().collect();
-            // Must have exactly one argument
-            if arg_list.len() != 1 {
-                return;
-            }
-            let arg = &arg_list[0];
-            let is_valid = if let Some(int_node) = arg.as_integer_node() {
-                let val_str = std::str::from_utf8(int_node.location().as_slice()).unwrap_or("");
-                matches!(val_str, "0" | "-1")
-            } else {
-                false
-            };
-            if !is_valid {
-                return;
-            }
-        }
-
-        // Receiver must be a call to .shuffle
         let receiver = match call.receiver() {
-            Some(r) => r,
+            Some(receiver) => receiver,
             None => return,
         };
 
-        if let Some(shuffle_call) = receiver.as_call_node() {
-            if shuffle_call.name().as_slice() == b"shuffle" {
-                // shuffle must have a receiver (the collection)
-                if shuffle_call.receiver().is_none() {
-                    return;
+        let shuffle_call = match receiver.as_call_node() {
+            Some(call) if call.name().as_slice() == b"shuffle" && call.receiver().is_some() => call,
+            _ => return,
+        };
+
+        let sample_arg = match pattern {
+            ShufflePattern::FirstLast => call
+                .arguments()
+                .and_then(|args| first_argument_source(source, args)),
+            ShufflePattern::IndexAccess | ShufflePattern::At | ShufflePattern::Slice => {
+                match index_sample_arg(&call, pattern) {
+                    Some(sample_arg) => sample_arg,
+                    None => return,
                 }
-
-                let loc = node.location();
-                let incorrect = std::str::from_utf8(loc.as_slice()).unwrap_or("");
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-
-                // Determine the correct replacement
-                let correct =
-                    if matches!(pattern, ShufflePattern::FirstLast) && call.arguments().is_some() {
-                        let arg_src = call
-                            .arguments()
-                            .map(|a| {
-                                let args: Vec<_> = a.arguments().iter().collect();
-                                if !args.is_empty() {
-                                    std::str::from_utf8(args[0].location().as_slice())
-                                        .unwrap_or("")
-                                        .to_string()
-                                } else {
-                                    String::new()
-                                }
-                            })
-                            .unwrap_or_default();
-
-                        if shuffle_call.arguments().is_some() {
-                            let shuffle_args = shuffle_call
-                                .arguments()
-                                .map(|a| std::str::from_utf8(a.location().as_slice()).unwrap_or(""))
-                                .unwrap_or("");
-                            format!("sample({}, {})", arg_src, shuffle_args)
-                        } else {
-                            format!("sample({})", arg_src)
-                        }
-                    } else if shuffle_call.arguments().is_some() {
-                        let shuffle_args = shuffle_call
-                            .arguments()
-                            .map(|a| std::str::from_utf8(a.location().as_slice()).unwrap_or(""))
-                            .unwrap_or("");
-                        format!("sample({})", shuffle_args)
-                    } else {
-                        "sample".to_string()
-                    };
-
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!("Use `{}` instead of `{}`.", correct, incorrect),
-                ));
             }
-        }
+        };
+
+        let shuffle_arg = shuffle_call
+            .arguments()
+            .map(|args| source.byte_slice(args.location().start_offset(), args.location().end_offset(), ""))
+            .map(str::to_string);
+
+        let correct = format_replacement(sample_arg, shuffle_arg);
+        let offense_start = shuffle_call
+            .message_loc()
+            .unwrap_or_else(|| shuffle_call.location())
+            .start_offset();
+        let offense_end = call.location().end_offset();
+        let incorrect = source.byte_slice(offense_start, offense_end, "");
+        let (line, column) = source.offset_to_line_col(offense_start);
+
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Use `{correct}` instead of `{incorrect}`."),
+        ));
     }
 }
 
