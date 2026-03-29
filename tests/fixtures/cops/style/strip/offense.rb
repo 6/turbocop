@@ -6,3 +6,9 @@
 
 str.lstrip.rstrip
 ^^^^^^^^^^^^^^^^^ Style/Strip: Use `strip` instead of `lstrip.rstrip`.
+
+lstrip.rstrip.gsub(/\{\{([^\}]+)\}\}/) { |special|
+^ Style/Strip: Use `strip` instead of `lstrip.rstrip`.
+
+lstrip.rstrip
+^ Style/Strip: Use `strip` instead of `lstrip.rstrip`.
