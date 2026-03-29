@@ -32,7 +32,8 @@ impl Cop for SpaceAroundMethodCallOperator {
             check_call_operator_spacing(
                 self,
                 source,
-                call.receiver().map(|receiver| receiver.location().end_offset()),
+                call.receiver()
+                    .map(|receiver| receiver.location().end_offset()),
                 call.call_operator_loc(),
                 call.message_loc()
                     .map(|loc| loc.start_offset())
@@ -45,7 +46,9 @@ impl Cop for SpaceAroundMethodCallOperator {
             check_call_operator_spacing(
                 self,
                 source,
-                write.receiver().map(|receiver| receiver.location().end_offset()),
+                write
+                    .receiver()
+                    .map(|receiver| receiver.location().end_offset()),
                 write.call_operator_loc(),
                 write.message_loc().map(|loc| loc.start_offset()),
                 diagnostics,
@@ -98,11 +101,23 @@ fn check_call_operator_spacing(
     }
 
     if let Some(receiver_end) = receiver_end {
-        push_spacing_offense(cop, source, receiver_end, dot_loc.start_offset(), diagnostics);
+        push_spacing_offense(
+            cop,
+            source,
+            receiver_end,
+            dot_loc.start_offset(),
+            diagnostics,
+        );
     }
 
     if let Some(selector_start) = selector_start {
-        push_spacing_offense(cop, source, dot_loc.end_offset(), selector_start, diagnostics);
+        push_spacing_offense(
+            cop,
+            source,
+            dot_loc.end_offset(),
+            selector_start,
+            diagnostics,
+        );
     }
 }
 
