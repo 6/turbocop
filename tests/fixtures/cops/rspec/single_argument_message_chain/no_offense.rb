@@ -15,9 +15,15 @@ before do
 end
 
 before do
-  allow(controller).to receive_message_chain "forum.moderator?" => false
+  allow(controller).to receive_message_chain(
+    "forum.moderator?" => false,
+    "forum.admin?" => true
+  )
 end
 
 before do
-  allow(controller).to stub_chain "admin?" => true
+  controller.stub_chain(
+    "admin?" => true,
+    "staff?" => false
+  )
 end

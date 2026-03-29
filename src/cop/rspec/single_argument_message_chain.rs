@@ -4,6 +4,29 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+fn is_single_chain_argument(arg: &ruby_prism::Node<'_>) -> bool {
+    if arg.as_symbol_node().is_some() {
+        true
+    } else if let Some(s) = arg.as_string_node() {
+        !s.unescaped().contains(&b'.')
+    } else if let Some(arr) = arg.as_array_node() {
+        arr.elements().iter().count() == 1
+    } else {
+        let elements: Vec<_> = if let Some(hash) = arg.as_hash_node() {
+            hash.elements().iter().collect()
+        } else if let Some(hash) = arg.as_keyword_hash_node() {
+            hash.elements().iter().collect()
+        } else {
+            return false;
+        };
+
+        elements.len() == 1 && elements[0].as_assoc_node().is_some()
+    }
+}
+
+/// RuboCop treats single-key hash and keyword-hash arguments as single message
+/// chains, even when the key is a dotted string or the call is split across
+/// lines. Detect those hash forms without broadening to multi-key hashes.
 pub struct SingleArgumentMessageChain;
 
 impl Cop for SingleArgumentMessageChain {
@@ -53,23 +76,7 @@ impl Cop for SingleArgumentMessageChain {
 
         let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
 
-        let is_single_arg = if arg_list.len() == 1 {
-            let arg = &arg_list[0];
-            // Single symbol or single string (without dots for strings)
-            if arg.as_symbol_node().is_some() {
-                true
-            } else if let Some(s) = arg.as_string_node() {
-                // Multi-part string like "one.two" should not be flagged
-                !s.unescaped().contains(&b'.')
-            } else if let Some(arr) = arg.as_array_node() {
-                // Single-element array
-                arr.elements().iter().count() == 1
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+        let is_single_arg = matches!(arg_list.as_slice(), [arg] if is_single_chain_argument(arg));
 
         if !is_single_arg {
             return;
