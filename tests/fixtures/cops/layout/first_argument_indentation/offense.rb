@@ -56,3 +56,9 @@ HTML
 			^^^^^^^^^^^^ Layout/FirstArgumentIndentation: Indent the first argument one step more than the start of the previous line.
 			"svg" => "SVG"
 		)
+
+{ :level_enum__value => SERIES_LEVELS },
+^ Layout/FirstArgumentIndentation: Indent the first argument one step more than the start of the previous line.
+
+Sequel.~(:agent_person_id => nil),
+^ Layout/FirstArgumentIndentation: Indent the first argument one step more than `Sequel.|(`.
