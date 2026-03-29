@@ -53,12 +53,6 @@ python3 scripts/dispatch_cops.py dispatch-issues --max-active 5
 python3 scripts/dispatch_cops.py backend --cop Department/CopName --binary target/debug/nitrocop
 ```
 
-Regression triage:
-
-```bash
-python3 scripts/investigate_regression.py --action report
-```
-
 ## Bench And Conformance
 
 Use the full bench/conformance flow only when you explicitly need repo-wide regeneration:

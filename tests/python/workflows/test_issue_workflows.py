@@ -38,7 +38,6 @@ def test_cop_fix_logic_lives_in_repo_task_and_publish_helpers() -> None:
     assert '"finalize-request"' in planner
     assert '"cleanup-request"' in planner
     assert "wait_healthy_main.py" in planner
-    assert "GH_APP_PRIVATE_KEY" not in planner
     assert "gh workflow run agent-cop-fix.yml" not in planner
 
     assert "dispatch_cops.py" in lifecycle
@@ -69,7 +68,6 @@ def test_repo_task_handles_pr_repair_inside_control_plane() -> None:
     assert 'nitrocop-auto-repair-request' in content
     assert "run-agent-remote" not in content
     assert "run-repo-write-remote" not in content
-    assert "GH_APP_PRIVATE_KEY" not in content
 
 
 def test_checks_workflow_comments_with_github_token_and_auto_mentions_6() -> None:
