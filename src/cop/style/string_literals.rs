@@ -4,6 +4,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Investigation findings (2026-03-29): the remaining FNs came from ordinary
+/// string literals inside backtick xstring interpolations like
+/// `` `#{command.join(" ")}` `` and `` `...#{ENV["PREVIOUS_VERSION"]}...` ``.
+/// The previous visitor treated every `#{}` as `inside_interpolation`, which is
+/// correct for dstr/dsym/regexp but wrong for xstrings. Track xstring context
+/// separately so strings inside xstring interpolation are checked as regular
+/// code, while nested dstr/dsym/regexp interpolations still stay skipped.
 pub struct StringLiterals;
 
 impl Cop for StringLiterals {
@@ -30,6 +37,7 @@ impl Cop for StringLiterals {
             enforced_style,
             consistent_multiline,
             in_interpolation: false,
+            in_xstr: false,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -43,14 +51,51 @@ struct StringLiteralsVisitor<'a> {
     enforced_style: String,
     consistent_multiline: bool,
     in_interpolation: bool,
+    in_xstr: bool,
 }
 
 impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
     fn visit_embedded_statements_node(&mut self, node: &ruby_prism::EmbeddedStatementsNode<'pr>) {
         let was = self.in_interpolation;
-        self.in_interpolation = true;
+        if !self.in_xstr {
+            self.in_interpolation = true;
+        }
         ruby_prism::visit_embedded_statements_node(self, node);
         self.in_interpolation = was;
+    }
+
+    fn visit_interpolated_x_string_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedXStringNode<'pr>,
+    ) {
+        let was_xstr = self.in_xstr;
+        self.in_xstr = true;
+        ruby_prism::visit_interpolated_x_string_node(self, node);
+        self.in_xstr = was_xstr;
+    }
+
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        let was_xstr = self.in_xstr;
+        self.in_xstr = false;
+        ruby_prism::visit_interpolated_string_node(self, node);
+        self.in_xstr = was_xstr;
+    }
+
+    fn visit_interpolated_regular_expression_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedRegularExpressionNode<'pr>,
+    ) {
+        let was_xstr = self.in_xstr;
+        self.in_xstr = false;
+        ruby_prism::visit_interpolated_regular_expression_node(self, node);
+        self.in_xstr = was_xstr;
+    }
+
+    fn visit_interpolated_symbol_node(&mut self, node: &ruby_prism::InterpolatedSymbolNode<'pr>) {
+        let was_xstr = self.in_xstr;
+        self.in_xstr = false;
+        ruby_prism::visit_interpolated_symbol_node(self, node);
+        self.in_xstr = was_xstr;
     }
 
     fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
@@ -501,5 +546,29 @@ mod tests {
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
         // The string contains \n (escape), so single quotes can't be used — shouldn't fire anyway
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn single_quotes_flags_string_inside_xstring_interpolation() {
+        use crate::testutil::run_cop_full;
+
+        let source = b"`bundle binstub vite_ruby --path #{config.root.join(\"bin\")}`\n";
+        let diags = run_cop_full(&StringLiterals, source);
+        assert_eq!(diags.len(), 1, "Should flag \"bin\" inside xstring interpolation");
+        assert_eq!(diags[0].location.line, 1);
+        assert_eq!(diags[0].location.column, 52);
+    }
+
+    #[test]
+    fn single_quotes_skips_nested_string_interpolation_inside_xstring() {
+        use crate::testutil::run_cop_full;
+
+        let source = b"`#{\"value: #{record.dig(\"a\", \"b\")}\"}`\n";
+        let diags = run_cop_full(&StringLiterals, source);
+        assert!(
+            diags.is_empty(),
+            "Should keep skipping strings inside nested dstr interpolation: {:?}",
+            diags
+        );
     }
 }

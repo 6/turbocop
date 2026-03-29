@@ -37,3 +37,7 @@ e = "\#"
 msg = "hello #{data["key"]}"
 log = "value: #{record.dig("a", "b")}"
 out = "#{items.join(", ")}"
+
+# Strings inside regular interpolations nested within xstrings still belong to
+# Style/StringLiteralsInInterpolation, so this cop should skip them here too.
+cmd = `#{"value: #{record.dig("a", "b")}"}`
