@@ -32,6 +32,16 @@ use crate::parse::source::SourceFile;
 /// - After processing a root OrNode, manually flatten its || chain and
 ///   visit non-Or leaf children for independent nested OrNodes, instead of
 ///   using `inside_or` flag which incorrectly blocked OrNodes inside `&&`.
+///
+/// Corpus investigation (round 3): mixed all-`==` chains still produced false
+/// negatives when the repeated variable group was followed by a different
+/// comparison later in the same `||` tree, for example:
+/// `a == x || a == y || b == z` or `x == 0 || x == 24 || y == 0 || y == 13`.
+/// RuboCop keeps the first repeated variable group and stops collecting once a
+/// different variable appears; the old implementation merged both sides
+/// symmetrically and dropped the whole chain. The fix scans the `||` leaves
+/// left-to-right, preserving the first repeated group while still ignoring
+/// later subchains that RuboCop does not flag.
 pub struct MultipleComparison;
 
 /// Result of analyzing a single `==` comparison.
@@ -44,63 +54,73 @@ enum ComparisonResult {
 }
 
 impl MultipleComparison {
-    /// Recursively collect == comparisons joined by ||, returning the variable
-    /// being compared if consistent, along with the comparison count.
-    /// Matches RuboCop's `find_offending_var` logic.
-    fn collect_comparisons<'a>(
+    /// Extract a single `==` comparison from a node, if it matches RuboCop's
+    /// `simple_comparison` / `simple_double_comparison?` logic.
+    fn comparison_result<'a>(
         node: &'a ruby_prism::Node<'a>,
         allow_method: bool,
-    ) -> Option<(Vec<u8>, usize)> {
-        // Handle OrNode: a == x || a == y
+    ) -> Option<ComparisonResult> {
+        let call = node.as_call_node()?;
+        if call.name().as_slice() != b"==" {
+            return None;
+        }
+
+        let lhs = call.receiver()?;
+        let rhs_args = call.arguments()?;
+        let rhs_list: Vec<_> = rhs_args.arguments().iter().collect();
+        if rhs_list.len() != 1 {
+            return None;
+        }
+
+        Self::classify_comparison(&lhs, &rhs_list[0], allow_method)
+    }
+
+    /// Scan an all-`==` `||` chain left-to-right, matching RuboCop's
+    /// `find_offending_var` behavior: keep counting the first repeated variable
+    /// group and stop as soon as a different compared variable appears.
+    fn scan_comparison_chain<'a>(
+        node: &'a ruby_prism::Node<'a>,
+        allow_method: bool,
+        first_var: &mut Option<Vec<u8>>,
+        count: &mut usize,
+        blocked: &mut bool,
+    ) {
+        if *blocked {
+            return;
+        }
+
         if let Some(or_node) = node.as_or_node() {
             let lhs = or_node.left();
             let rhs = or_node.right();
-
-            let lhs_result = Self::collect_comparisons(&lhs, allow_method);
-            let rhs_result = Self::collect_comparisons(&rhs, allow_method);
-
-            match (lhs_result, rhs_result) {
-                (Some((lhs_var, lhs_count)), Some((rhs_var, rhs_count))) => {
-                    if lhs_var == rhs_var {
-                        return Some((lhs_var, lhs_count + rhs_count));
-                    }
-                    // Different variables but might share if one is empty (skipped method comparison)
-                    if lhs_count == 0 {
-                        return Some((rhs_var, rhs_count));
-                    }
-                    if rhs_count == 0 {
-                        return Some((lhs_var, lhs_count));
-                    }
-                    return None;
-                }
-                (Some(_), None) | (None, Some(_)) => {
-                    return None;
-                }
-                (None, None) => return None,
-            }
+            Self::scan_comparison_chain(&lhs, allow_method, first_var, count, blocked);
+            Self::scan_comparison_chain(&rhs, allow_method, first_var, count, blocked);
+            return;
         }
 
-        // Handle CallNode with ==
-        if let Some(call) = node.as_call_node() {
-            if call.name().as_slice() == b"==" {
-                let lhs = call.receiver()?;
-                let rhs_args = call.arguments()?;
-                let rhs_list: Vec<_> = rhs_args.arguments().iter().collect();
-                if rhs_list.len() != 1 {
-                    return None;
-                }
-                let rhs = &rhs_list[0];
+        let Some(result) = Self::comparison_result(node, allow_method) else {
+            return;
+        };
 
-                let result = Self::classify_comparison(&lhs, rhs, allow_method)?;
-                return match result {
-                    ComparisonResult::Valid { var_src, count } => Some((var_src, count)),
-                    // simple_double_comparison: both sides are lvars — skip but keep chain alive
-                    // Return a dummy variable with count 0 so the chain continues
-                    ComparisonResult::DoubleVar => Some((lhs.location().as_slice().to_vec(), 0)),
-                };
+        match result {
+            ComparisonResult::Valid {
+                var_src,
+                count: cmp_count,
+            } => match first_var {
+                Some(existing) if existing == &var_src => {
+                    *count += cmp_count;
+                }
+                Some(_) => {
+                    *blocked = true;
+                }
+                None => {
+                    *first_var = Some(var_src);
+                    *count += cmp_count;
+                }
+            },
+            ComparisonResult::DoubleVar => {
+                // `lvar == lvar` participates in the tree shape but is ignored.
             }
         }
-        None
     }
 
     /// Classify a `==` comparison, matching RuboCop's `simple_comparison_lhs/rhs`
@@ -216,24 +236,14 @@ struct MultipleComparisonVisitor<'a> {
 }
 
 impl MultipleComparisonVisitor<'_> {
-    /// Check if the lhs and rhs of an OrNode form a chain of only `==` comparisons.
-    /// Matches RuboCop's `nested_comparison?` check.
-    fn nested_comparison_or<'a>(
-        lhs: &'a ruby_prism::Node<'a>,
-        rhs: &'a ruby_prism::Node<'a>,
-    ) -> bool {
-        Self::is_comparison(lhs) && Self::is_comparison(rhs)
-    }
-
-    fn is_comparison<'a>(node: &'a ruby_prism::Node<'a>) -> bool {
+    /// Check whether a node is a RuboCop-style nested comparison tree.
+    fn is_comparison<'a>(&self, node: &'a ruby_prism::Node<'a>) -> bool {
         if let Some(or_node) = node.as_or_node() {
             let lhs = or_node.left();
             let rhs = or_node.right();
-            Self::is_comparison(&lhs) && Self::is_comparison(&rhs)
-        } else if let Some(call) = node.as_call_node() {
-            call.name().as_slice() == b"=="
+            self.is_comparison(&lhs) && self.is_comparison(&rhs)
         } else {
-            false
+            MultipleComparison::comparison_result(node, self.allow_method).is_some()
         }
     }
 }
@@ -243,28 +253,29 @@ impl<'a> Visit<'a> for MultipleComparisonVisitor<'a> {
         let lhs = node.left();
         let rhs = node.right();
 
-        // Check if this is an || chain consisting entirely of == comparisons.
-        if Self::nested_comparison_or(&lhs, &rhs) {
-            // Process the full chain
-            let lhs_result = MultipleComparison::collect_comparisons(&lhs, self.allow_method);
-            let rhs_result = MultipleComparison::collect_comparisons(&rhs, self.allow_method);
+        // Process only all-comparison || chains. This intentionally returns
+        // early even when the chain is not an offense, so later subchains in
+        // the same root || expression are not flagged independently.
+        if self.is_comparison(&lhs) && self.is_comparison(&rhs) {
+            let mut first_var = None;
+            let mut count = 0;
+            let mut blocked = false;
+            MultipleComparison::scan_comparison_chain(
+                &lhs,
+                self.allow_method,
+                &mut first_var,
+                &mut count,
+                &mut blocked,
+            );
+            MultipleComparison::scan_comparison_chain(
+                &rhs,
+                self.allow_method,
+                &mut first_var,
+                &mut count,
+                &mut blocked,
+            );
 
-            let result = match (lhs_result, rhs_result) {
-                (Some((lhs_var, lhs_count)), Some((rhs_var, rhs_count))) => {
-                    if lhs_var == rhs_var {
-                        Some(lhs_count + rhs_count)
-                    } else if lhs_count == 0 {
-                        Some(rhs_count)
-                    } else if rhs_count == 0 {
-                        Some(lhs_count)
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-
-            if let Some(count) = result {
+            if first_var.is_some() {
                 if count >= self.threshold {
                     let loc = node.location();
                     let (line, column) = self.source.offset_to_line_col(loc.start_offset());
