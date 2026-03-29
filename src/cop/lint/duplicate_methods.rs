@@ -180,6 +180,29 @@ use ruby_prism::Visit;
 ///   finds those through the singleton-class ancestor (`found_sclass_method`) or
 ///   `parent_module_name`, so only `class << self` and non-send/non-const singleton
 ///   expressions should remain invisible inside plain blocks.
+///
+/// ## Corpus investigation (2026-03-29)
+///
+/// Corpus oracle reported FP=8, FN=5.
+///
+/// FP=8:
+/// - `class << ConstName` inside outer plain blocks (`describe`, `before`, etc.) is
+///   ignored by RuboCop even though the same singleton-class form is tracked at
+///   top level. Fixed by only preserving plain-block visibility for send-receiver
+///   singleton classes (`class << call_expr`), not const-receiver ones.
+/// - Anonymous `Class.new` / `Module.new` blocks are not treated as named scopes by
+///   RuboCop. Only constant assignment (`Name = Class.new do`) creates a tracked scope.
+///   Fixed by dropping anonymous `Class.new` / `Module.new` from generic scope creation
+///   and keeping the constant-write special case.
+/// - Top-level `begin ... rescue/else/ensure` wrappers are opaque in RuboCop for
+///   duplicate-method tracking. That suppresses top-level defs and nested class bodies
+///   in files like `net-imap` and `guillotine`. Fixed by treating only top-level
+///   control-flow begin bodies as plain blocks; nested rescue handling inside class/module
+///   scopes remains unchanged so existing rescue/ensure behavior is preserved.
+///
+/// FN=5:
+/// - Current local fixture still includes corpus FN reproductions added before this turn.
+///   They are separate from the FP fixes above and require additional detection work.
 pub struct DuplicateMethods;
 
 impl Cop for DuplicateMethods {
@@ -328,7 +351,7 @@ impl DupMethodVisitor<'_, '_> {
     fn tracks_methods_inside_plain_blocks(&self) -> bool {
         matches!(
             self.scope_stack.last().map(|entry| entry.kind),
-            Some(ScopeKind::ConstSingleton | ScopeKind::SendSingleton)
+            Some(ScopeKind::SendSingleton)
         )
     }
 
@@ -900,9 +923,10 @@ fn extract_symbol_or_string(node: &ruby_prism::Node<'_>) -> Option<String> {
     None
 }
 
-/// Check if a call node is a scope-creating pattern like `Class.new do`, `Module.new do`,
-/// `Const.class_eval do`, or implicit `class_eval do`. Returns the scope name if so.
-/// Note: Struct.new and module_eval are NOT scope-creating per RuboCop.
+/// Check if a call node is a scope-creating pattern like `Const.class_eval do` or
+/// implicit `class_eval do`. Returns the scope name if so.
+/// Note: anonymous `Class.new` / `Module.new`, `Struct.new`, and `module_eval` are
+/// NOT scope-creating per RuboCop.
 fn scope_creating_call_name(node: &ruby_prism::CallNode<'_>) -> Option<String> {
     let method_name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
 
@@ -920,18 +944,6 @@ fn scope_creating_call_name(node: &ruby_prism::CallNode<'_>) -> Option<String> {
         // class_eval with no explicit receiver (implicit self inside module)
         if node.receiver().is_none() {
             return Some("__implicit_class_eval__".to_string());
-        }
-    }
-
-    // Class.new do / Module.new do
-    if method_name == "new" && node.block().is_some() {
-        if let Some(recv) = node.receiver() {
-            if let Some(const_read) = recv.as_constant_read_node() {
-                let name = std::str::from_utf8(const_read.name().as_slice()).unwrap_or("");
-                if name == "Class" || name == "Module" {
-                    return Some("__dynamic_class_new__".to_string());
-                }
-            }
         }
     }
 
@@ -1199,29 +1211,8 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
                 }
                 return;
             }
-            let effective_name = if scope_name == "__dynamic_class_new__" {
-                // Local variable assignment -- isolated scope per assignment
-                // Constant assignment is handled by visit_constant_write_node.
-                if let Some(block) = node.block() {
-                    let saved_defs = std::mem::take(&mut self.definitions);
-                    let saved_scopes = self.scope_stack.clone();
-                    self.scope_stack.clear();
-                    self.scope_stack.push(ScopeEntry {
-                        name: "__anonymous__".to_string(),
-                        is_singleton: false,
-                        kind: ScopeKind::Regular,
-                    });
-                    self.visit(&block);
-                    self.definitions = saved_defs;
-                    self.scope_stack = saved_scopes;
-                }
-                return;
-            } else {
-                scope_name
-            };
-
             self.scope_stack.push(ScopeEntry {
-                name: effective_name,
+                name: scope_name,
                 is_singleton: false,
                 kind: ScopeKind::Regular,
             });
@@ -1300,6 +1291,22 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
     // NOTE: case/case_match nodes do NOT suppress duplicate detection.
     // RuboCop's `node.each_ancestor.any?(&:if_type?)` only matches if/unless,
     // not case/when. So methods inside case/when ARE checked for duplicates.
+
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        let top_level_control_flow = self.scope_stack.is_empty()
+            && self.def_stack.is_empty()
+            && (node.rescue_clause().is_some()
+                || node.ensure_clause().is_some()
+                || node.else_clause().is_some());
+
+        if top_level_control_flow {
+            self.plain_block_depth += 1;
+            ruby_prism::visit_begin_node(self, node);
+            self.plain_block_depth -= 1;
+        } else {
+            ruby_prism::visit_begin_node(self, node);
+        }
+    }
 
     fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
         let was = self.in_rescue_or_ensure;

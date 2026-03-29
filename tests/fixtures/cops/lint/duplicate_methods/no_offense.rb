@@ -174,6 +174,21 @@ describe "something" do
   end
 end
 
+# class << ConstName inside a plain block is ignored
+describe "const singleton in block" do
+  class << DummyService
+    def find_in_batches; end
+  end
+
+  class << DummyService
+    def find_in_batches; end
+  end
+
+  class << DummyService
+    alias_method :start, :old_start
+  end
+end
+
 # Class.new assigned to local variables are different scopes
 a = Class.new do
   def foo
@@ -181,6 +196,14 @@ a = Class.new do
 end
 b = Class.new do
   def foo
+  end
+end
+
+# Anonymous Class.new blocks are ignored, even inside methods
+def build_test_case
+  Class.new do
+    def test_name; end
+    def test_name; end
   end
 end
 
@@ -307,4 +330,25 @@ def VCR.version
 end
 def VCR.version
   "2.0"
+end
+
+# begin/rescue/else control-flow bodies are ignored
+begin
+  require "io/console"
+rescue LoadError
+  def _noecho(&block)
+    block
+  end
+else
+  def _noecho(&block)
+    block
+  end
+end
+
+begin
+  class BeginWrapped
+    def test_name; end
+    def test_name; end
+  end
+rescue LoadError
 end
