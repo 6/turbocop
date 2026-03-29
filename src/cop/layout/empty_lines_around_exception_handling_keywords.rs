@@ -182,7 +182,9 @@ impl<'pr> Visit<'pr> for RescueModifierLineCollector<'_> {
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
-        let (owner_line, _) = self.source.offset_to_line_col(node.location().start_offset());
+        let (owner_line, _) = self
+            .source
+            .offset_to_line_col(node.location().start_offset());
         if let Some(body) = node.body() {
             self.collect_sole_body_modifier(&body, owner_line);
         }
