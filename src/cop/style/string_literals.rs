@@ -554,7 +554,11 @@ mod tests {
 
         let source = b"`bundle binstub vite_ruby --path #{config.root.join(\"bin\")}`\n";
         let diags = run_cop_full(&StringLiterals, source);
-        assert_eq!(diags.len(), 1, "Should flag \"bin\" inside xstring interpolation");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag \"bin\" inside xstring interpolation"
+        );
         assert_eq!(diags[0].location.line, 1);
         assert_eq!(diags[0].location.column, 52);
     }
