@@ -22,7 +22,18 @@ use crate::parse::source::SourceFile;
 /// - FP: RuboCop has an `interpolation?` check that skips offenses when LHS is a dstr
 ///   or interpolated regexp, even when RHS is non-constant. Added is_interpolation() check.
 /// - FN: Hash literals with all-literal keys/values (e.g. `{"foo" => ["bar"]} == params`)
-///   were not recognized as constant portions. Added is_literal_hash().
+///   were not recognized as constant portions. Added hash support.
+///
+/// Corpus investigation round 3 (FP=62, FN=10):
+/// - FP/FN: RuboCop's Parser AST treats array and hash syntax as `literal?` even when
+///   elements or values are variables/expressions. nitrocop required descendants to be
+///   literal, which produced false positives like `%w(admin password) == [u, p]` and
+///   `ConstPathRef <= { scope: (ConstPathRef | Const), name: Const }`, and missed offenses
+///   like `[query] == found`. Fixed by treating Prism ArrayNode/HashNode/KeywordHashNode
+///   as constant portions by node type.
+/// - FN: RuboCop treats `__FILE__` as a constant portion, except for the explicit
+///   `__FILE__ == $0` / `$PROGRAM_NAME` exemption. Added SourceFileNode support and the
+///   matching exemption.
 pub struct YodaCondition;
 
 /// RuboCop's `constant_portion?` checks `node.literal? || node.const_type?`.
@@ -31,8 +42,7 @@ pub struct YodaCondition;
 ///
 /// In Parser gem, `literal?` returns true for: int, float, str, sym, nil, true,
 /// false, rational, complex/imaginary, regexp, xstr (backtick), dsym (interpolated
-/// symbol), dstr, dregexp, array (if all elements are literal), hash (if all
-/// elements are literal), and range (if both endpoints are literal).
+/// symbol), dstr, dregexp, array, hash, and `__FILE__`.
 fn is_constant_portion(node: &ruby_prism::Node<'_>) -> bool {
     node.as_integer_node().is_some()
         || node.as_float_node().is_some()
@@ -51,38 +61,21 @@ fn is_constant_portion(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_regular_expression_node().is_some()
         || node.as_interpolated_regular_expression_node().is_some()
         || node.as_interpolated_string_node().is_some()
+        || node.as_source_file_node().is_some()
         || is_literal_array(node)
         || is_literal_hash(node)
 }
 
-/// Check if a node is an array where all elements are constant portions
-/// (matching RuboCop's recursive `literal?` check for arrays).
+/// Parser gem treats array syntax itself as `literal?`, even when its elements are
+/// variables or calls.
 fn is_literal_array(node: &ruby_prism::Node<'_>) -> bool {
-    if let Some(array) = node.as_array_node() {
-        array.elements().iter().all(|el| is_constant_portion(&el))
-    } else {
-        false
-    }
+    node.as_array_node().is_some()
 }
 
-/// Check if a node is a hash where all keys and values are constant portions
-/// (matching RuboCop's recursive `literal?` check for hashes).
+/// Parser gem treats hash syntax itself as `literal?`, even when its keys or values
+/// are variables or calls.
 fn is_literal_hash(node: &ruby_prism::Node<'_>) -> bool {
-    let elements = if let Some(hash) = node.as_hash_node() {
-        hash.elements()
-    } else if let Some(kw_hash) = node.as_keyword_hash_node() {
-        kw_hash.elements()
-    } else {
-        return false;
-    };
-    elements.iter().all(|el| {
-        if let Some(assoc) = el.as_assoc_node() {
-            is_constant_portion(&assoc.key()) && is_constant_portion(&assoc.value())
-        } else {
-            // AssocSplatNode (**foo) is not constant
-            false
-        }
-    })
+    node.as_hash_node().is_some() || node.as_keyword_hash_node().is_some()
 }
 
 /// Check if a node is an interpolated string (dstr) or interpolated regexp,
@@ -91,6 +84,19 @@ fn is_literal_hash(node: &ruby_prism::Node<'_>) -> bool {
 fn is_interpolation(node: &ruby_prism::Node<'_>) -> bool {
     node.as_interpolated_string_node().is_some()
         || (node.as_interpolated_regular_expression_node().is_some())
+}
+
+fn is_program_name(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_global_variable_read_node()
+        .map(|gvar| matches!(gvar.location().as_slice(), b"$0" | b"$PROGRAM_NAME"))
+        .unwrap_or(false)
+}
+
+fn is_source_file_equal_program_name(
+    receiver: &ruby_prism::Node<'_>,
+    argument: &ruby_prism::Node<'_>,
+) -> bool {
+    receiver.as_source_file_node().is_some() && is_program_name(argument)
 }
 
 impl Cop for YodaCondition {
@@ -160,6 +166,10 @@ impl Cop for YodaCondition {
 
         let require_yoda = enforced_style == "require_for_all_comparison_operators"
             || enforced_style == "require_for_equality_operators_only";
+
+        if is_source_file_equal_program_name(&receiver, &arg_list[0]) {
+            return;
+        }
 
         let lhs_constant = is_constant_portion(&receiver);
         let rhs_constant = is_constant_portion(&arg_list[0]);
@@ -286,6 +296,16 @@ mod tests {
             diags.len(),
             1,
             "Should flag comparison Yoda with default style"
+        );
+    }
+
+    #[test]
+    fn source_file_equal_program_name_is_not_flagged() {
+        let source = b"__FILE__ == $0\n__FILE__ != $PROGRAM_NAME\n";
+        let diags = run_cop_full(&YodaCondition, source);
+        assert!(
+            diags.is_empty(),
+            "Should allow RuboCop's __FILE__ program-name exemption"
         );
     }
 }
