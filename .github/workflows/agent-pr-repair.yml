@@ -430,20 +430,6 @@ jobs:
           base_sha: ${{ steps.prep.outputs.base_sha }}
           workflow: agent-pr-repair
 
-      # Capture recovery patch in the outer workflow so it survives composite
-      # action timeouts.
-      - name: Capture recovery patch
-        if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.pre_agent_live_pr.outputs.should_continue == 'true'
-        run: |
-          BASE_SHA="${{ steps.prep.outputs.base_sha }}"
-          if [ -n "$BASE_SHA" ]; then
-            git status --short > "$AGENT_STATUS_FILE" || true
-            git log --oneline "${BASE_SHA}"..HEAD > "$AGENT_COMMITS_FILE" || true
-            git diff --stat "$BASE_SHA" > "$AGENT_RECOVERY_STAT_FILE" || true
-            git diff "$BASE_SHA" > "$AGENT_RECOVERY_DIFF_FILE" || true
-            git diff --binary "$BASE_SHA" > "$AGENT_RECOVERY_PATCH_FILE" || true
-          fi
-
       - name: Validate repair change scope
         if: steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.pre_agent_live_pr.outputs.should_continue == 'true'
         id: file_guard
@@ -776,42 +762,18 @@ jobs:
 
           cat "$REPAIR_SUMMARY_FILE" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Leak scan artifacts
+      - name: Upload agent artifacts
         if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip'
-        id: leak-scan
-        env:
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.MINIMAX_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-          GH_TOKEN_FOR_ACTIONS_READ: ${{ steps.actions-read-token.outputs.token }}
-        run: |
-          if [ ! -s "$AGENT_ARTIFACT_MANIFEST_FILE" ]; then
-            python3 scripts/workflows/agent_artifacts.py agent-pr-repair \
-              --runtime-root "$AGENT_RUNTIME_ROOT" \
-              --output "$AGENT_ARTIFACT_MANIFEST_FILE"
-          fi
-          LEAK_OK="true"
-          python3 scripts/workflows/guard_backend_secrets.py \
-            --ignore-missing \
-            --from-env ANTHROPIC_AUTH_TOKEN \
-            --from-env ANTHROPIC_API_KEY \
-            --from-env CODEX_AUTH_JSON \
-            --from-env GH_TOKEN_FOR_ACTIONS_READ \
-            scan-manifest "$AGENT_ARTIFACT_MANIFEST_FILE" || LEAK_OK="false"
-          echo "leak_scan_ok=$LEAK_OK" >> "$GITHUB_OUTPUT"
-          {
-            echo "artifact_paths<<EOF"
-            cat "$AGENT_ARTIFACT_MANIFEST_FILE" 2>/dev/null || true
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Upload repair logs
-        if: always() && steps.pr.outputs.should_run == 'true' && steps.policy.outputs.should_repair == 'true' && steps.repair.outputs.route != 'skip' && steps.leak-scan.outputs.leak_scan_ok == 'true'
-        uses: actions/upload-artifact@v6
+        uses: ./.github/actions/upload-agent-artifacts
         with:
-          name: agent-pr-repair-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ steps.leak-scan.outputs.artifact_paths }}
-          retention-days: 7
+          base_sha: ${{ steps.prep.outputs.base_sha }}
+          workflow: agent-pr-repair
+          artifact_name: agent-pr-repair-${{ github.run_id }}-${{ github.run_attempt }}
+          anthropic_auth_token: ${{ secrets.MINIMAX_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          actions_read_token: ${{ steps.actions-read-token.outputs.token }}
 
   # Reset linked tracker issue when a bot PR is closed without merging.
   # This handles both manual closes and programmatic closes that bypass

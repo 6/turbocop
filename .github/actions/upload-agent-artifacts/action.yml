@@ -1,0 +1,102 @@
+name: Upload Agent Artifacts
+description: >-
+  Capture recovery patch, run leak scan, and upload artifacts.
+  Runs in the outer workflow (not the composite run-agent action)
+  so if:always() survives agent timeouts.
+
+inputs:
+  base_sha:
+    description: Git ref to diff against for recovery patch
+    required: true
+  diff_paths:
+    description: Space-separated path filters for git diff (empty = all files)
+    default: ''
+  workflow:
+    description: Workflow name for artifact manifest (agent-cop-fix or agent-pr-repair)
+    required: true
+  artifact_name:
+    description: Name for the uploaded artifact
+    required: true
+  anthropic_auth_token:
+    description: Anthropic auth token secret (MiniMax)
+    default: ''
+  anthropic_api_key:
+    description: Anthropic API key secret
+    default: ''
+  codex_auth_json:
+    description: Codex auth JSON secret
+    default: ''
+  claude_code_oauth_token:
+    description: Claude Code OAuth token secret
+    default: ''
+  actions_read_token:
+    description: Read-only GitHub token
+    required: true
+
+outputs:
+  leak_scan_ok:
+    description: "'true' if leak scan passed"
+    value: ${{ steps.leak-scan.outputs.leak_scan_ok }}
+
+runs:
+  using: composite
+  steps:
+    - name: Capture recovery patch
+      shell: bash
+      env:
+        BASE_SHA: ${{ inputs.base_sha }}
+        DIFF_PATHS: ${{ inputs.diff_paths }}
+      run: |
+        if [ -n "$BASE_SHA" ]; then
+          git status --short > "$AGENT_STATUS_FILE" || true
+          git log --oneline "${BASE_SHA}"..HEAD > "$AGENT_COMMITS_FILE" || true
+          DIFF_ARGS=()
+          if [ -n "$DIFF_PATHS" ]; then
+            # shellcheck disable=SC2206
+            DIFF_ARGS=(-- $DIFF_PATHS)
+          fi
+          git diff --stat "$BASE_SHA" "${DIFF_ARGS[@]}" > "$AGENT_RECOVERY_STAT_FILE" || true
+          git diff "$BASE_SHA" "${DIFF_ARGS[@]}" > "$AGENT_RECOVERY_DIFF_FILE" || true
+          git diff --binary "$BASE_SHA" "${DIFF_ARGS[@]}" > "$AGENT_RECOVERY_PATCH_FILE" || true
+        fi
+
+    - name: Leak scan artifacts
+      id: leak-scan
+      shell: bash
+      env:
+        WORKFLOW: ${{ inputs.workflow }}
+        ANTHROPIC_AUTH_TOKEN: ${{ inputs.anthropic_auth_token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        GH_TOKEN_FOR_ACTIONS_READ: ${{ inputs.actions_read_token }}
+      run: |
+        # Build manifest if the run-agent action didn't get to it
+        if [ ! -s "$AGENT_ARTIFACT_MANIFEST_FILE" ]; then
+          python3 scripts/workflows/agent_artifacts.py "$WORKFLOW" \
+            --runtime-root "$AGENT_RUNTIME_ROOT" \
+            --output "$AGENT_ARTIFACT_MANIFEST_FILE"
+        fi
+        LEAK_OK="true"
+        python3 scripts/workflows/guard_backend_secrets.py \
+          --ignore-missing \
+          --from-env ANTHROPIC_AUTH_TOKEN \
+          --from-env ANTHROPIC_API_KEY \
+          --from-env CODEX_AUTH_JSON \
+          --from-env CLAUDE_CODE_OAUTH_TOKEN \
+          --from-env GH_TOKEN_FOR_ACTIONS_READ \
+          scan-manifest "$AGENT_ARTIFACT_MANIFEST_FILE" || LEAK_OK="false"
+        echo "leak_scan_ok=$LEAK_OK" >> "$GITHUB_OUTPUT"
+        {
+          echo "artifact_paths<<EOF"
+          cat "$AGENT_ARTIFACT_MANIFEST_FILE" 2>/dev/null || true
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Upload artifacts
+      if: steps.leak-scan.outputs.leak_scan_ok == 'true'
+      uses: actions/upload-artifact@v6
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ steps.leak-scan.outputs.artifact_paths }}
+        retention-days: 7
