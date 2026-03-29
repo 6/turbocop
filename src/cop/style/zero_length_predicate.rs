@@ -28,6 +28,17 @@ use crate::parse::source::SourceFile;
 ///    zero checks allow safe nav on the inner call, nonzero checks require no safe nav.
 /// 3. The single FP (octocatalog-diff multiline block `.size.zero?`) was context-dependent
 ///    and resolved itself with the non-collection receiver fix.
+///
+/// ## Investigation findings (2026-03-29)
+/// FP=1, FN=3. The remaining misses were all `zero?` forms:
+/// 1. The cop matched `zero?` from the outer call, which produced RuboCop-incompatible
+///    ranges/messages for multiline receivers (`...end.size.zero?`) by reporting the full
+///    receiver chain instead of `size.zero?`.
+/// 2. Safe-navigation `length&.zero?` and `size&.zero?` were skipped because the outer
+///    `zero?` call used `&.` even though RuboCop allows these zero-length forms.
+///    Fixed by matching the inner `.length`/`.size` call and inspecting its parent `zero?`
+///    call, which naturally reports from the selector (`size`/`length`) through `zero?`
+///    and accepts both `.` and `&.` on the parent.
 pub struct ZeroLengthPredicate;
 
 impl ZeroLengthPredicate {
@@ -143,16 +154,18 @@ impl Cop for ZeroLengthPredicate {
         let method_name = call.name();
         let method_bytes = method_name.as_slice();
 
-        // Pattern: x.length.zero? or x.size.zero?
-        if method_bytes == b"zero?"
-            && call.arguments().is_none()
-            && !Self::uses_safe_navigation(&call)
-        {
+        // Pattern: x.length.zero?, x&.length.zero?, x&.length&.zero?, x.size.zero?
+        if method_bytes == b"zero?" && call.arguments().is_none() {
             if let Some(receiver) = call.receiver() {
                 if Self::is_length_or_size(&receiver) {
-                    let loc = node.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    let src = std::str::from_utf8(loc.as_slice()).unwrap_or("");
+                    let receiver_call = receiver.as_call_node().unwrap();
+                    let selector_loc = receiver_call
+                        .message_loc()
+                        .unwrap_or_else(|| receiver_call.location());
+                    let start = selector_loc.start_offset();
+                    let end = node.location().end_offset();
+                    let (line, column) = source.offset_to_line_col(start);
+                    let src = source.byte_slice(start, end, "");
                     diagnostics.push(self.diagnostic(
                         source,
                         line,
