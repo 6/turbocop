@@ -543,6 +543,7 @@ fn is_directive_redundant(
     registry: &CopRegistry,
     cop_filters: &CopFilterSet,
     path: &Path,
+    has_only_filter: bool,
 ) -> Option<&'static str> {
     // "all" is a wildcard — never flag (too broad to determine redundancy)
     if cop_name == "all" {
@@ -591,9 +592,26 @@ fn is_directive_redundant(
         // name IS in the registry and is enabled. RuboCop treats disable
         // directives for renamed cops as redundant since the old name no
         // longer exists.
-        if RENAMED_COPS.contains_key(cop_name) {
-            // The cop was renamed. RuboCop flags disable directives for
-            // renamed cops as redundant (with "Did you mean <new name>?").
+        if let Some(new_name) = RENAMED_COPS.get(cop_name) {
+            // The cop was renamed. In --only mode the new-name cop may not
+            // have run, so check its config: if it's enabled, the old-name
+            // directive might be suppressing its offenses — skip.
+            // In normal mode, check_and_mark_used already filtered out
+            // directives that suppressed offenses, so flagging is safe.
+            if has_only_filter {
+                let new_entry = registry
+                    .cops()
+                    .iter()
+                    .enumerate()
+                    .find(|(_, c)| c.name() == new_name.as_str());
+                if let Some((new_idx, _)) = new_entry {
+                    if cop_filters.cop_filter(new_idx).is_enabled()
+                        && !cop_filters.is_cop_excluded(new_idx, path)
+                    {
+                        return None;
+                    }
+                }
+            }
             return Some("");
         }
 
@@ -1083,6 +1101,7 @@ fn lint_source_once(
                     registry,
                     active_filters,
                     &source.path,
+                    !args.only.is_empty(),
                 ) {
                     Some(s) => s,
                     None => continue,

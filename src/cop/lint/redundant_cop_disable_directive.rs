@@ -42,9 +42,12 @@ use crate::diagnostic::Severity;
 ///    disabled/excluded/renamed/unknown cops. This makes `check_cop.py --rerun`
 ///    work for this cop.
 ///
-/// Known limitation: ~26 FPs in `--only` mode from renamed cop directives
-/// that actually suppress offenses (the new-name cop didn't run with --only).
-/// These don't occur in normal (non-`--only`) usage.
+/// 3. **Renamed cop guard for `--only` mode**: For renamed cops (e.g.,
+///    `Style/MethodName` → `Naming/MethodName`), the function now checks the
+///    new-name cop's config state. In `--only` mode, if the new-name cop is
+///    enabled, the old-name directive might be suppressing its offenses, so
+///    we skip (conservative). In normal mode, `check_and_mark_used()` already
+///    handles this correctly.
 pub struct RedundantCopDisableDirective;
 
 impl Cop for RedundantCopDisableDirective {
