@@ -1,30 +1,38 @@
+use std::collections::BTreeSet;
+
+use ruby_prism::Visit;
+
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-10)
+/// ## Corpus investigation (2026-03-29)
 ///
-/// Cached corpus oracle reported FP=8, FN=2.
+/// Cached corpus oracle reported FP=3, FN=5.
 ///
-/// Fixed FN=2: compact `rescue=>e` headers were previously skipped because the
-/// line matcher only accepted whitespace after `rescue`. The accepted fix
-/// special-cases `rescue=>` without broadening `else`/`ensure` matching.
+/// Fixed FN=5 from three Prism-specific gaps:
+/// - postfix `expr rescue nil` is a `RescueModifierNode`, so the line-start scan
+///   missed rescue keywords that do not begin the line;
+/// - the line matcher skipped valid headers written as `rescue(EOFError)` and
+///   `rescue; []` because it only accepted whitespace or `=>` after `rescue`;
+/// - RuboCop skips same-line `rescue ... end` clauses entirely, so the inline
+///   `end` guard must suppress both the "before" and "after" checks, not only
+///   the trailing blank-line check.
 ///
-/// Fixed FP: blank lines after single-line exception clauses such as
-/// `rescue NameError; nil end` should be ignored because the `rescue` and `end`
-/// share a line. The source scan now skips the "blank line after" check when
-/// the same line also contains a standalone `end`.
+/// Fixed FP regression found during the required sample rerun:
+/// - RuboCop only treats postfix rescue modifiers like exception-handling
+///   keywords when the modifier is the sole body expression of a def/block/begin;
+///   a later statement-level scan was too broad and falsely flagged blank lines
+///   before modifiers that appeared alongside sibling statements;
+/// - RuboCop does not treat blank lines after postfix rescue modifiers as
+///   offenses, only blank lines before them. The modifier path therefore only
+///   performs the leading-blank check.
 ///
-/// A broader boundary matcher for all keywords reintroduced the historical
-/// zero-baseline regression on `cerebris__jsonapi-resources__e92afc6`, so the
-/// accepted version keeps the compact-syntax exception rescue-only.
-///
-/// Acceptance gate after this patch (`scripts/check-cop.py --verbose --rerun`):
-/// expected=537, actual=580, CI baseline=543, raw excess=43, missing=0,
-/// file-drop noise=37. The rerun passes against the CI baseline once that
-/// existing noise is applied.
+/// Earlier accepted fixes retained support for compact `rescue=>e` headers and
+/// skipped heredoc/string content. This patch keeps that behavior and extends it
+/// only to the narrow additional forms RuboCop accepts.
 pub struct EmptyLinesAroundExceptionHandlingKeywords;
 
 const KEYWORDS: &[&[u8]] = &[b"rescue", b"ensure", b"else"];
@@ -85,8 +93,8 @@ fn matches_keyword_line(content: &[u8], kw: &[u8]) -> bool {
     };
 
     rest.is_empty()
-        || matches!(rest[0], b' ' | b'\t' | b'\n' | b'\r')
-        || (kw == b"rescue" && rest.starts_with(b"=>"))
+        || matches!(rest[0], b' ' | b'\t' | b'\n' | b'\r' | b';')
+        || (kw == b"rescue" && (rest.starts_with(b"=>") || rest[0] == b'('))
 }
 
 fn has_inline_end(content: &[u8], keyword: &[u8]) -> bool {
@@ -103,6 +111,109 @@ fn has_inline_end(content: &[u8], keyword: &[u8]) -> bool {
     false
 }
 
+struct RescueModifierLineCollector<'a> {
+    source: &'a SourceFile,
+    lines: BTreeSet<usize>,
+}
+
+impl RescueModifierLineCollector<'_> {
+    fn collect_sole_body_modifier(&mut self, body: &ruby_prism::Node<'_>, owner_line: usize) {
+        if let Some(line) = self.sole_body_modifier_line(body, owner_line) {
+            self.lines.insert(line);
+        }
+    }
+
+    fn sole_body_modifier_line(
+        &self,
+        body: &ruby_prism::Node<'_>,
+        owner_line: usize,
+    ) -> Option<usize> {
+        if let Some(rescue_modifier) = body.as_rescue_modifier_node() {
+            return self.modifier_line(rescue_modifier, owner_line);
+        }
+
+        if let Some(statements) = body.as_statements_node() {
+            return self.sole_statement_modifier_line(statements, owner_line);
+        }
+
+        let begin_node = body.as_begin_node()?;
+        let statements = begin_node.statements()?;
+        self.sole_statement_modifier_line(statements, owner_line)
+    }
+
+    fn sole_statement_modifier_line(
+        &self,
+        statements: ruby_prism::StatementsNode<'_>,
+        owner_line: usize,
+    ) -> Option<usize> {
+        let body = statements.body();
+        if body.len() != 1 {
+            return None;
+        }
+
+        let rescue_modifier = body.first()?.as_rescue_modifier_node()?;
+        self.modifier_line(rescue_modifier, owner_line)
+    }
+
+    fn modifier_line(
+        &self,
+        rescue_modifier: ruby_prism::RescueModifierNode<'_>,
+        owner_line: usize,
+    ) -> Option<usize> {
+        let (line, _) = self
+            .source
+            .offset_to_line_col(rescue_modifier.keyword_loc().start_offset());
+        (line != owner_line).then_some(line)
+    }
+}
+
+impl<'pr> Visit<'pr> for RescueModifierLineCollector<'_> {
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        if let Some(begin_loc) = node.begin_keyword_loc() {
+            let (owner_line, _) = self.source.offset_to_line_col(begin_loc.start_offset());
+            if let Some(statements) = node.statements() {
+                if let Some(line) = self.sole_statement_modifier_line(statements, owner_line) {
+                    self.lines.insert(line);
+                }
+            }
+        }
+
+        ruby_prism::visit_begin_node(self, node);
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        let (owner_line, _) = self.source.offset_to_line_col(node.location().start_offset());
+        if let Some(body) = node.body() {
+            self.collect_sole_body_modifier(&body, owner_line);
+        }
+
+        ruby_prism::visit_block_node(self, node);
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        let (owner_line, _) = self
+            .source
+            .offset_to_line_col(node.def_keyword_loc().start_offset());
+        if let Some(body) = node.body() {
+            self.collect_sole_body_modifier(&body, owner_line);
+        }
+
+        ruby_prism::visit_def_node(self, node);
+    }
+}
+
+fn collect_rescue_modifier_keyword_lines(
+    source: &SourceFile,
+    parse_result: &ruby_prism::ParseResult<'_>,
+) -> BTreeSet<usize> {
+    let mut collector = RescueModifierLineCollector {
+        source,
+        lines: BTreeSet::new(),
+    };
+    collector.visit(&parse_result.node());
+    collector.lines
+}
+
 impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
     fn name(&self) -> &'static str {
         "Layout/EmptyLinesAroundExceptionHandlingKeywords"
@@ -115,13 +226,15 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
     fn check_source(
         &self,
         source: &SourceFile,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lines: Vec<&[u8]> = source.lines().collect();
+        let rescue_modifier_keyword_lines =
+            collect_rescue_modifier_keyword_lines(source, parse_result);
         let mut byte_offset: usize = 0;
 
         for (i, line) in lines.iter().enumerate() {
@@ -163,6 +276,13 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
 
             let kw_str = std::str::from_utf8(keyword).unwrap_or("rescue");
 
+            // RuboCop ignores same-line `rescue ... end` / `ensure ... end`
+            // clauses entirely, not just the trailing blank after them.
+            if has_inline_end(content, keyword) {
+                byte_offset += line_len;
+                continue;
+            }
+
             // Check for empty line BEFORE the keyword
             if line_num >= 3 {
                 let above_idx = i - 1; // 0-indexed
@@ -195,11 +315,6 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
 
             // Check for empty line AFTER the keyword
             let below_idx = i + 1; // 0-indexed for line after
-            if has_inline_end(content, keyword) {
-                byte_offset += line_len;
-                continue;
-            }
-
             if below_idx < lines.len() && util::is_blank_line(lines[below_idx]) {
                 let mut diag = self.diagnostic(
                     source,
@@ -227,6 +342,36 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
             }
 
             byte_offset += line_len;
+        }
+
+        for line_num in rescue_modifier_keyword_lines {
+            if line_num >= 3 {
+                let above_idx = line_num - 2;
+                if above_idx < lines.len() && util::is_blank_line(lines[above_idx]) {
+                    let mut diag = self.diagnostic(
+                        source,
+                        line_num - 1,
+                        0,
+                        "Extra empty line detected before the `rescue`.".to_string(),
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        if let (Some(start), Some(end)) = (
+                            source.line_col_to_offset(line_num - 1, 0),
+                            source.line_col_to_offset(line_num, 0),
+                        ) {
+                            corr.push(crate::correction::Correction {
+                                start,
+                                end,
+                                replacement: String::new(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                    }
+                    diagnostics.push(diag);
+                }
+            }
         }
     }
 }
