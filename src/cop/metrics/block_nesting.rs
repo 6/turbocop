@@ -468,7 +468,8 @@ mod tests {
             None,
         );
 
-        let mut disabled = DisabledRanges::from_comments(&source, &parse_result);
+        let registry = crate::cop::registry::CopRegistry::default_registry();
+        let mut disabled = DisabledRanges::from_comments(&source, &parse_result, &registry);
         diagnostics.retain(|d| !disabled.check_and_mark_used(&d.cop_name, d.location.line));
 
         assert_eq!(

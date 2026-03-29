@@ -1060,7 +1060,7 @@ fn lint_source_once(
     // and detect redundant disable directives.
     let disable_start = std::time::Instant::now();
     let mut disabled =
-        crate::parse::directives::DisabledRanges::from_comments(source, &parse_result);
+        crate::parse::directives::DisabledRanges::from_comments(source, &parse_result, registry);
 
     if !args.ignore_disable_comments && !disabled.is_empty() {
         diagnostics.retain(|d| !disabled.check_and_mark_used(&d.cop_name, d.location.line));

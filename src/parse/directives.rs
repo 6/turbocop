@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -74,6 +74,8 @@ static DIRECTIVE_LEGACY_ALIASES: LazyLock<HashMap<String, Vec<String>>> =
 pub struct DisableDirective {
     /// The cop/department/all name exactly as written in the comment.
     pub cop_name: String,
+    /// RuboCop-style qualified key used internally for matching.
+    key: String,
     /// 1-indexed line number of the directive comment.
     pub line: usize,
     /// 0-indexed column of the `#` starting the comment.
@@ -101,13 +103,135 @@ pub struct DisabledRanges {
     directives: Vec<DisableDirective>,
 }
 
+struct DirectiveRegistryInfo {
+    registered: HashSet<String>,
+    short_to_qualified: HashMap<String, Vec<String>>,
+}
+
+impl DirectiveRegistryInfo {
+    fn from_registry(registry: &crate::cop::registry::CopRegistry) -> Self {
+        let mut registered = HashSet::new();
+        let mut short_to_qualified: HashMap<String, Vec<String>> = HashMap::new();
+
+        for name in registry.names() {
+            registered.insert(name.to_string());
+            if let Some((_, short)) = name.split_once('/') {
+                short_to_qualified
+                    .entry(short.to_string())
+                    .or_default()
+                    .push(name.to_string());
+            }
+        }
+
+        Self {
+            registered,
+            short_to_qualified,
+        }
+    }
+
+    fn qualify(&self, name: &str) -> String {
+        let badge = DirectiveBadge::parse(name);
+        // Mirror RuboCop::Cop::Registry.qualified_cop_name:
+        // - if Badge.parse(name) is already a registered qualified badge,
+        //   return the original text unchanged
+        // - otherwise, only resolve by short name when it maps to exactly one cop
+        if self.registered.contains(&badge.registered_name()) {
+            return name.to_string();
+        }
+
+        match self.short_to_qualified.get(badge.cop_name.as_str()) {
+            Some(matches) if matches.len() == 1 => matches[0].clone(),
+            _ => name.to_string(),
+        }
+    }
+}
+
+struct DirectiveBadge {
+    department: Option<String>,
+    cop_name: String,
+}
+
+impl DirectiveBadge {
+    fn parse(name: &str) -> Self {
+        let mut parts = name.split('/').map(camel_case_directive_part);
+        let cop_name = parts.next_back().unwrap_or_default();
+        let department = {
+            let parts: Vec<String> = parts.collect();
+            if parts.is_empty() {
+                None
+            } else {
+                Some(parts.join("/"))
+            }
+        };
+
+        Self {
+            department,
+            cop_name,
+        }
+    }
+
+    fn registered_name(&self) -> String {
+        match &self.department {
+            Some(department) => format!("{department}/{}", self.cop_name),
+            None => self.cop_name.clone(),
+        }
+    }
+}
+
+fn camel_case_directive_part(name_part: &str) -> String {
+    if name_part == "rspec" {
+        return "RSpec".to_string();
+    }
+
+    let bytes = name_part.as_bytes();
+    let needs_camel_case = bytes.first().is_some_and(u8::is_ascii_lowercase)
+        || bytes
+            .windows(2)
+            .any(|window| window[0] == b'_' && window[1].is_ascii_lowercase());
+    if !needs_camel_case {
+        return name_part.to_string();
+    }
+
+    let mut result = String::with_capacity(name_part.len());
+    let mut chars = name_part.chars().peekable();
+    let mut at_start = true;
+
+    while let Some(ch) = chars.next() {
+        if at_start && ch.is_ascii_lowercase() {
+            result.push(ch.to_ascii_uppercase());
+            at_start = false;
+            continue;
+        }
+
+        if ch == '_' {
+            if let Some(next) = chars.next_if(|next| next.is_ascii_lowercase()) {
+                result.push(next.to_ascii_uppercase());
+            } else {
+                result.push(ch);
+            }
+            at_start = false;
+            continue;
+        }
+
+        result.push(ch);
+        at_start = false;
+    }
+
+    result
+}
+
 impl DisabledRanges {
-    pub fn from_comments(source: &SourceFile, parse_result: &ruby_prism::ParseResult<'_>) -> Self {
+    pub fn from_comments(
+        source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        registry: &crate::cop::registry::CopRegistry,
+    ) -> Self {
         let mut ranges: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
         // Track open block disables: cop_name -> (start_line, column, directive_index)
         let mut open_disables: HashMap<String, (usize, usize, usize)> = HashMap::new();
         let mut found_any = false;
         let mut directives: Vec<DisableDirective> = Vec::new();
+        let registry_info = DirectiveRegistryInfo::from_registry(registry);
 
         let lines: Vec<&[u8]> = source.lines().collect();
 
@@ -199,12 +323,14 @@ impl DisabledRanges {
                     for &cop in &cop_names {
                         // Normalize Department::CopName -> Department/CopName
                         let cop = normalize_directive_cop_name(cop);
-                        let cop = cop.as_str();
+                        let key = registry_info.qualify(cop.as_str());
+                        let key = key.as_str();
                         if is_inline {
                             let range = (line, line);
-                            ranges.entry(cop.to_string()).or_default().push(range);
+                            ranges.entry(key.to_string()).or_default().push(range);
                             directives.push(DisableDirective {
                                 cop_name: cop.to_string(),
+                                key: key.to_string(),
                                 line,
                                 column: col,
                                 is_inline: true,
@@ -217,10 +343,10 @@ impl DisabledRanges {
                             // `# rubocop:disable Cop` without an intervening
                             // `# rubocop:enable Cop`.
                             if let Some((prev_start, _prev_col, prev_idx)) =
-                                open_disables.remove(cop)
+                                open_disables.remove(key)
                             {
                                 let range = (prev_start, line);
-                                ranges.entry(cop.to_string()).or_default().push(range);
+                                ranges.entry(key.to_string()).or_default().push(range);
                                 if prev_idx < directives.len() {
                                     directives[prev_idx].range = range;
                                 }
@@ -228,13 +354,14 @@ impl DisabledRanges {
                             let directive_idx = directives.len();
                             directives.push(DisableDirective {
                                 cop_name: cop.to_string(),
+                                key: key.to_string(),
                                 line,
                                 column: col,
                                 is_inline: false,
                                 range: (line, usize::MAX), // placeholder, updated on enable/EOF
                                 used: false,
                             });
-                            open_disables.insert(cop.to_string(), (line, col, directive_idx));
+                            open_disables.insert(key.to_string(), (line, col, directive_idx));
                         }
                     }
                 }
@@ -242,8 +369,9 @@ impl DisabledRanges {
                     for &cop in &cop_names {
                         // Normalize Department::CopName -> Department/CopName
                         let cop = normalize_directive_cop_name(cop);
-                        let cop = cop.as_str();
-                        if cop == "all" {
+                        let key = registry_info.qualify(cop.as_str());
+                        let key = key.as_str();
+                        if key == "all" {
                             // `# rubocop:enable all` closes ALL open disables,
                             // not just a disable for the literal string "all".
                             for (open_cop, (start_line, _col, directive_idx)) in
@@ -255,10 +383,10 @@ impl DisabledRanges {
                                     directives[directive_idx].range = range;
                                 }
                             }
-                        } else if let Some(dept) = cop.strip_suffix("/*").or_else(|| {
+                        } else if let Some(dept) = key.strip_suffix("/*").or_else(|| {
                             // A bare department name (no `/`) also closes all cops
                             // in that department.
-                            if !cop.contains('/') { Some(cop) } else { None }
+                            if !key.contains('/') { Some(key) } else { None }
                         }) {
                             // `# rubocop:enable Department` closes the department
                             // disable AND any individual cop disables in that dept.
@@ -291,10 +419,10 @@ impl DisabledRanges {
                                 }
                             }
                         } else if let Some((start_line, _col, directive_idx)) =
-                            open_disables.remove(cop)
+                            open_disables.remove(key)
                         {
                             let range = (start_line, line);
-                            ranges.entry(cop.to_string()).or_default().push(range);
+                            ranges.entry(key.to_string()).or_default().push(range);
                             // Update the directive's range
                             if directive_idx < directives.len() {
                                 directives[directive_idx].range = range;
@@ -325,20 +453,12 @@ impl DisabledRanges {
 
     /// Returns true if `cop_name` is disabled at `line`.
     ///
-    /// Checks the exact cop name, short cop name (without department),
-    /// same-department legacy aliases (renamed cops), its department prefix,
-    /// and "all".
+    /// Checks the exact cop name, RuboCop-compatible moved-name aliases,
+    /// its department prefix, and "all".
     pub fn is_disabled(&self, cop_name: &str, line: usize) -> bool {
         // Check exact cop name
         if self.check_ranges(cop_name, line) {
             return true;
-        }
-
-        // Check short cop name (e.g., "MethodLength" for "Metrics/MethodLength")
-        if let Some(short_name) = short_cop_name(cop_name) {
-            if self.check_ranges(short_name, line) {
-                return true;
-            }
         }
 
         // Check legacy aliases that RuboCop still honors in directive comments.
@@ -373,14 +493,6 @@ impl DisabledRanges {
             suppressed = true;
         }
 
-        // Check short cop name (e.g., "MethodLength" for "Metrics/MethodLength")
-        if let Some(short_name) = short_cop_name(cop_name) {
-            if self.check_ranges(short_name, line) {
-                self.mark_directives_used(short_name, line);
-                suppressed = true;
-            }
-        }
-
         // Check legacy aliases that RuboCop still honors in directive comments.
         if let Some(aliases) = DIRECTIVE_LEGACY_ALIASES.get(cop_name) {
             for alias in aliases {
@@ -411,10 +523,7 @@ impl DisabledRanges {
     /// Mark all directives with the given key that cover the given line as used.
     fn mark_directives_used(&mut self, key: &str, line: usize) {
         for directive in &mut self.directives {
-            if (directive.cop_name == key || directive.cop_name.eq_ignore_ascii_case(key))
-                && line >= directive.range.0
-                && line <= directive.range.1
-            {
+            if directive.key == key && line >= directive.range.0 && line <= directive.range.1 {
                 directive.used = true;
             }
         }
@@ -435,7 +544,6 @@ impl DisabledRanges {
     }
 
     fn check_ranges(&self, key: &str, line: usize) -> bool {
-        // Try exact match first (fast path)
         if let Some(ranges) = self.ranges.get(key) {
             for &(start, end) in ranges {
                 if line >= start && line <= end {
@@ -443,32 +551,8 @@ impl DisabledRanges {
                 }
             }
         }
-        // Fallback: case-insensitive match for department names.
-        // RuboCop normalizes cop names via Badge.parse which applies camel_case,
-        // so `Rspec/AnyInstance` matches `RSpec/AnyInstance`. We do a simple
-        // case-insensitive comparison as fallback.
-        //
-        // WARNING: Do NOT tighten this to require exact case on the cop name
-        // portion (after /). An attempt was made (commit 1afa9f6f, reverted in
-        // 3783900b) to only allow department-prefix case differences, which
-        // caused +292 FP across 6 Metrics cops. Real-world rubocop:disable
-        // directives frequently use variant casing (e.g. Metrics/Abcsize vs
-        // Metrics/AbcSize) and RuboCop's qualify_badge fallback resolves them.
-        for (stored_key, ranges) in &self.ranges {
-            if stored_key.eq_ignore_ascii_case(key) && stored_key != key {
-                for &(start, end) in ranges {
-                    if line >= start && line <= end {
-                        return true;
-                    }
-                }
-            }
-        }
         false
     }
-}
-
-fn short_cop_name(cop_name: &str) -> Option<&str> {
-    cop_name.split_once('/').map(|(_, short)| short)
 }
 
 fn build_directive_legacy_aliases(
@@ -505,7 +589,8 @@ mod tests {
     fn disabled_ranges(src: &str) -> DisabledRanges {
         let source = SourceFile::from_bytes("test.rb", src.as_bytes().to_vec());
         let parse_result = crate::parse::parse_source(source.as_bytes());
-        DisabledRanges::from_comments(&source, &parse_result)
+        let registry = crate::cop::registry::CopRegistry::default_registry();
+        DisabledRanges::from_comments(&source, &parse_result, &registry)
     }
 
     #[test]
@@ -939,17 +1024,65 @@ mod tests {
     }
 
     #[test]
-    fn case_insensitive_department_name() {
-        // `Rspec/AnyInstance` (lowercase 's') should match `RSpec/AnyInstance`
+    fn wrong_namespace_resolves_single_matching_cop() {
         let src = "# rubocop:disable Rspec/AnyInstance\nx = 1\n# rubocop:enable Rspec/AnyInstance\ny = 2\n";
         let dr = disabled_ranges(src);
         assert!(
             dr.is_disabled("RSpec/AnyInstance", 2),
-            "case-insensitive department should match"
+            "wrong namespace should resolve when the short name is unique"
         );
         assert!(
             !dr.is_disabled("RSpec/AnyInstance", 4),
             "after enable, should not be disabled"
+        );
+    }
+
+    #[test]
+    fn mis_cased_qualified_name_does_not_resolve() {
+        let dr = disabled_ranges("x = 1 # rubocop:disable Metrics/abcSize\ny = 2\n");
+        assert!(
+            !dr.is_disabled("Metrics/AbcSize", 1),
+            "mis-cased qualified name should stay raw and not suppress the real cop"
+        );
+    }
+
+    #[test]
+    fn lowercase_department_name_does_not_resolve() {
+        let dr = disabled_ranges("x = 1 # rubocop:disable metrics\ny = 2\n");
+        assert!(
+            !dr.is_disabled("Metrics/AbcSize", 1),
+            "lowercase department name should not disable the real department"
+        );
+    }
+
+    #[test]
+    fn camel_cased_short_name_resolves() {
+        let dr = disabled_ranges("x = 1 # rubocop:disable abcSize\ny = 2\n");
+        assert!(
+            dr.is_disabled("Metrics/AbcSize", 1),
+            "short names should qualify when Badge.parse resolves them to one cop"
+        );
+    }
+
+    #[test]
+    fn lowercase_multiword_short_name_does_not_resolve() {
+        let dr = disabled_ranges("x = 1 # rubocop:disable stringliterals\ny = 2\n");
+        assert!(
+            !dr.is_disabled("Style/StringLiterals", 1),
+            "Badge.parse should not fully camelize all-lowercase multiword short names"
+        );
+    }
+
+    #[test]
+    fn ambiguous_short_name_does_not_resolve() {
+        let dr = disabled_ranges("x = 1 # rubocop:disable SafeNavigation\ny = 2\n");
+        assert!(
+            !dr.is_disabled("Style/SafeNavigation", 1),
+            "ambiguous short names should stay raw instead of suppressing one arbitrary cop"
+        );
+        assert!(
+            !dr.is_disabled("Rails/SafeNavigation", 1),
+            "ambiguous short names should not suppress the other matching cop either"
         );
     }
 
