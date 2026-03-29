@@ -170,7 +170,6 @@
     "Lint/PercentSymbolArray": "stable",
     "Lint/RaiseException": "stable",
     "Lint/RandOne": "stable",
-    "Lint/RedundantCopDisableDirective": "stable",
     "Lint/RedundantDirGlobSort": "stable",
     "Lint/RedundantRegexpQuantifiers": "stable",
     "Lint/RedundantRequireStatement": "stable",
