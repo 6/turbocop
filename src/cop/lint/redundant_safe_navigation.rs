@@ -113,11 +113,21 @@ use ruby_prism::Visit;
 /// in non-direct context so nested boolean operators still work without turning
 /// ordinary method bodies into false positives.
 ///
-/// The remaining lorint/brick `snags&.present?` corpus reports did not reproduce
-/// in oracle-identical file runs against the cloned repos, and the repo has no
-/// `Lint/RedundantSafeNavigation` override that would add `present?` to
-/// `AllowedMethods`. Keep `present?` as a default-config no-offense unless a
-/// real config-loading bug is identified elsewhere.
+/// `present?` remains a default-config no-offense because RuboCop core does not
+/// include it in `AllowedMethods`. The corpus oracle baseline loads
+/// `rubocop-rails`, which does add `present?`, so the remaining brick FNs came
+/// from traversal gaps rather than config lookup.
+///
+/// ## Corpus investigation (2026-03-29) — AllowedMethods inside predicate blocks
+///
+/// The lorint/brick FNs were real under the corpus baseline config, but the bug
+/// was not `present?` itself. The offending `if snags&.present?` sits inside a
+/// `do ... end` block that is nested under a larger `while (...)` predicate.
+/// `visit_conditional_subtree` recursed through call receivers and arguments,
+/// but not the block attached to a call, so nested conditionals inside
+/// predicate-time blocks were skipped entirely. Fixed by descending into
+/// `call.block()` / `BlockNode` bodies in non-direct context so inner
+/// conditionals still apply RuboCop's immediate-parent rules.
 pub struct RedundantSafeNavigation;
 
 /// Methods guaranteed to exist on every instance (their receivers can't be nil)
@@ -435,6 +445,11 @@ impl<'a> ConditionalAllowedMethodVisitor<'a> {
                     self.visit_conditional_subtree(&arg, false);
                 }
             }
+            if let Some(block) = call.block().and_then(|b| b.as_block_node()) {
+                if let Some(body) = block.body() {
+                    self.visit_conditional_subtree(&body, false);
+                }
+            }
             return;
         }
 
@@ -455,6 +470,18 @@ impl<'a> ConditionalAllowedMethodVisitor<'a> {
             if let Some(body) = parens.body() {
                 self.visit_conditional_subtree(&body, false);
             }
+            return;
+        }
+
+        if let Some(block) = node.as_block_node() {
+            if let Some(body) = block.body() {
+                self.visit_conditional_subtree(&body, false);
+            }
+            return;
+        }
+
+        if let Some(write) = node.as_local_variable_write_node() {
+            self.visit_conditional_subtree(&write.value(), false);
             return;
         }
 
@@ -692,8 +719,38 @@ fn is_guaranteed_instance_receiver(node: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
     crate::cop_fixture_tests!(
         RedundantSafeNavigation,
         "cops/lint/redundant_safe_navigation"
     );
+
+    #[test]
+    fn flags_configured_allowed_method_inside_predicate_block() {
+        let mut options = HashMap::new();
+        options.insert(
+            "AllowedMethods".to_string(),
+            serde_yml::Value::Sequence(vec![serde_yml::Value::String("present?".to_string())]),
+        );
+        let config = CopConfig {
+            options,
+            ..CopConfig::default()
+        };
+
+        let diagnostics = crate::testutil::run_cop_full_with_config(
+            &RedundantSafeNavigation,
+            b"while (items = values.reject do |value|\nif value&.present?\n  selected << value\nend\nend).any?\n  process\nend\n",
+            config,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].location.line, 2);
+        assert_eq!(diagnostics[0].location.column, 8);
+        assert_eq!(diagnostics[0].cop_name, "Lint/RedundantSafeNavigation");
+        assert_eq!(
+            diagnostics[0].message,
+            "Redundant safe navigation detected, use `.` instead."
+        );
+    }
 }
