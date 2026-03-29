@@ -17,6 +17,18 @@ use std::collections::HashMap;
 ///   contains the same characters as the used delimiter's matchpair (e.g.,
 ///   `%w(foo( bar))`) — changing delimiters would require escaping. Added
 ///   `include_same_character_as_used_for_delimiter?` check matching RuboCop.
+///
+/// ## Investigation findings (2026-03-29)
+///
+/// ### FN root cause fixed (1831 FN):
+/// - For interpolated percent literals (`%Q{...}`, `%{...}`, `%W|...|`,
+///   `%x[...]`, etc.), the content-contains-delimiter check was scanning raw
+///   source bytes including interpolation expressions like `#{pars.join(' ')}`.
+///   This caused false skips when delimiter characters appeared inside `#{}`
+///   but not in literal string content. Fixed by matching RuboCop's approach:
+///   only check `StringNode` parts (literal text), skip `EmbeddedStatementsNode`
+///   parts (interpolation). For arrays, only check `StringNode`/`SymbolNode`
+///   elements.
 pub struct PercentLiteralDelimiters;
 
 impl PercentLiteralDelimiters {
@@ -68,6 +80,68 @@ impl PercentLiteralDelimiters {
         }
 
         map
+    }
+
+    /// Check if the literal (non-interpolated) content of a percent literal contains
+    /// either of the given delimiter bytes. For interpolated nodes, only StringNode
+    /// parts are checked, matching RuboCop's `contains_delimiter?` + `string_source`.
+    fn literal_content_contains(
+        node: &ruby_prism::Node<'_>,
+        source: &SourceFile,
+        opening: &ruby_prism::Location<'_>,
+        d1: u8,
+        d2: u8,
+    ) -> bool {
+        let bytes_contain = |bytes: &[u8]| bytes.contains(&d1) || bytes.contains(&d2);
+
+        // For interpolated nodes, only check StringNode parts
+        if let Some(s) = node.as_interpolated_string_node() {
+            return s.parts().iter().any(|p| {
+                p.as_string_node()
+                    .is_some_and(|s| bytes_contain(s.content_loc().as_slice()))
+            });
+        }
+        if let Some(s) = node.as_interpolated_x_string_node() {
+            return s.parts().iter().any(|p| {
+                p.as_string_node()
+                    .is_some_and(|s| bytes_contain(s.content_loc().as_slice()))
+            });
+        }
+        if let Some(s) = node.as_interpolated_regular_expression_node() {
+            return s.parts().iter().any(|p| {
+                p.as_string_node()
+                    .is_some_and(|s| bytes_contain(s.content_loc().as_slice()))
+            });
+        }
+        if let Some(s) = node.as_interpolated_symbol_node() {
+            return s.parts().iter().any(|p| {
+                p.as_string_node()
+                    .is_some_and(|s| bytes_contain(s.content_loc().as_slice()))
+            });
+        }
+        // For arrays, only check StringNode and SymbolNode elements
+        if let Some(a) = node.as_array_node() {
+            return a.elements().iter().any(|elem| {
+                if let Some(s) = elem.as_string_node() {
+                    bytes_contain(s.content_loc().as_slice())
+                } else if let Some(s) = elem.as_symbol_node() {
+                    s.value_loc().is_some_and(|v| bytes_contain(v.as_slice()))
+                } else {
+                    false
+                }
+            });
+        }
+
+        // For non-interpolated nodes, check raw bytes between opening and closing
+        let node_loc = node.location();
+        let content_start = opening.end_offset();
+        let content_end = node_loc.end_offset().saturating_sub(1);
+        if content_end > content_start {
+            let content = &source.as_bytes()[content_start..content_end];
+            bytes_contain(content)
+        } else {
+            false
+        }
     }
 
     /// Given a Prism node's opening bytes (e.g. `%w[`), extract the literal type and actual delimiter.
@@ -182,26 +256,22 @@ impl Cop for PercentLiteralDelimiters {
         };
 
         if actual_delim != expected_open {
-            let node_loc = node.location();
-            let content_start = opening.end_offset();
-            let content_end = node_loc.end_offset().saturating_sub(1); // skip closing delimiter
-            if content_end > content_start {
-                let content = &source.as_bytes()[content_start..content_end];
+            // Check if the literal content contains the preferred delimiters.
+            // For interpolated nodes, only check literal string parts (StringNode),
+            // not interpolation expressions (EmbeddedStatementsNode).
+            // This matches RuboCop's contains_preferred_delimiter? behavior.
+            if Self::literal_content_contains(node, source, &opening, expected_open, expected_close)
+            {
+                return;
+            }
 
-                // Check if the content contains the preferred delimiters.
-                // If so, skip — can't use preferred delimiters when content contains them.
-                if content.contains(&expected_open) || content.contains(&expected_close) {
+            // For %w and %i literals, also check if content contains the same
+            // characters as the currently-used delimiters (matchpairs).
+            // RuboCop's include_same_character_as_used_for_delimiter? check.
+            if literal_type == "%w" || literal_type == "%i" {
+                let (used_open, used_close) = matchpair(actual_delim);
+                if Self::literal_content_contains(node, source, &opening, used_open, used_close) {
                     return;
-                }
-
-                // For %w and %i literals, also check if content contains the same
-                // characters as the currently-used delimiters (matchpairs).
-                // RuboCop's include_same_character_as_used_for_delimiter? check.
-                if literal_type == "%w" || literal_type == "%i" {
-                    let (used_open, used_close) = matchpair(actual_delim);
-                    if content.contains(&used_open) || content.contains(&used_close) {
-                        return;
-                    }
                 }
             }
 
