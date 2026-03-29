@@ -41,3 +41,12 @@ raise SpoofError, "IP spoofing attack?! " \
   " HTTP_FORWARDED=" + req.forwarded.map { "for=#{_1}" }.join(", ")
    ^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
 
+
+' https://github.com/DataDog/dd-trace-rb of your use case so we can best support you. Using the default ' \
+^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
+
+' need to use hash methods (or, preferably, use your own SearchState implementation)')
+^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
+
+' revenue. In the event that the revenue will not cover this cost, you must UNDO '\
+^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
