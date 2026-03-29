@@ -98,25 +98,25 @@ impl PercentLiteralDelimiters {
         if let Some(s) = node.as_interpolated_string_node() {
             return s.parts().iter().any(|p| {
                 p.as_string_node()
-                    .map_or(false, |s| bytes_contain(s.content_loc().as_slice()))
+                    .is_some_and(|s| bytes_contain(s.content_loc().as_slice()))
             });
         }
         if let Some(s) = node.as_interpolated_x_string_node() {
             return s.parts().iter().any(|p| {
                 p.as_string_node()
-                    .map_or(false, |s| bytes_contain(s.content_loc().as_slice()))
+                    .is_some_and(|s| bytes_contain(s.content_loc().as_slice()))
             });
         }
         if let Some(s) = node.as_interpolated_regular_expression_node() {
             return s.parts().iter().any(|p| {
                 p.as_string_node()
-                    .map_or(false, |s| bytes_contain(s.content_loc().as_slice()))
+                    .is_some_and(|s| bytes_contain(s.content_loc().as_slice()))
             });
         }
         if let Some(s) = node.as_interpolated_symbol_node() {
             return s.parts().iter().any(|p| {
                 p.as_string_node()
-                    .map_or(false, |s| bytes_contain(s.content_loc().as_slice()))
+                    .is_some_and(|s| bytes_contain(s.content_loc().as_slice()))
             });
         }
         // For arrays, only check StringNode and SymbolNode elements
@@ -125,7 +125,7 @@ impl PercentLiteralDelimiters {
                 if let Some(s) = elem.as_string_node() {
                     bytes_contain(s.content_loc().as_slice())
                 } else if let Some(s) = elem.as_symbol_node() {
-                    s.value_loc().map_or(false, |v| bytes_contain(v.as_slice()))
+                    s.value_loc().is_some_and(|v| bytes_contain(v.as_slice()))
                 } else {
                     false
                 }
