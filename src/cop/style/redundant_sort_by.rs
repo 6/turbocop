@@ -6,13 +6,14 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-14)
+/// Detects identity `sort_by` blocks that RuboCop rewrites to `sort`.
 ///
-/// Corpus oracle reported FP=0, FN=4.
-///
-/// FN=4: Missing numbered parameter `_1` (Ruby 2.7+) and `it` keyword
-/// (Ruby 3.4+) patterns in sort_by blocks. Fixed by adding checks for
-/// NumberedParametersNode and ItParametersNode block parameters.
+/// Prism represents trailing-comma block params like `|name,|` as one required
+/// parameter plus an `ImplicitRestNode`. The earlier port rejected any
+/// `rest()` entry, which missed valid offenses such as
+/// `sort_by { |name,| name }.each`. This cop now allows only that Prism
+/// trailing-comma shape while still rejecting real rest params like
+/// `|name, *rest|`.
 pub struct RedundantSortBy;
 
 impl Cop for RedundantSortBy {
@@ -109,8 +110,12 @@ impl Cop for RedundantSortBy {
                 return;
             }
 
+            let has_explicit_rest = inner_params
+                .rest()
+                .is_some_and(|rest| rest.as_implicit_rest_node().is_none());
+
             if !inner_params.optionals().is_empty()
-                || inner_params.rest().is_some()
+                || has_explicit_rest
                 || !inner_params.posts().is_empty()
                 || !inner_params.keywords().is_empty()
                 || inner_params.keyword_rest().is_some()
