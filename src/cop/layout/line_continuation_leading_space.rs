@@ -4,76 +4,18 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-10)
+/// Mirrors RuboCop's `Layout/LineContinuationLeadingSpace` for continued
+/// interpolated strings.
 ///
-/// Corpus oracle reported FP=0, FN=5.
+/// The remaining misses came from an over-broad trailing-style skip for outer
+/// implicit-concat dstr nodes with an interpolated head and plain string tails.
+/// That skip suppressed real offenses in chains like:
+/// `"...#{x}... " \ ' tail' \ ' tail'`.
 ///
-/// Verified FN shapes:
-/// - Interpolated head + one plain continued tail with a leading space on the
-///   second line, e.g. the `fpm`/`elasticsearch-rails` message builders.
-/// - Receiver-of-`+` continuations like `"...\n\n" \ "  " + rows.join(...)`
-///   and the `rails` `" HTTP_FORWARDED=" + ...` chain.
-///
-/// Attempted fix 1 removed the `+`-receiver skip and the mixed-fragment
-/// trailing-style skip. That satisfied the new fixture cases but regressed the
-/// corpus gate: expected 1,174, actual 1,202, raw delta +33, file-drop noise
-/// 21, adjusted excess 12. The new excess concentrated in long interpolated
-/// warning/message chains such as `jsonapi-resources`, `chefspec`, and
-/// `overcommit`, which RuboCop leaves alone.
-///
-/// Attempted fix 2 narrowed the skip using source-line heuristics for those
-/// warning/message chains. That removed the FP regression but over-skipped badly
-/// on the corpus: expected 1,174, actual 844, missing 330. The heuristic
-/// suppressed many legitimate offenses beyond the targeted warning patterns.
-///
-/// ## Fix (2026-03-14)
-///
-/// Root cause: `should_skip_trailing_style` used `parts.len() >= 2` which
-/// skipped ALL implicit-concat dstr nodes with an interpolated head followed by
-/// plain string tails. This suppressed genuine offenses on 2-part cases (one
-/// interpolated head + one plain tail), such as `fpm`'s
-/// `"...dependency '#{name}'...packages " \ " don't work..."` pattern.
-///
-/// Fix: changed threshold from `parts.len() >= 2` to `parts.len() >= 3`.
-/// Two-part cases (the FN pattern) are now checked normally. Three-or-more-part
-/// chains (long interpolated message builders like `chefspec`/`overcommit`) are
-/// still skipped to avoid the FP regression seen in attempted fix 1.
-///
-/// ## Fix (2026-03-15)
-///
-/// Remaining FN=2: dstr nodes that are receivers of `+` were unconditionally
-/// skipped via `in_plus_receiver` flag. RuboCop's `on_dstr` has no such skip —
-/// it processes all dstr nodes regardless of whether they're `+` receivers.
-///
-/// Examples: `%Q{...#{x}...} \ "\n\n" \ "  " + items.join(...)` (chefspec)
-/// and `"..." \ "..." \ " HTTP_FORWARDED=" + req.forwarded...` (rails).
-///
-/// Fix: removed the `in_plus_receiver` mechanism entirely. The
-/// `should_skip_trailing_style` heuristic (interpolated head + 3+ plain tails
-/// with trailing whitespace) still prevents FPs on long message builder chains.
-/// Moved the former no_offense `+`-receiver test case to offense since RuboCop
-/// does flag leading spaces in dstr nodes even when they're `+` receivers.
-///
-/// ## Fix (2026-03-15, round 2) — chefspec FP=3
-///
-/// CI reported FP=3 in chefspec (`resource_matcher.rb:77/78/80`):
-/// `%Q{expected "#{name}[#{id}]"} \ " with action :#{act}..." \ ...`
-///
-/// Root cause: RuboCop's `investigate_trailing_style` autocorrect block uses
-/// `first_line[LINE_1_ENDING]` where `LINE_1_ENDING = /['"]\s*\\\n/`. When
-/// the first line of a continuation pair ends with a non-quote character
-/// (e.g., `} \` from `%Q{...}`), the regex returns nil and the autocorrect
-/// block crashes (`nil.length`). RuboCop's error handler catches the crash
-/// and aborts the entire `on_dstr` processing, so no offenses are recorded
-/// for that dstr node.
-///
-/// Fix: before calling `check_trailing_style`, verify the first line ends
-/// with a quote before `\` via `first_line_ends_with_quote_before_backslash`.
-/// If not AND the second line would trigger an offense (leading spaces after
-/// opening quote), break the loop to match RuboCop's crash-stops-processing
-/// behavior. If the second line wouldn't trigger an offense, continue to the
-/// next pair (matching RuboCop's early return from `investigate_trailing_style`
-/// before reaching the crash point).
+/// The fix is to always inspect those continuation pairs and keep only the
+/// narrow `%Q{...} \` crash parity: when the first line lacks a quote before the
+/// backslash, RuboCop aborts that dstr's trailing-style processing instead of
+/// reporting offenses.
 pub struct LineContinuationLeadingSpace;
 
 impl Cop for LineContinuationLeadingSpace {
@@ -130,24 +72,19 @@ impl LineContinuationVisitor<'_> {
         if self.lines.get(start_line - 1..end_line).is_none() {
             return;
         }
-        let parts: Vec<_> = node.parts().iter().collect();
-        let skip_trailing_style = self.enforced_style != "leading"
-            && should_skip_trailing_style(node, &parts, trim_cr(self.lines[start_line - 1]));
 
         for idx in 0..end_line.saturating_sub(start_line) {
             let line_num = start_line + idx;
-            let first_line = trim_cr(self.lines[start_line - 1 + idx]);
-            if !first_line.ends_with(b"\\") || !self.continuation(node, line_num) {
+            let raw_first_line = self.lines[start_line - 1 + idx];
+            if !raw_first_line.ends_with(b"\\") || !self.continuation(node, line_num) {
                 continue;
             }
 
+            let first_line = trim_cr(raw_first_line);
             let second_line = trim_cr(self.lines[start_line + idx]);
             match self.enforced_style {
                 "leading" => self.check_leading_style(first_line, line_num),
                 _ => {
-                    if skip_trailing_style {
-                        continue;
-                    }
                     if !first_line_ends_with_quote_before_backslash(first_line) {
                         // RuboCop's autocorrect block crashes when
                         // first_line doesn't match LINE_1_ENDING (no
@@ -291,41 +228,6 @@ fn first_line_ends_with_quote_before_backslash(line: &[u8]) -> bool {
         .rev()
         .find(|b| !is_horizontal_whitespace(**b))
         .is_some_and(|b| matches!(b, b'\'' | b'"'))
-}
-
-fn should_skip_trailing_style(
-    node: &ruby_prism::InterpolatedStringNode<'_>,
-    parts: &[ruby_prism::Node<'_>],
-    first_line: &[u8],
-) -> bool {
-    node.opening_loc().is_none()
-        && parts.len() >= 3
-        && parts[0].as_interpolated_string_node().is_some()
-        && parts[1..]
-            .iter()
-            .all(|part| part.as_string_node().is_some())
-        && has_trailing_whitespace_before_closing_quote(first_line)
-}
-
-fn has_trailing_whitespace_before_closing_quote(line: &[u8]) -> bool {
-    let Some(backslash_idx) = line.iter().rposition(|b| *b == b'\\') else {
-        return false;
-    };
-
-    let before_backslash = &line[..backslash_idx];
-    let Some(quote_idx) = before_backslash
-        .iter()
-        .rposition(|b| !is_horizontal_whitespace(*b))
-    else {
-        return false;
-    };
-    if !matches!(before_backslash[quote_idx], b'\'' | b'"') {
-        return false;
-    }
-
-    before_backslash[..quote_idx]
-        .last()
-        .is_some_and(|b| is_horizontal_whitespace(*b))
 }
 
 #[cfg(test)]

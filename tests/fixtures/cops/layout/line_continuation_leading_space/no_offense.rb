@@ -21,10 +21,6 @@ y = <<~SHELL
   world
 SHELL
 
-warning = "In #{resource_name} you exposed a `has_one` relationship "\
-  " using the `belongs_to` class method. We think `has_one`" \
-  " is more appropriate."
-
 result = "prefix " \
   "continued" + extra_info
 

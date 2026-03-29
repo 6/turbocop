@@ -41,3 +41,35 @@ raise SpoofError, "IP spoofing attack?! " \
   " HTTP_FORWARDED=" + req.forwarded.map { "for=#{_1}" }.join(", ")
    ^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
 
+warning = "In #{resource_name} you exposed a `has_one` relationship "\
+  " using the `belongs_to` class method. We think `has_one`" \
+   ^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
+  " is more appropriate."
+   ^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
+
+if getter != ::OpenTelemetry::Context::Propagation.text_map_getter &&
+    getter != ::OpenTelemetry::Common::Propagation.rack_env_getter
+  Datadog.logger.error(
+    "Custom getter #{getter} is not supported. Please inform the `datadog` team at " \
+    ' https://github.com/DataDog/dd-trace-rb of your use case so we can best support you. Using the default ' \
+     ^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
+    'OpenTelemetry::Context::Propagation.text_map_getter as a fallback getter.'
+  )
+end
+
+if scope&.respond_to?(method_name)
+  Deprecation.warn("Calling `#{method_name}` on scope " \
+    'is deprecated and will be removed in Blacklight 8. Call #to_h first if you ' \
+    ' need to use hash methods (or, preferably, use your own SearchState implementation)')
+     ^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
+end
+
+loan_msg = if @round.receivership_loan.positive?
+             " #{current_entity.name} has spent #{@game.format_currency(@round.receivership_loan)} "\
+               'on track, tokens and/or a leased train that must be repaid out of the route '\
+               ' revenue. In the event that the revenue will not cover this cost, you must UNDO '\
+                ^ Layout/LineContinuationLeadingSpace: Move leading spaces to the end of the previous line.
+               'the moves that cannot be afforded.'
+           else
+             ''
+           end
