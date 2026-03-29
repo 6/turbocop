@@ -32,6 +32,16 @@ use crate::parse::source::SourceFile;
 /// Corpus oracle reported the remaining FN=1 on degenerate ranges such as
 /// `[A-Aa-z0-9]`. RuboCop treats `A-A` as duplicating the endpoint element and
 /// reports the second `A`, not the range as a unique entity.
+///
+/// ## Corpus investigation update (2026-03-29)
+///
+/// The final FN was an interpolated character class from `riscv-unified-db`:
+/// `/^([[#{Regexp.escape(exclude_item)}(?:,.*?)?]])\s*$/`.
+/// The scanner treated the literal `[` inside the class as a nested class and
+/// bailed out on interpolation placeholders, so it missed repeated literal `?`
+/// elements around the interpolation. Fixed by treating bare `[` as a literal
+/// class element here unless it begins a POSIX class, and by skipping
+/// interpolation placeholders instead of abandoning the whole class.
 pub struct DuplicateRegexpCharacterClassElement;
 
 impl Cop for DuplicateRegexpCharacterClassElement {
@@ -249,9 +259,10 @@ fn check_class_for_duplicates(
     while k < class_content.len() {
         // Skip null placeholders (interpolation boundaries)
         if class_content[k] == '\0' {
-            // Interpolation inside a character class — we can't reliably analyze
-            // what comes from the interpolation, so skip the rest of this class.
-            return;
+            // Ignore the interpolated segment itself, but keep scanning the
+            // surrounding literal elements in this character class.
+            k += 1;
+            continue;
         }
         // Skip POSIX character classes like [:digit:], [:alpha:], etc.
         if class_content[k] == '[' && k + 1 < class_content.len() && class_content[k + 1] == ':' {
@@ -268,18 +279,6 @@ fn check_class_for_duplicates(
                 emit_duplicate(cop, source, class_offsets, k, diagnostics);
             }
             k = p;
-        } else if class_content[k] == '[' {
-            // Nested character class (e.g. [a-z[0-9]]) — skip as a single entity
-            let nested_chars: Vec<char> = class_content[k..].to_vec();
-            if let Some(end) = find_char_class_end(&nested_chars, 0) {
-                let entity: String = nested_chars[..=end].iter().collect();
-                if !seen.insert(entity) {
-                    emit_duplicate(cop, source, class_offsets, k, diagnostics);
-                }
-                k += end + 1;
-            } else {
-                k += 1;
-            }
         } else if class_content[k] == '\\' && k + 1 < class_content.len() {
             let esc_len = escape_sequence_len(class_content, k);
             let entity: String = class_content[k..k + esc_len].iter().collect();
