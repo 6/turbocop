@@ -16,7 +16,7 @@ Fast Ruby linter in Rust targeting RuboCop compatibility. Uses Prism for parsing
 - For deeper Prism node-shape notes, see [`docs/node_pattern_analysis.md`](docs/node_pattern_analysis.md).
 - For gem packaging and release details, see [`docs/rubygem.md`](docs/rubygem.md).
 - Read [`docs/corpus-workflow.md`](docs/corpus-workflow.md) only when the task is to run or debug the operator workflows around corpus results, issue backlog management, or regression investigation, not when the task is simply to fix a cop.
-- Do not read `docs/corpus-workflow.md` by default for ordinary cop implementation work, `agent-cop-fix`, or routine `agent-pr-repair` runs.
+- Do not read `docs/corpus-workflow.md` by default for ordinary cop implementation work or routine bot-driven fix/repair runs.
 
 ## Setup
 
@@ -109,18 +109,18 @@ Use `uv run` as the preferred way to invoke Python tools (`ruff`, `pytest`, etc.
 Start with cached corpus tools before rerunning expensive checks:
 
 ```bash
-python3 scripts/investigate_cop.py Department/CopName
-python3 scripts/investigate_cop.py Department/CopName --context
-python3 scripts/investigate_repo.py rails
-python3 scripts/reduce_mismatch.py Department/CopName repo_id path/to/file.rb:line
+uv run python scripts/investigate_cop.py Department/CopName
+uv run python scripts/investigate_cop.py Department/CopName --context
+uv run python scripts/investigate_repo.py rails
+uv run python scripts/reduce_mismatch.py Department/CopName repo_id path/to/file.rb:line
 ```
 
 Use `check_cop.py` for aggregate regression checks after a fix:
 
 ```bash
-python3 scripts/check_cop.py Department/CopName
-python3 scripts/check_cop.py Department/CopName --verbose --rerun
-python3 scripts/verify_cop_locations.py Department/CopName
+uv run python scripts/check_cop.py Department/CopName
+uv run python scripts/check_cop.py Department/CopName --verbose --rerun
+uv run python scripts/verify_cop_locations.py Department/CopName
 ```
 
 Important:
