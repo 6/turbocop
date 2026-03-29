@@ -103,8 +103,7 @@ fn add_negated_loop_corrections(
     replace_entire_predicate: bool,
     replacement_keyword: &str,
     corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
-    diag: &mut Diagnostic,
-) {
+) -> bool {
     if let Some(corr) = corrections {
         // 1. Replace keyword
         corr.push(crate::correction::Correction {
@@ -147,8 +146,10 @@ fn add_negated_loop_corrections(
                 cop_index: 0,
             });
         }
-        diag.corrected = true;
+        return true;
     }
+
+    false
 }
 
 impl Cop for NegatedWhile {
@@ -194,7 +195,7 @@ impl Cop for NegatedWhile {
                     column,
                     "Favor `until` over `while` for negative conditions.".to_string(),
                 );
-                add_negated_loop_corrections(
+                diag.corrected = add_negated_loop_corrections(
                     self,
                     &while_node.keyword_loc(),
                     &while_node.predicate(),
@@ -202,7 +203,6 @@ impl Cop for NegatedWhile {
                     replace_entire_predicate,
                     "until",
                     &mut corrections,
-                    &mut diag,
                 );
                 diagnostics.push(diag);
             }
@@ -230,7 +230,7 @@ impl Cop for NegatedWhile {
                     column,
                     "Favor `while` over `until` for negative conditions.".to_string(),
                 );
-                add_negated_loop_corrections(
+                diag.corrected = add_negated_loop_corrections(
                     self,
                     &until_node.keyword_loc(),
                     &until_node.predicate(),
@@ -238,7 +238,6 @@ impl Cop for NegatedWhile {
                     replace_entire_predicate,
                     "while",
                     &mut corrections,
-                    &mut diag,
                 );
                 diagnostics.push(diag);
             }
