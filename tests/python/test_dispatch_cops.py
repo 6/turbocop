@@ -295,6 +295,42 @@ def test_sorted_dispatch_candidates_orders_by_tier_then_total_then_cop():
     assert [issue["number"] for issue in ordered] == [1, 3, 2]
 
 
+def test_sync_issue_labels_removes_then_readds_labels():
+    calls = []
+    original_run = gct.subprocess.run
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    gct.subprocess.run = fake_run
+    try:
+        gct.sync_issue_labels(
+            "6/nitrocop",
+            591,
+            ["state:backlog", "difficulty:medium"],
+        )
+    finally:
+        gct.subprocess.run = original_run
+
+    assert len(calls) == 2
+    remove_args, remove_kwargs = calls[0]
+    assert remove_args == [
+        "gh", "issue", "edit", "591",
+        "--repo", "6/nitrocop",
+        "--remove-label", "state:backlog,state:pr-open,state:blocked,difficulty:simple,difficulty:medium,difficulty:complex,difficulty:config-only",
+    ]
+    assert remove_kwargs["check"] is False
+
+    add_args, add_kwargs = calls[1]
+    assert add_args == [
+        "gh", "issue", "edit", "591",
+        "--repo", "6/nitrocop",
+        "--add-label", "type:cop-issue,state:backlog,difficulty:medium",
+    ]
+    assert add_kwargs["check"] is True
+
+
 def test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue():
     calls = []
     original_funcs = {
@@ -439,6 +475,7 @@ if __name__ == "__main__":
     test_build_start_here_section_empty_when_no_corpus_examples()
     test_choose_issue_state_preserves_blocked_without_open_pr()
     test_sorted_dispatch_candidates_orders_by_tier_then_total_then_cop()
+    test_sync_issue_labels_removes_then_readds_labels()
     test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue()
     test_cmd_dispatch_issues_respects_capacity_and_uses_auto_backend()
     print("All tests passed.")

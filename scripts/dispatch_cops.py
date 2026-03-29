@@ -1618,11 +1618,22 @@ def sync_issue_labels(repo: str, issue_number: int, labels: list[str]) -> None:
             "gh", "issue", "edit", str(issue_number),
             "--repo", repo,
             "--remove-label", ",".join(remove),
-            "--add-label", ",".join([TRACKER_LABEL, *labels]),
         ],
         capture_output=True,
         text=True,
         check=False,
+    )
+    # Keep remove/add separate so gh does not need to reconcile overlapping
+    # state/difficulty labels in one edit request.
+    subprocess.run(
+        [
+            "gh", "issue", "edit", str(issue_number),
+            "--repo", repo,
+            "--add-label", ",".join([TRACKER_LABEL, *labels]),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
     )
 
 
