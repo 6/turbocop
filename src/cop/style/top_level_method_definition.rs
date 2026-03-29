@@ -44,12 +44,7 @@ impl Cop for TopLevelMethodDefinition {
                 if is_top_level_method_definition(&stmt) {
                     let loc = stmt.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        MESSAGE.to_string(),
-                    ));
+                    diagnostics.push(self.diagnostic(source, line, column, MESSAGE.to_string()));
                 }
             }
         }
