@@ -16,3 +16,15 @@ RSpec.configure do |c|
   c.after(:each, foo: 'bar', baz: true) { travel_back }
                  ^^^^^^^^^^^^^^^^^^^^^ RSpec/SortMetadata: Sort metadata alphabetically.
 end
+
+it 'is able to edit playlist name and description', js: true, :retry => 3 do
+                                                    ^ RSpec/SortMetadata: Sort metadata alphabetically.
+end
+
+it 'is able to change public playlist to private', js: true, :retry => 3 do
+                                                   ^ RSpec/SortMetadata: Sort metadata alphabetically.
+end
+
+it 'is able to change private playlist to public', js: true, :retry => 3 do
+                                                   ^ RSpec/SortMetadata: Sort metadata alphabetically.
+end

@@ -1,4 +1,4 @@
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::{
     self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_hook,
 };
@@ -6,24 +6,39 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-14)
+struct MetadataSymbol {
+    sort_key: Vec<u8>,
+    start_offset: usize,
+}
+
+struct MetadataPair {
+    sort_key: Vec<u8>,
+    start_offset: usize,
+}
+
+/// ## Corpus investigation (2026-03-29)
 ///
-/// FP=2, FN=8.
+/// FP=9, FN=3.
 ///
-/// FP=2: asciidoctor__asciidoctor-pdf repo, spec/cli_spec.rb:93 and :102.
-/// Both are `it '...', cli: true, visual: true, if: ..., &(proc do ... end)`.
-/// Root cause: `&(proc do end)` stores a BlockArgumentNode in call.block(),
-/// not a BlockNode. RuboCop's on_block pattern only fires for BlockNode.
-/// Fix: require call.block().as_block_node().is_some() instead of is_some().
+/// FP roots:
+/// - RuboCop's `Metadata` mixin always skips the first positional argument for
+///   examples and groups. Descriptionless groups like
+///   `RSpec.describe type: :model, swars_spec: true` therefore have no trailing
+///   metadata to sort. Nitrocop incorrectly treated that first hash as metadata.
+/// - RuboCop sorts hash pairs by `pair.key.source.downcase`, not by normalized
+///   symbol names. Mixed styles like
+///   `:transactions => false, read_transaction: true` are therefore already in
+///   order and must not be flagged.
 ///
-/// ## Corpus investigation (2026-03-15)
+/// FN root:
+/// - Mixed metadata hashes such as `js: true, :retry => 3` are parsed as
+///   `HashNode`, not `KeywordHashNode`. Nitrocop only handled keyword hashes and
+///   missed those offenses.
 ///
-/// FN=10: All from hooks (`before`/`after`/`around`) called on config objects
-/// with unsorted metadata, e.g. `config.after(:each, type: :system, js: true)`.
-/// Root cause: cop only checked `is_rspec_example_group` and `is_rspec_example`,
-/// missing hook methods entirely. Also, hooks are called on config variables
-/// (not `RSpec.*` constants), so the receiver check needed relaxing for hooks.
-/// Fix: added `is_rspec_hook` check; for hooks, accept any receiver.
+/// Fix: mirror RuboCop's metadata boundary rules by skipping the first
+/// positional arg, walking `RSpec.configure` block variables for config hooks,
+/// handling both `HashNode` and `KeywordHashNode`, collecting only trailing
+/// symbols, and sorting hash keys by source text.
 pub struct SortMetadata;
 
 impl Cop for SortMetadata {
@@ -40,7 +55,7 @@ impl Cop for SortMetadata {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -59,25 +74,29 @@ impl Cop for SortMetadata {
 
         let method_name = call.name().as_slice();
 
-        let is_hook = is_rspec_hook(method_name);
-
-        // Must be an RSpec example/group method or a hook
-        if !is_hook && !is_rspec_example_group(method_name) && !is_rspec_example(method_name) {
+        if method_name == b"configure" {
+            self.check_configure_call(source, &call, diagnostics);
             return;
         }
 
-        // Must have a BlockNode (do...end or { }), not BlockArgumentNode (&proc)
-        if call.block().is_none_or(|b| b.as_block_node().is_none()) {
+        if !is_rspec_example_group(method_name)
+            && !is_rspec_example(method_name)
+            && !is_rspec_hook(method_name)
+        {
             return;
         }
 
-        // For example/group methods: must be receiverless or RSpec.* / ::RSpec.*
-        // For hooks: accept any receiver (e.g. config.before, c.after)
-        if !is_hook {
-            if let Some(recv) = call.receiver() {
-                if util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
-                    return;
-                }
+        let block = match call.block() {
+            Some(b) => b,
+            None => return,
+        };
+        if block.as_block_node().is_none() {
+            return;
+        }
+
+        if let Some(recv) = call.receiver() {
+            if util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+                return;
             }
         }
 
@@ -85,74 +104,279 @@ impl Cop for SortMetadata {
             Some(a) => a,
             None => return,
         };
-
-        let all_args: Vec<_> = args.arguments().iter().collect();
-
-        // For hooks, skip the first argument (scope like :each, :all, :suite, :context).
-        // RuboCop's Metadata mixin pattern uses `_ $...` to skip the first arg.
-        // For example/group methods, skip nothing (the description is handled by
-        // the trailing-symbol logic below which only collects trailing symbols).
-        let arg_list = if is_hook && !all_args.is_empty() {
-            &all_args[1..]
-        } else {
-            &all_args[..]
-        };
-
-        // Collect trailing symbol arguments (metadata)
-        // Find the first symbol argument after the description
-        let mut symbol_names: Vec<(String, usize)> = Vec::new(); // (name, start_offset)
-        let mut first_symbol_offset: Option<usize> = None;
-
-        // Also collect keyword hash keys
-        let mut hash_keys: Vec<(String, usize)> = Vec::new();
-
-        for arg in arg_list.iter() {
-            if let Some(sym) = arg.as_symbol_node() {
-                let name = std::str::from_utf8(sym.unescaped())
-                    .unwrap_or("")
-                    .to_string();
-                let offset = sym.location().start_offset();
-                if first_symbol_offset.is_none() {
-                    first_symbol_offset = Some(offset);
-                }
-                symbol_names.push((name, offset));
-            } else if let Some(kw) = arg.as_keyword_hash_node() {
-                for elem in kw.elements().iter() {
-                    if let Some(assoc) = elem.as_assoc_node() {
-                        if let Some(key_sym) = assoc.key().as_symbol_node() {
-                            let name = std::str::from_utf8(key_sym.unescaped())
-                                .unwrap_or("")
-                                .to_string();
-                            let offset = elem.location().start_offset();
-                            hash_keys.push((name, offset));
-                        }
-                    }
-                }
-            }
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.is_empty() {
+            return;
         }
 
-        // Check if symbols are sorted
-        let symbols_sorted = symbol_names.windows(2).all(|w| w[0].0 <= w[1].0);
+        self.check_metadata_args(source, &arg_list[1..], diagnostics);
+    }
+}
 
-        // Check if hash keys are sorted
-        let hash_sorted = hash_keys.windows(2).all(|w| w[0].0 <= w[1].0);
+impl SortMetadata {
+    fn check_metadata_args(
+        &self,
+        source: &SourceFile,
+        metadata_args: &[ruby_prism::Node<'_>],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if metadata_args.is_empty() {
+            return;
+        }
 
-        if !symbols_sorted || !hash_sorted {
-            // Flag from first metadata to last
-            let flag_offset = if !symbols_sorted {
-                first_symbol_offset.unwrap_or(0)
+        let (args_without_hash, trailing_hash) =
+            if Self::hash_like_elements(metadata_args.last().unwrap()).is_some() {
+                (&metadata_args[..metadata_args.len() - 1], metadata_args.last())
             } else {
-                hash_keys.first().map(|(_, o)| *o).unwrap_or(0)
+                (metadata_args, None)
             };
 
-            let (line, column) = source.offset_to_line_col(flag_offset);
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Sort metadata alphabetically.".to_string(),
-            ));
+        let symbol_args = if Self::last_arg_could_be_hash(args_without_hash) {
+            &args_without_hash[..args_without_hash.len() - 1]
+        } else {
+            args_without_hash
+        };
+
+        let symbols = Self::collect_trailing_symbols(symbol_args);
+        let pairs = trailing_hash
+            .map(|arg| Self::collect_hash_pairs(source, arg))
+            .unwrap_or_default();
+
+        let symbols_sorted = symbols.windows(2).all(|w| w[0].sort_key <= w[1].sort_key);
+        let pairs_sorted = pairs.windows(2).all(|w| w[0].sort_key <= w[1].sort_key);
+
+        if symbols_sorted && pairs_sorted {
+            return;
         }
+
+        let flag_offset = symbols
+            .first()
+            .map(|sym| sym.start_offset)
+            .or_else(|| pairs.first().map(|pair| pair.start_offset))
+            .unwrap_or(0);
+
+        let (line, column) = source.offset_to_line_col(flag_offset);
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Sort metadata alphabetically.".to_string(),
+        ));
+    }
+
+    fn collect_trailing_symbols(args: &[ruby_prism::Node<'_>]) -> Vec<MetadataSymbol> {
+        let mut symbols = Vec::new();
+
+        for arg in args.iter().rev() {
+            let Some(sym) = arg.as_symbol_node() else {
+                break;
+            };
+
+            symbols.push(MetadataSymbol {
+                sort_key: sym
+                    .unescaped()
+                    .iter()
+                    .map(|b| b.to_ascii_lowercase())
+                    .collect(),
+                start_offset: sym.location().start_offset(),
+            });
+        }
+
+        symbols.reverse();
+        symbols
+    }
+
+    fn collect_hash_pairs(source: &SourceFile, arg: &ruby_prism::Node<'_>) -> Vec<MetadataPair> {
+        let Some(elements) = Self::hash_like_elements(arg) else {
+            return Vec::new();
+        };
+
+        let mut pairs = Vec::new();
+        for elem in elements.iter() {
+            let Some(assoc) = elem.as_assoc_node() else {
+                continue;
+            };
+
+            let key_loc = assoc.key().location();
+            let sort_key = source.as_bytes()[key_loc.start_offset()..key_loc.end_offset()]
+                .iter()
+                .map(|b| b.to_ascii_lowercase())
+                .collect();
+
+            pairs.push(MetadataPair {
+                sort_key,
+                start_offset: elem.location().start_offset(),
+            });
+        }
+
+        pairs
+    }
+
+    fn hash_like_elements<'a>(arg: &'a ruby_prism::Node<'a>) -> Option<ruby_prism::NodeList<'a>> {
+        if let Some(kw) = arg.as_keyword_hash_node() {
+            Some(kw.elements())
+        } else {
+            arg.as_hash_node().map(|hash| hash.elements())
+        }
+    }
+
+    fn last_arg_could_be_hash(args: &[ruby_prism::Node<'_>]) -> bool {
+        let Some(last) = args.last() else {
+            return false;
+        };
+
+        last.as_hash_node().is_none()
+            && last.as_keyword_hash_node().is_none()
+            && last.as_symbol_node().is_none()
+            && last.as_string_node().is_none()
+            && last.as_interpolated_string_node().is_none()
+    }
+
+    fn check_configure_call(
+        &self,
+        source: &SourceFile,
+        call: &ruby_prism::CallNode<'_>,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let recv = match call.receiver() {
+            Some(r) => r,
+            None => return,
+        };
+        if util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+            return;
+        }
+
+        let block = match call.block() {
+            Some(b) => b,
+            None => return,
+        };
+        let block_node = match block.as_block_node() {
+            Some(node) => node,
+            None => return,
+        };
+
+        let params = match block_node.parameters() {
+            Some(p) => p,
+            None => return,
+        };
+        let block_params = match params.as_block_parameters_node() {
+            Some(bp) => bp,
+            None => return,
+        };
+        let param_list = match block_params.parameters() {
+            Some(list) => list,
+            None => return,
+        };
+        let first_param = match param_list.requireds().iter().next() {
+            Some(param) => param,
+            None => return,
+        };
+        let param_name = match first_param.as_required_parameter_node() {
+            Some(param) => param.name(),
+            None => return,
+        };
+
+        let body = match block_node.body() {
+            Some(b) => b,
+            None => return,
+        };
+
+        self.walk_for_config_hooks(source, &body, param_name.as_slice(), diagnostics);
+    }
+
+    fn walk_for_config_hooks(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        param_name: &[u8],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if let Some(stmts) = node.as_statements_node() {
+            for stmt in stmts.body().iter() {
+                self.walk_for_config_hooks_single(source, &stmt, param_name, diagnostics);
+            }
+        } else {
+            self.walk_for_config_hooks_single(source, node, param_name, diagnostics);
+        }
+    }
+
+    fn walk_for_config_hooks_single(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        param_name: &[u8],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if node.as_call_node().is_some() {
+            self.check_config_hook_call(source, node, param_name, diagnostics);
+            return;
+        }
+
+        if let Some(if_node) = node.as_if_node() {
+            if let Some(stmts) = if_node.statements() {
+                self.walk_for_config_hooks(source, &stmts.as_node(), param_name, diagnostics);
+            }
+            if let Some(subsequent) = if_node.subsequent() {
+                self.walk_for_config_hooks(source, &subsequent, param_name, diagnostics);
+            }
+            return;
+        }
+
+        if let Some(unless_node) = node.as_unless_node() {
+            if let Some(stmts) = unless_node.statements() {
+                self.walk_for_config_hooks(source, &stmts.as_node(), param_name, diagnostics);
+            }
+            if let Some(else_clause) = unless_node.else_clause() {
+                self.walk_for_config_hooks(source, &else_clause.as_node(), param_name, diagnostics);
+            }
+            return;
+        }
+
+        if let Some(else_node) = node.as_else_node() {
+            if let Some(stmts) = else_node.statements() {
+                self.walk_for_config_hooks(source, &stmts.as_node(), param_name, diagnostics);
+            }
+        }
+    }
+
+    fn check_config_hook_call(
+        &self,
+        source: &SourceFile,
+        stmt: &ruby_prism::Node<'_>,
+        param_name: &[u8],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let call = match stmt.as_call_node() {
+            Some(c) => c,
+            None => return,
+        };
+
+        if !is_rspec_hook(call.name().as_slice()) {
+            return;
+        }
+
+        let recv = match call.receiver() {
+            Some(r) => r,
+            None => return,
+        };
+        let lvar = match recv.as_local_variable_read_node() {
+            Some(l) => l,
+            None => return,
+        };
+        if lvar.name().as_slice() != param_name {
+            return;
+        }
+
+        let args = match call.arguments() {
+            Some(a) => a,
+            None => return,
+        };
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.is_empty() {
+            return;
+        }
+
+        self.check_metadata_args(source, &arg_list[1..], diagnostics);
     }
 }
 

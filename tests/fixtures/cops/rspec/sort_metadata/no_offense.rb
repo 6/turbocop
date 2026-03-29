@@ -24,3 +24,13 @@ RSpec.configure do |c|
   c.before(:each, :a, :b) { freeze_time }
   c.after(:each, baz: true, foo: 'bar') { travel_back }
 end
+
+# Top-level example groups without a description skip the first argument,
+# so a lone metadata hash is not sorted by RuboCop here.
+RSpec.describe type: :model, swars_spec: true do
+end
+
+# Mixed hash syntax is sorted by the pair source text, so `:transactions`
+# comes before `read_transaction` and should not be flagged.
+describe '#e', :transactions => false, read_transaction: true do
+end
