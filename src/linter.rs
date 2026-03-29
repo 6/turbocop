@@ -806,6 +806,9 @@ fn emit_syntax_diagnostics(
     if args.except.iter().any(|e| e == SYNTAX_COP) {
         return Vec::new();
     }
+    let src_bytes = source.as_bytes();
+    let src_len = src_bytes.len();
+    let ends_with_newline = src_bytes.last() == Some(&b'\n');
 
     let mut diagnostics = Vec::new();
     for err in parse_result.errors() {
@@ -813,7 +816,16 @@ fn emit_syntax_diagnostics(
             continue;
         }
         let loc = err.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        let offset = loc.start_offset();
+        let (mut line, mut column) = source.offset_to_line_col(offset);
+        // Prism reports errors at one-past-the-end (offset == file length) as
+        // being on the line AFTER the last newline. Our offset_to_line_col maps
+        // that offset to the last content line instead. Adjust to match Prism's
+        // (and RuboCop's) line numbering.
+        if offset >= src_len && ends_with_newline {
+            line += 1;
+            column = 0;
+        }
         diagnostics.push(Diagnostic {
             path: source.path.display().to_string(),
             location: Location { line, column },

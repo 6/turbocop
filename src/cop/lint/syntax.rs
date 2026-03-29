@@ -16,6 +16,16 @@ use crate::diagnostic::Severity;
 /// as a separate offense. Fixed by adding `emit_syntax_diagnostics()` to the
 /// linter pipeline that emits one Lint/Syntax diagnostic per structural Prism
 /// error when the cop is enabled.
+///
+/// ## Corpus investigation (2026-03-29)
+///
+/// FN=183, FP=21: off-by-one line numbers for parse errors at end-of-file.
+/// Prism reports "end-of-input" (and other EOF) errors at offset == file_size,
+/// which it considers line N+1 for an N-line file ending with `\n`. Our
+/// `offset_to_line_col()` mapped that offset to line N instead. Fixed by
+/// detecting the at-or-past-end case in `emit_syntax_diagnostics()` and
+/// incrementing the line number to match Prism/RuboCop. This resolved 162 FN
+/// and all 21 FP (which were the same errors reported at the wrong line).
 pub struct Syntax;
 
 impl Cop for Syntax {
@@ -51,5 +61,96 @@ mod tests {
         let source = b"x = 1\ny = 2\n";
         let diags = run_cop_full(&Syntax, source);
         assert!(diags.is_empty());
+    }
+
+    /// Test that syntax errors at end-of-file get the correct line number.
+    /// Prism reports "end-of-input" errors at offset == file_size, which for
+    /// files ending with \n is one line past the last content line. The linter
+    /// must match Prism's (and RuboCop's) line numbering.
+    #[test]
+    fn end_of_input_line_number_matches_prism() {
+        use crate::config::ResolvedConfig;
+        use crate::cop::registry::CopRegistry;
+        use crate::cop::tiers::TierMap;
+        use crate::parse::source::SourceFile;
+
+        // An ERB template fragment that causes "unexpected end-of-input" at EOF.
+        // 3 content lines, ends with \n. Prism will report the end-of-input
+        // error at offset == file_size, which it considers line 4.
+        let source_code = b"class <%= name %>\nend\nend\n";
+        let source = SourceFile::from_bytes("test.rb", source_code.to_vec());
+        let registry = CopRegistry::default_registry();
+        let tier_map = TierMap::load();
+        let config = ResolvedConfig::empty();
+        // Use preview=true so Lint/Syntax (in preview tier) is enabled
+        let cop_filters = config.build_cop_filters(&registry, &tier_map, true);
+
+        let args = crate::cli::Args {
+            paths: vec![],
+            config: None,
+            format: "text".to_string(),
+            only: vec!["Lint/Syntax".to_string()],
+            except: vec![],
+            no_color: false,
+            debug: false,
+            rubocop_only: false,
+            list_cops: false,
+            list_autocorrectable_cops: false,
+            migrate: false,
+            doctor: false,
+            rules: false,
+            tier: None,
+            stdin: None,
+            init: false,
+            no_cache: false,
+            cache: "true".to_string(),
+            cache_clear: false,
+            fail_level: "convention".to_string(),
+            fail_fast: false,
+            force_exclusion: false,
+            list_target_files: false,
+            display_cop_names: false,
+            parallel: false,
+            require_libs: vec![],
+            ignore_disable_comments: false,
+            force_default_config: false,
+            autocorrect: false,
+            autocorrect_all: false,
+            preview: true,
+            quiet_skips: false,
+            strict: None,
+            verify: false,
+            rubocop_cmd: "bundle exec rubocop".to_string(),
+            corpus_check: None,
+        };
+        let allowlist = crate::cop::autocorrect_allowlist::AutocorrectAllowlist::load();
+
+        let (diags, _, _) = crate::linter::lint_source_inner(
+            &source,
+            &config,
+            &registry,
+            &args,
+            &tier_map,
+            &cop_filters,
+            &[],
+            false,
+            None,
+            &allowlist,
+        );
+
+        // Find the "end-of-input" diagnostic
+        let eoi_diag = diags.iter().find(|d| d.message.contains("end-of-input"));
+        assert!(
+            eoi_diag.is_some(),
+            "Expected an end-of-input diagnostic, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+        let eoi = eoi_diag.unwrap();
+        // File has 3 content lines; end-of-input should be on line 4
+        assert_eq!(
+            eoi.location.line, 4,
+            "end-of-input should be on line 4 (one past last content line), got line {}",
+            eoi.location.line
+        );
     }
 }
