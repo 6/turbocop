@@ -11,9 +11,14 @@ use crate::parse::source::SourceFile;
 /// 1 KeywordHashNode the consecutive-pairs check vacuously passed. Fix: expand
 /// KeywordHashNode into individual assoc elements for line comparisons (dc856393).
 ///
-/// 1 remaining FP: heredoc arg `body: <<~BODY,` — the trailing comma is after
-/// the heredoc marker, but the cop scans between the heredoc body end and `)`,
-/// finding no comma. Needs heredoc-aware comma detection (separate fix).
+/// Investigation (2026-03-29)
+///
+/// Root cause of 480 FNs: when any call argument contained a heredoc, the cop
+/// scanned from the last argument end offset all the way to `)`. In Prism that
+/// range includes heredoc body text, so opener-line commas such as
+/// `<<~GRAPHQL,` or `body: <<~BODY,` were rejected as if they were content.
+/// Fix: mirror RuboCop's heredoc path and, when any argument contains a heredoc,
+/// only search for a trailing comma on the same opener line.
 pub struct TrailingCommaInArguments;
 
 /// Collect effective element locations, expanding any KeywordHashNode into its
@@ -67,6 +72,82 @@ fn is_only_whitespace_and_comma(bytes: &[u8]) -> bool {
     found_comma
 }
 
+/// Like `is_only_whitespace_and_comma`, but stops at the first newline. This
+/// matches RuboCop's heredoc-specific comma detection and avoids scanning into
+/// heredoc bodies.
+fn is_only_horizontal_whitespace_and_comma(bytes: &[u8]) -> bool {
+    for &b in bytes {
+        match b {
+            b' ' | b'\t' => {}
+            b',' => return true,
+            b'\n' | b'\r' => return false,
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn find_trailing_comma_offset(
+    bytes: &[u8],
+    start: usize,
+    end: usize,
+    stop_at_newline: bool,
+) -> Option<usize> {
+    if start >= end || end > bytes.len() {
+        return None;
+    }
+
+    for (idx, &b) in bytes[start..end].iter().enumerate() {
+        if stop_at_newline && matches!(b, b'\n' | b'\r') {
+            return None;
+        }
+        if b == b',' {
+            return Some(start + idx);
+        }
+    }
+
+    None
+}
+
+fn any_heredoc<'a>(mut args: impl Iterator<Item = ruby_prism::Node<'a>>) -> bool {
+    args.any(|arg| is_heredoc_argument(&arg))
+}
+
+fn is_heredoc_argument(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(assoc) = node.as_assoc_node() {
+        return is_heredoc_argument(&assoc.value());
+    }
+
+    if let Some(kw_hash) = node.as_keyword_hash_node() {
+        return kw_hash.elements().iter().any(|elem| is_heredoc_argument(&elem));
+    }
+
+    if let Some(s) = node.as_interpolated_string_node() {
+        return s
+            .opening_loc()
+            .is_some_and(|open| open.as_slice().starts_with(b"<<"));
+    }
+
+    if let Some(s) = node.as_string_node() {
+        return s
+            .opening_loc()
+            .is_some_and(|open| open.as_slice().starts_with(b"<<"));
+    }
+
+    if let Some(call) = node.as_call_node() {
+        if let Some(recv) = call.receiver() {
+            if is_heredoc_argument(&recv) {
+                return true;
+            }
+        }
+        if let Some(args) = call.arguments() {
+            return args.arguments().iter().any(|arg| is_heredoc_argument(&arg));
+        }
+    }
+
+    false
+}
+
 impl Cop for TrailingCommaInArguments {
     fn name(&self) -> &'static str {
         "Style/TrailingCommaInArguments"
@@ -109,6 +190,7 @@ impl Cop for TrailingCommaInArguments {
         let last_end = last_arg.location().end_offset();
         let closing_start = closing_loc.start_offset();
         let bytes = source.as_bytes();
+        let has_heredoc = any_heredoc(arg_list.iter());
 
         // Skip if there's a block argument (&block) between last arg and closing paren.
         // The comma before &block is a separator, not a trailing comma.
@@ -125,7 +207,11 @@ impl Cop for TrailingCommaInArguments {
 
         let has_comma = if last_end < closing_start {
             let search_range = &bytes[last_end..closing_start];
-            is_only_whitespace_and_comma(search_range)
+            if has_heredoc {
+                is_only_horizontal_whitespace_and_comma(search_range)
+            } else {
+                is_only_whitespace_and_comma(search_range)
+            }
         } else {
             false
         };
@@ -159,9 +245,9 @@ impl Cop for TrailingCommaInArguments {
                 // Single arg with closing bracket on same line — not considered multiline
                 // for trailing comma purposes (but unwanted commas still detected below)
                 if has_comma && last_end < closing_start {
-                    let search_range = &bytes[last_end..closing_start];
-                    if let Some(comma_offset) = search_range.iter().position(|&b| b == b',') {
-                        let abs_offset = last_end + comma_offset;
+                    if let Some(abs_offset) =
+                        find_trailing_comma_offset(bytes, last_end, closing_start, has_heredoc)
+                    {
                         let (line, column) = source.offset_to_line_col(abs_offset);
                         diagnostics.push(self.diagnostic(
                             source,
@@ -236,9 +322,9 @@ impl Cop for TrailingCommaInArguments {
             }
             _ => {
                 if has_comma && last_end < closing_start {
-                    let search_range = &bytes[last_end..closing_start];
-                    if let Some(comma_offset) = search_range.iter().position(|&b| b == b',') {
-                        let abs_offset = last_end + comma_offset;
+                    if let Some(abs_offset) =
+                        find_trailing_comma_offset(bytes, last_end, closing_start, has_heredoc)
+                    {
                         let (line, column) = source.offset_to_line_col(abs_offset);
                         diagnostics.push(self.diagnostic(
                             source,
