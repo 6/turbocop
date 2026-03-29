@@ -275,17 +275,15 @@ impl<'a> Visit<'a> for MultipleComparisonVisitor<'a> {
                 &mut blocked,
             );
 
-            if first_var.is_some() {
-                if count >= self.threshold {
-                    let loc = node.location();
-                    let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Avoid comparing a variable with multiple items in a conditional, use `Array#include?` instead.".to_string(),
-                    ));
-                }
+            if first_var.is_some() && count >= self.threshold {
+                let loc = node.location();
+                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    "Avoid comparing a variable with multiple items in a conditional, use `Array#include?` instead.".to_string(),
+                ));
             }
 
             // Don't recurse: all leaves are == comparisons with no nested OrNodes.
