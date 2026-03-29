@@ -1,27 +1,107 @@
-use crate::cop::node_type::BLOCK_NODE;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Corpus conformance: 62.5% (5 matches, 0 FP, 3 FN).
+/// Corpus investigation (2026-03-29)
 ///
-/// All 3 FNs are caused by a RuboCop bug in `argument_tokens`: when a chained
-/// block expression has an inner block with a single-param trailing comma
-/// (`|name,|`) and an outer block with 2+ params (`|name, constant|`), RuboCop's
-/// `tokens_within(node)` for the outer block includes the inner block's tokens.
-/// The `pipes.select` then picks the first two `|` characters (from the inner
-/// block), causing `trailing_comma?` to check the inner block's params instead
-/// of the outer block's. Combined with `arg_count > 1` from the outer block,
-/// this incorrectly flags the inner block's single-param trailing comma.
+/// The missed corpus cases all share the same shape: a chained call where an
+/// inner receiver block uses a single trailing-comma parameter (`|name,|`) and
+/// a later outer block in the chain uses 2+ parameters (`|name, value|`).
 ///
-/// Affected corpus patterns (all identical root cause):
-/// - `sort_by { |name,| name }.map do |name, constant|` (ffi)
-/// - `.select { |k,| ... }.each do |k, v|` (openproject)
-/// - `sort_by do |day,| day end.reverse_each do |day, entries|` (rdoc)
+/// RuboCop's `argument_tokens` logic effectively looks at the first receiver
+/// block's pipes while still using the outer block's arity, so it reports the
+/// receiver block's comma. To match RuboCop, this cop now keeps the normal
+/// direct-block check and also, for multi-arg outer blocks, walks the receiver
+/// chain to find the first single-arg trailing-comma block that RuboCop flags.
 ///
-/// Isolated `|name,|` (single param) is correctly NOT flagged by RuboCop.
-/// nitrocop is correct here; the FNs are RuboCop false positives.
+/// Plain single-argument trailing-comma blocks such as `items.each { |item,| }`
+/// still remain non-offenses unless they appear in that chained outer-block
+/// context.
 pub struct TrailingCommaInBlockArgs;
+
+fn block_param_count(block: &ruby_prism::BlockNode<'_>) -> Option<usize> {
+    let params = block.parameters()?;
+    let block_params = params.as_block_parameters_node()?;
+    let inner_params = block_params.parameters()?;
+
+    Some(
+        inner_params
+            .requireds()
+            .iter()
+            .filter(|param| param.as_required_parameter_node().is_some())
+            .count()
+            + inner_params
+                .optionals()
+                .iter()
+                .filter(|param| param.as_optional_parameter_node().is_some())
+                .count()
+            + inner_params
+                .posts()
+                .iter()
+                .filter(|param| param.as_required_parameter_node().is_some())
+                .count()
+            + inner_params
+                .keywords()
+                .iter()
+                .filter(|param| param.as_optional_keyword_parameter_node().is_some())
+                .count(),
+    )
+}
+
+fn trailing_comma_offset(source: &SourceFile, block: &ruby_prism::BlockNode<'_>) -> Option<usize> {
+    let params = block.parameters()?;
+    let block_params = params.as_block_parameters_node()?;
+    let close_loc = block_params.closing_loc()?;
+
+    let bytes = source.as_bytes();
+    let close_offset = close_loc.start_offset();
+    if close_offset == 0 {
+        return None;
+    }
+
+    let mut pos = close_offset - 1;
+    while pos > 0 && matches!(bytes[pos], b' ' | b'\t' | b'\n' | b'\r') {
+        pos -= 1;
+    }
+
+    (bytes[pos] == b',').then_some(pos)
+}
+
+fn receiver_chain_trailing_comma_offset(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+) -> Option<usize> {
+    let call = node.as_call_node()?;
+
+    if let Some(receiver) = call.receiver() {
+        if let Some(offset) = receiver_chain_trailing_comma_offset(source, &receiver) {
+            return Some(offset);
+        }
+    }
+
+    let block = call.block().and_then(|block| block.as_block_node())?;
+    if block_param_count(&block) == Some(1) {
+        return trailing_comma_offset(source, &block);
+    }
+
+    None
+}
+
+fn push_diagnostic(
+    cop: &TrailingCommaInBlockArgs,
+    source: &SourceFile,
+    diagnostics: &mut Vec<Diagnostic>,
+    offset: usize,
+) {
+    let (line, column) = source.offset_to_line_col(offset);
+    diagnostics.push(cop.diagnostic(
+        source,
+        line,
+        column,
+        "Useless trailing comma present in block arguments.".to_string(),
+    ));
+}
 
 impl Cop for TrailingCommaInBlockArgs {
     fn name(&self) -> &'static str {
@@ -33,7 +113,7 @@ impl Cop for TrailingCommaInBlockArgs {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE]
+        &[BLOCK_NODE, CALL_NODE]
     }
 
     fn check_node(
@@ -45,70 +125,36 @@ impl Cop for TrailingCommaInBlockArgs {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let block = match node.as_block_node() {
-            Some(b) => b,
-            None => return,
-        };
-
-        let params = match block.parameters() {
-            Some(p) => p,
-            None => return,
-        };
-
-        let block_params = match params.as_block_parameters_node() {
-            Some(bp) => bp,
-            None => return,
-        };
-
-        // Count the number of block parameters. A single-parameter block with
-        // trailing comma (|a,|) is semantically meaningful — it destructures and
-        // discards extra block arguments. Only flag when there are multiple params.
-        // Prism represents the trailing comma as an ImplicitRestNode on the rest
-        // field, so we must exclude it from the count.
-        if let Some(inner_params) = block_params.parameters() {
-            let has_explicit_rest = inner_params
-                .rest()
-                .is_some_and(|r| r.as_implicit_rest_node().is_none());
-            let param_count = inner_params.requireds().iter().count()
-                + inner_params.optionals().iter().count()
-                + inner_params.posts().iter().count()
-                + inner_params.keywords().iter().count()
-                + usize::from(has_explicit_rest)
-                + usize::from(inner_params.keyword_rest().is_some());
-            if param_count <= 1 {
-                return;
+        if let Some(block) = node.as_block_node() {
+            match block_param_count(&block) {
+                Some(count) if count > 1 => {}
+                _ => return,
             }
-        } else {
+
+            if let Some(offset) = trailing_comma_offset(source, &block) {
+                push_diagnostic(self, source, diagnostics, offset);
+            }
             return;
         }
 
-        // Check the source for a trailing comma before |
-        let close_loc = match block_params.closing_loc() {
-            Some(loc) => loc,
+        let call = match node.as_call_node() {
+            Some(call) => call,
             None => return,
         };
 
-        // Look at bytes before the closing |
-        let bytes = source.as_bytes();
-        let close_offset = close_loc.start_offset();
-        if close_offset == 0 {
-            return;
+        let block = match call.block().and_then(|block| block.as_block_node()) {
+            Some(block) => block,
+            None => return,
+        };
+        match block_param_count(&block) {
+            Some(count) if count > 1 => {}
+            _ => return,
         }
 
-        // Scan backwards for trailing comma (skip whitespace)
-        let mut pos = close_offset - 1;
-        while pos > 0 && (bytes[pos] == b' ' || bytes[pos] == b'\t' || bytes[pos] == b'\n') {
-            pos -= 1;
-        }
-
-        if bytes[pos] == b',' {
-            let (line, column) = source.offset_to_line_col(pos);
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Useless trailing comma present in block arguments.".to_string(),
-            ));
+        if let Some(receiver) = call.receiver() {
+            if let Some(offset) = receiver_chain_trailing_comma_offset(source, &receiver) {
+                push_diagnostic(self, source, diagnostics, offset);
+            }
         }
     }
 }
