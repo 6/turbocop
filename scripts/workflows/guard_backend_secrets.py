@@ -26,19 +26,6 @@ def _load_secret(var_name: str):
     return raw, parsed
 
 
-def _load_file_secret(path: str):
-    raw = Path(path).read_text()
-    if not raw.strip():
-        raise ValueError(f"{path} is missing or empty")
-
-    parsed = None
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        parsed = None
-    return raw, parsed
-
-
 def _collect_values(
     var_name: str, raw_secret: str, parsed, *, include_raw: bool
 ) -> list[tuple[str, str]]:
@@ -96,29 +83,24 @@ def _read_patterns_file(path: str) -> list[str]:
 
 
 def _load_all_secrets(
-    secret_sources: list[tuple[str, str]], ignore_missing: bool, *, include_raw: bool
+    var_names: list[str], ignore_missing: bool, *, include_raw: bool
 ) -> list[tuple[str, str]]:
     values = []
-    for source_kind, source_value in secret_sources:
+    for var_name in var_names:
         try:
-            if source_kind == "env":
-                raw, parsed = _load_secret(source_value)
-                source_label = source_value
-            else:
-                raw, parsed = _load_file_secret(source_value)
-                source_label = source_value
+            raw, parsed = _load_secret(var_name)
         except ValueError:
             if ignore_missing:
                 continue
             raise
         values.extend(
-            _collect_values(source_label, raw, parsed, include_raw=include_raw)
+            _collect_values(var_name, raw, parsed, include_raw=include_raw)
         )
     return values
 
 
-def emit_masks(secret_sources: list[tuple[str, str]], ignore_missing: bool) -> int:
-    secret_values = _load_all_secrets(secret_sources, ignore_missing, include_raw=False)
+def emit_masks(var_names: list[str], ignore_missing: bool) -> int:
+    secret_values = _load_all_secrets(var_names, ignore_missing, include_raw=False)
     if not secret_values:
         print("No backend secrets found to mask.")
         return 0
@@ -127,8 +109,8 @@ def emit_masks(secret_sources: list[tuple[str, str]], ignore_missing: bool) -> i
     return 0
 
 
-def scan_files(secret_sources: list[tuple[str, str]], ignore_missing: bool, patterns: list[str]) -> int:
-    secret_values = _load_all_secrets(secret_sources, ignore_missing, include_raw=True)
+def scan_files(var_names: list[str], ignore_missing: bool, patterns: list[str]) -> int:
+    secret_values = _load_all_secrets(var_names, ignore_missing, include_raw=True)
     if not secret_values:
         print("No backend secrets found to scan for.")
         return 0
@@ -163,14 +145,9 @@ def main() -> int:
     parser.add_argument(
         "--from-env",
         action="append",
+        required=True,
         dest="env_vars",
         help="Environment variable holding a secret value; repeat for multiple secrets",
-    )
-    parser.add_argument(
-        "--from-file",
-        action="append",
-        dest="file_paths",
-        help="File containing a secret value; repeat for multiple files",
     )
     parser.add_argument(
         "--ignore-missing",
@@ -188,21 +165,15 @@ def main() -> int:
     scan_manifest.add_argument("manifest", help="Path to newline-separated file/glob manifest")
 
     args = parser.parse_args()
-    secret_sources = [
-        *[("env", var_name) for var_name in (args.env_vars or [])],
-        *[("file", path) for path in (args.file_paths or [])],
-    ]
-    if not secret_sources:
-        parser.error("at least one of --from-env or --from-file is required")
 
     try:
         if args.command == "emit-masks":
-            return emit_masks(secret_sources, args.ignore_missing)
+            return emit_masks(args.env_vars, args.ignore_missing)
         if args.command == "scan-files":
-            return scan_files(secret_sources, args.ignore_missing, args.patterns)
+            return scan_files(args.env_vars, args.ignore_missing, args.patterns)
         if args.command == "scan-manifest":
             return scan_files(
-                secret_sources,
+                args.env_vars,
                 args.ignore_missing,
                 _read_patterns_file(args.manifest),
             )
