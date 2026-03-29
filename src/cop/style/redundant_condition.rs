@@ -9,39 +9,15 @@ use crate::parse::source::SourceFile;
 
 /// Style/RedundantCondition — checks for unnecessary conditional expressions.
 ///
-/// ## Investigation notes (2026-03-23)
+/// ## Investigation notes (2026-03-29)
 ///
-/// Root causes of FN (84):
-/// - Missing `unless` support: `unless b; y; else; b; end` where condition == else_branch
-/// - Missing no-else pattern: `if cond; cond; end` → "This condition is not needed."
-/// - Missing assignment branches: `if foo; @value = foo; else; @value = 'bar'; end`
-///   where both branches assign to the same variable and condition matches RHS of if-branch
-/// - Missing method call branches: `if foo; bar(foo); else; bar(quux); end`
-///   where both branches call same method on same receiver and condition matches if-branch arg
-///
-/// Root causes of FP (8):
-/// - Missing `use_hash_key_assignment?` check: else branch is `[]=` assignment
-/// - Missing `use_if_branch?` check: else branch body contains a ternary/if expression
-/// - Predicate+true check was too aggressive for non-call conditions
-///
-/// Fixed by adding unless handling, no-else pattern, assignment/method branches,
-/// and else-branch guards for hash key assignment and ternary-in-else.
-///
-/// ## Investigation notes (2026-03-24)
-///
-/// Root causes of remaining FP (2):
-/// - Predicate call with block (`pred? { ... } ? true : nil`): in RuboCop AST, a call
-///   with a block is a `block` node (not `send`), so `cond.call_type?` returns false.
-///   In Prism, the block is part of the CallNode. Fix: skip when `call.block().is_some()`.
-/// - `unless` with condition in else branch: `check_unless` was comparing condition with
-///   else_body instead of unless_body. In RuboCop, `if_branch` for `unless` is the unless
-///   body (runs when condition is false), so `condition == if_branch` checks unless_body.
-///
-/// Root causes of remaining FN (13):
-/// - `ConstantPathWriteNode` (`Mod::CONST = ...`) was not recognized as an assignment node.
-///   RuboCop's `casgn` covers both `ConstantWriteNode` and `ConstantPathWriteNode`.
-/// - The `unless` body comparison was inverted (checking else_body instead of body),
-///   causing some valid `unless` cases to be missed.
+/// RuboCop still flags single-expression `else` branches on ordinary `if` nodes even
+/// when the expression spans multiple lines; it only skips `else` branches with multiple
+/// statements there. Prism keeps `unless` as a separate node type, but RuboCop
+/// effectively analyzes it like an `if` with swapped branches, and in that swapped
+/// shape the syntactic `unless` body still has to be single-line before the cop fires.
+/// The syntactic `unless` body also keeps the usual `else`-branch guards (`if`/ternary
+/// body and `[]=` assignment skips).
 pub struct RedundantCondition;
 
 impl RedundantCondition {
@@ -84,8 +60,21 @@ impl RedundantCondition {
         false
     }
 
-    /// Check if else branch is multi-line (vendor skips multi-line else)
-    fn else_is_multiline(source: &SourceFile, else_stmts: &ruby_prism::StatementsNode<'_>) -> bool {
+    /// Check if an else branch has multiple statements.
+    ///
+    /// RuboCop still flags a single expression even when that expression spans multiple
+    /// lines; it only skips multi-statement else bodies.
+    fn else_has_multiple_statements(else_stmts: &ruby_prism::StatementsNode<'_>) -> bool {
+        else_stmts.body().into_iter().count() > 1
+    }
+
+    /// Check if an else-style branch spans multiple lines.
+    ///
+    /// RuboCop applies this stricter guard to the swapped fallback branch for `unless`.
+    fn else_spans_multiple_lines(
+        source: &SourceFile,
+        else_stmts: &ruby_prism::StatementsNode<'_>,
+    ) -> bool {
         let body: Vec<_> = else_stmts.body().into_iter().collect();
         if body.len() > 1 {
             return true;
@@ -246,11 +235,11 @@ impl RedundantCondition {
         Self::nodes_equal(source, condition, &true_args[0])
     }
 
-    /// Handle an unless node: in RuboCop, `unless` nodes have the unless-body as
-    /// `if_branch` (runs when condition is false). So `condition == if_branch` checks
-    /// if the unless body equals the condition: `unless b; b; else; c; end` is flagged
-    /// because `condition(b) == unless_body(b)`. But `unless b; y; else; b; end` is NOT
-    /// flagged because `condition(b) != unless_body(y)`.
+    /// Handle an unless node by reusing `if` logic with swapped branches.
+    ///
+    /// RuboCop represents `unless` like an `if` where the syntactic `else` branch is the
+    /// branch compared against the condition. The syntactic `unless` body still serves as
+    /// the guarded fallback branch, so it receives the same `else`-branch exclusions.
     fn check_unless(
         &self,
         source: &SourceFile,
@@ -258,49 +247,20 @@ impl RedundantCondition {
         body_stmts: Option<ruby_prism::StatementsNode<'_>>,
         else_stmts: Option<ruby_prism::StatementsNode<'_>>,
         kw_offset: usize,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        let unless_body = match body_stmts {
-            Some(s) => s,
-            None => return,
-        };
-        let unless_body_nodes: Vec<_> = unless_body.body().into_iter().collect();
-        if unless_body_nodes.len() != 1 {
-            return;
-        }
-
-        // Check condition == unless_body (the body between `unless` and `else`/`end`)
-        // This matches RuboCop's `condition == if_branch` where if_branch = unless body
-        if Self::nodes_equal(source, condition, &unless_body_nodes[0]) {
-            // If there's an else branch, check else guards
-            if let Some(else_stmts_inner) = else_stmts {
-                let else_body: Vec<_> = else_stmts_inner.body().into_iter().collect();
-                if else_body.len() != 1 {
-                    return;
-                }
-                if Self::else_is_multiline(source, &else_stmts_inner) {
-                    return;
-                }
-                if Self::else_body_is_if(&else_stmts_inner) {
-                    return;
-                }
-                if Self::else_body_is_hash_key_assignment(&else_stmts_inner) {
-                    return;
-                }
-                diagnostics.push(self.make_diagnostic_at(
-                    source,
-                    kw_offset,
-                    "Use double pipes `||` instead.",
-                ));
-            } else {
-                // No else: `unless cond; cond; end` → redundant condition
-                diagnostics.push(self.make_diagnostic_at(
-                    source,
-                    kw_offset,
-                    "This condition is not needed.",
-                ));
-            }
-        }
+        self.check_if(
+            source,
+            condition,
+            else_stmts,
+            body_stmts,
+            false,
+            kw_offset,
+            config,
+            true,
+            diagnostics,
+        );
     }
 
     /// Handle an if node (including ternary): checks all offense patterns
@@ -314,6 +274,7 @@ impl RedundantCondition {
         is_ternary: bool,
         kw_offset: usize,
         config: &CopConfig,
+        require_single_line_else: bool,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         // Get true branch
@@ -343,7 +304,12 @@ impl RedundantCondition {
 
         // Else branch guards (not for ternary)
         if !is_ternary {
-            if Self::else_is_multiline(source, &else_stmts_unwrapped) {
+            let skip_for_multiline_else = if require_single_line_else {
+                Self::else_spans_multiple_lines(source, &else_stmts_unwrapped)
+            } else {
+                Self::else_has_multiple_statements(&else_stmts_unwrapped)
+            };
+            if skip_for_multiline_else {
                 return;
             }
             if Self::else_body_is_if(&else_stmts_unwrapped) {
@@ -497,6 +463,7 @@ impl Cop for RedundantCondition {
                 is_ternary,
                 kw_offset,
                 config,
+                false,
                 diagnostics,
             );
             return;
@@ -520,6 +487,7 @@ impl Cop for RedundantCondition {
                 unless_node.statements(),
                 else_stmts,
                 kw_offset,
+                config,
                 diagnostics,
             );
         }

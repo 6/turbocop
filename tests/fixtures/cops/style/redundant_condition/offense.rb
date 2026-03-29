@@ -25,12 +25,12 @@ else
   a
 end
 
-# unless with condition == body (not else)
+# unless with condition == else branch
 unless b
 ^^^^^^ Style/RedundantCondition: Use double pipes `||` instead.
-  b
+  y(x, z)
 else
-  c
+  b
 end
 
 # no-else pattern: if cond; cond; end → "This condition is not needed."
@@ -81,4 +81,88 @@ if ENV['GIT_ADAPTER']
   Gollum::GIT_ADAPTER = ENV['GIT_ADAPTER']
 else
   Gollum::GIT_ADAPTER = 'rugged'
+end
+
+# method branches with operator receiver and multiline else expression
+if volume
+^^ Style/RedundantCondition: Use double pipes `||` instead.
+  volumes << volume
+else
+  volumes << compute.volumes.create(
+    name: volume_name,
+    pool_name: compute.pools.first.name,
+    capacity: 1
+  )
+end
+
+# multiline ternary with line continuation
+refs = (self.roxml_references \
+        ^^^^^^^^^^^^^^^^^^^^^ Style/RedundantCondition: Use double pipes `||` instead.
+  ? self.roxml_references \
+  : self.class.roxml_attrs.map { |attr| attr.to_ref(self) })
+
+# predicate+true with multiline else call
+if APPSIGNAL_AGENT_CONFIG["triples"].key?(TARGET_TRIPLE)
+^^ Style/RedundantCondition: Use double pipes `||` instead.
+  true
+else
+  abort_installation(
+    "AppSignal currently does not support your system architecture (#{TARGET_TRIPLE})." \
+      "Please let us know at support@appsignal.com, we aim to support everything " \
+      "our customers run."
+  )
+end
+
+# method branches where else argument is a lambda expression
+if implementation
+^^ Style/RedundantCondition: Use double pipes `||` instead.
+  install_method_callback implementation
+else
+  install_method_callback(lambda do |*lambda_args|
+    args.first
+  end)
+end
+
+# predicate+true inside an assignment with a multiline else expression
+is_nullable =
+  if spectrum?(table)
+  ^^ Style/RedundantCondition: Use double pipes `||` instead.
+    true
+  else
+    case nullable
+    when 'YES'
+      true
+    else
+      false
+    end
+  end
+
+# condition matches the if branch, else branch is a multiline call
+if type
+^^ Style/RedundantCondition: Use double pipes `||` instead.
+  type
+else
+  get_call_expr_type(
+    Call.make(name: ast.name, parent: ast.parent),
+    type_env,
+    ast.name
+  )
+end
+
+# unless assignment branches compare against the syntactic else branch
+unless option
+^^^^^^ Style/RedundantCondition: Use double pipes `||` instead.
+  @print_headers = 1
+else
+  @print_headers = option
+end
+
+# condition matches the if branch, else branch is a block call
+if account
+^^ Style/RedundantCondition: Use double pipes `||` instead.
+  account
+else
+  Account.create! do |a|
+    a.name = account_name
+  end
 end

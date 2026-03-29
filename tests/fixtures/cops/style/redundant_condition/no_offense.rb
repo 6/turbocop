@@ -151,9 +151,18 @@ a.zero? ? a : b
 # FP fix: predicate with block in ternary — not flagged (block changes AST type in RuboCop)
 libs.all? { |lib| load_library(lib) } ? true : nil
 
-# FP fix: unless with condition in else branch — not flagged (RuboCop only checks if_branch)
+# unless with condition in else branch but modifier-if fallback — skipped by use_if_branch?
 unless layout_without_inheritance
   parent.layout if parent?
 else
   layout_without_inheritance
+end
+
+# unless with predicate+true but multiline fallback body — RuboCop skips these
+unless include_controls_list.empty?
+  group_data[:controls].any? do |control_id|
+    include_controls_list.any? { |id| id.match?(control_id) }
+  end
+else
+  true
 end
