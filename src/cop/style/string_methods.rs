@@ -3,6 +3,9 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// RuboCop flags bare `intern` sends as well as receiver calls. This cop
+/// previously skipped nil-receiver `CallNode`s, which missed command-style and
+/// function-style `intern(...)` calls in the corpus.
 pub struct StringMethods;
 
 impl Cop for StringMethods {
@@ -33,11 +36,6 @@ impl Cop for StringMethods {
             Some(c) => c,
             None => return,
         };
-
-        // Must have a receiver
-        if call.receiver().is_none() {
-            return;
-        }
 
         let name = call.name().as_slice();
         let name_str = match std::str::from_utf8(name) {
