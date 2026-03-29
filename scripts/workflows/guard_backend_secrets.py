@@ -86,15 +86,29 @@ def _load_all_secrets(
     var_names: list[str], ignore_missing: bool, *, include_raw: bool
 ) -> list[tuple[str, str]]:
     values = []
+    skipped = []
     for var_name in var_names:
         try:
             raw, parsed = _load_secret(var_name)
         except ValueError:
             if ignore_missing:
+                skipped.append(var_name)
                 continue
             raise
         values.extend(
             _collect_values(var_name, raw, parsed, include_raw=include_raw)
+        )
+    if skipped:
+        print(
+            f"::warning::Leak scan: {len(skipped)} secret(s) missing or empty "
+            f"({', '.join(skipped)}). Scan coverage is reduced.",
+            file=sys.stderr,
+        )
+    if not values and var_names:
+        print(
+            "::warning::Leak scan: ALL secret env vars are missing. "
+            "Artifacts will not be scanned. Check secret passthrough.",
+            file=sys.stderr,
         )
     return values
 
