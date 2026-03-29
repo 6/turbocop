@@ -18,6 +18,10 @@ use crate::parse::source::SourceFile;
 /// - FN: frozen_string_literal detection only checked line 1, missing files with
 ///   encoding comments on line 1 (e.g. `# -*- coding: utf-8 -*-`). Fixed by checking
 ///   the first 3 lines.
+/// - FN: RuboCop scans all leading comment lines before the first non-comment token
+///   for `frozen_string_literal`; limiting nitrocop to the first 3 lines missed files
+///   with longer license headers before the magic comment. Fixed by scanning the full
+///   leading comment block and honoring explicit `true`/`false`.
 /// - FN: Unary minus with space (`- 1`) parsed as `CallNode` with method `:-@` wrapping
 ///   an integer/float, not a bare literal. Fixed by treating such CallNodes as simple
 ///   literals in `is_simple_literal`.
@@ -49,6 +53,33 @@ impl RedundantFetchBlock {
                 }
             }
         }
+        false
+    }
+
+    /// Approximate RuboCop's leading comment scan for `frozen_string_literal`.
+    /// We keep scanning until the first non-comment, non-blank line.
+    fn frozen_string_literals_enabled(source: &SourceFile) -> bool {
+        for line in source.lines() {
+            let text = std::str::from_utf8(line).unwrap_or("");
+            let trimmed = text.trim_start();
+
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            if !trimmed.starts_with('#') {
+                break;
+            }
+
+            if trimmed.contains("frozen_string_literal: true") {
+                return true;
+            }
+
+            if trimmed.contains("frozen_string_literal: false") {
+                return false;
+            }
+        }
+
         false
     }
 }
@@ -88,12 +119,7 @@ impl Cop for RedundantFetchBlock {
     ) {
         let safe_for_constants = config.get_bool("SafeForConstants", false);
         // RuboCop only flags string defaults when frozen_string_literal: true.
-        // Check first 3 lines to handle shebangs and encoding comments.
-        let frozen_string_literal = source.lines().take(3).any(|line| {
-            std::str::from_utf8(line)
-                .unwrap_or("")
-                .contains("frozen_string_literal: true")
-        });
+        let frozen_string_literal = Self::frozen_string_literals_enabled(source);
 
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -223,5 +249,6 @@ mod tests {
         "cops/style/redundant_fetch_block",
         basic = "basic.rb",
         frozen_string_literal_line2 = "frozen_string_literal_line2.rb",
+        frozen_string_literal_after_header = "frozen_string_literal_after_header.rb",
     );
 }
