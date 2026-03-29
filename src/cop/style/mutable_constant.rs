@@ -263,8 +263,7 @@ impl MutableConstant {
     }
 
     fn is_blank_line(line: &[u8]) -> bool {
-        line.iter()
-            .all(|&b| b == b' ' || b == b'\t' || b == b'\r')
+        line.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r')
     }
 
     fn is_comment_line(line: &[u8]) -> bool {
@@ -588,7 +587,8 @@ mod tests {
     #[test]
     fn hyphenated_frozen_string_literal_after_header() {
         let cop = MutableConstant;
-        let source = b"# Copyright 2026 Nitrocop\n#\n# frozen-string-literal: true\n\nCONST = \"/\"\n";
+        let source =
+            b"# Copyright 2026 Nitrocop\n#\n# frozen-string-literal: true\n\nCONST = \"/\"\n";
         let diags =
             crate::testutil::run_cop_full_internal(&cop, source, CopConfig::default(), "test.rb");
         assert_eq!(
