@@ -29,3 +29,21 @@ RSpec.describe 'test' do
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/IdenticalEqualityAssertion: Identical expressions on both sides of the equality may indicate a flawed test.
   end
 end
+
+expect(country_model.first.object_id).to be == country_model.first.object_id
+^ RSpec/IdenticalEqualityAssertion: Identical expressions on both sides of the equality may indicate a flawed test.
+
+expect(authorization.values).to be == authorization.values
+^ RSpec/IdenticalEqualityAssertion: Identical expressions on both sides of the equality may indicate a flawed test.
+
+expect(authorization.associate).to be == authorization.associate
+^ RSpec/IdenticalEqualityAssertion: Identical expressions on both sides of the equality may indicate a flawed test.
+
+expect(profile.values).to be == profile.values
+^ RSpec/IdenticalEqualityAssertion: Identical expressions on both sides of the equality may indicate a flawed test.
+
+expect(user.values).to be == user.values
+^ RSpec/IdenticalEqualityAssertion: Identical expressions on both sides of the equality may indicate a flawed test.
+
+expect(5).to be == 5
+^ RSpec/IdenticalEqualityAssertion: Identical expressions on both sides of the equality may indicate a flawed test.

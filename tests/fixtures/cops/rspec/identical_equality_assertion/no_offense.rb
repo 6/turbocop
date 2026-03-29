@@ -14,4 +14,9 @@ RSpec.describe 'test' do
   it 'uses be matcher with different values' do
     expect(foo).to be(bar)
   end
+
+  it 'allows extra message arguments on matcher runners' do
+    expect(3).to eq(3), :not_a_string
+    expect('1').to(eq('1'), '1 should equal 1')
+  end
 end
