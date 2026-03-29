@@ -175,6 +175,18 @@ use crate::parse::source::SourceFile;
 /// ConfigLMM (1), brandur (1), engineyard (1), gisiahq (1), samvera (1),
 /// siberas (1) — all config resolution or vendored file issues.
 /// No cop-level fix needed.
+///
+/// ## Corpus verification (2026-03-29)
+///
+/// Cached corpus run 23718439425 still reports FP=8, FN=0 for this cop, but
+/// `python3 scripts/verify_cop_locations.py Metrics/MethodLength` on the
+/// current branch verifies all 8 reported FP locations as fixed.
+///
+/// A representative corpus snippet (`brandur/json_schema#first_visit`) is
+/// still an offense under standalone RuboCop 1.84.2 with default config
+/// (`[12/10]`). That means broad suppression for methods containing embedded
+/// docs (`=begin/=end`) would be a regression. Treat the stale FP batch as a
+/// config/context artifact, not a counting bug in this cop.
 pub struct MethodLength;
 
 /// Parsed config values for MethodLength.
@@ -1251,6 +1263,45 @@ mod tests {
         assert!(
             !diags.is_empty(),
             "Method with =begin/=end comment should fire (17 body lines > Max:10)"
+        );
+    }
+
+    #[test]
+    fn embedded_doc_block_still_counts_under_default_config() {
+        use crate::testutil::run_cop_full;
+
+        // Representative corpus snippet from brandur/json_schema. Under
+        // default config, RuboCop still counts the embedded-doc body lines and
+        // reports [12/10]. This should not be turned into a no-offense while
+        // chasing repo-context FP reports.
+        let source = br##"def first_visit(schema, errors, path)
+  true
+# removed until more comprehensive testing can be performed .. this is
+# currently causing validation loop detections to go off on all non-trivial
+# schemas
+=begin
+  key = "#{schema.object_id}-#{schema.pointer}-#{path.join("/")}"
+  if !@visits.key?(key)
+    @visits[key] = true
+    true
+  else
+    message = %{Validation loop detected.}
+    errors << ValidationError.new(schema, path, message, :loop_detected)
+    false
+  end
+=end
+end
+"##;
+
+        let diags = run_cop_full(&MethodLength, source);
+        assert!(
+            !diags.is_empty(),
+            "Embedded-doc body should still be an offense under default config"
+        );
+        assert!(
+            diags[0].message.contains("[12/10]"),
+            "Expected [12/10] but got: {}",
+            diags[0].message
         );
     }
 
