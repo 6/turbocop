@@ -165,7 +165,10 @@ fn is_heredoc_element(node: &ruby_prism::Node<'_>) -> bool {
         return is_heredoc_element(&pair.value());
     }
     if let Some(hash) = node.as_hash_node() {
-        return hash.elements().iter().any(|element| is_heredoc_element(&element));
+        return hash
+            .elements()
+            .iter()
+            .any(|element| is_heredoc_element(&element));
     }
     // Direct string heredoc
     if let Some(s) = node.as_interpolated_string_node() {
