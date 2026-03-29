@@ -12,6 +12,11 @@ use crate::parse::source::SourceFile;
 /// FN fix: hex (0x00), binary (0b0000), and octal (0o0) integer literals were not
 /// recognized as zero because the source text was parsed with `str::parse::<i64>()`
 /// which doesn't handle Ruby's numeric prefixes. Now uses `i64::from_str_radix`.
+///
+/// FN fix: Prism sets `call_operator_loc` for regular dotted operator-method calls
+/// like `foo.>(0)` and `s[:fee].>(0)` to `.`. The previous implementation treated
+/// any `call_operator_loc` as safe navigation and skipped these legitimate `send`
+/// nodes. Now only `&.` is skipped, matching RuboCop's `send` vs `csend` split.
 pub struct NumericPredicate;
 
 impl NumericPredicate {
@@ -159,7 +164,10 @@ impl Cop for NumericPredicate {
 
             // Skip safe navigation calls (x&.>(0), x&.==(0)) — RuboCop only
             // matches `send` nodes, not `csend` (safe navigation).
-            if call.call_operator_loc().is_some() {
+            if call
+                .call_operator_loc()
+                .is_some_and(|loc| loc.as_slice() == b"&.")
+            {
                 return;
             }
 

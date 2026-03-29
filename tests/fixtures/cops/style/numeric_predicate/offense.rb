@@ -24,3 +24,10 @@ a(value) == 0x00000000
 
 t.getbyte(3).should == 0x00
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/NumericPredicate: Use `t.getbyte(3).should.zero?` instead of `t.getbyte(3).should == 0x00`.
+
+image.cast("int").conv([[1, -1]]).crop(1, 0, hash_size, hash_size).>(0)./(255).cast("uchar").to_a.join.to_i(2)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/NumericPredicate: Use `image.cast("int").conv([[1, -1]]).crop(1, 0, hash_size, hash_size).positive?` instead of `image.cast("int").conv([[1, -1]]).crop(1, 0, hash_size, hash_size).>(0)`.
+
+case [s[:commission_from_seller].>(0).or_else(false), s[:minimum_transaction_fee_cents].>(0).or_else(false)]
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/NumericPredicate: Use `(s[:commission_from_seller]).positive?` instead of `s[:commission_from_seller].>(0)`.
+                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/NumericPredicate: Use `(s[:minimum_transaction_fee_cents]).positive?` instead of `s[:minimum_transaction_fee_cents].>(0)`.
