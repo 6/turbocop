@@ -53,6 +53,7 @@ impl Cop for HashSyntax {
         let use_rockets_symbol_vals = config.get_bool("UseHashRocketsWithSymbolValues", false);
         let prefer_rockets_nonalnum =
             config.get_bool("PreferHashRocketsForNonAlnumEndingSymbols", false);
+        let target_ruby_version = target_ruby_version(config);
 
         // EnforcedShorthandSyntax: check Ruby 3.1 hash value omission syntax
         // This is checked separately from the main EnforcedStyle
@@ -94,7 +95,11 @@ impl Cop for HashSyntax {
                     };
                     let key = assoc.key();
                     match key.as_symbol_node() {
-                        Some(ref sym) => !is_acceptable_19_symbol(sym, prefer_rockets_nonalnum),
+                        Some(ref sym) => !is_acceptable_19_symbol(
+                            sym,
+                            prefer_rockets_nonalnum,
+                            target_ruby_version,
+                        ),
                         None => true, // Non-symbol key
                     }
                 });
@@ -290,8 +295,19 @@ fn check_shorthand_syntax(
 /// Check if a symbol node represents an acceptable Ruby 1.9 syntax key.
 /// This includes simple identifiers (`:foo` → `foo:`) and quoted symbols
 /// (`:"chef version"` → `"chef version":`, available since Ruby 2.2).
-fn is_acceptable_19_symbol(sym: &ruby_prism::SymbolNode, prefer_rockets_nonalnum: bool) -> bool {
+fn is_acceptable_19_symbol(
+    sym: &ruby_prism::SymbolNode,
+    prefer_rockets_nonalnum: bool,
+    target_ruby_version: f64,
+) -> bool {
     let name = sym.unescaped();
+    let is_quoted_symbol = sym
+        .opening_loc()
+        .is_some_and(|opening| matches!(opening.as_slice(), b":\"" | b":'"));
+
+    if is_quoted_symbol {
+        return target_ruby_version > 2.1;
+    }
 
     // Simple identifier: `:foo`, `:foo_bar`, `:foo?`, `:foo!`
     if is_simple_symbol_identifier(name) {
@@ -304,15 +320,19 @@ fn is_acceptable_19_symbol(sym: &ruby_prism::SymbolNode, prefer_rockets_nonalnum
         return true;
     }
 
-    // Quoted symbols: `:"foo bar"` or `:'foo bar'` can use `"foo bar":` syntax
-    if let Some(opening) = sym.opening_loc() {
-        let open = opening.as_slice();
-        if open == b":\"" || open == b":'" {
-            return true;
-        }
-    }
-
     false
+}
+
+fn target_ruby_version(config: &CopConfig) -> f64 {
+    config
+        .options
+        .get("TargetRubyVersion")
+        .and_then(|value| {
+            value
+                .as_f64()
+                .or_else(|| value.as_u64().map(|value| value as f64))
+        })
+        .unwrap_or(2.7)
 }
 
 /// Check if a symbol's unescaped name is a simple Ruby identifier.
@@ -346,14 +366,14 @@ fn is_simple_symbol_identifier(name: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
     use crate::testutil::run_cop_full_with_config;
 
     crate::cop_fixture_tests!(HashSyntax, "cops/style/hash_syntax");
 
     #[test]
     fn config_hash_rockets() {
-        use std::collections::HashMap;
-
         let config = CopConfig {
             options: HashMap::from([(
                 "EnforcedStyle".into(),
@@ -378,8 +398,6 @@ mod tests {
 
     #[test]
     fn use_hash_rockets_with_symbol_values() {
-        use std::collections::HashMap;
-
         let config = CopConfig {
             options: HashMap::from([(
                 "UseHashRocketsWithSymbolValues".into(),
@@ -398,8 +416,6 @@ mod tests {
 
     #[test]
     fn shorthand_never_flags_omission() {
-        use std::collections::HashMap;
-
         let config = CopConfig {
             options: HashMap::from([(
                 "EnforcedShorthandSyntax".into(),
@@ -415,6 +431,23 @@ mod tests {
                 .iter()
                 .any(|d| d.message.contains("Include the hash value")),
             "Should flag shorthand with EnforcedShorthandSyntax: never"
+        );
+    }
+
+    #[test]
+    fn quoted_symbol_keys_require_ruby_22() {
+        let config = CopConfig {
+            options: HashMap::from([(
+                "TargetRubyVersion".into(),
+                serde_yml::Value::Number(serde_yml::value::Number::from(2.1)),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"{ :\"string\" => 0 }\n";
+        let diags = run_cop_full_with_config(&HashSyntax, source, config);
+        assert!(
+            diags.is_empty(),
+            "Quoted symbol keys should stay on hash rockets before Ruby 2.2"
         );
     }
 
