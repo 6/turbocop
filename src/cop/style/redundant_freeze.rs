@@ -7,6 +7,14 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Matches RuboCop's frozen-string handling for redundant `.freeze` calls.
+///
+/// Recent corpus misses came from two Prism-specific gaps:
+/// - frozen string magic comments were only recognized in the first three lines
+///   and only in the underscored `frozen_string_literal` form, missing valid
+///   leading comments like `# frozen-string-literal: true`
+/// - adjacent static string literals joined with `\` parse as
+///   `InterpolatedStringNode`, so `.freeze` on those immutable strings was skipped
 pub struct RedundantFreeze;
 
 impl RedundantFreeze {
@@ -104,19 +112,42 @@ impl RedundantFreeze {
             || node.as_range_node().is_some()
     }
 
-    /// Check if a node is a plain (non-interpolated) string literal.
-    fn is_plain_string(node: &ruby_prism::Node<'_>) -> bool {
-        node.as_string_node().is_some()
+    /// Check if a node is an uninterpolated string literal under
+    /// frozen-string-literal semantics.
+    fn is_uninterpolated_string(node: &ruby_prism::Node<'_>) -> bool {
+        if node.as_string_node().is_some() {
+            return true;
+        }
+
+        if let Some(interpolated) = node.as_interpolated_string_node() {
+            return interpolated
+                .parts()
+                .iter()
+                .all(|part| part.as_string_node().is_some());
+        }
+
+        false
     }
 
-    /// Check if the source file has `# frozen_string_literal: true` in the
-    /// first few lines (before any code).
-    fn has_frozen_string_literal_true(source: &SourceFile) -> bool {
-        let lines = source.lines();
-        for (i, line) in lines.enumerate() {
-            if i >= 3 {
-                break;
+    fn parse_frozen_string_literal_comment(comment: &str) -> Option<bool> {
+        for prefix in ["frozen_string_literal:", "frozen-string-literal:"] {
+            if let Some(value) = comment.strip_prefix(prefix) {
+                return match value.trim() {
+                    "true" => Some(true),
+                    "false" => Some(false),
+                    _ => None,
+                };
             }
+        }
+
+        None
+    }
+
+    /// Check if frozen string literals are enabled by a leading magic comment.
+    /// Matches RuboCop's leading comment scan rather than hard-coding the first
+    /// three physical lines.
+    fn frozen_string_literals_enabled(source: &SourceFile) -> bool {
+        for line in source.lines() {
             let s = match std::str::from_utf8(line) {
                 Ok(s) => s.trim(),
                 Err(_) => continue,
@@ -124,13 +155,16 @@ impl RedundantFreeze {
             if s.is_empty() {
                 continue;
             }
-            if let Some(rest) = s.strip_prefix('#') {
-                let rest = rest.trim_start();
-                if let Some(value) = rest.strip_prefix("frozen_string_literal:") {
-                    return value.trim() == "true";
-                }
+
+            let Some(rest) = s.strip_prefix('#') else {
+                break;
+            };
+            let rest = rest.trim_start();
+            if let Some(enabled) = Self::parse_frozen_string_literal_comment(rest) {
+                return enabled;
             }
         }
+
         false
     }
 
@@ -215,13 +249,13 @@ impl Cop for RedundantFreeze {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .unwrap_or(2.7);
 
-        let frozen_strings = Self::has_frozen_string_literal_true(source);
+        let frozen_strings = Self::frozen_string_literals_enabled(source);
 
         // Check if the receiver is an immutable literal (strip parens like vendor)
         let is_immutable = Self::check_stripped(&receiver, Self::is_immutable_literal)
             || (target_ruby_version >= 3.0
                 && Self::check_stripped(&receiver, Self::is_frozen_since_ruby3))
-            || (frozen_strings && Self::check_stripped(&receiver, Self::is_plain_string))
+            || (frozen_strings && Self::check_stripped(&receiver, Self::is_uninterpolated_string))
             || Self::is_operation_producing_immutable(&receiver);
 
         if !is_immutable {
@@ -379,6 +413,32 @@ mod tests {
             diags.len(),
             1,
             "Expected 1 offense with magic comment, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn plain_string_flagged_with_hyphenated_magic_comment_after_leading_comments() {
+        let source = b"# typed: false\n# shared header\n# another header\n# frozen-string-literal: true\nCONST = 'hello'.freeze\n";
+        let diags = crate::testutil::run_cop_full(&RedundantFreeze, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense with hyphenated late magic comment, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn adjacent_static_strings_flagged_with_frozen_string_literal() {
+        let source = b"# frozen_string_literal: true\nFALLBACK_MESSAGE = 'Terraform Landscape: a parsing error occured.' \\\n                   ' Falling back to original Terraform output...'.freeze\n";
+        let diags = crate::testutil::run_cop_full(&RedundantFreeze, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for adjacent static strings, got {}: {:?}",
             diags.len(),
             diags
         );
