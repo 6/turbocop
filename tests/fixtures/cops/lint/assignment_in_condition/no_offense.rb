@@ -87,3 +87,34 @@ case
 when match = scan(/foo/)
   process(match)
 end
+
+# corpus FN follow-up: plain assignments in a method body are not conditions
+class Example
+  def test_records_transaction_trace
+    skip 'JRuby concurrency issue' if defined?(JRuby)
+
+    run_rake
+
+    trace = single_transaction_trace_posted
+
+    assert_equal 'OtherTransaction/Rake/invoke/default', trace.metric_name
+
+    expected = ['ROOT',
+      ['OtherTransaction/Rake/invoke/default',
+        ['Rake/execute/before'],
+        ['Rake/execute/during'],
+        ['Rake/execute/after']]]
+
+    assert_equal expected, trace.tree.nodes
+  end
+
+  def test_records_transaction_events
+    skip 'JRuby concurrency issue' if defined?(JRuby)
+
+    run_rake
+
+    event = single_event_posted[0]
+
+    assert_equal 'OtherTransaction/Rake/invoke/default', event['name']
+  end
+end

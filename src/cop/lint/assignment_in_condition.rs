@@ -29,6 +29,14 @@ use crate::parse::source::SourceFile;
 /// These are corpus oracle artifacts — RuboCop should not flag these, and nitrocop
 /// correctly does not. No code change needed.
 ///
+/// ## Corpus follow-up (2026-03-29)
+///
+/// Reproduced the real `newrelic` method-body snippet under both RuboCop and
+/// nitrocop with 0 offenses. The failing local fixture was caused by a bad test
+/// change that copied the oracle line numbers into `offense.rb` as standalone
+/// assignments. Keep detector behavior unchanged, cover the snippet in
+/// `no_offense.rb`, and treat the remaining CI FN entries as stale oracle data.
+///
 /// ## FN fix (2026-03-28): recurse into assignment values
 ///
 /// Corpus oracle reported FP=0, FN=7 (3 oracle artifacts from above + 1 config
