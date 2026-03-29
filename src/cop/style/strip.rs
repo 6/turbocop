@@ -76,7 +76,9 @@ impl Cop for Strip {
                 let outer_str = std::str::from_utf8(outer_bytes).unwrap_or("");
                 let methods = format!("{}.{}", inner_str, outer_str);
 
-                let inner_loc = inner_call.message_loc().unwrap_or_else(|| inner_call.location());
+                let inner_loc = inner_call
+                    .message_loc()
+                    .unwrap_or_else(|| inner_call.location());
                 let (line, column) = source.offset_to_line_col(inner_loc.start_offset());
                 let mut diag = self.diagnostic(
                     source,
