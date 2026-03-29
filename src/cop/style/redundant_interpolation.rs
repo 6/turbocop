@@ -5,6 +5,12 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
+/// Prism reports shorthand interpolations like `"#@ivar"`, `"#@@cvar"`, `"#$1"`,
+/// and `"#$/"` as `EmbeddedVariableNode` parts instead of `EmbeddedStatementsNode`.
+/// RuboCop still treats those as redundant, and it also flags any lone `#{...}`
+/// payload, including nested string expressions such as `"#{"foo"}"`.
+/// Keep Ruby 3 pattern matching (`in` / `=>`) exempt when `TargetRubyVersion`
+/// is above 2.7, while still skipping implicit concatenation and percent arrays.
 pub struct RedundantInterpolation;
 
 impl Cop for RedundantInterpolation {
@@ -17,7 +23,7 @@ impl Cop for RedundantInterpolation {
         source: &SourceFile,
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
@@ -26,6 +32,7 @@ impl Cop for RedundantInterpolation {
             source,
             in_implicit_concat: false,
             in_percent_array: false,
+            target_ruby_version: target_ruby_version(config),
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -38,6 +45,7 @@ struct RedundantInterpVisitor<'a, 'src> {
     source: &'src SourceFile,
     in_implicit_concat: bool,
     in_percent_array: bool,
+    target_ruby_version: f64,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -92,35 +100,7 @@ impl<'pr> Visit<'pr> for RedundantInterpVisitor<'_, '_> {
 }
 
 impl RedundantInterpVisitor<'_, '_> {
-    fn check_redundant_interpolation(&mut self, node: &ruby_prism::InterpolatedStringNode<'_>) {
-        // Must have exactly one part that is an embedded statements node
-        let parts: Vec<_> = node.parts().into_iter().collect();
-        if parts.len() != 1 {
-            return;
-        }
-
-        let embedded = match parts[0].as_embedded_statements_node() {
-            Some(e) => e,
-            None => return,
-        };
-
-        // Must have exactly one statement inside #{...}
-        let statements = match embedded.statements() {
-            Some(s) => s,
-            None => return,
-        };
-
-        let body: Vec<_> = statements.body().into_iter().collect();
-        if body.len() != 1 {
-            return;
-        }
-
-        // Skip if the inner expression is a string literal (that would be double-interpolation)
-        let inner = &body[0];
-        if inner.as_string_node().is_some() || inner.as_interpolated_string_node().is_some() {
-            return;
-        }
-
+    fn add_offense(&mut self, node: &ruby_prism::InterpolatedStringNode<'_>) {
         let loc = node.location();
         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
         self.diagnostics.push(self.cop.diagnostic(
@@ -130,10 +110,94 @@ impl RedundantInterpVisitor<'_, '_> {
             "Prefer `to_s` over string interpolation.".to_string(),
         ));
     }
+
+    fn uses_match_pattern(&self, embedded: &ruby_prism::EmbeddedStatementsNode<'_>) -> bool {
+        if self.target_ruby_version <= 2.7 {
+            return false;
+        }
+
+        embedded
+            .statements()
+            .map(|statements| {
+                statements.body().iter().any(|node| {
+                    node.as_match_predicate_node().is_some()
+                        || node.as_match_required_node().is_some()
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    fn check_redundant_interpolation(&mut self, node: &ruby_prism::InterpolatedStringNode<'_>) {
+        let mut parts = node.parts().iter();
+        let Some(part) = parts.next() else {
+            return;
+        };
+        if parts.next().is_some() {
+            return;
+        }
+
+        if part.as_embedded_variable_node().is_some() {
+            self.add_offense(node);
+            return;
+        }
+
+        let Some(embedded) = part.as_embedded_statements_node() else {
+            return;
+        };
+        if self.uses_match_pattern(&embedded) {
+            return;
+        }
+
+        self.add_offense(node);
+    }
+}
+
+fn target_ruby_version(config: &CopConfig) -> f64 {
+    config
+        .options
+        .get("TargetRubyVersion")
+        .and_then(|value| {
+            value
+                .as_f64()
+                .or_else(|| value.as_u64().map(|value| value as f64))
+        })
+        .unwrap_or(2.7)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::assert_cop_no_offenses_full_with_config;
+    use std::collections::HashMap;
+
     crate::cop_fixture_tests!(RedundantInterpolation, "cops/style/redundant_interpolation");
+
+    fn ruby_3_config() -> CopConfig {
+        CopConfig {
+            options: HashMap::from([(
+                "TargetRubyVersion".into(),
+                serde_yml::Value::Number(serde_yml::value::Number::from(3.0)),
+            )]),
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn no_offense_for_ruby_3_pattern_matching_interpolation() {
+        assert_cop_no_offenses_full_with_config(
+            &RedundantInterpolation,
+            b"\"#{42 => var}\"\n",
+            ruby_3_config(),
+        );
+        assert_cop_no_offenses_full_with_config(
+            &RedundantInterpolation,
+            b"\"#{x; 42 => var}\"\n",
+            ruby_3_config(),
+        );
+        assert_cop_no_offenses_full_with_config(
+            &RedundantInterpolation,
+            b"\"#{42 in var}\"\n",
+            ruby_3_config(),
+        );
+    }
 }
