@@ -3,15 +3,15 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// RuboCop treats `nil` as an immutable `each_with_object` argument, and it
+/// ignores two-argument calls because those are not `Enumerable#each_with_object`.
 pub struct EachWithObjectArgument;
 
 fn is_immutable_literal(node: &ruby_prism::Node<'_>) -> bool {
-    matches!(
-        node,
-        ruby_prism::Node::IntegerNode { .. }
-            | ruby_prism::Node::FloatNode { .. }
-            | ruby_prism::Node::SymbolNode { .. }
-    )
+    node.as_integer_node().is_some()
+        || node.as_float_node().is_some()
+        || node.as_symbol_node().is_some()
+        || node.as_nil_node().is_some()
 }
 
 impl Cop for EachWithObjectArgument {
@@ -51,6 +51,10 @@ impl Cop for EachWithObjectArgument {
         };
 
         let args = arguments.arguments();
+        if args.len() != 1 {
+            return;
+        }
+
         let first_arg = match args.first() {
             Some(a) => a,
             None => return,

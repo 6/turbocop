@@ -4,3 +4,6 @@
                         ^^^^ Lint/EachWithObjectArgument: `each_with_object` called with an immutable argument.
 [1, 2].each_with_object(1.0) { |x, acc| }
                         ^^^ Lint/EachWithObjectArgument: `each_with_object` called with an immutable argument.
+
+sources.each_with_object(nil) do |v, s|
+                         ^^^ Lint/EachWithObjectArgument: `each_with_object` called with an immutable argument.
