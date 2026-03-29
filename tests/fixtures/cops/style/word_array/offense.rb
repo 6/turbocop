@@ -56,3 +56,16 @@ y = %w(
   hello\ world
   foo
 )
+
+# Nested word arrays inside a complex matrix should still be flagged.
+options = [
+  ["North America", [["United States", "US"], "Canada"]],
+  ["Europe", ["Denmark", "Germany", "France"]]
+             ^ Style/WordArray: Use `%w` or `%W` for an array of words.
+]
+
+LANGUAGE_ARRAY = [
+  ["Bahasa Indonesia", "id", ["id-ID"]],
+  ["বাংলা", "bn", ["bn-BD", "বাংলাদেশ"]]
+                  ^ Style/WordArray: Use `%w` or `%W` for an array of words.
+]

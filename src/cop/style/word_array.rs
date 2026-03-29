@@ -40,6 +40,12 @@ const DEFAULT_WORD_REGEX: &str = r"^(?:\w|\w-\w|\n|\t)+$";
 /// with the explicit bracket form; multi-line arrays use the generic
 /// `Use an array literal [...]` message.
 ///
+/// **FN fix 3:** The matrix suppression state was leaking to all descendants of
+/// a complex matrix. RuboCop only skips arrays whose direct parent is the
+/// matrix returned by `within_matrix_of_complex_content?`. Nested word arrays
+/// inside those skipped rows, such as `["Europe", ["Denmark", ...]]` and
+/// `["বাংলা", "bn", ["bn-BD", "বাংলাদেশ"]]`, must still be checked.
+///
 /// **Remaining FN:** Primarily `brackets` style enforcement direction
 /// (flagging ALL `%w[...]` arrays for conversion to brackets), which is not
 /// yet implemented.
@@ -202,7 +208,7 @@ impl Cop for WordArray {
             parse_result,
             min_size,
             word_re,
-            in_matrix_of_complex_content: false,
+            parent_is_complex_matrix: false,
             in_ambiguous_block_context: false,
             diagnostics: Vec::new(),
         };
@@ -217,7 +223,10 @@ struct WordArrayVisitor<'a, 'src, 'pr> {
     parse_result: &'a ruby_prism::ParseResult<'pr>,
     min_size: usize,
     word_re: Option<regex::Regex>,
-    in_matrix_of_complex_content: bool,
+    /// True when the direct parent array is a complex matrix that suppresses
+    /// only its immediate child arrays, matching RuboCop's
+    /// `within_matrix_of_complex_content?`.
+    parent_is_complex_matrix: bool,
     /// True when inside direct arguments of a non-parenthesized call with a block.
     in_ambiguous_block_context: bool,
     diagnostics: Vec<Diagnostic>,
@@ -242,7 +251,7 @@ impl<'pr> WordArrayVisitor<'_, '_, 'pr> {
         }
 
         // Skip if inside a matrix of complex content
-        if self.in_matrix_of_complex_content {
+        if self.parent_is_complex_matrix {
             return;
         }
 
@@ -327,20 +336,15 @@ impl<'pr> WordArrayVisitor<'_, '_, 'pr> {
 
 impl<'pr> Visit<'pr> for WordArrayVisitor<'_, '_, 'pr> {
     fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
-        // Check if this array is a matrix of complex content before visiting children
-        let is_matrix = is_matrix_of_complex_content(node, &self.word_re);
-        let prev = self.in_matrix_of_complex_content;
-        if is_matrix {
-            self.in_matrix_of_complex_content = true;
-        }
-
         self.check_array(node);
         self.check_percent_word_array(node);
 
-        // Visit children to check nested arrays
+        // Only direct children of a complex matrix are suppressed. Nested arrays
+        // inside those child rows must still be checked.
+        let prev = self.parent_is_complex_matrix;
+        self.parent_is_complex_matrix = is_matrix_of_complex_content(node, &self.word_re);
         ruby_prism::visit_array_node(self, node);
-
-        self.in_matrix_of_complex_content = prev;
+        self.parent_is_complex_matrix = prev;
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
