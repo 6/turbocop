@@ -95,3 +95,59 @@ it do
   allow_any_instance_of(Foo).to receive(:find) {|path| nil}
                                                ^ RSpec/ReturnFromStub: Use `and_return` for static values.
 end
+# __FILE__ is a static pseudo-literal
+it do
+  allow(RSpec.configuration).to receive(:loaded_spec_files) { [__FILE__] }
+                                                            ^ RSpec/ReturnFromStub: Use `and_return` for static values.
+end
+# Arbitrary matcher receivers like `wrapped.to receive(...)` are still stub setup
+it do
+  allow_it.to receive(:results) { "results" }
+                                ^ RSpec/ReturnFromStub: Use `and_return` for static values.
+end
+it do
+  allow_it.to receive(:results) { :all }
+                                ^ RSpec/ReturnFromStub: Use `and_return` for static values.
+end
+it do
+  wrapped.to receive(:foo) do
+                           ^^ RSpec/ReturnFromStub: Use `and_return` for static values.
+    4
+  end
+end
+it do
+  wrapped.to receive(:foo) do
+                           ^^ RSpec/ReturnFromStub: Use `and_return` for static values.
+    4
+  end.and_return(6)
+end
+it do
+  wrapped.to receive(:foo) { 5 }
+                           ^ RSpec/ReturnFromStub: Use `and_return` for static values.
+end
+it do
+  wrapped.to receive(:foo) { :curly } do
+                           ^ RSpec/ReturnFromStub: Use `and_return` for static values.
+    :do_end
+  end
+end
+it do
+  wrapped.to receive(:foo).with(1) { :a }
+                                   ^ RSpec/ReturnFromStub: Use `and_return` for static values.
+end
+it do
+  wrapped.to receive("foo").with(2) { :b }
+                                    ^ RSpec/ReturnFromStub: Use `and_return` for static values.
+end
+it do
+  wrapped.to receive(:foo).with(1) do
+                                   ^^ RSpec/ReturnFromStub: Use `and_return` for static values.
+    :a
+  end
+end
+it do
+  wrapped.to receive(:foo).with(1) { :curly } do
+                                   ^ RSpec/ReturnFromStub: Use `and_return` for static values.
+    :do_end
+  end
+end

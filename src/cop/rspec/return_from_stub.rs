@@ -70,6 +70,19 @@ use crate::parse::source::SourceFile;
 /// 2. Blocks with parameters but static body (4 FN: fastlane 2, Freika 1, opal 1):
 ///    e.g., `receive(:foo) do |arg| nil end`. RuboCop only checks body staticness,
 ///    not whether the block has parameters. Removed the parameter skip.
+///
+/// ## Corpus investigation (2026-03-29)
+///
+/// FN=12 concentrated in two detector gaps:
+/// 1. Matcher-style receivers such as `wrapped.to receive(:foo) { 5 }` and helper
+///    wrappers such as `allow_it.to receive(:results) { :all }` were missed because
+///    we required `.to` to be called on specific receiver names (`allow`, `expect`,
+///    etc.). RuboCop only requires a receiverless `receive(...)` matcher anywhere in
+///    the `.to` argument chain, so the receiver-name gate was too narrow.
+/// 2. Static pseudo-literals like `__FILE__` were not treated as static values.
+///    RuboCop's `recursive_literal_or_const?` treats `__FILE__`, `__LINE__`, and
+///    `__ENCODING__` as literal-like, so we now accept Prism's corresponding source
+///    pseudo-literal nodes in `is_static_value`.
 pub struct ReturnFromStub;
 impl Cop for ReturnFromStub {
     fn name(&self) -> &'static str {
@@ -156,28 +169,6 @@ impl Cop for ReturnFromStub {
         // Default "and_return" style: flag block-style stubs returning static values
         // We need `.to` or `.not_to`
         if method_name != b"to" && method_name != b"not_to" && method_name != b"to_not" {
-            return;
-        }
-
-        // Check receiver is allow/expect
-        let receiver = match call.receiver() {
-            Some(r) => r,
-            None => return,
-        };
-        let recv_call = match receiver.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
-        let recv_name = recv_call.name().as_slice();
-        if recv_name != b"allow"
-            && recv_name != b"expect"
-            && recv_name != b"allow_any_instance_of"
-            && recv_name != b"expect_any_instance_of"
-            && recv_name != b"is_expected"
-        {
-            return;
-        }
-        if recv_call.receiver().is_some() {
             return;
         }
 
@@ -313,6 +304,9 @@ fn is_static_value(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_rational_node().is_some()
         || node.as_imaginary_node().is_some()
         || node.as_regular_expression_node().is_some()
+        || node.as_source_file_node().is_some()
+        || node.as_source_line_node().is_some()
+        || node.as_source_encoding_node().is_some()
     {
         return true;
     }
