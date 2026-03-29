@@ -36,11 +36,7 @@ def resolve_nitrocop_json(path: str) -> None:
         if filepath and os.path.exists(filepath):
             resolved = os.path.realpath(filepath)
             o["path"] = resolved
-        # Use column in dedup key to preserve genuine multi-offenses at
-        # different columns (e.g. two bad param names on one line) while
-        # still collapsing symlink duplicates (same physical location).
-        key = (o.get("path", ""), o.get("line", 0), o.get("cop_name", ""),
-               o.get("column", 0))
+        key = (o.get("path", ""), o.get("line", 0), o.get("cop_name", ""))
         if key not in seen:
             seen.add(key)
             deduped.append(o)
@@ -69,17 +65,14 @@ def resolve_rubocop_json(path: str) -> None:
             resolved = filepath
 
         if resolved in by_resolved:
-            # Merge offenses, deduplicating by (line, cop, column) to preserve
-            # genuine multi-offenses at different columns on the same line.
+            # Merge offenses, deduplicating by (line, cop)
             existing = by_resolved[resolved]
             existing_keys = {
-                (o.get("location", {}).get("line", 0), o.get("cop_name", ""),
-                 o.get("location", {}).get("start_column", 0))
+                (o.get("location", {}).get("line", 0), o.get("cop_name", ""))
                 for o in existing.get("offenses", [])
             }
             for o in f.get("offenses", []):
-                key = (o.get("location", {}).get("line", 0), o.get("cop_name", ""),
-                       o.get("location", {}).get("start_column", 0))
+                key = (o.get("location", {}).get("line", 0), o.get("cop_name", ""))
                 if key not in existing_keys:
                     existing["offenses"].append(o)
                     existing_keys.add(key)

@@ -323,6 +323,65 @@ def test_subprocess_invocation():
         assert len(rc_data["files"]) == 1
 
 
+def test_nitrocop_collapses_multi_column_offenses_on_same_line():
+    """Multiple offenses at different columns on the same line collapse to one."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        file_a = tmp / "a.rb"
+        file_a.write_text("")
+
+        json_path = tmp / "nitrocop.json"
+        json_path.write_text(json.dumps({
+            "offenses": [
+                {"path": str(file_a), "line": 1, "cop_name": "Naming/MethodParameterName", "column": 5},
+                {"path": str(file_a), "line": 1, "cop_name": "Naming/MethodParameterName", "column": 10},
+            ]
+        }))
+
+        resolve_symlink_paths.resolve_nitrocop_json(str(json_path))
+        data = json.loads(json_path.read_text())
+
+        assert len(data["offenses"]) == 1, (
+            "Same (path, line, cop) should collapse regardless of column"
+        )
+
+
+def test_rubocop_collapses_multi_column_offenses_across_symlinks():
+    """Symlink-duplicate offenses at different columns on same line collapse to one."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        canonical, via_symlink = make_repo_with_symlink(tmp)
+
+        json_path = tmp / "rubocop.json"
+        json_path.write_text(json.dumps({
+            "files": [
+                {
+                    "path": str(canonical),
+                    "offenses": [
+                        {"location": {"line": 1, "start_column": 5}, "cop_name": "Style/A"},
+                    ]
+                },
+                {
+                    "path": str(via_symlink),
+                    "offenses": [
+                        {"location": {"line": 1, "start_column": 25}, "cop_name": "Style/A"},
+                    ]
+                },
+            ],
+            "summary": {"inspected_file_count": 2}
+        }))
+
+        resolve_symlink_paths.resolve_rubocop_json(str(json_path))
+        data = json.loads(json_path.read_text())
+
+        assert len(data["files"]) == 1
+        # Symlink duplicate merges into canonical; same (line, cop) deduplicates
+        # even though columns differ
+        assert len(data["files"][0]["offenses"]) == 1, (
+            "Same (line, cop) from symlink should collapse regardless of column"
+        )
+
+
 if __name__ == "__main__":
     # Simple test runner
     failures = 0

@@ -95,13 +95,8 @@ def normalize_offenses(offenses: list[dict]) -> list[dict]:
     purely because the same file was discovered via both canonical and symlink
     paths.
 
-    Uses (path, line, cop_name, column) as the dedup key so that genuine
-    multi-offenses at different columns on the same line are preserved
-    (e.g. two bad param names on ``def foo(a, b)``), while symlink
-    duplicates (same physical location via different discovery paths) are
-    still collapsed.
     """
-    seen: set[tuple[str, int, str, int]] = set()
+    seen: set[tuple[str, int, str]] = set()
     deduped: list[dict] = []
     for offense in offenses:
         normalized = offense.copy()
@@ -112,7 +107,6 @@ def normalize_offenses(offenses: list[dict]) -> list[dict]:
             normalized.get("path", ""),
             normalized.get("line", 0),
             normalized.get("cop_name", ""),
-            normalized.get("column", 0),
         )
         if key in seen:
             continue
