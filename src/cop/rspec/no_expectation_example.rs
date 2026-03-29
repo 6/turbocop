@@ -8,6 +8,19 @@ use crate::parse::source::SourceFile;
 
 /// RSpec/NoExpectationExample - flags examples without expectations.
 ///
+/// ## Corpus investigation (2026-03-29)
+///
+/// Corpus oracle reported FP=0, FN=4.
+///
+/// FN=4 root cause: keyword metadata matching was broader than RuboCop's
+/// `SkipOrPending` mixin. We exempted any non-`false` `skip:`/`pending:` value,
+/// which missed examples using dynamic expressions such as `skip: ENV['CI']`,
+/// `skip: ActiveRecord.version.version < '5'`, and `:skip =>
+/// options.include?(:allow_other_matchers)`.
+///
+/// Fix: only exempt symbol metadata and keyword metadata whose values match
+/// RuboCop's pattern shape: literal `true`, `str`, or `dstr`.
+///
 /// ## Corpus investigation (2026-03-08)
 ///
 /// Corpus oracle reported FP=66, FN=0.
@@ -43,7 +56,8 @@ fn is_regular_or_focused_example(name: &[u8]) -> bool {
     )
 }
 
-/// Check if call has :skip or :pending symbol metadata or skip:/pending: keyword metadata.
+/// Check if a call's arguments contain :skip/:pending symbol metadata, or keyword
+/// metadata whose value matches RuboCop's SkipOrPending mixin (`true|str|dstr`).
 fn has_skip_or_pending_metadata(call: &ruby_prism::CallNode<'_>) -> bool {
     if let Some(args) = call.arguments() {
         for arg in args.arguments().iter() {
@@ -60,12 +74,9 @@ fn has_skip_or_pending_metadata(call: &ruby_prism::CallNode<'_>) -> bool {
                     if let Some(assoc) = elem.as_assoc_node() {
                         if let Some(key_sym) = assoc.key().as_symbol_node() {
                             let key = key_sym.unescaped();
-                            if key == b"skip" || key == b"pending" {
-                                // skip: false means NOT skipped
-                                if let Some(false_node) = assoc.value().as_false_node() {
-                                    let _ = false_node;
-                                    continue;
-                                }
+                            if (key == b"skip" || key == b"pending")
+                                && is_skip_or_pending_metadata_value(&assoc.value())
+                            {
                                 return true;
                             }
                         }
@@ -75,6 +86,12 @@ fn has_skip_or_pending_metadata(call: &ruby_prism::CallNode<'_>) -> bool {
         }
     }
     false
+}
+
+fn is_skip_or_pending_metadata_value(value: &ruby_prism::Node<'_>) -> bool {
+    value.as_true_node().is_some()
+        || value.as_string_node().is_some()
+        || value.as_interpolated_string_node().is_some()
 }
 
 impl Cop for NoExpectationExample {
