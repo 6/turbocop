@@ -258,3 +258,62 @@ class << Class.new {
 }.new
   def placeholder; end
 end
+
+# def ConstName.method fallback when the constant is not in lexical scope
+def Fixtures.root
+  Pathname("../../fixtures").expand_path(__FILE__)
+end
+def Fixtures.root
+^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `Fixtures.root` is defined at both test.rb:235 and test.rb:238.
+  Pathname("../../fixtures").expand_path(__FILE__)
+end
+
+def Fixtures.file?(fixture)
+  path = root.join(fixture)
+  path.file? && path
+end
+def Fixtures.file?(fixture)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `Fixtures.file?` is defined at both test.rb:242 and test.rb:246.
+  path = root.join(fixture)
+  path.file? && path
+end
+
+def Fixtures.xml?(fixture)
+  file?("#{fixture}.xml")
+end
+def Fixtures.xml?(fixture)
+^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `Fixtures.xml?` is defined at both test.rb:251 and test.rb:254.
+  file?("#{fixture}.xml")
+end
+
+# attr_* inside if/unless still count as duplicates
+class RubyLex
+  attr_accessor :indent
+
+  if self.method_defined?(:indent)
+    attr_writer :indent
+    ^^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `RubyLex#indent=` is defined at both test.rb:260 and test.rb:263.
+  else
+    attr_accessor :indent
+    ^^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `RubyLex#indent` is defined at both test.rb:260 and test.rb:265.
+  end
+end
+
+# class << bare_send inside a block still tracks duplicates
+describe "interface singleton methods" do
+  class << interface
+    def read_interface; 1; end
+  end
+
+  class << interface
+    def read_interface; nil end
+    ^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `interface.read_interface` is defined at both test.rb:272 and test.rb:276.
+  end
+
+  class << interface
+    def read_interface
+    ^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `interface.read_interface` is defined at both test.rb:272 and test.rb:280.
+      :again
+    end
+  end
+end

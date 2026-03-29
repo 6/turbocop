@@ -166,6 +166,20 @@ use ruby_prism::Visit;
 /// Corpus may still report FN=3 due to stale baseline artifacts that predate the
 /// Round 10 fixes (pry sclass-expression, stimulusreflex reopened sclass, vcr
 /// defs-method). A corpus re-run should clear these.
+///
+/// ### Round 11 (FP=3, FN=52 corpus; focused FN fixes)
+/// Root causes of remaining FN:
+/// - `attr_reader`, `attr_writer`, and `attr_accessor` inside `if`/`unless`
+///   branches were being skipped along with `alias_method`, `delegate`, and
+///   `def_delegator*`. The corpus misses were on those accessor forms, so the fix
+///   keeps conditional suppression narrow and only lifts it for the targeted
+///   accessor calls instead of every send-based definition helper.
+/// - Methods and accessor-style definitions inside `class << send_expr` and
+///   `class << ConstName` were being skipped when an outer plain block (`describe`,
+///   `it`, DSL block) had already incremented `plain_block_depth`. RuboCop still
+///   finds those through the singleton-class ancestor (`found_sclass_method`) or
+///   `parent_module_name`, so only `class << self` and non-send/non-const singleton
+///   expressions should remain invisible inside plain blocks.
 pub struct DuplicateMethods;
 
 impl Cop for DuplicateMethods {
@@ -255,6 +269,15 @@ enum RescueEnsureType {
 struct ScopeEntry {
     name: String,
     is_singleton: bool,
+    kind: ScopeKind,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScopeKind {
+    Regular,
+    SelfSingleton,
+    ConstSingleton,
+    SendSingleton,
 }
 
 impl DupMethodVisitor<'_, '_> {
@@ -300,6 +323,13 @@ impl DupMethodVisitor<'_, '_> {
         } else {
             qualified_name.to_string()
         }
+    }
+
+    fn tracks_methods_inside_plain_blocks(&self) -> bool {
+        matches!(
+            self.scope_stack.last().map(|entry| entry.kind),
+            Some(ScopeKind::ConstSingleton | ScopeKind::SendSingleton)
+        )
     }
 
     /// Record a found method definition and check for duplicates.
@@ -394,6 +424,7 @@ impl DupMethodVisitor<'_, '_> {
                     self.scope_stack.push(ScopeEntry {
                         name: qualified_scope,
                         is_singleton: true,
+                        kind: ScopeKind::Regular,
                     });
                     let keyword_offset = node.def_keyword_loc().start_offset();
                     self.found_method(name, true, def_line, keyword_offset);
@@ -441,7 +472,7 @@ impl DupMethodVisitor<'_, '_> {
         } else {
             // Instance method (or singleton method if inside `class << self`)
             // Inside blocks: parent_module_name returns nil, so not tracked.
-            if self.plain_block_depth > 0 {
+            if self.plain_block_depth > 0 && !self.tracks_methods_inside_plain_blocks() {
                 return;
             }
             let is_singleton = self.in_singleton_scope();
@@ -532,7 +563,9 @@ impl DupMethodVisitor<'_, '_> {
 
     /// Process an alias node.
     fn process_alias(&mut self, node: &ruby_prism::AliasMethodNode<'_>) {
-        if self.if_depth > 0 || self.plain_block_depth > 0 {
+        if self.if_depth > 0
+            || (self.plain_block_depth > 0 && !self.tracks_methods_inside_plain_blocks())
+        {
             return;
         }
 
@@ -565,7 +598,7 @@ impl DupMethodVisitor<'_, '_> {
     /// they must have no explicit receiver. Calls like `self.attr_reader` or
     /// `doc.attr('content')` are ignored.
     fn process_call(&mut self, node: &ruby_prism::CallNode<'_>) {
-        if self.if_depth > 0 || self.plain_block_depth > 0 {
+        if self.plain_block_depth > 0 && !self.tracks_methods_inside_plain_blocks() {
             return;
         }
 
@@ -582,19 +615,33 @@ impl DupMethodVisitor<'_, '_> {
         let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
 
         match method_name {
-            "alias_method" => self.process_alias_method(node, &arg_list),
+            "alias_method" => {
+                if self.if_depth == 0 {
+                    self.process_alias_method(node, &arg_list);
+                }
+            }
             "attr_reader" => self.process_attr(node, &arg_list, true, false),
             "attr_writer" => self.process_attr(node, &arg_list, false, true),
             "attr_accessor" => self.process_attr(node, &arg_list, true, true),
-            "attr" => self.process_attr_legacy(node, &arg_list),
+            "attr" => {
+                if self.if_depth == 0 {
+                    self.process_attr_legacy(node, &arg_list);
+                }
+            }
             "def_delegator" | "def_instance_delegator" => {
-                self.process_def_delegator(node, &arg_list);
+                if self.if_depth == 0 {
+                    self.process_def_delegator(node, &arg_list);
+                }
             }
             "def_delegators" | "def_instance_delegators" => {
-                self.process_def_delegators(node, &arg_list);
+                if self.if_depth == 0 {
+                    self.process_def_delegators(node, &arg_list);
+                }
             }
             "delegate" if self.active_support_extensions => {
-                self.process_delegate(node, &arg_list);
+                if self.if_depth == 0 {
+                    self.process_delegate(node, &arg_list);
+                }
             }
             _ => {}
         }
@@ -646,10 +693,15 @@ impl DupMethodVisitor<'_, '_> {
 
         for arg in args {
             if let Some(name) = extract_symbol_or_string(arg) {
+                let before = self.diagnostics.len();
                 if readable {
                     self.found_method(&name, is_singleton, def_line, offset);
                 }
+                let readable_reported = self.diagnostics.len() > before;
                 if writable {
+                    if readable_reported {
+                        continue;
+                    }
                     let setter = format!("{name}=");
                     self.found_method(&setter, is_singleton, def_line, offset);
                 }
@@ -677,10 +729,12 @@ impl DupMethodVisitor<'_, '_> {
         let offset = node.location().start_offset();
 
         // Always readable
+        let before = self.diagnostics.len();
         self.found_method(&name, is_singleton, def_line, offset);
+        let readable_reported = self.diagnostics.len() > before;
 
         // Writable if second arg is `true`
-        if args.len() == 2 && args[1].as_true_node().is_some() {
+        if args.len() == 2 && args[1].as_true_node().is_some() && !readable_reported {
             let setter = format!("{name}=");
             self.found_method(&setter, is_singleton, def_line, offset);
         }
@@ -967,6 +1021,7 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
         self.scope_stack.push(ScopeEntry {
             name,
             is_singleton: false,
+            kind: ScopeKind::Regular,
         });
         if let Some(body) = node.body() {
             self.visit(&body);
@@ -979,6 +1034,7 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
         self.scope_stack.push(ScopeEntry {
             name,
             is_singleton: false,
+            kind: ScopeKind::Regular,
         });
         if let Some(body) = node.body() {
             self.visit(&body);
@@ -994,16 +1050,20 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
             let depth = self.scope_stack.len();
             if depth > 0 {
                 let was_singleton = self.scope_stack[depth - 1].is_singleton;
+                let was_kind = self.scope_stack[depth - 1].kind;
                 self.scope_stack[depth - 1].is_singleton = true;
+                self.scope_stack[depth - 1].kind = ScopeKind::SelfSingleton;
                 if let Some(body) = node.body() {
                     self.visit(&body);
                 }
                 self.scope_stack[depth - 1].is_singleton = was_singleton;
+                self.scope_stack[depth - 1].kind = was_kind;
             } else {
                 // At top level, `class << self` creates Object singleton
                 self.scope_stack.push(ScopeEntry {
                     name: "Object".to_string(),
                     is_singleton: true,
+                    kind: ScopeKind::SelfSingleton,
                 });
                 if let Some(body) = node.body() {
                     self.visit(&body);
@@ -1028,6 +1088,7 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
             self.scope_stack.push(ScopeEntry {
                 name: format!("#<Class:{const_name}>"),
                 is_singleton: false,
+                kind: ScopeKind::ConstSingleton,
             });
             if let Some(body) = node.body() {
                 self.visit(&body);
@@ -1056,6 +1117,7 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
             self.scope_stack.push(ScopeEntry {
                 name: recv_method.to_string(),
                 is_singleton: true,
+                kind: ScopeKind::SendSingleton,
             });
             if let Some(body) = node.body() {
                 self.visit(&body);
@@ -1147,6 +1209,7 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
                     self.scope_stack.push(ScopeEntry {
                         name: "__anonymous__".to_string(),
                         is_singleton: false,
+                        kind: ScopeKind::Regular,
                     });
                     self.visit(&block);
                     self.definitions = saved_defs;
@@ -1160,6 +1223,7 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
             self.scope_stack.push(ScopeEntry {
                 name: effective_name,
                 is_singleton: false,
+                kind: ScopeKind::Regular,
             });
             if let Some(block) = node.block() {
                 self.visit(&block);
@@ -1205,6 +1269,7 @@ impl<'pr> Visit<'pr> for DupMethodVisitor<'_, '_> {
                             self.scope_stack.push(ScopeEntry {
                                 name: const_name.to_string(),
                                 is_singleton: false,
+                                kind: ScopeKind::Regular,
                             });
                             if let Some(block) = call.block() {
                                 self.visit(&block);
@@ -1568,6 +1633,14 @@ mod tests {
     }
 
     #[test]
+    fn test_attr_inside_condition_still_tracked() {
+        let n = count_offenses(
+            b"class RubyLex\n  attr_accessor :indent\n\n  if self.method_defined?(:indent)\n    attr_writer :indent\n  else\n    attr_accessor :indent\n  end\nend\n",
+        );
+        assert_eq!(n, 2, "attr_* inside condition should still detect duplicates");
+    }
+
+    #[test]
     fn test_delegate_no_to_key() {
         // delegate without :to key should be ignored
         let n = count_offenses_with_active_support(
@@ -1655,6 +1728,28 @@ mod tests {
             b"class Foo\n  def self.bar; 1; end\nend\ndsl_block do\n  def self.bar; 2; end\nend\n",
         );
         assert_eq!(n, 0, "def self.method inside block should be ignored");
+    }
+
+    #[test]
+    fn test_sclass_send_inside_block_detects_dups() {
+        let n = count_offenses(
+            b"describe 'x' do\n  class << interface\n    def read_interface; 1; end\n  end\n\n  class << interface\n    def read_interface; 2; end\n  end\nend\n",
+        );
+        assert_eq!(
+            n, 1,
+            "class << bare_send inside a block should still detect duplicates"
+        );
+    }
+
+    #[test]
+    fn test_sclass_local_var_inside_block_ignored() {
+        let n = count_offenses(
+            b"describe 'x' do\n  obj = Object.new\n\n  class << obj\n    def read_interface; 1; end\n  end\n\n  class << obj\n    def read_interface; 2; end\n  end\nend\n",
+        );
+        assert_eq!(
+            n, 0,
+            "class << local_var inside a block should stay ignored"
+        );
     }
 
     #[test]
