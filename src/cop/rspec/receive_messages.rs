@@ -47,6 +47,14 @@ use ruby_prism::Visit;
 /// RuboCop's `repeated_lines - [item.first_line]` yields an empty list when all
 /// items share the same line, causing the offense to be skipped. Fixed by checking
 /// that unique items span at least 2 distinct lines before reporting.
+///
+/// ## Corpus investigation (2026-03-29)
+///
+/// FN=15 clustered in `begin ... ensure/end` and `begin ... rescue/end`
+/// bodies. Prism uses `BeginNode` for both bare explicit `begin...end` and
+/// handled `begin` blocks, but RuboCop only skips the bare `kwbegin` form.
+/// Fixed by skipping only pure explicit `begin...end` bodies with no
+/// rescue/else/ensure clauses.
 pub struct ReceiveMessages;
 
 struct StubInfo {
@@ -82,7 +90,7 @@ impl Cop for ReceiveMessages {
             cop: self,
             source,
             diagnostics: Vec::new(),
-            skip_begin_body: false,
+            pending_begin_body: 0,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -93,9 +101,9 @@ struct ReceiveMessagesVisitor<'a> {
     cop: &'a ReceiveMessages,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
-    /// Set before descending into `BeginNode` so the next `visit_statements_node`
-    /// call (for the begin body) skips `check_statements`.
-    skip_begin_body: bool,
+    /// Incremented when entering a pure explicit `begin...end` so the next
+    /// `visit_statements_node` call skips `check_statements` for that body only.
+    pending_begin_body: usize,
 }
 
 impl<'a> ReceiveMessagesVisitor<'a> {
@@ -184,19 +192,29 @@ impl<'a> ReceiveMessagesVisitor<'a> {
 
 impl<'pr> Visit<'pr> for ReceiveMessagesVisitor<'_> {
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
-        if !self.skip_begin_body {
+        let skip_begin_body = if self.pending_begin_body > 0 {
+            self.pending_begin_body -= 1;
+            true
+        } else {
+            false
+        };
+
+        if !skip_begin_body {
             self.check_statements(node);
         }
-        self.skip_begin_body = false;
         ruby_prism::visit_statements_node(self, node);
     }
 
-    /// Explicit `begin...end` blocks map to `kwbegin` in parser gem AST.
-    /// RuboCop's `on_begin` does NOT fire on `kwbegin` nodes, so we must
-    /// skip `check_statements` for the direct `StatementsNode` body of
-    /// `BeginNode`.
+    /// Prism uses `BeginNode` for both explicit `begin...end` blocks and
+    /// handled `begin` bodies with `rescue`/`ensure`, but RuboCop only skips
+    /// the pure explicit `begin...end` (`kwbegin`) form.
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
-        self.skip_begin_body = true;
+        let is_pure_begin = node.rescue_clause().is_none()
+            && node.ensure_clause().is_none()
+            && node.else_clause().is_none();
+        if is_pure_begin {
+            self.pending_begin_body += 1;
+        }
         ruby_prism::visit_begin_node(self, node);
     }
 }
