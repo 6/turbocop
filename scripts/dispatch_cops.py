@@ -33,6 +33,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 # Allow importing shared helpers from scripts/
@@ -1285,6 +1286,7 @@ def select_backend_for_entry(
     max_total: int = 15,
     min_matches: int = 50,
     min_bugs: int = 1,
+    precomputed_diagnosis: tuple[int, int] | None = None,
 ) -> dict[str, object]:
     prior_prs = prior_prs or []
     total = total_for_entry(entry or {})
@@ -1326,32 +1328,35 @@ def select_backend_for_entry(
     # Run prediagnosis to classify code bugs vs config/parser issues
     code_bugs = 0
     config_issues = 0
-    if binary and binary.exists() and should_consider_easy_candidate(
+    is_easy_candidate = should_consider_easy_candidate(
         entry, min_total=min_total, max_total=max_total, min_matches=min_matches,
-    ):
+    )
+    if precomputed_diagnosis is not None:
+        code_bugs, config_issues = precomputed_diagnosis
+    elif binary and binary.exists() and is_easy_candidate:
         fn_bugs, fn_cfg = diagnose_examples(binary, cop, entry.get("fn_examples", []), "fn")
         fp_bugs, fp_cfg = diagnose_examples(binary, cop, entry.get("fp_examples", []), "fp")
         code_bugs = fn_bugs + fp_bugs
         config_issues = fn_cfg + fp_cfg
 
-        if code_bugs >= min_bugs:
-            # Confirmed code bugs in an easy cop — codex handles these well
-            return _result(
-                "codex-normal",
-                f"easy cop: total={total_for_entry(entry)}, matches={entry.get('matches', 0)}, "
-                f"diagnosed_code_bugs={code_bugs}",
-                code_bugs=code_bugs, config_issues=config_issues, easy=True,
-            )
+    if is_easy_candidate and code_bugs >= min_bugs:
+        # Confirmed code bugs in an easy cop — codex handles these well
+        return _result(
+            "codex-normal",
+            f"easy cop: total={total_for_entry(entry)}, matches={entry.get('matches', 0)}, "
+            f"diagnosed_code_bugs={code_bugs}",
+            code_bugs=code_bugs, config_issues=config_issues, easy=True,
+        )
 
-        if config_issues > 0 and code_bugs == 0:
-            # All issues are config/parser-level, not cop bugs — claude
-            # has better judgment on whether to fix or document
-            return _result(
-                "claude-oauth-normal",
-                f"all {config_issues} issues are config/parser-level, not code bugs; "
-                f"needs investigation to determine correct action",
-                code_bugs=code_bugs, config_issues=config_issues,
-            )
+    if is_easy_candidate and config_issues > 0 and code_bugs == 0:
+        # All issues are config/parser-level, not cop bugs — claude
+        # has better judgment on whether to fix or document
+        return _result(
+            "claude-oauth-normal",
+            f"all {config_issues} issues are config/parser-level, not code bugs; "
+            f"needs investigation to determine correct action",
+            code_bugs=code_bugs, config_issues=config_issues,
+        )
 
     # Complex cop (outside easy thresholds) or no binary for prediagnosis —
     # codex-hard handles high-volume mechanical work well
@@ -1613,20 +1618,11 @@ def sync_issue_labels(repo: str, issue_number: int, labels: list[str]) -> None:
             "gh", "issue", "edit", str(issue_number),
             "--repo", repo,
             "--remove-label", ",".join(remove),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    subprocess.run(
-        [
-            "gh", "issue", "edit", str(issue_number),
-            "--repo", repo,
             "--add-label", ",".join([TRACKER_LABEL, *labels]),
         ],
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
 
 
@@ -1888,44 +1884,37 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
 
     created = updated = reopened = closed = config_only = 0
 
-    # Precompute per-department cop counts for progress logging
-    dept_counts: dict[str, int] = {}
-    for cop in diverging_cops:
-        dept = cop.split("/")[0]
-        dept_counts[dept] = dept_counts.get(dept, 0) + 1
+    # ── Phase 1: Pre-diagnose all cops in parallel ──────────────────────
+    diagnosis: dict[str, tuple[int, int]] = {}  # cop -> (code_bugs, config_issues)
+    if binary:
+        def _diagnose_cop(cop: str) -> tuple[str, int, int]:
+            entry = entries[cop]
+            fn_bugs, fn_cfg = diagnose_examples(binary, cop, entry.get("fn_examples", []), "fn")
+            fp_bugs, fp_cfg = diagnose_examples(binary, cop, entry.get("fp_examples", []), "fp")
+            return cop, fn_bugs + fp_bugs, fn_cfg + fp_cfg
 
-    current_dept: str | None = None
-    dept_created = dept_updated = dept_reopened = 0
+        print(f"Pre-diagnosing {len(diverging_cops)} cops...", file=sys.stderr)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = {pool.submit(_diagnose_cop, cop): cop for cop in diverging_cops}
+            for future in as_completed(futures):
+                cop_name, code_bugs, cfg_issues = future.result()
+                diagnosis[cop_name] = (code_bugs, cfg_issues)
+        print("  diagnosis complete", file=sys.stderr)
+
+    # ── Phase 2: Compute issue metadata and determine actions ───────────
+    # Each action is (action_type, callable) where callable performs the
+    # GitHub API call.  We group by department for progress logging.
+    Action = tuple[str, callable]  # ("created"|"updated"|"reopened", fn)
+    dept_actions: dict[str, list[Action]] = {}
 
     for cop in sorted(diverging_cops):
         dept = cop.split("/")[0]
-        if dept != current_dept:
-            if current_dept is not None:
-                print(
-                    f"  done ({dept_created} created, {dept_updated} updated,"
-                    f" {dept_reopened} reopened)",
-                    file=sys.stderr,
-                )
-            current_dept = dept
-            dept_created = dept_updated = dept_reopened = 0
-            print(
-                f"Syncing {dept} ({dept_counts[dept]} cops)...",
-                file=sys.stderr,
-            )
-
         entry = entries[cop]
         prior_prs = prs_by_cop.get(cop, [])
 
-        # Pre-diagnose: label cops with 0 code bugs as config-only
-        is_config_only = False
-        if binary:
-            fn_bugs, _ = diagnose_examples(
-                binary, cop, entry.get("fn_examples", []), "fn",
-            )
-            fp_bugs, _ = diagnose_examples(
-                binary, cop, entry.get("fp_examples", []), "fp",
-            )
-            is_config_only = (fn_bugs + fp_bugs) == 0
+        code_bugs, cfg_issues = diagnosis.get(cop, (0, 0))
+        is_config_only = binary is not None and code_bugs == 0
+        precomputed = (code_bugs, cfg_issues) if binary else None
 
         recommendation = select_backend_for_entry(
             cop,
@@ -1933,6 +1922,7 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
             mode="fix",
             binary=binary,
             prior_prs=prior_prs,
+            precomputed_diagnosis=precomputed,
         )
         difficulty = "config-only" if is_config_only else classify_issue_difficulty(entry, recommendation)
         if is_config_only:
@@ -1955,55 +1945,77 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
         )
 
         if existing_issue is None:
-            create_tracker_issue(repo, title, body, labels)
-            created += 1
-            dept_created += 1
+            dept_actions.setdefault(dept, []).append(
+                ("created", lambda r=repo, t=title, b=body, lb=labels: create_tracker_issue(r, t, b, lb)),
+            )
             continue
 
+        issue_num = existing_issue["number"]
+
         if existing_issue.get("state") == "CLOSED":
-            reopen_tracker_issue(repo, existing_issue["number"])
-            comment_on_issue(
-                repo,
-                existing_issue["number"],
-                (
-                    f"Reopened from the latest {corpus_kind} corpus sync"
-                    + (f" (run #{run_id})." if run_id else ".")
-                ),
+            reopen_comment = (
+                f"Reopened from the latest {corpus_kind} corpus sync"
+                + (f" (run #{run_id})." if run_id else ".")
             )
-            reopened += 1
-            dept_reopened += 1
 
-        update_tracker_issue(repo, existing_issue["number"], title, body, labels)
-        updated += 1
-        dept_updated += 1
+            def _reopen_and_update(
+                r=repo, n=issue_num, t=title, b=body, lb=labels, c=reopen_comment,
+            ) -> None:
+                reopen_tracker_issue(r, n)
+                comment_on_issue(r, n, c)
+                update_tracker_issue(r, n, t, b, lb)
 
-    # Final department summary
-    if current_dept is not None:
+            dept_actions.setdefault(dept, []).append(("reopened", _reopen_and_update))
+            continue
+
+        dept_actions.setdefault(dept, []).append(
+            ("updated", lambda r=repo, n=issue_num, t=title, b=body, lb=labels: update_tracker_issue(r, n, t, b, lb)),
+        )
+
+    # ── Phase 3: Execute GitHub API calls in parallel, per department ───
+    for dept in sorted(dept_actions):
+        actions = dept_actions[dept]
+        print(f"Syncing {dept} ({len(actions)} cops)...", file=sys.stderr)
+        results: list[str] = []
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            def _run_action(action: Action) -> str:
+                action_type, fn = action
+                fn()
+                return action_type
+            results = list(pool.map(_run_action, actions))
+        dept_created = results.count("created")
+        dept_updated = results.count("updated")
+        dept_reopened = results.count("reopened")
+        created += dept_created
+        updated += dept_updated
+        reopened += dept_reopened
         print(
             f"  done ({dept_created} created, {dept_updated} updated,"
             f" {dept_reopened} reopened)",
             file=sys.stderr,
         )
 
-    print("Closing resolved issues...", file=sys.stderr)
+    # ── Phase 4: Close resolved issues in parallel ──────────────────────
+    to_close: list[tuple[int, str]] = []
     for cop, issue in issues_by_cop.items():
         if cop in diverging_cops:
             continue
-        # When filtering by department, don't close issues outside the filter scope
         if dept_filter and not cop.startswith(dept_filter + "/"):
             continue
         open_pr = open_prs_by_cop.get(cop)
         if open_pr is not None or issue.get("state") != "OPEN":
             continue
-        close_tracker_issue(
-            repo,
-            issue["number"],
-            (
-                f"No longer diverges in the latest {corpus_kind} corpus sync"
-                + (f" (run #{run_id})." if run_id else ".")
-            ),
+        close_comment = (
+            f"No longer diverges in the latest {corpus_kind} corpus sync"
+            + (f" (run #{run_id})." if run_id else ".")
         )
-        closed += 1
+        to_close.append((issue["number"], close_comment))
+
+    if to_close:
+        print(f"Closing {len(to_close)} resolved issues...", file=sys.stderr)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda t: close_tracker_issue(repo, t[0], t[1]), to_close))
+        closed = len(to_close)
 
     print(
         json.dumps(
