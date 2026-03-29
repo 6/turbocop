@@ -1637,7 +1637,10 @@ mod tests {
         let n = count_offenses(
             b"class RubyLex\n  attr_accessor :indent\n\n  if self.method_defined?(:indent)\n    attr_writer :indent\n  else\n    attr_accessor :indent\n  end\nend\n",
         );
-        assert_eq!(n, 2, "attr_* inside condition should still detect duplicates");
+        assert_eq!(
+            n, 2,
+            "attr_* inside condition should still detect duplicates"
+        );
     }
 
     #[test]
