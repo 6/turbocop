@@ -19,3 +19,25 @@ RSpec.describe Foo do
     result.should_not.be.empty
   end
 end
+
+it 'should enable debug console', skip: ENV['CI'] do
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/NoExpectationExample: No expectation found in this example.
+  with_context do |context|
+    context.enable_debug_console!
+  end
+end
+
+it 'creates a lot of transfers quickly with metadata & metadata column on lines table', skip: ActiveRecord.version.version < '5' do
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/NoExpectationExample: No expectation found in this example.
+  DoubleEntry.config.json_metadata = true
+end
+
+it "can handle when the stream is reopened to a system stream", :skip => RSpec::Support::OS.windows? do
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/NoExpectationExample: No expectation found in this example.
+  send_notification :deprecation_summary, null_notification
+end
+
+it 'does support inherited matchers', :skip => options.include?(:allow_other_matchers) do
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/NoExpectationExample: No expectation found in this example.
+  receiver.foo
+end
