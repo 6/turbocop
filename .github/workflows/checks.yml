@@ -251,14 +251,6 @@ jobs:
           echo "cop-check failed: ${{ needs.cop-check.result }}"
           exit 1
 
-      - name: Generate app token
-        if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-
       - name: Download cop-check summaries
         if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
         uses: actions/download-artifact@v8
@@ -271,7 +263,7 @@ jobs:
       - name: Comment cop-check summary on PR
         if: always() && github.event_name == 'pull_request' && !contains(fromJSON('["skip","cancelled"]'), steps.gate.outputs.result)
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           RESULT="${{ steps.gate.outputs.result }}"
           ICON="✅"
