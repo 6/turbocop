@@ -69,3 +69,24 @@ migration.proper_name(table, options = {
 Autoprefixer.install(self, safe ? config : {
   })
   ^ Layout/FirstHashElementIndentation: Indent the right brace the same as the first position after the preceding left parenthesis.
+
+adapter: 'postgresql',
+^ Layout/FirstHashElementIndentation: Use 2 spaces for indentation in a hash, relative to the first position after the preceding left parenthesis.
+
+})
+^ Layout/FirstHashElementIndentation: Indent the right brace the same as the first position after the preceding left parenthesis.
+
+kind: item.kind,
+^ Layout/FirstHashElementIndentation: Use 2 spaces for indentation in a hash, relative to the first position after the preceding left parenthesis.
+
+} }).to match [
+^ Layout/FirstHashElementIndentation: Indent the right brace the same as the first position after the preceding left parenthesis.
+
+'type' => 'file',
+^ Layout/FirstHashElementIndentation: Use 2 spaces for indentation in a hash, relative to the first position after the preceding left parenthesis.
+
+})
+^ Layout/FirstHashElementIndentation: Indent the right brace the same as the first position after the preceding left parenthesis.
+
+}
+^ Layout/FirstHashElementIndentation: Indent the right brace the same as the first position after the preceding left parenthesis.
