@@ -39,7 +39,7 @@ def codex_backend(model: str, reasoning_effort: str, strength: str) -> dict:
         "log_format": "codex",
         "log_pattern": "~/.codex/sessions/**/*.jsonl",
         "run_cmd": (
-            f'( codex exec --dangerously-bypass-approvals-and-sandbox -m {model} '
+            f'( codex exec --dangerously-bypass-approvals-and-sandbox --no-project-doc -m {model} '
             f'-c model_reasoning_effort={reasoning_effort} '
             '--json '
             '-o "$AGENT_LAST_MESSAGE_FILE" '
