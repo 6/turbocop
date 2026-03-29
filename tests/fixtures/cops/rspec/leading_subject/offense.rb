@@ -240,3 +240,47 @@ RSpec.describe User do
     end
   end
 end
+
+RSpec.describe User do
+  if enabled?
+    subject { build_user(server) }
+    ^ RSpec/LeadingSubject: Declare `subject` above any other `let` declarations.
+  else
+    subject { build_user(client) }
+    ^ RSpec/LeadingSubject: Declare `subject` above any other `let` declarations.
+  end
+
+  let(:server) { :server }
+  let(:client) { :client }
+end
+
+RSpec.describe "Endpoint" do
+  if enabled?
+    subject do
+    ^ RSpec/LeadingSubject: Declare `subject` above any other `let` declarations.
+      build_endpoint
+    end
+  else
+    subject do
+    ^ RSpec/LeadingSubject: Declare `subject` above any other `let` declarations.
+      fallback_endpoint
+    end
+  end
+
+  let(:serializer) { :serializer }
+end
+
+RSpec.describe User do
+  describe "#evaluate" do
+    let(:predicate) { described_class.unconditional }
+
+    def self.specify_claim
+      subject(:evaluate) { predicate.method(:evaluate) }
+      ^ RSpec/LeadingSubject: Declare `subject` above any other `let` declarations.
+
+      context "with claim" do
+        let(:created) { Time.now }
+      end
+    end
+  end
+end

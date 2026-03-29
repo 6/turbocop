@@ -91,6 +91,20 @@ use crate::parse::source::SourceFile;
 /// `recurse_into_conditional()` which walks `IfNode`/`UnlessNode` bodies (including
 /// elsif/else branches) and recurses into any block-bearing call nodes found within.
 /// All 3 FN repos (guard/listen, bunny, vcr) use this pattern.
+///
+/// ## Investigation (2026-03-29)
+///
+/// **Root cause of 5 FNs:** RuboCop compares nested `subject` calls inside
+/// non-block containers like `if` branches and `def self.helper` bodies against
+/// the enclosing example-group body, not the container body itself. Its
+/// `parent(node).each_child_node` walk never sees the nested `subject` as a
+/// direct child, so it keeps scanning the example-group body and reports the
+/// first direct-child offender (usually `let`) even when it appears later.
+/// nitrocop only checked ordering within the conditional/method body, so these
+/// nested subjects were missed. Fixed by scanning `if`/`unless`/`else` and
+/// `DefNode` bodies for nested `subject` calls and reporting them against the
+/// enclosing block body's first direct offending declaration, while still
+/// recursing into nested block scopes normally.
 pub struct LeadingSubject;
 
 impl Cop for LeadingSubject {
@@ -171,15 +185,25 @@ impl LeadingSubject {
             None => return,
         };
 
+        let first_nested_relevant_name = first_direct_offending_name(&stmts);
+
         // Check subject ordering within this block
         let mut first_relevant_name: Option<&[u8]> = None;
 
         for stmt in stmts.body().iter() {
-            // Handle if/unless nodes: recurse into their bodies to find
-            // spec groups, matching RuboCop's on_block which fires on ALL
-            // blocks regardless of wrapping control flow.
-            if stmt.as_if_node().is_some() || stmt.as_unless_node().is_some() {
-                self.recurse_into_conditional(source, &stmt, diagnostics);
+            // Handle non-block containers: RuboCop compares nested `subject`
+            // calls inside these containers against the enclosing example-group
+            // body, not the container body itself.
+            if stmt.as_if_node().is_some()
+                || stmt.as_unless_node().is_some()
+                || stmt.as_def_node().is_some()
+            {
+                self.recurse_into_non_block_container(
+                    source,
+                    &stmt,
+                    first_nested_relevant_name,
+                    diagnostics,
+                );
                 continue;
             }
 
@@ -210,15 +234,7 @@ impl LeadingSubject {
                 if is_rspec_subject(name) {
                     // Subject found -- check if something relevant came before it
                     if let Some(prev_name) = first_relevant_name {
-                        let prev_str = std::str::from_utf8(prev_name).unwrap_or("let");
-                        let loc = stmt.location();
-                        let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            format!("Declare `subject` above any other `{prev_str}` declarations."),
-                        ));
+                        self.add_subject_offense(source, &stmt, prev_name, diagnostics);
                     }
                 } else if is_rspec_example_group(name) {
                     // Recurse into nested context/describe/shared_examples blocks
@@ -267,50 +283,117 @@ impl LeadingSubject {
         }
     }
 
-    /// Recurse into if/unless node bodies looking for call nodes that should
-    /// be checked (spec groups, arbitrary blocks, etc.). This matches RuboCop's
-    /// behavior where `on_block` fires on all blocks regardless of wrapping
-    /// control flow like `if linux?` or `unless ENV["CI"]`.
-    fn recurse_into_conditional(
+    fn add_subject_offense(
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
+        prev_name: &[u8],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let prev_str = std::str::from_utf8(prev_name).unwrap_or("let");
+        let loc = node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Declare `subject` above any other `{prev_str}` declarations."),
+        ));
+    }
+
+    /// Recurse into non-block containers that can hold nested `subject` calls
+    /// while still belonging to the enclosing example-group body.
+    fn recurse_into_non_block_container(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        parent_first_relevant_name: Option<&[u8]>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         if let Some(if_node) = node.as_if_node() {
             if let Some(stmts) = if_node.statements() {
-                self.recurse_conditional_stmts(source, &stmts, diagnostics);
+                self.scan_non_block_container_statements(
+                    source,
+                    &stmts,
+                    parent_first_relevant_name,
+                    diagnostics,
+                );
             }
             if let Some(subsequent) = if_node.subsequent() {
-                self.recurse_into_conditional(source, &subsequent, diagnostics);
+                self.recurse_into_non_block_container(
+                    source,
+                    &subsequent,
+                    parent_first_relevant_name,
+                    diagnostics,
+                );
             }
         } else if let Some(unless_node) = node.as_unless_node() {
             if let Some(stmts) = unless_node.statements() {
-                self.recurse_conditional_stmts(source, &stmts, diagnostics);
+                self.scan_non_block_container_statements(
+                    source,
+                    &stmts,
+                    parent_first_relevant_name,
+                    diagnostics,
+                );
             }
             if let Some(else_clause) = unless_node.else_clause() {
                 if let Some(stmts) = else_clause.statements() {
-                    self.recurse_conditional_stmts(source, &stmts, diagnostics);
+                    self.scan_non_block_container_statements(
+                        source,
+                        &stmts,
+                        parent_first_relevant_name,
+                        diagnostics,
+                    );
                 }
             }
         } else if let Some(else_node) = node.as_else_node() {
             if let Some(stmts) = else_node.statements() {
-                self.recurse_conditional_stmts(source, &stmts, diagnostics);
+                self.scan_non_block_container_statements(
+                    source,
+                    &stmts,
+                    parent_first_relevant_name,
+                    diagnostics,
+                );
+            }
+        } else if let Some(def_node) = node.as_def_node() {
+            if let Some(body) = def_node.body().and_then(|b| b.as_statements_node()) {
+                self.scan_non_block_container_statements(
+                    source,
+                    &body,
+                    parent_first_relevant_name,
+                    diagnostics,
+                );
             }
         }
     }
 
-    fn recurse_conditional_stmts(
+    fn scan_non_block_container_statements(
         &self,
         source: &SourceFile,
         stmts: &ruby_prism::StatementsNode<'_>,
+        parent_first_relevant_name: Option<&[u8]>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         for stmt in stmts.body().iter() {
-            if stmt.as_if_node().is_some() || stmt.as_unless_node().is_some() {
-                self.recurse_into_conditional(source, &stmt, diagnostics);
-            } else if let Some(c) = stmt.as_call_node() {
-                if c.block().is_some() {
+            if stmt.as_if_node().is_some()
+                || stmt.as_unless_node().is_some()
+                || stmt.as_def_node().is_some()
+            {
+                self.recurse_into_non_block_container(
+                    source,
+                    &stmt,
+                    parent_first_relevant_name,
+                    diagnostics,
+                );
+                continue;
+            }
+
+            if let Some(c) = stmt.as_call_node() {
+                if is_rspec_subject(c.name().as_slice()) {
+                    if let Some(prev_name) = parent_first_relevant_name {
+                        self.add_subject_offense(source, &stmt, prev_name, diagnostics);
+                    }
+                } else if c.block().is_some() {
                     self.check_block_body(source, &stmt, diagnostics);
                 }
             }
@@ -337,6 +420,44 @@ fn is_example_include(name: &[u8]) -> bool {
         || name == b"it_behaves_like"
         || name == b"it_should_behave_like"
         || name == b"include_context"
+}
+
+fn first_direct_offending_name<'pr>(stmts: &ruby_prism::StatementsNode<'pr>) -> Option<&'pr [u8]> {
+    stmts
+        .body()
+        .iter()
+        .find_map(|node| direct_offending_name(&node))
+}
+
+fn direct_offending_name<'pr>(node: &ruby_prism::Node<'pr>) -> Option<&'pr [u8]> {
+    let call = node.as_call_node()?;
+    let name = call.name().as_slice();
+
+    if let Some(recv) = call.receiver() {
+        let is_rspec_group = util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            && is_rspec_example_group(name);
+        return is_rspec_group.then_some(name);
+    }
+
+    if is_rspec_example_group(name) || is_example_include(name) {
+        return Some(name);
+    }
+
+    if is_rspec_let(name) {
+        let has_block = call.block().is_some();
+        let has_block_pass = call.arguments().is_some_and(|args| {
+            args.arguments()
+                .iter()
+                .any(|arg| arg.as_block_argument_node().is_some())
+        });
+        return (has_block || has_block_pass).then_some(name);
+    }
+
+    if is_rspec_hook(name) || is_rspec_example(name) {
+        return call.block().is_some().then_some(name);
+    }
+
+    None
 }
 
 #[cfg(test)]
