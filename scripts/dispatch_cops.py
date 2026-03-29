@@ -1409,7 +1409,7 @@ def extract_diagnostic_lines(src: list[str]) -> tuple[list[str], str | None]:
 
 def diagnose_examples(binary: Path, cop: str, examples: list, kind: str) -> tuple[int, int]:
     bugs, config_issues = 0, 0
-    for example in examples[:5]:
+    for example in examples[:15]:
         if not isinstance(example, dict) or not example.get("src"):
             continue
         lines, offense = extract_diagnostic_lines(example["src"])
@@ -1920,7 +1920,13 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
         prior_prs = prs_by_cop.get(cop, [])
 
         code_bugs, cfg_issues = diagnosis.get(cop, (0, 0))
-        is_config_only = binary is not None and code_bugs == 0
+        # Only classify as config-only when the cop has zero corpus matches.
+        # Zero matches means the cop never fires (likely Include-gated, e.g.
+        # Rails migration cops).  Cops WITH matches have working detection
+        # logic — any FP/FN divergence is a code bug, not a config issue,
+        # because both tools run on the exact same baseline config.
+        has_matches = entry.get("matches", 0) > 0
+        is_config_only = binary is not None and code_bugs == 0 and not has_matches
         precomputed = (code_bugs, cfg_issues) if binary else None
 
         recommendation = select_backend_for_entry(
