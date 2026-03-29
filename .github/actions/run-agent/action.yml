@@ -47,16 +47,9 @@ runs:
         python3 scripts/workflows/git_activity_snapshot.py capture \
           --repo-root "$PWD" --output "$GIT_ACTIVITY_BEFORE_FILE" || true
 
-    - name: Exclude project instructions from agent context
+    - name: Exclude project instructions and skills from agent context
       shell: bash
-      run: |
-        python3 -c "
-        import json, pathlib
-        p = pathlib.Path('.claude/settings.local.json')
-        cfg = json.loads(p.read_text()) if p.exists() else {}
-        cfg['claudeMdExcludes'] = ['**/CLAUDE.md', '**/AGENTS.md']
-        p.write_text(json.dumps(cfg, indent=2) + '\n')
-        "
+      run: python3 scripts/workflows/exclude_agent_context.py
 
     - name: Resolve backend
       id: resolve

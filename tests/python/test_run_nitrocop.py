@@ -48,3 +48,24 @@ def test_normalize_offenses_deduplicates_symlink_paths():
                 "cop_name": "Style/WordArray",
             },
         ]
+
+
+def test_normalize_offenses_collapses_multi_column_same_line():
+    """Multiple offenses at different columns on the same line collapse to one."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        repo = tmp / "repo"
+        repo.mkdir(parents=True)
+        file = repo / "test.rb"
+        file.write_text("def foo(a, b)\nend\n")
+
+        offenses = [
+            {"path": str(file), "line": 1, "cop_name": "Naming/MethodParameterName", "column": 9},
+            {"path": str(file), "line": 1, "cop_name": "Naming/MethodParameterName", "column": 12},
+        ]
+
+        normalized = run_nitrocop.normalize_offenses(offenses)
+
+        assert len(normalized) == 1, (
+            "Same (path, line, cop) should collapse regardless of column"
+        )

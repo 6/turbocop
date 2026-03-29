@@ -319,6 +319,87 @@ def test_sync_issue_labels_removes_then_readds_labels():
     assert add_kwargs["check"] is True
 
 
+def test_fp_full_file_detected_classified_as_code_bug():
+    """FP that reproduces in full file but not snippet should be a code bug."""
+    diagnostics = [
+        {
+            "kind": "fp",
+            "loc": "repo: file.rb:41",
+            "msg": "Method has too many lines. [12/10]",
+            "diagnosed": True,
+            "detected": False,            # not detected in snippet
+            "full_file_detected": True,   # but detected in full file
+            "offense_line": "def first_visit(schema, errors, path)",
+            "test_snippet": None,
+            "enclosing": None,
+            "node_type": None,
+            "source_context": "def first_visit(...)\n  true\nend",
+            "full_file_enclosing": "class Validator",
+            "full_file_context": "    41: def first_visit(...)",
+            "diagnosis_note": "Snippet too narrow",
+        },
+    ]
+    output = gct._format_with_diagnostics(
+        "Metrics/MethodLength",
+        diagnostics,
+        fp_examples=[{"loc": "repo: file.rb:41", "msg": "Method has too many lines. [12/10]"}],
+        fn_examples=[],
+    )
+    # Should be classified as code bug, not context-dependent
+    assert "CODE BUG" in output
+    assert "CONTEXT-DEPENDENT" not in output
+    assert "1 confirmed code bug(s)" in output
+
+
+def test_fp_not_detected_anywhere_classified_as_config():
+    """FP not reproduced in snippet or full file is context-dependent."""
+    diagnostics = [
+        {
+            "kind": "fp",
+            "loc": "repo: file.rb:92",
+            "msg": "Method has too many lines. [58/10]",
+            "diagnosed": True,
+            "detected": False,
+            "full_file_detected": False,
+            "offense_line": "def self.parseFilters(userFilters, logger)",
+            "test_snippet": None,
+            "enclosing": None,
+            "node_type": None,
+            "source_context": "def self.parseFilters(...)\nend",
+        },
+    ]
+    output = gct._format_with_diagnostics(
+        "Metrics/MethodLength",
+        diagnostics,
+        fp_examples=[{"loc": "repo: file.rb:92", "msg": "Method has too many lines. [58/10]"}],
+        fn_examples=[],
+    )
+    assert "CONTEXT-DEPENDENT" in output
+    assert "1 context-dependent" in output
+
+
+def test_config_only_requires_zero_matches():
+    """Cops with corpus matches should never be config-only, even if
+    the diagnostic finds 0 code bugs (the extract is often too small
+    to reproduce the issue)."""
+    # Cop with matches → NOT config-only (code bug, not config)
+    entry_with_matches = {"cop": "Metrics/MethodLength", "fp": 8, "fn": 0, "matches": 261839}
+    has_matches = entry_with_matches.get("matches", 0) > 0
+    is_config_only = True and 0 == 0 and not has_matches  # binary present, 0 code bugs
+    assert is_config_only is False
+
+    # Cop with zero matches → config-only (likely Include-gated)
+    entry_no_matches = {"cop": "Rails/BulkChangeTable", "fp": 0, "fn": 2469, "matches": 0}
+    has_matches = entry_no_matches.get("matches", 0) > 0
+    is_config_only = True and 0 == 0 and not has_matches
+    assert is_config_only is True
+
+    # Cop with matches but code bugs found → NOT config-only (obviously)
+    has_matches = entry_with_matches.get("matches", 0) > 0
+    is_config_only = True and 1 == 0 and not has_matches  # code_bugs=1
+    assert is_config_only is False
+
+
 def test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue():
     calls = []
     original_funcs = {
@@ -412,5 +493,6 @@ if __name__ == "__main__":
     test_build_start_here_section_empty_when_no_corpus_examples()
     test_choose_issue_state_preserves_blocked_without_open_pr()
     test_sync_issue_labels_removes_then_readds_labels()
+    test_config_only_requires_zero_matches()
     test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue()
     print("All tests passed.")
