@@ -92,6 +92,40 @@ class WithPrivateBeforePrivateClassMethod
   end
 end
 
+# FP fix: private after private_class_method with args is still meaningful
+class WithPrivateAfterPrivateClassMethod
+  def self.secret
+    42
+  end
+
+  private_class_method :secret
+
+  private
+
+  def helper
+    42
+  end
+end
+
+# FP fix: repeated private_class_method declarations do not make a later private useless
+class WithMultiplePrivateClassMethodsBeforePrivate
+  def self.parse_container
+    42
+  end
+  private_class_method :parse_container
+
+  def self.parse_files
+    42
+  end
+  private_class_method :parse_files
+
+  private
+
+  def add_item_internal
+    42
+  end
+end
+
 # private before case with method definitions in branches — not useless
 class WithCaseContainingDefs
   private

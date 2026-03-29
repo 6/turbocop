@@ -16,6 +16,14 @@ use ruby_prism::Visit;
 /// - `class_eval`/`instance_eval` blocks inside `def` methods were incorrectly treated
 ///   as scopes. RuboCop's `macro?` / `in_macro_scope?` check means `private` inside
 ///   such blocks is not recognized as an access modifier.
+/// - The `in_def` guard later became too broad and skipped *all* scope-creating
+///   call blocks inside methods. RuboCop only suppresses `class_eval` /
+///   `instance_eval` macro scopes there; constructor blocks like `Class.new do`
+///   must still be analyzed, or useless `private` before singleton defs is missed.
+/// - `private_class_method :foo` with arguments also resets RuboCop's visibility
+///   tracking for later instance-method modifiers. Keeping the previous `cur_vis`
+///   caused synthetic false positives where a later `private`/`public`/`protected`
+///   was treated as repeated even though RuboCop accepts it.
 /// - `ContextCreatingMethods` config was read but not used. Methods like `class_methods`
 ///   (from rubocop-rails plugin) must be treated as scope boundaries.
 /// - Chained method calls on access modifiers (e.g., `private.should equal(nil)`)
@@ -34,6 +42,12 @@ use ruby_prism::Visit;
 ///   child nodes, stopping at scope boundaries and `defs` nodes.
 /// - Added `in_def` tracking to the visitor to skip `class_eval`/`instance_eval` blocks
 ///   nested inside method definitions (matching RuboCop's `macro?` gate).
+/// - Narrowed that `in_def` skip so it only applies to `class_eval`/`instance_eval`.
+///   `Class.new`/`Module.new`/`Struct.new` blocks and configured context-creating
+///   blocks inside methods are now still checked.
+/// - Reset visibility to `public` after `private_class_method` with arguments,
+///   matching RuboCop's effective state reset for subsequent instance-method
+///   access modifiers.
 /// - Implemented `ContextCreatingMethods` config: blocks calling configured methods
 ///   are treated as scope boundaries (e.g., `class_methods` from rubocop-rails).
 /// - Added `is_new_scope` helper matching RuboCop's `start_of_new_scope?`.
@@ -357,6 +371,7 @@ fn check_child_nodes<'pr>(
                     if call.arguments().is_some()
                         && call.name().as_slice() == b"private_class_method"
                     {
+                        cur_vis = AccessKind::Public;
                         unused_modifier = None;
                         continue;
                     }
@@ -733,38 +748,39 @@ impl<'pr> Visit<'pr> for UselessAccessVisitor<'_, '_> {
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if !self.in_def {
-            if let Some(block_node) = node.block() {
-                if let Some(block) = block_node.as_block_node() {
-                    let name = node.name().as_slice();
-                    let is_eval_scope = if name == b"class_eval" || name == b"instance_eval" {
-                        true
-                    } else if name == b"new" || name == b"define" {
-                        node.receiver()
-                            .as_ref()
-                            .is_some_and(|r| is_class_constructor_receiver(r))
+        if let Some(block_node) = node.block() {
+            if let Some(block) = block_node.as_block_node() {
+                let name = node.name().as_slice();
+                let is_eval_macro_scope = name == b"class_eval" || name == b"instance_eval";
+                let is_constructor_scope = (name == b"new" || name == b"define")
+                    && node
+                        .receiver()
+                        .as_ref()
+                        .is_some_and(|r| is_class_constructor_receiver(r));
+                let is_context_scope =
+                    if !self.context_creating_methods.is_empty() && node.receiver().is_none() {
+                        let name_str = std::str::from_utf8(name).unwrap_or("");
+                        self.context_creating_methods.iter().any(|m| m == name_str)
                     } else {
                         false
                     };
-                    let is_context_scope =
-                        if !self.context_creating_methods.is_empty() && node.receiver().is_none() {
-                            let name_str = std::str::from_utf8(name).unwrap_or("");
-                            self.context_creating_methods.iter().any(|m| m == name_str)
-                        } else {
-                            false
-                        };
-                    if is_eval_scope || is_context_scope {
-                        if let Some(body) = block.body() {
-                            if let Some(stmts) = body.as_statements_node() {
-                                check_body(
-                                    self.cop,
-                                    self.source,
-                                    &mut self.diagnostics,
-                                    &stmts,
-                                    &self.method_creating_methods,
-                                    &self.context_creating_methods,
-                                );
-                            }
+                let should_check_scope = if self.in_def {
+                    !is_eval_macro_scope && (is_constructor_scope || is_context_scope)
+                } else {
+                    is_eval_macro_scope || is_constructor_scope || is_context_scope
+                };
+
+                if should_check_scope {
+                    if let Some(body) = block.body() {
+                        if let Some(stmts) = body.as_statements_node() {
+                            check_body(
+                                self.cop,
+                                self.source,
+                                &mut self.diagnostics,
+                                &stmts,
+                                &self.method_creating_methods,
+                                &self.context_creating_methods,
+                            );
                         }
                     }
                 }

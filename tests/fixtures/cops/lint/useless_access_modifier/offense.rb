@@ -198,3 +198,45 @@ class WithOneLineSingletonDef
     obj
   end
 end
+
+# FP regression guard: a later private is still meaningful after
+# private_class_method with args, but the private before the singleton def is not.
+class WithPrivateClassMethodReset
+  private
+
+  def helper
+    42
+  end
+
+  private
+  ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.
+
+  def self.lookup(value)
+    value
+  end
+
+  private_class_method :lookup
+
+  private
+
+  def instance_method
+    helper
+  end
+end
+
+# FN fix: Class.new blocks inside methods still create scopes that should be
+# checked, even though class_eval/instance_eval inside methods are skipped.
+module WithConstructorBlockInsideDef
+  def self.build
+    Class.new do
+      def self.variants; constants; end
+
+      private
+      ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.
+
+      def self.guard_context(obj)
+        obj
+      end
+    end
+  end
+end
