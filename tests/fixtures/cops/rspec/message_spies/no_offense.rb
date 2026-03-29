@@ -4,3 +4,10 @@ allow(foo).to receive(:bar)
 allow(foo).to receive(:baz).and_return(true)
 expect(result).to eq(42)
 expect(foo).to be_truthy
+expect {
+  begin
+    subject
+  rescue
+    nil
+  end
+}.to receive(:stop)

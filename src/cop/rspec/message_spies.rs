@@ -6,13 +6,23 @@ use crate::parse::source::SourceFile;
 
 /// Default style is `have_received` — flags `expect(...).to receive(...)`.
 ///
-/// Corpus investigation (46 FN, 0 FP): FNs caused by compound expectations
-/// like `expect(foo).to receive(:bar).and receive(:baz)` where the second
-/// `receive` call is nested as an argument to `.and`/`.or` rather than in the
-/// receiver chain. RuboCop uses `def_node_search` (recursive subtree search)
-/// to find ALL `receive`/`have_received` calls, while nitrocop previously only
-/// walked the receiver chain. Fixed by implementing recursive subtree search
-/// matching RuboCop's `receive_message` node search behavior.
+/// Corpus investigation (2026-03-29):
+///
+/// - FN=3 in rspec/rspec: `receive` nested inside the argument passed to
+///   `expect(...)`, e.g.
+///   `expect(allow(test_double).to receive(:foo)).to have_string_representation(...)`.
+///   RuboCop captures the argument to `expect(...)` for the message text, then
+///   runs a subtree search over the full expectation node, so it still finds the
+///   nested `receive`. nitrocop only searched `.to(...)` matcher arguments,
+///   missing those cases and falling back to a generic message text.
+/// - FP=1 in nats-io/nats-pure.rb: `expect { ... }.to receive(:stop)` was
+///   flagged. RuboCop's matcher requires a plain `expect(...)` send as the
+///   receiver, not block-form `expect { ... }`.
+///
+/// Fixed by:
+/// - searching the full expectation subtree for `receive`/`have_received`
+/// - extracting the sole argument to `expect(...)` for the dynamic message text
+/// - skipping block-form `expect { ... }`
 pub struct MessageSpies;
 
 impl Cop for MessageSpies {
@@ -66,15 +76,15 @@ impl Cop for MessageSpies {
             return;
         }
 
-        // Check that the matcher argument contains `receive` or `have_received`.
-        // Use recursive search (matching RuboCop's def_node_search :receive_message)
-        // to find ALL receive/have_received calls in the argument subtree.
-        // This handles compound expectations like:
-        //   expect(foo).to receive(:bar).and receive(:baz)
-        // where the second `receive` is an argument to `.and`, not in the
-        // receiver chain.
-        let args = match call.arguments() {
-            Some(a) => a,
+        // RuboCop only matches plain `expect(...)`, not block-form
+        // `expect { ... }`, which Prism still exposes as a CallNode with a
+        // block attached.
+        if recv_call.block().is_some() {
+            return;
+        }
+
+        let (expect_arg_start, expect_arg_end) = match sole_expect_argument_range(recv_call) {
+            Some(range) => range,
             None => return,
         };
 
@@ -85,37 +95,36 @@ impl Cop for MessageSpies {
         };
 
         let mut found = Vec::new();
-        for arg in args.arguments().iter() {
-            find_matcher_calls(&arg, target_name, &mut found);
+        find_matcher_calls(node, target_name, &mut found);
+        if found.is_empty() {
+            return;
         }
 
-        let msg = if enforced_style == "receive" {
-            "Prefer `receive` for setting message expectations."
+        let message = if enforced_style == "receive" {
+            "Prefer `receive` for setting message expectations.".to_string()
         } else {
-            "Prefer `have_received` for setting message expectations. Setup the object as a spy using `allow` or `instance_spy`."
+            let receiver_source = source.byte_slice(expect_arg_start, expect_arg_end, "the object");
+            format!(
+                "Prefer `have_received` for setting message expectations. Setup `{receiver_source}` as a spy using `allow` or `instance_spy`."
+            )
         };
 
-        for (start_offset, _end_offset) in found {
-            let (line, column) = source.offset_to_line_col(start_offset);
-            diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
-        }
+        push_diagnostics(self, source, diagnostics, &found, message);
     }
 }
 
 /// Recursively search a node subtree for `(send nil? target_name ...)` calls,
 /// matching RuboCop's `def_node_search :receive_message` behavior.
 /// Handles compound expectations like `receive(:a).and receive(:b)` where
-/// the second `receive` is an argument to `.and`/`.or`.
-fn find_matcher_calls(
-    node: &ruby_prism::Node<'_>,
-    target_name: &[u8],
-    out: &mut Vec<(usize, usize)>,
-) {
+/// the second `receive` is an argument to `.and`/`.or`, and nested cases like
+/// `expect(allow(foo).to receive(:bar)).to matcher(...)` where the `receive`
+/// call lives inside the argument passed to `expect(...)`.
+fn find_matcher_calls(node: &ruby_prism::Node<'_>, target_name: &[u8], out: &mut Vec<usize>) {
     if let Some(call) = node.as_call_node() {
         // Check if this is a bare `receive(...)` or `have_received(...)` call
         if call.name().as_slice() == target_name && call.receiver().is_none() {
             let loc = call.location();
-            out.push((loc.start_offset(), loc.end_offset()));
+            out.push(loc.start_offset());
         }
         // Recurse into receiver
         if let Some(recv) = call.receiver() {
@@ -137,6 +146,30 @@ fn find_matcher_calls(
         for child in stmts.body().iter() {
             find_matcher_calls(&child, target_name, out);
         }
+    }
+}
+
+fn sole_expect_argument_range(call: ruby_prism::CallNode<'_>) -> Option<(usize, usize)> {
+    let args = call.arguments()?;
+    let mut args = args.arguments().iter();
+    let arg = args.next()?;
+    if args.next().is_some() {
+        return None;
+    }
+    let loc = arg.location();
+    Some((loc.start_offset(), loc.end_offset()))
+}
+
+fn push_diagnostics(
+    cop: &MessageSpies,
+    source: &SourceFile,
+    diagnostics: &mut Vec<Diagnostic>,
+    offsets: &[usize],
+    message: String,
+) {
+    for &start_offset in offsets {
+        let (line, column) = source.offset_to_line_col(start_offset);
+        diagnostics.push(cop.diagnostic(source, line, column, message.clone()));
     }
 }
 
@@ -177,5 +210,25 @@ mod tests {
         let diags = crate::testutil::run_cop_full_with_config(&MessageSpies, source, config);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("receive"));
+    }
+
+    #[test]
+    fn nested_expect_argument_uses_dynamic_source_in_message() {
+        let source =
+            b"expect(allow(test_double).to receive(:foo)).to have_string_representation(\"x\")\n";
+        let diags = crate::testutil::run_cop_full(&MessageSpies, source);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.column, 29);
+        assert_eq!(
+            diags[0].message,
+            "Prefer `have_received` for setting message expectations. Setup `allow(test_double).to receive(:foo)` as a spy using `allow` or `instance_spy`."
+        );
+    }
+
+    #[test]
+    fn block_expectation_does_not_flag_receive() {
+        let source = b"expect { subject }.to receive(:stop)\n";
+        let diags = crate::testutil::run_cop_full(&MessageSpies, source);
+        assert!(diags.is_empty(), "block expectations should not be flagged");
     }
 }
