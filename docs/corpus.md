@@ -13,13 +13,13 @@ Every offense is compared by file path, line number, and cop name.
 | Repos | 5590 |
 | Repos with 100% match | 456 |
 | Files inspected | 590,788 |
-| Offenses compared | 28,375,983 |
-| Matches (both agree) | 28,025,105 |
-| FP (nitrocop extra) | 30,517 |
-| FN (nitrocop missing) | 320,361 |
+| Offenses compared | 28,375,980 |
+| Matches (both agree) | 28,025,111 |
+| FP (nitrocop extra) | 30,514 |
+| FN (nitrocop missing) | 320,355 |
 | Registered cops | 910 |
-| Cops with exact match | 626 |
-| Cops with divergence | 237 |
+| Cops with exact match | 627 |
+| Cops with divergence | 236 |
 | Cops with no corpus data | 47 |
 | **Match rate** | **98.7%** |
 | Repos with errors | 1 |
@@ -31,9 +31,9 @@ Every offense is compared by file path, line number, and cop name.
 | Bundler | 7 | 7 | 0 | 0 | 157,864 | 0 | 0 | 100.0% |
 | FactoryBot | 11 | 11 | 0 | 0 | 48,577 | 0 | 0 | 100.0% |
 | Gemspec | 10 | 10 | 0 | 0 | 53,971 | 0 | 0 | 100.0% |
-| Layout | 100 | 54 | 46 | 0 | 4,051,429 | 25,411 | 156,158 | 95.7% |
+| Layout | 100 | 54 | 46 | 0 | 4,051,429 | 25,408 | 156,158 | 95.7% |
 | Lint | 148 | 116 | 29 | 3 | 4,619,309 | 1,920 | 6,744 | 99.8% |
-| Metrics | 10 | 7 | 3 | 0 | 680,830 | 9 | 6 | 99.9% |
+| Metrics | 10 | 8 | 2 | 0 | 680,836 | 9 | 0 | 99.9% |
 | Migration | 1 | 1 | 0 | 0 | 155 | 0 | 0 | 100.0% |
 | Naming | 19 | 19 | 0 | 0 | 309,496 | 0 | 0 | 100.0% |
 | Performance | 52 | 52 | 0 | 0 | 112,164 | 0 | 0 | 100.0% |
@@ -78,7 +78,7 @@ Every offense is compared by file path, line number, and cop name.
 
 ## Diverging Cops
 
-237 cops diverge from RuboCop on the corpus. 626 cops match RuboCop exactly. 47 cops have no corpus data.
+236 cops diverge from RuboCop on the corpus. 627 cops match RuboCop exactly. 47 cops have no corpus data.
 
 | Cop | Matches | FP | FN | Match % |
 |-----|--------:|---:|---:|--------:|
@@ -195,9 +195,9 @@ Every offense is compared by file path, line number, and cop name.
 | Style/RegexpLiteral | 32,753 | 0 | 26 | 99.9% |
 | Style/Attr | 686 | 0 | 25 | 96.4% |
 | Layout/EmptyLinesAroundAttributeAccessor | 4,368 | 18 | 5 | 99.4% |
-| Layout/MultilineBlockLayout | 5,192 | 8 | 15 | 99.5% |
 | RSpec/SubjectStub | 7,401 | 17 | 5 | 99.7% |
 | Style/OneLineConditional | 415 | 3 | 18 | 95.1% |
+| Layout/MultilineBlockLayout | 5,192 | 5 | 15 | 99.6% |
 | Lint/ShadowingOuterLocalVariable | 4,325 | 20 | 0 | 99.5% |
 | Style/MultilineBlockChain | 5,564 | 0 | 20 | 99.6% |
 | RSpec/RepeatedSubjectCall | 81 | 3 | 16 | 81.0% |
@@ -224,7 +224,6 @@ Every offense is compared by file path, line number, and cop name.
 | Layout/SpaceInsideArrayLiteralBrackets | 40,556 | 6 | 0 | 99.9% |
 | Lint/IncompatibleIoSelectWithFiberScheduler | 231 | 6 | 0 | 97.4% |
 | Lint/UnmodifiedReduceAccumulator | 29 | 6 | 0 | 82.8% |
-| Metrics/AbcSize | 173,572 | 0 | 6 | 99.9% |
 | Style/CaseLikeIf | 1,180 | 0 | 6 | 99.4% |
 | Layout/EmptyLinesAroundMethodBody | 13,387 | 0 | 5 | 99.9% |
 | RSpec/EmptyExampleGroup | 4,435 | 0 | 5 | 99.8% |
@@ -2163,25 +2162,6 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary><strong>Layout/MultilineBlockLayout</strong> — 5,192 matches, 8 FP, 15 FN (99.5%)</summary>
-
-**False positives** (nitrocop reports, RuboCop does not):
-
-- `SUSE__machinery__e41b642: spec/unit/cli_spec.rb:321  [Block argument expression is not on the same line as the block start.]`
-- `SUSE__machinery__e41b642: spec/unit/cli_spec.rb:340  [Block argument expression is not on the same line as the block start.]`
-- `SUSE__machinery__e41b642: spec/unit/cli_spec.rb:363  [Block argument expression is not on the same line as the block start.]`
-- ... and 5 more (see corpus-results.json for full list)
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `ruby-gnome__ruby-gnome__9f45bc6: gtk3/lib/gtk3/deprecated.rb:170  [Block argument expression is not on the same line as the block start.]`
-- `ruby-gnome__ruby-gnome__9f45bc6: gtk3/lib/gtk3/deprecated.rb:432  [Block argument expression is not on the same line as the block start.]`
-- `ruby-gnome__ruby-gnome__9f45bc6: gtk3/lib/gtk3/deprecated.rb:522  [Block argument expression is not on the same line as the block start.]`
-- ... and 12 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
 <summary><strong>RSpec/SubjectStub</strong> — 7,401 matches, 17 FP, 5 FN (99.7%)</summary>
 
 **False positives** (nitrocop reports, RuboCop does not):
@@ -2215,6 +2195,25 @@ Every offense is compared by file path, line number, and cop name.
 - `d2fn__shades-rb__30bd007: lib/shades/cube.rb:66  [Favor the ternary operator (`?:`) over single-line `if/then/else/end` constructs.]`
 - `flexera-public__right_link__b33a209: lib/instance/shutdown_request.rb:75  [Favor the ternary operator (`?:`) over single-line `if/then/else/end` constructs.]`
 - ... and 15 more (see corpus-results.json for full list)
+
+</details>
+
+<details>
+<summary><strong>Layout/MultilineBlockLayout</strong> — 5,192 matches, 5 FP, 15 FN (99.6%)</summary>
+
+**False positives** (nitrocop reports, RuboCop does not):
+
+- `njonsson__cape__c70c4f8: spec/cape/dsl_spec.rb:65  [Block argument expression is not on the same line as the block start.]`
+- `rabbit-shocker__rabbit__c5f17ea: lib/rabbit/element/text-renderer.rb:162  [Block argument expression is not on the same line as the block start.]`
+- `rabbit-shocker__rabbit__c5f17ea: lib/rabbit/element/text-renderer.rb:185  [Block argument expression is not on the same line as the block start.]`
+- ... and 2 more (see corpus-results.json for full list)
+
+**False negatives** (RuboCop reports, nitrocop does not):
+
+- `ruby-gnome__ruby-gnome__9f45bc6: gtk3/lib/gtk3/deprecated.rb:170  [Block argument expression is not on the same line as the block start.]`
+- `ruby-gnome__ruby-gnome__9f45bc6: gtk3/lib/gtk3/deprecated.rb:432  [Block argument expression is not on the same line as the block start.]`
+- `ruby-gnome__ruby-gnome__9f45bc6: gtk3/lib/gtk3/deprecated.rb:522  [Block argument expression is not on the same line as the block start.]`
+- ... and 12 more (see corpus-results.json for full list)
 
 </details>
 
@@ -2569,18 +2568,6 @@ Every offense is compared by file path, line number, and cop name.
 - `drnic__tabtab__94ece59: lib/tabtab/cli.rb:83  [Ensure the accumulator `o_flag` will be modified by `inject`.]`
 - `ollert__ollert__e84fde7: utils/analyzers/time_tracker.rb:15  [Ensure the accumulator `last_date` will be modified by `reduce`.]`
 - `ucnv__pnglitch__a0c1bea: lib/pnglitch/base.rb:209  [Ensure the accumulator `m` will be modified by `inject`.]`
-- ... and 3 more (see corpus-results.json for full list)
-
-</details>
-
-<details>
-<summary><strong>Metrics/AbcSize</strong> — 173,572 matches, 0 FP, 6 FN (99.9%)</summary>
-
-**False negatives** (RuboCop reports, nitrocop does not):
-
-- `Coursemology__coursemology2__70d42e7: app/services/course/assessment/question/programming_codaveri/java/java_package_service.rb:44  [Assignment Branch Condition size for `extract_test_cases` is too high. [<21, 33, 6> 39.57/17]]`
-- `Coursemology__coursemology2__70d42e7: app/services/course/assessment/question/programming_codaveri/java/java_package_service.rb:172  [Assignment Branch Condition size for `find_unenclosed_comma_index` is too high. [<3, 20, 29> 35.36/17]]`
-- `Coursemology__coursemology2__70d42e7: app/services/course/assessment/question/programming_codaveri/python/python_package_service.rb:123  [Assignment Branch Condition size for `extract_test_cases` is too high. [<30, 36, 5> 47.13/17]]`
 - ... and 3 more (see corpus-results.json for full list)
 
 </details>
@@ -6181,7 +6168,6 @@ Every offense is compared by file path, line number, and cop name.
 | AlexanderZaytsev__active_model_pusher__dcbe68b | 18 | 99.2% | 373 | 1 | 2 |
 | OpenHunting__openhunt__bee950d | 94 | 99.2% | 2,127 | 2 | 15 |
 | RSpecZ__RSpecZ__730b09a | 18 | 99.2% | 498 | 0 | 4 |
-| SUSE__machinery__e41b642 | 307 | 99.2% | 27,156 | 47 | 172 |
 | adrian-gomez__swaggard__7604534 | 44 | 99.2% | 752 | 1 | 5 |
 | adrienkohlbecker__vagrant-fsnotify__2a0b7ac | 10 | 99.2% | 249 | 0 | 2 |
 | alexreisner__geocoder__2d3be47 | 251 | 99.2% | 11,897 | 7 | 88 |
@@ -6223,6 +6209,7 @@ Every offense is compared by file path, line number, and cop name.
 | zdavatz__spreadsheet__ba840cb | 58 | 99.2% | 6,641 | 2 | 51 |
 | Arkham__pry-bloodline__48fc0e3 | 7 | 99.2% | 126 | 1 | 0 |
 | DavyJonesLocker__ruby-destroyed_at__13695a8 | 14 | 99.2% | 507 | 1 | 3 |
+| SUSE__machinery__e41b642 | 307 | 99.2% | 27,156 | 44 | 172 |
 | Shopify__maintenance_tasks__58e544a | 132 | 99.2% | 3,648 | 3 | 26 |
 | alindeman__zonebie__0a9e08f | 20 | 99.2% | 381 | 2 | 1 |
 | capistrano-plugins__capistrano-secrets-yml__1344b05 | 9 | 99.2% | 127 | 0 | 1 |
@@ -6800,7 +6787,6 @@ Every offense is compared by file path, line number, and cop name.
 | zipmark__rspec_api_documentation__0c9692a | 141 | 99.3% | 5,320 | 5 | 29 |
 | CarolHsu__rumor-checker__fab5de1 | 54 | 99.3% | 799 | 0 | 5 |
 | ChrisZou__geekweibo__e9f77ee | 117 | 99.3% | 1,430 | 0 | 9 |
-| Coursemology__coursemology2__70d42e7 | 2,252 | 99.3% | 60,661 | 149 | 233 |
 | ThoughtWorksStudios__eb_deployer__f8d995c | 92 | 99.3% | 2,844 | 2 | 16 |
 | a2design-inc__json-compare__574731e | 8 | 99.3% | 316 | 0 | 2 |
 | ackama__rails-template__a88fa84 | 79 | 99.3% | 1,743 | 3 | 8 |
@@ -6839,6 +6825,7 @@ Every offense is compared by file path, line number, and cop name.
 | trusche__httplog__fd49a1f | 38 | 99.3% | 1,113 | 1 | 6 |
 | ttscoff__doing__274a8fd | 200 | 99.3% | 9,211 | 9 | 49 |
 | varvet__godmin__116286c | 130 | 99.3% | 2,562 | 4 | 12 |
+| Coursemology__coursemology2__70d42e7 | 2,252 | 99.3% | 60,667 | 149 | 227 |
 | LauraAddams__skincareAPI__650e87e | 46 | 99.3% | 486 | 0 | 3 |
 | MarkUsProject__Markus__41d3df9 | 949 | 99.3% | 48,804 | 55 | 248 |
 | Shopify__tapioca__ca6acae | 227 | 99.3% | 13,030 | 25 | 55 |
@@ -9132,7 +9119,7 @@ Every offense is compared by file path, line number, and cop name.
 </details>
 
 <details>
-<summary>Perfect cops (626 cops with 100% match rate)</summary>
+<summary>Perfect cops (627 cops with 100% match rate)</summary>
 
 | Cop | Matches |
 |-----|--------:|
@@ -9144,6 +9131,7 @@ Every offense is compared by file path, line number, and cop name.
 | RSpec/ExampleLength | 226,145 |
 | Layout/HashAlignment | 225,414 |
 | Layout/TrailingWhitespace | 216,129 |
+| Metrics/AbcSize | 173,578 |
 | Layout/FirstMethodArgumentLineBreak | 161,534 |
 | Lint/SymbolConversion | 159,073 |
 | RSpec/NamedSubject | 154,305 |
