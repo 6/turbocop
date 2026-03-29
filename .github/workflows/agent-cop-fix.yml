@@ -1,5 +1,8 @@
 name: Agent Cop Fix
 
+run-name: >-
+  Agent Cop Fix: ${{ github.event.inputs.cop }} (${{ github.event.inputs.mode }})
+
 permissions:
   contents: write
   actions: read

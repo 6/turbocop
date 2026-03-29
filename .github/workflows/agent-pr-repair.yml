@@ -1,5 +1,14 @@
 name: Agent PR Repair
 
+run-name: >-
+  ${{
+    github.event_name == 'workflow_dispatch'
+    && format('Agent PR Repair: PR #{0}', github.event.inputs.pr_number)
+    || github.event_name == 'pull_request'
+    && format('Agent PR Repair: PR #{0} (closed)', github.event.pull_request.number)
+    || format('Agent PR Repair: {0}', github.event.workflow_run.display_title)
+  }}
+
 permissions:
   contents: write
   actions: read
