@@ -5,6 +5,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/HashSyntax: checks hash literal syntax (rocket vs ruby19).
+///
+/// Fixed: quoted symbol keys like `:"chef version"` were incorrectly treated as
+/// unconvertible, causing the entire hash to be skipped. RuboCop considers these
+/// convertible to `"chef version":` syntax (available since Ruby 2.2). Added
+/// `is_acceptable_19_symbol` that checks both simple identifiers and quoted symbols
+/// via `opening_loc()`.
 pub struct HashSyntax;
 
 impl Cop for HashSyntax {
@@ -86,23 +93,12 @@ impl Cop for HashSyntax {
                         None => return false,
                     };
                     let key = assoc.key();
-                    if key.as_symbol_node().is_none() {
-                        return true;
-                    }
-                    if let Some(sym) = key.as_symbol_node() {
-                        let name = sym.unescaped();
-                        if !is_convertible_symbol_key(name) {
-                            return true;
+                    match key.as_symbol_node() {
+                        Some(ref sym) => {
+                            !is_acceptable_19_symbol(sym, prefer_rockets_nonalnum)
                         }
-                        // PreferHashRocketsForNonAlnumEndingSymbols
-                        if prefer_rockets_nonalnum && !name.is_empty() {
-                            let last = name[name.len() - 1];
-                            if !last.is_ascii_alphanumeric() && last != b'"' && last != b'\'' {
-                                return true;
-                            }
-                        }
+                        None => true, // Non-symbol key
                     }
-                    false
                 });
 
                 if has_unconvertible {
@@ -293,10 +289,38 @@ fn check_shorthand_syntax(
     }
 }
 
-/// Check if a symbol key can be expressed in Ruby 1.9 hash syntax.
-/// Valid: `:foo` → `foo:`, `:foo_bar` → `foo_bar:`, `:foo?` → `foo?:`
-/// Invalid: `:"foo-bar"`, `:"foo bar"`, `:"123"`
-fn is_convertible_symbol_key(name: &[u8]) -> bool {
+/// Check if a symbol node represents an acceptable Ruby 1.9 syntax key.
+/// This includes simple identifiers (`:foo` → `foo:`) and quoted symbols
+/// (`:"chef version"` → `"chef version":`, available since Ruby 2.2).
+fn is_acceptable_19_symbol(sym: &ruby_prism::SymbolNode, prefer_rockets_nonalnum: bool) -> bool {
+    let name = sym.unescaped();
+
+    // Simple identifier: `:foo`, `:foo_bar`, `:foo?`, `:foo!`
+    if is_simple_symbol_identifier(name) {
+        if prefer_rockets_nonalnum && !name.is_empty() {
+            let last = name[name.len() - 1];
+            if !last.is_ascii_alphanumeric() {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Quoted symbols: `:"foo bar"` or `:'foo bar'` can use `"foo bar":` syntax
+    if let Some(opening) = sym.opening_loc() {
+        let open = opening.as_slice();
+        if open == b":\"" || open == b":'" {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a symbol's unescaped name is a simple Ruby identifier.
+/// Valid: `foo`, `foo_bar`, `foo?`, `foo!`
+/// Invalid: `foo bar`, `123`, `foo=`, empty
+fn is_simple_symbol_identifier(name: &[u8]) -> bool {
     if name.is_empty() {
         return false;
     }
