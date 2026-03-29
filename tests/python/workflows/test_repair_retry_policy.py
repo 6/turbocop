@@ -7,6 +7,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parents[3] / "scripts" / "workflows"))
 import repair_retry_policy
 
@@ -62,13 +64,14 @@ def test_inspect_attempts_counts_pushes_and_repairs():
     assert result["prior_attempted_current_head"] is True
 
 
-def test_gate_pr_accepts_trusted_bot_pr():
+@pytest.mark.parametrize("login", ["6[bot]", "app/6", "6"])
+def test_gate_pr_accepts_trusted_bot_pr(login):
     pr = {
         "state": "OPEN",
         "baseRefName": "main",
         "isCrossRepository": False,
         "headRepository": {"nameWithOwner": "6/nitrocop"},
-        "author": {"login": "6[bot]"},
+        "author": {"login": login},
         "headRefName": "fix/style-negated-while-123",
         "labels": [{"name": "type:cop-fix"}],
         "headRefOid": "abc",
@@ -103,13 +106,13 @@ def test_gate_pr_accepts_manual_dispatch_for_same_repo_human_pr():
     assert should_run is True
 
 
-def test_gate_pr_rejects_human_author_for_automatic_repair():
+def test_gate_pr_rejects_untrusted_author_for_automatic_repair():
     pr = {
         "state": "OPEN",
         "baseRefName": "main",
         "isCrossRepository": False,
         "headRepository": {"nameWithOwner": "6/nitrocop"},
-        "author": {"login": "6"},
+        "author": {"login": "someuser"},
         "headRefName": "fix/style-negated-while-123",
         "labels": [{"name": "type:cop-fix"}],
         "headRefOid": "abc",
@@ -121,7 +124,7 @@ def test_gate_pr_rejects_human_author_for_automatic_repair():
         require_trusted_bot=True,
     )
     assert should_run is False
-    assert reason == "PR author 6 is not trusted for automatic repair"
+    assert reason == "PR author someuser is not trusted for automatic repair"
 
 
 def test_gate_pr_rejects_non_fix_branch_for_automatic_repair():

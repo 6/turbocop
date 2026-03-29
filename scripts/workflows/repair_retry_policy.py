@@ -9,7 +9,7 @@ import re
 
 MARKER_RE = re.compile(r"<!--\s*nitrocop-auto-repair:\s*(.*?)\s*-->")
 PR_ISSUE_RE = re.compile(r"<!--\s*nitrocop-cop-issue:\s*(.*?)\s*-->")
-TRUSTED_AUTHOR = "6[bot]"
+TRUSTED_AUTHORS = {"6[bot]", "app/6", "6"}
 TRUSTED_BRANCH_PREFIX = "fix/"
 
 
@@ -96,7 +96,7 @@ def gate_pr(
     if "type:cop-fix" not in labels:
         return False, "PR is not labeled type:cop-fix"
     if require_trusted_bot:
-        if author_login != TRUSTED_AUTHOR:
+        if author_login not in TRUSTED_AUTHORS:
             return False, f"PR author {author_login or '(missing)'} is not trusted for automatic repair"
         if not head_branch.startswith(TRUSTED_BRANCH_PREFIX):
             return False, f"PR branch {head_branch or '(missing)'} is not a trusted fix/* branch"

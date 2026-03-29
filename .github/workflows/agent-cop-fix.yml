@@ -266,8 +266,35 @@ jobs:
 
       # --- Validate + PR ---
 
-      - name: Finalize PR
+      - name: Check agent ran
         if: steps.task.outputs.code_bugs != '0'
+        id: agent_ran
+        run: |
+          if [ ! -s "$AGENT_RESULT_FILE" ]; then
+            echo "Agent produced no result — closing draft PR"
+            echo "ran=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ran=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Close draft PR if agent did not run
+        if: steps.task.outputs.code_bugs != '0' && steps.agent_ran.outputs.ran == 'false' && steps.claim.outputs.pr_url
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          python3 scripts/workflows/cop_fix_lifecycle.py cleanup-failure \
+            --cop "${{ github.event.inputs.cop }}" \
+            --pr-url "${{ steps.claim.outputs.pr_url }}" \
+            --issue-number "${{ github.event.inputs.issue_number }}" \
+            --repo "${{ github.repository }}" \
+            --backend-label "${{ steps.selected_backend.outputs.display_label || github.event.inputs.backend }}" \
+            --model-label "${{ steps.backend.outputs.model_label || 'n/a' }}" \
+            --mode "${{ github.event.inputs.mode }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --file-guard-valid ""
+
+      - name: Finalize PR
+        if: steps.task.outputs.code_bugs != '0' && steps.agent_ran.outputs.ran != 'false'
         id: finalize
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
