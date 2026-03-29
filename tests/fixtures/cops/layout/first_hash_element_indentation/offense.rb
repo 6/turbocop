@@ -69,3 +69,38 @@ migration.proper_name(table, options = {
 Autoprefixer.install(self, safe ? config : {
   })
   ^ Layout/FirstHashElementIndentation: Indent the right brace the same as the first position after the preceding left parenthesis.
+
+# Hash inside || expression in a parenthesized method call
+ActiveRecord::Base.establish_connection(ENV['DATABASE_URL'] || {
+  adapter: 'postgresql',
+  ^^^^^^^ Layout/FirstHashElementIndentation: Use 2 (not 0) spaces for indentation of the first element.
+  username: 'travis',
+  port: 5433,
+})
+^ Layout/FirstHashElementIndentation: Indent the right brace the same as the first position after the preceding left parenthesis.
+
+# Hash returned from a block body inside a parenthesized method call
+expect(list.map { |item| {
+  kind: item.kind,
+  ^^^^ Layout/FirstHashElementIndentation: Use 2 (not 0) spaces for indentation of the first element.
+  namespace: item.metadata.namespace,
+  name: item.metadata.name,
+} }).to match [
+^ Layout/FirstHashElementIndentation: Indent the right brace the same as the first position after the preceding left parenthesis.
+  { kind: "Node", namespace: nil, name: "ubuntu-xenial" }
+]
+
+# Hash inside || expression in a constructor call
+plugin = Thor::CoreExt::HashWithIndifferentAccess.new(config[:host_plugin] || {
+  'type' => 'file',
+  ^^^^^^ Layout/FirstHashElementIndentation: Use 2 (not 0) spaces for indentation of the first element.
+  'path' => 'hosts.yml'
+})
+^ Layout/FirstHashElementIndentation: Indent the right brace the same as the first position after the preceding left parenthesis.
+
+# Right brace inside a do..end block argument to a parenthesized call
+wrap(items.map do |item| {
+       id: item.id
+    }
+    ^ Layout/FirstHashElementIndentation: Indent the right brace the same as the first position after the preceding left parenthesis.
+end)

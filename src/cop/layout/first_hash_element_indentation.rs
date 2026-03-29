@@ -51,6 +51,22 @@ fn leading_whitespace_columns(line: &[u8]) -> usize {
 ///
 /// 5. Ternary FN (jekyll-assets): hash inside `cond ? a : {...}` in method args. Fix: add
 ///    IfNode traversal for both if_true and if_false branches.
+///
+/// ## Corpus investigation (2026-03-29)
+///
+/// Remaining FN=7 came from two parenthesized-argument shapes that RuboCop's
+/// `each_argument_node(..., :hash)` reaches through Parser AST, but Prism
+/// exposes differently:
+///
+/// 1. `arg || { ... }` / `arg && { ... }` wrappers produce `OrNode` / `AndNode`
+///    instead of a direct hash argument.
+/// 2. `call_with_block { { ... } }` keeps the `BlockNode` on `CallNode.block()`
+///    rather than wrapping the call in a standalone block AST node.
+///
+/// Fix: recurse through boolean wrapper nodes and inspect only the attached
+/// block body for nested call arguments, while still skipping nested call
+/// receivers and argument lists so outer-parenthesis indentation does not leak
+/// into unrelated inner sends.
 pub struct FirstHashElementIndentation;
 
 impl Cop for FirstHashElementIndentation {
@@ -105,6 +121,21 @@ enum IndentBaseKind {
 }
 
 impl HashIndentVisitor<'_> {
+    fn find_hash_args_in_body(
+        &mut self,
+        body: ruby_prism::Node<'_>,
+        paren_line: usize,
+        paren_col: usize,
+    ) {
+        if let Some(statements) = body.as_statements_node() {
+            for stmt in statements.body().iter() {
+                self.find_hash_args_in_call(&stmt, paren_line, paren_col);
+            }
+        } else {
+            self.find_hash_args_in_call(&body, paren_line, paren_col);
+        }
+    }
+
     fn parent_pair_col_for_child_hash(
         &self,
         elements: &[ruby_prism::Node<'_>],
@@ -304,7 +335,31 @@ impl HashIndentVisitor<'_> {
             return;
         }
 
-        if node.as_call_node().is_some() {
+        if let Some(and_node) = node.as_and_node() {
+            self.find_hash_args_in_call(&and_node.left(), paren_line, paren_col);
+            self.find_hash_args_in_call(&and_node.right(), paren_line, paren_col);
+            return;
+        }
+
+        if let Some(or_node) = node.as_or_node() {
+            self.find_hash_args_in_call(&or_node.left(), paren_line, paren_col);
+            self.find_hash_args_in_call(&or_node.right(), paren_line, paren_col);
+            return;
+        }
+
+        if let Some(call) = node.as_call_node() {
+            if let Some(block_node) = call.block().and_then(|block| block.as_block_node()) {
+                if let Some(body) = block_node.body() {
+                    self.find_hash_args_in_body(body, paren_line, paren_col);
+                }
+            }
+            return;
+        }
+
+        if let Some(block_node) = node.as_block_node() {
+            if let Some(body) = block_node.body() {
+                self.find_hash_args_in_body(body, paren_line, paren_col);
+            }
             return;
         }
 
