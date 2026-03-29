@@ -108,3 +108,41 @@ begin
 rescue StandardError
   state_id = :unknown
 end
+
+# Block unless with multiline case predicate
+unless case option
+       ^^^^ Layout/EmptyLineAfterMultilineCondition: Use empty line after multiline condition.
+       when :before_save, :after_save
+         value.is_a?(Proc)
+       else
+         true
+       end
+  raise Exception.new("Invalid value #{value} for option #{option}")
+end
+
+# Modifier if wrapped in rescue modifier
+countderef[r.rexpr.name] += 1 if r.kind_of?(C::CExpression) and not r.op and r.rexpr.kind_of?(C::Variable) and
+                                 ^ Layout/EmptyLineAfterMultilineCondition: Use empty line after multiline condition.
+  sizeof(nil, r.type.type) == sizeof(nil, r.rexpr.type.type) rescue nil
+
+# elsif with case expression as predicate
+if x
+  foo
+elsif case states.last
+      ^^^^ Layout/EmptyLineAfterMultilineCondition: Use empty line after multiline condition.
+      when :initial, :media
+        scan(/foo/)
+      end
+  bar
+end
+
+# elsif with bare case expression
+if x
+  foo
+elsif case
+      ^^^^ Layout/EmptyLineAfterMultilineCondition: Use empty line after multiline condition.
+      when match = scan(/foo/)
+        bar
+      end
+  baz
+end

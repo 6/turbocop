@@ -122,16 +122,6 @@ if helpers_data['x'] &&
   puts "found"
 end
 
-# elsif with case expression as predicate — case is inherently multiline
-if x
-  foo
-elsif case states.last
-      when :initial, :media
-        scan(/foo/)
-      end
-  bar
-end
-
 # Modifier if with only comment after (no right sibling in AST)
 def m
   true if depth >= 3 &&
@@ -146,16 +136,6 @@ when Step
                            can_read_repository?(protocol)
 when Result
   return render_403 unless can_read_result?(parent)
-end
-
-# elsif with bare case expression (no subject)
-if x
-  foo
-elsif case
-      when match = scan(/foo/)
-        bar
-      end
-  baz
 end
 
 # Block unless with single-line block as condition (block braces on same line)

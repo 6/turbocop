@@ -137,6 +137,20 @@ use ruby_prism::Visit;
 ///   contains ` then`, and `t` is non-whitespace/non-comment, so the cop
 ///   falsely fired. Fixed by also skipping `then` keyword in the tail check
 ///   via `is_then_keyword()`.
+///
+/// **FN root causes (round 5, 2 FN → 0 FN):**
+/// - The old `check_multiline_condition` skipped `CaseNode` and
+///   `CaseMatchNode` predicates entirely. That was based on a stale assumption:
+///   current RuboCop does flag multiline `case` expressions when they are used
+///   as `if`/`unless`/`elsif` conditions, including `unless case ... end`.
+///   Fixed by treating multiline `case` predicates like any other multiline
+///   condition.
+/// - Modifier `if` conditions wrapped by a rescue modifier
+///   (`expr if cond rescue nil`) have a right sibling in RuboCop's AST: the
+///   rescue expression. The line-based `has_right_sibling` heuristic only
+///   looked for `;`, scope closers, and later lines, so it missed same-line
+///   `rescue` tails and suppressed valid offenses. Fixed by treating a same-line
+///   `rescue` tail after the predicate as a right sibling.
 pub struct EmptyLineAfterMultilineCondition;
 
 impl Cop for EmptyLineAfterMultilineCondition {
@@ -479,6 +493,15 @@ fn tail_scope_closer_check(tail: &[u8]) -> TailResult {
         if b == b'}' || b == b')' {
             return TailResult::ScopeCloser;
         }
+        // `expr if cond rescue nil`: the rescue expression is a right sibling
+        // of the modifier `if` in RuboCop's AST, even if the enclosing scope
+        // closes on the next line.
+        if tail[i..].starts_with(b"rescue")
+            && (i == 0 || !tail[i - 1].is_ascii_alphanumeric() && tail[i - 1] != b'_')
+            && (i + 6 >= tail.len() || !tail[i + 6].is_ascii_alphanumeric() && tail[i + 6] != b'_')
+        {
+            return TailResult::RightSibling;
+        }
         // Check for `end` keyword at a word boundary
         if tail[i..].starts_with(b"end")
             && (i == 0 || !tail[i - 1].is_ascii_alphanumeric() && tail[i - 1] != b'_')
@@ -645,14 +668,6 @@ impl EmptyLineAfterMultilineCondition {
         source: &SourceFile,
         predicate: &ruby_prism::Node<'_>,
     ) -> Vec<Diagnostic> {
-        // Skip when the predicate is a CaseNode — case expressions are inherently
-        // multiline (they contain when branches) and shouldn't be treated as
-        // multiline boolean conditions. This matches RuboCop's behavior for
-        // patterns like `elsif case states.last when :initial ...`.
-        if predicate.as_case_node().is_some() || predicate.as_case_match_node().is_some() {
-            return Vec::new();
-        }
-
         let (pred_start_line, _) = source.offset_to_line_col(predicate.location().start_offset());
         let pred_end = predicate.location().end_offset().saturating_sub(1);
         let (pred_end_line, _) = source.offset_to_line_col(pred_end);
@@ -829,14 +844,14 @@ mod tests {
     }
 
     #[test]
-    fn fp_elsif_case_as_predicate() {
-        // elsif with case expression as predicate - the case is multiline by nature
-        // but RuboCop doesn't flag this
+    fn case_expression_predicate_is_offense() {
+        // Multiline `case` expressions used as conditions are offenses in RuboCop.
         let source = b"if x\n  foo\nelsif case states.last\n      when :initial, :media\n        scan(/foo/)\n      end\n  bar\nend\n";
         let diags = crate::testutil::run_cop_full(&EmptyLineAfterMultilineCondition, source);
-        assert!(
-            diags.is_empty(),
-            "Should not fire on elsif with case as predicate: {:?}",
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should fire on elsif with multiline case predicate: {:?}",
             diags
         );
     }
@@ -888,6 +903,18 @@ mod tests {
             diags.len(),
             1,
             "Should fire on non-begin modifier while with multiline condition: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_modifier_if_wrapped_in_rescue_modifier() {
+        let source = b"countderef[r.rexpr.name] += 1 if r.kind_of?(C::CExpression) and not r.op and r.rexpr.kind_of?(C::Variable) and\n                                 sizeof(nil, r.type.type) == sizeof(nil, r.rexpr.type.type) rescue nil\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterMultilineCondition, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should fire when modifier if is wrapped in rescue modifier: {:?}",
             diags
         );
     }
