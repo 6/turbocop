@@ -15,6 +15,16 @@ when 1
   y
 end
 
+# `then` in one-line `when` branches is accepted, including before literals
+case box
+when :inbox, :archive then'received'
+end
+
+case file[:smode][0, 1]
+when 'd' then:directory
+when '-' then:file
+end
+
 # yield( is accepted — no space needed before paren
 def foo
   yield(x)

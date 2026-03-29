@@ -62,3 +62,14 @@ message = <<~EOS
   Actual response code: #{response.code if(response)}
                                         ^^ Layout/SpaceAroundKeyword: Space after keyword `if` is missing.
 EOS
+
+it "can make a new query with a new limit" do:w
+                                           ^^ Layout/SpaceAroundKeyword: Space after keyword `do` is missing.
+  nil
+end
+
+case conf[:mode]
+when:new_ring
+^^^^ Layout/SpaceAroundKeyword: Space after keyword `when` is missing.
+  nil
+end
