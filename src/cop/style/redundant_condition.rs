@@ -240,6 +240,7 @@ impl RedundantCondition {
     /// RuboCop represents `unless` like an `if` where the syntactic `else` branch is the
     /// branch compared against the condition. The syntactic `unless` body still serves as
     /// the guarded fallback branch, so it receives the same `else`-branch exclusions.
+    #[allow(clippy::too_many_arguments)]
     fn check_unless(
         &self,
         source: &SourceFile,
