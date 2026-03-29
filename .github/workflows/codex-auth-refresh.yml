@@ -1,0 +1,110 @@
+name: Codex Auth Refresh
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: codex-auth-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Generate secrets-write app token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          permission-secrets: write
+
+      - name: Restore auth.json from CODEX_AUTH_JSON
+        shell: bash
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+          mkdir -p "$CODEX_HOME"
+          chmod 700 "$CODEX_HOME"
+          printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
+          chmod 600 "$CODEX_HOME/auth.json"
+          cp "$CODEX_HOME/auth.json" "$RUNNER_TEMP/codex-auth-before.json"
+          chmod 600 "$RUNNER_TEMP/codex-auth-before.json"
+
+          python3 scripts/workflows/guard_backend_secrets.py \
+            --from-file "$CODEX_HOME/auth.json" \
+            emit-masks
+
+          python3 scripts/workflows/validate_codex_auth.py \
+            --from-file "$CODEX_HOME/auth.json" \
+            --max-age-days 365
+
+      - name: Install Codex CLI
+        shell: bash
+        run: npm install -g @openai/codex@latest
+
+      - name: Run Codex and refresh managed auth
+        shell: bash
+        run: |
+          export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+          PROMPT_FILE="$RUNNER_TEMP/codex-auth-refresh-prompt.txt"
+          LAST_MESSAGE_FILE="$RUNNER_TEMP/codex-auth-refresh-last-message.txt"
+          EVENTS_FILE="$RUNNER_TEMP/codex-auth-refresh-events.json"
+          STDERR_FILE="$RUNNER_TEMP/codex-auth-refresh.stderr"
+
+          printf '%s\n' 'Reply with the single word OK.' > "$PROMPT_FILE"
+
+          codex exec --dangerously-bypass-approvals-and-sandbox \
+            -m gpt-5.4 \
+            -c model_reasoning_effort=medium \
+            -c project_doc_max_bytes=0 \
+            --json \
+            -o "$LAST_MESSAGE_FILE" \
+            - < "$PROMPT_FILE" > "$EVENTS_FILE" 2> "$STDERR_FILE"
+
+          python3 scripts/workflows/guard_backend_secrets.py \
+            --from-file "$CODEX_HOME/auth.json" \
+            emit-masks
+
+          python3 scripts/workflows/guard_backend_secrets.py \
+            --from-file "$CODEX_HOME/auth.json" \
+            scan-files "$LAST_MESSAGE_FILE" "$EVENTS_FILE" "$STDERR_FILE"
+
+          python3 scripts/workflows/validate_codex_auth.py \
+            --from-file "$CODEX_HOME/auth.json" \
+            --newer-than-file "$RUNNER_TEMP/codex-auth-before.json" \
+            --max-age-days 7
+
+      - name: Persist refreshed auth.json back to CODEX_AUTH_JSON
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+          gh secret set CODEX_AUTH_JSON \
+            --repo "${{ github.repository }}" < "$CODEX_HOME/auth.json"
+
+      - name: Write summary
+        if: always()
+        shell: bash
+        run: |
+          export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+          if [ -f "$CODEX_HOME/auth.json" ]; then
+            {
+              echo "## Codex auth status"
+              python3 scripts/workflows/validate_codex_auth.py \
+                --from-file "$CODEX_HOME/auth.json" \
+                --max-age-days 365 || true
+              echo
+              echo "Repository secret update only occurs if the persist step succeeds."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

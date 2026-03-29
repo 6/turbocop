@@ -60,6 +60,15 @@ def test_emit_masks_outputs_commands_for_api_key():
     assert "::add-mask::mm-secret-key" in result.stdout
 
 
+def test_emit_masks_supports_file_input(tmp_path: Path):
+    auth_path = tmp_path / "auth.json"
+    auth_path.write_text(json.dumps(managed_auth_payload()))
+    result = run(["--from-file", str(auth_path), "emit-masks"])
+    assert result.returncode == 0
+    assert "::add-mask::eyJ-access" in result.stdout
+    assert "::add-mask::rt-refresh" in result.stdout
+
+
 def test_scan_files_passes_when_clean():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
         f.write("all clear")
@@ -70,6 +79,17 @@ def test_scan_files_passes_when_clean():
         )
     assert result.returncode == 0
     assert "No backend secret leakage" in result.stdout
+
+
+def test_scan_files_supports_file_input(tmp_path: Path):
+    auth_path = tmp_path / "auth.json"
+    auth_path.write_text(json.dumps(managed_auth_payload()))
+    log_path = tmp_path / "agent.log"
+    log_path.write_text("oops rt-refresh leaked")
+    result = run(["--from-file", str(auth_path), "scan-files", str(log_path)])
+    assert result.returncode != 0
+    assert "potential backend secret leakage" in result.stderr
+    assert str(auth_path) in result.stderr
 
 
 def test_scan_files_fails_on_codex_leak():
@@ -130,7 +150,9 @@ def test_ignore_missing_skips_absent_vars():
 if __name__ == "__main__":
     test_emit_masks_outputs_commands_for_codex_auth()
     test_emit_masks_outputs_commands_for_api_key()
+    test_emit_masks_supports_file_input(Path(tempfile.mkdtemp()))
     test_scan_files_passes_when_clean()
+    test_scan_files_supports_file_input(Path(tempfile.mkdtemp()))
     test_scan_files_fails_on_codex_leak()
     test_scan_files_fails_on_api_key_leak()
     test_scan_manifest_reads_patterns_from_file()

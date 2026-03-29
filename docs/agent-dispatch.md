@@ -43,7 +43,7 @@ The workflow uses your ChatGPT Pro plan (flat rate, no per-token billing).
 3. Copy the auth file: `cat ~/.codex/auth.json`
 4. The content of this file becomes your `CODEX_AUTH_JSON` secret
 
-Codex automatically refreshes tokens, but if they expire between runs, re-run `codex login` locally and update the secret.
+Codex automatically refreshes managed auth during normal runs, but GitHub-hosted runners only keep that refresh if the updated `auth.json` is written back to secure storage. This repo includes a manual `Codex Auth Refresh` workflow for that round trip. If the refresh workflow can no longer refresh the session, re-run `codex login` locally and replace the secret.
 
 **Important:** Use a dedicated ChatGPT subscription for CI dispatch — do not share with your personal Codex usage. Token refreshes from concurrent sessions will conflict and invalidate each other. A separate ChatGPT Plus ($20/mo) or Pro ($200/mo) account for CI keeps things clean.
 
@@ -61,6 +61,21 @@ Go to **Settings > Secrets and variables > Actions** and add:
 | Secret | Value |
 |--------|-------|
 | `CODEX_AUTH_JSON` | Contents of `~/.codex/auth.json` from Step 1 |
+
+### Refreshing stale Codex auth
+
+When `last_refresh` gets too old, run:
+
+```bash
+gh workflow run codex-auth-refresh.yml
+```
+
+That workflow restores `CODEX_AUTH_JSON`, runs a tiny `codex exec` so Codex can refresh `~/.codex/auth.json`, verifies that `last_refresh` advanced, scans the captured Codex output files for secret leakage, and then writes the refreshed file back to the same repository secret.
+
+Important:
+- Run the refresh workflow when no other Codex jobs are active for the same account.
+- The GitHub App used by this repo must have `Secrets: write` permission, or the final secret update step will fail.
+- If the refresh workflow still cannot update the session, reseed `CODEX_AUTH_JSON` from a fresh local `codex login`.
 
 ### Step 3: Branch Protection (optional)
 

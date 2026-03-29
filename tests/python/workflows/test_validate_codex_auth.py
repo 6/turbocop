@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -27,6 +28,24 @@ def run(payload=None, max_age_days: int = 7):
         capture_output=True,
         text=True,
         env=env,
+    )
+
+
+def run_from_file(tmp_path: Path, payload, max_age_days: int = 7):
+    auth_path = tmp_path / "auth.json"
+    auth_path.write_text(json.dumps(payload))
+    return subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--from-file",
+            str(auth_path),
+            "--max-age-days",
+            str(max_age_days),
+        ],
+        capture_output=True,
+        text=True,
+        env=os.environ.copy(),
     )
 
 
@@ -54,6 +73,99 @@ def test_accepts_api_key_auth():
     })
     assert result.returncode == 0
     assert "API key auth payload" in result.stdout
+
+
+def test_accepts_auth_from_file(tmp_path: Path):
+    result = run_from_file(
+        tmp_path,
+        {
+            "OPENAI_API_KEY": None,
+            "tokens": {
+                "access_token": "eyJ-access",
+                "refresh_token": "rt-refresh",
+                "id_token": "eyJ-id",
+                "account_id": "e7-account",
+            },
+            "last_refresh": iso_days_ago(1),
+        },
+    )
+    assert result.returncode == 0
+    assert "managed auth payload" in result.stdout
+
+
+def test_accepts_newer_last_refresh_than_previous_file(tmp_path: Path):
+    previous = tmp_path / "previous.json"
+    current = tmp_path / "current.json"
+    previous.write_text(json.dumps({
+        "OPENAI_API_KEY": None,
+        "tokens": {
+            "access_token": "eyJ-access",
+            "refresh_token": "rt-refresh",
+            "id_token": "eyJ-id",
+            "account_id": "e7-account",
+        },
+        "last_refresh": iso_days_ago(2),
+    }))
+    current.write_text(json.dumps({
+        "OPENAI_API_KEY": None,
+        "tokens": {
+            "access_token": "eyJ-access-new",
+            "refresh_token": "rt-refresh-new",
+            "id_token": "eyJ-id-new",
+            "account_id": "e7-account",
+        },
+        "last_refresh": iso_days_ago(1),
+    }))
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--from-file",
+            str(current),
+            "--newer-than-file",
+            str(previous),
+            "--max-age-days",
+            "7",
+        ],
+        capture_output=True,
+        text=True,
+        env=os.environ.copy(),
+    )
+    assert result.returncode == 0
+
+
+def test_rejects_unchanged_last_refresh_vs_previous_file(tmp_path: Path):
+    payload = {
+        "OPENAI_API_KEY": None,
+        "tokens": {
+            "access_token": "eyJ-access",
+            "refresh_token": "rt-refresh",
+            "id_token": "eyJ-id",
+            "account_id": "e7-account",
+        },
+        "last_refresh": iso_days_ago(1),
+    }
+    previous = tmp_path / "previous.json"
+    current = tmp_path / "current.json"
+    previous.write_text(json.dumps(payload))
+    current.write_text(json.dumps(payload))
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--from-file",
+            str(current),
+            "--newer-than-file",
+            str(previous),
+            "--max-age-days",
+            "7",
+        ],
+        capture_output=True,
+        text=True,
+        env=os.environ.copy(),
+    )
+    assert result.returncode != 0
+    assert "last_refresh did not advance" in result.stderr
 
 
 def test_rejects_missing_secret():
@@ -117,6 +229,12 @@ def test_rejects_stale_last_refresh():
 if __name__ == "__main__":
     test_accepts_managed_auth()
     test_accepts_api_key_auth()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_accepts_auth_from_file(Path(tmpdir))
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_accepts_newer_last_refresh_than_previous_file(Path(tmpdir))
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_rejects_unchanged_last_refresh_vs_previous_file(Path(tmpdir))
     test_rejects_missing_secret()
     test_rejects_invalid_shape()
     test_warns_on_missing_account_id()

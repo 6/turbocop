@@ -17,9 +17,11 @@ If you already have a GitHub App (e.g., https://github.com/apps/6), you can reus
 | Contents | Read & write | Push branches |
 | Pull requests | Read & write | Create/comment on PRs |
 | Workflows | Read & write | Push branches that contain workflow file changes |
+| Secrets | Read & write | Optional: allow `codex-auth-refresh.yml` to update `CODEX_AUTH_JSON` |
 | Metadata | Read-only | Required (default) |
 
 The `Workflows` permission is needed because the corpus oracle pushes PR branches based on `main`, which may include recent workflow file changes. Without it, GitHub rejects the push with "refusing to allow a GitHub App to create or update workflow without `workflows` permission".
+The `Secrets` permission is only needed if you want the manual Codex auth refresh workflow to round-trip `~/.codex/auth.json` back into the repository secret automatically.
 
 ### 2. Install the app on the repo
 
