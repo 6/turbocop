@@ -1,4 +1,6 @@
-# frozen_string_literal: true
+# Copyright 2026 Nitrocop
+#
+# frozen-string-literal: true
 
 CONST = [].freeze
 
@@ -34,3 +36,8 @@ CONST17 = FOO + BAR
 
 # Backtick (xstring) with .freeze is not flagged
 CONST18 = `uname`.freeze
+
+# Plain strings stay allowed with long comment headers and hyphenated magic comments
+CONST19 = "/"
+CONST20 = "✓"
+CONST21 = "\e[31m"
