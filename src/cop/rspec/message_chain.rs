@@ -4,6 +4,18 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Matches RuboCop's `RSpec/MessageChain` send-based behavior for
+/// `receive_message_chain` and `stub_chain`.
+///
+/// 2026-03-29 FN fix: corpus examples in
+/// `rspec-mocks/spec/rspec/mocks/any_instance/message_chains_spec.rb` used a
+/// receiverless `stub_chain` helper provided by `let`. The previous
+/// implementation only flagged `stub_chain` when the call had an explicit
+/// receiver (`foo.stub_chain(...)`), so all seven offenses were missed.
+///
+/// Fix: treat every Prism `CALL_NODE` named `stub_chain` as an offense, matching
+/// RuboCop's `RESTRICT_ON_SEND`. True local variables remain excluded because
+/// Prism parses them as `local_variable_read_node`, not `call_node`.
 pub struct MessageChain;
 
 impl Cop for MessageChain {
@@ -52,8 +64,9 @@ impl Cop for MessageChain {
             ));
         }
 
-        // Check for old `stub_chain` syntax (has receiver)
-        if method_name == b"stub_chain" && call.receiver().is_some() {
+        // Check for old `stub_chain` syntax. RuboCop flags any send named
+        // `stub_chain`, including receiverless helper calls from `let`.
+        if method_name == b"stub_chain" {
             let msg_loc = match call.message_loc() {
                 Some(l) => l,
                 None => return,
