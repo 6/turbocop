@@ -374,7 +374,7 @@ def test_fp_not_detected_anywhere_classified_as_config():
         fp_examples=[{"loc": "repo: file.rb:92", "msg": "Method has too many lines. [58/10]"}],
         fn_examples=[],
     )
-    assert "CONTEXT-DEPENDENT" in output
+    assert "CONFIG/CONTEXT issue" in output
     assert "1 context-dependent" in output
 
 
