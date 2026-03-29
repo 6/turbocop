@@ -1,0 +1,47 @@
+name: PR Close Reset
+
+permissions:
+  issues: write
+  pull-requests: read
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  reset-linked-issue:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve linked tracker issue and current labels
+        id: reset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_BODY=$(gh pr view "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" --json body -q '.body')
+          ISSUE_NUM=$(echo "$PR_BODY" | grep -oP '(?<=nitrocop-cop-issue:\s)\S+' | grep -oP 'issue=\K\d+' || true)
+          if [ -z "$ISSUE_NUM" ]; then
+            echo "::notice::No linked tracker issue found in PR body"
+            echo "should_reset=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          LABELS=$(gh issue view "$ISSUE_NUM" --repo "${{ github.repository }}" \
+            --json labels -q '[.labels[].name] | join(",")')
+          if echo "$LABELS" | grep -qE "state:pr-open|state:dispatched"; then
+            echo "issue_number=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
+            echo "should_reset=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Issue #$ISSUE_NUM not in pr-open/dispatched state (labels: $LABELS), skipping reset"
+            echo "should_reset=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Reset linked tracker issue to backlog
+        if: steps.reset.outputs.should_reset == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "${{ steps.reset.outputs.issue_number }}" \
+            --repo "${{ github.repository }}" \
+            --remove-label "state:pr-open,state:dispatched" \
+            --add-label "state:backlog"

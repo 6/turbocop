@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,8 @@ SETUP_CONFIG = {
     "cargo_linker": "clang",
     "rustflags": "-C link-arg=-fuse-ld=mold",
 }
+AUTO_REPAIR_REQUEST_RE = re.compile(r"<!--\s*nitrocop-auto-repair-request:\s*(.*?)\s*-->")
+AUTOMATION_ACTOR = "github-actions[bot]"
 
 
 def _run(
@@ -96,12 +99,99 @@ def _resolve_cop_issue(repo: str, issue_number: int) -> tuple[dict, str | None, 
     return issue, cop, ""
 
 
+def _load_pr(repo: str, pr_number: int) -> dict:
+    return json.loads(
+        _gh(
+            "pr",
+            "view",
+            str(pr_number),
+            "--repo",
+            repo,
+            "--json",
+            "number,title,url,body,state,author,headRefName,headRefOid,baseRefName,isCrossRepository,headRepository,labels",
+        )
+    )
+
+
+def _load_pr_comments(repo: str, pr_number: int) -> list[dict]:
+    return json.loads(_gh("api", f"repos/{repo}/issues/{pr_number}/comments?per_page=100"))
+
+
+def _parse_marker_fields(text: str, pattern: re.Pattern[str]) -> dict[str, str]:
+    match = pattern.search(text or "")
+    if not match:
+        return {}
+    fields: dict[str, str] = {}
+    for token in match.group(1).split():
+        if "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        fields[key.strip()] = value.strip()
+    return fields
+
+
+def _parse_repair_request_metadata(prompt_text: str) -> dict[str, str]:
+    return _parse_marker_fields(prompt_text, AUTO_REPAIR_REQUEST_RE)
+
+
+def _is_automation_request(routed: bot_command.RoutedCommand) -> bool:
+    return routed.requested_by == AUTOMATION_ACTOR
+
+
+def _resolve_repair_run(
+    *,
+    repo: str,
+    pr_number: int,
+    head_sha: str,
+    prompt_text: str,
+) -> tuple[str, str, str]:
+    marker = _parse_repair_request_metadata(prompt_text)
+    explicit_run_id = marker.get("checks_run_id", "").strip()
+    if explicit_run_id:
+        run = json.loads(
+            _gh(
+                "run",
+                "view",
+                explicit_run_id,
+                "--repo",
+                repo,
+                "--json",
+                "databaseId,url,headSha,status,conclusion",
+            )
+        )
+        if head_sha and str(run.get("headSha", "")).strip() not in {"", head_sha}:
+            raise SystemExit("Checks run does not match the current PR head")
+        return explicit_run_id, str(run.get("url", "")).strip(), str(run.get("headSha", "")).strip()
+
+    pr = bot_command.load_pr(repo, pr_number)
+    runs = bot_command.load_checks_runs(repo, str(pr["headRefName"]))
+    run, reason = bot_command.choose_failed_checks_run(runs, head_sha=str(pr.get("headRefOid", "")))
+    if run is None:
+        raise SystemExit(reason)
+    return str(run["id"]), str(run.get("html_url", "")).strip(), str(run.get("head_sha", "")).strip()
+
+
 def _build_extra_context(routed: bot_command.RoutedCommand) -> str:
     lines = [f"Requested by @{routed.requested_by} via {routed.trigger_summary}."]
     if routed.request_url:
         lines.append(f"Trigger URL: {routed.request_url}")
     if routed.prompt_text:
         lines.extend(["", routed.prompt_text.strip()])
+    return "\n".join(lines)
+
+
+def _build_repair_extra_context(routed: bot_command.RoutedCommand) -> str:
+    lines = [f"Requested by @{routed.requested_by} via {routed.trigger_summary}."]
+    if routed.request_url:
+        lines.append(f"Trigger URL: {routed.request_url}")
+
+    if _is_automation_request(routed):
+        return "\n".join(lines)
+
+    prompt_text = routed.prompt_text.strip()
+
+    if prompt_text:
+        lines.extend(["", prompt_text])
     return "\n".join(lines)
 
 
@@ -179,32 +269,39 @@ def cmd_route(args: argparse.Namespace) -> int:
     for key, value in outputs.items():
         _output(key, value)
 
-    if routed.action != "fix_issue":
-        _output("action", "comment_only")
-        _output("reason", routed.reason or "This repo task only handles issue-driven cop fixes.")
+    if routed.action == "fix_issue":
+        _, cop, reason = _resolve_cop_issue(args.repo, routed.issue_number)
+        if reason:
+            _output("action", "comment_only")
+            _output("reason", reason)
+            return 0
+
+        mode = _determine_cop_mode(cop or "")
+        _output("action", "run_agent")
+        _output("workflow", "agent-cop-fix")
+        _output("setup_profile", SETUP_PROFILE)
+        _output("setup_config_json", json.dumps(SETUP_CONFIG, separators=(",", ":")))
+        _output("cop", cop or "")
+        _output("mode", mode)
         return 0
 
-    _, cop, reason = _resolve_cop_issue(args.repo, routed.issue_number)
-    if reason:
-        _output("action", "comment_only")
-        _output("reason", reason)
+    if routed.action == "repair_pr":
+        _output("action", "run_agent")
+        _output("workflow", "agent-pr-repair")
+        _output("setup_profile", SETUP_PROFILE)
+        _output("setup_config_json", json.dumps(SETUP_CONFIG, separators=(",", ":")))
         return 0
 
-    mode = _determine_cop_mode(cop or "")
-    _output("action", "run_agent")
-    _output("workflow", "agent-cop-fix")
-    _output("setup_profile", SETUP_PROFILE)
-    _output("setup_config_json", json.dumps(SETUP_CONFIG, separators=(",", ":")))
-    _output("cop", cop or "")
-    _output("mode", mode)
+    _output("action", "comment_only")
+    _output("reason", routed.reason or "This repo task only handles issue cop fixes and pull request repairs.")
     return 0
 
 
-def cmd_prepare(args: argparse.Namespace) -> int:
-    _, routed = _load_payload(args.payload_json, repo=args.repo)
-    if routed.action != "fix_issue":
-        raise SystemExit("prepare only supports issue-driven cop fixes")
-
+def _prepare_fix_issue(
+    args: argparse.Namespace,
+    *,
+    routed: bot_command.RoutedCommand,
+) -> int:
     issue, cop, reason = _resolve_cop_issue(args.repo, routed.issue_number)
     if reason:
         raise SystemExit(reason)
@@ -275,6 +372,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     )
 
     state = {
+        "task_kind": "fix_issue",
         "cop": cop,
         "issue_number": str(routed.issue_number),
         "issue_url": str(issue.get("url", "")),
@@ -408,9 +506,413 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _prepare_repair_pr(
+    args: argparse.Namespace,
+    *,
+    routed: bot_command.RoutedCommand,
+) -> int:
+    if routed.pr_number is None:
+        raise SystemExit("repair_pr requires pr_number")
+
+    pr = _load_pr(args.repo, routed.pr_number)
+    comments = _load_pr_comments(args.repo, routed.pr_number)
+    checks_run_id, checks_url, checks_head_sha = _resolve_repair_run(
+        repo=args.repo,
+        pr_number=routed.pr_number,
+        head_sha=str(pr.get("headRefOid", "")),
+        prompt_text=routed.prompt_text,
+    )
+
+    pr_state = _run_keyval(
+        [
+            sys.executable,
+            "scripts/workflows/repair_retry_policy.py",
+            "pr-state",
+            "--pr-json",
+            json.dumps(pr),
+            "--comments-json",
+            json.dumps(comments),
+            "--repo",
+            args.repo,
+            "--checks-head-sha",
+            checks_head_sha,
+            *(
+                ["--require-trusted-bot"]
+                if _is_automation_request(routed)
+                else []
+            ),
+        ],
+        cwd=REPO_ROOT,
+    )
+
+    head_branch = pr_state["head_branch"]
+    head_sha = pr_state["head_sha"]
+    linked_issue_number = pr_state.get("linked_issue_number", "")
+    request_dir = args.state_file.parent / "repo-task-request"
+
+    if pr_state["should_run"] != "true":
+        state = {
+            "task_kind": "repair_pr",
+            "pr_number": str(routed.pr_number),
+            "head_branch": head_branch,
+            "head_sha": head_sha,
+            "checks_run_id": checks_run_id,
+            "checks_url": checks_url,
+            "linked_issue_number": linked_issue_number,
+            "requested_by": routed.requested_by,
+            "request_url": routed.request_url,
+        }
+        _write_json(args.state_file, state)
+
+        if _is_automation_request(routed):
+            _output("mode", "skip")
+            _output("request_file", "")
+            _output("target_ref", f"refs/heads/{head_branch}")
+            _output("target_sha", head_sha)
+            return 0
+
+        not_started = _run_keyval(
+            [
+                sys.executable,
+                "scripts/workflows/repair_publish.py",
+                "skip-request",
+                "--output-dir",
+                str(request_dir),
+                "--pr-number",
+                str(routed.pr_number),
+                "--linked-issue-number",
+                linked_issue_number,
+                "--heading",
+                "Bot repair not started",
+                "--reason",
+                pr_state["skip_reason"],
+                "--checks-run-id",
+                checks_run_id,
+                "--checks-url",
+                checks_url,
+                "--backend-label",
+                "n/a",
+                "--run-id",
+                os.environ.get("GITHUB_RUN_ID", "repo-task"),
+                "--run-url",
+                f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+                "--target-sha",
+                head_sha,
+                "--target-ref",
+                f"refs/heads/{head_branch}",
+                "--issue-only-if-needs-human",
+            ],
+            cwd=REPO_ROOT,
+        )
+        _output("mode", "skip")
+        _output("request_file", str(_request_path_from_output(not_started)))
+        _output("target_ref", f"refs/heads/{head_branch}")
+        _output("target_sha", head_sha)
+        return 0
+
+    extra_context = _build_repair_extra_context(routed)
+
+    _run(["git", "fetch", "origin", head_branch], cwd=REPO_ROOT)
+    _run(["git", "checkout", "-B", head_branch, f"origin/{head_branch}"], cwd=REPO_ROOT)
+    Path(os.environ["PR_DIFF_STAT_FILE"]).write_text(
+        _run(["git", "diff", "--stat", "origin/main...HEAD"], cwd=REPO_ROOT).stdout
+    )
+    Path(os.environ["PR_DIFF_FILE"]).write_text(
+        _gh(
+            "pr",
+            "diff",
+            str(routed.pr_number),
+            "--repo",
+            args.repo,
+        )
+    )
+
+    runtime_env = {"GH_TOKEN": os.environ.get("GH_TOKEN", "")}
+    _run(
+        [
+            sys.executable,
+            "scripts/workflows/prepare_pr_repair.py",
+            "--repo",
+            args.repo,
+            "--run-id",
+            checks_run_id,
+            "--pr-number",
+            str(routed.pr_number),
+            "--pr-title",
+            pr_state["title"],
+            "--head-branch",
+            head_branch,
+            "--diff-stat",
+            os.environ["PR_DIFF_STAT_FILE"],
+            "--diff",
+            os.environ["PR_DIFF_FILE"],
+            "--prompt-out",
+            os.environ["FINAL_TASK_FILE"],
+            "--verify-out",
+            os.environ["REPAIR_VERIFY_SCRIPT"],
+            "--json-out",
+            os.environ["REPAIR_JSON_FILE"],
+            "--backend-override",
+            "auto",
+            "--extra-context",
+            extra_context,
+        ],
+        cwd=REPO_ROOT,
+        env=runtime_env,
+    )
+
+    verify_meta = json.loads(Path(os.environ["REPAIR_JSON_FILE"]).read_text())
+    needs_local_cop_check = bool(verify_meta.get("cop_check_failure"))
+    if needs_local_cop_check:
+        _run(["cargo", "build", "--release"], cwd=REPO_ROOT)
+        _run(
+            [
+                sys.executable,
+                "scripts/workflows/precompute_repair_cop_check.py",
+                "--repo-root",
+                str(REPO_ROOT),
+                "--changed-cops-out",
+                os.environ["REPAIR_CHANGED_COPS_FILE"],
+                "--output",
+                os.environ["REPAIR_COP_CHECK_PACKET_FILE"],
+            ],
+            cwd=REPO_ROOT,
+        )
+        with open(os.environ["FINAL_TASK_FILE"], "a", encoding="utf-8") as handle:
+            handle.write(Path(os.environ["REPAIR_COP_CHECK_PACKET_FILE"]).read_text())
+
+    with open(os.environ["FINAL_TASK_FILE"], "a", encoding="utf-8") as handle:
+        helper_text = _run(
+            [sys.executable, "scripts/workflows/render_helper_scripts_section.py"],
+            cwd=REPO_ROOT,
+            env=runtime_env,
+        ).stdout
+        handle.write(helper_text)
+
+    tokens = _run(
+        [sys.executable, "scripts/workflows/count_tokens.py", os.environ["FINAL_TASK_FILE"]],
+        cwd=REPO_ROOT,
+    ).stdout.strip()
+
+    route = str(verify_meta.get("route", "skip"))
+    backend = str(verify_meta.get("backend", ""))
+    backend_meta = {"display_label": backend or "n/a", "model_label": backend or "n/a"}
+    if backend:
+        backend_meta = _run_keyval(
+            [sys.executable, "scripts/workflows/resolve_backend.py", backend],
+            cwd=REPO_ROOT,
+        )
+    policy = _run_keyval(
+        [
+            sys.executable,
+            "scripts/workflows/repair_retry_policy.py",
+            "policy",
+            "--route",
+            route,
+            "--prior-pushes",
+            pr_state["prior_pushes"],
+            "--prior-pr-repair-attempts",
+            pr_state["prior_pr_repair_attempts"],
+            *(
+                ["--prior-attempted-current-head"]
+                if pr_state.get("prior_attempted_current_head") == "true"
+                else []
+            ),
+        ],
+        cwd=REPO_ROOT,
+    )
+
+    state = {
+        "task_kind": "repair_pr",
+        "pr_number": str(routed.pr_number),
+        "linked_issue_number": linked_issue_number,
+        "head_branch": head_branch,
+        "head_sha": head_sha,
+        "checks_run_id": checks_run_id,
+        "checks_url": checks_url,
+        "route": route,
+        "backend": backend,
+        "backend_label": backend_meta["display_label"],
+        "model_label": backend_meta["model_label"],
+        "reason": str(verify_meta.get("reason", "")),
+        "guard_profile": str(verify_meta.get("guard_profile", "")),
+        "requested_by": routed.requested_by,
+        "request_url": routed.request_url,
+        "prompt_text": routed.prompt_text,
+        "extra_context": extra_context,
+        "tokens": tokens,
+        "default_branch": args.default_branch,
+        "default_branch_sha": args.default_branch_sha,
+        "needs_local_cop_check": "true" if needs_local_cop_check else "false",
+    }
+    _write_json(args.state_file, state)
+
+    if route == "skip":
+        skip = _run_keyval(
+            [
+                sys.executable,
+                "scripts/workflows/repair_publish.py",
+                "skip-request",
+                "--output-dir",
+                str(request_dir),
+                "--pr-number",
+                str(routed.pr_number),
+                "--linked-issue-number",
+                linked_issue_number,
+                "--heading",
+                "Auto-repair Skipped",
+                "--reason",
+                state["reason"],
+                "--checks-run-id",
+                checks_run_id,
+                "--checks-url",
+                checks_url,
+                "--backend-label",
+                state["backend_label"],
+                "--route",
+                route,
+                "--run-id",
+                os.environ.get("GITHUB_RUN_ID", "repo-task"),
+                "--run-url",
+                f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+                "--target-sha",
+                head_sha,
+                "--target-ref",
+                f"refs/heads/{head_branch}",
+            ],
+            cwd=REPO_ROOT,
+        )
+        _output("mode", "skip")
+        _output("request_file", str(_request_path_from_output(skip)))
+        _output("target_ref", f"refs/heads/{head_branch}")
+        _output("target_sha", head_sha)
+        return 0
+
+    if policy["should_repair"] != "true":
+        bounded = _run_keyval(
+            [
+                sys.executable,
+                "scripts/workflows/repair_publish.py",
+                "skip-request",
+                "--output-dir",
+                str(request_dir),
+                "--pr-number",
+                str(routed.pr_number),
+                "--linked-issue-number",
+                linked_issue_number,
+                "--heading",
+                "Automatic PR repair stopped",
+                "--reason",
+                policy["skip_reason"],
+                "--checks-run-id",
+                checks_run_id,
+                "--checks-url",
+                checks_url,
+                "--backend-label",
+                state["backend_label"],
+                "--run-id",
+                os.environ.get("GITHUB_RUN_ID", "repo-task"),
+                "--run-url",
+                f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+                "--target-sha",
+                head_sha,
+                "--target-ref",
+                f"refs/heads/{head_branch}",
+                *(
+                    ["--needs-human"]
+                    if policy.get("needs_human") == "true"
+                    else []
+                ),
+                "--issue-only-if-needs-human",
+            ],
+            cwd=REPO_ROOT,
+        )
+        _output("mode", "skip")
+        _output("request_file", str(_request_path_from_output(bounded)))
+        _output("target_ref", f"refs/heads/{head_branch}")
+        _output("target_sha", head_sha)
+        return 0
+
+    attempt = _run_keyval(
+        [
+            sys.executable,
+            "scripts/workflows/repair_publish.py",
+            "attempt-request",
+            "--output-dir",
+            str(request_dir),
+            "--pr-number",
+            str(routed.pr_number),
+            "--checks-run-id",
+            checks_run_id,
+            "--checks-url",
+            checks_url,
+            "--route",
+            route,
+            "--backend-label",
+            state["backend_label"],
+            "--model-label",
+            state["model_label"],
+            "--reason",
+            state["reason"],
+            "--run-id",
+            os.environ.get("GITHUB_RUN_ID", "repo-task"),
+            "--run-url",
+            f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+            "--head-sha",
+            head_sha,
+            "--backend",
+            backend,
+            "--prompt-file",
+            os.environ["FINAL_TASK_FILE"],
+            "--tokens",
+            tokens,
+            "--target-sha",
+            head_sha,
+            "--target-ref",
+            f"refs/heads/{head_branch}",
+        ],
+        cwd=REPO_ROOT,
+    )
+
+    _output("mode", "agent")
+    _output("backend", backend)
+    _output("diff_paths", "")
+    _output("request_file", str(_request_path_from_output(attempt)))
+    _output("target_ref", f"refs/heads/{head_branch}")
+    _output("target_sha", head_sha)
+    return 0
+
+
+def cmd_prepare(args: argparse.Namespace) -> int:
+    _, routed = _load_payload(args.payload_json, repo=args.repo)
+
+    if routed.action == "fix_issue":
+        return _prepare_fix_issue(args, routed=routed)
+    if routed.action == "repair_pr":
+        return _prepare_repair_pr(args, routed=routed)
+    raise SystemExit("prepare only supports issue-driven cop fixes and pull request repairs")
+
+
 def cmd_prepare_agent(args: argparse.Namespace) -> int:
     state = _read_json(args.state_file)
-    claim_metadata = _read_json(args.claim_metadata_file)
+    claim_metadata = (
+        _read_json(args.claim_metadata_file)
+        if args.claim_metadata_file.exists()
+        else {}
+    )
+
+    if state.get("task_kind") == "repair_pr":
+        _run(["git", "fetch", "origin", state["head_branch"]], cwd=REPO_ROOT)
+        _run(
+            ["git", "checkout", "-B", state["head_branch"], f"origin/{state['head_branch']}"],
+            cwd=REPO_ROOT,
+        )
+        base_sha = _run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT).stdout.strip()
+        state["base_sha"] = base_sha
+        _write_json(args.state_file, state)
+        _output("base_sha", base_sha)
+        _output("target_ref", f"refs/heads/{state['head_branch']}")
+        return 0
 
     _run(
         [sys.executable, "scripts/workflows/wait_healthy_main.py", "--repo", args.repo],
@@ -442,6 +944,154 @@ def cmd_prepare_agent(args: argparse.Namespace) -> int:
 
 def cmd_finalize(args: argparse.Namespace) -> int:
     state = _read_json(args.state_file)
+    if state.get("task_kind") == "repair_pr":
+        pr = _load_pr(args.repo, int(state["pr_number"]))
+        live_gate = _run_keyval(
+            [
+                sys.executable,
+                "scripts/workflows/repair_retry_policy.py",
+                "live-gate",
+                "--pr-json",
+                json.dumps(pr),
+                "--repo",
+                args.repo,
+                "--checks-head-sha",
+                state["head_sha"],
+                *(
+                    ["--require-trusted-bot"]
+                    if state.get("requested_by") == AUTOMATION_ACTOR
+                    else []
+                ),
+            ],
+            cwd=REPO_ROOT,
+        )
+        if live_gate["should_continue"] != "true":
+            _output("result", "stale_pr")
+            _output("request_file", "")
+            _output("target_ref", f"refs/heads/{state['head_branch']}")
+            _output("target_sha", state["head_sha"])
+            return 0
+
+        file_guard = _run_keyval(
+            [
+                sys.executable,
+                "scripts/workflows/validate_agent_changes.py",
+                "--repo-root",
+                str(REPO_ROOT),
+                "--base-ref",
+                args.base_sha,
+                "--profile",
+                state["guard_profile"],
+                "--report-out",
+                os.environ["AGENT_SCOPE_REPORT_FILE"],
+            ],
+            cwd=REPO_ROOT,
+        )
+
+        verify_status = ""
+        if file_guard.get("valid") == "true":
+            verify = _run(
+                [os.environ["REPAIR_VERIFY_SCRIPT"]],
+                cwd=REPO_ROOT,
+                env={
+                    "GH_TOKEN": os.environ.get("GH_TOKEN", ""),
+                    "NITROCOP_BIN": str(REPO_ROOT / "target" / "release" / "nitrocop"),
+                },
+                check=False,
+            )
+            Path(os.environ["REPAIR_VERIFY_LOG"]).write_text(
+                (verify.stdout or "") + (verify.stderr or "")
+            )
+            verify_status = str(verify.returncode)
+
+        if file_guard.get("valid") != "true":
+            result = "file_guard_failed"
+        elif not verify_status:
+            result = "verify_not_run"
+        elif verify_status != "0":
+            result = "verify_failed"
+        else:
+            if not _run(["git", "diff", "--quiet"], cwd=REPO_ROOT, check=False).returncode == 0:
+                _run(["git", "add", "-A"], cwd=REPO_ROOT)
+                _run(
+                    [
+                        "git",
+                        "commit",
+                        "-m",
+                        f"Repair PR #{state['pr_number']}: auto-repair ({state['backend']})",
+                    ],
+                    cwd=REPO_ROOT,
+                )
+
+            current_head = _run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT).stdout.strip()
+            if current_head == args.base_sha:
+                result = "no_changes"
+            else:
+                _run(["git", "diff", "--stat", "origin/main...HEAD"], cwd=REPO_ROOT, check=False)
+                if _run(["git", "diff", "--quiet", "origin/main...HEAD"], cwd=REPO_ROOT, check=False).returncode == 0:
+                    result = "empty_pr"
+                else:
+                    result = "pushable"
+
+        if result == "stale_pr":
+            _output("result", result)
+            _output("request_file", "")
+            _output("target_ref", f"refs/heads/{state['head_branch']}")
+            _output("target_sha", state["head_sha"])
+            return 0
+
+        request = _run_keyval(
+            [
+                sys.executable,
+                "scripts/workflows/repair_publish.py",
+                "result-request",
+                "--output-dir",
+                str(args.output_dir),
+                "--repo-root",
+                str(REPO_ROOT),
+                "--result",
+                result,
+                "--pr-number",
+                state["pr_number"],
+                "--linked-issue-number",
+                state.get("linked_issue_number", ""),
+                "--checks-run-id",
+                state["checks_run_id"],
+                "--checks-url",
+                state["checks_url"],
+                "--backend-label",
+                state["backend_label"],
+                "--model-label",
+                state["model_label"],
+                "--backend-name",
+                state["backend"],
+                "--run-id",
+                os.environ.get("GITHUB_RUN_ID", "repo-task"),
+                "--run-url",
+                args.run_url,
+                "--reason",
+                state["reason"],
+                "--guard-profile",
+                state["guard_profile"],
+                "--scope-report-file",
+                os.environ["AGENT_SCOPE_REPORT_FILE"],
+                "--verify-log",
+                os.environ["REPAIR_VERIFY_LOG"],
+                "--base-sha",
+                args.base_sha,
+                "--target-sha",
+                state["head_sha"],
+                "--target-ref",
+                f"refs/heads/{state['head_branch']}",
+            ],
+            cwd=REPO_ROOT,
+        )
+        _output("result", result)
+        _output("request_file", str(_request_path_from_output(request)))
+        _output("target_ref", f"refs/heads/{state['head_branch']}")
+        _output("target_sha", state["head_sha"])
+        return 0
+
     claim_metadata = _read_json(args.claim_metadata_file)
     pr_url = str(claim_metadata.get("pr_url", state.get("claim_pr_url", ""))).strip()
     if not pr_url:
@@ -553,6 +1203,60 @@ def cmd_cleanup(args: argparse.Namespace) -> int:
         return 0
 
     state = _read_json(args.state_file)
+    if state.get("task_kind") == "repair_pr":
+        if not state.get("backend"):
+            return 0
+        request = _run_keyval(
+            [
+                sys.executable,
+                "scripts/workflows/repair_publish.py",
+                "result-request",
+                "--output-dir",
+                str(args.output_dir),
+                "--repo-root",
+                str(REPO_ROOT),
+                "--result",
+                "agent_failed",
+                "--pr-number",
+                state["pr_number"],
+                "--linked-issue-number",
+                state.get("linked_issue_number", ""),
+                "--checks-run-id",
+                state["checks_run_id"],
+                "--checks-url",
+                state["checks_url"],
+                "--backend-label",
+                state["backend_label"],
+                "--model-label",
+                state["model_label"],
+                "--backend-name",
+                state["backend"],
+                "--run-id",
+                os.environ.get("GITHUB_RUN_ID", "repo-task"),
+                "--run-url",
+                args.run_url,
+                "--reason",
+                state["reason"],
+                "--guard-profile",
+                state["guard_profile"],
+                "--scope-report-file",
+                os.environ["AGENT_SCOPE_REPORT_FILE"],
+                "--verify-log",
+                os.environ["REPAIR_VERIFY_LOG"],
+                "--base-sha",
+                state.get("base_sha", state["head_sha"]),
+                "--target-sha",
+                state["head_sha"],
+                "--target-ref",
+                f"refs/heads/{state['head_branch']}",
+            ],
+            cwd=REPO_ROOT,
+        )
+        _output("request_file", str(_request_path_from_output(request)))
+        _output("target_ref", f"refs/heads/{state['head_branch']}")
+        _output("target_sha", state["head_sha"])
+        return 0
+
     pr_url = ""
     if args.claim_metadata_file and args.claim_metadata_file.exists():
         pr_url = str(_read_json(args.claim_metadata_file).get("pr_url", "")).strip()

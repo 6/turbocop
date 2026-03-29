@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).parents[3] / "scripts" / "workflows"))
 import agent_runtime
 
 SCRIPT = Path(__file__).parents[3] / "scripts" / "workflows" / "agent_runtime.py"
-AGENT_PR_REPAIR = Path(__file__).parents[3] / ".github" / "workflows" / "agent-pr-repair.yml"
 
 
 def test_build_paths_for_agent_cop_fix():
@@ -69,15 +68,9 @@ def test_cli_emits_env_assignments_and_creates_directories():
     assert Path(lines["AGENT_RUNTIME_ROOT"]).is_dir()
     assert Path(lines["AGENT_REPAIR_DIR"]).is_dir()
 
-
-def test_agent_workflows_do_not_hardcode_tmp_paths():
-    assert "/tmp/" not in AGENT_PR_REPAIR.read_text()
-
-
 if __name__ == "__main__":
     test_build_paths_for_agent_cop_fix()
     test_build_paths_for_agent_pr_repair()
     test_current_paths_uses_centralized_runtime_defaults()
     test_cli_emits_env_assignments_and_creates_directories()
-    test_agent_workflows_do_not_hardcode_tmp_paths()
     print("All tests passed.")

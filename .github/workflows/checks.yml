@@ -269,7 +269,13 @@ jobs:
           ICON="✅"
           [ "$RESULT" = "fail" ] && ICON="❌"
 
-          BODY="${ICON} **Cop-check results** (8 shards)\n\n"
+          BODY=""
+          if [ "$RESULT" = "fail" ]; then
+            BODY+="@6 Please repair the latest failing Checks run on this PR.\n"
+            BODY+="<!-- nitrocop-auto-repair-request: checks_run_id=${{ github.run_id }} -->\n\n"
+          fi
+
+          BODY+="${ICON} **Cop-check results** (8 shards)\n\n"
           BODY+="| Cop | Baseline FP | Baseline FN | New FP | New FN | FP Δ | FN Δ | Result |\n"
           BODY+="|-----|-----------|-----------|--------|--------|------|------|--------|\n"
 
