@@ -119,7 +119,10 @@ fn is_heredoc_argument(node: &ruby_prism::Node<'_>) -> bool {
     }
 
     if let Some(kw_hash) = node.as_keyword_hash_node() {
-        return kw_hash.elements().iter().any(|elem| is_heredoc_argument(&elem));
+        return kw_hash
+            .elements()
+            .iter()
+            .any(|elem| is_heredoc_argument(&elem));
     }
 
     if let Some(s) = node.as_interpolated_string_node() {
