@@ -27,6 +27,27 @@ use crate::diagnostic::Severity;
 ///
 /// This FN is structural: it decreases naturally as nitrocop's cop coverage
 /// improves. No per-cop fix is feasible without a "perfect cop" allowlist.
+///
+/// ## Corpus investigation (2026-03-29)
+///
+/// Two improvements:
+///
+/// 1. **Unknown cop flagging**: Cops not in registry and not renamed are now
+///    flagged with "(unknown cop)" suffix, matching RuboCop. These directives
+///    can never suppress anything. Added ~650 new matches.
+///
+/// 2. **Removed `--only` guard**: The `args.only.is_empty()` guard was removed
+///    because `is_directive_redundant()` is conservative enough on its own —
+///    it never flags directives for enabled cops that "didn't fire", only
+///    disabled/excluded/renamed/unknown cops. This makes `check_cop.py --rerun`
+///    work for this cop.
+///
+/// 3. **Renamed cop guard for `--only` mode**: For renamed cops (e.g.,
+///    `Style/MethodName` → `Naming/MethodName`), the function now checks the
+///    new-name cop's config state. In `--only` mode, if the new-name cop is
+///    enabled, the old-name directive might be suppressing its offenses, so
+///    we skip (conservative). In normal mode, `check_and_mark_used()` already
+///    handles this correctly.
 pub struct RedundantCopDisableDirective;
 
 impl Cop for RedundantCopDisableDirective {

@@ -3305,17 +3305,15 @@ fn codegen_exits_nonzero_without_args() {
 // fixture test framework since that runs a single cop in isolation.
 //
 // The implementation is conservative: it only flags directives for cops
-// that are UNKNOWN in a known department (likely renamed/removed) or
-// cops that are DISABLED/EXCLUDED for this file. It does NOT flag
-// directives for cops that ARE running, since nitrocop might have gaps
-// in its detection vs. RuboCop.
+// that are UNKNOWN (not in the registry or any loaded plugin config),
+// DISABLED, EXCLUDED, or RENAMED. It does NOT flag directives for cops
+// that ARE running, since nitrocop might have gaps in its detection vs.
+// RuboCop.
 
 #[test]
-fn no_redundant_disable_unknown_cop_in_known_department() {
+fn redundant_disable_unknown_cop_in_known_department() {
     // Disable for a cop name that doesn't exist in a known department.
-    // Style/ is a known department, but NonexistentFakeCop doesn't exist.
-    // We do NOT flag this because it could be a project-local custom cop
-    // (e.g., Style/MiddleDot in mastodon).
+    // RuboCop flags these with "(unknown cop)".
     let dir = temp_dir("redundant_disable_known_dept");
     let file = write_file(
         &dir,
@@ -3340,20 +3338,24 @@ fn no_redundant_disable_unknown_cop_in_known_department() {
         .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
         .collect();
 
-    assert!(
-        redundant.is_empty(),
-        "Should NOT flag unknown cop (could be custom), got: {:?}",
+    assert_eq!(
+        redundant.len(),
+        1,
+        "Should flag unknown cop, got: {:?}",
         redundant
+    );
+    assert!(
+        redundant[0].message.contains("(unknown cop)"),
+        "Message should include '(unknown cop)': {}",
+        redundant[0].message
     );
 
     fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
-fn no_redundant_disable_unknown_department() {
-    // Disable for a cop in a completely unknown department.
-    // CustomDept/ doesn't exist in the registry, so it might be a
-    // custom cop from a plugin gem — don't flag.
+fn redundant_disable_unknown_department() {
+    // Disable for a cop in a completely unknown department — flag with "(unknown cop)".
     let dir = temp_dir("redundant_disable_unknown_dept");
     let file = write_file(
         &dir,
@@ -3378,10 +3380,16 @@ fn no_redundant_disable_unknown_department() {
         .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
         .collect();
 
-    assert!(
-        redundant.is_empty(),
-        "Should NOT flag disable for unknown department (might be custom cop), got: {:?}",
+    assert_eq!(
+        redundant.len(),
+        1,
+        "Should flag unknown department cop, got: {:?}",
         redundant
+    );
+    assert!(
+        redundant[0].message.contains("(unknown cop)"),
+        "Message should include '(unknown cop)': {}",
+        redundant[0].message
     );
 
     fs::remove_dir_all(&dir).ok();
@@ -3473,9 +3481,10 @@ fn no_redundant_disable_when_offense_suppressed() {
 
 #[test]
 fn no_redundant_disable_with_only_flag() {
-    // When --only is set, don't report redundant disables (cops are filtered).
-    // Style/Copyright is disabled by default and WOULD be flagged as redundant
-    // normally, but --only means cops are filtered so we skip redundancy checks.
+    // The --only guard was removed because is_directive_redundant() is
+    // conservative enough on its own: it only flags disabled/excluded/
+    // renamed/unknown cops, never enabled cops that "didn't fire".
+    // Style/Copyright is disabled by default, so the directive IS redundant.
     let dir = temp_dir("redundant_disable_only");
     let file = write_file(
         &dir,
@@ -3503,9 +3512,10 @@ fn no_redundant_disable_with_only_flag() {
         .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
         .collect();
 
-    assert!(
-        redundant.is_empty(),
-        "Should NOT report redundant disables when --only is set, got: {:?}",
+    assert_eq!(
+        redundant.len(),
+        1,
+        "Should report redundant disable for disabled cop even with --only, got: {:?}",
         redundant
     );
 
@@ -4564,10 +4574,10 @@ fn redundant_disable_for_renamed_cop() {
 }
 
 #[test]
-fn no_redundant_disable_for_unknown_cop() {
+fn redundant_disable_for_unknown_cop() {
     // A disable for a completely unknown cop (not in registry, not renamed)
-    // should NOT be flagged — it might be from a custom plugin.
-    let dir = temp_dir("no_redundant_disable_unknown_cop");
+    // should be flagged with "(unknown cop)" — matching RuboCop behavior.
+    let dir = temp_dir("redundant_disable_unknown_cop");
     let file = write_file(
         &dir,
         "test.rb",
@@ -4593,9 +4603,14 @@ fn no_redundant_disable_for_unknown_cop() {
 
     assert_eq!(
         redundant.len(),
-        0,
-        "Unknown cop should NOT be flagged, got: {:?}",
+        1,
+        "Unknown cop should be flagged as redundant, got: {:?}",
         redundant
+    );
+    assert!(
+        redundant[0].message.contains("(unknown cop)"),
+        "Message should include '(unknown cop)': {}",
+        redundant[0].message
     );
 
     fs::remove_dir_all(&dir).ok();

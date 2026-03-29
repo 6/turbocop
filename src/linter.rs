@@ -525,8 +525,9 @@ const REDUNDANT_DISABLE_COP: &str = "Lint/RedundantCopDisableDirective";
 
 /// Determine if a disable directive should be flagged as redundant.
 ///
-/// Returns true if the directive IS redundant (should be reported), false if
-/// we should skip it.
+/// Returns `Some(suffix)` if the directive IS redundant (should be reported),
+/// where `suffix` is appended to the message (e.g. `" (unknown cop)"`).
+/// Returns `None` if we should skip it.
 ///
 /// The logic is conservative to avoid false positives:
 ///   - "all" or department-only directives: never flag (too broad to check)
@@ -536,27 +537,28 @@ const REDUNDANT_DISABLE_COP: &str = "Lint/RedundantCopDisableDirective";
 ///     flag as redundant (the old name is obsolete)
 ///   - Cop NOT in the registry but known from gem config (has Include/Exclude):
 ///     flag as redundant if the file is excluded by those patterns
-///   - Completely unknown cop: never flag (could be custom/project-local)
+///   - Completely unknown cop: flag with "(unknown cop)" suffix
 fn is_directive_redundant(
     cop_name: &str,
     registry: &CopRegistry,
     cop_filters: &CopFilterSet,
     path: &Path,
-) -> bool {
+    has_only_filter: bool,
+) -> Option<&'static str> {
     // "all" is a wildcard — never flag (too broad to determine redundancy)
     if cop_name == "all" {
-        return false;
+        return None;
     }
 
     // Department-only name (no '/') — never flag (too broad to check)
     if !cop_name.contains('/') {
-        return false;
+        return None;
     }
 
     // Self-referential: disabling RedundantCopDisableDirective itself is
     // legitimate (used in RuboCop's own source, for example).
     if cop_name == REDUNDANT_DISABLE_COP {
-        return false;
+        return None;
     }
 
     // Fully qualified cop name — check if it's in the registry
@@ -571,7 +573,7 @@ fn is_directive_redundant(
         let filter = cop_filters.cop_filter(idx);
         if !filter.is_enabled() {
             // Cop is explicitly disabled — the disable directive is redundant.
-            return true;
+            return Some("");
         }
         // Cop is enabled. Check if it's explicitly excluded from this file
         // by Exclude patterns (e.g., Lint/UselessMethodDefinition excluded
@@ -579,29 +581,44 @@ fn is_directive_redundant(
         // mismatches can arise from sub-config directory path issues and are
         // not reliable indicators of redundancy.
         if cop_filters.is_cop_excluded(idx, path) {
-            return true;
+            return Some("");
         }
         // Cop is enabled and not explicitly excluded — don't flag.
         // Conservative: even if the cop didn't execute (Include mismatch),
         // sub-config path resolution issues could cause false positives.
-        false
+        None
     } else {
         // Cop is NOT in the registry. Check if it's a renamed cop whose new
         // name IS in the registry and is enabled. RuboCop treats disable
         // directives for renamed cops as redundant since the old name no
         // longer exists.
-        if RENAMED_COPS.contains_key(cop_name) {
-            // The cop was renamed. RuboCop flags disable directives for
-            // renamed cops as redundant (with "Did you mean <new name>?").
-            return true;
+        if let Some(new_name) = RENAMED_COPS.get(cop_name) {
+            // The cop was renamed. In --only mode the new-name cop may not
+            // have run, so check its config: if it's enabled, the old-name
+            // directive might be suppressing its offenses — skip.
+            // In normal mode, check_and_mark_used already filtered out
+            // directives that suppressed offenses, so flagging is safe.
+            if has_only_filter {
+                let new_entry = registry
+                    .cops()
+                    .iter()
+                    .enumerate()
+                    .find(|(_, c)| c.name() == new_name.as_str());
+                if let Some((new_idx, _)) = new_entry {
+                    if cop_filters.cop_filter(new_idx).is_enabled()
+                        && !cop_filters.is_cop_excluded(new_idx, path)
+                    {
+                        return None;
+                    }
+                }
+            }
+            return Some("");
         }
 
-        // Not a renamed cop (or renamed-to cop is also not in registry).
-        // Don't flag unknown cops as redundant — they could be custom cops,
-        // project-local cops, or from plugins we don't implement. RuboCop
-        // only flags directives as redundant when the cop didn't fire any
-        // offenses; it doesn't check Include/Exclude patterns for redundancy.
-        false
+        // Cop is completely unknown — not in registry, not renamed. RuboCop
+        // flags these with "(unknown cop)" since they can never suppress an
+        // offense.
+        Some(" (unknown cop)")
     }
 }
 
@@ -1068,7 +1085,6 @@ fn lint_source_once(
 
     if !args.ignore_disable_comments
         && disabled.has_directives()
-        && args.only.is_empty()
         && !args.except.iter().any(|e| e == REDUNDANT_DISABLE_COP)
     {
         let cop_enabled = registry
@@ -1080,16 +1096,21 @@ fn lint_source_once(
 
         if cop_enabled {
             for directive in disabled.unused_directives() {
-                if !is_directive_redundant(
+                let suffix = match is_directive_redundant(
                     &directive.cop_name,
                     registry,
                     active_filters,
                     &source.path,
+                    !args.only.is_empty(),
                 ) {
-                    continue;
-                }
+                    Some(s) => s,
+                    None => continue,
+                };
 
-                let message = format!("Unnecessary disabling of `{}`.", directive.cop_name);
+                let message = format!(
+                    "Unnecessary disabling of `{}`{}.",
+                    directive.cop_name, suffix
+                );
                 diagnostics.push(Diagnostic {
                     path: source.path_str().to_string(),
                     location: Location {
