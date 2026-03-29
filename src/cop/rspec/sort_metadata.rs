@@ -126,7 +126,10 @@ impl SortMetadata {
 
         let (args_without_hash, trailing_hash) =
             if Self::hash_like_elements(metadata_args.last().unwrap()).is_some() {
-                (&metadata_args[..metadata_args.len() - 1], metadata_args.last())
+                (
+                    &metadata_args[..metadata_args.len() - 1],
+                    metadata_args.last(),
+                )
             } else {
                 (metadata_args, None)
             };
