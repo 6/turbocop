@@ -1175,7 +1175,12 @@ def dept_snake_to_pascal(name: str) -> str:
 
 
 def detect_cops(base: str, head: str) -> list[str]:
-    """Find all cop names affected by changes between base and head."""
+    """Find cops whose implementation changed between base and head.
+
+    Only triggers on src/cop/ changes.  Fixture-only changes
+    (tests/fixtures/cops/) are validated by cargo test and do not need
+    a corpus rerun.
+    """
     result = subprocess.run(
         ["git", "diff", "--name-only", f"{base}...{head}"],
         capture_output=True,
@@ -1192,11 +1197,6 @@ def detect_cops(base: str, head: str) -> list[str]:
             if name not in {"mod", "node_type"}:
                 cops.add(f"{dept_snake_to_pascal(dept)}/{snake_to_pascal(name)}")
             continue
-
-        match = re.match(r"tests/fixtures/cops/([^/]+)/([^/]+)/", path)
-        if match:
-            dept, name = match.group(1), match.group(2)
-            cops.add(f"{dept_snake_to_pascal(dept)}/{snake_to_pascal(name)}")
 
     return sorted(cops)
 
@@ -2144,6 +2144,23 @@ def cmd_dispatch_issues(args: argparse.Namespace) -> int:
     for issue in selected:
         cop = extract_cop_from_issue(issue)
         if not cop:
+            continue
+        # Lint/RedundantCopDisableDirective is a meta-cop: its detection
+        # runs in linter.rs after all other cops and requires their results
+        # to determine which disable comments are redundant.  check_cop.py
+        # --rerun uses --only which filters out all other cops, so the
+        # meta-cop always returns 0 offenses.  Agents cannot validate
+        # their work, so refuse to dispatch.
+        if cop == "Lint/RedundantCopDisableDirective":
+            print(f"SKIP dispatch: {cop} is a meta-cop incompatible with "
+                  f"per-cop corpus validation (--only mode)", file=sys.stderr)
+            comment_on_issue(
+                repo, issue["number"],
+                f"Skipping automated dispatch: `{cop}` is a meta-cop whose "
+                f"detection requires all cops to run simultaneously. "
+                f"`check_cop.py --rerun` uses `--only` which is incompatible "
+                f"with this cop. Manual fix required.",
+            )
             continue
         fields = parse_marker_fields(issue.get("body", ""), TRACKER_RE)
         difficulty = fields.get("difficulty", "complex")
