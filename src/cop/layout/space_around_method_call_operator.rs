@@ -1,8 +1,12 @@
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE};
+use crate::cop::node_type::{CALL_NODE, CALL_OPERATOR_WRITE_NODE, CONSTANT_PATH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// RuboCop still flags spaces after `.`/`&.` when Prism represents the send as
+/// an implicit `.()` call with no `message_loc`, and when compound writes like
+/// `obj.  attr += 1` are emitted as `CallOperatorWriteNode`. This cop now falls
+/// back to `opening_loc()` for implicit calls and checks compound write nodes.
 pub struct SpaceAroundMethodCallOperator;
 
 impl Cop for SpaceAroundMethodCallOperator {
@@ -11,7 +15,7 @@ impl Cop for SpaceAroundMethodCallOperator {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE]
+        &[CALL_NODE, CALL_OPERATOR_WRITE_NODE, CONSTANT_PATH_NODE]
     }
 
     fn check_node(
@@ -25,62 +29,27 @@ impl Cop for SpaceAroundMethodCallOperator {
     ) {
         // Handle CallNode (method calls with . or &.)
         if let Some(call) = node.as_call_node() {
-            if let Some(dot_loc) = call.call_operator_loc() {
-                let dot_slice = dot_loc.as_slice();
-                // Only check . and &. operators
-                if dot_slice == b"." || dot_slice == b"&." {
-                    // Check space before dot (between receiver end and dot start)
-                    if let Some(receiver) = call.receiver() {
-                        let recv_end = receiver.location().end_offset();
-                        let dot_start = dot_loc.start_offset();
-                        if dot_start > recv_end {
-                            let bytes = &source.as_bytes()[recv_end..dot_start];
-                            if bytes.iter().all(|&b| b == b' ' || b == b'\t') && !bytes.is_empty() {
-                                // Space before dot on the same line
-                                let (recv_end_line, _) = source.offset_to_line_col(recv_end);
-                                let (dot_start_line, _) = source.offset_to_line_col(dot_start);
-                                if recv_end_line == dot_start_line {
-                                    let (line, col) = source.offset_to_line_col(recv_end);
-                                    diagnostics.push(
-                                        self.diagnostic(
-                                            source,
-                                            line,
-                                            col,
-                                            "Avoid using spaces around a method call operator."
-                                                .to_string(),
-                                        ),
-                                    );
-                                }
-                            }
-                        }
-                    }
+            check_call_operator_spacing(
+                self,
+                source,
+                call.receiver().map(|receiver| receiver.location().end_offset()),
+                call.call_operator_loc(),
+                call.message_loc()
+                    .map(|loc| loc.start_offset())
+                    .or_else(|| call.opening_loc().map(|loc| loc.start_offset())),
+                diagnostics,
+            );
+        }
 
-                    // Check space after dot (between dot end and method start)
-                    if let Some(msg_loc) = call.message_loc() {
-                        let dot_end = dot_loc.end_offset();
-                        let msg_start = msg_loc.start_offset();
-                        if msg_start > dot_end {
-                            let bytes = &source.as_bytes()[dot_end..msg_start];
-                            if bytes.iter().all(|&b| b == b' ' || b == b'\t') && !bytes.is_empty() {
-                                let (dot_end_line, _) = source.offset_to_line_col(dot_end);
-                                let (msg_start_line, _) = source.offset_to_line_col(msg_start);
-                                if dot_end_line == msg_start_line {
-                                    let (line, col) = source.offset_to_line_col(dot_end);
-                                    diagnostics.push(
-                                        self.diagnostic(
-                                            source,
-                                            line,
-                                            col,
-                                            "Avoid using spaces around a method call operator."
-                                                .to_string(),
-                                        ),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        if let Some(write) = node.as_call_operator_write_node() {
+            check_call_operator_spacing(
+                self,
+                source,
+                write.receiver().map(|receiver| receiver.location().end_offset()),
+                write.call_operator_loc(),
+                write.message_loc().map(|loc| loc.start_offset()),
+                diagnostics,
+            );
         }
 
         // Handle ConstantPathNode (:: operator)
@@ -110,6 +79,61 @@ impl Cop for SpaceAroundMethodCallOperator {
             }
         }
     }
+}
+
+fn check_call_operator_spacing(
+    cop: &dyn Cop,
+    source: &SourceFile,
+    receiver_end: Option<usize>,
+    dot_loc: Option<ruby_prism::Location<'_>>,
+    selector_start: Option<usize>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(dot_loc) = dot_loc else {
+        return;
+    };
+
+    if !matches!(dot_loc.as_slice(), b"." | b"&.") {
+        return;
+    }
+
+    if let Some(receiver_end) = receiver_end {
+        push_spacing_offense(cop, source, receiver_end, dot_loc.start_offset(), diagnostics);
+    }
+
+    if let Some(selector_start) = selector_start {
+        push_spacing_offense(cop, source, dot_loc.end_offset(), selector_start, diagnostics);
+    }
+}
+
+fn push_spacing_offense(
+    cop: &dyn Cop,
+    source: &SourceFile,
+    gap_start: usize,
+    gap_end: usize,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if gap_end <= gap_start {
+        return;
+    }
+
+    let bytes = &source.as_bytes()[gap_start..gap_end];
+    if bytes.is_empty() || !bytes.iter().all(|&b| b == b' ' || b == b'\t') {
+        return;
+    }
+
+    let (gap_start_line, gap_start_col) = source.offset_to_line_col(gap_start);
+    let (gap_end_line, _) = source.offset_to_line_col(gap_end);
+    if gap_start_line != gap_end_line {
+        return;
+    }
+
+    diagnostics.push(cop.diagnostic(
+        source,
+        gap_start_line,
+        gap_start_col,
+        "Avoid using spaces around a method call operator.".to_string(),
+    ));
 }
 
 #[cfg(test)]
