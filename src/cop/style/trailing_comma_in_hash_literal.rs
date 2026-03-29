@@ -6,20 +6,25 @@ use crate::parse::source::SourceFile;
 
 /// Checks for trailing commas in hash literals.
 ///
-/// ## Corpus investigation (2026-03-08)
+/// ## Heredoc handling (2026-03)
 ///
-/// Corpus oracle reported FP=105, FN=0.
+/// Prism reports a hash pair's `end_offset()` at the heredoc opening token
+/// (for example `<<~RUBY.chomp`), not at the closing heredoc terminator. A
+/// previous FP fix tried to avoid scanning heredoc bodies by starting at the
+/// closing `}` line whenever a hash contained a heredoc, but that skipped the
+/// real trailing comma on the heredoc opening line:
 ///
-/// FP=105: Fixed. When a hash element's value contains a heredoc, Prism's
-/// `location().end_offset()` for the pair node ends at the heredoc opening
-/// tag on the source line (e.g., after `<<RUBY`), not after the heredoc
-/// body/terminator. The heredoc body appears later in the source between
-/// `last_end` and `closing_start`, so scanning that range finds commas inside
-/// heredoc content (e.g., `hello, world`).
+/// `key: <<~RUBY,`
 ///
-/// Fix: When any hash element contains a heredoc, scan only from the start of
-/// the closing `}`'s line instead of from `last_end`. This skips over heredoc
-/// bodies that sit between the last element and the closing brace.
+/// Fix: keep scanning from the last element end offset, but stop at the first
+/// newline when a heredoc is present. This matches RuboCop's heredoc-specific
+/// `/\A[^\S\n]*,/` check, so commas on the heredoc opening line are found
+/// without treating commas inside heredoc bodies as trailing hash commas.
+///
+/// Nested hash values also need heredoc recursion. Without that, an outer hash
+/// whose last value is another hash containing a heredoc still scans through
+/// the nested heredoc body and can mistake commas in embedded Ruby for a
+/// trailing comma on the outer hash.
 pub struct TrailingCommaInHashLiteral;
 
 impl Cop for TrailingCommaInHashLiteral {
@@ -58,31 +63,16 @@ impl Cop for TrailingCommaInHashLiteral {
         let closing_start = closing_loc.start_offset();
         let bytes = source.as_bytes();
 
-        // For heredoc elements, Prism's location.end_offset() is at the heredoc
-        // opening tag (e.g., `<<RUBY`), not the closing terminator. The heredoc body
-        // sits between last_end and closing_start in the source, so scanning that
-        // range could find commas inside heredoc content. For multiline hashes with
-        // heredocs, scan only from the start of the closing bracket's line.
-        let effective_last_end = if any_heredoc(&elements) {
-            let open_line = source
-                .offset_to_line_col(hash_node.opening_loc().start_offset())
-                .0;
-            let close_line = source.offset_to_line_col(closing_start).0;
-            if open_line == close_line {
-                // Single-line brackets: heredoc bodies are below, safe to use last_end
-                last_end
-            } else {
-                // Multiline brackets: scan from start of `}`'s line
-                let mut pos = closing_start;
-                while pos > 0 && bytes[pos - 1] != b'\n' {
-                    pos -= 1;
-                }
-                pos
-            }
+        // For heredoc elements, Prism's location.end_offset() is at the
+        // heredoc opening tag, so the heredoc body sits between last_end and
+        // closing_start. Match RuboCop here: only look for a comma before the
+        // first newline so we can catch `<<~RUBY,` without scanning heredoc text.
+        let has_heredoc = any_heredoc(&elements);
+        let has_comma = if has_heredoc {
+            has_trailing_comma_no_newline(bytes, last_end, closing_start)
         } else {
-            last_end
+            has_trailing_comma(bytes, last_end, closing_start)
         };
-        let has_comma = has_trailing_comma(bytes, effective_last_end, closing_start);
 
         let style = config.get_str("EnforcedStyleForMultiline", "no_comma");
         let last_line = source.offset_to_line_col(last_end).0;
@@ -90,13 +80,17 @@ impl Cop for TrailingCommaInHashLiteral {
         let is_multiline = close_line > last_line;
 
         // Helper: find the absolute offset of the trailing comma for diagnostics.
-        // Uses effective_last_end to avoid scanning through heredoc content.
         let find_comma_offset = || -> Option<usize> {
-            let search_range = &bytes[effective_last_end..closing_start];
-            search_range
-                .iter()
-                .position(|&b| b == b',')
-                .map(|off| effective_last_end + off)
+            let search_range = &bytes[last_end..closing_start];
+            for (offset, &byte) in search_range.iter().enumerate() {
+                if has_heredoc && byte == b'\n' {
+                    return None;
+                }
+                if byte == b',' {
+                    return Some(last_end + offset);
+                }
+            }
+            None
         };
 
         match style {
@@ -130,6 +124,34 @@ impl Cop for TrailingCommaInHashLiteral {
     }
 }
 
+/// Like `has_trailing_comma` but stops at the first newline. This matches
+/// RuboCop's heredoc-specific `/\A[^\S\n]*,/` behavior so only the heredoc
+/// opening line is considered when looking for a trailing comma.
+fn has_trailing_comma_no_newline(
+    source_bytes: &[u8],
+    last_element_end: usize,
+    closing_start: usize,
+) -> bool {
+    if last_element_end >= closing_start || closing_start > source_bytes.len() {
+        return false;
+    }
+
+    let region = &source_bytes[last_element_end..closing_start];
+    for &byte in region {
+        if byte == b'\n' {
+            return false;
+        }
+        if byte == b',' {
+            return true;
+        }
+        if byte != b' ' && byte != b'\t' {
+            return false;
+        }
+    }
+
+    false
+}
+
 /// Returns true if any element in the hash contains a heredoc.
 fn any_heredoc(elements: &[ruby_prism::Node<'_>]) -> bool {
     elements.iter().any(|e| is_heredoc_element(e))
@@ -141,6 +163,9 @@ fn is_heredoc_element(node: &ruby_prism::Node<'_>) -> bool {
     // Check pair nodes (hash key-value pairs)
     if let Some(pair) = node.as_assoc_node() {
         return is_heredoc_element(&pair.value());
+    }
+    if let Some(hash) = node.as_hash_node() {
+        return hash.elements().iter().any(|element| is_heredoc_element(&element));
     }
     // Direct string heredoc
     if let Some(s) = node.as_interpolated_string_node() {

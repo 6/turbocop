@@ -33,3 +33,20 @@ RUBY
   foo: 'foo',
   bar: 'bar'.delete(',')
 }
+
+# Heredoc method call with commas in the body is not a trailing hash comma
+{
+  key: <<~YAML.unindent
+    one, two
+  YAML
+}
+
+# Nested hash containing a heredoc should not make the outer hash look like it
+# has a trailing comma when the heredoc body contains commas.
+modules = {
+  'mod' => { 'lib' => { 'uri_test_func.rb' => <<-RUBY } }
+    def uri_test_func(options, context)
+      { 'uri' => [options['uri']] }
+    end
+  RUBY
+}
