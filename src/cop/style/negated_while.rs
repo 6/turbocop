@@ -20,6 +20,12 @@ use crate::parse::source::SourceFile;
 /// - FNs: parenthesized conditions `while(!cond)` and `while (not cond)` were
 ///   missed because `predicate.as_call_node()` returned None for the
 ///   ParenthesesNode wrapper
+/// - FNs: parenthesized multi-statement conditions like
+///   `while (`cmd`; ! $?.success?) do` were missed because RuboCop checks the
+///   final expression inside Parser's `begin` wrapper, but nitrocop only
+///   unwrapped single-statement parentheses. Fix: inspect the last statement
+///   inside parenthesized conditions, and only strip the negation itself during
+///   autocorrect so earlier statements remain intact.
 /// - FNs: `until !condition` was not handled at all (cop only checked WhileNode)
 /// - FPs: `!!condition` double negation was not excluded
 /// - FPs: safe-navigation chains `&.!` were not excluded
@@ -28,23 +34,31 @@ use crate::parse::source::SourceFile;
 ///   WhileNode and UntilNode, consistent with other cops (e.g. Lint/Loop).
 pub struct NegatedWhile;
 
-/// Unwrap parentheses from a node, returning the inner expression.
-/// Handles `(expr)`, `((expr))`, etc.
-fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
+/// Resolve the effective condition expression from a loop predicate.
+///
+/// Returns the node to inspect plus whether autocorrect should replace the
+/// entire predicate (`while (!foo)` -> `until foo`) or only the final negation
+/// within it (`while (`cmd`; !ok?)` -> `until (`cmd`; ok?)`).
+fn effective_predicate<'a>(node: ruby_prism::Node<'a>) -> Option<(ruby_prism::Node<'a>, bool)> {
     let mut current = node;
+    let mut replace_entire_predicate = true;
+
     while let Some(paren) = current.as_parentheses_node() {
         if let Some(body) = paren.body() {
             if let Some(stmts) = body.as_statements_node() {
                 let stmts_body = stmts.body();
-                if stmts_body.len() == 1 {
-                    current = stmts_body.iter().next().unwrap();
-                    continue;
+                let next = stmts_body.iter().last()?;
+                if stmts_body.len() != 1 {
+                    replace_entire_predicate = false;
                 }
+                current = next;
+                continue;
             }
         }
         break;
     }
-    current
+
+    Some((current, replace_entire_predicate))
 }
 
 /// Check if a node is a single negation (`!expr` or `not expr`),
@@ -85,11 +99,11 @@ fn add_negated_loop_corrections(
     cop: &NegatedWhile,
     kw_loc: &ruby_prism::Location<'_>,
     predicate: &ruby_prism::Node<'_>,
-    unwrapped: &ruby_prism::Node<'_>,
+    effective_predicate: &ruby_prism::Node<'_>,
+    replace_entire_predicate: bool,
     replacement_keyword: &str,
     corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
-    diag: &mut Diagnostic,
-) {
+) -> bool {
     if let Some(corr) = corrections {
         // 1. Replace keyword
         corr.push(crate::correction::Correction {
@@ -99,30 +113,43 @@ fn add_negated_loop_corrections(
             cop_name: cop.name(),
             cop_index: 0,
         });
-        // 2. Replace predicate with inner expression (without negation/parens)
-        if let Some(inner) = get_negation_inner(unwrapped) {
+        // 2. Replace the negated condition with its inner expression.
+        if let Some(inner) = get_negation_inner(effective_predicate) {
             let inner_src = std::str::from_utf8(inner.location().as_slice())
                 .unwrap_or("")
                 .to_string();
-            let pred_start = predicate.location().start_offset();
-            let pred_end = predicate.location().end_offset();
-            // Add space if keyword and predicate are adjacent (no space)
-            let needs_space = pred_start == kw_loc.end_offset();
-            let replacement = if needs_space {
-                format!(" {inner_src}")
+
+            let (start, end, replacement) = if replace_entire_predicate {
+                let pred_start = predicate.location().start_offset();
+                let pred_end = predicate.location().end_offset();
+                // Add space if keyword and predicate are adjacent (no space)
+                let needs_space = pred_start == kw_loc.end_offset();
+                let replacement = if needs_space {
+                    format!(" {inner_src}")
+                } else {
+                    inner_src
+                };
+                (pred_start, pred_end, replacement)
             } else {
-                inner_src
+                (
+                    effective_predicate.location().start_offset(),
+                    effective_predicate.location().end_offset(),
+                    inner_src,
+                )
             };
+
             corr.push(crate::correction::Correction {
-                start: pred_start,
-                end: pred_end,
+                start,
+                end,
                 replacement,
                 cop_name: cop.name(),
                 cop_index: 0,
             });
         }
-        diag.corrected = true;
+        return true;
     }
+
+    false
 }
 
 impl Cop for NegatedWhile {
@@ -154,8 +181,13 @@ impl Cop for NegatedWhile {
                 return;
             }
             let predicate = while_node.predicate();
-            let unwrapped = unwrap_parentheses(predicate);
-            if is_single_negation(&unwrapped) {
+            let Some((effective_predicate, replace_entire_predicate)) =
+                effective_predicate(predicate)
+            else {
+                return;
+            };
+
+            if is_single_negation(&effective_predicate) {
                 let (line, column) = source.offset_to_line_col(node.location().start_offset());
                 let mut diag = self.diagnostic(
                     source,
@@ -163,14 +195,14 @@ impl Cop for NegatedWhile {
                     column,
                     "Favor `until` over `while` for negative conditions.".to_string(),
                 );
-                add_negated_loop_corrections(
+                diag.corrected = add_negated_loop_corrections(
                     self,
                     &while_node.keyword_loc(),
                     &while_node.predicate(),
-                    &unwrapped,
+                    &effective_predicate,
+                    replace_entire_predicate,
                     "until",
                     &mut corrections,
-                    &mut diag,
                 );
                 diagnostics.push(diag);
             }
@@ -184,8 +216,13 @@ impl Cop for NegatedWhile {
                 return;
             }
             let predicate = until_node.predicate();
-            let unwrapped = unwrap_parentheses(predicate);
-            if is_single_negation(&unwrapped) {
+            let Some((effective_predicate, replace_entire_predicate)) =
+                effective_predicate(predicate)
+            else {
+                return;
+            };
+
+            if is_single_negation(&effective_predicate) {
                 let (line, column) = source.offset_to_line_col(node.location().start_offset());
                 let mut diag = self.diagnostic(
                     source,
@@ -193,14 +230,14 @@ impl Cop for NegatedWhile {
                     column,
                     "Favor `while` over `until` for negative conditions.".to_string(),
                 );
-                add_negated_loop_corrections(
+                diag.corrected = add_negated_loop_corrections(
                     self,
                     &until_node.keyword_loc(),
                     &until_node.predicate(),
-                    &unwrapped,
+                    &effective_predicate,
+                    replace_entire_predicate,
                     "while",
                     &mut corrections,
-                    &mut diag,
                 );
                 diagnostics.push(diag);
             }
@@ -285,6 +322,19 @@ mod tests {
             diags.len(),
             1,
             "Should flag modifier until with negation: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn multi_statement_parenthesized_condition() {
+        use crate::testutil::run_cop_full;
+        let source = b"while (`curl -k -I https://localhost:8140/packages/ 2>/dev/null | grep \"200 OK\" > /dev/null`; ! $?.success?) do\n  sleep 10\nend\n";
+        let diags = run_cop_full(&NegatedWhile, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag negation in the final statement of a parenthesized condition: {:?}",
             diags
         );
     }
