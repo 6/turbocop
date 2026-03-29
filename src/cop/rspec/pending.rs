@@ -24,6 +24,17 @@ use crate::parse::source::SourceFile;
 /// - Restrict keyword metadata values to RuboCop's matcher shape: `true|str|dstr`.
 /// - Treat only `BlockNode` as a real example body; block-pass nodes still count
 ///   as body-less for this cop.
+///
+/// ## Corpus investigation (2026-03-29)
+///
+/// FN=5 root cause: body-less examples whose only effective argument is a block-pass
+/// (`it(&example)`, `super { it(&block) }`) were missed. RuboCop's Parser AST stores
+/// `(block_pass ...)` as a send argument, so `skippable_example?` still matches.
+/// Prism stores the same syntax in `call.block()` as a `BlockArgumentNode`, so
+/// `call.arguments().is_some()` incorrectly returned false and suppressed offenses.
+///
+/// Fix: treat `BlockArgumentNode` as satisfying the "example has arguments but no
+/// real body" requirement, while still requiring the absence of a real `BlockNode`.
 pub struct Pending;
 
 /// X-prefixed example group methods (skipped groups).
@@ -87,6 +98,13 @@ fn is_pending_metadata_value(value: &ruby_prism::Node<'_>) -> bool {
     value.as_true_node().is_some()
         || value.as_string_node().is_some()
         || value.as_interpolated_string_node().is_some()
+}
+
+fn has_example_arguments(call: &ruby_prism::CallNode<'_>) -> bool {
+    call.arguments().is_some()
+        || call
+            .block()
+            .is_some_and(|block| block.as_block_argument_node().is_some())
 }
 
 impl Cop for Pending {
@@ -184,7 +202,7 @@ impl Cop for Pending {
                 if REGULAR_EXAMPLES.contains(&method_name)
                     && call.receiver().is_none()
                     && call.block().and_then(|b| b.as_block_node()).is_none()
-                    && call.arguments().is_some()
+                    && has_example_arguments(call)
                 {
                     self.flag(call);
                 }

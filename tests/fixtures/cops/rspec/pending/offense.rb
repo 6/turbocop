@@ -89,3 +89,18 @@ it 'uses a proc body', &(proc do
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/Pending: Pending spec found.
   expect(true).to be(true)
 end)
+
+it(&example)
+^ RSpec/Pending: Pending spec found.
+
+it(&example)
+^ RSpec/Pending: Pending spec found.
+
+it(&example)
+^ RSpec/Pending: Pending spec found.
+
+it(&example)
+^ RSpec/Pending: Pending spec found.
+
+super { it(&block) }
+        ^ RSpec/Pending: Pending spec found.
