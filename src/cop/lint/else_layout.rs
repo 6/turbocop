@@ -38,7 +38,9 @@ impl Cop for ElseLayout {
                 None => return,
             };
 
-            let else_node = if_node.subsequent().and_then(|subsequent| subsequent.as_else_node());
+            let else_node = if_node
+                .subsequent()
+                .and_then(|subsequent| subsequent.as_else_node());
             check_else_layout(
                 self,
                 source,
