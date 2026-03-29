@@ -1520,18 +1520,27 @@ fn load_config_recursive_inner(
         if let Some(Value::Mapping(gem_map)) = map.get(Value::String("inherit_gem".to_string())) {
             for (gem_key, gem_paths) in gem_map {
                 if let Some(gem_name) = gem_key.as_str() {
-                    let gem_layers =
-                        resolve_inherit_gem(gem_name, gem_paths, working_dir, visited, gem_cache)?;
-                    for layer in gem_layers {
-                        // Propagate user_mentioned from the layer's recursive loading.
-                        // Don't use cop_configs.keys() — that includes require: defaults.
-                        base_layer
-                            .user_mentioned_cops
-                            .extend(layer.user_mentioned_cops.iter().cloned());
-                        base_layer
-                            .user_mentioned_depts
-                            .extend(layer.user_mentioned_depts.iter().cloned());
-                        merge_layer_into(&mut base_layer, &layer, None);
+                    match resolve_inherit_gem(gem_name, gem_paths, working_dir, visited, gem_cache)
+                    {
+                        Ok(gem_layers) => {
+                            for layer in gem_layers {
+                                // Propagate user_mentioned from the layer's recursive loading.
+                                // Don't use cop_configs.keys() — that includes require: defaults.
+                                base_layer
+                                    .user_mentioned_cops
+                                    .extend(layer.user_mentioned_cops.iter().cloned());
+                                base_layer
+                                    .user_mentioned_depts
+                                    .extend(layer.user_mentioned_depts.iter().cloned());
+                                merge_layer_into(&mut base_layer, &layer, None);
+                            }
+                        }
+                        Err(e) => {
+                            // Match RuboCop: warn and continue loading the rest
+                            // of the config. The gem's config layer is skipped,
+                            // but local overrides (Max, Exclude, etc.) still apply.
+                            eprintln!("warning: {e:#}");
+                        }
                     }
                 }
             }
@@ -4387,25 +4396,33 @@ mod tests {
     }
 
     #[test]
-    fn inherit_gem_missing_gem_returns_error() {
+    fn inherit_gem_missing_gem_warns_and_continues() {
         // When inherit_gem references a gem that can't be resolved, load_config
-        // should return an error rather than silently skipping the config.
+        // should warn and continue (matching RuboCop), not fail hard.
+        // The rest of the config (local overrides) should still apply.
         let dir = std::env::temp_dir().join("nitrocop_test_inherit_gem_missing");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
-        let path = write_config(&dir, "inherit_gem:\n  nonexistent-gem-xyz: config.yml\n");
+        let path = write_config(
+            &dir,
+            "inherit_gem:\n  nonexistent-gem-xyz: config.yml\nMetrics/MethodLength:\n  Max: 20\n",
+        );
         // Pass empty gem cache — gem won't be found
         let gem_cache = HashMap::new();
         let result = load_config(Some(&path), Some(&dir), Some(&gem_cache));
         assert!(
-            result.is_err(),
-            "Expected error for missing inherit_gem, got Ok"
+            result.is_ok(),
+            "Missing inherit_gem should warn, not error: {:?}",
+            result.unwrap_err()
         );
-        let err_msg = format!("{:#}", result.unwrap_err());
-        assert!(
-            err_msg.contains("inherit_gem") && err_msg.contains("nonexistent-gem-xyz"),
-            "Error should mention inherit_gem and the gem name, got: {err_msg}"
+        // Local config (Max: 20) should still be applied
+        let config = result.unwrap();
+        let ml_config = config.cop_config("Metrics/MethodLength");
+        assert_eq!(
+            ml_config.options.get("Max").and_then(|v| v.as_u64()),
+            Some(20),
+            "Local Max override should survive missing inherit_gem"
         );
 
         fs::remove_dir_all(&dir).ok();
