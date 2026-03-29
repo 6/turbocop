@@ -139,3 +139,37 @@ describe Anyway::Ext::DeepDup do
     ^^^^^^^^^^^^^^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `Anyway::Ext::DeepDup`.
   end
 end
+
+# Block argument (&Const) should not be treated as a scope change
+describe RedactQueueProc do
+  it "test" do
+    instance_eval(&RedactQueueProc)
+                   ^^^^^^^^^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `RedactQueueProc`.
+  end
+end
+
+# Rspec (lowercase s) receiver should be recognized as top-level describe
+Rspec.describe Banner do
+  it 'creates' do
+    Banner.new
+    ^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `Banner`.
+  end
+end
+
+# Rspec (lowercase s) with qualified class
+Rspec.describe MebApi::DGI::Automation::Service do
+  let(:service) { MebApi::DGI::Automation::Service.new }
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `MebApi::DGI::Automation::Service`.
+end
+
+# describe inside a def method (outside describe block) should still be found
+module TransportSpecMacros
+  def transport_handler_eql(path, method)
+    describe SockJS::Transport do
+      it "test" do
+        SockJS::Transport.handlers(path)
+        ^^^^^^^^^^^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `SockJS::Transport`.
+      end
+    end
+  end
+end

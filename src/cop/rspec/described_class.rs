@@ -46,6 +46,37 @@ use ruby_prism::Visit;
 /// if it matches the described class, matching RuboCop's casgn semantics. Affects all 7
 /// remaining FNs: chef resource_spec (3), thin service_spec (2), anyway_config deep_dup (1),
 /// puppet execution_spec (1).
+///
+/// ## Corpus investigation (13 FP, 34 FN, 2026-03-29)
+///
+/// Five distinct bugs fixed:
+///
+/// 1. **`Rspec.describe` (lowercase 's') not recognized (26 FN).** `is_top_level_describe`
+///    required the receiver to be exactly `RSpec`. RuboCop's `described_constant` pattern
+///    uses `(send _ :describe ...)` which accepts any receiver. Fixed by accepting any
+///    constant receiver, matching RuboCop's behavior. Affected all 26 vets-api FNs.
+///
+/// 2. **`BlockArgumentNode` treated as block for scope changes (7 FN).**
+///    `instance_eval(&RedactQueueProc)` — Prism's `call.block()` returns both `BlockNode`
+///    (do/end) and `BlockArgumentNode` (&arg). RuboCop's `(block ...)` pattern only matches
+///    do/end blocks. Fixed by checking `b.as_block_node().is_some()`. Affected all 7
+///    berkmancenter FNs (redact_queue_spec.rb).
+///
+/// 3. **`describe` inside `def` not found (1 FN).** `visit_def_node` skipped all instance
+///    methods unconditionally. Outside a describe block, methods may contain describe blocks
+///    (e.g., shared spec helpers). Fixed by only skipping when `described_full_name.is_some()`.
+///    Affected sockjs spec_helper.rb.
+///
+/// 4. **`describe X do |variable|` set described_class (10 FP).** RuboCop's
+///    `described_constant` requires `(args)` (empty block params). Blocks with params like
+///    `do |variable|` should NOT set described_class. Fixed by checking
+///    `bn.parameters().is_some()` before setting. Affected all 10 pagseguro FPs.
+///
+/// 5. **`self::Const` as describe argument matched references (3 FP).** RuboCop's
+///    `const_name` returns nil for `self` namespace (not in `%i[lvar cbase send]`),
+///    so `describe self::Foo` effectively can't match any usage. Fixed by returning
+///    `None` from `extract_const_name_from_path` when parent is `SelfNode`.
+///    Affected all 3 Coursemology FPs.
 pub struct DescribedClass;
 
 impl Cop for DescribedClass {
@@ -140,6 +171,11 @@ fn extract_const_name_from_path(node: &ruby_prism::ConstantPathNode<'_>) -> Opti
             segments.push(Some(name_bytes));
             return Some(segments);
         }
+        // `self::Foo` — RuboCop's const_name returns nil for `self` namespace
+        // (it's not in the allowed list `%i[lvar cbase send]`), so we do the same.
+        if parent.as_self_node().is_some() {
+            return None;
+        }
         // Non-constant parent (e.g., `(expr)::Foo`, `foo::Bar`) => [None, name]
         return Some(vec![None, Some(name_bytes)]);
     }
@@ -205,21 +241,19 @@ impl DescribedClassVisitor<'_> {
         }
     }
 
-    /// Check if this call is a top-level describe (receiver-less or RSpec.describe)
+    /// Check if this call is a top-level describe.
+    /// Matches `describe X do`, `RSpec.describe X do`, `Rspec.describe X do`,
+    /// or any `<Const>.describe X do` — RuboCop's pattern uses `(send _ :describe ...)`
+    /// which accepts any receiver.
     fn is_top_level_describe(&self, call: &ruby_prism::CallNode<'_>) -> bool {
         let name = call.name().as_slice();
         if name != b"describe" {
             return false;
         }
         if let Some(recv) = call.receiver() {
-            if let Some(cr) = recv.as_constant_read_node() {
-                return cr.name().as_slice() == b"RSpec";
-            }
-            if let Some(cp) = recv.as_constant_path_node() {
-                return cp.name().is_some_and(|n| n.as_slice() == b"RSpec")
-                    && cp.parent().is_none();
-            }
-            false
+            // Accept any constant receiver (matches RuboCop's `_` wildcard).
+            // This handles RSpec.describe, Rspec.describe, ::RSpec.describe, etc.
+            recv.as_constant_read_node().is_some() || recv.as_constant_path_node().is_some()
         } else {
             // Must be at top-level (no described_class set yet)
             self.described_full_name.is_none()
@@ -228,7 +262,10 @@ impl DescribedClassVisitor<'_> {
 
     fn is_scope_change(call: &ruby_prism::CallNode<'_>) -> bool {
         let name = call.name().as_slice();
-        let has_block = call.block().is_some();
+        // Only a real block (do...end or {}) counts, not a block argument (&arg).
+        // In Prism, call.block() returns BlockNode for do/end and BlockArgumentNode
+        // for &arg. RuboCop's pattern `(block ...)` only matches do/end blocks.
+        let has_block = call.block().is_some_and(|b| b.as_block_node().is_some());
 
         // Class.new { }, Module.new { }, Struct.new { }, Data.define { }
         // Only scope changes when they have a block (matching RuboCop's
@@ -402,30 +439,39 @@ impl<'pr> Visit<'pr> for DescribedClassVisitor<'_> {
 
         // Handle top-level describe with a class argument
         if self.is_top_level_describe(node) {
-            if let Some(args) = node.arguments() {
-                let arg_list: Vec<_> = args.arguments().iter().collect();
-                if !arg_list.is_empty() {
-                    let old_full = self.described_full_name.take();
-                    let old_source = self.described_class_source.take();
-                    if self.set_described_class(&arg_list[0]) {
-                        if let Some(block) = node.block() {
-                            if let Some(bn) = block.as_block_node() {
-                                // Visit only the block body, not the arguments/receiver
-                                // (the class name in describe argument is not an offense)
-                                if let Some(body) = bn.body() {
-                                    self.visit(&body);
+            // RuboCop requires `(args)` (empty block params) — `describe X do |y|`
+            // does NOT set described_class.
+            let block_has_params = node
+                .block()
+                .and_then(|b| b.as_block_node())
+                .is_some_and(|bn| bn.parameters().is_some());
+
+            if !block_has_params {
+                if let Some(args) = node.arguments() {
+                    let arg_list: Vec<_> = args.arguments().iter().collect();
+                    if !arg_list.is_empty() {
+                        let old_full = self.described_full_name.take();
+                        let old_source = self.described_class_source.take();
+                        if self.set_described_class(&arg_list[0]) {
+                            if let Some(block) = node.block() {
+                                if let Some(bn) = block.as_block_node() {
+                                    // Visit only the block body, not the arguments/receiver
+                                    // (the class name in describe argument is not an offense)
+                                    if let Some(body) = bn.body() {
+                                        self.visit(&body);
+                                    }
                                 }
                             }
+                            self.described_full_name = old_full;
+                            self.described_class_source = old_source;
+                            return;
                         }
                         self.described_full_name = old_full;
                         self.described_class_source = old_source;
-                        return;
                     }
-                    self.described_full_name = old_full;
-                    self.described_class_source = old_source;
                 }
             }
-            // No class arg — just visit normally
+            // No class arg, block has params, or non-const arg — just visit normally
             ruby_prism::visit_call_node(self, node);
             return;
         }
@@ -433,25 +479,32 @@ impl<'pr> Visit<'pr> for DescribedClassVisitor<'_> {
         // Handle nested describe with class arg — change described_class.
         // Only `describe` sets described_class, not `context`.
         if name == b"describe" && self.described_full_name.is_some() {
-            if let Some(args) = node.arguments() {
-                let arg_list: Vec<_> = args.arguments().iter().collect();
-                if !arg_list.is_empty() {
-                    let old_full = self.described_full_name.take();
-                    let old_source = self.described_class_source.take();
-                    if self.set_described_class(&arg_list[0]) {
-                        if let Some(block) = node.block() {
-                            if let Some(bn) = block.as_block_node() {
-                                if let Some(body) = bn.body() {
-                                    self.visit(&body);
+            let nested_block_has_params = node
+                .block()
+                .and_then(|b| b.as_block_node())
+                .is_some_and(|bn| bn.parameters().is_some());
+
+            if !nested_block_has_params {
+                if let Some(args) = node.arguments() {
+                    let arg_list: Vec<_> = args.arguments().iter().collect();
+                    if !arg_list.is_empty() {
+                        let old_full = self.described_full_name.take();
+                        let old_source = self.described_class_source.take();
+                        if self.set_described_class(&arg_list[0]) {
+                            if let Some(block) = node.block() {
+                                if let Some(bn) = block.as_block_node() {
+                                    if let Some(body) = bn.body() {
+                                        self.visit(&body);
+                                    }
                                 }
                             }
+                            self.described_full_name = old_full;
+                            self.described_class_source = old_source;
+                            return;
                         }
                         self.described_full_name = old_full;
                         self.described_class_source = old_source;
-                        return;
                     }
-                    self.described_full_name = old_full;
-                    self.described_class_source = old_source;
                 }
             }
         }
@@ -617,8 +670,10 @@ impl<'pr> Visit<'pr> for DescribedClassVisitor<'_> {
         // In RuboCop AST, `def` (instance method) is a scope change but `defs`
         // (singleton method like `def self.foo`) is not. In Prism, both are
         // DefNode — singleton methods have a receiver (e.g., `self`).
-        // Only skip instance methods (no receiver); recurse into singleton methods.
-        if node.receiver().is_none() {
+        // Only skip instance methods (no receiver) when inside a describe block.
+        // Outside a describe block, we must recurse to find describe blocks
+        // that may be nested inside method definitions (e.g., shared spec helpers).
+        if self.described_full_name.is_some() && node.receiver().is_none() {
             return;
         }
         ruby_prism::visit_def_node(self, node);

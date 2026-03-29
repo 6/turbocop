@@ -168,3 +168,17 @@ describe MyClass do
     OtherClass::CONST = 'value'
   end
 end
+
+# describe with block parameters — described_class is NOT set (RuboCop requires empty args)
+describe PagSeguro::Session do |variable|
+  describe ".create" do
+    subject { PagSeguro::Session }
+  end
+end
+
+# self:: as namespace in describe arg — RuboCop const_name returns nil for self
+RSpec.describe 'Extension: Acts as Attachable' do
+  describe self::SampleModel do
+    let(:attachable) { self.class::SampleModel.new }
+  end
+end
