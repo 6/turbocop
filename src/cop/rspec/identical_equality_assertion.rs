@@ -8,15 +8,13 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Investigation notes (2026-03)
 ///
-/// **Root cause of FNs (4, all jruby):**
-/// 1. `Obj.method` vs `Obj::method` for lowercase names — In Parser gem (used by
-///    RuboCop), both produce `(send (const nil :Obj) :method)`, so `left == right`
-///    is true. In Prism, the call_operator differs (`.` vs `::`). Fix: normalize
-///    call_operator in AST fingerprint.
-/// 2. `%i{}` vs `[]` — Both are empty arrays. Parser gem: `(array)` for both.
-///    In Prism, source text differs. Fix: structural fingerprint for ArrayNode.
-/// 3. `/[\§]/` vs `/[§]/` — `\§` is a no-op escape. Parser gem stores the
-///    unescaped regex content, so they're equal. Fix: use `unescaped()` for regex.
+/// - RuboCop only matches `.to` when it receives a single matcher argument.
+///   `expect(x).to eq(x), message` is therefore a no-offense shape, so this cop
+///   must reject `.to` calls with extra message arguments.
+/// - Prism represents `expect(x).to be == x` as a `==` call whose receiver is a
+///   bare `be` matcher. Support that operator form in addition to `eq/eql/be(...)`.
+/// - The fingerprint still normalizes Parser-vs-Prism surface differences for
+///   `Obj.method` vs `Obj::method`, empty arrays, and equivalent regex escapes.
 pub struct IdenticalEqualityAssertion;
 
 impl Cop for IdenticalEqualityAssertion {
@@ -94,36 +92,19 @@ impl Cop for IdenticalEqualityAssertion {
         };
 
         let matcher_arg_list: Vec<_> = matcher_args.arguments().iter().collect();
-        if matcher_arg_list.is_empty() {
+        if matcher_arg_list.len() != 1 {
             return;
         }
 
-        let matcher_node = &matcher_arg_list[0];
-        let matcher_call = match matcher_node.as_call_node() {
+        let matcher_call = match matcher_arg_list[0].as_call_node() {
             Some(c) => c,
             None => return,
         };
 
-        let matcher_name = matcher_call.name().as_slice();
-        if matcher_name != b"eq" && matcher_name != b"eql" && matcher_name != b"be" {
-            return;
-        }
-
-        if matcher_call.receiver().is_some() {
-            return;
-        }
-
-        let matcher_inner_args = match matcher_call.arguments() {
-            Some(a) => a,
+        let matcher_arg = match matcher_argument(&matcher_call) {
+            Some(arg) => arg,
             None => return,
         };
-
-        let inner_arg_list: Vec<_> = matcher_inner_args.arguments().iter().collect();
-        if inner_arg_list.len() != 1 {
-            return;
-        }
-
-        let matcher_arg = &inner_arg_list[0];
 
         // Compare AST structure of both expressions (not source text).
         // RuboCop uses `left == right` on Parser gem AST nodes, which compares
@@ -132,7 +113,7 @@ impl Cop for IdenticalEqualityAssertion {
         let mut expect_fp = Vec::new();
         let mut matcher_fp = Vec::new();
         ast_fingerprint(source.as_bytes(), expect_arg, &mut expect_fp);
-        ast_fingerprint(source.as_bytes(), matcher_arg, &mut matcher_fp);
+        ast_fingerprint(source.as_bytes(), &matcher_arg, &mut matcher_fp);
 
         if expect_fp == matcher_fp {
             let loc = expect_call.location();
@@ -144,6 +125,43 @@ impl Cop for IdenticalEqualityAssertion {
                 "Identical expressions on both sides of the equality may indicate a flawed test.".to_string(),
             ));
         }
+    }
+}
+
+fn matcher_argument<'pr>(matcher_call: &ruby_prism::CallNode<'pr>) -> Option<ruby_prism::Node<'pr>> {
+    let matcher_args = matcher_call.arguments()?;
+    let mut matcher_arg_list = matcher_args.arguments().iter();
+    let matcher_arg = matcher_arg_list.next()?;
+    if matcher_arg_list.next().is_some() {
+        return None;
+    }
+
+    match matcher_call.name().as_slice() {
+        b"eq" | b"eql" | b"be" => {
+            if matcher_call.receiver().is_some() {
+                return None;
+            }
+        }
+        b"==" => {
+            let be_call = matcher_call.receiver()?.as_call_node()?;
+            if !is_bare_matcher_call(&be_call, b"be") {
+                return None;
+            }
+        }
+        _ => return None,
+    }
+
+    Some(matcher_arg)
+}
+
+fn is_bare_matcher_call(call: &ruby_prism::CallNode<'_>, name: &[u8]) -> bool {
+    if call.name().as_slice() != name || call.receiver().is_some() {
+        return false;
+    }
+
+    match call.arguments() {
+        Some(args) => args.arguments().iter().next().is_none(),
+        None => true,
     }
 }
 
