@@ -125,8 +125,7 @@ impl PercentLiteralDelimiters {
                 if let Some(s) = elem.as_string_node() {
                     bytes_contain(s.content_loc().as_slice())
                 } else if let Some(s) = elem.as_symbol_node() {
-                    s.value_loc()
-                        .map_or(false, |v| bytes_contain(v.as_slice()))
+                    s.value_loc().map_or(false, |v| bytes_contain(v.as_slice()))
                 } else {
                     false
                 }
@@ -271,9 +270,7 @@ impl Cop for PercentLiteralDelimiters {
             // RuboCop's include_same_character_as_used_for_delimiter? check.
             if literal_type == "%w" || literal_type == "%i" {
                 let (used_open, used_close) = matchpair(actual_delim);
-                if Self::literal_content_contains(
-                    node, source, &opening, used_open, used_close,
-                ) {
+                if Self::literal_content_contains(node, source, &opening, used_open, used_close) {
                     return;
                 }
             }
