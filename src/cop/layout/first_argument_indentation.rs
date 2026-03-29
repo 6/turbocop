@@ -66,6 +66,16 @@ use crate::parse::source::SourceFile;
 /// that motivated the skip was actually caused by `previous_code_line_indent`
 /// treating `#{...}` lines as comments (because `#` is the first non-whitespace
 /// char). Fixed by not treating `#` as a comment when followed by `{`.
+///
+/// ## Investigation (2026-03-29)
+///
+/// **FN fix (2 FNs):** Dotted operator sends like `Sequel.|(` were being
+/// skipped because `is_bare_operator` only looked at the method name. RuboCop
+/// only skips true bare operators (`foo + bar`) and still checks dotted sends
+/// (`self.+(`, `Sequel.|(`), while safe-navigation operator sends remain
+/// skipped because `dot?` is false for `&.`. Fixed by matching RuboCop's
+/// `operator_method? && !dot?` behavior and by emitting the quoted base-range
+/// message for single-line special inner calls like ``Sequel.|(``.
 pub struct FirstArgumentIndentation;
 
 impl Cop for FirstArgumentIndentation {
@@ -138,6 +148,9 @@ impl FirstArgVisitor<'_> {
             Some(a) => a,
             None => return,
         };
+        let has_regular_dot = call_operator_loc
+            .as_ref()
+            .is_some_and(|loc| loc.as_slice() == b".");
 
         let args: Vec<_> = args_node.arguments().iter().collect();
         if args.is_empty() {
@@ -168,7 +181,7 @@ impl FirstArgVisitor<'_> {
         }
 
         // Skip bare operators (like `a + b`) and setter methods (like `self.x = 1`)
-        if is_bare_operator(name) || is_setter_method(name) {
+        if is_bare_operator(name, has_regular_dot) || is_setter_method(name) {
             return;
         }
 
@@ -176,15 +189,12 @@ impl FirstArgVisitor<'_> {
             self.compute_expected_indent(call_start_offset, first_arg_loc.start_offset(), arg_line);
 
         if arg_col != expected {
-            self.diagnostics.push(
-                self.cop.diagnostic(
-                    self.source,
-                    arg_line,
-                    arg_col,
-                    "Indent the first argument one step more than the start of the previous line."
-                        .to_string(),
-                ),
-            );
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                arg_line,
+                arg_col,
+                self.message(call_start_offset, first_arg_loc.start_offset()),
+            ));
         }
     }
 
@@ -269,6 +279,46 @@ impl FirstArgVisitor<'_> {
             false
         }
     }
+
+    fn uses_base_range_message(&self, call_start_offset: usize) -> bool {
+        match self.style {
+            "consistent" => false,
+            "consistent_relative_to_receiver" => true,
+            _ => self.is_special_inner_call(call_start_offset),
+        }
+    }
+
+    fn message(&self, call_start_offset: usize, first_arg_start_offset: usize) -> String {
+        let base_text = self
+            .source
+            .try_byte_slice(call_start_offset, first_arg_start_offset)
+            .unwrap_or("")
+            .trim();
+        let (call_start_line, _) = self.source.offset_to_line_col(call_start_offset);
+        let (arg_start_line, _) = self.source.offset_to_line_col(first_arg_start_offset);
+
+        let base = if self.uses_base_range_message(call_start_offset)
+            && !base_text.contains('\n')
+            && is_single_line_base_range(
+                self.source,
+                call_start_offset,
+                first_arg_start_offset,
+                call_start_line,
+                arg_start_line,
+            ) {
+            format!("`{base_text}`")
+        } else if base_text
+            .lines()
+            .last()
+            .is_some_and(is_comment_line_for_message)
+        {
+            "the start of the previous line (not counting the comment)".to_string()
+        } else {
+            "the start of the previous line".to_string()
+        };
+
+        format!("Indent the first argument one step more than {base}.")
+    }
 }
 
 /// Check if the range from call_start to arg_start is effectively single-line
@@ -351,7 +401,11 @@ fn leading_whitespace_count(line: &[u8]) -> usize {
         .count()
 }
 
-fn is_bare_operator(name: &str) -> bool {
+fn is_bare_operator(name: &str, has_regular_dot: bool) -> bool {
+    is_operator_method(name) && !has_regular_dot
+}
+
+fn is_operator_method(name: &str) -> bool {
     // Operators that can be defined as methods
     matches!(
         name,
@@ -381,6 +435,11 @@ fn is_bare_operator(name: &str) -> bool {
     )
 }
 
+fn is_comment_line_for_message(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with('#') && !trimmed.starts_with("#{")
+}
+
 fn is_setter_method(name: &str) -> bool {
     name.ends_with('=') && name != "==" && name != "!=" && name != "[]="
 }
@@ -390,13 +449,17 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
         let call_start_offset = node.location().start_offset();
         let name_bytes = node.name().as_slice();
         let name_str = std::str::from_utf8(name_bytes).unwrap_or("");
+        let call_operator_loc = node.call_operator_loc();
+        let has_regular_dot = call_operator_loc
+            .as_ref()
+            .is_some_and(|loc| loc.as_slice() == b".");
 
         // Check this call node for first argument indentation
         self.check_call(
             call_start_offset,
             node.message_loc(),
             node.opening_loc(),
-            node.call_operator_loc(),
+            call_operator_loc,
             node.arguments(),
             name_str,
         );
@@ -404,7 +467,8 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
         // Determine if this call is parenthesized and eligible for being a
         // "parent call" context for inner calls
         let is_parenthesized = node.opening_loc().is_some_and(|loc| loc.as_slice() == b"(");
-        let is_eligible = !is_bare_operator(name_str) && !is_setter_method(name_str);
+        let is_eligible =
+            !is_bare_operator(name_str, has_regular_dot) && !is_setter_method(name_str);
 
         // Collect argument start offsets
         let arg_start_offsets: Vec<usize> = node

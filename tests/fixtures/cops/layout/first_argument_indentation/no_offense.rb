@@ -108,3 +108,8 @@ label_with_hint(attribute, options) +
 				arg1,
 				arg2
 		)
+
+# Bare operator call — still ignored
+foo +(
+  1
+)
