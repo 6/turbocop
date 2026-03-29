@@ -914,8 +914,14 @@ mod tests {
         // open to EOF. Only standalone enables close block disables.
         let src = "# rubocop:disable Foo/Bar\nx = 1\nend # rubocop:enable Foo/Bar\ny = 2\nz = 3\n";
         let dr = disabled_ranges(src);
-        assert!(dr.is_disabled("Foo/Bar", 1), "block disable should cover line 1");
-        assert!(dr.is_disabled("Foo/Bar", 2), "block disable should cover line 2");
+        assert!(
+            dr.is_disabled("Foo/Bar", 1),
+            "block disable should cover line 1"
+        );
+        assert!(
+            dr.is_disabled("Foo/Bar", 2),
+            "block disable should cover line 2"
+        );
         assert!(
             dr.is_disabled("Foo/Bar", 3),
             "block disable should cover the inline enable line"
