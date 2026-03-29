@@ -13,3 +13,9 @@ end
 def active?
   status != nil
 end
+
+class Test
+  def self.for?(klass)
+    (collections[klass] != nil)
+  end
+end
