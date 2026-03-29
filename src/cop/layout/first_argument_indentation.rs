@@ -189,14 +189,12 @@ impl FirstArgVisitor<'_> {
             self.compute_expected_indent(call_start_offset, first_arg_loc.start_offset(), arg_line);
 
         if arg_col != expected {
-            self.diagnostics.push(
-                self.cop.diagnostic(
-                    self.source,
-                    arg_line,
-                    arg_col,
-                    self.message(call_start_offset, first_arg_loc.start_offset()),
-                ),
-            );
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                arg_line,
+                arg_col,
+                self.message(call_start_offset, first_arg_loc.start_offset()),
+            ));
         }
     }
 
@@ -469,7 +467,8 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
         // Determine if this call is parenthesized and eligible for being a
         // "parent call" context for inner calls
         let is_parenthesized = node.opening_loc().is_some_and(|loc| loc.as_slice() == b"(");
-        let is_eligible = !is_bare_operator(name_str, has_regular_dot) && !is_setter_method(name_str);
+        let is_eligible =
+            !is_bare_operator(name_str, has_regular_dot) && !is_setter_method(name_str);
 
         // Collect argument start offsets
         let arg_start_offsets: Vec<usize> = node
