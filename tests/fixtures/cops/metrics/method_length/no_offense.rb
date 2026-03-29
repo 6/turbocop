@@ -229,6 +229,24 @@ def render_output(data)
   end
 end
 
+# Representative corpus FP from brandur/json_schema. The method body has one
+# executable line plus a =begin/=end block that totals exactly 10 counted lines.
+def first_visit(schema, errors, path)
+  true
+# removed until more comprehensive testing can be performed .. this is
+# currently causing validation loop detections to go off on all non-trivial
+# schemas
+=begin
+  key = "visited"
+  if !@visits.key?(key)
+    @visits[key] = true
+  else
+    errors << "already visited"
+    false
+  end
+=end
+end
+
 # Endless method with short multiline body (no offense)
 def compact_settings = {
   one: 1,

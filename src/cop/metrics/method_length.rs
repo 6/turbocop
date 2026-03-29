@@ -175,6 +175,18 @@ use crate::parse::source::SourceFile;
 /// ConfigLMM (1), brandur (1), engineyard (1), gisiahq (1), samvera (1),
 /// siberas (1) — all config resolution or vendored file issues.
 /// No cop-level fix needed.
+///
+/// ## Corpus verification (2026-03-29)
+///
+/// The cached corpus oracle still reports FP=8, FN=0 for this cop, but the
+/// current binary reproduces none of those locations:
+/// `python3 scripts/verify_cop_locations.py Metrics/MethodLength` reports
+/// all 8 FP locations fixed.
+///
+/// Added a representative no-offense fixture from brandur/json_schema
+/// (`first_visit`) as a regression guard. That shape has one executable body
+/// line plus a `=begin/=end` block totaling exactly 10 counted lines, so it
+/// must remain accepted, while genuinely overlong `=begin` bodies still fire.
 pub struct MethodLength;
 
 /// Parsed config values for MethodLength.
