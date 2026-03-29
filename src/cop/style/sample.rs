@@ -58,7 +58,11 @@ fn first_argument_source(
     let arg = args.arguments().iter().next()?;
     Some(
         source
-            .byte_slice(arg.location().start_offset(), arg.location().end_offset(), "")
+            .byte_slice(
+                arg.location().start_offset(),
+                arg.location().end_offset(),
+                "",
+            )
             .to_string(),
     )
 }
@@ -179,7 +183,13 @@ impl Cop for Sample {
 
         let shuffle_arg = shuffle_call
             .arguments()
-            .map(|args| source.byte_slice(args.location().start_offset(), args.location().end_offset(), ""))
+            .map(|args| {
+                source.byte_slice(
+                    args.location().start_offset(),
+                    args.location().end_offset(),
+                    "",
+                )
+            })
             .map(str::to_string);
 
         let correct = format_replacement(sample_arg, shuffle_arg);
