@@ -15,6 +15,9 @@ escape_html = ->(str) { str.gsub("&", "&amp;") }
 has_many :versions, -> { order("id ASC") }, class_name: "Foo"
 action = -> { puts "hello" }
 f = ->(x) { x + 1 }
+empty_lambda = ->(x) {}
+empty_proc = proc {|x|
+}
 g = -> {
   42
 }
