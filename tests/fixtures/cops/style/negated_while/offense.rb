@@ -35,3 +35,8 @@ end
 
 x += 1 until !list.include?(x)
 ^^^^^^ Style/NegatedWhile: Favor `while` over `until` for negative conditions.
+
+while (`curl -k -I https://localhost:8140/packages/ 2>/dev/null | grep "200 OK" > /dev/null`; ! $?.success?) do
+^^^^^ Style/NegatedWhile: Favor `until` over `while` for negative conditions.
+  sleep 10
+end
