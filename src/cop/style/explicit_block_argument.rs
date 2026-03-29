@@ -28,9 +28,13 @@ use crate::parse::source::SourceFile;
 ///   which matched (None, None) in the zip comparison.
 /// - Fixed FPs on blocks with `&b` parameter — `extract_block_param_names`
 ///   now checks for block, rest, and keyword_rest params and bails out.
-/// - Remaining FNs (2): `->{ yield }.call` — lambda containing yield. This
-///   is a LambdaNode as receiver of `.call`, not a block attached to a call.
-///   Would require visiting LambdaNode bodies, which is a different pattern.
+///
+/// Follow-up fixes:
+/// - Accepted simple named rest params (`|*params| yield params`), which
+///   RuboCop treats like any other block arg name match.
+/// - Added LambdaNode handling for stabby lambdas (`-> { yield }`), including
+///   lambdas passed as call arguments or used as a `.call` receiver. Prism
+///   represents these separately from call-attached BlockNode bodies.
 pub struct ExplicitBlockArgument;
 
 impl Cop for ExplicitBlockArgument {
@@ -65,22 +69,22 @@ struct ExplicitBlockArgumentVisitor<'a> {
 }
 
 impl<'a> ExplicitBlockArgumentVisitor<'a> {
-    /// Check if a call node has a yielding block: `something { |args| yield args }`
-    /// where the block body is a single yield statement and args match.
-    /// `call_start` is the start offset of the full expression (call + block).
-    fn check_call_with_block(&mut self, block: &ruby_prism::BlockNode<'_>, call_start: usize) {
+    /// Check if a block-like body is a sole `yield` forwarding its parameters unchanged.
+    /// `start_offset` is the offense location start: for call-attached blocks this is the
+    /// outer call start, while for stabby lambdas it is the lambda literal start.
+    fn check_yielding_block_like(
+        &mut self,
+        body: Option<ruby_prism::Node<'_>>,
+        parameters: Option<ruby_prism::Node<'_>>,
+        start_offset: usize,
+    ) {
         // Must be inside a method definition
         if self.def_depth == 0 {
             return;
         }
 
         // Must have a body
-        let body = match block.body() {
-            Some(b) => b,
-            None => return,
-        };
-
-        let stmts = match body.as_statements_node() {
+        let stmts = match body.and_then(|b| b.as_statements_node()) {
             Some(s) => s,
             None => return,
         };
@@ -97,8 +101,8 @@ impl<'a> ExplicitBlockArgumentVisitor<'a> {
         };
 
         // Get block params (may be empty for zero-arg blocks like `{ yield }`)
-        // Returns None if block has non-simple params (destructured, &block, *rest, **kwrest)
-        let block_param_names = match self.extract_block_param_names(block) {
+        // Returns None if params are not a simple RuboCop-compatible forwarding shape.
+        let block_param_names = match self.extract_block_param_names(parameters) {
             Some(names) => names,
             None => return,
         };
@@ -122,7 +126,7 @@ impl<'a> ExplicitBlockArgumentVisitor<'a> {
         }
 
         // Report the offense at the full call+block expression
-        let (line, column) = self.source.offset_to_line_col(call_start);
+        let (line, column) = self.source.offset_to_line_col(start_offset);
         self.diagnostics.push(self.cop.diagnostic(
             self.source,
             line,
@@ -133,9 +137,13 @@ impl<'a> ExplicitBlockArgumentVisitor<'a> {
 
     /// Extract block parameter names as a list of byte slices.
     /// Returns `Some(vec![])` for blocks with no parameters.
-    /// Returns `None` if block has non-simple params (destructured, &block, *rest, **kwrest).
-    fn extract_block_param_names(&self, block: &ruby_prism::BlockNode<'_>) -> Option<Vec<Vec<u8>>> {
-        let params = match block.parameters() {
+    /// Returns `None` if params have shapes this cop still intentionally skips
+    /// (destructured, optional/post/keyword args, block args, or anonymous rest args).
+    fn extract_block_param_names(
+        &self,
+        parameters: Option<ruby_prism::Node<'_>>,
+    ) -> Option<Vec<Vec<u8>>> {
+        let params = match parameters {
             Some(p) => p,
             None => return Some(vec![]),
         };
@@ -150,9 +158,13 @@ impl<'a> ExplicitBlockArgumentVisitor<'a> {
             None => return Some(vec![]),
         };
 
-        // Bail out if block has &block, *rest, or **kwrest parameters
+        // Keep the matcher narrow: simple required params, optionally followed by a
+        // named `*rest` param. RuboCop accepts `|*params| yield params`, but the other
+        // parameter kinds below are not covered by our current fixture/corpus evidence.
         if params_node.block().is_some()
-            || params_node.rest().is_some()
+            || !params_node.optionals().is_empty()
+            || !params_node.posts().is_empty()
+            || !params_node.keywords().is_empty()
             || params_node.keyword_rest().is_some()
         {
             return None;
@@ -166,6 +178,13 @@ impl<'a> ExplicitBlockArgumentVisitor<'a> {
                 None => return None,
             }
         }
+
+        if let Some(rest) = params_node.rest() {
+            let rest_param = rest.as_rest_parameter_node()?;
+            let name = rest_param.name()?;
+            names.push(name.as_slice().to_vec());
+        }
+
         Some(names)
     }
 
@@ -203,7 +222,11 @@ impl<'a, 'pr> Visit<'pr> for ExplicitBlockArgumentVisitor<'a> {
         // Check if this call has a block that just yields
         if let Some(block_arg) = node.block() {
             if let Some(block) = block_arg.as_block_node() {
-                self.check_call_with_block(&block, node.location().start_offset());
+                self.check_yielding_block_like(
+                    block.body(),
+                    block.parameters(),
+                    node.location().start_offset(),
+                );
             }
         }
         ruby_prism::visit_call_node(self, node);
@@ -212,7 +235,11 @@ impl<'a, 'pr> Visit<'pr> for ExplicitBlockArgumentVisitor<'a> {
     fn visit_forwarding_super_node(&mut self, node: &ruby_prism::ForwardingSuperNode<'pr>) {
         // `super { yield }` (no explicit args) parses as ForwardingSuperNode
         if let Some(block) = node.block() {
-            self.check_call_with_block(&block, node.location().start_offset());
+            self.check_yielding_block_like(
+                block.body(),
+                block.parameters(),
+                node.location().start_offset(),
+            );
         }
         ruby_prism::visit_forwarding_super_node(self, node);
     }
@@ -221,10 +248,23 @@ impl<'a, 'pr> Visit<'pr> for ExplicitBlockArgumentVisitor<'a> {
         // `super(args) { yield }` parses as SuperNode; block() returns Node
         if let Some(block) = node.block() {
             if let Some(block_node) = block.as_block_node() {
-                self.check_call_with_block(&block_node, node.location().start_offset());
+                self.check_yielding_block_like(
+                    block_node.body(),
+                    block_node.parameters(),
+                    node.location().start_offset(),
+                );
             }
         }
         ruby_prism::visit_super_node(self, node);
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        self.check_yielding_block_like(
+            node.body(),
+            node.parameters(),
+            node.location().start_offset(),
+        );
+        ruby_prism::visit_lambda_node(self, node);
     }
 }
 
