@@ -15,6 +15,7 @@ plan.entitlements.member?(entitlement.to_s)
 [1, 2, 3].inject
 [1, 2, 3].detect
 [1, 2, 3].find_all
+collect
 
 # Methods with regular args (not block_pass) should NOT be flagged
 [1, 2, 3].collect(:+)
