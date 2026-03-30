@@ -3481,10 +3481,8 @@ fn no_redundant_disable_when_offense_suppressed() {
 
 #[test]
 fn no_redundant_disable_with_only_flag() {
-    // The --only guard was removed because is_directive_redundant() is
-    // conservative enough on its own: it only flags disabled/excluded/
-    // renamed/unknown cops, never enabled cops that "didn't fire".
-    // Style/Copyright is disabled by default, so the directive IS redundant.
+    // Even in an unrelated --only run, a directive for a known disabled cop is
+    // still redundant because config state alone proves it cannot suppress anything.
     let dir = temp_dir("redundant_disable_only");
     let file = write_file(
         &dir,
@@ -3516,6 +3514,44 @@ fn no_redundant_disable_with_only_flag() {
         redundant.len(),
         1,
         "Should report redundant disable for disabled cop even with --only, got: {:?}",
+        redundant
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn unknown_redundant_disable_does_not_leak_into_unrelated_only_run() {
+    let dir = temp_dir("redundant_disable_only_unknown");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable CustomDept/CustomCop\n",
+    );
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert!(
+        redundant.is_empty(),
+        "Unknown-cop redundant disable should not leak into unrelated --only runs, got: {:?}",
         redundant
     );
 

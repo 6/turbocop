@@ -85,8 +85,8 @@ use crate::parse::source::SourceFile;
 ///   - `chatwoot/chatwoot@1345f6796609d867a2ef8f0b6c968eb63a54e8aa` explicitly sets
 ///     `Style/CaseLikeIf: Enabled: false` in `.rubocop.yml`, yet the oracle still
 ///     reports that file as an FN.
-///   Conclusion: the remaining corpus FN do not reproduce as detection bugs in this
-///   file and point to corpus/config-context mismatch outside the cop implementation.
+///   - Conclusion: the remaining corpus FN do not reproduce as detection bugs in this
+///     file and point to corpus/config-context mismatch outside the cop implementation.
 pub struct CaseLikeIf;
 
 impl Cop for CaseLikeIf {

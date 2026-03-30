@@ -537,13 +537,15 @@ const REDUNDANT_DISABLE_COP: &str = "Lint/RedundantCopDisableDirective";
 ///     flag as redundant (the old name is obsolete)
 ///   - Cop NOT in the registry but known from gem config (has Include/Exclude):
 ///     flag as redundant if the file is excluded by those patterns
-///   - Completely unknown cop: flag with "(unknown cop)" suffix
+///   - Completely unknown cop: flag with "(unknown cop)" suffix, except during
+///     unrelated `--only` runs where it would leak into another cop's results
 fn is_directive_redundant(
     cop_name: &str,
     registry: &CopRegistry,
     cop_filters: &CopFilterSet,
     path: &Path,
     has_only_filter: bool,
+    redundant_disable_explicitly_selected: bool,
 ) -> Option<&'static str> {
     // "all" is a wildcard — never flag (too broad to determine redundancy)
     if cop_name == "all" {
@@ -617,7 +619,11 @@ fn is_directive_redundant(
 
         // Cop is completely unknown — not in registry, not renamed. RuboCop
         // flags these with "(unknown cop)" since they can never suppress an
-        // offense.
+        // offense. However, during --only runs for an unrelated cop, suppress
+        // these to avoid leaking diagnostics into that cop's corpus results.
+        if has_only_filter && !redundant_disable_explicitly_selected {
+            return None;
+        }
         Some(" (unknown cop)")
     }
 }
@@ -1095,6 +1101,8 @@ fn lint_source_once(
             .is_some_and(|(idx, _)| active_filters.is_cop_match(idx, &source.path));
 
         if cop_enabled {
+            let redundant_disable_explicitly_selected =
+                args.only.iter().any(|o| o == REDUNDANT_DISABLE_COP);
             for directive in disabled.unused_directives() {
                 let suffix = match is_directive_redundant(
                     &directive.cop_name,
@@ -1102,6 +1110,7 @@ fn lint_source_once(
                     active_filters,
                     &source.path,
                     !args.only.is_empty(),
+                    redundant_disable_explicitly_selected,
                 ) {
                     Some(s) => s,
                     None => continue,
