@@ -276,10 +276,9 @@ fn qualified_name_extends_to_end(line: &str, max: usize, indentation_width: usiz
     end_pos += non_ws_len;
 
     // Check allowed_position?: start_chars < max AND end_pos reaches end of line
-    let indentation_difference = indentation_difference(line.as_bytes(), indentation_width);
-    let start_chars = line[..start].chars().count() + indentation_difference;
-    let end_chars = line[..end_pos].chars().count() + indentation_difference;
-    start_chars < max && end_chars >= line.chars().count()
+    let start_chars =
+        line[..start].chars().count() + indentation_difference(line.as_bytes(), indentation_width);
+    start_chars < max && end_pos >= line.len()
 }
 
 fn is_word_char(b: u8) -> bool {
@@ -384,8 +383,7 @@ fn uri_extends_to_end(
         return false;
     }
 
-    let indentation_difference = indentation_difference(line.as_bytes(), indentation_width);
-    let line_len = line.chars().count();
+    let indentation_diff = indentation_difference(line.as_bytes(), indentation_width);
 
     // Check each URI start — if ANY satisfies allowed_position?, allow the line
     for start in all_starts {
@@ -415,9 +413,8 @@ fn uri_extends_to_end(
         end_pos += non_ws_len;
 
         // Check allowed_position?: start_chars < max AND end_pos reaches end of line
-        let start_chars = line[..start].chars().count() + indentation_difference;
-        let end_chars = line[..end_pos].chars().count() + indentation_difference;
-        if start_chars < max && end_chars >= line_len {
+        let start_chars = line[..start].chars().count() + indentation_diff;
+        if start_chars < max && end_pos >= line.len() {
             return true;
         }
     }
