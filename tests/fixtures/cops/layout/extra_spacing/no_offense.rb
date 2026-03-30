@@ -169,3 +169,7 @@ results  << set_to_array(statement.getResultSet) while statement.getMoreResults
 # Compound assignment aligned with <<
 columns  = ((options && options[:columns]) || self.class.column_names_symbols.dup)
 columns << :id
+
+# Trailing whitespace is handled by Layout/TrailingWhitespace, not ExtraSpacing
+class TrailingWhitespaceHandledElsewhere
+end  

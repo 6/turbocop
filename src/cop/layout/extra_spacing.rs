@@ -128,6 +128,15 @@ use std::ops::Range;
 ///     (`space_count > 1 && i < line.len()`), so it cannot produce end-of-line
 ///     whitespace offenses. Treat those corpus hits as config/location artifacts,
 ///     not as a cop-logic bug to suppress in this file.
+///
+/// 14. **Sampled non-trailing oracle FPs are also config/context artifacts**:
+///     Additional corpus hits like `loopback  :localtick`, `should  == result`,
+///     `default_home_dir =  ::File.join(...)`, and `if ...  == ...` are all
+///     still flagged by RuboCop in isolation. Added a no-offense fixture for the
+///     actual validated FP shape (trailing whitespace after a closing keyword),
+///     which already passes without code changes. That indicates the remaining
+///     FP delta comes from repo-level config / inline-disable resolution rather
+///     than `Layout/ExtraSpacing` detection logic in this file.
 pub struct ExtraSpacing;
 
 impl Cop for ExtraSpacing {
