@@ -111,12 +111,10 @@ impl<'pr> Visit<'pr> for PredicateReturnVisitor<'_> {
 impl PredicateReturnVisitor<'_> {
     fn push_diagnostic(&mut self, offset: usize, message: &str) {
         let (line, column) = self.source.offset_to_line_col(offset);
-        self.diagnostics.push(self.cop.diagnostic(
-            self.source,
-            line,
-            column,
-            message.to_string(),
-        ));
+        self.diagnostics.push(
+            self.cop
+                .diagnostic(self.source, line, column, message.to_string()),
+        );
     }
 
     fn handle_implicit_return_values<'pr>(&mut self, node: &ruby_prism::Node<'pr>) {
