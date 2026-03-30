@@ -235,3 +235,23 @@ def compact_settings = {
   two: 2,
   three: 3
 }
+
+# =begin/=end embedded doc after body's last statement is excluded.
+# RuboCop uses body.source.lines which ends at the last body statement,
+# so =begin/=end blocks between the body and `end` are not counted.
+# 7 code lines + 6 =begin/=end lines = 13 physical, but only 7 count.
+def method_with_trailing_embdoc
+  if @descendant[0]
+    @descendant[0]
+  else
+    @descendant[0] = DescendantFont.new(self, 'latin')
+  end
+  call_something
+  call_another
+=begin
+  Original implementation was to reference @latinfont
+  directly but this was refactored to use DescendantFont
+  for proper font delegation and support.
+  See notes.
+=end
+end
