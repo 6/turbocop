@@ -136,3 +136,65 @@ term.to_s.map do |(word, _)|
     @in_likes = true
   end
 end
+
+# Two conditions plus a ternary else still meet the default MinBranchesCount.
+if mode == :materialize
+^^^^^^^^^^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.
+  map_depth.positive? ? "next []" : "return []"
+elsif mode == :each_indexed
+  map_depth.positive? ? "next" : "if block; return nil; else; return out; end"
+else
+  map_depth.positive? ? "next" : "return out"
+end
+
+current_val = query_hash['values'][0]
+if query_hash['attribute_key'] == 'phone_number'
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.
+  "+#{current_val&.delete('+')}"
+elsif query_hash['attribute_key'] == 'country_code'
+  current_val.downcase
+else
+  current_val.is_a?(String) ? current_val.downcase : current_val
+end
+
+found = false
+if word == "l"
+^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.
+  @order = :latest
+  nil
+elsif word =~ /\Aorder:\w+\z/i
+  @order = word.downcase.gsub("order:", "").to_sym
+  nil
+elsif word =~ /\Ain:title\z/i || word == "t"
+  @in_title = true
+  nil
+else
+  found ? nil : word
+end
+
+if item.is_a?(Label::Base)
+^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.
+  item.published? ? label_path(id: item.origin) : label_path(published: 0, id: item.origin)
+elsif item.is_a?(Collection::Base)
+  item.published? ? collection_path(id: item.origin) : collection_path(published: 0, id: item.origin)
+else
+  item.published? ? concept_path(id: item.origin) : concept_path(published: 0, id: item.origin)
+end
+
+if resource == 'export'
+^^^^^^^^^^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.
+  data_uri ? data_uri : DATA_URI
+elsif resource == 'import'
+  import_uri ? import_uri : IMPORT_URI
+else
+  base_uri ? base_uri : BASE_URI
+end
+
+if adapter =~ /postgresql/i
+^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.
+  self.type == 'monthly' ? "date_part('year', created_at), date_part('month', created_at)" : "date_data"
+elsif adapter =~ /mysql/i
+  self.type == 'monthly' ? "YEAR(created_at), MONTH(created_at)" : "date_data"
+else
+  self.type == 'monthly' ? "strftime('%Y', created_at), strftime('%m', created_at)" : "date_data"
+end
