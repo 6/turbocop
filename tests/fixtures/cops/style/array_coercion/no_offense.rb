@@ -5,3 +5,4 @@ Array(paths)
 [*a, *b]
 x = [1]
 other_paths = [paths] unless paths.is_a?(Array)
+paths = [paths] unless paths.is_a?(Foo::Array)

@@ -30,3 +30,6 @@ domains = [domains] unless domains.is_a?(Array)
 
 addresses = [addresses] unless addresses.is_a?(Array)
 ^ Style/ArrayCoercion: Use `Array(addresses)` instead of explicit `Array` check.
+
+paths = [paths] unless paths.is_a?(::Array)
+^ Style/ArrayCoercion: Use `Array(paths)` instead of explicit `Array` check.
