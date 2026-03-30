@@ -10,5 +10,23 @@ end
 def baz
   return nil
 end
+
+def qux?
+  do_something
+
+  nil
+
+  do_something
+end
+
+def quux?
+  if bar
+    true
+  else
+    nil
+  end
+  baz
+end
+
 x = 1
 y = 2
