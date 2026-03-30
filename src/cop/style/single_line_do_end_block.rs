@@ -15,7 +15,21 @@
 /// Fix: dispatch on CALL_NODE (for `foo do...end`, `lambda do...end`) and
 /// LAMBDA_NODE (for `-> do...end`) to get the full expression location.
 /// Report at the CallNode/LambdaNode start, matching RuboCop's `add_offense(node)`.
-use crate::cop::node_type::{CALL_NODE, LAMBDA_NODE};
+///
+/// ## Investigation (2026-03-30)
+///
+/// Remaining FN clusters were multiline receiver/argument chains whose final
+/// `do`...`end` stayed on one physical line, plus `super do...end` inside `{}`.
+/// RuboCop still reports at the full invocation start, but its single-line
+/// check is based on the block delimiters, not the whole enclosing expression
+/// span. The previous CallNode-based check used the full call range for both,
+/// so earlier line breaks suppressed legitimate offenses, and it never handled
+/// `super`/`zsuper` block forms.
+///
+/// Fix: keep reporting from the invocation node (`CallNode`, `SuperNode`,
+/// `ForwardingSuperNode`, `LambdaNode`) while deciding single-line status from
+/// the attached block's `do` and `end` delimiter lines.
+use crate::cop::node_type::{CALL_NODE, FORWARDING_SUPER_NODE, LAMBDA_NODE, SUPER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -27,23 +41,20 @@ impl SingleLineDoEndBlock {
         &self,
         source: &SourceFile,
         expr_start: usize,
-        expr_end: usize,
         opening_loc: ruby_prism::Location<'_>,
+        closing_loc: ruby_prism::Location<'_>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        // Check if it uses do...end
         if opening_loc.as_slice() != b"do" {
             return;
         }
 
-        // Check if expression is on single line
-        let (start_line, _) = source.offset_to_line_col(expr_start);
-        let (end_line, _) = source.offset_to_line_col(expr_end.saturating_sub(1));
-        if start_line != end_line {
+        let (opening_line, _) = source.offset_to_line_col(opening_loc.start_offset());
+        let (closing_line, _) = source.offset_to_line_col(closing_loc.start_offset());
+        if opening_line != closing_line {
             return;
         }
 
-        // Report offense at the start of the entire expression (matches RuboCop)
         let (line, column) = source.offset_to_line_col(expr_start);
         diagnostics.push(self.diagnostic(
             source,
@@ -60,7 +71,7 @@ impl Cop for SingleLineDoEndBlock {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, LAMBDA_NODE]
+        &[CALL_NODE, SUPER_NODE, FORWARDING_SUPER_NODE, LAMBDA_NODE]
     }
 
     fn check_node(
@@ -72,35 +83,57 @@ impl Cop for SingleLineDoEndBlock {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Handle CallNode with a do...end block (e.g., `foo do bar end`, `lambda do |x| x end`)
         if let Some(call) = node.as_call_node() {
-            let block = match call.block() {
-                Some(b) => match b.as_block_node() {
-                    Some(bn) => bn,
-                    None => return,
-                },
+            let block = match call.block().and_then(|block| block.as_block_node()) {
+                Some(block) => block,
                 None => return,
             };
-
-            let call_loc = call.location();
             self.check_do_end_block(
                 source,
-                call_loc.start_offset(),
-                call_loc.end_offset(),
+                call.location().start_offset(),
                 block.opening_loc(),
+                block.closing_loc(),
                 diagnostics,
             );
             return;
         }
 
-        // Handle LambdaNode with do...end (e.g., `->(arg) do foo end`)
-        if let Some(lambda) = node.as_lambda_node() {
-            let loc = lambda.location();
+        if let Some(super_node) = node.as_super_node() {
+            let block = match super_node.block().and_then(|block| block.as_block_node()) {
+                Some(block) => block,
+                None => return,
+            };
             self.check_do_end_block(
                 source,
-                loc.start_offset(),
-                loc.end_offset(),
+                super_node.location().start_offset(),
+                block.opening_loc(),
+                block.closing_loc(),
+                diagnostics,
+            );
+            return;
+        }
+
+        if let Some(forwarding_super_node) = node.as_forwarding_super_node() {
+            let block = match forwarding_super_node.block() {
+                Some(block) => block,
+                None => return,
+            };
+            self.check_do_end_block(
+                source,
+                forwarding_super_node.location().start_offset(),
+                block.opening_loc(),
+                block.closing_loc(),
+                diagnostics,
+            );
+            return;
+        }
+
+        if let Some(lambda) = node.as_lambda_node() {
+            self.check_do_end_block(
+                source,
+                lambda.location().start_offset(),
                 lambda.opening_loc(),
+                lambda.closing_loc(),
                 diagnostics,
             );
         }
