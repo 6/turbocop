@@ -1,0 +1,582 @@
+{
+  "metadata": {
+    "files_inspected": 1064,
+    "offense_count": 63,
+    "corrected_count": 0
+  },
+  "offenses": [
+    {
+      "path": "/tmp/arachni_check/components/plugins/proxy/template_scope.rb",
+      "line": 24,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `params`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/components/plugins/proxy/template_scope.rb",
+      "line": 92,
+      "column": 18,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `params`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/components/reporters/html.rb",
+      "line": 178,
+      "column": 52,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/components/reporters/html.rb",
+      "line": 283,
+      "column": 22,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `params`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/components/reporters/html.rb",
+      "line": 304,
+      "column": 24,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `params`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser.rb",
+      "line": 181,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser.rb",
+      "line": 250,
+      "column": 24,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser.rb",
+      "line": 315,
+      "column": 19,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser.rb",
+      "line": 560,
+      "column": 36,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser/element_locator.rb",
+      "line": 29,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser/javascript/taint_tracer/frame.rb",
+      "line": 33,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser/javascript/taint_tracer/frame/called_function.rb",
+      "line": 30,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser/javascript/taint_tracer/sink/base.rb",
+      "line": 22,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser_cluster.rb",
+      "line": 75,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser_cluster/job.rb",
+      "line": 54,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser_cluster/job.rb",
+      "line": 157,
+      "column": 17,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser_cluster/job.rb",
+      "line": 169,
+      "column": 30,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser_cluster/job/result.rb",
+      "line": 21,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/browser_cluster/worker.rb",
+      "line": 40,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/check/auditor.rb",
+      "line": 386,
+      "column": 59,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/check/auditor.rb",
+      "line": 596,
+      "column": 35,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `opts`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/check/auditor.rb",
+      "line": 620,
+      "column": 33,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `opts`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/component/options/base.rb",
+      "line": 44,
+      "column": 26,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/element/capabilities/analyzable/differential.rb",
+      "line": 109,
+      "column": 31,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `opts`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/element/capabilities/analyzable/signature.rb",
+      "line": 118,
+      "column": 38,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `opts`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/element/capabilities/mutable.rb",
+      "line": 274,
+      "column": 28,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `opts`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/element/form/capabilities/mutable.rb",
+      "line": 66,
+      "column": 32,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `opts`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/http/message.rb",
+      "line": 39,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/http/proxy_server.rb",
+      "line": 41,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/http/proxy_server/connection.rb",
+      "line": 23,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/http/proxy_server/connection.rb",
+      "line": 319,
+      "column": 19,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/http/request.rb",
+      "line": 141,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/http/response.rb",
+      "line": 70,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/http/response.rb",
+      "line": 255,
+      "column": 40,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/http/response.rb",
+      "line": 285,
+      "column": 38,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/issue.rb",
+      "line": 107,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/parser.rb",
+      "line": 66,
+      "column": 25,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/parser.rb",
+      "line": 79,
+      "column": 24,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/parser/extractors/base.rb",
+      "line": 21,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/parser/sax.rb",
+      "line": 20,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/plugin/manager.rb",
+      "line": 157,
+      "column": 22,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/processes/dispatchers.rb",
+      "line": 35,
+      "column": 22,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/processes/dispatchers.rb",
+      "line": 66,
+      "column": 15,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/processes/instances.rb",
+      "line": 122,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/processes/instances.rb",
+      "line": 147,
+      "column": 26,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/processes/manager.rb",
+      "line": 133,
+      "column": 27,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/report.rb",
+      "line": 45,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/rpc/client/instance/framework.rb",
+      "line": 49,
+      "column": 34,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/support/lookup/base.rb",
+      "line": 27,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/support/lookup/moolb.rb",
+      "line": 34,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/support/profiler.rb",
+      "line": 20,
+      "column": 42,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/support/profiler.rb",
+      "line": 82,
+      "column": 22,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/support/profiler.rb",
+      "line": 181,
+      "column": 34,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/support/profiler.rb",
+      "line": 208,
+      "column": 28,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/lib/arachni/support/signature.rb",
+      "line": 31,
+      "column": 26,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/spec/arachni/page/dom_spec.rb",
+      "line": 5,
+      "column": 21,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/spec/arachni/page_spec.rb",
+      "line": 5,
+      "column": 21,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/spec/support/lib/web_server_client.rb",
+      "line": 23,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/spec/support/lib/web_server_dispatcher.rb",
+      "line": 22,
+      "column": 20,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/spec/support/shared/element/capabilities/inputtable.rb",
+      "line": 1,
+      "column": 37,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/spec/support/shared/element/capabilities/mutable.rb",
+      "line": 1,
+      "column": 34,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/spec/support/shared/element/dom/inputtable.rb",
+      "line": 1,
+      "column": 41,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    },
+    {
+      "path": "/tmp/arachni_check/spec/support/shared/element/dom/mutable.rb",
+      "line": 1,
+      "column": 38,
+      "severity": "C",
+      "cop_name": "Style/OptionHash",
+      "message": "Use keyword arguments instead of an options hash argument `options`.",
+      "corrected": false
+    }
+  ],
+  "skipped": {
+    "preview_gated": [],
+    "unimplemented": [],
+    "outside_baseline": [],
+    "total": 0
+  }
+}

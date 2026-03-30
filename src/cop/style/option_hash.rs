@@ -119,8 +119,7 @@ impl OptionHashVisitor<'_> {
                             .is_some_and(|h| h.elements().is_empty());
                     if is_empty_hash {
                         let loc = opt_param.location();
-                        let (line, column) =
-                            self.source.offset_to_line_col(loc.start_offset());
+                        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                         self.diagnostics.push(self.cop.diagnostic(
                             self.source,
                             line,
@@ -169,9 +168,7 @@ impl<'pr> Visit<'pr> for OptionHashVisitor<'_> {
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         // Check for forwarding super in the block body (e.g. `defined? super`).
         // RuboCop's super_used? searches the block body for zsuper too.
-        let body_has_super = node
-            .body()
-            .is_some_and(|body| has_forwarding_super(&body));
+        let body_has_super = node.body().is_some_and(|body| has_forwarding_super(&body));
         if !body_has_super {
             if let Some(block_params) = node.parameters() {
                 if let Some(bp) = block_params.as_block_parameters_node() {
@@ -185,9 +182,7 @@ impl<'pr> Visit<'pr> for OptionHashVisitor<'_> {
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
-        let body_has_super = node
-            .body()
-            .is_some_and(|body| has_forwarding_super(&body));
+        let body_has_super = node.body().is_some_and(|body| has_forwarding_super(&body));
         if !body_has_super {
             if let Some(block_params) = node.parameters() {
                 if let Some(bp) = block_params.as_block_parameters_node() {
