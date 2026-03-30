@@ -5,6 +5,11 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
 
+type DescriptionSignature = Vec<u8>;
+type ExampleGroupName = Vec<u8>;
+type ExampleGroupLocation = (usize, usize, ExampleGroupName);
+type RepeatedDescriptionMap = HashMap<DescriptionSignature, Vec<ExampleGroupLocation>>;
+
 /// RSpec/RepeatedExampleGroupDescription: Flag example groups with identical descriptions.
 ///
 /// ## Investigation findings (2026-03-11)
@@ -94,8 +99,7 @@ fn check_sibling_groups(
         .count();
 
     if example_group_count >= 2 {
-        #[allow(clippy::type_complexity)] // internal collection used only in this function
-        let mut desc_map: HashMap<Vec<u8>, Vec<(usize, usize, Vec<u8>)>> = HashMap::new();
+        let mut desc_map: RepeatedDescriptionMap = HashMap::new();
 
         for stmt in &stmt_nodes {
             let call = match extract_example_group_call(stmt) {
@@ -140,7 +144,7 @@ fn check_sibling_groups(
 fn push_repeated_description_diagnostics(
     cop: &RepeatedExampleGroupDescription,
     source: &SourceFile,
-    desc_map: HashMap<Vec<u8>, Vec<(usize, usize, Vec<u8>)>>,
+    desc_map: RepeatedDescriptionMap,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for locs in desc_map.values() {
