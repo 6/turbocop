@@ -45,3 +45,13 @@ describe 'iterator examples' do
     end
   end
 end
+
+describe 'empty descriptions' do
+  specify "" do
+  ^^^^^^^^^^^^^ RSpec/RepeatedDescription: Don't repeat descriptions within an example group.
+  end
+
+  specify "" do
+  ^^^^^^^^^^^^^ RSpec/RepeatedDescription: Don't repeat descriptions within an example group.
+  end
+end
