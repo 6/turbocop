@@ -597,7 +597,6 @@ fn recurse_children(
         if let Some(body) = def_node.body() {
             traverse_condition(source, &body, allow_safe, msg, cop, diagnostics);
         }
-        return;
     }
     // For other node types we don't recurse — they're leaf nodes or types
     // where assignments aren't relevant (e.g., literals, method args)
