@@ -232,6 +232,39 @@ use crate::parse::source::SourceFile;
 ///    (N != M) is not considered "same line". Fix: only skip embedded expressions
 ///    when `if_start_line == if_end_line` (single-line guard). For multiline guards
 ///    with code on the end line, directly flag the offense.
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// A remaining FN came from a block-form guard followed by another `if` block
+/// whose first body statement was a multi-line `raise` created by leaving a
+/// string literal open across the newline:
+///
+/// ```ruby
+/// if repository_exists?
+///   raise "collision"
+/// end
+/// if file_exists?
+///   raise "message continues
+///          here"
+/// end
+/// ```
+///
+/// The raw-text sibling classifier only rejected obvious multi-line bodies when
+/// the first line ended with `\\`, `,`, `+`, `.` or had open brackets. It did
+/// not notice a line that stayed inside a quoted string at end-of-line,
+/// so it incorrectly treated the second block as a single-line guard and
+/// suppressed the offense after the first `end`. Fix: track whether a block
+/// body line ends inside a quote and treat that as a multi-line statement,
+/// matching RuboCop's `single_line?` guard check.
+///
+/// Another remaining FN came from lines like
+/// `return "ip" if IPAddr.new(group) rescue false`. Prism parses that as a
+/// `RescueModifierNode` whose wrapped expression is an `IfNode`. RuboCop only
+/// suppresses the previous offense when the NEXT sibling itself is an `if`
+/// node, so this line is not a guard sibling. The old raw-text classifier only
+/// looked for guard keyword + `if`/`unless` and incorrectly treated the line as
+/// a guard clause. Fix: reject top-level `rescue` modifier lines from the
+/// sibling guard-line heuristic.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -893,6 +926,9 @@ fn is_guard_line(content: &[u8]) -> bool {
     // considered guard lines for the purpose of this check.
     for keyword in GUARD_METHODS {
         if starts_with_keyword(content, keyword) {
+            if contains_word_at_top_level(content, b"rescue") {
+                return false;
+            }
             // Check if this line also has a modifier `if` or `unless`
             if contains_word(content, b"if") || contains_word(content, b"unless") {
                 return true;
@@ -1164,29 +1200,74 @@ fn is_bare_guard_in_block(trimmed: &[u8], lines: &[&[u8]], line_idx: usize) -> b
         .map(|end| &trimmed[..=end])
         .unwrap_or(trimmed);
 
-    if stripped.ends_with(b"\\")
-        || stripped.ends_with(b",")
-        || stripped.ends_with(b"+")
-        || stripped.ends_with(b".")
-    {
-        return false;
-    }
-
-    // Check for unclosed parens/braces (multi-line argument list)
-    if line_idx + 1 < lines.len() {
+    // Guard statement must be fully closed on this physical line. RuboCop's
+    // `single_line?` rejects bodies that continue via punctuation, open
+    // brackets, or an unterminated quoted string literal.
+    if line_idx + 1 < lines.len() && expression_continues_past_line(stripped) {
         let next = lines[line_idx + 1];
         let next_trimmed = next
             .iter()
             .position(|&b| b != b' ' && b != b'\t')
             .map(|s| &next[s..])
             .unwrap_or(b"");
-        let paren_depth = count_bracket_depth_change(trimmed);
-        if paren_depth > 0 && !next_trimmed.is_empty() {
+        if !next_trimmed.is_empty() {
             return false;
         }
     }
 
     true
+}
+
+fn expression_continues_past_line(stripped: &[u8]) -> bool {
+    if stripped.ends_with(b"\\")
+        || stripped.ends_with(b",")
+        || stripped.ends_with(b"+")
+        || stripped.ends_with(b".")
+    {
+        return true;
+    }
+
+    let state = line_literal_state(stripped);
+    state.paren_depth > 0 || state.in_single_quote || state.in_double_quote
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct LineLiteralState {
+    paren_depth: i32,
+    in_single_quote: bool,
+    in_double_quote: bool,
+}
+
+fn line_literal_state(line: &[u8]) -> LineLiteralState {
+    let mut state = LineLiteralState::default();
+    let mut i = 0;
+    while i < line.len() {
+        let b = line[i];
+        if state.in_single_quote {
+            if b == b'\\' {
+                i += 1;
+            } else if b == b'\'' {
+                state.in_single_quote = false;
+            }
+        } else if state.in_double_quote {
+            if b == b'\\' {
+                i += 1;
+            } else if b == b'"' {
+                state.in_double_quote = false;
+            }
+        } else {
+            match b {
+                b'\'' => state.in_single_quote = true,
+                b'"' => state.in_double_quote = true,
+                b'(' | b'{' | b'[' => state.paren_depth += 1,
+                b')' | b'}' | b']' => state.paren_depth -= 1,
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+
+    state
 }
 
 fn find_line_index_from(lines: &[&[u8]], from_idx: usize, content: &[u8]) -> Option<usize> {
@@ -1436,6 +1517,9 @@ fn contains_word_outside_strings(haystack: &[u8], word: &[u8]) -> bool {
 }
 
 fn contains_modifier_guard(content: &[u8]) -> bool {
+    if contains_word_at_top_level(content, b"rescue") {
+        return false;
+    }
     if !contains_word_at_top_level(content, b"if")
         && !contains_word_at_top_level(content, b"unless")
     {
@@ -1843,6 +1927,32 @@ mod tests {
             diags.len(),
             1,
             "Expected 1 offense for block guard end then code, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn block_guard_before_multiline_string_raise_block() {
+        let source = b"def create_repository(connect_string)\n  if GitRepository.repository_exists?(connect_string)\n    raise RepositoryCollision, \"There is already a repository at #{connect_string}\"\n  end\n  if File.exist?(connect_string)\n    raise IOError, \"Could not create a repository at #{connect_string}: some directory with same name exists\n                   already\"\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for block guard before multiline-string raise block, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn guard_before_rescue_modified_return_line() {
+        let source = b"def determine_lease_type(group)\n  return nil if group.nil?\n  return \"ip\" if IPAddr.new(group) rescue false\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense before `return ... if ... rescue ...`, got {}: {:?}",
             diags.len(),
             diags
         );

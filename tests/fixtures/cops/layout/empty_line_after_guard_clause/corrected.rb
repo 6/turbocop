@@ -356,3 +356,67 @@ def multiline_guard_semicolon
   }; do_something
 
 end
+
+# FN fix: first block guard followed by second block with multi-line raise
+def create_repository(connect_string)
+  if GitRepository.repository_exists?(connect_string)
+    raise RepositoryCollision, "There is already a repository at #{connect_string}"
+  end
+
+  if File.exist?(connect_string)
+    raise IOError, "Could not create a repository at #{connect_string}: some directory with same name exists
+                   already"
+  end
+end
+
+# FN fix: modifier guard with receiver call in return value
+def rating_average
+  return self.rating_avg if attributes.has_key?('rating_avg')
+
+  avg
+end
+
+# FN fix: modifier guard with `||` in return value
+def rated_count
+  return self.rating_count || 0 if attributes.has_key? 'rating_count'
+
+  ratings.count
+end
+
+# FN fix: same pattern as rated_count with different receiver
+def rated_total
+  return self.rating_total || 0 if attributes.has_key? 'rating_total'
+
+  ratings.sum(:rating)
+end
+
+# FN fix: simple `return if` before ordinary method call
+def convert_li(remaining)
+  return if remaining.empty?
+
+  traverse remaining
+end
+
+# FN fix: repeated in a separate method body
+def convert_dd(remaining)
+  return if remaining.empty?
+
+  traverse remaining
+end
+
+# FN fix: `return nil if` followed by another guard
+def determine_lease_type(group)
+  return nil if group.nil?
+
+  return "ip" if IPAddr.new(group) rescue false
+end
+
+# FN fix: later guard in a consecutive-return chain
+def output_extension(mime)
+  return '.js' if mime.eql? 'application/javascript'
+  return '.html' if mime.eql? 'text/html'
+  return '.xml' if mime.eql? 'text/xml'
+  return '.css' if mime.eql? 'text/css'
+
+  return '.html'
+end
