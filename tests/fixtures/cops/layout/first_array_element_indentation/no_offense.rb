@@ -237,6 +237,17 @@ expect(client.search body: [
   { index: 'bar', query: { match: { foo: 'bar' } } }
 ])
 
+# FP fix: explicit `super(...)` uses line-relative indentation, not paren-relative
+def as_json(options = {})
+  h = super(:only => [
+    :short_id,
+    :created_at,
+    :updated_at,
+    :is_deleted,
+    :is_moderated,
+  ])
+end
+
 # Empty arrays
 a = []
 
