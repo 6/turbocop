@@ -107,3 +107,21 @@ RSpec.describe 'blocks' do
     it { @y.z { || 1 }.should == 1 }
   end
 end
+
+module Macros
+  def it_should_properly_read_the_example
+    describe "[]" do
+    ^^^^^^^^^^^^^^^^ RSpec/RepeatedExampleGroupBody: Repeated describe block body on line(s) [101]
+      it { expect(pincers.search('p.description').classes).to eq(['history', 'description']) }
+    end
+
+    describe "text" do
+      it { expect(pincers.text).to include('Lorem ipsum dolor sit amet') }
+    end
+
+    describe "classes" do
+    ^^^^^^^^^^^^^^^^^^^^ RSpec/RepeatedExampleGroupBody: Repeated describe block body on line(s) [93]
+      it { expect(pincers.search('p.description').classes).to eq(['history', 'description']) }
+    end
+  end
+end

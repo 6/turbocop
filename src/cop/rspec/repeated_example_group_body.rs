@@ -1,4 +1,7 @@
-use crate::cop::node_type::{CALL_NODE, PROGRAM_NODE};
+use crate::cop::node_type::{
+    BEGIN_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, FOR_NODE, LAMBDA_NODE, MODULE_NODE,
+    PROGRAM_NODE, SINGLETON_CLASS_NODE,
+};
 use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -67,6 +70,15 @@ use std::hash::{Hash, Hasher};
 ///    identical `(args)` for both; Prism distinguishes them (None vs empty
 ///    BlockParametersNode). Fix: added `visit_block_node` that skips hashing
 ///    empty BlockParametersNode, making both forms hash identically.
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// Corpus oracle reported FN=2 in `platanus/pincers`, both for repeated
+/// `describe` groups inside a helper method. RuboCop's `on_begin` compares
+/// sibling example groups inside any multi-statement body, but this cop only
+/// checked ProgramNode and CallNode block bodies. Fix: inspect sibling groups
+/// inside Def/Class/Module/SingletonClass/Lambda/For/Begin bodies too, using
+/// the same `check_sibling_groups` logic so behavior stays narrow.
 pub struct RepeatedExampleGroupBody;
 
 impl Cop for RepeatedExampleGroupBody {
@@ -83,7 +95,17 @@ impl Cop for RepeatedExampleGroupBody {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[PROGRAM_NODE, CALL_NODE]
+        &[
+            BEGIN_NODE,
+            CALL_NODE,
+            CLASS_NODE,
+            DEF_NODE,
+            FOR_NODE,
+            LAMBDA_NODE,
+            MODULE_NODE,
+            PROGRAM_NODE,
+            SINGLETON_CLASS_NODE,
+        ]
     }
 
     fn check_node(
@@ -95,39 +117,47 @@ impl Cop for RepeatedExampleGroupBody {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Handle top-level statements
-        if let Some(program) = node.as_program_node() {
-            diagnostics.extend(check_sibling_groups(self, source, &program.statements()));
-            return;
+        if let Some(stmts) = statements_body(node) {
+            diagnostics.extend(check_sibling_groups(self, source, &stmts));
         }
-
-        // For ANY CallNode with a block: check inside the block body for sibling
-        // example groups. This matches RuboCop's on_begin approach — Parser creates
-        // `begin` nodes for multi-statement bodies at every level. Previously we
-        // only checked inside known parent groups (is_parent_group list), missing
-        // example groups inside non-RSpec blocks like InSpec's `control`.
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
-        let block = match call.block() {
-            Some(b) => b,
-            None => return,
-        };
-        let block_node = match block.as_block_node() {
-            Some(b) => b,
-            None => return,
-        };
-        let body = match block_node.body() {
-            Some(b) => b,
-            None => return,
-        };
-        let inner_stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
-        };
-        diagnostics.extend(check_sibling_groups(self, source, &inner_stmts));
     }
+}
+
+fn statements_body<'pr>(node: &ruby_prism::Node<'pr>) -> Option<ruby_prism::StatementsNode<'pr>> {
+    if let Some(program) = node.as_program_node() {
+        return Some(program.statements());
+    }
+
+    // RuboCop's on_begin sees sibling example groups in any multi-statement body.
+    if let Some(call) = node.as_call_node() {
+        return call
+            .block()
+            .and_then(|b| b.as_block_node())
+            .and_then(|b| b.body())
+            .and_then(|b| b.as_statements_node());
+    }
+    if let Some(def_node) = node.as_def_node() {
+        return def_node.body().and_then(|b| b.as_statements_node());
+    }
+    if let Some(class_node) = node.as_class_node() {
+        return class_node.body().and_then(|b| b.as_statements_node());
+    }
+    if let Some(module_node) = node.as_module_node() {
+        return module_node.body().and_then(|b| b.as_statements_node());
+    }
+    if let Some(singleton_class_node) = node.as_singleton_class_node() {
+        return singleton_class_node.body().and_then(|b| b.as_statements_node());
+    }
+    if let Some(lambda_node) = node.as_lambda_node() {
+        return lambda_node.body().and_then(|b| b.as_statements_node());
+    }
+    if let Some(for_node) = node.as_for_node() {
+        return for_node.statements();
+    }
+    if let Some(begin_node) = node.as_begin_node() {
+        return begin_node.statements();
+    }
+    None
 }
 
 fn check_sibling_groups(
