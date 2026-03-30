@@ -99,3 +99,7 @@ bindings.instance_eval {
     @media_types << MediaType.new(media_type['handler'], media_type['media-type'])
   }
 }
+
+foo { |
+      ^ Layout/MultilineBlockLayout: Block argument expression is not on the same line as the block start.
+;x| }

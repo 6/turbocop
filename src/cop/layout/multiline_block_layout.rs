@@ -18,12 +18,17 @@ use crate::parse::source::SourceFile;
 /// it-blocks are still `BlockNode` (with implicit parameter nodes), so
 /// handling `BlockNode` + `LambdaNode` covers all cases.
 ///
-/// Corpus fix (2026-03-29): multiline block-argument FNs in long call sites
-/// came from measuring only the `do` line, while a remaining FP came from
-/// flattening multiline default values inside a single parameter. Match
-/// RuboCop's length check by measuring against the enclosing call/lambda first
-/// line and rebuilding the top-level block-argument string with `, ` separators
-/// while preserving each parameter's own source.
+/// Corpus fixes:
+/// - 2026-03-29: multiline block-argument FNs in long call sites came from
+///   measuring only the `do` line, while a remaining FP came from flattening
+///   multiline default values inside a single parameter. Match RuboCop's
+///   length check by measuring against the enclosing call/lambda first line and
+///   rebuilding the top-level block-argument string with `, ` separators while
+///   preserving each parameter's own source.
+/// - 2026-03-30: Prism stores block-local vars (`|; x|`, `|x; y|`) on
+///   `BlockParametersNode.locals()` instead of `parameters()`. Include those
+///   locals in the explicit-args check so multiline block-local declarations
+///   are flagged like RuboCop.
 pub struct MultilineBlockLayout;
 
 impl Cop for MultilineBlockLayout {
@@ -172,6 +177,7 @@ struct ExplicitParamsInfo {
     content_end: usize,
     delimiter_style: ParameterDelimiterStyle,
     param_ranges: Vec<(usize, usize)>,
+    regular_param_count: usize,
 }
 
 fn explicit_params_info(params: ruby_prism::Node<'_>) -> Option<ExplicitParamsInfo> {
@@ -180,9 +186,7 @@ fn explicit_params_info(params: ruby_prism::Node<'_>) -> Option<ExplicitParamsIn
     }
 
     if let Some(block_params) = params.as_block_parameters_node() {
-        let inner_params = block_params.parameters()?;
         let expression_loc = block_params.location();
-        let content_loc = inner_params.location();
         let delimiter_style = match (
             expression_loc.as_slice().first(),
             expression_loc.as_slice().last(),
@@ -191,26 +195,49 @@ fn explicit_params_info(params: ruby_prism::Node<'_>) -> Option<ExplicitParamsIn
             (Some(b'('), Some(b')')) => ParameterDelimiterStyle::Parentheses,
             _ => ParameterDelimiterStyle::None,
         };
+        let regular_param_ranges = block_params
+            .parameters()
+            .map(collect_ordered_param_ranges)
+            .unwrap_or_default();
+        let mut param_ranges = regular_param_ranges.clone();
+        param_ranges.extend(collect_block_local_ranges(&block_params));
+
+        if param_ranges.is_empty() {
+            return None;
+        }
+
+        let (content_start, content_end) = if let Some(inner_params) = block_params.parameters() {
+            let content_loc = inner_params.location();
+            (content_loc.start_offset(), content_loc.end_offset())
+        } else {
+            (
+                param_ranges.first().unwrap().0,
+                param_ranges.last().unwrap().1,
+            )
+        };
 
         return Some(ExplicitParamsInfo {
             expression_start: expression_loc.start_offset(),
             expression_end: expression_loc.end_offset(),
-            content_start: content_loc.start_offset(),
-            content_end: content_loc.end_offset(),
+            content_start,
+            content_end,
             delimiter_style,
-            param_ranges: collect_ordered_param_ranges(inner_params),
+            param_ranges,
+            regular_param_count: regular_param_ranges.len(),
         });
     }
 
     if let Some(inner_params) = params.as_parameters_node() {
         let loc = inner_params.location();
+        let param_ranges = collect_ordered_param_ranges(inner_params);
         return Some(ExplicitParamsInfo {
             expression_start: loc.start_offset(),
             expression_end: loc.end_offset(),
             content_start: loc.start_offset(),
             content_end: loc.end_offset(),
             delimiter_style: ParameterDelimiterStyle::None,
-            param_ranges: collect_ordered_param_ranges(inner_params),
+            regular_param_count: param_ranges.len(),
+            param_ranges,
         });
     }
 
@@ -222,6 +249,7 @@ fn explicit_params_info(params: ruby_prism::Node<'_>) -> Option<ExplicitParamsIn
         content_end: loc.end_offset(),
         delimiter_style: ParameterDelimiterStyle::None,
         param_ranges: vec![(loc.start_offset(), loc.end_offset())],
+        regular_param_count: 1,
     })
 }
 
@@ -261,6 +289,19 @@ fn collect_ordered_param_ranges(params: ruby_prism::ParametersNode<'_>) -> Vec<(
     param_ranges
 }
 
+fn collect_block_local_ranges(
+    block_params: &ruby_prism::BlockParametersNode<'_>,
+) -> Vec<(usize, usize)> {
+    let mut local_ranges = Vec::new();
+
+    for local in block_params.locals().iter() {
+        let loc = local.location();
+        local_ranges.push((loc.start_offset(), loc.end_offset()));
+    }
+
+    local_ranges
+}
+
 /// Get the max line length from config. Checks for a cross-cop injected
 /// MaxLineLength key, falling back to a default of 120.
 fn get_max_line_length(config: &CopConfig) -> Option<usize> {
@@ -296,7 +337,7 @@ fn block_arg_string_len(source: &SourceFile, params: &ExplicitParamsInfo) -> usi
         .sum::<usize>();
 
     let trailing_comma_len = usize::from(
-        params.param_ranges.len() == 1
+        params.regular_param_count == 1
             && trimmed_ends_with_comma(&bytes[params.content_start..params.content_end]),
     );
 
