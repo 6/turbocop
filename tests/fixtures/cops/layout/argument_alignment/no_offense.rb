@@ -66,6 +66,11 @@ redirect_to root_path, notice: "Success",
 create :user, :admin, name: "Admin",
                       role: "superuser"
 
+# Sole keyword hash with block pass on continuation remains allowed
+render(layout: "shared/section_table",
+       locals: {title: title, collection: collection, add_path: add_path},
+  &block)
+
 # Sole keyword hash arg with block pass on continuation — RuboCop expands to pairs only,
 # block pass is not checked for alignment (only 1 pair, nothing to compare)
 h1 = @model.document.add_listener(:before => :new_mirror,
