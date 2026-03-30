@@ -406,11 +406,7 @@ fn parse_annotated_name(
 
 fn signed_width(width: u32, flags: &[u8]) -> i32 {
     let width = width as i32;
-    if flags.contains(&b'-') {
-        -width
-    } else {
-        width
-    }
+    if flags.contains(&b'-') { -width } else { width }
 }
 
 /// Check if an argument matches its format specifier type.
@@ -747,7 +743,11 @@ impl RedundantFormat {
                 .zip(format_args.iter())
                 .all(|(spec, arg)| arg_matches_spec(spec, arg))
             {
-                return Some((0..format_args.len()).map(ResolvedArgument::Positional).collect());
+                return Some(
+                    (0..format_args.len())
+                        .map(ResolvedArgument::Positional)
+                        .collect(),
+                );
             }
             return None;
         }
