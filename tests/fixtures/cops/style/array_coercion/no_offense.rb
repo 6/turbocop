@@ -4,3 +4,4 @@ Array(paths)
 [1, 2, 3]
 [*a, *b]
 x = [1]
+other_paths = [paths] unless paths.is_a?(Array)

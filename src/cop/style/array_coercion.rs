@@ -1,8 +1,13 @@
-use crate::cop::node_type::{ARRAY_NODE, SPLAT_NODE};
+use crate::cop::node_type::{ARRAY_NODE, SPLAT_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Flags `[*var]` splat coercion and explicit `var = [var] unless var.is_a?(Array)`.
+///
+/// Fixed false negatives by matching Prism `UnlessNode` explicit array checks. The
+/// previous implementation only listened to array/splat nodes, so same-variable
+/// coercions like `groups = [groups] unless groups.is_a?(Array)` were never visited.
 pub struct ArrayCoercion;
 
 impl Cop for ArrayCoercion {
@@ -15,7 +20,7 @@ impl Cop for ArrayCoercion {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, SPLAT_NODE]
+        &[ARRAY_NODE, SPLAT_NODE, UNLESS_NODE]
     }
 
     fn check_node(
@@ -45,6 +50,80 @@ impl Cop for ArrayCoercion {
                 ));
             }
         }
+
+        if let Some(unless_node) = node.as_unless_node() {
+            if let Some(diagnostic) = self.check_explicit_array_check(source, &unless_node) {
+                diagnostics.push(diagnostic);
+            }
+        }
+    }
+}
+
+impl ArrayCoercion {
+    fn check_explicit_array_check(
+        &self,
+        source: &SourceFile,
+        unless_node: &ruby_prism::UnlessNode<'_>,
+    ) -> Option<Diagnostic> {
+        if unless_node.else_clause().is_some() {
+            return None;
+        }
+
+        let predicate = unless_node.predicate().as_call_node()?;
+        if predicate.name().as_slice() != b"is_a?" {
+            return None;
+        }
+
+        let receiver = predicate.receiver()?.as_local_variable_read_node()?;
+        let arguments = predicate.arguments()?;
+        let args: Vec<_> = arguments.arguments().iter().collect();
+        if args.len() != 1 {
+            return None;
+        }
+
+        let array_const = args[0].as_constant_read_node()?;
+        if array_const.name().as_slice() != b"Array" {
+            return None;
+        }
+
+        let statements = unless_node.statements()?;
+        let body: Vec<_> = statements.body().iter().collect();
+        if body.len() != 1 {
+            return None;
+        }
+
+        let assignment = body[0].as_local_variable_write_node()?;
+        let assigned_name = assignment.name().as_slice();
+        if assigned_name != receiver.name().as_slice() {
+            return None;
+        }
+
+        let array = assignment.value().as_array_node()?;
+        if array.opening_loc().is_none() {
+            return None;
+        }
+
+        let elements: Vec<_> = array.elements().iter().collect();
+        if elements.len() != 1 {
+            return None;
+        }
+
+        let element = elements[0].as_local_variable_read_node()?;
+        if element.name().as_slice() != assigned_name {
+            return None;
+        }
+
+        let loc = unless_node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        Some(self.diagnostic(
+            source,
+            line,
+            column,
+            format!(
+                "Use `Array({})` instead of explicit `Array` check.",
+                String::from_utf8_lossy(assigned_name)
+            ),
+        ))
     }
 }
 
