@@ -112,6 +112,18 @@ def normalize_offenses(offenses: list[dict]) -> list[dict]:
     return deduped
 
 
+def filter_requested_cop(offenses: list[dict], cop: str | None) -> list[dict]:
+    """Keep only offenses for the explicitly requested cop.
+
+    Some callers pass `--only` for a single cop but still receive
+    `Lint/RedundantCopDisableDirective` offenses from the CLI. Corpus helper
+    APIs are used for single-cop gates, so return/count only the requested cop.
+    """
+    if not cop:
+        return offenses
+    return [offense for offense in offenses if offense.get("cop_name") == cop]
+
+
 def run_nitrocop(
     repo_dir: str,
     *,
@@ -157,6 +169,7 @@ def run_nitrocop(
     try:
         data = json.loads(result.stdout)
         offenses = normalize_offenses(data.get("offenses", []))
+        offenses = filter_requested_cop(offenses, cop)
         count = deduplicate_offenses(offenses)
         return {"raw": result.stdout, "offenses": offenses, "count": count, "error": None}
     except json.JSONDecodeError as e:
