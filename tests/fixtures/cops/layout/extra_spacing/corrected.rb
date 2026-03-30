@@ -47,3 +47,21 @@ assert !@called
 # (different last_column of = sign)
 @signatures[pair_hash] ||= {}
 @data_gathering[pair_hash] ||= {}
+
+let(:output_missing) {      <<-EOT
+EOT
+}
+
+option. #{ BlueHydra.config["file"] ? "\n\nReading data from " + BlueHydra.config["file"]  + '.' : '' }
+
+assert { case1("@gptあ") == "あ" }
+
+[0, 0] => [:posixclass, :word, PosixClass, name: 'word', text: '[:word:]']
+
+text str: 'The Title', layout: :title # from custom-layout.yml
+
+[[ 0.7493,  0.4482, -2.1426,  0.5586,  0.5540, -0.1676],
+
+[[ 0.0258, -0.3633, 0.4725, -0.5102,  1.8175, -1.4423],
+
+[-1.0710,  1.1253, -1.0413, -0.5237, 1.4925,  0.0183]],
