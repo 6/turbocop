@@ -607,7 +607,8 @@ impl Cop for EmptyLinesAroundAccessModifier {
 
             // Check if we're at a body end (line right before the closing `end`)
             let is_at_body_end = modifier.body_end_boundary && line == body_closing_line - 1;
-            let is_before_scope_closing_end = body_closing_line > 0 && line == body_closing_line - 1;
+            let is_before_scope_closing_end =
+                body_closing_line > 0 && line == body_closing_line - 1;
 
             // Find the previous non-comment line
             let has_blank_before = {
