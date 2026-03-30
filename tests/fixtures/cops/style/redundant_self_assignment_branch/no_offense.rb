@@ -89,6 +89,9 @@ foo.do_something = condition ? foo.do_something : bar.do_something
 # Multi-assignment
 foo, bar = baz
 
-# Ternary expressions - RuboCop does NOT flag ternary self-assignment
-foo = condition ? bar : foo
-foo = condition ? foo : bar
+# Ternary branches wrapped in parentheses - RuboCop does NOT flag these
+foo = condition ? foo : (bar)
+foo = condition ? (foo) : bar
+
+sub_model = condition ? (json.send(:eval, sub_model) rescue nil) : sub_model
+opts = cond ? (resource_name.kind_of?(Hash) ? resource_name : {}) : opts

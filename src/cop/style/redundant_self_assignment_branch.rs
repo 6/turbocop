@@ -7,27 +7,24 @@ use crate::parse::source::SourceFile;
 ///
 /// Checks for places where conditional branch makes redundant self-assignment.
 ///
-/// RuboCop only detects local variable assignments (not instance/class/global vars)
-/// because replacing those with nil could change state across methods.
+/// RuboCop only detects local variable assignments (not instance/class/global
+/// vars) because replacing those with nil could change state across methods.
 ///
 /// ## Conditions for offense
 /// - LHS is a local variable assignment (`LocalVariableWriteNode`)
-/// - RHS is an if/else expression (NOT case/when, NOT ternary)
+/// - RHS is an if/else expression or ternary (`IfNode`)
 /// - No `elsif` branch present
 /// - Neither branch has multiple statements
 /// - One branch is a bare read of the same local variable
 ///
-/// ## Historical FP causes
-/// - Flagging case/when expressions (RuboCop only handles if/else)
-/// - Flagging if/elsif/else chains
-/// - Flagging branches with multiple statements
-/// - Reporting offense on the whole assignment instead of the self-assignment branch
-/// - Flagging ternary expressions (`a ? b : a`) — RuboCop's `use_if_and_else_branch?`
-///   returns false for ternaries (`!expression.ternary? || !expression.else?` = false).
-///   Found via corpus FP in linguist repo's sinatra.rb sample.
-///
 /// ## Historical FN causes
-/// - None expected — RuboCop only handles local variables, same as this cop.
+/// - Prism represents ternaries as `IfNode`s without `if_keyword_loc()`. This
+///   cop used that as a blanket "skip ternary" check, which missed self-
+///   assignment ternaries like `foo = condition ? foo : bar` and
+///   `foo = condition ? bar(arg) : foo`.
+/// - RuboCop still skips ternaries when either branch is explicitly wrapped in
+///   parentheses. Prism exposes those as `ParenthesesNode`s, so we must keep
+///   that narrow exemption to avoid FP regressions.
 pub struct RedundantSelfAssignmentBranch;
 
 impl Cop for RedundantSelfAssignmentBranch {
@@ -56,14 +53,13 @@ impl Cop for RedundantSelfAssignmentBranch {
         let var_name = write.name().as_slice();
         let value = write.value();
 
-        // Only handle if/else expressions — NOT case/when or ternary
+        // Only handle if/else expressions. Prism also uses IfNode for ternaries.
         let if_node = match value.as_if_node() {
             Some(n) => n,
             None => return,
         };
 
-        // Skip ternary expressions (a ? b : c) — RuboCop only flags if/else form
-        if if_node.if_keyword_loc().is_none() {
+        if if_node.if_keyword_loc().is_none() && ternary_has_parenthesized_branch(&if_node) {
             return;
         }
 
@@ -166,6 +162,23 @@ fn is_same_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
         return lv.name().as_slice() == var_name;
     }
     false
+}
+
+fn ternary_has_parenthesized_branch(if_node: &ruby_prism::IfNode<'_>) -> bool {
+    branch_is_parenthesized(&if_node.statements())
+        || if_node
+            .subsequent()
+            .and_then(|subsequent| subsequent.as_else_node())
+            .is_some_and(|else_node| branch_is_parenthesized(&else_node.statements()))
+}
+
+fn branch_is_parenthesized(stmts: &Option<ruby_prism::StatementsNode<'_>>) -> bool {
+    let Some(stmts) = stmts else {
+        return false;
+    };
+
+    let body: Vec<_> = stmts.body().iter().collect();
+    body.len() == 1 && body[0].as_parentheses_node().is_some()
 }
 
 #[cfg(test)]
