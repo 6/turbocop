@@ -8,6 +8,13 @@ use crate::parse::source::SourceFile;
 /// operand order. nitrocop only handled the `positive?/zero?/0/1` forms, which
 /// missed corpus cases like `(integer & constant_value) == constant_value` and
 /// `(clauses.values & partial_clauses) == clauses.values`.
+///
+/// FN fix: RuboCop compares integer literals by parsed value, not source text.
+/// nitrocop previously missed hex and value-equivalent forms like
+/// `(v & 0x80) == 0x00` and `(dimensions >> 28 & 0x1) == 1` because `0x00`
+/// was not parsed by `str::parse()` and `0x1` did not byte-match `1`.
+/// Compare `IntegerNode` values directly so `nobits?` and `allbits?` handle
+/// Ruby integer literal prefixes consistently.
 pub struct BitwisePredicate;
 
 fn method_name<'a>(call: &'a ruby_prism::CallNode<'a>) -> &'a str {
@@ -42,14 +49,46 @@ fn single_argument<'a>(call: &ruby_prism::CallNode<'a>) -> Option<ruby_prism::No
     Some(argument)
 }
 
-fn integer_value(node: &ruby_prism::Node<'_>) -> Option<i64> {
-    let int_node = node.as_integer_node()?;
-    let src = std::str::from_utf8(int_node.location().as_slice()).ok()?;
-    src.parse::<i64>().ok()
+fn integer_equals(node: &ruby_prism::Node<'_>, expected: u32) -> bool {
+    let Some(int_node) = node.as_integer_node() else {
+        return false;
+    };
+    let value = int_node.value();
+    let (negative, digits) = value.to_u32_digits();
+
+    !negative
+        && digits.first().copied().unwrap_or(0) == expected
+        && digits.iter().skip(1).all(|digit| *digit == 0)
 }
 
 fn node_source<'a>(node: &ruby_prism::Node<'a>) -> &'a str {
     std::str::from_utf8(node.location().as_slice()).unwrap_or("")
+}
+
+fn preferred_predicate(
+    bit_operation: &ruby_prism::CallNode<'_>,
+    predicate: &str,
+) -> Option<String> {
+    let lhs = bit_operation.receiver()?;
+    let rhs = single_argument(bit_operation)?;
+    Some(format!(
+        "{}.{}({})",
+        node_source(&lhs),
+        predicate,
+        node_source(&rhs)
+    ))
+}
+
+fn same_source_or_integer_value(left: &ruby_prism::Node<'_>, right: &ruby_prism::Node<'_>) -> bool {
+    left.location().as_slice() == right.location().as_slice()
+        || match (left.as_integer_node(), right.as_integer_node()) {
+            (Some(left_int), Some(right_int)) => {
+                let left_value = left_int.value();
+                let right_value = right_int.value();
+                left_value.to_u32_digits() == right_value.to_u32_digits()
+            }
+            _ => false,
+        }
 }
 
 fn preferred_allbits(
@@ -60,13 +99,13 @@ fn preferred_allbits(
     let lhs = bit_operation.receiver()?;
     let rhs = single_argument(bit_operation)?;
 
-    if argument.location().as_slice() == lhs.location().as_slice() {
+    if same_source_or_integer_value(&argument, &lhs) {
         Some(format!(
             "{}.allbits?({})",
             node_source(&rhs),
             node_source(&lhs)
         ))
-    } else if argument.location().as_slice() == rhs.location().as_slice() {
+    } else if same_source_or_integer_value(&argument, &rhs) {
         Some(format!(
             "{}.allbits?({})",
             node_source(&lhs),
@@ -103,25 +142,28 @@ impl Cop for BitwisePredicate {
         let method_name = method_name(&call);
 
         // Pattern: (variable & flags).positive? => variable.anybits?(flags)
-        if (method_name == "positive?" || method_name == "zero?")
-            && parenthesized_bit_operation(call.receiver()).is_some()
-        {
+        if method_name == "positive?" || method_name == "zero?" {
             let predicate = if method_name == "positive?" {
                 "anybits?"
             } else {
                 "nobits?"
             };
-            let loc = node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                format!(
-                    "Replace with `{}` for comparison with bit flags.",
-                    predicate
-                ),
-            ));
+
+            if let Some(bit_operation) = parenthesized_bit_operation(call.receiver()) {
+                if let Some(preferred) = preferred_predicate(&bit_operation, predicate) {
+                    let loc = node.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!(
+                            "Replace with `{}` for comparison with bit flags.",
+                            preferred
+                        ),
+                    ));
+                }
+            }
         }
 
         // Pattern: (variable & flags) > 0 / != 0 / == 0
@@ -145,34 +187,39 @@ impl Cop for BitwisePredicate {
                 }
 
                 if let Some(argument) = single_argument(&call) {
-                    if let Some(value) = integer_value(&argument) {
-                        let is_zero = value == 0;
-                        let is_one = value == 1;
+                    let is_zero = integer_equals(&argument, 0);
+                    let is_one = integer_equals(&argument, 1);
 
-                        if ((method_name == "!=" || method_name == ">") && is_zero)
-                            || (method_name == ">=" && is_one)
-                        {
-                            let loc = node.location();
-                            let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            diagnostics.push(
-                                self.diagnostic(
-                                    source,
-                                    line,
-                                    column,
-                                    "Replace with `anybits?` for comparison with bit flags."
-                                        .to_string(),
-                                ),
-                            );
-                        }
-
-                        if method_name == "==" && is_zero {
+                    if ((method_name == "!=" || method_name == ">") && is_zero)
+                        || (method_name == ">=" && is_one)
+                    {
+                        if let Some(preferred) = preferred_predicate(&bit_operation, "anybits?") {
                             let loc = node.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
                             diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
-                                "Replace with `nobits?` for comparison with bit flags.".to_string(),
+                                format!(
+                                    "Replace with `{}` for comparison with bit flags.",
+                                    preferred
+                                ),
+                            ));
+                        }
+                    }
+
+                    if method_name == "==" && is_zero {
+                        if let Some(preferred) = preferred_predicate(&bit_operation, "nobits?") {
+                            let loc = node.location();
+                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                            diagnostics.push(self.diagnostic(
+                                source,
+                                line,
+                                column,
+                                format!(
+                                    "Replace with `{}` for comparison with bit flags.",
+                                    preferred
+                                ),
                             ));
                         }
                     }

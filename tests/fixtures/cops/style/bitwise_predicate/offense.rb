@@ -1,11 +1,11 @@
 (variable & flags).positive?
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/BitwisePredicate: Replace with `anybits?` for comparison with bit flags.
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/BitwisePredicate: Replace with `variable.anybits?(flags)` for comparison with bit flags.
 
 (variable & flags) > 0
-^^^^^^^^^^^^^^^^^^^^^^ Style/BitwisePredicate: Replace with `anybits?` for comparison with bit flags.
+^^^^^^^^^^^^^^^^^^^^^^ Style/BitwisePredicate: Replace with `variable.anybits?(flags)` for comparison with bit flags.
 
 (variable & flags) == 0
-^^^^^^^^^^^^^^^^^^^^^^^ Style/BitwisePredicate: Replace with `nobits?` for comparison with bit flags.
+^^^^^^^^^^^^^^^^^^^^^^^ Style/BitwisePredicate: Replace with `variable.nobits?(flags)` for comparison with bit flags.
 
 is_found = constant_value.is_a?(Integer) && (integer & constant_value) == constant_value
                                             ^ Style/BitwisePredicate: Replace with `integer.allbits?(constant_value)` for comparison with bit flags.
@@ -30,3 +30,27 @@ if (current.to_i(8) & mode_part['fullcontrol']) == mode_part['fullcontrol']
 
 (specified_sids & current_sids) == specified_sids
 ^ Style/BitwisePredicate: Replace with `current_sids.allbits?(specified_sids)` for comparison with bit flags.
+
+has_transparency = (dimensions >> 28 & 0x1) == 1
+                   ^ Style/BitwisePredicate: Replace with `dimensions >> 28.allbits?(0x1)` for comparison with bit flags.
+
+if (@f & Z_FLAG) == 0x00
+   ^ Style/BitwisePredicate: Replace with `@f.nobits?(Z_FLAG)` for comparison with bit flags.
+
+if (@f & C_FLAG) == 0x00
+   ^ Style/BitwisePredicate: Replace with `@f.nobits?(C_FLAG)` for comparison with bit flags.
+
+if (@f & Z_FLAG) == 0x00
+   ^ Style/BitwisePredicate: Replace with `@f.nobits?(Z_FLAG)` for comparison with bit flags.
+
+if (@f & C_FLAG) == 0x00
+   ^ Style/BitwisePredicate: Replace with `@f.nobits?(C_FLAG)` for comparison with bit flags.
+
+if (@f & Z_FLAG) == 0x00
+   ^ Style/BitwisePredicate: Replace with `@f.nobits?(Z_FLAG)` for comparison with bit flags.
+
+if (@f & C_FLAG) == 0x00
+   ^ Style/BitwisePredicate: Replace with `@f.nobits?(C_FLAG)` for comparison with bit flags.
+
+if (@f & Z_FLAG) == 0x00
+   ^ Style/BitwisePredicate: Replace with `@f.nobits?(Z_FLAG)` for comparison with bit flags.
