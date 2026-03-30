@@ -157,6 +157,8 @@ def run_nitrocop(
     try:
         data = json.loads(result.stdout)
         offenses = normalize_offenses(data.get("offenses", []))
+        if cop is not None:
+            offenses = [offense for offense in offenses if offense.get("cop_name") == cop]
         count = deduplicate_offenses(offenses)
         return {"raw": result.stdout, "offenses": offenses, "count": count, "error": None}
     except json.JSONDecodeError as e:
