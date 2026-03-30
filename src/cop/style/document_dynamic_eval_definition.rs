@@ -81,7 +81,10 @@ fn has_interpolation(interp: &ruby_prism::InterpolatedStringNode<'_>) -> bool {
         .any(|part| part.as_embedded_statements_node().is_some())
 }
 
-fn inline_comment_docs(source: &SourceFile, interp: &ruby_prism::InterpolatedStringNode<'_>) -> bool {
+fn inline_comment_docs(
+    source: &SourceFile,
+    interp: &ruby_prism::InterpolatedStringNode<'_>,
+) -> bool {
     let mut saw_interpolation = false;
 
     for part in interp.parts().iter() {
@@ -90,7 +93,9 @@ fn inline_comment_docs(source: &SourceFile, interp: &ruby_prism::InterpolatedStr
         };
         saw_interpolation = true;
 
-        let line = source.offset_to_line_col(embedded.location().start_offset()).0;
+        let line = source
+            .offset_to_line_col(embedded.location().start_offset())
+            .0;
         let Some(source_line) = source_line(source, line) else {
             return false;
         };
@@ -110,7 +115,12 @@ fn comment_block_docs(
 ) -> bool {
     let body_span = heredoc_body_line_span(source, interp);
     let mut comments = heredoc_comment_blocks(source, body_span);
-    comments.extend(preceding_comment_blocks(source, parse_result, call, body_span));
+    comments.extend(preceding_comment_blocks(
+        source,
+        parse_result,
+        call,
+        body_span,
+    ));
 
     if comments.is_empty() {
         return false;
@@ -167,7 +177,10 @@ fn preceding_comment_blocks(
 ) -> Vec<String> {
     let call_loc = call.location();
     let start_line = source.offset_to_line_col(call_loc.start_offset()).0;
-    let end_offset = call_loc.end_offset().saturating_sub(1).max(call_loc.start_offset());
+    let end_offset = call_loc
+        .end_offset()
+        .saturating_sub(1)
+        .max(call_loc.start_offset());
     let end_line = source.offset_to_line_col(end_offset).0;
 
     let mut blocks = Vec::new();
@@ -177,7 +190,9 @@ fn preceding_comment_blocks(
         if line < start_line || line > end_line {
             continue;
         }
-        if heredoc_body_span.is_some_and(|(body_start, body_end)| (body_start..=body_end).contains(&line)) {
+        if heredoc_body_span
+            .is_some_and(|(body_start, body_end)| (body_start..=body_end).contains(&line))
+        {
             continue;
         }
         let Some(text) = source.try_byte_slice(loc.start_offset(), loc.end_offset()) else {
@@ -306,7 +321,11 @@ fn strip_inline_comment_docs(source: &str) -> String {
     for raw_line in source.split('\n') {
         let line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
         if let Some(hash_index) = comment_hash_index(line) {
-            lines.push(line[..hash_index].trim_end_matches(char::is_whitespace).to_string());
+            lines.push(
+                line[..hash_index]
+                    .trim_end_matches(char::is_whitespace)
+                    .to_string(),
+            );
         } else {
             lines.push(line.to_string());
         }
