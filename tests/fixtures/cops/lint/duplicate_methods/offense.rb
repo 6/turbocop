@@ -317,3 +317,37 @@ describe "interface singleton methods" do
     end
   end
 end
+
+# def ConstName.method across scopes where constant is not in scope stack
+# (same body, different indentation — normalized structural key)
+def Helpers.transform(input)
+  input.strip
+end
+module Azure
+  module Core
+    def Helpers.transform(input)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `Helpers.transform` is defined at both test.rb:288 and test.rb:293.
+      input.strip
+    end
+  end
+end
+
+# def ConstName.method single-line vs multi-line (same AST structure)
+def Recorder.tag; "v1"; end
+task :migrate do
+  def Recorder.tag
+  ^^^^^^^^^^^^^^^^ Lint/DuplicateMethods: Method `Recorder.tag` is defined at both test.rb:300 and test.rb:302.
+    "v1"
+  end
+end
+
+# attr (legacy) inside if/unless still tracked as duplicate
+class LegacyAttrInIf
+  def method_using_attr
+    attr :start
+    if condition
+      attr :start
+      ^^^^^^^^^^^ Lint/DuplicateMethods: Method `LegacyAttrInIf#start` is defined at both test.rb:310 and test.rb:312.
+    end
+  end
+end
