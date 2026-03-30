@@ -82,3 +82,20 @@ end
 foo = some_method(
   )
   ^ Layout/ClosingParenthesisIndentation: Indent `)` to column 0 (not 2).
+
+# Grouped expression with first operand on same line: `)` should align with `(`
+if ((foo) &&
+    (bar)
+)
+^ Layout/ClosingParenthesisIndentation: Align `)` with `(`.
+  baz
+end
+
+# Heredoc grouped expression with first operand on same line: `)` should align with `(`
+recipes = {
+  a: (<<EOF
+hello
+EOF
+  ),
+  ^ Layout/ClosingParenthesisIndentation: Align `)` with `(`.
+}
