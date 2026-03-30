@@ -487,8 +487,11 @@ jobs:
             echo "$RUST_FILES" | xargs cargo fmt --
           fi
 
-          if ! git diff --quiet; then
-            git add -A
+          # Stage only files in expected directories — never untracked scratch
+          # files (e.g. agent investigation output dumps like "full").
+          git add -u
+          git add src/ tests/ bench/ scripts/ Cargo.toml Cargo.lock 2>/dev/null || true
+          if ! git diff --cached --quiet; then
             git commit -m "Repair PR #${{ steps.pr.outputs.number }}: auto-repair (${{ steps.repair.outputs.backend }})"
           fi
 
