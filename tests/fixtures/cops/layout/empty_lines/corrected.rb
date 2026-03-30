@@ -32,11 +32,10 @@ d = 4
 more docs
 =end
 
-# Blank lines inside =begin/=end are NOT flagged (Prism EMBDOC_LINE tokens mean no gaps)
+# Consecutive blank lines inside =begin/=end are flagged when later tokens follow.
 e = 5
 =begin
 some documentation
-
 
 more documentation
 =end
@@ -46,7 +45,6 @@ g = 7
 =begin
 docs here
 
-
-
 more docs here
 =end
+h = 8

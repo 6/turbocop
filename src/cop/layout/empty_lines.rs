@@ -160,6 +160,18 @@ use crate::parse::source::SourceFile;
 /// lines inside embdoc blocks are not counted (they have EMBDOC_LINE tokens
 /// in Prism, so they're token-bearing and create no gaps).
 /// Result: FP=0, FN=0.
+///
+/// ## Corpus investigation (2026-03-30, FN=49 fix)
+///
+/// All remaining FN were consecutive blank lines inside `=begin`/`=end`
+/// blocks when later tokens followed the block. Root cause: nitrocop treated
+/// the whole embdoc body as a skipped range and also let the block end extend
+/// the effective token range. RuboCop behaves as if the block comment only
+/// contributes a comment token on the `=begin` line for empty-line scanning:
+/// interior blank lines are checked only when a later token creates a gap past
+/// that start line, while embdoc-at-EOF remains unchecked.
+/// Fix: stop skipping embdoc interiors and treat `=begin` as the block
+/// comment's token-bearing line instead of using the `=end` line.
 pub struct EmptyLines;
 
 impl Cop for EmptyLines {
@@ -181,11 +193,13 @@ impl Cop for EmptyLines {
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // RuboCop uses token-based gap detection: it collects line numbers from
-        // ALL tokens (including inline `#` comments via `:tCOMMENT` and
-        // EMBDOC_BEGIN/EMBDOC_LINE/EMBDOC_END for `=begin`/`=end` blocks),
-        // then checks gaps between consecutive token-bearing lines. Files with
-        // no tokens at all get early return, and blank lines after the last
-        // token line are never checked.
+        // token-bearing lines, then checks gaps between consecutive token
+        // lines. Regular `#` comments count as token lines. `=begin`/`=end`
+        // blocks behave like a single comment token anchored at the `=begin`
+        // line for this cop: interior blank lines are only checked when some
+        // later token extends the gap past that start line. Files with no
+        // tokens at all get early return, and blank lines after the last token
+        // line are never checked.
         //
         // `__END__` is NOT a token in Prism's lexer, so it does not extend
         // the token range. Blank lines before `__END__` are past the last
@@ -203,37 +217,19 @@ impl Cop for EmptyLines {
             0
         };
 
-        // Find the last comment line (1-indexed), or 0 if none.
-        // With Prism (TargetRubyVersion >= 3.4), =begin/=end produce
-        // EMBDOC_BEGIN/EMBDOC_LINE/EMBDOC_END tokens. So =begin and =end
-        // lines ARE token-bearing and extend the token range. Interior
-        // blank lines also have EMBDOC_LINE tokens, so there are no gaps
-        // inside embdoc blocks — consecutive blank lines inside are never
-        // flagged. But blank lines BETWEEN code and =begin are in a gap
-        // between token-bearing lines and get checked.
+        // Find the last comment token line (1-indexed), or 0 if none.
+        // Regular comments contribute their own line. For `=begin`/`=end`
+        // blocks, only the `=begin` line should extend the token range.
         let mut last_comment_line: usize = 0;
-        let mut embdoc_ranges: Vec<(usize, usize)> = Vec::new();
         for comment in parse_result.comments() {
             let loc = comment.location();
             let slice = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
-            if slice.starts_with(b"=begin") {
-                // Track embdoc block range (start line to end line, 1-indexed)
-                let (start_line, _) = source.offset_to_line_col(loc.start_offset());
-                let (end_line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
-                embdoc_ranges.push((start_line, end_line));
-                // Include =begin and =end lines in last_comment_line.
-                // With Prism, these are token-bearing (EMBDOC_BEGIN/EMBDOC_END).
-                if end_line > last_comment_line {
-                    last_comment_line = end_line;
-                }
+            let line = if slice.starts_with(b"=begin") {
+                let (line, _) = source.offset_to_line_col(loc.start_offset());
+                line
+            } else if slice.starts_with(b"=end") || slice.starts_with(b"=") {
                 continue;
-            }
-            // Embdoc continuation lines (=end, content lines) — skip
-            // (already covered by the =begin block range above)
-            if slice.starts_with(b"=end") || slice.starts_with(b"=") {
-                continue;
-            }
-            let line = {
+            } else {
                 let (l, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
                 l
             };
@@ -282,18 +278,6 @@ impl Cop for EmptyLines {
                 // checks between consecutive token-bearing lines and never
                 // checks past the last token.
                 if current_line > last_token_line {
-                    byte_offset += line_len;
-                    consecutive_blanks = 0;
-                    continue;
-                }
-                // Skip blank lines inside =begin/=end blocks. With Prism,
-                // every embdoc line (including blank ones) has an EMBDOC_LINE
-                // token, so all lines are token-bearing and there are no gaps
-                // inside embdoc blocks. Consecutive blank lines are never flagged.
-                if embdoc_ranges
-                    .iter()
-                    .any(|&(start, end)| current_line >= start && current_line <= end)
-                {
                     byte_offset += line_len;
                     consecutive_blanks = 0;
                     continue;
@@ -544,35 +528,36 @@ mod tests {
     }
 
     #[test]
-    fn skip_blanks_inside_begin_end_with_code_after() {
-        // With Prism, every embdoc line (including blank ones) has an
-        // EMBDOC_LINE token. Since all lines are token-bearing, there
-        // are no gaps inside embdoc blocks and blank lines are not flagged.
+    fn fire_blanks_inside_begin_end_with_code_after() {
+        // Later tokens after the block make the embdoc interior part of the
+        // scanned gap, so extra blank lines are offenses.
         let source = b"=begin\nsome docs\n\n\nmore docs\n=end\nx = 1\n";
         let diags = run_cop_full(&EmptyLines, source);
-        assert!(
-            diags.is_empty(),
-            "Should NOT fire on blank lines inside =begin/=end: {:?}",
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should fire inside =begin/=end: {:?}",
             diags
         );
     }
 
     #[test]
-    fn skip_many_blanks_inside_begin_end_with_code_after() {
-        // Multiple consecutive blank lines inside =begin/=end are NOT flagged.
+    fn fire_many_blanks_inside_begin_end_with_code_after() {
+        // Every extra blank inside the embdoc gap should be reported.
         let source = b"=begin\n\n\n\n\n=end\nx = 1\n";
         let diags = run_cop_full(&EmptyLines, source);
-        assert!(
-            diags.is_empty(),
-            "Should NOT fire on blank lines inside =begin/=end: {:?}",
+        assert_eq!(
+            diags.len(),
+            3,
+            "Should fire on repeated blank lines inside =begin/=end: {:?}",
             diags
         );
     }
 
     #[test]
     fn skip_blanks_in_begin_end_no_code_after() {
-        // Blank lines inside =begin/=end are NOT flagged (all embdoc lines
-        // are token-bearing with Prism, so no gaps exist inside).
+        // Without later tokens, the final embdoc body is past the last token
+        // line and therefore ignored.
         let source = b"x = 1\n=begin\n\n\n\n\n=end\n";
         let diags = run_cop_full(&EmptyLines, source);
         assert!(
