@@ -3,6 +3,8 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+const MSG: &str = "Use underscores(_) as thousands separator and separate every 3 digits with them.";
+
 /// FP fix: implicit octal literals (leading `0` followed by digits, e.g. `00644`, `02744`)
 /// were flagged for missing underscores. RuboCop exempts all non-decimal bases including
 /// implicit octals. 199/404 FPs were from puppet's acceptance tests with file permission modes.
@@ -14,6 +16,15 @@ use crate::parse::source::SourceFile;
 /// - Float literals (e.g. `10000.0`, `123456.789`, `10000e10`) were not checked.
 ///   RuboCop's `on_float` handler extracts the integer part before `.` or `e/E`
 ///   and checks it the same way as integer literals. Added FLOAT_NODE support.
+///
+/// ## Investigation findings (2026-03-30)
+///
+/// ### FN root cause fixed:
+/// - Default mode incorrectly accepted any decimal literal that already had underscores.
+///   RuboCop still flags misgrouped underscores unless `Strict: false` specifically allows
+///   a short trailing group (for example `10_000_00` or `123_456_789_00`).
+/// - That missed Rails schema timestamps like `2021_12_12_143544` and cent-style literals
+///   like `1099_99`, both of which contain a 4+ digit group and should still register.
 pub struct NumericLiterals;
 
 /// Check if a numeric string has underscores at every 3-digit grouping from the right.
@@ -35,6 +46,24 @@ fn is_correctly_grouped(text: &str) -> bool {
         }
     }
     true
+}
+
+fn has_bad_grouping(text: &str, strict: bool) -> bool {
+    let groups: Vec<&str> = text.split('_').collect();
+
+    if strict {
+        return !is_correctly_grouped(text);
+    }
+
+    if groups.iter().any(|group| group.len() >= 4) {
+        return true;
+    }
+
+    groups
+        .iter()
+        .skip(1)
+        .take(groups.len().saturating_sub(2))
+        .any(|group| matches!(group.len(), 1 | 2))
 }
 
 impl NumericLiterals {
@@ -91,24 +120,13 @@ impl NumericLiterals {
 
         if !has_underscores {
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Use underscores(_) as thousands separator.".to_string(),
-            ));
+            diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
             return;
         }
 
-        // Strict mode: check that underscores are at correct every-3-digit positions
-        if strict && !is_correctly_grouped(int_part) {
+        if has_bad_grouping(int_part, strict) {
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Use underscores(_) as thousands separator.".to_string(),
-            ));
+            diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
         }
     }
 }
