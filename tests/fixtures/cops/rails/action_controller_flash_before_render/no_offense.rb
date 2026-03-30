@@ -372,3 +372,68 @@ class EnumerationsController < ApplicationController
     end
   end
 end
+
+# FP guard: render inside an unless branch in a begin body should stay ignored
+class TarUploadsController < ApplicationController
+  def create_from_tar
+    begin
+      unless valid_course_tar(tar_extract)
+        flash[:error] = "Invalid tarball"
+        flash[:html_safe] = true
+        render(action: "new") && return
+      end
+    rescue SyntaxError => e
+      flash[:error] = e.message
+    end
+  end
+end
+
+# FP guard: nested respond_to inside an if branch should not see sibling format render
+class SpentTimeController < ApplicationController
+  def create
+    if save_result
+      flash[:notice] = l("time_entry_added_notice")
+      logger.info("Everything went fine rendering report result")
+      respond_to do |format|
+        if current_date > to_date
+          to_date
+        elsif current_date < from_date
+          from_date
+        end
+        format.html { redirect_to report_path }
+        format.json { render json: time_entry, status: :created }
+      end
+    end
+  end
+end
+
+# FP guard: case branches before redirect_to at method level should stay ignored
+class MultifactorAuthsController < ApplicationController
+  def update_level_and_redirect
+    case level_param
+    when "ui_and_api", "ui_and_gem_signin"
+      flash[:success] = t("multifactor_auths.update.success")
+      current_user.update(mfa_level: level_param)
+    else
+      flash[:error] = t("multifactor_auths.update.invalid_level")
+    end
+
+    redirect_to edit_settings_path
+  end
+end
+
+# FP guard: multi-branch case with redirect_to after the case should stay ignored
+class RegistrationsController < ApplicationController
+  def payment_status
+    case stored_intent_status
+    when :succeeded
+      record_success
+    when :pending
+      record_pending
+    else
+      flash[:error] = "Invalid PaymentIntent status"
+    end
+
+    redirect_to competition_register_path(competition_id)
+  end
+end

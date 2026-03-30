@@ -410,3 +410,89 @@ class AdviceController < ApplicationController
     redirect_to action: "edit_advice", id: params[:id]
   end
 end
+
+# FN fix: nested assignment should still detect the inner flash write
+class ProfilesController < ApplicationController
+  def index
+    if params[:username].present?
+      profile = User.find_by(username: params[:username]).try(:profile)
+      if profile
+        redirect_to profile_url(profile)
+        return
+      end
+    end
+
+    query = flash[:query] = params[:query].to_s
+            ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+    @query = query.dup
+  end
+end
+
+# FN fix: flash in respond_to block nested inside an else branch
+class ContentBlobsController < ApplicationController
+  def find_and_authorize_associated_asset
+    asset = asset_object
+    if asset
+      if asset.can_edit?
+        @asset = asset
+      else
+        respond_to do |format|
+          flash[:error] = "You are not authorized to perform this action"
+          ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+          format.html { redirect_to asset }
+          format.json { render json: { detail: "Forbidden" }, status: :forbidden }
+        end
+      end
+    else
+      render json: { detail: "Missing" }, status: :not_found
+    end
+  end
+end
+
+# FN fix: respond_to block in an else branch with redirect and render formats
+class PublicationsController < ApplicationController
+  def register_publication
+    if @publication.save
+      if @publication.parent_name.present?
+        render partial: "assets/back_to_fancy_parent", locals: { child: @publication }
+      else
+        respond_to do |format|
+          flash[:notice] = "Publication was successfully created. You can edit the additional information now or later"
+          ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+          format.html { redirect_to manage_publication_url(@publication, newly_created: true) }
+          format.json { render json: @publication, status: :created, location: @publication }
+        end
+      end
+    else
+      render :new
+    end
+  end
+end
+
+# FN fix: lambda assigned to a local should still trigger before a later redirect
+class SensitiveUsersController < ApplicationController
+  def authenticate_user_for_sensitive_edit
+    action_params = params.expect(user: %i[otp_attempt password])
+    on_success = lambda do
+      flash[:success] = I18n.t("users.edit.sensitive.success")
+      session[:last_authenticated_at] = Time.now
+    end
+    on_failure = lambda do
+      flash[:danger] = I18n.t("users.edit.sensitive.failure")
+      ^^^^^ Rails/ActionControllerFlashBeforeRender: Use `flash.now` before `render`.
+    end
+    if current_user.two_factor_enabled?
+      if current_user.validate_and_consume_otp(action_params[:otp_attempt]) ||
+         current_user.invalidate_otp_backup_code(action_params[:otp_attempt])
+        on_success.call
+      else
+        on_failure.call
+      end
+    elsif current_user.valid_password?(action_params[:password])
+      on_success.call
+    else
+      on_failure.call
+    end
+    redirect_to edit_user_path(current_user)
+  end
+end

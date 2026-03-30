@@ -1,5 +1,19 @@
 /// Rails/ActionControllerFlashBeforeRender
 ///
+/// Investigation findings (2026-03-30):
+/// - Root cause 19 (FN): nested local assignments like
+///   `query = flash[:query] = params[:query].to_s` were skipped because only
+///   statement-level `flash[:x] = ...` nodes were checked.
+/// - Root cause 20 (FN): parent single-child `if` render context was not
+///   propagated into embedded `respond_to do ... end` blocks, so flash inside
+///   those blocks could not see the outer `else` render that RuboCop uses.
+/// - Root cause 21 (FN): `lambda do ... end` assigned to a local variable was
+///   treated like a statement-level block, incorrectly allowing a later outer
+///   `redirect_to` to suppress the implicit-render offense.
+/// - Root cause 22 (FP): `case ... else` branches with `flash` followed by an
+///   outer `redirect_to` were treated like `when` branches. RuboCop only allows
+///   that suppression for the `else` branch shape seen in the corpus.
+///
 /// Investigation findings (2026-03-18):
 /// - Root cause 1: `default_include` was set to `["app/controllers/**/*.rb"]` but the vendor
 ///   config has NO Include restriction. The cop should run on all Ruby files; class-inheritance
@@ -309,6 +323,18 @@ impl FlashVisitor<'_> {
                 }
             }
 
+            // Nested local assignment: `query = flash[:query] = ...` should use the
+            // local-variable write as the parent context, so later non-redirect
+            // statements do not suppress the implicit-render offense.
+            if let Some(write) = stmt.as_local_variable_write_node() {
+                if let Some(flash_loc) = get_flash_assignment(&write.value()) {
+                    let has_redirect = remaining.iter().any(|s| is_redirect_sibling(s));
+                    if !has_redirect {
+                        self.emit_diagnostic(flash_loc);
+                    }
+                }
+            }
+
             // Flash inside an if/else branch: check if render appears in the outer context
             if let Some(if_node) = stmt.as_if_node() {
                 self.check_if_node_with_outer(&if_node, remaining);
@@ -334,7 +360,7 @@ impl FlashVisitor<'_> {
                 || stmt.as_case_node().is_some();
 
             if !handled_context {
-                self.check_embedded_contexts_with_outer(stmt, remaining, false);
+                self.check_embedded_contexts_with_outer(stmt, remaining, false, false);
             }
         }
     }
@@ -410,6 +436,7 @@ impl FlashVisitor<'_> {
                         outer_siblings,
                         true,
                         parent_render_flag,
+                        true,
                     );
                 }
             } else {
@@ -417,7 +444,13 @@ impl FlashVisitor<'_> {
                 // parent_render_flag propagates render context from parent
                 // single-child if chains (e.g., nested if whose parent's
                 // else clause has render).
-                self.check_branch_stmts_impl(&body_nodes, outer_siblings, true, parent_render_flag);
+                self.check_branch_stmts_impl(
+                    &body_nodes,
+                    outer_siblings,
+                    true,
+                    parent_render_flag,
+                    true,
+                );
             }
         }
         // Check subsequent elsif/else clauses.
@@ -430,23 +463,13 @@ impl FlashVisitor<'_> {
             if let Some(else_clause) = subsequent.as_else_node() {
                 if let Some(stmts) = else_clause.statements() {
                     let body_nodes: Vec<_> = stmts.body().iter().collect();
-                    // When parent_render_flag is set, flash in this else body
-                    // should be flagged because in Parser AST the parent if's
-                    // right_siblings (which include render) apply here too.
-                    if parent_render_flag {
-                        for (i, stmt) in body_nodes.iter().enumerate() {
-                            if let Some(flash_loc) = get_flash_assignment(stmt) {
-                                let remaining = &body_nodes[i + 1..];
-                                let has_redirect = remaining.iter().any(|s| is_redirect_sibling(s));
-                                if !has_redirect {
-                                    self.emit_diagnostic(flash_loc);
-                                }
-                            }
-                        }
-                    }
-                    // Pass outer_siblings so else branch can see the if node's
-                    // outer context (e.g., render/respond_to after the if/else).
-                    self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
+                    self.check_branch_stmts_impl(
+                        &body_nodes,
+                        outer_siblings,
+                        true,
+                        parent_render_flag,
+                        true,
+                    );
                 }
             }
         }
@@ -517,7 +540,12 @@ impl FlashVisitor<'_> {
                 || stmt.as_case_node().is_some();
 
             if !handled_context {
-                self.check_embedded_contexts_with_outer(stmt, rescue_context_nodes, true);
+                self.check_embedded_contexts_with_outer(
+                    stmt,
+                    rescue_context_nodes,
+                    true,
+                    false,
+                );
             }
         }
     }
@@ -549,7 +577,7 @@ impl FlashVisitor<'_> {
                 if in_if_rescue_context {
                     self.check_branch_stmts_with_outer(&body_nodes, outer_siblings, true);
                 } else {
-                    self.check_case_branch_stmts(&body_nodes);
+                    self.check_case_else_branch_stmts(&body_nodes, outer_siblings);
                 }
             }
         }
@@ -609,7 +637,58 @@ impl FlashVisitor<'_> {
                 || stmt.as_case_node().is_some();
 
             if !handled_context {
-                self.check_embedded_contexts_with_outer(stmt, inner_remaining, false);
+                self.check_embedded_contexts_with_outer(stmt, inner_remaining, false, false);
+            }
+        }
+    }
+
+    fn check_case_else_branch_stmts(
+        &mut self,
+        branch_stmts: &[ruby_prism::Node<'_>],
+        outer_siblings: &[ruby_prism::Node<'_>],
+    ) {
+        let outer_has_redirect = outer_siblings.iter().any(|s| is_redirect_sibling(s));
+
+        for (i, stmt) in branch_stmts.iter().enumerate() {
+            let inner_remaining = &branch_stmts[i + 1..];
+
+            if let Some(flash_loc) = get_flash_assignment(stmt) {
+                let inner_has_redirect = inner_remaining.iter().any(|s| is_redirect_sibling(s));
+                let inner_has_render = inner_remaining.iter().any(|s| contains_render(s));
+
+                let is_offense = if inner_has_render {
+                    true
+                } else if inner_remaining.is_empty() {
+                    !inner_has_redirect && !outer_has_redirect
+                } else {
+                    false
+                };
+
+                if is_offense {
+                    self.emit_diagnostic(flash_loc);
+                }
+            }
+
+            if let Some(nested_if) = stmt.as_if_node() {
+                self.check_if_node_with_outer(&nested_if, inner_remaining);
+            }
+            if let Some(nested_unless) = stmt.as_unless_node() {
+                self.check_unless_node_with_outer(&nested_unless, inner_remaining);
+            }
+            if let Some(nested_begin) = stmt.as_begin_node() {
+                self.check_begin_node_with_outer(&nested_begin, inner_remaining);
+            }
+            if let Some(nested_case) = stmt.as_case_node() {
+                self.check_case_node_with_outer(&nested_case, inner_remaining, false);
+            }
+
+            let handled_context = stmt.as_if_node().is_some()
+                || stmt.as_unless_node().is_some()
+                || stmt.as_begin_node().is_some()
+                || stmt.as_case_node().is_some();
+
+            if !handled_context {
+                self.check_embedded_contexts_with_outer(stmt, inner_remaining, false, false);
             }
         }
     }
@@ -631,7 +710,13 @@ impl FlashVisitor<'_> {
         outer_siblings: &[ruby_prism::Node<'_>],
         is_if_rescue_branch: bool,
     ) {
-        self.check_branch_stmts_impl(branch_stmts, outer_siblings, is_if_rescue_branch, false);
+        self.check_branch_stmts_impl(
+            branch_stmts,
+            outer_siblings,
+            is_if_rescue_branch,
+            false,
+            true,
+        );
     }
 
     fn check_branch_stmts_impl(
@@ -640,6 +725,7 @@ impl FlashVisitor<'_> {
         outer_siblings: &[ruby_prism::Node<'_>],
         is_if_rescue_branch: bool,
         extra_outer_render: bool,
+        outer_redirect_visible: bool,
     ) {
         let outer_has_render =
             extra_outer_render || outer_siblings.iter().any(|s| contains_render(s));
@@ -671,11 +757,18 @@ impl FlashVisitor<'_> {
                             // redirect. Always implicit render.
                             true
                         } else {
-                            // Single-statement block: parent is block node,
-                            // can see outer scope for redirect.
-                            let outer_has_redirect =
-                                outer_siblings.iter().any(|s| is_redirect_sibling(s));
-                            !outer_has_redirect
+                            if outer_redirect_visible {
+                                // Single-statement block: parent is block node,
+                                // can see outer scope for redirect when the block
+                                // is itself the statement (e.g. `each { flash... }`).
+                                let outer_has_redirect =
+                                    outer_siblings.iter().any(|s| is_redirect_sibling(s));
+                                !outer_has_redirect
+                            } else {
+                                // Embedded lambdas/blocks (e.g. local assignments)
+                                // hide later outer redirects from RuboCop's context.parent.
+                                true
+                            }
                         }
                     } else {
                         false
@@ -722,7 +815,12 @@ impl FlashVisitor<'_> {
                 } else {
                     inner_remaining
                 };
-                self.check_embedded_contexts_with_outer(stmt, embedded_outer, is_if_rescue_branch);
+                self.check_embedded_contexts_with_outer(
+                    stmt,
+                    embedded_outer,
+                    is_if_rescue_branch,
+                    extra_outer_render,
+                );
             }
         }
     }
@@ -738,15 +836,19 @@ impl FlashVisitor<'_> {
         block: &ruby_prism::Node<'_>,
         outer_siblings: &[ruby_prism::Node<'_>],
         in_if_rescue_context: bool,
+        extra_outer_render: bool,
+        outer_redirect_visible: bool,
     ) {
         if let Some(block_node) = block.as_block_node() {
             if let Some(body) = block_node.body() {
                 if let Some(stmts) = body.as_statements_node() {
                     let body_nodes: Vec<_> = stmts.body().iter().collect();
-                    self.check_branch_stmts_with_outer(
+                    self.check_branch_stmts_impl(
                         &body_nodes,
                         outer_siblings,
                         in_if_rescue_context,
+                        extra_outer_render,
+                        outer_redirect_visible,
                     );
                 }
             }
@@ -758,14 +860,17 @@ impl FlashVisitor<'_> {
         lambda: &ruby_prism::LambdaNode<'_>,
         outer_siblings: &[ruby_prism::Node<'_>],
         in_if_rescue_context: bool,
+        extra_outer_render: bool,
     ) {
         if let Some(body) = lambda.body() {
             if let Some(stmts) = body.as_statements_node() {
                 let body_nodes: Vec<_> = stmts.body().iter().collect();
-                self.check_branch_stmts_with_outer(
+                self.check_branch_stmts_impl(
                     &body_nodes,
                     outer_siblings,
                     in_if_rescue_context,
+                    extra_outer_render,
+                    false,
                 );
             }
         }
@@ -776,11 +881,15 @@ impl FlashVisitor<'_> {
         node: &ruby_prism::Node<'_>,
         outer_siblings: &[ruby_prism::Node<'_>],
         in_if_rescue_context: bool,
+        extra_outer_render: bool,
     ) {
         let mut visitor = EmbeddedContextVisitor {
             flash_visitor: self,
             outer_siblings,
             in_if_rescue_context,
+            extra_outer_render,
+            statement_level_call: node.as_call_node().is_some(),
+            call_depth: 0,
         };
         visitor.visit(node);
     }
@@ -800,20 +909,27 @@ struct EmbeddedContextVisitor<'v, 'a, 'outer, 'pr> {
     flash_visitor: &'v mut FlashVisitor<'a>,
     outer_siblings: &'outer [ruby_prism::Node<'pr>],
     in_if_rescue_context: bool,
+    extra_outer_render: bool,
+    statement_level_call: bool,
+    call_depth: usize,
 }
 
 impl<'a, 'outer, 'pr> Visit<'pr> for EmbeddedContextVisitor<'_, 'a, 'outer, 'pr> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         if let Some(block) = node.block() {
+            let outer_redirect_visible = self.statement_level_call && self.call_depth == 0;
             if block.as_block_node().is_some() {
                 self.flash_visitor.check_block_body_with_outer(
                     &block,
                     self.outer_siblings,
                     self.in_if_rescue_context,
+                    self.extra_outer_render,
+                    outer_redirect_visible,
                 );
             }
         }
 
+        self.call_depth += 1;
         if let Some(receiver) = node.receiver() {
             self.visit(&receiver);
         }
@@ -822,6 +938,7 @@ impl<'a, 'outer, 'pr> Visit<'pr> for EmbeddedContextVisitor<'_, 'a, 'outer, 'pr>
                 self.visit(&arg);
             }
         }
+        self.call_depth -= 1;
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
@@ -829,6 +946,7 @@ impl<'a, 'outer, 'pr> Visit<'pr> for EmbeddedContextVisitor<'_, 'a, 'outer, 'pr>
             node,
             self.outer_siblings,
             self.in_if_rescue_context,
+            self.extra_outer_render,
         );
     }
 
