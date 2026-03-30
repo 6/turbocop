@@ -166,3 +166,17 @@ else
     a.name = account_name
   end
 end
+
+# multiline ternary with line continuation in a parenthesized assignment
+refs = (self.roxml_references \
+        ^^^^^^^^^^^^^^^^^^^^^ Style/RedundantCondition: Use double pipes `||` instead.
+  ? self.roxml_references \
+  : fallback_refs)
+
+# predicate+true with block-pass predicate
+if futures.all?(&:fulfilled?)
+^^ Style/RedundantCondition: Use double pipes `||` instead.
+  true
+else
+  false
+end

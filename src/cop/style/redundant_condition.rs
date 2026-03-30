@@ -9,18 +9,32 @@ use crate::parse::source::SourceFile;
 
 /// Style/RedundantCondition — checks for unnecessary conditional expressions.
 ///
-/// ## Investigation notes (2026-03-29)
+/// ## Investigation notes (2026-03-30)
 ///
-/// RuboCop still flags single-expression `else` branches on ordinary `if` nodes even
-/// when the expression spans multiple lines; it only skips `else` branches with multiple
-/// statements there. Prism keeps `unless` as a separate node type, but RuboCop
-/// effectively analyzes it like an `if` with swapped branches, and in that swapped
-/// shape the syntactic `unless` body still has to be single-line before the cop fires.
-/// The syntactic `unless` body also keeps the usual `else`-branch guards (`if`/ternary
-/// body and `[]=` assignment skips).
+/// RuboCop accepts block-bodied method branches such as
+/// `if timeout; describe timeout do ... end; else; describe timeout do ... end; end`,
+/// but nitrocop originally treated those outer calls as ordinary single-argument method
+/// branches because Prism keeps the send as a `CallNode` and stores the attached block in
+/// `call.block()`. Match RuboCop by skipping only real block bodies (`BlockNode`) in the
+/// method-branch matcher.
+///
+/// The remaining live FN was a predicate+`true` case for block-pass predicates such as
+/// `futures.all?(&:fulfilled?)`. Prism also uses `call.block()` for `&:fulfilled?`, but
+/// there it is a `BlockArgumentNode`, and RuboCop still treats the predicate as a plain
+/// `send`/call node. The fix therefore distinguishes real block bodies from block-pass
+/// arguments instead of treating all `call.block()` values the same way.
+///
+/// Multiline ternaries with line continuations are already handled once parsed as the
+/// nested `IfNode` inside the surrounding parentheses/assignment wrapper.
 pub struct RedundantCondition;
 
 impl RedundantCondition {
+    fn call_has_block_body(call: &ruby_prism::CallNode<'_>) -> bool {
+        call.block()
+            .and_then(|block| block.as_block_node())
+            .is_some()
+    }
+
     /// Check if two nodes represent the same source code
     fn nodes_equal(
         source: &SourceFile,
@@ -192,6 +206,9 @@ impl RedundantCondition {
             Some(c) => c,
             None => return false,
         };
+        if Self::call_has_block_body(&true_call) || Self::call_has_block_body(&else_call) {
+            return false;
+        }
 
         // Both must have exactly one argument
         let true_args: Vec<_> = true_call
@@ -332,12 +349,12 @@ impl RedundantCondition {
         }
 
         // Pattern 2: predicate+true — condition is predicate call, true branch is `true`
-        // In RuboCop AST, a call with a block is a `block` node, not a `send` node,
-        // so `cond.call_type?` returns false. Skip calls with blocks to match.
+        // Skip only real block bodies. Prism also uses `call.block()` for block-pass
+        // arguments (`&:sym`), which RuboCop still treats as part of the send node.
         if true_value.as_true_node().is_some() {
             if let Some(call) = condition.as_call_node() {
                 let method_name = call.name().as_slice();
-                if method_name.ends_with(b"?") && call.block().is_none() {
+                if method_name.ends_with(b"?") && !Self::call_has_block_body(&call) {
                     let allowed = config
                         .get_string_array("AllowedMethods")
                         .unwrap_or_default();

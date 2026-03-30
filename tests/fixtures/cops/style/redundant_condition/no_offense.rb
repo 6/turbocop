@@ -166,3 +166,14 @@ unless include_controls_list.empty?
 else
   true
 end
+
+# block bodies in both branches are not redundant conditions
+if timeout
+  describe timeout do
+    it { should match(/#{nginx_keepalive_timeout}/) }
+  end
+else
+  describe timeout do
+    it { should be nil }
+  end
+end
