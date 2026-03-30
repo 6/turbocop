@@ -1,6 +1,6 @@
 use crate::cop::node_type::{
-    BEGIN_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, FOR_NODE, LAMBDA_NODE, MODULE_NODE,
-    PROGRAM_NODE, SINGLETON_CLASS_NODE,
+    BEGIN_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, FOR_NODE, LAMBDA_NODE, MODULE_NODE, PROGRAM_NODE,
+    SINGLETON_CLASS_NODE,
 };
 use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
@@ -146,7 +146,9 @@ fn statements_body<'pr>(node: &ruby_prism::Node<'pr>) -> Option<ruby_prism::Stat
         return module_node.body().and_then(|b| b.as_statements_node());
     }
     if let Some(singleton_class_node) = node.as_singleton_class_node() {
-        return singleton_class_node.body().and_then(|b| b.as_statements_node());
+        return singleton_class_node
+            .body()
+            .and_then(|b| b.as_statements_node());
     }
     if let Some(lambda_node) = node.as_lambda_node() {
         return lambda_node.body().and_then(|b| b.as_statements_node());
