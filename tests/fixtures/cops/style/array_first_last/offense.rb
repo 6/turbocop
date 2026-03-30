@@ -94,3 +94,27 @@ desc "Run or omit all \"#{collection[0]}\"."
 
 desc "Run all \"#{collection[0]}\"."
                             ^^^ Style/ArrayFirstLast: Use `first`.
+
+run_spec match[0]
+              ^^^ Style/ArrayFirstLast: Use `first`.
+
+"Collection #{collection[0].inspect} referenced nonexistent job flag: #{job_flag}"
+                        ^^^ Style/ArrayFirstLast: Use `first`.
+
+desc "Run or omit all \"#{collection[0]}\"."
+                                    ^^^ Style/ArrayFirstLast: Use `first`.
+
+desc "Run all \"#{collection[0]}\"."
+                            ^^^ Style/ArrayFirstLast: Use `first`.
+
+desc "Omit all \"#{collection[0]}\"."
+                             ^^^ Style/ArrayFirstLast: Use `first`.
+
+case job[0]
+        ^^^ Style/ArrayFirstLast: Use `first`.
+
+version = T.let(requirements[0]&.[](:requirement), String)
+                            ^^^ Style/ArrayFirstLast: Use `first`.
+
+distribution_url = T.let(requirements[0]&.[](:source), T::Hash[Symbol, String])[:url]
+                                     ^^^ Style/ArrayFirstLast: Use `first`.

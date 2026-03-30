@@ -72,6 +72,15 @@ use crate::parse::source::SourceFile;
 /// RuboCop keys off the normalized integer value. Fix: compare Prism's parsed
 /// integer value against zero and negative one so `0`, `00`, `0x0000`, and
 /// similar forms behave like RuboCop.
+///
+/// Corpus investigation (2026-03-30):
+///
+/// FN=19: Remaining misses were `[0]` calls used as the receiver or argument
+/// of safe-navigation explicit bracket sends such as
+/// `requirements[0]&.[](:requirement)`. RuboCop only suppresses offenses when
+/// the parent is a regular `[]`/`[]=` send; a `&.[]` parent is a `csend`, so
+/// the inner `[0]` should still be flagged. Fix: only suppress nested bracket
+/// calls for regular bracket sends, not safe-navigation bracket sends.
 pub struct ArrayFirstLast;
 
 impl Cop for ArrayFirstLast {
@@ -125,6 +134,11 @@ fn is_bracket_call(call: &ruby_prism::CallNode<'_>) -> bool {
 
 fn bracket_call_offset(call: &ruby_prism::CallNode<'_>) -> usize {
     call.message_loc().unwrap_or(call.location()).start_offset()
+}
+
+fn is_safe_navigation_call(call: &ruby_prism::CallNode<'_>) -> bool {
+    call.call_operator_loc()
+        .is_some_and(|loc| loc.as_slice() == b"&.")
 }
 
 fn path_has_hidden_component(path: &Path) -> bool {
@@ -263,7 +277,7 @@ impl<'pr> Visit<'pr> for ArrayFirstLastVisitor<'_> {
         // When entering a []/[]= call, suppress [] calls that are direct
         // children (receiver or arguments). This matches RuboCop's behavior:
         // only suppress arr[0] when its immediate parent in the AST is []/[]=.
-        if is_bracket {
+        if is_bracket && !is_safe_navigation_call(node) {
             // Suppress receiver if it's a [] call (chained: arr[0][:key])
             // Also walk the chain deeper (arr[0][1][:key] → suppress arr[0][1] and arr[0])
             suppress_bracket_receiver_chain(node, &mut self.suppressed_offsets);
@@ -446,6 +460,23 @@ mod tests {
     #[test]
     fn detects_with_method_chain() {
         assert_eq!(run(b"arr[0].to_s\n").len(), 1, "Should detect arr[0].to_s");
+    }
+
+    #[test]
+    fn detects_zero_index_as_receiver_of_safe_navigation_bracket_call() {
+        let d = run(b"requirements[0]&.[](:requirement)\n");
+        assert_eq!(
+            d.len(),
+            1,
+            "Should flag requirements[0] under &.[] parent: {:?}",
+            d
+        );
+    }
+
+    #[test]
+    fn detects_zero_index_as_argument_of_safe_navigation_bracket_call() {
+        let d = run(b"foo&.[](arr[0])\n");
+        assert_eq!(d.len(), 1, "Should flag arr[0] under &.[] parent: {:?}", d);
     }
 
     #[test]
