@@ -38,6 +38,23 @@ use crate::parse::source::SourceFile;
 /// **shoes4 FN=2:** `let(:klazz) do Class.new(Base) { def visit_me; expect(...); end } end` —
 /// `expect` inside `DefNode` (method definition) within a class body within a let block.
 /// `find_expects_in_node` did not handle `DefNode`. Fix: add `DefNode` recursion.
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// FP=0, FN=4.
+///
+/// **keyword hash FN=2:** `expect` inside keyword-argument values such as
+/// `merge(slo_relay_state_validator: proc { expect(...) })` and
+/// `class_double(new: instance_double(...).tap { expect(...) })` was missed because
+/// `find_expects_in_node` recursed into call arguments but not `KeywordHashNode` /
+/// `AssocNode` children.
+///
+/// **assignment RHS FN=2:** `expect` inside the right-hand side of
+/// `LocalVariableWriteNode`, e.g. `ex = it ... do expect(...) end`, was missed because
+/// the traversal stopped at the assignment node instead of visiting its value.
+///
+/// Fix: recurse into `HashNode` / `KeywordHashNode` pairs, `AssocNode` key/value, and
+/// `LocalVariableWriteNode` values to match RuboCop's deep descendant search.
 pub struct ExpectInLet;
 
 /// Expectation methods to flag inside let blocks.
@@ -153,6 +170,23 @@ fn find_expects_in_node(
         if let Some(block) = call.block() {
             find_expects_in_node(&block, source, cop, diagnostics);
         }
+        return;
+    }
+    if let Some(hash) = node.as_hash_node() {
+        for element in hash.elements().iter() {
+            find_expects_in_node(&element, source, cop, diagnostics);
+        }
+        return;
+    }
+    if let Some(hash) = node.as_keyword_hash_node() {
+        for element in hash.elements().iter() {
+            find_expects_in_node(&element, source, cop, diagnostics);
+        }
+        return;
+    }
+    if let Some(assoc) = node.as_assoc_node() {
+        find_expects_in_node(&assoc.key(), source, cop, diagnostics);
+        find_expects_in_node(&assoc.value(), source, cop, diagnostics);
         return;
     }
     if let Some(block) = node.as_block_node() {
@@ -283,6 +317,10 @@ fn find_expects_in_node(
     if let Some(or_node) = node.as_or_node() {
         find_expects_in_node(&or_node.left(), source, cop, diagnostics);
         find_expects_in_node(&or_node.right(), source, cop, diagnostics);
+        return;
+    }
+    if let Some(write) = node.as_local_variable_write_node() {
+        find_expects_in_node(&write.value(), source, cop, diagnostics);
         return;
     }
     // DefNode — expect inside method definitions within let bodies (e.g., Class.new { def foo; expect(...); end })

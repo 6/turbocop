@@ -76,3 +76,32 @@ let!(:with_def_bang) do
     end
   end
 end
+let(:keyword_hash_with_block) do
+  class_double(
+    Masking::DataMaskProcessor,
+    new: instance_double(Masking::DataMaskProcessor).tap { |double|
+      expect(double).to receive(:process).and_return(line)
+      ^^^^^^ RSpec/ExpectInLet: Do not use `expect` in let
+    }
+  )
+end
+let(:proc_in_keyword_hash) do
+  super().merge(
+    slo_relay_state_validator: proc do |relay_state, rack_request|
+      expect(rack_request).to respond_to(:params)
+      ^^^^^^ RSpec/ExpectInLet: Do not use `expect` in let
+      relay_state == "custom-state"
+    end,
+  )
+end
+let(:assignment_with_nested_example) do
+  ex = nil
+  RSpec.describe do
+    ex = it "", :aggregate_failures do
+      expect(1).to fail_with_description("foo")
+      ^^^^^^ RSpec/ExpectInLet: Do not use `expect` in let
+      expect(1).to fail_with_description("bar")
+      ^^^^^^ RSpec/ExpectInLet: Do not use `expect` in let
+    end
+  end.run
+end
