@@ -42,6 +42,16 @@ use std::collections::HashMap;
 /// quotes) were not matched. The signature used raw source bytes including quotes.
 /// Fix: use `unescaped()` content for StringNode args to normalize quote style,
 /// matching RuboCop's `doc_string` which returns the string value.
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// FP=0, FN=2.
+///
+/// FN=2: repeated `specify ""` examples were skipped because explicit empty-string
+/// docstrings normalize to an empty byte signature, and the grouping loop treated any
+/// empty signature as "no description". Fix: only skip examples when
+/// `example_signature` returns `None` (true one-liners with no docstring); keep empty
+/// string signatures so blank descriptions are grouped like RuboCop.
 pub struct RepeatedDescription;
 
 #[derive(Clone)]
@@ -161,9 +171,6 @@ impl Cop for RepeatedDescription {
         let mut repeated_its: HashMap<Vec<u8>, Vec<(usize, usize)>> = HashMap::new();
 
         for example in &collector.examples {
-            if example.signature.is_empty() {
-                continue;
-            }
             if example.is_its {
                 repeated_its
                     .entry(example.signature.clone())
