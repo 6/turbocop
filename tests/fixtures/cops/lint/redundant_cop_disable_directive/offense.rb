@@ -4,3 +4,27 @@
 x = 1
 y = 2
 z = 3
+
+expect(filter.default(double(i: 0))).to be 1 # rubocop:disable RSpec/VerifiedDoubles
+^ Lint/RedundantCopDisableDirective: Unnecessary disabling of `RSpec/VerifiedDoubles`.
+
+expect(filter.default(double(i: 1))).to be 2 # rubocop:disable RSpec/VerifiedDoubles
+^ Lint/RedundantCopDisableDirective: Unnecessary disabling of `RSpec/VerifiedDoubles`.
+
+let(:value) { double(rewind: nil) } # rubocop:disable RSpec/VerifiedDoubles
+^ Lint/RedundantCopDisableDirective: Unnecessary disabling of `RSpec/VerifiedDoubles`.
+
+# rubocop:disable Style/SymbolProc
+^ Lint/RedundantCopDisableDirective: Unnecessary disabling of `Style/SymbolProc`.
+
+def mitigation_ssh_exec(command, log_stderr: false) # rubocop:disable Lint/UnusedMethodArgument
+^ Lint/RedundantCopDisableDirective: Unnecessary disabling of `Lint/UnusedMethodArgument`.
+
+Class.new(ActiveJob::Base) do # rubocop:disable Rails/ApplicationJob
+^ Lint/RedundantCopDisableDirective: Unnecessary disabling of `Rails/ApplicationJob`.
+
+Class.new(ActiveJob::Base) do # rubocop:disable Rails/ApplicationJob
+^ Lint/RedundantCopDisableDirective: Unnecessary disabling of `Rails/ApplicationJob`.
+
+Class.new(ActiveJob::Base) do # rubocop:disable Rails/ApplicationJob
+^ Lint/RedundantCopDisableDirective: Unnecessary disabling of `Rails/ApplicationJob`.
