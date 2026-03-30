@@ -985,15 +985,8 @@ fn is_guard_line(content: &[u8]) -> bool {
             if has_top_level_rescue_modifier(content) {
                 return false;
             }
-            if modifier_count != 1 {
-                return false;
-            }
-            // Check if this line also has a modifier `if` or `unless`
-            if modifier_count == 1 {
-                return true;
-            }
-            // Bare guard statement without modifier — not a guard clause
-            return false;
+            // Guard line requires exactly one top-level modifier keyword
+            return modifier_count == 1;
         }
     }
     // Also check modifier if/unless containing a guard
