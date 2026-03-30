@@ -6,14 +6,27 @@ use crate::parse::source::SourceFile;
 /// Style/ArrayIntersect detects array intersection patterns replaceable
 /// with `Array#intersect?` (Ruby 3.1+).
 ///
-/// Handles three families of patterns:
+/// FN investigation (2026-03-30):
+/// - RuboCop also flags block forms like `array1.any? { |e| array2.member?(e) }`
+///   and `array1.none? { array2.member?(_1) }`, but the Prism port only checked
+///   intersection receivers (`(a & b)` / `a.intersection(b)`). Fixed by matching
+///   explicit, numbered, and Ruby 3.4 `it` block parameters.
+/// - The `.present?` / `.blank?` family already matches when
+///   `ActiveSupportExtensionsEnabled` is present in the cop config. Remaining
+///   corpus misses in that family point at config propagation rather than local
+///   AST matching in this file.
+///
+/// Handles four families of patterns:
 /// 1. Direct predicates: `(a & b).any?` / `.empty?` / `.none?`
 ///    (plus `.present?` / `.blank?` when `ActiveSupportExtensionsEnabled`)
 /// 2. Size comparisons: `(a & b).count > 0`, `== 0`, `!= 0`
 ///    (also `.size` and `.length`)
 /// 3. Size predicates: `(a & b).count.positive?`, `.count.zero?`
+/// 4. Block predicates: `array1.any? { |e| array2.member?(e) }`
+///    and the `none?`/`_1`/`it` variants
 ///
-/// All patterns also match the `a.intersection(b)` form (1 argument only).
+/// Intersection-receiver patterns also match the `a.intersection(b)` form
+/// (1 argument only).
 pub struct ArrayIntersect;
 
 /// Extract (lhs_source, rhs_source) from an intersection expression node.
@@ -67,6 +80,99 @@ fn extract_intersection_parts(node: &ruby_prism::Node<'_>) -> Option<(String, St
     None
 }
 
+fn single_body_expression<'a>(
+    body: ruby_prism::Node<'a>,
+) -> Option<ruby_prism::Node<'a>> {
+    if let Some(stmts) = body.as_statements_node() {
+        let mut stmt_iter = stmts.body().iter();
+        let first = stmt_iter.next()?;
+        if stmt_iter.next().is_some() {
+            None
+        } else {
+            Some(first)
+        }
+    } else {
+        Some(body)
+    }
+}
+
+fn explicit_block_param_matches(
+    params: &ruby_prism::BlockParametersNode<'_>,
+) -> Option<Vec<u8>> {
+    let inner = params.parameters()?;
+    let requireds: Vec<_> = inner.requireds().iter().collect();
+    if requireds.len() != 1
+        || !inner.optionals().is_empty()
+        || inner.rest().is_some()
+        || !inner.posts().is_empty()
+        || !inner.keywords().is_empty()
+        || inner.keyword_rest().is_some()
+        || inner.block().is_some()
+    {
+        return None;
+    }
+
+    requireds[0]
+        .as_required_parameter_node()
+        .map(|param| param.name().as_slice().to_vec())
+}
+
+fn extract_member_block_parts(
+    call: &ruby_prism::CallNode<'_>,
+    ruby_version: f64,
+) -> Option<(String, String, String)> {
+    let receiver = call.receiver()?;
+    let block_node = call.block()?.as_block_node()?;
+    let params = block_node.parameters()?;
+    let body = block_node.body()?;
+    let body_expr = single_body_expression(body)?;
+    let member_call = body_expr.as_call_node()?;
+
+    if member_call.name().as_slice() != b"member?" {
+        return None;
+    }
+
+    let member_receiver = member_call.receiver()?;
+    let member_args = member_call.arguments()?;
+    let member_arg_list: Vec<_> = member_args.arguments().iter().collect();
+    if member_arg_list.len() != 1 {
+        return None;
+    }
+
+    let arg_matches = if let Some(block_params) = params.as_block_parameters_node() {
+        let param_name = explicit_block_param_matches(&block_params)?;
+        member_arg_list[0]
+            .as_local_variable_read_node()
+            .is_some_and(|arg| arg.name().as_slice() == param_name)
+    } else if params.as_numbered_parameters_node().is_some() {
+        member_arg_list[0]
+            .as_local_variable_read_node()
+            .is_some_and(|arg| arg.name().as_slice() == b"_1")
+    } else if ruby_version >= 3.4 && params.as_it_parameters_node().is_some() {
+        member_arg_list[0].as_it_local_variable_read_node().is_some()
+    } else {
+        false
+    };
+
+    if !arg_matches {
+        return None;
+    }
+
+    let recv = std::str::from_utf8(receiver.location().as_slice())
+        .unwrap_or("")
+        .to_string();
+    let op = call
+        .call_operator_loc()
+        .and_then(|loc| std::str::from_utf8(loc.as_slice()).ok())
+        .unwrap_or(".")
+        .to_string();
+    let arg_receiver = std::str::from_utf8(member_receiver.location().as_slice())
+        .unwrap_or("")
+        .to_string();
+
+    Some((recv, op, arg_receiver))
+}
+
 impl Cop for ArrayIntersect {
     fn name(&self) -> &'static str {
         "Style/ArrayIntersect"
@@ -103,6 +209,32 @@ impl Cop for ArrayIntersect {
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
 
         let active_support = config.get_bool("ActiveSupportExtensionsEnabled", false);
+
+        // Pattern 4: array1.any? { |e| array2.member?(e) } / none? variants
+        if matches!(method_name, "any?" | "none?")
+            && call.arguments().is_none()
+            && call.block().is_some()
+        {
+            if let Some((recv, op, arg_receiver)) = extract_member_block_parts(&call, ruby_version)
+            {
+                let loc = call.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                let existing = source.byte_slice(
+                    loc.start_offset(),
+                    call.block()
+                        .unwrap()
+                        .location()
+                        .end_offset(),
+                    "array1.any? { |e| array2.member?(e) }",
+                );
+                let bang = if method_name == "none?" { "!" } else { "" };
+                let msg = format!(
+                    "Use `{bang}{recv}{op}intersect?({arg_receiver})` instead of `{existing}`."
+                );
+                diagnostics.push(self.diagnostic(source, line, column, msg));
+                return;
+            }
+        }
 
         // Pattern 1: (a & b).any? / .empty? / .none? / .present? / .blank?
         if matches!(method_name, "any?" | "empty?" | "none?")
@@ -353,6 +485,54 @@ mod tests {
         assert_eq!(
             diags[0].message,
             "Use `a.intersect?(b)` instead of `a.intersection(b).present?`."
+        );
+    }
+
+    #[test]
+    fn nested_present_with_active_support() {
+        let config = {
+            let mut c = CopConfig::default();
+            c.options.insert(
+                "ActiveSupportExtensionsEnabled".to_string(),
+                serde_yml::Value::Bool(true),
+            );
+            c
+        };
+        let diags = crate::testutil::run_cop_full_with_config(
+            &ArrayIntersect,
+            b"(cost_keys.to_set & report_cols).present?\n",
+            config,
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].message,
+            "Use `cost_keys.to_set.intersect?(report_cols)` instead of `(cost_keys.to_set & report_cols).present?`."
+        );
+    }
+
+    #[test]
+    fn any_block_member_detection() {
+        let diags = crate::testutil::run_cop_full(
+            &ArrayIntersect,
+            b"array1.any? { |e| array2.member?(e) }\n",
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].message,
+            "Use `array1.intersect?(array2)` instead of `array1.any? { |e| array2.member?(e) }`."
+        );
+    }
+
+    #[test]
+    fn none_block_member_detection_with_numbered_params() {
+        let diags = crate::testutil::run_cop_full(
+            &ArrayIntersect,
+            b"array1.none? { array2.member?(_1) }\n",
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].message,
+            "Use `!array1.intersect?(array2)` instead of `array1.none? { array2.member?(_1) }`."
         );
     }
 }

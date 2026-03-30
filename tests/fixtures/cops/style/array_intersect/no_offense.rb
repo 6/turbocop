@@ -4,6 +4,9 @@ array1.intersect?(array2)
 array1.intersection.any?
 array1.intersection(array2, array3).any?
 alpha & beta
+array1.any? { |e| array2.include?(e) }
+array1.any? { |e, i| array2.member?(e) }
+array1.any? { |e| member?(e) }
 
 # These are fine as standalone operations
 (array1 & array2).size
