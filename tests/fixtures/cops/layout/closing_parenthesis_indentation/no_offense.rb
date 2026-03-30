@@ -78,3 +78,11 @@ some_method(a
 # Grouped expression: first element on same line: `)` aligned with `(`
 w = x * (y + z
         )
+
+# Heredoc grouped expression: `)` aligned with `(`
+recipes = {
+  a: (<<EOF
+hello
+EOF
+     ),
+}

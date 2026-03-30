@@ -28,6 +28,13 @@ fn leading_whitespace_columns(line: &[u8]) -> usize {
 /// it as "all aligned" and required `)` to align with `(`. But RuboCop's `[].uniq.one?`
 /// returns false, going to the else branch (line indentation). Fix: check that
 /// `element_columns` is non-empty before treating it as "all aligned".
+///
+/// FN root cause #3 (2026-03-30): grouped expressions whose first operand starts
+/// on the same line as `(` were treated more permissively than RuboCop. The Prism
+/// port accepted `)` at either the line indentation or the `(` column, but RuboCop
+/// only accepts line indentation when the grouped body has multiple unaligned
+/// child expressions. A single child expression, including heredoc bodies and
+/// multiline conditions like `if ((foo) && ... )`, must align `)` with `(`.
 pub struct ClosingParenthesisIndentation;
 
 impl Cop for ClosingParenthesisIndentation {
@@ -485,17 +492,17 @@ fn check_grouped_parens(
         }
     };
 
-    // Get the first child element for indentation calculation.
-    // If body is StatementsNode, use its first child; otherwise use body directly.
-    let first_element = if let Some(stmts) = body.as_statements_node() {
-        match stmts.body().iter().next() {
-            Some(n) => n,
-            None => return Vec::new(),
+    let elements: Vec<ruby_prism::Node<'_>> = if let Some(stmts) = body.as_statements_node() {
+        let elements: Vec<_> = stmts.body().iter().collect();
+        if elements.is_empty() {
+            return Vec::new();
         }
+        elements
     } else {
-        body
+        vec![body]
     };
 
+    let first_element = &elements[0];
     let (first_elem_line, _) = source.offset_to_line_col(first_element.location().start_offset());
 
     let indent_width = config.get_usize("IndentationWidth", 2);
@@ -517,22 +524,41 @@ fn check_grouped_parens(
         }
     } else {
         // Scenario 2: First element on same line as `(`
-        // For grouped expressions, all children at same column → align with `(`
-        // Otherwise use line indentation
-        let open_line_indent = match util::line_at(source, open_line) {
-            Some(line) => leading_whitespace_columns(line),
-            None => 0,
-        };
-        if close_col != open_col && close_col != open_line_indent {
-            return vec![cop.diagnostic(
-                source,
-                close_line,
-                close_col,
-                format!(
-                    "Indent `)` to column {} (not {}).",
-                    open_line_indent, close_col
-                ),
-            )];
+        let element_columns: Vec<usize> = elements
+            .iter()
+            .map(|element| {
+                let (_, col) = source.offset_to_line_col(element.location().start_offset());
+                col
+            })
+            .collect();
+        let all_aligned =
+            !element_columns.is_empty() && element_columns.iter().all(|&c| c == element_columns[0]);
+
+        if all_aligned {
+            if close_col != open_col {
+                return vec![cop.diagnostic(
+                    source,
+                    close_line,
+                    close_col,
+                    "Align `)` with `(`.".to_string(),
+                )];
+            }
+        } else {
+            let first_elem_line_indent = match util::line_at(source, first_elem_line) {
+                Some(line) => leading_whitespace_columns(line),
+                None => 0,
+            };
+            if close_col != first_elem_line_indent {
+                return vec![cop.diagnostic(
+                    source,
+                    close_line,
+                    close_col,
+                    format!(
+                        "Indent `)` to column {} (not {}).",
+                        first_elem_line_indent, close_col
+                    ),
+                )];
+            }
         }
     }
 
