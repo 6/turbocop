@@ -306,10 +306,7 @@ impl<'pr> Visit<'pr> for ExampleFinder {
     // `lvasgn` nodes don't match RuboCop's `examples?` patterns. Examples wrapped
     // in local variable assignments (e.g., `examples = [...].each { it ... }` or
     // `meta = example(...)`) should not make the group non-empty.
-    fn visit_local_variable_write_node(
-        &mut self,
-        _node: &ruby_prism::LocalVariableWriteNode<'pr>,
-    ) {
+    fn visit_local_variable_write_node(&mut self, _node: &ruby_prism::LocalVariableWriteNode<'pr>) {
         // Skip — examples inside local variable assignments don't count
     }
 
