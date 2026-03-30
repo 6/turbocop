@@ -60,5 +60,11 @@
     "exclude": [
       "puppet/**/*"
     ]
+  },
+  "dazuma__toys__cbfb9a4": {
+    "comment": "Hidden .lib tree under toys-release/toys is only linted when explicitly included by the repo's own config. The corpus baseline ignores repo configs, so RuboCop skips this tree on repo-root scans while nitrocop still descends into it.",
+    "exclude": [
+      "toys-release/toys/.lib/**/*"
+    ]
   }
 }
