@@ -1,4 +1,4 @@
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -62,6 +62,18 @@ use crate::parse::source::SourceFile;
 ///    missing blocks on intermediate calls in the chain. Fixed by walking the receiver
 ///    chain and recursing into blocks on each intermediate call node.
 ///    Example: DataDog/dd-trace-rb configuration_spec.rb:612.
+///
+/// Round 5 FP/FN fix (17 FP, 5 FN):
+/// 8. Shared groups (`shared_examples`, `shared_examples_for`, `shared_context`) do
+///    not contribute named subjects for SubjectStub. RuboCop still flags
+///    `allow(subject)`, but it does not treat `subject(:adapter)` in a shared group
+///    as making `allow(adapter)` an offense in that shared group or nested describes.
+///    Our code inherited named subjects from shared groups, causing the discourse
+///    `spec/support/shared_examples/web_server_adapter.rb` false positives.
+/// 9. Returning immediately after flagging an outer stub skipped nested stubs in the
+///    same block, e.g. `expect(subject).to receive(:fork) do ... expect(subject).to
+///    receive(:open!) ... end`. Fixed by continuing to recurse into the block after
+///    reporting the outer offense.
 pub struct SubjectStub;
 
 impl Cop for SubjectStub {
@@ -126,10 +138,12 @@ impl SubjectStub {
                     if is_eg || is_rspec_describe {
                         let mut subject_names: Vec<Vec<u8>> = Vec::new();
                         subject_names.push(b"subject".to_vec());
+                        let track_named_subjects = !is_rspec_shared_group(name);
                         collect_subject_stub_offenses(
                             source,
                             bn,
                             &mut subject_names,
+                            track_named_subjects,
                             diagnostics,
                             self,
                         );
@@ -158,10 +172,12 @@ impl SubjectStub {
                     if is_eg || is_rspec_describe {
                         let mut subject_names: Vec<Vec<u8>> = Vec::new();
                         subject_names.push(b"subject".to_vec());
+                        let track_named_subjects = !is_rspec_shared_group(name);
                         collect_subject_stub_offenses(
                             source,
                             bn,
                             &mut subject_names,
+                            track_named_subjects,
                             diagnostics,
                             self,
                         );
@@ -210,6 +226,7 @@ fn collect_subject_stub_offenses(
     source: &SourceFile,
     block: ruby_prism::BlockNode<'_>,
     subject_names: &mut Vec<Vec<u8>>,
+    track_named_subjects: bool,
     diagnostics: &mut Vec<Diagnostic>,
     cop: &SubjectStub,
 ) {
@@ -225,27 +242,29 @@ fn collect_subject_stub_offenses(
     // First pass: collect subject names and let overrides defined in this scope
     let scope_start = subject_names.len();
     let mut let_names: Vec<Vec<u8>> = Vec::new();
-    for stmt in stmts.body().iter() {
-        if let Some(call) = stmt.as_call_node() {
-            let name = call.name().as_slice();
-            if (name == b"subject" || name == b"subject!") && call.receiver().is_none() {
-                // Check if it has a name argument: subject(:foo)
-                if let Some(args) = call.arguments() {
-                    let arg_list: Vec<_> = args.arguments().iter().collect();
-                    if !arg_list.is_empty() {
-                        if let Some(sym) = arg_list[0].as_symbol_node() {
-                            subject_names.push(sym.unescaped().to_vec());
+    if track_named_subjects {
+        for stmt in stmts.body().iter() {
+            if let Some(call) = stmt.as_call_node() {
+                let name = call.name().as_slice();
+                if (name == b"subject" || name == b"subject!") && call.receiver().is_none() {
+                    // Check if it has a name argument: subject(:foo)
+                    if let Some(args) = call.arguments() {
+                        let arg_list: Vec<_> = args.arguments().iter().collect();
+                        if !arg_list.is_empty() {
+                            if let Some(sym) = arg_list[0].as_symbol_node() {
+                                subject_names.push(sym.unescaped().to_vec());
+                            }
                         }
                     }
                 }
-            }
-            // Track let(:name) definitions that shadow subject names
-            if (name == b"let" || name == b"let!") && call.receiver().is_none() {
-                if let Some(args) = call.arguments() {
-                    let arg_list: Vec<_> = args.arguments().iter().collect();
-                    if !arg_list.is_empty() {
-                        if let Some(sym) = arg_list[0].as_symbol_node() {
-                            let_names.push(sym.unescaped().to_vec());
+                // Track let(:name) definitions that shadow subject names
+                if (name == b"let" || name == b"let!") && call.receiver().is_none() {
+                    if let Some(args) = call.arguments() {
+                        let arg_list: Vec<_> = args.arguments().iter().collect();
+                        if !arg_list.is_empty() {
+                            if let Some(sym) = arg_list[0].as_symbol_node() {
+                                let_names.push(sym.unescaped().to_vec());
+                            }
                         }
                     }
                 }
@@ -287,9 +306,7 @@ fn check_for_subject_stubs(
         // Check for allow(subject_name).to receive(...) or expect(subject_name).to receive(...)
         // Also handles chained calls after .to (e.g., .to(...).at_least(:once) or
         // .to(receive(...)).and_return(baz)) where .to is buried in the receiver chain.
-        if check_stub_expression(&call, node, source, subject_names, diagnostics, cop) {
-            return;
-        }
+        check_stub_expression(&call, node, source, subject_names, diagnostics, cop);
 
         // Recurse into nested blocks (before, it, context, etc.)
         // Check blocks on the outermost call AND on calls in the receiver chain.
@@ -335,7 +352,15 @@ fn recurse_into_call_blocks(
             if is_rspec_example_group(call_name) {
                 // Nested example group — create new scope with inherited subject names
                 let mut child_names = subject_names.to_vec();
-                collect_subject_stub_offenses(source, bn, &mut child_names, diagnostics, cop);
+                let track_named_subjects = !is_rspec_shared_group(call_name);
+                collect_subject_stub_offenses(
+                    source,
+                    bn,
+                    &mut child_names,
+                    track_named_subjects,
+                    diagnostics,
+                    cop,
+                );
             } else {
                 // Non-example-group block (before, it, specify, def, etc.)
                 if let Some(body) = bn.body() {

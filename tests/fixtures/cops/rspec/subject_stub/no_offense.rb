@@ -20,6 +20,18 @@ describe Bar do
   end
 end
 
+RSpec.shared_examples 'a web server adapter' do
+  subject(:adapter) { described_class.new(upgrader) }
+
+  let(:upgrader) { instance_double(DockerManager::Upgrader, log: nil) }
+
+  describe '#workers' do
+    before do
+      allow(adapter).to receive(:master_pid).and_return(1001)
+    end
+  end
+end
+
 # When require is at top level alongside a module wrapper, RuboCop's TopLevelGroup
 # does not recurse into the module (begin returns children directly, module is
 # not a spec group so it is skipped).
