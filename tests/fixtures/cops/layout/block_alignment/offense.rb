@@ -126,3 +126,56 @@ end
 result = items.map { |item|
          }.to_json
          ^ Layout/BlockAlignment: Align `}` with the start of the line where the block is defined.
+
+# FN: same-line || wrapper should align with the wrapper expression start
+to_be_destroyed.any? || proxy_target.any? do |record|
+  record.changed?
+                                    end
+                                    ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+
+# FN: hash literal feeding }.each do should still flag a misaligned end
+{
+  "password" => 1,
+}.each do |password, bonus_bits|
+  password + bonus_bits.to_s
+      end
+      ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+
+# FN: splat-wrapped block call should align with the splat, not the inner call
+rdoc_files.include(
+  *FileList.new("*") do |list|
+     list.exclude("TODO")
+     end.to_a)
+     ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+
+# FN: << wrapper should align end with the wrapper expression start
+out << sequence.each_with_object(+"") do |col_name, s|
+  s << col_name
+           end
+           ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+
+# FN: << wrapper should align } with the wrapper expression start
+tp << ThreadPoolJob.new(intermediate) { |i|
+  handle_request(i)
+            }
+            ^ Layout/BlockAlignment: Align `}` with the start of the line where the block is defined.
+
+# FN: repeated << brace block case from another branch
+tp << ThreadPoolJob.new(notification) { |i|
+  handle_notification(i)
+            }
+            ^ Layout/BlockAlignment: Align `}` with the start of the line where the block is defined.
+
+# FN: chained outer block should stop the ancestor walk at the parent call
+pages.published.pluck(:name, :slug)
+  .each_with_object(DEFAULT_LINKS.dup) do |(name, slug), memo|
+  memo[name] = slug
+    end.sort_by { |_key, value| navigation_links.index(value) || 0 }.to_h
+    ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+
+# FN: lambda mid-line indentation should not be accepted
+scope :_candlestick, -> (timeframe: "1h",
+                         value: value_column) do
+  select(timeframe, value)
+          end
+          ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
