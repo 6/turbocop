@@ -37,6 +37,20 @@ use crate::parse::source::SourceFile;
 /// 2. CountAsOne only checked top-level statements, missing arrays/hashes nested inside
 ///    assignments or other expressions. RuboCop's `each_top_level_descendant` recursively
 ///    descends into all descendants. Rewrote using Visit trait with skip_depth tracking.
+///
+/// ## 2026-03-30 investigation
+///
+/// Added fixture coverage for the two YARD heredoc/comment transition examples that
+/// were reported as corpus false negatives. The direct cop path (`run_cop_full_internal`
+/// and the fixture harness) already matches RuboCop on both `[7/5]` and `[10/5]`
+/// reproductions, so the remaining discrepancy is outside this detector.
+///
+/// The mismatch only appears through the full CLI/config path for plugin cops:
+/// `--force-default-config` builds an empty resolved config, which disables the
+/// `RSpec` plugin department before this cop's AST walk runs. That config-layer
+/// behavior is not fixed here; keep validating this cop with `check_cop.py` and the
+/// fixture reproductions rather than assuming an isolated absolute-path CLI run
+/// exercises the detector.
 pub struct ExampleLength;
 
 impl Cop for ExampleLength {
