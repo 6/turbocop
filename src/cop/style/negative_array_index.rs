@@ -1,4 +1,6 @@
-use crate::cop::node_type::CALL_NODE;
+use crate::cop::node_type::{
+    CALL_NODE, INDEX_AND_WRITE_NODE, INDEX_OPERATOR_WRITE_NODE, INDEX_OR_WRITE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -17,13 +19,24 @@ use crate::parse::source::SourceFile;
 /// `assigns[:tags]` are NOT considered preserving, so RuboCop skips them. Fixed by
 /// implementing the `preserving_method?` check from RuboCop.
 ///
-/// **FN root cause (21 FNs):** nitrocop did not handle range-based indexing patterns like
-/// `arr[0..arr.length-2]` or `arr[(1..(arr.size-2))]`. Also missing: `self[length - 1]`
-/// implicit receiver, preserving method chains like `arr.sort[arr.reverse.length - 2]`.
-/// Fixed by adding range pattern detection and the full receiver matching logic.
+/// **FN root cause (21 FNs, then 17 more):** nitrocop did not handle range-based indexing
+/// patterns like `arr[0..arr.length-2]` or `arr[(1..(arr.size-2))]`. Also missing:
+/// `self[length - 1]` implicit receiver, preserving method chains like
+/// `arr.sort[arr.reverse.length - 2]`. Fixed by adding range pattern detection and the
+/// full receiver matching logic.
 ///
-/// **RuboCop also skips:** assignment `arr[arr.length-2] = val`, subtraction by 0,
-/// subtraction by a variable (non-integer), and receivers with non-preserving method chains.
+/// Additional 17 FNs (2026-03-30): Two root causes:
+/// 1. Multi-argument `[]` calls like `token[token.length-1, 1]` were rejected because the
+///    cop required exactly 1 argument. RuboCop checks only the first argument regardless
+///    of argument count. Fixed by removing the single-argument restriction.
+/// 2. Compound assignment forms like `arr[arr.length - 1] += 1` were not detected because
+///    Prism parses these as `IndexOperatorWriteNode` (not `CallNode`). RuboCop catches
+///    them because `+=` still contains a `[]` read in its AST. Fixed by also handling
+///    `IndexOperatorWriteNode`, `IndexAndWriteNode`, and `IndexOrWriteNode`.
+///
+/// **RuboCop also skips:** assignment `arr[arr.length-2] = val` (which is `[]=`),
+/// subtraction by 0, subtraction by a variable (non-integer), and receivers with
+/// non-preserving method chains.
 pub struct NegativeArrayIndex;
 
 const PRESERVING_METHODS: &[&[u8]] = &[b"sort", b"reverse", b"shuffle", b"rotate"];
@@ -142,7 +155,12 @@ impl Cop for NegativeArrayIndex {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE]
+        &[
+            CALL_NODE,
+            INDEX_OPERATOR_WRITE_NODE,
+            INDEX_AND_WRITE_NODE,
+            INDEX_OR_WRITE_NODE,
+        ]
     }
 
     fn check_node(
@@ -154,6 +172,27 @@ impl Cop for NegativeArrayIndex {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // Handle compound assignment nodes: arr[i] += val, arr[i] &&= val, arr[i] ||= val
+        // These contain a [] read that RuboCop flags.
+        if let Some((receiver, arguments)) = node
+            .as_index_operator_write_node()
+            .and_then(|n| Some((n.receiver()?, n.arguments()?)))
+            .or_else(|| {
+                node.as_index_and_write_node()
+                    .and_then(|n| Some((n.receiver()?, n.arguments()?)))
+            })
+            .or_else(|| {
+                node.as_index_or_write_node()
+                    .and_then(|n| Some((n.receiver()?, n.arguments()?)))
+            })
+        {
+            let arg_list: Vec<_> = arguments.arguments().iter().collect();
+            if !arg_list.is_empty() {
+                self.check_simple_pattern(source, &receiver, &arg_list[0], diagnostics);
+            }
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -175,34 +214,43 @@ impl Cop for NegativeArrayIndex {
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.len() != 1 {
+        if arg_list.is_empty() {
             return;
         }
 
         let arg = &arg_list[0];
 
-        // Check if arg is a ParenthesesNode wrapping a range
-        if let Some(parens) = arg.as_parentheses_node() {
-            if let Some(body) = parens.body() {
-                if let Some(stmts) = body.as_statements_node() {
-                    let inner_list: Vec<_> = stmts.body().iter().collect();
-                    if inner_list.len() == 1 {
-                        if let Some(range) = inner_list[0].as_range_node() {
-                            self.check_range_pattern(source, &receiver, range, true, diagnostics);
-                            return;
+        // Range patterns only apply when there's exactly one argument
+        if arg_list.len() == 1 {
+            // Check if arg is a ParenthesesNode wrapping a range
+            if let Some(parens) = arg.as_parentheses_node() {
+                if let Some(body) = parens.body() {
+                    if let Some(stmts) = body.as_statements_node() {
+                        let inner_list: Vec<_> = stmts.body().iter().collect();
+                        if inner_list.len() == 1 {
+                            if let Some(range) = inner_list[0].as_range_node() {
+                                self.check_range_pattern(
+                                    source,
+                                    &receiver,
+                                    range,
+                                    true,
+                                    diagnostics,
+                                );
+                                return;
+                            }
                         }
                     }
                 }
             }
+
+            // Check if arg is a bare range (without parens)
+            if let Some(range) = arg.as_range_node() {
+                self.check_range_pattern(source, &receiver, range, false, diagnostics);
+                return;
+            }
         }
 
-        // Check if arg is a bare range (without parens)
-        if let Some(range) = arg.as_range_node() {
-            self.check_range_pattern(source, &receiver, range, false, diagnostics);
-            return;
-        }
-
-        // Simple index pattern: arr[arr.length - N]
+        // Simple index pattern: arr[arr.length - N] (works for multi-arg too)
         self.check_simple_pattern(source, &receiver, arg, diagnostics);
     }
 }
