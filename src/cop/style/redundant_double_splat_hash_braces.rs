@@ -39,14 +39,14 @@ impl Cop for RedundantDoubleSplatHashBraces {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let elements: Vec<ruby_prism::Node<'_>> = if let Some(keyword_hash) = node.as_keyword_hash_node()
-        {
-            keyword_hash.elements().iter().collect()
-        } else if let Some(hash) = node.as_hash_node() {
-            hash.elements().iter().collect()
-        } else {
-            return;
-        };
+        let elements: Vec<ruby_prism::Node<'_>> =
+            if let Some(keyword_hash) = node.as_keyword_hash_node() {
+                keyword_hash.elements().iter().collect()
+            } else if let Some(hash) = node.as_hash_node() {
+                hash.elements().iter().collect()
+            } else {
+                return;
+            };
 
         diagnostics.extend(self.check_hash_elements(source, elements.into_iter()));
     }
