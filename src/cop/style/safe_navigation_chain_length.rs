@@ -1,9 +1,23 @@
-use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 /// Enforces safe navigation chains length to not exceed the configured maximum.
+///
+/// ## Investigation findings (2026-03-30)
+///
+/// **Root cause of 40 FNs:** nitrocop only counted `&.` through receiver links, so it
+/// missed RuboCop chains that continue through Parser send children such as
+/// `session['view_token']&.[](record&.id&.to_s)`. It also treated any `CallNode.block()`
+/// as a chain boundary, but Prism uses `block()` for both real `BlockNode`s and block-pass
+/// arguments like `&:inspect`, which RuboCop still counts through.
+///
+/// **Fix:** Switched to a RuboCop-style ancestor walk over safe-navigation call ancestors,
+/// skipping Prism-only `ArgumentsNode` wrappers and treating only real `BlockNode`s as
+/// chain boundaries. This preserves the existing no-offense behavior for real blocks while
+/// detecting chains with block-pass arguments and nested safe-navigation calls inside
+/// arguments.
 ///
 /// ## Investigation findings (2026-03-15)
 ///
@@ -25,50 +39,25 @@ impl Cop for SafeNavigationChainLength {
         "Style/SafeNavigationChainLength"
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let max = config.get_usize("Max", 2);
-
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
-
-        // Must use safe navigation (&.)
-        if !is_safe_nav(&call) {
-            return;
-        }
-
-        // Count the chain length
-        let chain_len = count_safe_nav_chain(node);
-        if chain_len <= max {
-            return;
-        }
-
-        // Only report on the outermost call in the chain
-        // (skip if this node is itself a receiver of another &. call)
-        // We can't walk up, so we report on every call that exceeds the limit
-        // but only the outermost will have the full chain.
-
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
+        let mut visitor = SafeNavigationChainLengthVisitor {
+            cop: self,
             source,
-            line,
-            column,
-            format!("Avoid safe navigation chains longer than {} calls.", max),
-        ));
+            max: config.get_usize("Max", 2),
+            diagnostics: Vec::new(),
+            // Stored outermost-first so index 0 is the offense location RuboCop reports.
+            safe_nav_ancestors: Vec::new(),
+        };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 
@@ -80,49 +69,101 @@ fn is_safe_nav(call: &ruby_prism::CallNode<'_>) -> bool {
     }
 }
 
-fn count_safe_nav_chain(node: &ruby_prism::Node<'_>) -> usize {
-    let call = match node.as_call_node() {
-        Some(c) => c,
-        None => return 0,
-    };
-
-    if !is_safe_nav(&call) {
-        return 0;
-    }
-
-    let recv_count = match call.receiver() {
-        Some(r) => count_safe_nav_chain_receiver(&r),
-        None => 0,
-    };
-
-    1 + recv_count
+fn has_real_block(call: &ruby_prism::CallNode<'_>) -> bool {
+    call.block()
+        .and_then(|block| block.as_block_node())
+        .is_some()
 }
 
-/// Count safe navigation chain length walking down through receivers.
-/// A block-bearing `&.` call acts as a chain boundary — in RuboCop's Parser AST,
-/// `a&.method { block }` wraps the csend in a block node, which stops the
-/// ancestor traversal. So we don't count it or recurse past it.
-fn count_safe_nav_chain_receiver(node: &ruby_prism::Node<'_>) -> usize {
-    let call = match node.as_call_node() {
-        Some(c) => c,
-        None => return 0,
-    };
+struct SafeNavigationChainLengthVisitor<'a, 'src> {
+    cop: &'a SafeNavigationChainLength,
+    source: &'src SourceFile,
+    max: usize,
+    diagnostics: Vec<Diagnostic>,
+    /// Active safe-navigation ancestors visible from the current traversal path.
+    ///
+    /// This mirrors RuboCop's `each_ancestor` behavior:
+    /// - safe-nav parents stay visible through receivers and arguments
+    /// - regular call parents reset the chain
+    /// - real blocks (`BlockNode`) hide ancestors above the blocked call
+    /// - block-pass args (`&:sym`, `&method`) do NOT break the chain
+    safe_nav_ancestors: Vec<usize>,
+}
 
-    if !is_safe_nav(&call) {
-        return 0;
+impl SafeNavigationChainLengthVisitor<'_, '_> {
+    fn maybe_add_offense(&mut self) {
+        if self.safe_nav_ancestors.len() < self.max {
+            return;
+        }
+
+        let outermost_start = self.safe_nav_ancestors[0];
+        let message = format!(
+            "Avoid safe navigation chains longer than {} calls.",
+            self.max
+        );
+        let (line, column) = self.source.offset_to_line_col(outermost_start);
+        if self.diagnostics.iter().any(|diagnostic| {
+            diagnostic.location.line == line
+                && diagnostic.location.column == column
+                && diagnostic.cop_name == self.cop.name()
+                && diagnostic.message == message
+        }) {
+            return;
+        }
+
+        self.diagnostics
+            .push(self.cop.diagnostic(self.source, line, column, message));
     }
 
-    // A block on the receiver breaks the chain — stop counting here.
-    if call.block().is_some() {
-        return 0;
+    fn visit_chain_child<'pr>(&mut self, node: &ruby_prism::Node<'pr>) {
+        let saved_ancestors = self.safe_nav_ancestors.clone();
+        if node.as_call_node().is_none() {
+            self.safe_nav_ancestors.clear();
+        }
+        self.visit(node);
+        self.safe_nav_ancestors = saved_ancestors;
     }
+}
 
-    let recv_count = match call.receiver() {
-        Some(r) => count_safe_nav_chain_receiver(&r),
-        None => 0,
-    };
+impl<'pr> Visit<'pr> for SafeNavigationChainLengthVisitor<'_, '_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let is_safe = is_safe_nav(node);
+        let real_block = has_real_block(node);
+        let saved_ancestors = self.safe_nav_ancestors.clone();
 
-    1 + recv_count
+        if is_safe && !real_block {
+            self.maybe_add_offense();
+        }
+
+        self.safe_nav_ancestors = if is_safe {
+            let mut ancestors = if real_block {
+                Vec::new()
+            } else {
+                saved_ancestors.clone()
+            };
+            ancestors.push(node.location().start_offset());
+            ancestors
+        } else {
+            Vec::new()
+        };
+
+        if let Some(receiver) = node.receiver() {
+            self.visit_chain_child(&receiver);
+        }
+        if let Some(arguments) = node.arguments() {
+            for argument in arguments.arguments().iter() {
+                self.visit_chain_child(&argument);
+            }
+        }
+        if let Some(block) = node.block() {
+            if real_block || !is_safe {
+                self.safe_nav_ancestors.clear();
+            }
+            self.visit_chain_child(&block);
+        }
+
+        self.safe_nav_ancestors = saved_ancestors;
+    }
 }
 
 #[cfg(test)]
