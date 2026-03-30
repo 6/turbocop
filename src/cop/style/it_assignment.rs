@@ -1,8 +1,7 @@
 use crate::cop::node_type::{
     BLOCK_NODE, BLOCK_PARAMETER_NODE, DEF_NODE, KEYWORD_REST_PARAMETER_NODE, LAMBDA_NODE,
-    LOCAL_VARIABLE_WRITE_NODE,
-    OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE,
-    REQUIRED_PARAMETER_NODE, REST_PARAMETER_NODE,
+    LOCAL_VARIABLE_WRITE_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE,
+    REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, REST_PARAMETER_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -77,7 +76,13 @@ impl Cop for ItAssignment {
 
         if let Some(write_node) = node.as_local_variable_write_node() {
             if write_node.name().as_slice() == b"it" {
-                add_offense(self, source, &write_node.name_loc(), ASSIGNMENT_MSG, diagnostics);
+                add_offense(
+                    self,
+                    source,
+                    &write_node.name_loc(),
+                    ASSIGNMENT_MSG,
+                    diagnostics,
+                );
             }
             return;
         }
