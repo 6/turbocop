@@ -423,15 +423,20 @@ fn lint_file(
             .fetch_add(io_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
 
-    // Skip files with invalid UTF-8 that lack an encoding magic comment.
-    // RuboCop treats such files as a fatal Lint/Syntax error ("Invalid byte
-    // sequence in utf-8") and runs no cops. Files WITH an encoding magic
-    // comment (e.g., `# encoding: iso-8859-1`) are processed normally by
-    // RuboCop, so we only skip when no such comment is present.
+    // Files with invalid UTF-8 that lack an encoding magic comment are
+    // treated by RuboCop as a fatal Lint/Syntax error ("Invalid byte
+    // sequence in utf-8.") and no other cops run. Files WITH an encoding
+    // magic comment (e.g., `# encoding: iso-8859-1`) are processed normally.
     if std::str::from_utf8(source.as_bytes()).is_err()
         && !has_encoding_magic_comment(source.as_bytes())
     {
-        return Vec::new();
+        let result = emit_invalid_utf8_diagnostic(
+            &source, config, registry, cop_filters, has_dir_overrides, tier_map, args,
+        );
+        if cache.is_enabled() {
+            cache.put(path, source.as_bytes(), &result);
+        }
+        return result;
     }
 
     // Tier 2: content hash check — file was read, mtime didn't match
@@ -859,6 +864,67 @@ fn emit_syntax_diagnostics(
         });
     }
     diagnostics
+}
+
+/// Emit a single Lint/Syntax diagnostic for files with invalid UTF-8 bytes.
+///
+/// RuboCop treats files with invalid byte sequences (and no encoding magic
+/// comment) as a fatal Lint/Syntax error with message "Invalid byte sequence
+/// in utf-8." reported at line 1. This matches `add_offense_from_error` in
+/// RuboCop's `Lint::Syntax` cop.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_invalid_utf8_diagnostic(
+    source: &SourceFile,
+    config: &ResolvedConfig,
+    registry: &CopRegistry,
+    cop_filters: &CopFilterSet,
+    has_dir_overrides: bool,
+    tier_map: &TierMap,
+    args: &Args,
+) -> Vec<Diagnostic> {
+    const SYNTAX_COP: &str = "Lint/Syntax";
+
+    let cops = registry.cops();
+    let syntax_idx = match cops.iter().position(|c| c.name() == SYNTAX_COP) {
+        Some(idx) => idx,
+        None => return Vec::new(),
+    };
+
+    let effective_config = if has_dir_overrides {
+        config.effective_config_for_file(&source.path)
+    } else {
+        None
+    };
+    let owned_filters;
+    let active_filters = if let Some(ref file_config) = effective_config {
+        owned_filters = file_config.build_cop_filters(registry, tier_map, args.preview);
+        &owned_filters
+    } else {
+        cop_filters
+    };
+
+    let filter = active_filters.cop_filter(syntax_idx);
+    if !filter.is_enabled() {
+        return Vec::new();
+    }
+    if active_filters.is_cop_excluded(syntax_idx, &source.path) {
+        return Vec::new();
+    }
+    if !args.only.is_empty() && !args.only.iter().any(|o| o == SYNTAX_COP) {
+        return Vec::new();
+    }
+    if args.except.iter().any(|e| e == SYNTAX_COP) {
+        return Vec::new();
+    }
+
+    vec![Diagnostic {
+        path: source.path.display().to_string(),
+        location: Location { line: 1, column: 0 },
+        severity: Severity::Fatal,
+        cop_name: SYNTAX_COP.to_string(),
+        message: "Invalid byte sequence in utf-8.".to_string(),
+        corrected: false,
+    }]
 }
 
 /// Run all enabled cops once on a source file. Returns (diagnostics, corrections).

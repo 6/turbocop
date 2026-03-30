@@ -26,6 +26,19 @@ use crate::diagnostic::Severity;
 /// detecting the at-or-past-end case in `emit_syntax_diagnostics()` and
 /// incrementing the line number to match Prism/RuboCop. This resolved 162 FN
 /// and all 21 FP (which were the same errors reported at the wrong line).
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// FN=27: files with invalid UTF-8 bytes (and no encoding magic comment) were
+/// silently skipped with empty diagnostics. RuboCop reports these as a fatal
+/// Lint/Syntax "Invalid byte sequence in utf-8." offense at line 1. Fixed by
+/// adding `emit_invalid_utf8_diagnostic()` in `lint_file()` to emit the
+/// diagnostic instead of returning empty. Resolved 21 of 27 FN.
+///
+/// Remaining 6 FN are semantic parse errors ("Invalid retry without rescue",
+/// "Invalid return in class/module body") and config/context mismatches.
+/// Emitting Prism's semantic parse errors was attempted but caused +35 FP
+/// because Prism reports these more broadly than RuboCop's Parser gem.
 pub struct Syntax;
 
 impl Cop for Syntax {
@@ -63,29 +76,9 @@ mod tests {
         assert!(diags.is_empty());
     }
 
-    /// Test that syntax errors at end-of-file get the correct line number.
-    /// Prism reports "end-of-input" errors at offset == file_size, which for
-    /// files ending with \n is one line past the last content line. The linter
-    /// must match Prism's (and RuboCop's) line numbering.
-    #[test]
-    fn end_of_input_line_number_matches_prism() {
-        use crate::config::ResolvedConfig;
-        use crate::cop::registry::CopRegistry;
-        use crate::cop::tiers::TierMap;
-        use crate::parse::source::SourceFile;
-
-        // An ERB template fragment that causes "unexpected end-of-input" at EOF.
-        // 3 content lines, ends with \n. Prism will report the end-of-input
-        // error at offset == file_size, which it considers line 4.
-        let source_code = b"class <%= name %>\nend\nend\n";
-        let source = SourceFile::from_bytes("test.rb", source_code.to_vec());
-        let registry = CopRegistry::default_registry();
-        let tier_map = TierMap::load();
-        let config = ResolvedConfig::empty();
-        // Use preview=true so Lint/Syntax (in preview tier) is enabled
-        let cop_filters = config.build_cop_filters(&registry, &tier_map, true);
-
-        let args = crate::cli::Args {
+    /// Helper: build standard test args with --only Lint/Syntax.
+    fn syntax_only_args() -> crate::cli::Args {
+        crate::cli::Args {
             paths: vec![],
             config: None,
             format: "text".to_string(),
@@ -122,7 +115,23 @@ mod tests {
             verify: false,
             rubocop_cmd: "bundle exec rubocop".to_string(),
             corpus_check: None,
-        };
+        }
+    }
+
+    /// Helper: lint raw bytes through the full pipeline (including syntax diagnostics).
+    fn lint_bytes(source_bytes: &[u8]) -> Vec<crate::diagnostic::Diagnostic> {
+        use crate::config::ResolvedConfig;
+        use crate::cop::registry::CopRegistry;
+        use crate::cop::tiers::TierMap;
+        use crate::parse::source::SourceFile;
+
+        let source = SourceFile::from_bytes("test.rb", source_bytes.to_vec());
+        let registry = CopRegistry::default_registry();
+        let tier_map = TierMap::load();
+        let config = ResolvedConfig::empty();
+        let cop_filters = config.build_cop_filters(&registry, &tier_map, true);
+        let base_configs = config.precompute_cop_configs(&registry);
+        let args = syntax_only_args();
         let allowlist = crate::cop::autocorrect_allowlist::AutocorrectAllowlist::load();
 
         let (diags, _, _) = crate::linter::lint_source_inner(
@@ -132,13 +141,25 @@ mod tests {
             &args,
             &tier_map,
             &cop_filters,
-            &[],
+            &base_configs,
             false,
             None,
             &allowlist,
         );
+        diags
+    }
 
-        // Find the "end-of-input" diagnostic
+    /// Test that syntax errors at end-of-file get the correct line number.
+    /// Prism reports "end-of-input" errors at offset == file_size, which for
+    /// files ending with \n is one line past the last content line. The linter
+    /// must match Prism's (and RuboCop's) line numbering.
+    #[test]
+    fn end_of_input_line_number_matches_prism() {
+        // An ERB template fragment that causes "unexpected end-of-input" at EOF.
+        // 3 content lines, ends with \n. Prism will report the end-of-input
+        // error at offset == file_size, which it considers line 4.
+        let diags = lint_bytes(b"class <%= name %>\nend\nend\n");
+
         let eoi_diag = diags.iter().find(|d| d.message.contains("end-of-input"));
         assert!(
             eoi_diag.is_some(),
@@ -152,5 +173,44 @@ mod tests {
             "end-of-input should be on line 4 (one past last content line), got line {}",
             eoi.location.line
         );
+    }
+
+    /// Test that invalid UTF-8 bytes trigger "Invalid byte sequence in utf-8."
+    /// RuboCop reports this as a global Lint/Syntax offense at line 1.
+    #[test]
+    fn invalid_utf8_is_reported() {
+        use crate::config::ResolvedConfig;
+        use crate::cop::registry::CopRegistry;
+        use crate::cop::tiers::TierMap;
+        use crate::parse::source::SourceFile;
+
+        // File with invalid UTF-8 byte 0xc0 0x80 (overlong encoding)
+        let source_bytes: &[u8] = b"# \xc0\x80 test\n";
+        let source = SourceFile::from_bytes("test.rb", source_bytes.to_vec());
+        let registry = CopRegistry::default_registry();
+        let tier_map = TierMap::load();
+        let config = ResolvedConfig::empty();
+        let cop_filters = config.build_cop_filters(&registry, &tier_map, true);
+        let args = syntax_only_args();
+
+        // Use emit_invalid_utf8_diagnostic through lint_file indirectly.
+        // Since lint_source_inner doesn't check UTF-8 (that's in lint_file),
+        // we test emit_invalid_utf8_diagnostic directly via the linter module.
+        let diags = crate::linter::emit_invalid_utf8_diagnostic(
+            &source,
+            &config,
+            &registry,
+            &cop_filters,
+            false,
+            &tier_map,
+            &args,
+        );
+
+        assert_eq!(diags.len(), 1, "Expected 1 diagnostic, got {:?}", diags);
+        let d = &diags[0];
+        assert_eq!(d.cop_name, "Lint/Syntax");
+        assert_eq!(d.message, "Invalid byte sequence in utf-8.");
+        assert_eq!(d.location.line, 1);
+        assert_eq!(d.location.column, 0);
     }
 }
