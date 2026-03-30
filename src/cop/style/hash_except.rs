@@ -14,14 +14,14 @@ use crate::parse::source::SourceFile;
 /// 1. **Comparison patterns** (`==` / `!=`):
 ///    - `hash.reject { |k, _| k == :sym }` → `hash.except(:sym)`
 ///    - `hash.select { |k, _| k != :sym }` → `hash.except(:sym)`
-///    Only flags string/symbol comparands (mirrors RuboCop safety gate).
+///      Only flags string/symbol comparands (mirrors RuboCop safety gate).
 ///
 /// 2. **`include?` patterns**:
 ///    - `hash.reject { |k, _| COLLECTION.include?(k) }` → `hash.except(*COLLECTION)`
 ///    - `hash.select { |k, _| !COLLECTION.include?(k) }` → `hash.except(*COLLECTION)`
-///    Works with array literals (`[:a, :b]`), constants, and variables.
-///    Array literal receivers produce `except(:a, :b)` (expanded);
-///    all others produce `except(*name)` (splatted).
+///      Works with array literals (`[:a, :b]`), constants, and variables.
+///      Array literal receivers produce `except(:a, :b)` (expanded);
+///      all others produce `except(*name)` (splatted).
 pub struct HashExcept;
 
 impl Cop for HashExcept {
