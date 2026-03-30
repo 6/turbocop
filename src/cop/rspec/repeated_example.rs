@@ -1161,7 +1161,9 @@ impl<'src, 'pr> Visit<'pr> for AstFingerprinter<'src> {
     }
 
     fn visit_source_line_node(&mut self, node: &ruby_prism::SourceLineNode<'pr>) {
-        let (line, _) = self.source.offset_to_line_col(node.location().start_offset());
+        let (line, _) = self
+            .source
+            .offset_to_line_col(node.location().start_offset());
         self.buf.extend_from_slice(&(line as u64).to_le_bytes());
     }
 
