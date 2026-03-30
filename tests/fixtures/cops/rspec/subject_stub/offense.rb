@@ -86,3 +86,44 @@ describe Worker do
     worker.run
   end
 end
+
+describe Browser do
+  describe '#open' do
+    context 'when the server is not running' do
+      it 'yields an error message' do
+        expect(subject).to receive(:fork) do |&block|
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/SubjectStub: Do not stub methods of the object under test.
+          expect(subject).to receive(:server_running?).and_return false
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/SubjectStub: Do not stub methods of the object under test.
+          block.call
+        end
+      end
+    end
+
+    context 'when the server is running but the launch command fails' do
+      it 'yields an error message' do
+        expect(subject).to receive(:fork) do |&block|
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/SubjectStub: Do not stub methods of the object under test.
+          expect(subject).to receive(:server_running?).and_return true
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/SubjectStub: Do not stub methods of the object under test.
+          expect(subject).to receive(:open!).and_return false
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/SubjectStub: Do not stub methods of the object under test.
+          block.call
+        end
+      end
+    end
+
+    context 'when the server is running and the launch command succeeds' do
+      it 'yields nil' do
+        expect(subject).to receive(:fork) do |&block|
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/SubjectStub: Do not stub methods of the object under test.
+          expect(subject).to receive(:server_running?).and_return true
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/SubjectStub: Do not stub methods of the object under test.
+          expect(subject).to receive(:open!).and_return true
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/SubjectStub: Do not stub methods of the object under test.
+          block.call
+        end
+      end
+    end
+  end
+end
