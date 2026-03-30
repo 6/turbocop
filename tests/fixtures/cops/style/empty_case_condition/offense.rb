@@ -48,3 +48,31 @@ impl = case
        else
          raise "unsupported"
        end
+
+result.merge(
+  key => case
+         ^^^^ Style/EmptyCaseCondition: Do not use empty `case` condition, instead use an `if` expression.
+         when !value.properties.empty?
+           call(value.properties)
+         when !value.data["example"].nil?
+           value.data["example"]
+         when value.type.include?("null")
+           nil
+         else
+           "fallback"
+         end
+)
+
+result.merge(
+  key => case
+         ^^^^ Style/EmptyCaseCondition: Do not use empty `case` condition, instead use an `if` expression.
+         when !value.properties.empty?
+           call(value)
+         when !value.data["example"].nil?
+           value.data["example"]
+         when value.type.include?("null")
+           nil
+         else
+           "fallback"
+         end
+)
