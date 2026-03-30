@@ -4,11 +4,11 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Corpus investigation: 15 FPs from `class OpenStruct` (reopening/defining the class).
-/// Root cause: cop flagged ANY reference to `OpenStruct`, including class/module definitions.
-/// RuboCop's `custom_class_or_module_definition?` skips when the constant is the name of a
-/// class or module node (first child, i.e. left_siblings.empty?). Fixed by switching to a
-/// visitor that tracks whether we're visiting the name position of a class/module definition.
+/// Corpus fixes:
+/// - FP: skip `class/module OpenStruct` definitions by not visiting the class/module name slot.
+/// - FN: recurse through `ConstantPathNode` children so `OpenStruct::VERSION` still visits the
+///   nested bare `OpenStruct`, matching RuboCop for `defined?(OpenStruct::VERSION)` and similar
+///   constant-path references without flagging namespaced `SomeNamespace::OpenStruct`.
 pub struct OpenStructUse;
 
 impl Cop for OpenStructUse {
@@ -69,6 +69,8 @@ impl<'pr> Visit<'pr> for OpenStructUseVisitor<'_> {
                 self.check_open_struct(name.as_slice(), node.location().start_offset());
             }
         }
+
+        ruby_prism::visit_constant_path_node(self, node);
     }
 
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
