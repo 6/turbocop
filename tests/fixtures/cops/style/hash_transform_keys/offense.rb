@@ -32,3 +32,6 @@ Hash[result.map { |k, v| [prefix + k, v] }]
 
 Hash[options.map { |k, v| [k.to_sym, v] }]
 ^^^^ Style/HashTransformKeys: Prefer `transform_keys` over `Hash[_.map {...}]`.
+
+::Hash[options.map { |k, v| [k.to_sym, v] }]
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/HashTransformKeys: Prefer `transform_keys` over `Hash[_.map {...}]`.

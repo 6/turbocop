@@ -2,6 +2,7 @@ use crate::cop::node_type::{
     ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE,
     LOCAL_VARIABLE_READ_NODE, MULTI_TARGET_NODE, STATEMENTS_NODE,
 };
+use crate::cop::util::is_simple_constant;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -203,16 +204,12 @@ impl HashTransformKeys {
         call: &ruby_prism::CallNode<'_>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        // Receiver must be bare `Hash` constant (ConstantReadNode, not ConstantPathNode)
+        // Receiver must be `Hash` or `::Hash`.
         let receiver = match call.receiver() {
             Some(r) => r,
             None => return,
         };
-        let const_node = match receiver.as_constant_read_node() {
-            Some(c) => c,
-            None => return,
-        };
-        if const_node.name().as_slice() != b"Hash" {
+        if !is_simple_constant(&receiver, b"Hash") {
             return;
         }
 
