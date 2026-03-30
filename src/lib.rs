@@ -100,7 +100,7 @@ fn collect_corpus_check_results(
     schema::init(config.config_dir());
 
     // Precompute cop filters and configs once
-    let cop_filters = config.build_cop_filters(registry, tier_map, args.preview);
+    let cop_filters = config.build_cop_filters(registry, tier_map, args.preview, &args.paths);
     let base_configs = config.precompute_cop_configs(registry);
     let has_dir_overrides = config.has_dir_overrides();
 
@@ -429,7 +429,7 @@ pub fn run(args: Args) -> Result<i32> {
 
     // --list-target-files (-L): print files that would be linted, then exit
     if args.list_target_files {
-        let cop_filters = config.build_cop_filters(&registry, &tier_map, args.preview);
+        let cop_filters = config.build_cop_filters(&registry, &tier_map, args.preview, &args.paths);
         for file in &discovered.files {
             if cop_filters.is_globally_excluded(file) {
                 let is_explicit = discovered.explicit.contains(file)
