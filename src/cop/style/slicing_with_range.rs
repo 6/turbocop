@@ -210,9 +210,7 @@ impl Cop for SlicingWithRange {
                                 source,
                                 line,
                                 column,
-                                format!(
-                                    "Prefer `[{left_src}{op_str}]` over `{current_src}`."
-                                ),
+                                format!("Prefer `[{left_src}{op_str}]` over `{current_src}`."),
                             ));
                         }
                     }
