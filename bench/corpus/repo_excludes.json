@@ -37,19 +37,6 @@
       "files/**/*"
     ]
   },
-  "opal__opal__07183b3": {
-    "comment": "Nonstandard *.Gemfile task fixture is not targeted by RuboCop's corpus file selection, but nitrocop discovers it when walking the repo.",
-    "exclude": [
-      "tasks/testing/opal_rspec_smoketest.Gemfile"
-    ]
-  },
-  "jruby__warbler__0231112": {
-    "comment": "Hidden .jbundler fixture files are skipped by RuboCop's corpus target-file selection but discovered by nitrocop.",
-    "exclude": [
-      "spec/sample_jbundler/.jbundler/classpath.rb",
-      "spec/sample_war/.jbundler/classpath.rb"
-    ]
-  },
   "scarpe-team__scarpe__b3939e6": {
     "comment": "Committed AppImage payload with bundled Ruby runtime under HelloScarpe.AppDir; not first-party project code. Dominates corpus divergence with stdlib/rubygems paths.",
     "exclude": [
@@ -72,6 +59,12 @@
     "comment": "Puppet modules — not Ruby project code. 241 FN across 30 cops.",
     "exclude": [
       "puppet/**/*"
+    ]
+  },
+  "engineyard__engineyard__14a6698": {
+    "comment": "RuboCop crashes on Metrics/MethodLength for run() method (<<-ERROR heredoc inside rescue/begin/else). RuboCop silently swallows the error and reports 0 offenses for this method; nitrocop correctly reports [23/10]. Excluding to avoid false FP=1.",
+    "exclude": [
+      "lib/engineyard/serverside_runner.rb"
     ]
   }
 }
