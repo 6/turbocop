@@ -214,3 +214,9 @@ end
 wrap *items.map { |item|
      item
      }
+
+# FP fix: plain ||= memoization still aligns end with the assignment lhs
+@connection ||= Faraday.new(url: base_url,
+                             ssl: ssl_options) do |conn|
+  conn.request :json
+end
