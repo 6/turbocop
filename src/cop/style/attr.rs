@@ -4,6 +4,10 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Matches RuboCop's bare `attr` detection for receiverless calls, including
+/// parenthesized `attr(...)` sends and calls whose last boolean argument changes
+/// the suggested replacement method. The previous Prism port skipped every
+/// parenthesized call, which caused the remaining Style/Attr false negatives.
 pub struct Attr;
 
 impl Cop for Attr {
@@ -40,18 +44,6 @@ impl Cop for Attr {
         if call_node.receiver().is_some() {
             return;
         }
-        // Corpus investigation notes (2026-03-01):
-        // - Initial fix (scope-aware context + custom `def attr` guard) reduced
-        //   check-cop excess from 64 -> 7.
-        // - Remaining examples included parenthesized calls (`attr(:name)`), which
-        //   RuboCop excludes via `command?(:attr)`.
-        // - Adding this command-call guard reduced excess further from 7 -> 5.
-        // - Remaining 5 excess offenses are still in progress and appear to involve
-        //   core-spec style direct `Module#attr` usage in class bodies.
-        if call_node.opening_loc().is_some() {
-            return;
-        }
-
         // Must have arguments
         let args = match call_node.arguments() {
             Some(a) => a,
@@ -64,11 +56,17 @@ impl Cop for Attr {
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
 
-        // Check if second argument is `true` → attr_accessor, otherwise attr_reader
-        let has_true_arg = arg_list.get(1).is_some_and(|a| a.as_true_node().is_some());
-        let has_false_arg = arg_list.get(1).is_some_and(|a| a.as_false_node().is_some());
+        if arg_list.is_empty() {
+            return;
+        }
 
-        let replacement = if has_true_arg {
+        let second_arg_is_boolean = arg_list
+            .get(1)
+            .is_some_and(|arg| arg.as_true_node().is_some() || arg.as_false_node().is_some());
+        let replacement = if arg_list
+            .last()
+            .is_some_and(|arg| arg.as_true_node().is_some())
+        {
             "attr_accessor"
         } else {
             "attr_reader"
@@ -85,7 +83,7 @@ impl Cop for Attr {
             format!("Do not use `attr`. Use `{replacement}` instead."),
         );
         if let Some(ref mut corr) = corrections {
-            if has_true_arg || has_false_arg {
+            if second_arg_is_boolean {
                 // Replace the entire call: `attr :name, true/false` → `attr_accessor/attr_reader :name`
                 // We need to replace from `attr` through the boolean arg, keeping only the first arg
                 let first_arg = &arg_list[0];

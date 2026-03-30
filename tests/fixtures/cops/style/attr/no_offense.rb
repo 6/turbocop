@@ -12,10 +12,6 @@ class SomeClass
   end
 
   def call
-    attr(1)
+    attr(:name)
   end
-end
-
-class Parenthesized
-  attr(:name)
 end
