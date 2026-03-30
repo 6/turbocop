@@ -88,6 +88,19 @@ use crate::parse::source::SourceFile;
 ///     without space) and rejects attr lines with modifier `if`/`unless` (e.g.,
 ///     `attr_writer name if writer`). Fixes 1 FP (pangloss: `attr_accessor:to_emit`) and
 ///     1 FN (rcodetools: conditional attr_writer not treated as sibling).
+///
+/// **Fix 8 (2026-03-30):** Exact-location verification showed the 18 recorded FPs were
+/// already fixed; the remaining oracle mismatches were 5 FNs. Root causes:
+/// (a) the standalone-statement heuristic only allowed attr calls at the first non-whitespace
+///     column, so minified class/module bodies (`class C;attr_accessor :x`) and case predicates
+///     (`case attr 'x'`) were skipped.
+/// (b) Prism's `CallNode` location for block-form accessors spans the whole block, while
+///     RuboCop reasons about the send line before the block body. That made
+///     `attr_accessor :x do ... end` and `attr_accessor(:x) { ... }` look like EOF/`end`
+///     followers instead of offenses.
+/// Fix: accept semicolon-separated and `case`-predicate statement prefixes, use the block
+/// opening line as the separation point for block-form accessors, and avoid treating
+/// `when`/`end` as allowed structural followers for those specific contexts.
 pub struct EmptyLinesAroundAttributeAccessor;
 
 const ATTRIBUTE_METHODS: &[&[u8]] = &[b"attr_reader", b"attr_writer", b"attr_accessor", b"attr"];
@@ -141,35 +154,71 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
 
         let loc = call.location();
 
-        // The attr call must be a standalone statement on its line. If the call
-        // is part of a larger expression (e.g., `(attr :foo).should`, or inside
-        // single-line block braces `{ attr_reader :name }`), skip it.
-        // RuboCop handles this via `node.right_sibling` which only exists when
-        // the node is a direct child of a statements body. We approximate by
-        // checking that the call starts at the first non-whitespace position
-        // of its line.
+        // The attr call must be a statement-like expression on its line. RuboCop
+        // allows same-line statements after `;` and in `case attr ...` predicates,
+        // but should still skip nested expression uses like `(attr :foo).should`
+        // or `{ attr_reader(:name) }`.
         let (start_line, start_col) = source.offset_to_line_col(loc.start_offset());
         let lines: Vec<&[u8]> = source.lines().collect();
+        let mut is_case_predicate = false;
         if start_line > 0 && (start_line - 1) < lines.len() {
             let call_line = lines[start_line - 1];
-            let indent = call_line
-                .iter()
-                .take_while(|&&b| b == b' ' || b == b'\t')
-                .count();
-            if start_col != indent {
+            let prefix_end = start_col.min(call_line.len());
+            let statement_prefix = trim_ascii_space(&call_line[..prefix_end]);
+            is_case_predicate = statement_prefix == b"case";
+            if !is_statement_prefix(statement_prefix) {
                 return;
             }
         }
-        let (last_line, last_col) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+        let (call_end_line, last_col) =
+            source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+        let has_attached_block = call.block().is_some();
+        let separator_line = if let Some(block) = call.block().and_then(|node| node.as_block_node()) {
+            source.offset_to_line_col(block.opening_loc().start_offset()).0
+        } else {
+            call_end_line
+        };
 
         // If there is non-whitespace, non-comment content after the call's end on the
         // same line, the attr call is part of a larger expression (e.g.,
         // `attr_accessor :parser unless method_defined? :parser`). Skip it.
         // RuboCop handles this via AST: the call is inside an UnlessModifierNode and
         // has no right_sibling in a statements body.
-        if last_line > 0 && (last_line - 1) < lines.len() {
-            let call_end_line = lines[last_line - 1];
-            let after_call = &call_end_line[(last_col + 1).min(call_end_line.len())..];
+        if call_end_line > 0 && (call_end_line - 1) < lines.len() {
+            let call_end_source_line = lines[call_end_line - 1];
+            let after_call =
+                &call_end_source_line[(last_col + 1).min(call_end_source_line.len())..];
+            if let Some(next_same_line) = same_line_following_statement(after_call) {
+                if is_block_boundary_keyword(next_same_line) || is_attr_method_line(next_same_line) {
+                    return;
+                }
+                if _allow_alias_syntax && next_same_line.starts_with(b"alias ") {
+                    return;
+                }
+                for allowed_method in config
+                    .get_string_array("AllowedMethods")
+                    .unwrap_or_else(|| {
+                        DEFAULT_ALLOWED_METHODS
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect()
+                    })
+                {
+                    let method_bytes = allowed_method.as_bytes();
+                    if next_same_line.starts_with(method_bytes) {
+                        let after = next_same_line.get(method_bytes.len());
+                        if (after.is_none()
+                            || matches!(
+                                after,
+                                Some(b' ') | Some(b'(') | Some(b'\n') | Some(b'\r')
+                            ))
+                            && !has_modifier_conditional(next_same_line)
+                        {
+                            return;
+                        }
+                    }
+                }
+            }
             let has_trailing_code = after_call
                 .iter()
                 .find(|&&b| b != b' ' && b != b'\t')
@@ -180,11 +229,11 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         }
 
         // Check if the next line exists and is not empty
-        if last_line >= lines.len() {
+        if separator_line >= lines.len() {
             return; // End of file
         }
 
-        let next_line = lines[last_line]; // 0-indexed: last_line (1-based) maps to lines[last_line] for next
+        let next_line = lines[separator_line]; // 0-indexed: line N (1-based) maps to lines[N] for next
 
         // If next line is blank, no offense
         if is_blank_or_whitespace_line(next_line) {
@@ -194,10 +243,36 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         // RuboCop treats `# rubocop:enable ...` directive comments followed by a
         // blank line as valid separators (next_line_empty_or_enable_directive_comment?).
         if is_enable_directive_comment(next_line) {
-            let line_after = last_line + 1;
+            let line_after = separator_line + 1;
             if line_after >= lines.len() || is_blank_or_whitespace_line(lines[line_after]) {
                 return;
             }
+        }
+
+        // RuboCop reasons about block-form accessors from the send line before the block
+        // body; any non-blank next line after that line is an offense.
+        if has_attached_block {
+            let (line, col) = source.offset_to_line_col(loc.start_offset());
+            let mut diag = self.diagnostic(
+                source,
+                line,
+                col,
+                "Add an empty line after attribute accessor.".to_string(),
+            );
+            if let Some(ref mut corr) = corrections {
+                if let Some(offset) = source.line_col_to_offset(separator_line + 1, 0) {
+                    corr.push(crate::correction::Correction {
+                        start: offset,
+                        end: offset,
+                        replacement: "\n".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+            }
+            diagnostics.push(diag);
+            return;
         }
 
         // If next line is end of class/module/block, or a branch keyword
@@ -209,7 +284,7 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
             .copied()
             .skip_while(|&b| b == b' ' || b == b'\t')
             .collect();
-        if is_block_boundary_keyword(&next_trimmed) {
+        if !is_case_predicate && is_block_boundary_keyword(&next_trimmed) {
             return;
         }
 
@@ -235,7 +310,7 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                     .map(|s| s.to_string())
                     .collect()
             });
-            let mut idx = last_line + 1;
+            let mut idx = separator_line + 1;
             let mut found_code = false;
             while idx < lines.len() {
                 let line_trimmed: Vec<u8> = lines[idx]
@@ -256,7 +331,7 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                 if is_attr_method_line(&line_trimmed) {
                     return;
                 }
-                if is_block_boundary_keyword(&line_trimmed) {
+                if !is_case_predicate && is_block_boundary_keyword(&line_trimmed) {
                     return;
                 }
                 if _allow_alias_syntax && line_trimmed.starts_with(b"alias ") {
@@ -321,7 +396,7 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         );
         if let Some(ref mut corr) = corrections {
             // Insert blank line after the attribute accessor line
-            if let Some(offset) = source.line_col_to_offset(last_line + 1, 0) {
+            if let Some(offset) = source.line_col_to_offset(separator_line + 1, 0) {
                 corr.push(crate::correction::Correction {
                     start: offset,
                     end: offset,
@@ -334,6 +409,41 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         }
         diagnostics.push(diag);
     }
+}
+
+fn trim_ascii_space(line: &[u8]) -> &[u8] {
+    let start = line
+        .iter()
+        .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
+        .unwrap_or(line.len());
+    let end = line[..]
+        .iter()
+        .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
+        .map(|idx| idx + 1)
+        .unwrap_or(start);
+    &line[start..end]
+}
+
+fn trim_leading_ascii_space(line: &[u8]) -> &[u8] {
+    let start = line
+        .iter()
+        .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
+        .unwrap_or(line.len());
+    &line[start..]
+}
+
+/// Returns true when the text before the attr call still looks like the start of a
+/// standalone statement. This keeps skipping nested expression uses such as
+/// `(attr :foo).should` or `{ attr_reader(:name) }`, while allowing direct
+/// statements in minified `foo;attr_reader :bar` code and `case attr 'x'`.
+fn is_statement_prefix(prefix: &[u8]) -> bool {
+    let trimmed = trim_ascii_space(prefix);
+    trimmed.is_empty() || trimmed.ends_with(b";") || trimmed == b"case"
+}
+
+fn same_line_following_statement(after_call: &[u8]) -> Option<&[u8]> {
+    let rest = trim_leading_ascii_space(after_call).strip_prefix(b";")?;
+    Some(trim_leading_ascii_space(rest))
 }
 
 /// Returns true if the trimmed line starts with a keyword that ends a block branch,
@@ -380,6 +490,11 @@ fn is_block_boundary_keyword(trimmed: &[u8]) -> bool {
 /// indicating the method call is conditional (e.g., `alias_method :foo, :bar if cond`).
 /// RuboCop's AST sees this as an IfNode wrapping the send, not a plain allowed method.
 fn has_modifier_conditional(trimmed: &[u8]) -> bool {
+    let trimmed = trimmed
+        .split(|&b| b == b'#')
+        .next()
+        .map(trim_ascii_space)
+        .unwrap_or(trimmed);
     // Search for ` if ` or ` unless ` as word boundaries in the line.
     // We skip content inside strings/parens for simplicity — this is a heuristic.
     for window in trimmed.windows(4) {

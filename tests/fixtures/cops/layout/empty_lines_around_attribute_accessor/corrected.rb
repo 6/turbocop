@@ -90,3 +90,36 @@ def attr(name, writer=false)
 
   attr_writer name if writer
 end
+
+class Cookies<H;attr_accessor :_p
+
+def _n =@n||={}
+end
+
+module Base;attr_accessor:env,:request,:root,:input,:cookies,:state,:status,
+:headers,:body,:url_prefix
+
+def lookup; end
+end
+
+class DeprecatedBase
+  class << self
+    attr_accessor :deprecated do
+
+      false
+    end
+
+    def category
+    end
+  end
+end
+
+case attr 'source-highlighter'
+
+when 'coderay'
+end
+
+class Configuration
+  attr_accessor(:reporter) { AbstractAdapter.new }
+
+end

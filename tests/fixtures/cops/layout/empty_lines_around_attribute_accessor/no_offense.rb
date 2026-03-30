@@ -240,3 +240,16 @@ class ContentPage
   def url
   end
 end
+
+# attr_accessor as the last statement before same-line `end`
+class InlineAttr; attr_accessor :stackoff; end
+
+# inline comment containing `if` must not break accessor grouping
+class DisasmWidget
+  attr_accessor :entrypoints, :gui_update_counter_max
+  attr_accessor :keyboard_callback, :keyboard_callback_ctrl # hash key => lambda { |key| true if handled }
+  attr_accessor :clones
+
+  def example
+  end
+end

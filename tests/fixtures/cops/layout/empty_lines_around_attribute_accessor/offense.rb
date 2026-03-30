@@ -90,3 +90,36 @@ def attr(name, writer=false)
   ^^^^^^^^^^^^^^^^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
   attr_writer name if writer
 end
+
+class Cookies<H;attr_accessor :_p
+                ^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
+def _n =@n||={}
+end
+
+module Base;attr_accessor:env,:request,:root,:input,:cookies,:state,:status,
+            ^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
+:headers,:body,:url_prefix
+def lookup; end
+end
+
+class DeprecatedBase
+  class << self
+    attr_accessor :deprecated do
+    ^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
+      false
+    end
+
+    def category
+    end
+  end
+end
+
+case attr 'source-highlighter'
+     ^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
+when 'coderay'
+end
+
+class Configuration
+  attr_accessor(:reporter) { AbstractAdapter.new }
+  ^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
+end
