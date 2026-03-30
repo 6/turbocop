@@ -2,7 +2,7 @@ use crate::cop::node_type::{
     ARRAY_NODE, ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE,
     CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE,
     INTERPOLATED_STRING_NODE, NIL_NODE, RANGE_NODE, RATIONAL_NODE, REGULAR_EXPRESSION_NODE,
-    STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE,
+    STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE, X_STRING_NODE,
 };
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
@@ -22,8 +22,6 @@ use crate::parse::source::SourceFile;
 /// - Ranges (`RangeNode` — e.g., `1..10`)
 /// - Regular expressions (`RegularExpressionNode` — e.g., `/pattern/`)
 /// - Rational/imaginary literals (`RationalNode`, `ImaginaryNode` — e.g., `1r`, `1i`)
-/// - `.freeze` on static values (e.g., `"foo".freeze`)
-///
 /// All added to match RuboCop's `recursive_literal_or_const?` behavior.
 ///
 /// ## Corpus investigation (2026-03-14, round 1)
@@ -83,6 +81,18 @@ use crate::parse::source::SourceFile;
 ///    RuboCop's `recursive_literal_or_const?` treats `__FILE__`, `__LINE__`, and
 ///    `__ENCODING__` as literal-like, so we now accept Prism's corresponding source
 ///    pseudo-literal nodes in `is_static_value`.
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// FP=1: `allow(...).to receive(...) { 'RefundPayment'.freeze }` is accepted by
+/// RuboCop. `recursive_literal_or_const?` stays false for the `send(..., :freeze)`
+/// body even when the receiver is a string literal, so the earlier `.freeze`
+/// special-case was too broad and caused the corpus FP.
+///
+/// FN=1: `allow(driver).to receive(:\`) do |cmd|; \`false\`; "Error"; end`
+/// should be flagged. Prism parses the backtick command as `XStringNode`, and
+/// RuboCop treats `begin(xstr, str)` as static because both child nodes are
+/// literal-like. Added `XStringNode` handling in `is_static_value`.
 pub struct ReturnFromStub;
 impl Cop for ReturnFromStub {
     fn name(&self) -> &'static str {
@@ -120,6 +130,7 @@ impl Cop for ReturnFromStub {
             STRING_NODE,
             SYMBOL_NODE,
             TRUE_NODE,
+            X_STRING_NODE,
         ]
     }
 
@@ -304,6 +315,7 @@ fn is_static_value(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_rational_node().is_some()
         || node.as_imaginary_node().is_some()
         || node.as_regular_expression_node().is_some()
+        || node.as_x_string_node().is_some()
         || node.as_source_file_node().is_some()
         || node.as_source_line_node().is_some()
         || node.as_source_encoding_node().is_some()
@@ -334,13 +346,7 @@ fn is_static_value(node: &ruby_prism::Node<'_>) -> bool {
         return false;
     }
 
-    // .freeze on a static value is still static (e.g., "foo".freeze)
-    if let Some(call) = node.as_call_node() {
-        if call.name().as_slice() == b"freeze" && call.arguments().is_none() {
-            if let Some(recv) = call.receiver() {
-                return is_static_value(&recv);
-            }
-        }
+    if node.as_call_node().is_some() {
         return false;
     }
 

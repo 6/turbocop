@@ -21,7 +21,13 @@ end
 it do
   allow(obj).to receive_message_chain(:foo, :bar) { 42 }
 end
-# .freeze on a dynamic value is still dynamic
+# .freeze does not make a value static for ReturnFromStub
+it do
+  allow(example).to receive(:verb_for_action) { 'RefundPayment'.freeze }
+end
+it do
+  allow(Foo).to receive(:bar) { "foo".freeze }
+end
 it do
   allow(Foo).to receive(:bar) { some_method.freeze }
 end

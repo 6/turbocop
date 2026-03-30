@@ -42,11 +42,6 @@ it do
   allow(Foo).to receive(:bar) { 1i }
                               ^ RSpec/ReturnFromStub: Use `and_return` for static values.
 end
-# .freeze on a literal is still static
-it do
-  allow(Foo).to receive(:bar) { "foo".freeze }
-                              ^ RSpec/ReturnFromStub: Use `and_return` for static values.
-end
 # Block on chained .with(...) — block binds to .with, not to .to
 it do
   allow(Question).to receive(:meaning).with(:universe) { 42 }
@@ -149,5 +144,14 @@ it do
   wrapped.to receive(:foo).with(1) { :curly } do
                                    ^ RSpec/ReturnFromStub: Use `and_return` for static values.
     :do_end
+  end
+end
+
+# Backtick command literals are still static in a multi-statement block body
+it do
+  allow(driver).to receive(:`) do |cmd|
+                               ^^ RSpec/ReturnFromStub: Use `and_return` for static values.
+    `false`
+    "Error: Something went wrong"
   end
 end
