@@ -22,25 +22,6 @@ result = "test
 
                                     string"
 
-# Single blank line inside =begin/=end block comment is fine.
-=begin
-some documentation
-
-more documentation
-=end
-x = 1
-
-# Consecutive blank lines inside =begin/=end are NOT flagged
-# (with Prism, every embdoc line has an EMBDOC_LINE token, so no gaps).
-=begin
-
-
-lots of space
-
-
-=end
-y = 2
-
 # Single blank line between code and comment is fine.
 puts "last code"
 
@@ -50,9 +31,12 @@ puts "last code"
 # This comment is the last token line in the file.
 puts "done"
 
-# Blank lines before __END__ are not flagged.
-e = 5
+# Consecutive blank lines inside =begin/=end are not checked after the last token.
+x = 1
+=begin
 
 
-__END__
-data section here
+lots of space
+
+
+=end

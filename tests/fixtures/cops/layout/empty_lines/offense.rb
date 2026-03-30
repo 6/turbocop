@@ -50,12 +50,13 @@ d = 4
 more docs
 =end
 
-# Blank lines inside =begin/=end are NOT flagged (Prism EMBDOC_LINE tokens mean no gaps)
+# Consecutive blank lines inside =begin/=end are flagged when later tokens follow.
 e = 5
 =begin
 some documentation
 
 
+^ Layout/EmptyLines: Extra blank line detected.
 more documentation
 =end
 f = 6
@@ -65,6 +66,9 @@ g = 7
 docs here
 
 
+^ Layout/EmptyLines: Extra blank line detected.
 
+^ Layout/EmptyLines: Extra blank line detected.
 more docs here
 =end
+h = 8
