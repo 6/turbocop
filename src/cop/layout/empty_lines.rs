@@ -533,7 +533,12 @@ mod tests {
         // scanned gap, so extra blank lines are offenses.
         let source = b"=begin\nsome docs\n\n\nmore docs\n=end\nx = 1\n";
         let diags = run_cop_full(&EmptyLines, source);
-        assert_eq!(diags.len(), 1, "Should fire inside =begin/=end: {:?}", diags);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should fire inside =begin/=end: {:?}",
+            diags
+        );
     }
 
     #[test]
