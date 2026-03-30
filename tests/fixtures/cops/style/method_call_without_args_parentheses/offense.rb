@@ -68,3 +68,33 @@ synchronize() do
 
 synchronize() do
            ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+expect(evaluate(literal(false).not())).to eq(true)
+                                  ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+expect(evaluate(literal(true).not())).to eq(false)
+                                 ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+expect(evaluate(literal('x').not())).to eq(false)
+                                ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+expect(evaluate(literal('').not())).to eq(false)
+                               ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+expect(evaluate(literal(:undef).not())).to eq(true)
+                                   ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+def with(source_scm, details, gitplugin = Java.jenkins.model.Jenkins.instance.getPluginManager().getPlugin('git'))
+                                                                                              ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+foo.[]()
+      ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+foo.[]=()
+       ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+def getAmountFromData(row_index, data = getModel().getData())
+                                                ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+def getParticipantsFromData(row_index, data = getModel().getData())
+                                                      ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
