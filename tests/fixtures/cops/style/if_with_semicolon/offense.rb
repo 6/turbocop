@@ -59,3 +59,13 @@ when :slash then slt = tt
 else if at; zt = tt; else; at = tt; end
      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IfWithSemicolon: Do not use `if at;` - use a newline instead.
 end
+
+# Standalone `;` on next line — parser gem treats this as the begin keyword
+if params[:layer] == '*' and query[:resource] == :objects
+^ Style/IfWithSemicolon: Do not use `if params[:layer] == '*' and query[:resource] == :objects;` - use a newline instead.
+  ;
+else
+  params[:layer].split(',').each do |layer_name|
+    layer_id = CDKLayer.id_from_name(layer_name)
+  end
+end

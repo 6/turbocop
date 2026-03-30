@@ -75,13 +75,3 @@ if Mouse.button_released?
     else; @anchor1 = nil; end
   end
 end
-
-# CitySDK corpus mismatch: standalone `;` on the next line is not a then-keyword,
-# so RuboCop accepts it even though the oracle currently reports an FN.
-if params[:layer] == '*' and query[:resource] == :objects
-  ;
-else
-  params[:layer].split(',').each do |layer_name|
-    layer_id = CDKLayer.id_from_name(layer_name)
-  end
-end
