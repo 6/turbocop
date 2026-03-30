@@ -79,6 +79,16 @@ use ruby_prism::Visit;
 ///
 /// FN=1 (not real): waagsociety/citysdk-ld `filters.rb:181` — same as round 4.
 /// Corpus artifact (`;` is body, not then-keyword).
+///
+/// ## Corpus investigation (2026-03-30, round 6)
+///
+/// The workflow routed a single FN in waagsociety/citysdk-ld `filters.rb:181`:
+/// `if params[:layer] == '*' and query[:resource] == :objects` followed by a
+/// standalone `;` body on the next line. Re-verified directly with RuboCop on
+/// 2026-03-30: the extracted source is NOT an offense; only the same predicate
+/// with a same-line `;` then-keyword is flagged. Kept detection unchanged and
+/// added a no-offense fixture for the exact extracted shape to guard against
+/// broadening this cop away from RuboCop.
 pub struct IfWithSemicolon;
 
 impl Cop for IfWithSemicolon {
