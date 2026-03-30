@@ -643,9 +643,9 @@ impl Cop for EmptyLinesAroundAccessModifier {
             match enforced_style {
                 "around" => {
                     if !has_blank_before || !has_blank_after {
-                        let msg = if !has_blank_after
+                        let msg = if (modifier.body_end_boundary || !is_before_scope_closing_end)
                             && has_blank_before
-                            && !(is_before_scope_closing_end && !modifier.body_end_boundary)
+                            && !has_blank_after
                         {
                             format!("Keep a blank line after `{modifier_str}`.")
                         } else {
