@@ -26,6 +26,8 @@ HEREDOC
 # Checks that `# rubocop:enable ...` and `# rubocop:disable ...` statements
 # are balanced within a source file.
 
-# Example comment referencing a directive:
+# `disable all` / `todo all` suppress all cops including this one,
+# so RuboCop never reports an offense for them.
+# rubocop:disable all
+# rubocop:todo all
 #   # rubocop:disable all
-# The above is just documentation, not an actual directive.
