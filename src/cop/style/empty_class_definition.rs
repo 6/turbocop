@@ -77,7 +77,11 @@ fn check_class_definition_style(
                     if is_class_const(&receiver) {
                         // Skip if it has an actual class body block (`do...end` or `{}`),
                         // but still flag `&block` block-pass arguments.
-                        if call.block().and_then(|block| block.as_block_node()).is_some() {
+                        if call
+                            .block()
+                            .and_then(|block| block.as_block_node())
+                            .is_some()
+                        {
                             return Vec::new();
                         }
                         // Skip if chained with another method
