@@ -1,5 +1,4 @@
 use crate::cop::node_type::{ARRAY_NODE, SPLAT_NODE, UNLESS_NODE};
-use crate::cop::util::is_simple_constant;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -78,7 +77,13 @@ impl ArrayCoercion {
         let receiver = predicate.receiver()?.as_local_variable_read_node()?;
         let arguments = predicate.arguments()?;
         let args: Vec<_> = arguments.arguments().iter().collect();
-        if args.len() != 1 || !is_simple_constant(&args[0], b"Array") {
+        if args.len() != 1 {
+            return None;
+        }
+        // RuboCop's pattern is `(const nil? :Array)` which only matches bare `Array`,
+        // not `::Array` (constant_path_node). Intentionally not handled.
+        let constant = args[0].as_constant_read_node()?;
+        if constant.name().as_slice() != b"Array" {
             return None;
         }
 

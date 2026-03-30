@@ -6,3 +6,5 @@ Array(paths)
 x = [1]
 other_paths = [paths] unless paths.is_a?(Array)
 paths = [paths] unless paths.is_a?(Foo::Array)
+# ::Array is constant_path_node — RuboCop only matches bare Array (ConstantReadNode)
+paths = [paths] unless paths.is_a?(::Array)
