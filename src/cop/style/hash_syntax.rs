@@ -13,6 +13,12 @@ use crate::parse::source::SourceFile;
 /// treats both forms as symbol keys. The cop now accepts both plain and
 /// interpolated quoted symbols when deciding whether `=>` can become Ruby 1.9
 /// label syntax on Ruby >= 2.2.
+///
+/// Fixed: quoted symbol keys already in 1.9 syntax (e.g. `"font-variant":`)
+/// have Prism opening `"` or `'` (without `:` prefix), unlike rocket-syntax
+/// `:"key" =>` which has opening `:"`. The `is_acceptable_19_symbol` check
+/// now recognizes both forms, so hashes mixing 1.9-style and rocket-style
+/// quoted symbol keys correctly flag only the rocket entries.
 pub struct HashSyntax;
 
 impl Cop for HashSyntax {
@@ -314,9 +320,13 @@ fn is_acceptable_19_symbol(
     target_ruby_version: f64,
 ) -> bool {
     let name = sym.unescaped();
+    // Quoted symbol keys can have different openings depending on syntax:
+    //   - Rocket syntax: `:"key" =>` or `:'key' =>` → opening is `:"` or `:'`
+    //   - Ruby 1.9 syntax: `"key":` or `'key':` → opening is `"` or `'`
+    // Both forms are convertible to 1.9 label syntax on Ruby >= 2.2.
     let is_quoted_symbol = sym
         .opening_loc()
-        .is_some_and(|opening| matches!(opening.as_slice(), b":\"" | b":'"));
+        .is_some_and(|opening| matches!(opening.as_slice(), b":\"" | b":'" | b"\"" | b"'"));
 
     if is_quoted_symbol {
         return target_ruby_version > 2.1;

@@ -37,3 +37,12 @@ update(:"#{self.class.table_name}_belongs_to_poly_type" => "PolyBadRecord")
 
 { :"#{field}_string" => nil }
   ^^^^^^^^^^^^^^^^^^ Style/HashSyntax: Use the new Ruby 1.9 hash syntax.
+
+# Quoted symbol keys with 1.9-style siblings — rocket keys should still be flagged
+{ "font-variant": "normal",
+  :'font-style' => "italic",
+  ^^^^^^^^^^^^^ Style/HashSyntax: Use the new Ruby 1.9 hash syntax.
+  :'letter-spacing' => "2px",
+  ^^^^^^^^^^^^^^^^^ Style/HashSyntax: Use the new Ruby 1.9 hash syntax.
+  :'vertical-align' => "top" }
+  ^^^^^^^^^^^^^^^^^ Style/HashSyntax: Use the new Ruby 1.9 hash syntax.
