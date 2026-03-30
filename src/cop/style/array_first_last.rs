@@ -63,6 +63,15 @@ use crate::parse::source::SourceFile;
 /// file discovery still fed them to the cop. As a stopgap within this cop's
 /// allowed scope, skip hidden-path files so corpus repo scans stay aligned
 /// with RuboCop until discovery is fixed globally.
+///
+/// Corpus investigation (2026-03-30):
+///
+/// FN=29: Remaining misses were non-decimal integer literals like
+/// `cart_4K[0x0000]`. The cop reparsed `IntegerNode` source text with
+/// `parse::<i64>()`, which only matched plain decimal spellings even though
+/// RuboCop keys off the normalized integer value. Fix: compare Prism's parsed
+/// integer value against zero and negative one so `0`, `00`, `0x0000`, and
+/// similar forms behave like RuboCop.
 pub struct ArrayFirstLast;
 
 impl Cop for ArrayFirstLast {
@@ -126,6 +135,22 @@ fn path_has_hidden_component(path: &Path) -> bool {
                 if name.to_str().is_some_and(|s| s.starts_with('.') && s != "." && s != "..")
         )
     })
+}
+
+fn preferred_message_for_integer(int_node: ruby_prism::IntegerNode<'_>) -> Option<&'static str> {
+    let value = int_node.value();
+    let (negative, digits) = value.to_u32_digits();
+
+    if !negative && digits.iter().all(|digit| *digit == 0) {
+        Some("Use `first`.")
+    } else if negative
+        && digits.first().copied() == Some(1)
+        && digits.iter().skip(1).all(|digit| *digit == 0)
+    {
+        Some("Use `last`.")
+    } else {
+        None
+    }
 }
 
 /// Walk down the receiver chain of `[]` calls, adding each intermediate
@@ -222,15 +247,10 @@ fn check_index_write_args<'a>(
     }
 
     if let Some(int_node) = arg_list[0].as_integer_node() {
-        let src = std::str::from_utf8(int_node.location().as_slice()).unwrap_or("");
-        if let Ok(v) = src.parse::<i64>() {
+        if let Some(message) = preferred_message_for_integer(int_node) {
             // Use opening bracket location as the offense location
             let (line, column) = source.offset_to_line_col(opening_loc.start_offset());
-            if v == 0 {
-                diagnostics.push(cop.diagnostic(source, line, column, "Use `first`.".to_string()));
-            } else if v == -1 {
-                diagnostics.push(cop.diagnostic(source, line, column, "Use `last`.".to_string()));
-            }
+            diagnostics.push(cop.diagnostic(source, line, column, message.to_string()));
         }
     }
 }
@@ -356,26 +376,15 @@ impl ArrayFirstLastVisitor<'_> {
 
         // Check for integer literal 0 or -1
         if let Some(int_node) = arg.as_integer_node() {
-            let src = std::str::from_utf8(int_node.location().as_slice()).unwrap_or("");
-            if let Ok(v) = src.parse::<i64>() {
+            if let Some(message) = preferred_message_for_integer(int_node) {
                 let loc = call.message_loc().unwrap_or(call.location());
                 let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-
-                if v == 0 {
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Use `first`.".to_string(),
-                    ));
-                } else if v == -1 {
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Use `last`.".to_string(),
-                    ));
-                }
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    message.to_string(),
+                ));
             }
         }
     }

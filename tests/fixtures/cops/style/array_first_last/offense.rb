@@ -70,3 +70,27 @@ result[pair.children[0].children[0]] = Solargraph::Parser.chain(pair.children[1]
 
 credential[:tokentype] = tokentype[0].split(":")[1]
                                   ^^^ Style/ArrayFirstLast: Use `first`.
+
+run_spec match[0]
+              ^^^ Style/ArrayFirstLast: Use `first`.
+
+old_value = cart_4K[0x0000]
+                   ^^^^^^^^ Style/ArrayFirstLast: Use `first`.
+
+expect(cart_4K[0x0000]).to eq(old_value)
+              ^^^^^^^^ Style/ArrayFirstLast: Use `first`.
+
+expect(cart_2K[0x0000]).to eq(0xA9)       # _000: LDA #02 (first instruction)
+              ^^^^^^^^ Style/ArrayFirstLast: Use `first`.
+
+expect(cart_4K[0x0000]).to eq(0xA9)       # _000: LDA #02 (first instruction)
+              ^^^^^^^^ Style/ArrayFirstLast: Use `first`.
+
+"Collection #{collection[0].inspect} referenced nonexistent job flag: #{job_flag}"
+                        ^^^ Style/ArrayFirstLast: Use `first`.
+
+desc "Run or omit all \"#{collection[0]}\"."
+                                    ^^^ Style/ArrayFirstLast: Use `first`.
+
+desc "Run all \"#{collection[0]}\"."
+                            ^^^ Style/ArrayFirstLast: Use `first`.
