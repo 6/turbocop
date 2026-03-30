@@ -1593,6 +1593,10 @@ def select_backend_for_entry(
     if mode == "retry":
         return _result("claude-oauth-hard", "retry mode needs fresh investigation approach")
 
+    # Reduce mode: high-divergence cops needing focused incremental progress
+    if mode == "reduce":
+        return _result("codex-hard", "reduce mode: high-divergence cop needs focused progress")
+
     # Explicit issue difficulty labels
     if issue_difficulty:
         if issue_difficulty == "simple":
@@ -2363,7 +2367,7 @@ def main():
 
     backend_parser = subparsers.add_parser("backend", help="Select a backend for a cop")
     backend_parser.add_argument("--cop", required=True, help="Cop name (e.g., Style/NegatedWhile)")
-    backend_parser.add_argument("--mode", choices=["fix", "retry"], default="fix")
+    backend_parser.add_argument("--mode", choices=["fix", "retry", "reduce"], default="fix")
     backend_parser.add_argument("--binary", type=Path, help="Path to nitrocop binary")
     backend_parser.add_argument("--input", type=Path, help="Path to corpus-results.json")
     backend_parser.add_argument(
@@ -2461,7 +2465,7 @@ def main():
             fp = entry.get("fp", 0)
             fn = entry.get("fn", 0)
             total = fp + fn
-            if total < args.min_total or total > args.max_total:
+            if total < args.min_total or (args.max_total > 0 and total > args.max_total):
                 continue
             if entry.get("matches", 0) < args.min_matches:
                 continue

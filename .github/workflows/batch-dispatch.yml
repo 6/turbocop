@@ -56,12 +56,14 @@ on:
           - claude
         default: codex
       mode:
-        description: 'Mode passed to agent-cop-fix'
+        description: 'Mode passed to agent-cop-fix (auto = fix for ≤500 divergence, reduce for >500)'
         type: choice
         options:
+          - auto
           - fix
           - retry
-        default: fix
+          - reduce
+        default: auto
       delay:
         description: 'Minutes to wait before dispatching (0 = immediate)'
         type: string

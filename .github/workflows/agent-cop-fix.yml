@@ -25,11 +25,12 @@ on:
           - minimax
         default: auto
       mode:
-        description: 'Mode: fix (fresh) or retry (with prior attempt context)'
+        description: 'Mode: fix (fresh), retry (with prior attempt context), or reduce (progress-oriented for high-divergence cops)'
         type: choice
         options:
           - fix
           - retry
+          - reduce
         default: fix
       issue_number:
         description: 'Optional linked cop tracker issue number'

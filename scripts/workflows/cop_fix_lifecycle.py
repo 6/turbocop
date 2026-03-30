@@ -369,6 +369,25 @@ def cmd_build_prompt(args: list[str]) -> int:
             "Read the prior attempts carefully and try a DIFFERENT strategy."
         )
 
+    if opts.mode == "reduce":
+        parts.append(
+            f"\n## Reduce Mode — Progress Over Perfection\n"
+            f"This cop has high divergence (many FP/FN). Your goal is to **significantly "
+            f"reduce** the FP and FN counts, not necessarily reach zero.\n\n"
+            f"### Strategy\n"
+            f"- Focus on the **most common patterns** in the corpus examples first\n"
+            f"- A fix that eliminates 50% of FP or FN is a great outcome\n"
+            f"- Do NOT try to handle every edge case — target the highest-impact patterns\n"
+            f"- Use `python3 scripts/check_cop.py {opts.cop} --rerun --clone --sample 15` to "
+            f"measure your progress after each change\n"
+            f"- Stop when you have a clean improvement with no regressions, even if "
+            f"FP/FN are not zero\n\n"
+            f"### Success Criteria\n"
+            f"- Any **meaningful net reduction** in FP+FN is a success\n"
+            f"- Zero regressions in the opposite direction (do not trade FP for FN)\n"
+            f"- The existing match count must not regress\n"
+        )
+
     final_content = "\n".join(parts)
     write_and_read(final_task_file, final_content)
     _log(f"=== Final prompt ===\n{len(final_content.splitlines())} lines")
@@ -499,7 +518,7 @@ def cmd_claim_pr(args: list[str]) -> int:
     ]:
         _run_ok(["gh", "label", "create", label, "--repo", opts.repo, "--color", color])
 
-    retry_note = " (retry)" if opts.mode == "retry" else ""
+    mode_note = f" ({opts.mode})" if opts.mode not in ("fix",) else ""
 
     # Create draft PR with initial body
     body = _build_claim_body(
@@ -512,7 +531,7 @@ def cmd_claim_pr(args: list[str]) -> int:
         "gh", "pr", "create",
         "--draft", "--base", "main", "--head", opts.branch,
         "--label", f"type:cop-fix,{model_label_name}",
-        "--title", f"[bot] Fix {opts.cop}{retry_note}",
+        "--title", f"[bot] Fix {opts.cop}{mode_note}",
         "--body-file", str(claim_body_file),
     ])
     pr_url = r.stdout.strip()
@@ -1057,11 +1076,11 @@ def cmd_finalize(args: list[str]) -> int:
     _run(["cargo", "test", "--test", "integration", "offense_fixtures_have_no_unannotated_blocks"])
 
     # 6. Commit formatting changes
-    retry_note = " (retry)" if opts.mode == "retry" else ""
+    mode_note = f" ({opts.mode})" if opts.mode not in ("fix",) else ""
     diff_check = _git("diff", "--quiet", check=False)
     if diff_check.returncode != 0:
         _git("add", "-A")
-        _git("commit", "-m", f"Fix {opts.cop}: agent-generated fix{retry_note} ({opts.backend})")
+        _git("commit", "-m", f"Fix {opts.cop}: agent-generated fix{mode_note} ({opts.backend})")
 
     # 7. Push + promote
     _git("push", "origin", f"HEAD:{opts.branch}", "--force")
@@ -1070,7 +1089,7 @@ def cmd_finalize(args: list[str]) -> int:
         "promote",
         "--repo", opts.repo,
         "--branch", opts.branch,
-        "--message", f"Fix {opts.cop}: agent-generated fix{retry_note} ({opts.backend})",
+        "--message", f"Fix {opts.cop}: agent-generated fix{mode_note} ({opts.backend})",
     ])
     promote_result = {}
     for line in r.stdout.strip().splitlines():

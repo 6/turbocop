@@ -12,6 +12,10 @@ import subprocess
 import sys
 import time
 
+# Cops with total divergence (FP+FN) above this threshold are dispatched
+# in "reduce" mode where the agent aims to make progress, not fully solve.
+REDUCE_MODE_THRESHOLD = 500
+
 
 def _extract_cop_from_pr_title(title: str) -> str | None:
     """Extract cop name from PR titles like '[bot] Fix Department/CopName'."""
@@ -91,7 +95,7 @@ def main() -> int:
         "--json",
         "--department", department,
         "--min-bugs", "1",
-        "--max-total", "999",
+        "--max-total", "0",
         "--min-total", "1",
         "--min-matches", "0",
         "--limit", str(count + len(skip_cops)),
@@ -118,11 +122,17 @@ def main() -> int:
         print(f"::warning::Only {len(cops)} cops available (requested {count}).")
 
     # ── Print selection ────────────────────────────────────────────────
-    print(f"\n{'Cop':<42} {'FP':>3} {'FN':>3} {'Bugs':>4} {'Cfg':>4}")
-    print("-" * 60)
+    def _cop_mode(cop_entry: dict) -> str:
+        if mode == "auto":
+            total = cop_entry["fp"] + cop_entry["fn"]
+            return "reduce" if total > REDUCE_MODE_THRESHOLD else "fix"
+        return mode
+
+    print(f"\n{'Cop':<42} {'FP':>3} {'FN':>3} {'Bugs':>4} {'Cfg':>4} {'Mode':>7}")
+    print("-" * 67)
     for c in cops:
         print(f"{c['cop']:<42} {c['fp']:>3} {c['fn']:>3} "
-              f"{c['code_bugs']:>4} {c['config_issues']:>4}")
+              f"{c['code_bugs']:>4} {c['config_issues']:>4} {_cop_mode(c):>7}")
     print()
 
     # ── Dispatch ───────────────────────────────────────────────────────
@@ -131,15 +141,16 @@ def main() -> int:
 
     for c in cops:
         cop = c["cop"]
+        cop_mode = _cop_mode(c)
         issue_num = cop_issues.get(cop)
         issue_suffix = f", issue #{issue_num}" if issue_num else ""
-        print(f"Dispatching: {cop} ({backend}, {mode}{issue_suffix})...",
+        print(f"Dispatching: {cop} ({backend}, {cop_mode}{issue_suffix})...",
               end=" ", flush=True)
         cmd = [
             "gh", "workflow", "run", "agent-cop-fix.yml",
             "-f", f"cop={cop}",
             "-f", f"backend={backend}",
-            "-f", f"mode={mode}",
+            "-f", f"mode={cop_mode}",
         ]
         if issue_num:
             cmd += ["-f", f"issue_number={issue_num}"]
@@ -161,15 +172,16 @@ def main() -> int:
     if summary_path:
         with open(summary_path, "a") as f:
             f.write(f"### Batch Dispatch: {department} × {len(cops)} ({backend})\n\n")
-            f.write("| Cop | FP | FN | Bugs | Cfg |\n")
-            f.write("|-----|----|----|------|-----|\n")
+            f.write("| Cop | FP | FN | Bugs | Cfg | Mode |\n")
+            f.write("|-----|----|----|------|-----|------|\n")
             for c in cops:
                 f.write(f"| {c['cop']} | {c['fp']} | {c['fn']} "
-                        f"| {c['code_bugs']} | {c['config_issues']} |\n")
+                        f"| {c['code_bugs']} | {c['config_issues']} | {_cop_mode(c)} |\n")
             f.write(f"\n**Dispatched:** {dispatched}/{len(cops)}")
             if failed:
                 f.write(f" ({failed} failed)")
-            f.write(f"  \n**Backend:** {backend} | **Mode:** {mode}\n")
+            mode_desc = f"{mode} (fix/reduce by divergence)" if mode == "auto" else mode
+            f.write(f"  \n**Backend:** {backend} | **Mode:** {mode_desc}\n")
 
     return 1 if failed else 0
 
