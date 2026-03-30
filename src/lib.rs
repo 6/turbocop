@@ -307,7 +307,13 @@ pub fn run(args: Args) -> Result<i32> {
     // Load config — use lockfile if available
     let config_start = std::time::Instant::now();
     let config = if args.force_default_config {
-        config::ResolvedConfig::empty()
+        let mut cfg = config::ResolvedConfig::empty();
+        // When --only targets plugin-department cops (RSpec, Rails, etc.),
+        // register those departments so the cops aren't silently disabled.
+        // Without this, --force-default-config creates an empty config with
+        // no require_departments, causing all plugin cops to be skipped.
+        cfg.register_departments_from_only(&args.only);
+        cfg
     } else if use_cache {
         // Try to find config dir for lockfile lookup
         let lock_dir = target_dir.unwrap_or(std::path::Path::new("."));

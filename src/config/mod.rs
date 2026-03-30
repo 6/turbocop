@@ -696,6 +696,19 @@ impl ResolvedConfig {
             migrated_schema_version: None,
         }
     }
+
+    /// Register plugin departments so their cops are enabled during
+    /// `build_cop_filters`. Used with `--force-default-config --only` to
+    /// ensure plugin cops (RSpec, Rails, etc.) run in isolation.
+    pub fn register_departments_from_only(&mut self, only: &[String]) {
+        for cop_name in only {
+            if let Some(dept) = cop_name.split('/').next() {
+                if is_plugin_department(dept) {
+                    self.require_departments.insert(dept.to_string());
+                }
+            }
+        }
+    }
 }
 
 /// A single parsed config layer (before merging).
