@@ -3,7 +3,47 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03-30):
+/// FN=2 came from receiverless `concat [major, minor, micro, qualifier]`
+/// calls inside `Array` subclasses. RuboCop still flags receiverless `concat`
+/// sends when every argument is an array literal, but this cop required an
+/// explicit receiver and skipped them. Fix: allow receiverless `concat` and,
+/// for that path, build the RuboCop-style `push(...)` message from the array
+/// elements so the corpus examples match.
 pub struct ConcatArrayLiterals;
+
+fn receiverless_preferred_message(
+    source: &SourceFile,
+    call: ruby_prism::CallNode<'_>,
+    arg_list: &[ruby_prism::Node<'_>],
+) -> Option<String> {
+    let current_start = call
+        .message_loc()
+        .map_or_else(|| call.location().start_offset(), |loc| loc.start_offset());
+    let current = source.try_byte_slice(current_start, call.location().end_offset())?;
+
+    let mut elements = Vec::new();
+    for arg in arg_list {
+        let array = arg.as_array_node()?;
+        for element in array.elements().iter() {
+            elements.push(
+                source
+                    .byte_slice(
+                        element.location().start_offset(),
+                        element.location().end_offset(),
+                        "",
+                    )
+                    .to_string(),
+            );
+        }
+    }
+
+    Some(format!(
+        "Use `push({})` instead of `{}`.",
+        elements.join(", "),
+        current
+    ))
+}
 
 impl Cop for ConcatArrayLiterals {
     fn name(&self) -> &'static str {
@@ -33,11 +73,6 @@ impl Cop for ConcatArrayLiterals {
             return;
         }
 
-        // Must have a receiver
-        if call.receiver().is_none() {
-            return;
-        }
-
         // Must have arguments
         let args = match call.arguments() {
             Some(a) => a,
@@ -58,10 +93,17 @@ impl Cop for ConcatArrayLiterals {
         let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
 
-        // Build a message about the elements
-        let msg = "Use `push` with elements as arguments instead of `concat` with array brackets.";
+        let msg = if call.receiver().is_none() {
+            receiverless_preferred_message(source, call, &arg_list).unwrap_or_else(|| {
+                "Use `push` with elements as arguments instead of `concat` with array brackets."
+                    .to_string()
+            })
+        } else {
+            "Use `push` with elements as arguments instead of `concat` with array brackets."
+                .to_string()
+        };
 
-        diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
+        diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }
 
