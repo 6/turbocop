@@ -45,6 +45,12 @@ use crate::parse::source::SourceFile;
 /// `find_directive_start` treated `#` in `"#{__dir__}"` as a comment start, setting
 /// `first_hash_seen = true`, which caused the real directive to be rejected. Fix:
 /// skip `#` followed by `{` (string interpolation) when setting `first_hash_seen`.
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// FN=1: `# rubocop:disable Layout/LineLength,` (trailing comma after cop name).
+/// `is_malformed_cop_list` split by comma, got `["Layout/LineLength", ""]`, and skipped
+/// the empty trailing element. Fix: detect trailing comma in `cop_part` before splitting.
 pub struct CopDirectiveSyntax;
 
 impl Cop for CopDirectiveSyntax {
@@ -234,6 +240,11 @@ fn is_malformed_cop_list(cops_str: &str) -> bool {
             (cops_str, "")
         }
     };
+
+    // A trailing comma indicates a malformed cop list (e.g., `Layout/LineLength,`)
+    if cop_part.trim_end().ends_with(',') {
+        return true;
+    }
 
     // Split by comma and check each part
     let parts: Vec<&str> = cop_part.split(',').map(|s| s.trim()).collect();
