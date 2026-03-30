@@ -362,3 +362,96 @@ describe "direct examples in def self" do
     end
   end
 end
+
+# Variable assigned in nested context, used in example interpolation and call
+RSpec.describe Database::Multiple, '#multiple' do
+  context '#Work with proper query' do
+    join_table_name = 'object_query_5'
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    join_table_column = 'oo_id'
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+    it 'builds the expected SQL' do
+      expect("UPDATE #{join_table_name}").to include(
+        join_table_column
+      )
+    end
+  end
+
+  context '#Work with linked tables' do
+    join_table_name = 'object_query_5'
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    join_table_column = 'oo_id'
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+    it 'formats linked table updates' do
+      expect("JOIN #{join_table_name} ON #{join_table_column}").to include(
+        "#{join_table_name}.#{join_table_column}"
+      )
+    end
+  end
+end
+
+# File-level conditional assignment used in example
+def which(cmd)
+  cmd
+end
+
+insert_tee_log = '  2>&1 | tee -a vagrant.log ' if which('tee')
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+describe 'VM Life Cycle' do
+  it 'starts Linux and Windows VM' do
+    expect("vagrant up #{insert_tee_log}").to include('tee')
+  end
+end
+
+# Variable initialized to nil, read in before hook predicate, then used in example
+describe 'Puppet Ruby Generator' do
+  context 'when generating static code' do
+    module_def = nil
+    ^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+    before(:each) do
+      if module_def.nil?
+        module_def = build_module
+      end
+    end
+
+    it 'keeps the generated module' do
+      expect(module_def).not_to be_nil
+    end
+  end
+end
+
+# Same nil-initialization pattern in a separate nested context
+describe 'TypeSet generator' do
+  context 'when generating static code' do
+    module_def = nil
+    ^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    module_def2 = nil
+
+    before(:each) do
+      if module_def.nil?
+        module_def = build_primary_module
+        module_def2 = build_secondary_module
+      end
+    end
+
+    it 'uses the first generated module' do
+      expect(module_def.name).to eq(module_def2.parent_name)
+    end
+  end
+end
+
+# Variable inside shared_examples nested describe, used in example
+shared_examples 'inspect unmanaged files' do |base, skip_remote_mounts_test|
+  describe '--scope=unmanaged-files' do
+    test_tarball = File.join(Machinery::ROOT, '../machinery/spec/definitions/vagrant/unmanaged_files.tgz')
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+    it 'extracts list of unmanaged files' do
+      expect(test_tarball).to include('unmanaged_files.tgz')
+    end
+  end
+end
