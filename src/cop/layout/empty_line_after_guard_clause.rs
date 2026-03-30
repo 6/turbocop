@@ -286,9 +286,9 @@ use crate::parse::source::SourceFile;
 ///      reported themselves.
 ///    - But those same lines also must NOT suppress the previous guard as a
 ///      "next sibling guard clause".
-///    Fix: next-sibling text classification now requires exactly one top-level
-///    modifier keyword on the line, and modifier nodes with any trailing
-///    attached modifier suffix are skipped.
+///      Fix: next-sibling text classification now requires exactly one top-level
+///      modifier keyword on the line, and modifier nodes with any trailing
+///      attached modifier suffix are skipped.
 ///
 /// 3. **Symbol literals named like guard keywords**: `if node.type == :return`
 ///    is not a guard block. Fix: reject top-level guard-keyword text matches
@@ -558,9 +558,9 @@ impl Cop for EmptyLineAfterGuardClause {
                         .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
                     {
                         let trailing = &rest[idx..];
-                        if starts_with_keyword(trailing, b"if") {
-                            has_attached_modifier_suffix = true;
-                        } else if starts_with_keyword(trailing, b"unless") {
+                        if starts_with_keyword(trailing, b"if")
+                            || starts_with_keyword(trailing, b"unless")
+                        {
                             has_attached_modifier_suffix = true;
                         } else if trailing[0] != b'#' {
                             if if_start_line == if_end_line {
