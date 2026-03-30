@@ -15,7 +15,3 @@ class SomeClass
     attr(1)
   end
 end
-
-class Parenthesized
-  attr(:name)
-end

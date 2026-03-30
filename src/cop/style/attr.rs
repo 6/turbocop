@@ -4,6 +4,14 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Flags bare `attr` calls, including parenthesized forms like `attr(:name)`.
+///
+/// A prior guard skipped every call with an `opening_loc()`, which caused false
+/// negatives for parenthesized `attr(...)` in class bodies, module methods, and
+/// DSL-style helper methods. RuboCop still registers those offenses, so this cop
+/// now relies on the existing custom-`attr` context guard instead of treating
+/// parentheses as an exemption, and it uses the last boolean argument to choose
+/// between `attr_reader` and `attr_accessor`.
 pub struct Attr;
 
 impl Cop for Attr {
@@ -40,18 +48,6 @@ impl Cop for Attr {
         if call_node.receiver().is_some() {
             return;
         }
-        // Corpus investigation notes (2026-03-01):
-        // - Initial fix (scope-aware context + custom `def attr` guard) reduced
-        //   check-cop excess from 64 -> 7.
-        // - Remaining examples included parenthesized calls (`attr(:name)`), which
-        //   RuboCop excludes via `command?(:attr)`.
-        // - Adding this command-call guard reduced excess further from 7 -> 5.
-        // - Remaining 5 excess offenses are still in progress and appear to involve
-        //   core-spec style direct `Module#attr` usage in class bodies.
-        if call_node.opening_loc().is_some() {
-            return;
-        }
-
         // Must have arguments
         let args = match call_node.arguments() {
             Some(a) => a,
@@ -63,10 +59,13 @@ impl Cop for Attr {
         }
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
+        let last_arg = arg_list.last();
 
-        // Check if second argument is `true` → attr_accessor, otherwise attr_reader
-        let has_true_arg = arg_list.get(1).is_some_and(|a| a.as_true_node().is_some());
-        let has_false_arg = arg_list.get(1).is_some_and(|a| a.as_false_node().is_some());
+        // RuboCop keys off the last boolean arg, so `attr('docdir', '', true)`
+        // still becomes `attr_accessor`.
+        let has_true_arg = last_arg.is_some_and(|arg| arg.as_true_node().is_some());
+        let has_false_arg = last_arg.is_some_and(|arg| arg.as_false_node().is_some());
+        let has_boolean_last_arg = has_true_arg || has_false_arg;
 
         let replacement = if has_true_arg {
             "attr_accessor"
@@ -85,28 +84,27 @@ impl Cop for Attr {
             format!("Do not use `attr`. Use `{replacement}` instead."),
         );
         if let Some(ref mut corr) = corrections {
-            if has_true_arg || has_false_arg {
-                // Replace the entire call: `attr :name, true/false` → `attr_accessor/attr_reader :name`
-                // We need to replace from `attr` through the boolean arg, keeping only the first arg
+            corr.push(crate::correction::Correction {
+                start: msg_loc.start_offset(),
+                end: msg_loc.end_offset(),
+                replacement: replacement.to_string(),
+                cop_name: self.name(),
+                cop_index: 0,
+            });
+
+            if has_boolean_last_arg {
+                // Match RuboCop by keeping the first arg and any surrounding
+                // parentheses, while deleting trailing args through the closing
+                // paren when present.
                 let first_arg = &arg_list[0];
-                let first_arg_str = source.byte_slice(
-                    first_arg.location().start_offset(),
-                    first_arg.location().end_offset(),
-                    "",
+                let delete_end = call_node.closing_loc().map_or_else(
+                    || call_node.location().end_offset(),
+                    |loc| loc.start_offset(),
                 );
                 corr.push(crate::correction::Correction {
-                    start: msg_loc.start_offset(),
-                    end: call_node.location().end_offset(),
-                    replacement: format!("{replacement} {first_arg_str}"),
-                    cop_name: self.name(),
-                    cop_index: 0,
-                });
-            } else {
-                // Simple replacement: `attr` → `attr_reader`
-                corr.push(crate::correction::Correction {
-                    start: msg_loc.start_offset(),
-                    end: msg_loc.end_offset(),
-                    replacement: replacement.to_string(),
+                    start: first_arg.location().end_offset(),
+                    end: delete_end,
+                    replacement: String::new(),
                     cop_name: self.name(),
                     cop_index: 0,
                 });
