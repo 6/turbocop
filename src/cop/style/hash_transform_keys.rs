@@ -186,8 +186,7 @@ impl HashTransformKeys {
                                     source,
                                     line,
                                     column,
-                                    "Prefer `transform_keys` over `each_with_object`."
-                                        .to_string(),
+                                    "Prefer `transform_keys` over `each_with_object`.".to_string(),
                                 ));
                             }
                         }
