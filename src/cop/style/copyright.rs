@@ -3,6 +3,25 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use regex::Regex;
 
+/// FN fix: rewrote detection to match RuboCop's `notice_found?` algorithm.
+///
+/// Previously nitrocop searched ALL lines in the file for the copyright
+/// notice, while RuboCop only examines leading consecutive comment tokens
+/// (concatenated without newlines for `#` comments). This caused ~2108 FN
+/// where files had the copyright after a decoration line (`#---...`) or
+/// `# frozen_string_literal: true` — RuboCop's `^`-anchored default
+/// pattern failed to match the concatenation, but nitrocop's per-line
+/// search found it.
+///
+/// The new algorithm:
+/// 1. Only scans leading comment lines (skips blank lines, stops at code)
+/// 2. Strips `# ` from line comments and concatenates without newlines
+/// 3. Preserves newlines for `=begin`/`=end` block comment content
+/// 4. Uses `(?m)` so `^` matches line starts (Ruby default behavior)
+///
+/// Remaining per-repo FP (~3) are file discovery artifacts (hidden dirs
+/// like `.jbundler/` discovered by nitrocop but not by RuboCop's directory
+/// traversal), not detection logic issues.
 pub struct Copyright;
 
 impl Cop for Copyright {
@@ -31,39 +50,82 @@ impl Cop for Copyright {
             return;
         }
 
-        let regex = match Regex::new(notice_pattern) {
+        // Ruby's ^ always matches at line starts; Rust's ^ only matches
+        // string start by default. Prepend (?m) to match Ruby behavior.
+        // This matters for =begin/=end block comments where content lines
+        // are concatenated with newlines.
+        let pattern_multiline = format!("(?m){}", notice_pattern);
+        let regex = match Regex::new(&pattern_multiline) {
             Ok(r) => r,
             Err(_) => return,
         };
 
-        // Search all comment lines for the copyright notice
+        // Match RuboCop's notice_found? behavior: only check leading consecutive
+        // comment tokens. Line comments (#) are stripped of "# " and concatenated
+        // without newlines. Block comment (=begin/=end) content preserves line
+        // boundaries with newlines (matching Ruby token text behavior).
+        // Blank lines are skipped (they don't produce tokens in Ruby's lexer).
+        // The scan stops at the first non-comment, non-blank line.
         let lines: Vec<&[u8]> = source.lines().collect();
+        let mut multiline_notice = String::new();
+        let mut in_block_comment = false;
 
         for line in &lines {
             let line_str = match std::str::from_utf8(line) {
-                Ok(s) => s.trim(),
-                Err(_) => continue,
+                Ok(s) => s,
+                Err(_) => break,
             };
+            let trimmed = line_str.trim();
 
-            if line_str.starts_with('#') {
-                let comment_text = line_str.trim_start_matches('#').trim();
-                if regex.is_match(comment_text) {
-                    return;
-                }
-            }
-
-            // Also check inside block comments
-            if line_str.starts_with("=begin") || line_str.starts_with("=end") {
+            if trimmed.is_empty() {
                 continue;
             }
-            // Check non-comment lines within block comments
-            let line_str_raw = match std::str::from_utf8(line) {
-                Ok(s) => s.trim(),
-                Err(_) => continue,
-            };
-            if regex.is_match(line_str_raw) {
-                return;
+
+            if in_block_comment {
+                if trimmed.starts_with("=end") {
+                    // RuboCop includes =end token text in the concatenation
+                    multiline_notice.push_str(line_str);
+                    multiline_notice.push('\n');
+                    in_block_comment = false;
+                } else {
+                    // Block comment content: preserve raw text with newline
+                    // (matching RuboCop's embdoc token text behavior)
+                    multiline_notice.push_str(line_str);
+                    multiline_notice.push('\n');
+                    if regex.is_match(line_str) {
+                        break;
+                    }
+                }
+                continue;
             }
+
+            if trimmed.starts_with("=begin") {
+                // RuboCop includes =begin token text in the concatenation
+                multiline_notice.push_str(line_str);
+                multiline_notice.push('\n');
+                in_block_comment = true;
+                continue;
+            }
+
+            if trimmed.starts_with('#') {
+                // RuboCop: token.text.sub(/\A# */, '') — strip first '#' then leading spaces
+                let after_hash = &trimmed[1..];
+                let comment_content = after_hash.trim_start_matches(' ');
+                multiline_notice.push_str(comment_content);
+
+                // Early exit like RuboCop: break if notice_regexp.match?(token.text)
+                if regex.is_match(trimmed) {
+                    break;
+                }
+                continue;
+            }
+
+            // Non-comment, non-blank line = code → stop scanning
+            break;
+        }
+
+        if regex.is_match(&multiline_notice) {
+            return;
         }
 
         // No copyright notice found
@@ -131,10 +193,54 @@ mod tests {
     }
 
     #[test]
+    fn copyright_after_decoration() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Copyright,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/copyright/offense/copyright_after_decoration.rb"
+            ),
+            config_with_autocorrect_notice(),
+        );
+    }
+
+    #[test]
+    fn copyright_after_frozen_string() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Copyright,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/copyright/offense/copyright_after_frozen_string.rb"
+            ),
+            config_with_autocorrect_notice(),
+        );
+    }
+
+    #[test]
+    fn copyright_after_code() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Copyright,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/copyright/offense/copyright_after_code.rb"
+            ),
+            config_with_autocorrect_notice(),
+        );
+    }
+
+    #[test]
     fn no_offense_fixture() {
         crate::testutil::assert_cop_no_offenses_full_with_config(
             &Copyright,
             include_bytes!("../../../tests/fixtures/cops/style/copyright/no_offense.rb"),
+            config_with_autocorrect_notice(),
+        );
+    }
+
+    #[test]
+    fn no_offense_block_comment() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &Copyright,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/copyright/no_offense_block_comment.rb"
+            ),
             config_with_autocorrect_notice(),
         );
     }
