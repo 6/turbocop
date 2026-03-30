@@ -44,7 +44,7 @@ on:
 jobs:
   fix:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
       RUSTFLAGS: -C link-arg=-fuse-ld=mold
@@ -230,7 +230,7 @@ jobs:
         if: steps.task.outputs.code_bugs != '0'
         id: agent
         uses: ./.github/actions/run-agent
-        timeout-minutes: 60
+        timeout-minutes: 90
         with:
           backend: ${{ steps.selected_backend.outputs.backend }}
           actions_read_token: ${{ github.token }}
