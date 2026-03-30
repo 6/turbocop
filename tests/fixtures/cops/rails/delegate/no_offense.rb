@@ -107,6 +107,16 @@ def fox(bar)
   bar.fox
 end
 
+# Local-variable receivers are not matched by RuboCop's Rails/Delegate pattern.
+def delete(account_env_var)
+  account_env_var.delete(account_env_var)
+end
+
+# Prism normalizes `def !@` to method name `!`, but RuboCop compares against `!@`.
+def !@
+  !value
+end
+
 # module_function :name AFTER the def — RuboCop skips these
 module Adapter
   def adapters
