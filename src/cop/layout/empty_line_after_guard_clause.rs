@@ -1286,8 +1286,7 @@ fn strip_inline_comment(line: &[u8]) -> &[u8] {
                 } else {
                     matches!(
                         line[i - 1],
-                        b'='
-                            | b'('
+                        b'=' | b'('
                             | b','
                             | b'!'
                             | b'~'
@@ -1400,8 +1399,7 @@ fn has_unclosed_literal(line: &[u8]) -> bool {
                 } else {
                     matches!(
                         line[i - 1],
-                        b'='
-                            | b'('
+                        b'=' | b'('
                             | b','
                             | b'!'
                             | b'~'
