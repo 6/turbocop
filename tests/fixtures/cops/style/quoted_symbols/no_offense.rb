@@ -15,5 +15,3 @@ bc"
 :"a\\
 b"
 :""
-{ "": data }
-data.merge({"": data})

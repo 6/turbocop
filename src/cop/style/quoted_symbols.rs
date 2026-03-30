@@ -3,10 +3,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Matches RuboCop's quoted-symbol escape rules more closely: backslashes only
-/// require double quotes when they would become real escape sequences, so
-/// `:"symbols__\\"`, `:"\\"`, and `"allowed_\\d":` remain offenses while
-/// empty or multiline quoted symbols stay accepted.
+/// Matches the corpus oracle's empty-symbol edge case for hash labels.
+///
+/// Standalone empty quoted symbols like `:""` remain accepted, but empty-string
+/// hash-label keys like `"":` are still checked for quote style. This fixes the
+/// remaining FN cluster without broadening handling for multiline or escaped
+/// quoted symbols.
 pub struct QuotedSymbols;
 
 impl Cop for QuotedSymbols {
@@ -54,7 +56,7 @@ impl Cop for QuotedSymbols {
             } else {
                 &src_bytes[2..src_bytes.len().saturating_sub(1)] // strip leading :" and trailing "
             };
-            if inner.is_empty() {
+            if inner.is_empty() && !is_hash_key_double {
                 return;
             }
             if inner.contains(&b'\n') || inner.contains(&b'\r') {
@@ -100,7 +102,7 @@ impl Cop for QuotedSymbols {
             } else {
                 &src_bytes[2..src_bytes.len().saturating_sub(1)] // strip leading :' and trailing '
             };
-            if inner.is_empty() {
+            if inner.is_empty() && !is_hash_key_single {
                 return;
             }
             if inner.contains(&b'\n') || inner.contains(&b'\r') {
