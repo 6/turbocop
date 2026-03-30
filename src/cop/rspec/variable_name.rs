@@ -1,12 +1,16 @@
 use crate::cop::util::{
-    RSPEC_DEFAULT_INCLUDE, is_camel_case, is_rspec_example_group, is_snake_case,
+    RSPEC_DEFAULT_INCLUDE, is_camel_case, is_rspec_example_group,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
+use std::sync::OnceLock;
 
+/// Checks memoized helper names against RuboCop's RSpec variable-name styles.
+/// Fixed a false negative where operator-only names like `subject(:==)` were
+/// treated as valid `snake_case` because the shared helper allows `=` suffixes.
 pub struct VariableName;
 
 impl Cop for VariableName {
@@ -78,7 +82,7 @@ impl VariableNameVisitor<'_> {
         if self.enforced_camel_case {
             is_camel_case(name)
         } else {
-            is_snake_case(name)
+            is_rubocop_snake_case(name)
         }
     }
 
@@ -88,6 +92,19 @@ impl VariableNameVisitor<'_> {
             .iter()
             .any(|pattern| pattern.is_match(name_str))
     }
+}
+
+fn is_rubocop_snake_case(name: &[u8]) -> bool {
+    static REGEX: OnceLock<regex::Regex> = OnceLock::new();
+
+    let name = match std::str::from_utf8(name) {
+        Ok(name) => name,
+        Err(_) => return false,
+    };
+
+    REGEX
+        .get_or_init(|| regex::Regex::new(r"^@{0,2}[\p{Ll}\d_]+[!?=]?$").unwrap())
+        .is_match(name)
 }
 
 impl<'pr> Visit<'pr> for VariableNameVisitor<'_> {
