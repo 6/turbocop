@@ -212,7 +212,14 @@ impl Cop for RedundantStringEscape {
             let content_loc = s.content_loc();
             let content = content_loc.as_slice();
             let content_start = content_loc.start_offset();
-            self.scan_escapes(source, content, content_start, &delimiter_chars, is_heredoc, diagnostics);
+            self.scan_escapes(
+                source,
+                content,
+                content_start,
+                &delimiter_chars,
+                is_heredoc,
+                diagnostics,
+            );
         } else if let Some(s) = node.as_interpolated_string_node() {
             let opening_loc = match s.opening_loc() {
                 Some(o) => o,
@@ -232,7 +239,14 @@ impl Cop for RedundantStringEscape {
                     let content_loc = str_part.content_loc();
                     let content = content_loc.as_slice();
                     let content_start = content_loc.start_offset();
-                    self.scan_escapes(source, content, content_start, &delimiter_chars, is_heredoc, diagnostics);
+                    self.scan_escapes(
+                        source,
+                        content,
+                        content_start,
+                        &delimiter_chars,
+                        is_heredoc,
+                        diagnostics,
+                    );
                 }
             }
         }
