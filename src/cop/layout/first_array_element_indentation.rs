@@ -150,6 +150,16 @@ fn byte_col_to_char_col(line_bytes: &[u8], byte_col: usize) -> usize {
 /// d) `consistent` style missing hash-key-relative: RuboCop applies hash-key-relative
 ///    for ALL styles (except `align_brackets`), not just `special_inside_parentheses`.
 ///    Fix: moved hash-key-relative check before style-specific dispatch.
+///
+/// **FP fix / fixture repair (2026-03-30):** Arrays inside explicit
+/// `super(...)` calls were treated as paren-relative by raw source scanning, so
+/// nitrocop flagged `super(:only => [ ... ])` even though RuboCop accepts the
+/// line-relative indentation. RuboCop only passes paren context from `on_send`;
+/// `super(...)` is a `SuperNode`, so these arrays fall back to the `on_array`
+/// path. Fixed by detecting when the unmatched `(` that anchors the array is
+/// the `(` from `super(` and suppressing paren-relative indentation in that
+/// case. Also repaired four malformed FN fixture snippets that had been pasted
+/// into `offense.rb` without their enclosing Ruby context.
 pub struct FirstArrayElementIndentation;
 
 /// Describes what the expected indentation is relative to.
@@ -693,6 +703,38 @@ fn has_hash_key_pattern_before(line_bytes: &[u8], end: usize) -> bool {
     false
 }
 
+/// Returns true when the unmatched `(` at `paren_col` belongs to an explicit
+/// `super(...)` call.
+///
+/// RuboCop only supplies special paren-relative context from `on_send`;
+/// `super(...)` is handled via `on_array`, so arrays anchored to `super(` stay
+/// line-relative.
+fn is_super_call_paren(line_bytes: &[u8], paren_col: usize) -> bool {
+    if paren_col == 0 {
+        return false;
+    }
+
+    let mut end = paren_col;
+    while end > 0 && (line_bytes[end - 1] == b' ' || line_bytes[end - 1] == b'\t') {
+        end -= 1;
+    }
+    if end < 5 {
+        return false;
+    }
+
+    let mut start = end;
+    while start > 0
+        && (line_bytes[start - 1].is_ascii_alphanumeric()
+            || line_bytes[start - 1] == b'_'
+            || line_bytes[start - 1] == b'!'
+            || line_bytes[start - 1] == b'?')
+    {
+        start -= 1;
+    }
+
+    &line_bytes[start..end] == b"super"
+}
+
 impl Cop for FirstArrayElementIndentation {
     fn name(&self) -> &'static str {
         "Layout/FirstArrayElementIndentation"
@@ -790,19 +832,20 @@ impl Cop for FirstArrayElementIndentation {
                     let paren_scan = find_left_paren_on_line(open_line_bytes, open_byte_col);
                     if let Some(paren_byte_col) = paren_scan.paren_col {
                         let paren_col = byte_col_to_char_col(open_line_bytes, paren_byte_col);
+                        let super_call_paren = is_super_call_paren(open_line_bytes, paren_byte_col);
                         let intermediate_method_call = hash_key_byte_col.is_some_and(|hk| {
                             has_method_call_between(open_line_bytes, paren_byte_col + 1, hk)
                         });
-                        let use_paren_relative =
-                            !is_preceded_by_percent_operator(open_line_bytes, open_byte_col)
-                                && !paren_scan.has_binary_operator_at_depth_zero
-                                && !paren_scan.is_grouping_paren
-                                && !intermediate_method_call
-                                && is_direct_argument(
-                                    source.as_bytes(),
-                                    closing_end_offset,
-                                    paren_scan.has_unmatched_brace,
-                                );
+                        let use_paren_relative = !super_call_paren
+                            && !is_preceded_by_percent_operator(open_line_bytes, open_byte_col)
+                            && !paren_scan.has_binary_operator_at_depth_zero
+                            && !paren_scan.is_grouping_paren
+                            && !intermediate_method_call
+                            && is_direct_argument(
+                                source.as_bytes(),
+                                closing_end_offset,
+                                paren_scan.has_unmatched_brace,
+                            );
                         if use_paren_relative {
                             (
                                 paren_col + 1,

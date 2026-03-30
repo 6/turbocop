@@ -58,3 +58,35 @@ assert_equal({ "c" => [
 a << [
   ]
   ^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the start of the line where the left bracket is.
+
+# FN fixture repair: `%i[` keyword arg still uses paren-relative indentation
+load_yaml_file(foo, permitted_classes: %i[
+  ELTestIvarClass
+  ^ Layout/FirstArrayElementIndentation: Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.
+  SubELTestIvarClass
+  ELTestMod::ELTestIvarClass
+])
+^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.
+
+# FN fixture repair: single-pair hash value in method call remains paren-relative
+FactoryBot.create(:limited_admin, :groups => [
+  group,
+  ^ Layout/FirstArrayElementIndentation: Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.
+])
+^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.
+
+# FN fixture repair: single-element recipe array in method call
+LatexToPdf.generate_pdf(foo, {:recipe => [
+  { :command => 'xelatex', :runs => 2 }
+  ^ Layout/FirstArrayElementIndentation: Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.
+]})
+^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.
+
+# FN fixture repair: multi-element recipe array in method call
+LatexToPdf.generate_pdf(foo, {:recipe => [
+  { :command => 'pdflatex', :extra_arguments => ['-draftmode'] },
+  ^ Layout/FirstArrayElementIndentation: Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.
+  { :command => 'bibtex', :arguments => [] },
+  { :command => 'pdflatex', :runs => 2 }
+]})
+^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.
