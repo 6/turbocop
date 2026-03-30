@@ -455,3 +455,29 @@ shared_examples 'inspect unmanaged files' do |base, skip_remote_mounts_test|
     end
   end
 end
+
+# Variables assigned inside nested hash expressions at group scope
+describe SomeClass do
+  schema = {
+    const: const_schema = { const: 1 },
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    required: required_props = %w[a b],
+              ^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    dependentRequired: {
+      (p_0 = :foo) => [
+       ^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+        p_1 = :bar
+        ^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+      ]
+    }
+  }
+
+  validate(schema)
+
+  it 'uses nested assignments' do
+    expect(const_schema[:const]).to eq(1)
+    expect(required_props).to include('a')
+    expect(p_0).to eq(:foo)
+    expect(p_1).to eq(:bar)
+  end
+end

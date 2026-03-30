@@ -340,6 +340,19 @@ use crate::parse::source::SourceFile;
 /// VariableForce counts the predicate read as a reference to the outer value, so
 /// the group-level `module_def = nil` is an offense. Fix: predicate reads now
 /// count as reads-before-write in `node_reads_var_without_prior_write`.
+///
+/// ## Investigation (FN: embedded assignments in group/file expressions, 2026-03-30)
+///
+/// Corpus misses from cenit showed assignments nested inside group-level hash
+/// literals on the RHS of another assignment:
+/// `schema = { const: const_schema = {...}, (p_0 = :foo) => [p_1 = :bar] }`.
+/// The old collectors only recorded assignments when the current node itself
+/// was a write statement. They returned immediately for `schema = ...` and
+/// never descended into the RHS/container expression tree, so `const_schema`,
+/// `p_0`, and `p_1` were invisible. Fix: both assignment collectors now keep
+/// walking assignment values plus common expression containers (hash/array/call
+/// args, splats, interpolations, boolean/range nodes) while still stopping at
+/// example-scope and Ruby-scope boundaries.
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
@@ -580,6 +593,7 @@ fn collect_file_level_assignments(
             is_unconditional: !in_conditional,
             inside_block: false,
         });
+        collect_file_level_assignments(&lw.value(), assigns, in_conditional);
         return;
     }
 
@@ -591,6 +605,7 @@ fn collect_file_level_assignments(
             is_unconditional: false, // conditional write
             inside_block: false,
         });
+        collect_file_level_assignments(&ow.value(), assigns, true);
         return;
     }
 
@@ -602,6 +617,7 @@ fn collect_file_level_assignments(
             is_unconditional: false, // conditional write
             inside_block: false,
         });
+        collect_file_level_assignments(&aw.value(), assigns, true);
         return;
     }
 
@@ -613,6 +629,7 @@ fn collect_file_level_assignments(
             is_unconditional: false, // reads then writes
             inside_block: false,
         });
+        collect_file_level_assignments(&ow.value(), assigns, true);
         return;
     }
 
@@ -628,16 +645,17 @@ fn collect_file_level_assignments(
                 });
             }
         }
+        collect_file_level_assignments(&mw.value(), assigns, in_conditional);
         return;
     }
 
     // Stop at describe blocks, example scopes, classes, modules, defs
     if let Some(call) = node.as_call_node() {
         let name = call.name().as_slice();
-        let no_recv = call.receiver().is_none()
-            || (call
-                .receiver()
-                .is_some_and(|r| util::constant_name(&r).is_some_and(|n| n == b"RSpec")));
+        let is_rspec_recv = call
+            .receiver()
+            .is_some_and(|r| util::constant_name(&r).is_some_and(|n| n == b"RSpec"));
+        let no_recv = call.receiver().is_none() || is_rspec_recv;
         if no_recv && is_rspec_example_group(name) {
             return;
         }
@@ -654,6 +672,14 @@ fn collect_file_level_assignments(
         if call.receiver().is_none() && (is_example_scope(name) || is_includes_method(name)) {
             return;
         }
+        if let Some(recv) = call.receiver() {
+            collect_file_level_assignments(&recv, assigns, in_conditional);
+        }
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                collect_file_level_assignments(&arg, assigns, in_conditional);
+            }
+        }
         // For other calls (e.g., iterators), recurse into block body
         if let Some(blk) = call.block() {
             if let Some(bn) = blk.as_block_node() {
@@ -665,6 +691,108 @@ fn collect_file_level_assignments(
                     }
                 }
             }
+        }
+        return;
+    }
+
+    if let Some(hash) = node.as_hash_node() {
+        for elem in hash.elements().iter() {
+            collect_file_level_assignments(&elem, assigns, in_conditional);
+        }
+        return;
+    }
+
+    if let Some(hash) = node.as_keyword_hash_node() {
+        for elem in hash.elements().iter() {
+            collect_file_level_assignments(&elem, assigns, in_conditional);
+        }
+        return;
+    }
+
+    if let Some(assoc) = node.as_assoc_node() {
+        collect_file_level_assignments(&assoc.key(), assigns, in_conditional);
+        collect_file_level_assignments(&assoc.value(), assigns, in_conditional);
+        return;
+    }
+
+    if let Some(assoc_splat) = node.as_assoc_splat_node() {
+        if let Some(expr) = assoc_splat.value() {
+            collect_file_level_assignments(&expr, assigns, in_conditional);
+        }
+        return;
+    }
+
+    if let Some(arr) = node.as_array_node() {
+        for elem in arr.elements().iter() {
+            collect_file_level_assignments(&elem, assigns, in_conditional);
+        }
+        return;
+    }
+
+    if let Some(splat) = node.as_splat_node() {
+        if let Some(expr) = splat.expression() {
+            collect_file_level_assignments(&expr, assigns, in_conditional);
+        }
+        return;
+    }
+
+    if let Some(ret) = node.as_return_node() {
+        if let Some(args) = ret.arguments() {
+            for arg in args.arguments().iter() {
+                collect_file_level_assignments(&arg, assigns, in_conditional);
+            }
+        }
+        return;
+    }
+
+    if let Some(and_node) = node.as_and_node() {
+        collect_file_level_assignments(&and_node.left(), assigns, true);
+        collect_file_level_assignments(&and_node.right(), assigns, true);
+        return;
+    }
+
+    if let Some(or_node) = node.as_or_node() {
+        collect_file_level_assignments(&or_node.left(), assigns, true);
+        collect_file_level_assignments(&or_node.right(), assigns, true);
+        return;
+    }
+
+    if let Some(range) = node.as_range_node() {
+        if let Some(left) = range.left() {
+            collect_file_level_assignments(&left, assigns, in_conditional);
+        }
+        if let Some(right) = range.right() {
+            collect_file_level_assignments(&right, assigns, in_conditional);
+        }
+        return;
+    }
+
+    if let Some(embedded) = node.as_embedded_statements_node() {
+        if let Some(stmts) = embedded.statements() {
+            for s in stmts.body().iter() {
+                collect_file_level_assignments(&s, assigns, in_conditional);
+            }
+        }
+        return;
+    }
+
+    if let Some(interp) = node.as_interpolated_string_node() {
+        for part in interp.parts().iter() {
+            collect_file_level_assignments(&part, assigns, in_conditional);
+        }
+        return;
+    }
+
+    if let Some(interp) = node.as_interpolated_symbol_node() {
+        for part in interp.parts().iter() {
+            collect_file_level_assignments(&part, assigns, in_conditional);
+        }
+        return;
+    }
+
+    if let Some(interp) = node.as_interpolated_regular_expression_node() {
+        for part in interp.parts().iter() {
+            collect_file_level_assignments(&part, assigns, in_conditional);
         }
         return;
     }
@@ -1794,6 +1922,7 @@ fn collect_assignments_in_scope(
             is_unconditional: true,
             inside_block,
         });
+        collect_assignments_in_scope(&lw.value(), assigns, inside_block);
         return;
     }
 
@@ -1805,6 +1934,7 @@ fn collect_assignments_in_scope(
             is_unconditional: false,
             inside_block,
         });
+        collect_assignments_in_scope(&ow.value(), assigns, inside_block);
         return;
     }
 
@@ -1816,6 +1946,7 @@ fn collect_assignments_in_scope(
             is_unconditional: false,
             inside_block,
         });
+        collect_assignments_in_scope(&aw.value(), assigns, inside_block);
         return;
     }
 
@@ -1827,6 +1958,7 @@ fn collect_assignments_in_scope(
             is_unconditional: false,
             inside_block,
         });
+        collect_assignments_in_scope(&ow.value(), assigns, inside_block);
         return;
     }
 
@@ -1866,6 +1998,7 @@ fn collect_assignments_in_scope(
                 });
             }
         }
+        collect_assignments_in_scope(&mw.value(), assigns, inside_block);
         return;
     }
 
@@ -1873,12 +2006,24 @@ fn collect_assignments_in_scope(
     if let Some(call) = node.as_call_node() {
         let name = call.name().as_slice();
         let no_recv = call.receiver().is_none();
+        let is_rspec_recv = call
+            .receiver()
+            .is_some_and(|r| util::constant_name(&r).is_some_and(|n| n == b"RSpec"));
 
         // Stop at example scopes, nested example groups, includes methods
-        if no_recv
-            && (is_example_scope(name) || is_rspec_example_group(name) || is_includes_method(name))
+        if (no_recv && (is_example_scope(name) || is_includes_method(name)))
+            || ((no_recv || is_rspec_recv) && is_rspec_example_group(name))
         {
             return;
+        }
+
+        if let Some(recv) = call.receiver() {
+            collect_assignments_in_scope(&recv, assigns, inside_block);
+        }
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                collect_assignments_in_scope(&arg, assigns, inside_block);
+            }
         }
 
         // For other calls (e.g., `each do ... end`), recurse into the block body.
@@ -1895,6 +2040,108 @@ fn collect_assignments_in_scope(
                     }
                 }
             }
+        }
+        return;
+    }
+
+    if let Some(hash) = node.as_hash_node() {
+        for elem in hash.elements().iter() {
+            collect_assignments_in_scope(&elem, assigns, inside_block);
+        }
+        return;
+    }
+
+    if let Some(hash) = node.as_keyword_hash_node() {
+        for elem in hash.elements().iter() {
+            collect_assignments_in_scope(&elem, assigns, inside_block);
+        }
+        return;
+    }
+
+    if let Some(assoc) = node.as_assoc_node() {
+        collect_assignments_in_scope(&assoc.key(), assigns, inside_block);
+        collect_assignments_in_scope(&assoc.value(), assigns, inside_block);
+        return;
+    }
+
+    if let Some(assoc_splat) = node.as_assoc_splat_node() {
+        if let Some(expr) = assoc_splat.value() {
+            collect_assignments_in_scope(&expr, assigns, inside_block);
+        }
+        return;
+    }
+
+    if let Some(arr) = node.as_array_node() {
+        for elem in arr.elements().iter() {
+            collect_assignments_in_scope(&elem, assigns, inside_block);
+        }
+        return;
+    }
+
+    if let Some(splat) = node.as_splat_node() {
+        if let Some(expr) = splat.expression() {
+            collect_assignments_in_scope(&expr, assigns, inside_block);
+        }
+        return;
+    }
+
+    if let Some(ret) = node.as_return_node() {
+        if let Some(args) = ret.arguments() {
+            for arg in args.arguments().iter() {
+                collect_assignments_in_scope(&arg, assigns, inside_block);
+            }
+        }
+        return;
+    }
+
+    if let Some(and_node) = node.as_and_node() {
+        collect_assignments_in_scope(&and_node.left(), assigns, inside_block);
+        collect_assignments_in_scope(&and_node.right(), assigns, inside_block);
+        return;
+    }
+
+    if let Some(or_node) = node.as_or_node() {
+        collect_assignments_in_scope(&or_node.left(), assigns, inside_block);
+        collect_assignments_in_scope(&or_node.right(), assigns, inside_block);
+        return;
+    }
+
+    if let Some(range) = node.as_range_node() {
+        if let Some(left) = range.left() {
+            collect_assignments_in_scope(&left, assigns, inside_block);
+        }
+        if let Some(right) = range.right() {
+            collect_assignments_in_scope(&right, assigns, inside_block);
+        }
+        return;
+    }
+
+    if let Some(embedded) = node.as_embedded_statements_node() {
+        if let Some(stmts) = embedded.statements() {
+            for s in stmts.body().iter() {
+                collect_assignments_in_scope(&s, assigns, inside_block);
+            }
+        }
+        return;
+    }
+
+    if let Some(interp) = node.as_interpolated_string_node() {
+        for part in interp.parts().iter() {
+            collect_assignments_in_scope(&part, assigns, inside_block);
+        }
+        return;
+    }
+
+    if let Some(interp) = node.as_interpolated_symbol_node() {
+        for part in interp.parts().iter() {
+            collect_assignments_in_scope(&part, assigns, inside_block);
+        }
+        return;
+    }
+
+    if let Some(interp) = node.as_interpolated_regular_expression_node() {
+        for part in interp.parts().iter() {
+            collect_assignments_in_scope(&part, assigns, inside_block);
         }
         return;
     }

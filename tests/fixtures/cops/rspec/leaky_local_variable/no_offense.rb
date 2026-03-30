@@ -463,3 +463,15 @@ shared_examples_for "a testable resource" do |testcase|
   end
 end
 
+# Nested hash assignment used only at group scope
+describe SomeClass do
+  schema = {
+    const: const_schema = { const: 1 }
+  }
+
+  validate(const_schema)
+
+  it 'works' do
+    expect(true).to eq(true)
+  end
+end
