@@ -13,13 +13,37 @@ import sys
 import time
 
 
+def get_open_cop_fix_cops() -> set[str]:
+    """Return cop names that already have an open type:cop-fix PR."""
+    r = subprocess.run(
+        ["gh", "pr", "list", "--state", "open", "--label", "type:cop-fix",
+         "--json", "title", "--jq", ".[].title"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return set()
+    cops = set()
+    for line in r.stdout.strip().splitlines():
+        # Titles look like "[bot] Fix Department/CopName"
+        parts = line.split("Fix ", 1)
+        if len(parts) == 2:
+            cops.add(parts[1].strip())
+    return cops
+
+
 def main() -> int:
     department = os.environ["INPUT_DEPARTMENT"]
     count = int(os.environ.get("INPUT_COUNT", "5"))
     backend = os.environ.get("INPUT_BACKEND", "codex")
     mode = os.environ.get("INPUT_MODE", "fix")
 
+    # ── Find cops with open PRs ───────────────────────────────────────
+    open_cops = get_open_cop_fix_cops()
+    if open_cops:
+        print(f"Skipping {len(open_cops)} cops with open PRs: {', '.join(sorted(open_cops))}")
+
     # ── Rank cops ──────────────────────────────────────────────────────
+    # Request extra candidates so we still hit count after filtering
     rank_cmd = [
         sys.executable, "scripts/dispatch_cops.py", "rank",
         "--json",
@@ -28,7 +52,7 @@ def main() -> int:
         "--max-total", "999",
         "--min-total", "1",
         "--min-matches", "0",
-        "--limit", str(count),
+        "--limit", str(count + len(open_cops)),
     ]
 
     print(f"Running: {' '.join(rank_cmd)}", flush=True)
@@ -40,14 +64,16 @@ def main() -> int:
         print(f"Error: rank exited with {result.returncode}", file=sys.stderr)
         return 1
 
-    cops: list[dict] = json.loads(result.stdout)
+    all_cops: list[dict] = json.loads(result.stdout)
+    cops = [c for c in all_cops if c["cop"] not in open_cops][:count]
 
     if not cops:
-        print(f"::warning::No dispatchable cops found for {department}. Nothing to dispatch.")
+        print(f"::warning::No dispatchable cops found for {department} "
+              f"(all candidates have open PRs). Nothing to dispatch.")
         return 0
 
     if len(cops) < count:
-        print(f"::warning::Only {len(cops)} cops matched (requested {count}).")
+        print(f"::warning::Only {len(cops)} cops available (requested {count}).")
 
     # ── Print selection ────────────────────────────────────────────────
     print(f"\n{'Cop':<42} {'FP':>3} {'FN':>3} {'Bugs':>4} {'Cfg':>4}")
