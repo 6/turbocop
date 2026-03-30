@@ -1,4 +1,4 @@
-use crate::cop::node_type::IF_NODE;
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -21,6 +21,15 @@ use crate::parse::source::SourceFile;
 /// have content).
 ///
 /// Additional guard: RuboCop skips `!=`/`!~` with multiple arguments (e.g., `foo.!=(bar, baz)`).
+///
+/// Corpus investigation (2026-03-30):
+///
+/// FN=2 root cause: Prism parses `unless ... else ... end` as `UnlessNode`, but this cop only
+/// subscribed to `IF_NODE`, so RuboCop matches like `unless !File.exists?(src) ... else ... end`
+/// were never visited. RuboCop sees these through `on_if` because Parser normalizes `unless`
+/// into `if`-like nodes. Fix: add `UNLESS_NODE` handling, but only when the `else` branch has
+/// content, preserving RuboCop's no-offense behavior for bare `unless !... end` and
+/// `unless !... else end`.
 pub struct NegatedIfElseCondition;
 
 /// Unwrap parentheses and begin nodes from a condition.
@@ -104,13 +113,19 @@ fn is_negated(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
+fn else_has_content(else_node: &ruby_prism::ElseNode<'_>) -> bool {
+    else_node
+        .statements()
+        .is_some_and(|stmts| !stmts.body().is_empty())
+}
+
 impl Cop for NegatedIfElseCondition {
     fn name(&self) -> &'static str {
         "Style/NegatedIfElseCondition"
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[IF_NODE]
+        &[IF_NODE, UNLESS_NODE]
     }
 
     fn check_node(
@@ -122,66 +137,91 @@ impl Cop for NegatedIfElseCondition {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let Some(if_node) = node.as_if_node() else {
-            return;
-        };
+        if let Some(if_node) = node.as_if_node() {
+            // Must have an else/subsequent branch
+            let Some(sub) = if_node.subsequent() else {
+                return;
+            };
 
-        // Must have an else/subsequent branch
-        let Some(sub) = if_node.subsequent() else {
-            return;
-        };
+            // Determine if ternary (no if_keyword_loc in Prism) or regular if
+            let is_ternary = if_node.if_keyword_loc().is_none();
 
-        // Determine if ternary (no if_keyword_loc in Prism) or regular if
-        let is_ternary = if_node.if_keyword_loc().is_none();
+            if !is_ternary {
+                let kw = if_node.if_keyword_loc().unwrap();
+                let kw_bytes = kw.as_slice();
+                // Must be `if`, not `unless` or `elsif`
+                if kw_bytes == b"unless" || kw_bytes == b"elsif" {
+                    return;
+                }
+            }
 
-        if !is_ternary {
-            let kw = if_node.if_keyword_loc().unwrap();
-            let kw_bytes = kw.as_slice();
-            // Must be `if`, not `unless` or `elsif`
-            if kw_bytes == b"unless" || kw_bytes == b"elsif" {
+            // Check the subsequent is a plain else (not elsif).
+            // If the subsequent is an IfNode, it's an elsif chain - skip.
+            if sub.as_if_node().is_some() {
                 return;
             }
-        }
+            // Must be an ElseNode for simple if-else
+            let Some(else_node) = sub.as_else_node() else {
+                return;
+            };
 
-        // Check the subsequent is a plain else (not elsif).
-        // If the subsequent is an IfNode, it's an elsif chain - skip.
-        if sub.as_if_node().is_some() {
+            // Empty else: `if !x; foo; else; end` — not flagged.
+            // Empty if with non-empty else: `if !x; else; foo; end` — IS flagged.
+            // Both empty: `if !x; else; end` — not flagged.
+            if !else_has_content(&else_node) {
+                return;
+            }
+
+            // Unwrap parentheses/begin nodes from the predicate
+            let predicate = if_node.predicate();
+            let unwrapped = unwrap_condition(predicate);
+
+            // Skip double negation `!!x`
+            if is_double_negation(&unwrapped) {
+                return;
+            }
+
+            if is_negated(&unwrapped) {
+                let loc = if_node.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                let msg = if is_ternary {
+                    "Invert the negated condition and swap the ternary branches."
+                } else {
+                    "Invert the negated condition and swap the if-else branches."
+                };
+                diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
+            }
             return;
         }
-        // Must be an ElseNode for simple if-else
-        let Some(else_node) = sub.as_else_node() else {
+
+        let Some(unless_node) = node.as_unless_node() else {
             return;
         };
 
-        // RuboCop requires the else branch to have content.
-        // Empty else: `if !x; foo; else; end` — not flagged.
-        // Empty if with non-empty else: `if !x; else; foo; end` — IS flagged.
-        // Both empty: `if !x; else; end` — not flagged.
-        let else_has_content = else_node
-            .statements()
-            .is_some_and(|stmts| !stmts.body().is_empty());
-        if !else_has_content {
+        let Some(else_node) = unless_node.else_clause() else {
+            return;
+        };
+
+        if !else_has_content(&else_node) {
             return;
         }
 
-        // Unwrap parentheses/begin nodes from the predicate
-        let predicate = if_node.predicate();
+        let predicate = unless_node.predicate();
         let unwrapped = unwrap_condition(predicate);
 
-        // Skip double negation `!!x`
         if is_double_negation(&unwrapped) {
             return;
         }
 
         if is_negated(&unwrapped) {
-            let loc = if_node.location();
+            let loc = unless_node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            let msg = if is_ternary {
-                "Invert the negated condition and swap the ternary branches."
-            } else {
-                "Invert the negated condition and swap the if-else branches."
-            };
-            diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Invert the negated condition and swap the if-else branches.".to_string(),
+            ));
         }
     }
 }

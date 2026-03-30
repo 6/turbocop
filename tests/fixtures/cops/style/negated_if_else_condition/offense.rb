@@ -67,3 +67,17 @@ if !condition.nil?
 else
   foo = 42
 end
+
+unless !File.exists?(src)
+^^^^^^^^^^^^^^^^^^^^^^^^^ Style/NegatedIfElseCondition: Invert the negated condition and swap the if-else branches.
+  upload(src)
+else
+  missing(src)
+end
+
+unless !File.exists?(full_scriptname)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/NegatedIfElseCondition: Invert the negated condition and swap the if-else branches.
+  transfer(full_scriptname)
+else
+  raise "missing"
+end
