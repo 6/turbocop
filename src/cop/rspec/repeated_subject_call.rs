@@ -1,4 +1,6 @@
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
+use crate::cop::util::{
+    RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_shared_group,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -48,6 +50,41 @@ use crate::parse::source::SourceFile;
 /// calls nested inside constant paths. Added `ConstantPathNode` handling in
 /// `collect_subject_calls` to recurse into the parent node. The subject call is NOT
 /// marked as chained (it's a constant path parent, not a method chain receiver).
+///
+/// ## FN fix (2026-03-30): recurse through transparent wrappers and anchor multiline offenses
+///
+/// Corpus misses fell into three buckets:
+/// 1. subject aliases defined inside transparent wrappers like `pending do` were not
+///    inherited by nested groups/examples;
+/// 2. nested examples inside `pending` / `shared_examples_for` were never visited;
+/// 3. wrapped subject calls (`(subject)`, `subject rescue nil`) and multiline
+///    `expect do ... end` blocks were either skipped or reported on the inner call line.
+///
+/// A separate corpus FP came from top-level group discovery: RuboCop's
+/// `TopLevelGroup` mixin only unwraps `module` / `class` wrappers when they are
+/// the entire root node. If a file has sibling top-level statements like
+/// `require "rails_helper"` before a module-wrapped `RSpec.describe`, RuboCop
+/// never reaches that spec group. nitrocop now matches that root-only
+/// unwrapping behavior.
+///
+/// Fixed by:
+/// - collecting subject aliases recursively through wrapper blocks while still
+///   treating nested example groups as scope boundaries;
+/// - recursing into nested examples/shared examples to find real examples inside
+///   wrappers like `pending` and `shared_examples_for`;
+/// - traversing `ParenthesesNode` / `RescueModifierNode` and preserving the outer
+///   `expect` location for multiline blocks;
+/// - matching RuboCop's top-level-group discovery quirk for module/class wrappers.
+///
+/// ## FN fix (2026-03-30): only direct call arguments are exempt
+///
+/// RuboCop exempts direct call arguments such as `expect(subject)` and
+/// `create(subject)`, but it still flags repeated bare subject calls nested inside
+/// wrapper nodes under an argument, such as keyword-hash values:
+///   `expect { create(token: token) } ...`
+/// The previous implementation marked every subject found anywhere in a call's
+/// argument subtree as "argument to a call", suppressing valid offenses. The
+/// traversal now marks only the immediate argument node, matching RuboCop.
 pub struct RepeatedSubjectCall;
 
 impl Cop for RepeatedSubjectCall {
@@ -77,8 +114,15 @@ impl Cop for RepeatedSubjectCall {
             None => return,
         };
         let body = program.statements();
-        for stmt in body.body().iter() {
-            find_example_groups(source, &stmt, &[b"subject".to_vec()], diagnostics, self);
+        let top_level_nodes = collect_top_level_group_candidates_from_statements(&body);
+        for node in top_level_nodes {
+            process_top_level_group_candidate(
+                source,
+                &node,
+                &[b"subject".to_vec()],
+                diagnostics,
+                self,
+            );
         }
     }
 }
@@ -100,8 +144,49 @@ fn is_rspec_receiver(call: &ruby_prism::CallNode<'_>) -> bool {
     false
 }
 
-/// Recursively find example groups in the AST and process them.
-fn find_example_groups(
+/// Match RuboCop's TopLevelGroup mixin:
+/// - if the root is a module/class wrapper, unwrap it;
+/// - if the root is a begin/statements node, inspect only its direct children.
+fn collect_top_level_group_candidates_from_statements<'a>(
+    statements: &ruby_prism::StatementsNode<'a>,
+) -> Vec<ruby_prism::Node<'a>> {
+    let body: Vec<_> = statements.body().iter().collect();
+    if body.len() == 1 {
+        return collect_top_level_group_candidates_from_node(body.into_iter().next().unwrap());
+    }
+
+    body
+}
+
+fn collect_top_level_group_candidates_from_node<'a>(
+    node: ruby_prism::Node<'a>,
+) -> Vec<ruby_prism::Node<'a>> {
+    if let Some(module_node) = node.as_module_node() {
+        if let Some(statements) = module_node.body().and_then(|body| body.as_statements_node()) {
+            return collect_top_level_group_candidates_from_statements(&statements);
+        }
+        return Vec::new();
+    }
+
+    if let Some(class_node) = node.as_class_node() {
+        if let Some(statements) = class_node.body().and_then(|body| body.as_statements_node()) {
+            return collect_top_level_group_candidates_from_statements(&statements);
+        }
+        return Vec::new();
+    }
+
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(statements) = begin_node.statements() {
+            return statements.body().iter().collect();
+        }
+        return Vec::new();
+    }
+
+    vec![node]
+}
+
+/// Process a top-level candidate that may be an RSpec example group.
+fn process_top_level_group_candidate(
     source: &SourceFile,
     node: &ruby_prism::Node<'_>,
     inherited_subjects: &[Vec<u8>],
@@ -119,41 +204,12 @@ fn find_example_groups(
                     process_example_group(source, &bn, inherited_subjects, diagnostics, cop);
                 }
             }
-            return;
-        }
-    }
-
-    // Unwrap module/class/begin nodes to find top-level groups
-    if let Some(module_node) = node.as_module_node() {
-        if let Some(body) = module_node.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                for child in stmts.body().iter() {
-                    find_example_groups(source, &child, inherited_subjects, diagnostics, cop);
-                }
-            }
-        }
-        return;
-    }
-    if let Some(class_node) = node.as_class_node() {
-        if let Some(body) = class_node.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                for child in stmts.body().iter() {
-                    find_example_groups(source, &child, inherited_subjects, diagnostics, cop);
-                }
-            }
-        }
-        return;
-    }
-    if let Some(begin_node) = node.as_begin_node() {
-        if let Some(stmts) = begin_node.statements() {
-            for child in stmts.body().iter() {
-                find_example_groups(source, &child, inherited_subjects, diagnostics, cop);
-            }
         }
     }
 }
 
-/// Process an example group block: collect subject names, check examples, recurse into nested groups.
+/// Process an example-group-like block: collect subject names, check examples,
+/// recurse into nested groups/shared examples/examples inside transparent wrappers.
 fn process_example_group(
     source: &SourceFile,
     block: &ruby_prism::BlockNode<'_>,
@@ -165,58 +221,16 @@ fn process_example_group(
         Some(b) => b,
         None => return,
     };
-    let stmts = match body.as_statements_node() {
-        Some(s) => s,
-        None => return,
-    };
+    if body.as_statements_node().is_none() {
+        return;
+    }
 
-    // Collect subject names defined in this scope
+    // Collect subject names defined anywhere in this example group's scope,
+    // including transparent wrappers like `pending do`, but not nested example
+    // groups (their subjects belong to the nested group).
     let mut subject_names: Vec<Vec<u8>> = inherited_subjects.to_vec();
-    for stmt in stmts.body().iter() {
-        if let Some(call) = stmt.as_call_node() {
-            let name = call.name().as_slice();
-            if (name == b"subject" || name == b"subject!") && call.receiver().is_none() {
-                if let Some(args) = call.arguments() {
-                    let arg_list: Vec<_> = args.arguments().iter().collect();
-                    if !arg_list.is_empty() {
-                        if let Some(sym) = arg_list[0].as_symbol_node() {
-                            let alias = sym.unescaped().to_vec();
-                            if !subject_names.contains(&alias) {
-                                subject_names.push(alias);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Process statements
-    for stmt in stmts.body().iter() {
-        if let Some(call) = stmt.as_call_node() {
-            let call_name = call.name().as_slice();
-
-            // Check examples
-            if is_rspec_example(call_name) && call.receiver().is_none() {
-                if let Some(block) = call.block() {
-                    if let Some(bn) = block.as_block_node() {
-                        if let Some(body) = bn.body() {
-                            check_example_body(source, &body, &subject_names, diagnostics, cop);
-                        }
-                    }
-                }
-            }
-
-            // Recurse into nested example groups
-            if is_rspec_example_group(call_name) && call.receiver().is_none() {
-                if let Some(block) = call.block() {
-                    if let Some(bn) = block.as_block_node() {
-                        process_example_group(source, &bn, &subject_names, diagnostics, cop);
-                    }
-                }
-            }
-        }
-    }
+    collect_subject_names_in_group_scope(&body, &mut subject_names);
+    process_rspec_blocks_in_body(source, &body, &subject_names, diagnostics, cop);
 }
 
 /// Check an example body for repeated subject calls.
@@ -236,8 +250,7 @@ fn check_example_body(
     collect_subject_calls(
         source,
         body,
-        false,
-        false,
+        SubjectCallContext::default(),
         subject_names,
         &mut subject_calls,
     );
@@ -280,41 +293,223 @@ fn flag_repeated_calls(
         if call.in_expect_block && !call.is_chained && !call.is_arg_of_call {
             diagnostics.push(cop.diagnostic(
                 source,
-                call.line,
-                call.col,
+                call.diagnostic_line,
+                call.diagnostic_col,
                 "Calls to subject are memoized, this block is misleading".to_string(),
             ));
         }
     }
 }
 
+fn collect_subject_names_in_group_scope(node: &ruby_prism::Node<'_>, subject_names: &mut Vec<Vec<u8>>) {
+    if let Some(stmts) = node.as_statements_node() {
+        for child in stmts.body().iter() {
+            collect_subject_names_in_group_scope(&child, subject_names);
+        }
+        return;
+    }
+
+    if let Some(call) = node.as_call_node() {
+        let name = call.name().as_slice();
+
+        // Nested example groups get their own subject scope.
+        if call.receiver().is_none() && is_rspec_example_group(name) {
+            return;
+        }
+
+        if (name == b"subject" || name == b"subject!") && call.receiver().is_none() {
+            if let Some(args) = call.arguments() {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                if let Some(sym) = arg_list.first().and_then(|arg| arg.as_symbol_node()) {
+                    let alias = sym.unescaped().to_vec();
+                    if !subject_names.contains(&alias) {
+                        subject_names.push(alias);
+                    }
+                }
+            }
+        }
+
+        if let Some(recv) = call.receiver() {
+            collect_subject_names_in_group_scope(&recv, subject_names);
+        }
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                collect_subject_names_in_group_scope(&arg, subject_names);
+            }
+        }
+        if let Some(block) = call.block() {
+            if let Some(block_node) = block.as_block_node() {
+                if let Some(body) = block_node.body() {
+                    collect_subject_names_in_group_scope(&body, subject_names);
+                }
+            }
+        }
+        return;
+    }
+
+    if let Some(hash) = node.as_hash_node() {
+        for element in hash.elements().iter() {
+            collect_subject_names_in_group_scope(&element, subject_names);
+        }
+        return;
+    }
+    if let Some(hash) = node.as_keyword_hash_node() {
+        for element in hash.elements().iter() {
+            collect_subject_names_in_group_scope(&element, subject_names);
+        }
+        return;
+    }
+    if let Some(assoc) = node.as_assoc_node() {
+        collect_subject_names_in_group_scope(&assoc.key(), subject_names);
+        collect_subject_names_in_group_scope(&assoc.value(), subject_names);
+        return;
+    }
+    if let Some(block) = node.as_block_node() {
+        if let Some(body) = block.body() {
+            collect_subject_names_in_group_scope(&body, subject_names);
+        }
+        return;
+    }
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            collect_subject_names_in_group_scope(&stmts.as_node(), subject_names);
+        }
+        if let Some(rescue_clause) = begin_node.rescue_clause() {
+            collect_subject_names_in_group_scope(&rescue_clause.as_node(), subject_names);
+        }
+        if let Some(ensure_clause) = begin_node.ensure_clause() {
+            collect_subject_names_in_group_scope(&ensure_clause.as_node(), subject_names);
+        }
+        return;
+    }
+    if let Some(rescue_node) = node.as_rescue_node() {
+        if let Some(stmts) = rescue_node.statements() {
+            collect_subject_names_in_group_scope(&stmts.as_node(), subject_names);
+        }
+        if let Some(subsequent) = rescue_node.subsequent() {
+            collect_subject_names_in_group_scope(&subsequent.as_node(), subject_names);
+        }
+        return;
+    }
+    if let Some(rescue_mod) = node.as_rescue_modifier_node() {
+        collect_subject_names_in_group_scope(&rescue_mod.expression(), subject_names);
+        collect_subject_names_in_group_scope(&rescue_mod.rescue_expression(), subject_names);
+        return;
+    }
+    if let Some(parentheses) = node.as_parentheses_node() {
+        if let Some(body) = parentheses.body() {
+            collect_subject_names_in_group_scope(&body, subject_names);
+        }
+        return;
+    }
+    if let Some(array) = node.as_array_node() {
+        for element in array.elements().iter() {
+            collect_subject_names_in_group_scope(&element, subject_names);
+        }
+    }
+}
+
+fn process_rspec_blocks_in_body(
+    source: &SourceFile,
+    body: &ruby_prism::Node<'_>,
+    subject_names: &[Vec<u8>],
+    diagnostics: &mut Vec<Diagnostic>,
+    cop: &RepeatedSubjectCall,
+) {
+    let Some(stmts) = body.as_statements_node() else {
+        return;
+    };
+
+    for stmt in stmts.body().iter() {
+        let Some(call) = stmt.as_call_node() else {
+            continue;
+        };
+
+        if call.receiver().is_some() {
+            continue;
+        }
+
+        let call_name = call.name().as_slice();
+        let Some(block) = call.block().and_then(|b| b.as_block_node()) else {
+            continue;
+        };
+        let Some(block_body) = block.body() else {
+            continue;
+        };
+
+        if is_rspec_example(call_name) {
+            check_example_body(source, &block_body, subject_names, diagnostics, cop);
+            continue;
+        }
+
+        if is_rspec_example_group(call_name) || is_rspec_shared_group(call_name) {
+            process_example_group(source, &block, subject_names, diagnostics, cop);
+        }
+    }
+}
+
 struct SubjectCall {
     name: Vec<u8>,
-    line: usize,
-    col: usize,
+    diagnostic_line: usize,
+    diagnostic_col: usize,
     in_expect_block: bool,
     is_chained: bool,
     is_arg_of_call: bool,
 }
 
+#[derive(Clone, Copy, Default)]
+struct SubjectCallContext {
+    in_expect_block: bool,
+    expect_anchor: Option<(usize, usize)>,
+    direct_receiver: bool,
+    direct_arg_of_call: bool,
+}
+
+impl SubjectCallContext {
+    fn with_receiver(self) -> Self {
+        Self {
+            direct_receiver: true,
+            direct_arg_of_call: false,
+            ..self
+        }
+    }
+
+    fn with_arg(self) -> Self {
+        Self {
+            direct_receiver: false,
+            direct_arg_of_call: true,
+            ..self
+        }
+    }
+
+    fn reset_position(self) -> Self {
+        Self {
+            direct_receiver: false,
+            direct_arg_of_call: false,
+            ..self
+        }
+    }
+
+    fn enter_block(self, anchor: Option<(usize, usize)>) -> Self {
+        Self {
+            in_expect_block: self.in_expect_block || anchor.is_some(),
+            expect_anchor: self.expect_anchor.or(anchor),
+            direct_receiver: false,
+            direct_arg_of_call: false,
+        }
+    }
+}
+
 fn collect_subject_calls(
     source: &SourceFile,
     node: &ruby_prism::Node<'_>,
-    in_expect_block: bool,
-    is_receiver: bool,
+    context: SubjectCallContext,
     subject_names: &[Vec<u8>],
     results: &mut Vec<SubjectCall>,
 ) {
     if let Some(stmts) = node.as_statements_node() {
         for stmt in stmts.body().iter() {
-            collect_subject_calls(
-                source,
-                &stmt,
-                in_expect_block,
-                false,
-                subject_names,
-                results,
-            );
+            collect_subject_calls(source, &stmt, context.reset_position(), subject_names, results);
         }
         return;
     }
@@ -325,15 +520,113 @@ fn collect_subject_calls(
     // The subject call here is NOT chained (parent is a const, not a send).
     if let Some(const_path) = node.as_constant_path_node() {
         if let Some(parent) = const_path.parent() {
+            collect_subject_calls(source, &parent, context.reset_position(), subject_names, results);
+        }
+        return;
+    }
+
+    if let Some(parentheses) = node.as_parentheses_node() {
+        if let Some(body) = parentheses.body() {
+            collect_subject_calls(source, &body, context.reset_position(), subject_names, results);
+        }
+        return;
+    }
+
+    if let Some(hash) = node.as_hash_node() {
+        for element in hash.elements().iter() {
+            collect_subject_calls(source, &element, context.reset_position(), subject_names, results);
+        }
+        return;
+    }
+
+    if let Some(hash) = node.as_keyword_hash_node() {
+        for element in hash.elements().iter() {
+            collect_subject_calls(source, &element, context.reset_position(), subject_names, results);
+        }
+        return;
+    }
+
+    if let Some(assoc) = node.as_assoc_node() {
+        collect_subject_calls(
+            source,
+            &assoc.key(),
+            context.reset_position(),
+            subject_names,
+            results,
+        );
+        collect_subject_calls(
+            source,
+            &assoc.value(),
+            context.reset_position(),
+            subject_names,
+            results,
+        );
+        return;
+    }
+
+    if let Some(array) = node.as_array_node() {
+        for element in array.elements().iter() {
+            collect_subject_calls(source, &element, context.reset_position(), subject_names, results);
+        }
+        return;
+    }
+
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            collect_subject_calls(source, &stmts.as_node(), context.reset_position(), subject_names, results);
+        }
+        if let Some(rescue_clause) = begin_node.rescue_clause() {
             collect_subject_calls(
                 source,
-                &parent,
-                in_expect_block,
-                false,
+                &rescue_clause.as_node(),
+                context.reset_position(),
                 subject_names,
                 results,
             );
         }
+        if let Some(ensure_clause) = begin_node.ensure_clause() {
+            collect_subject_calls(
+                source,
+                &ensure_clause.as_node(),
+                context.reset_position(),
+                subject_names,
+                results,
+            );
+        }
+        return;
+    }
+
+    if let Some(rescue_node) = node.as_rescue_node() {
+        if let Some(stmts) = rescue_node.statements() {
+            collect_subject_calls(source, &stmts.as_node(), context.reset_position(), subject_names, results);
+        }
+        if let Some(subsequent) = rescue_node.subsequent() {
+            collect_subject_calls(
+                source,
+                &subsequent.as_node(),
+                context.reset_position(),
+                subject_names,
+                results,
+            );
+        }
+        return;
+    }
+
+    if let Some(rescue_mod) = node.as_rescue_modifier_node() {
+        collect_subject_calls(
+            source,
+            &rescue_mod.expression(),
+            context.reset_position(),
+            subject_names,
+            results,
+        );
+        collect_subject_calls(
+            source,
+            &rescue_mod.rescue_expression(),
+            context.reset_position(),
+            subject_names,
+            results,
+        );
         return;
     }
 
@@ -344,30 +637,37 @@ fn collect_subject_calls(
         if call.receiver().is_none() && subject_names.iter().any(|s| s == name) {
             let loc = call.location();
             let (line, col) = source.offset_to_line_col(loc.start_offset());
+            let (diagnostic_line, diagnostic_col) =
+                if let Some((expect_line, expect_col)) = context.expect_anchor {
+                    if context.in_expect_block && expect_line != line {
+                        (expect_line, expect_col)
+                    } else {
+                        (line, col)
+                    }
+                } else {
+                    (line, col)
+                };
             results.push(SubjectCall {
                 name: name.to_vec(),
-                line,
-                col,
-                in_expect_block,
-                is_chained: is_receiver,
-                is_arg_of_call: false, // will be set by caller
+                diagnostic_line,
+                diagnostic_col,
+                in_expect_block: context.in_expect_block,
+                is_chained: context.direct_receiver,
+                is_arg_of_call: context.direct_arg_of_call,
             });
         }
 
         // Recurse into receiver, marking it as a receiver context
         if let Some(recv) = call.receiver() {
-            collect_subject_calls(source, &recv, in_expect_block, true, subject_names, results);
+            collect_subject_calls(source, &recv, context.with_receiver(), subject_names, results);
         }
 
-        // Check arguments — subject here is an argument to this call
+        // Only direct call arguments are exempt. Nested wrappers like
+        // keyword-hash values are handled by resetting the direct-arg flag when
+        // descending through non-call container nodes.
         if let Some(args) = call.arguments() {
             for arg in args.arguments().iter() {
-                let before = results.len();
-                collect_subject_calls(source, &arg, in_expect_block, false, subject_names, results);
-                // Mark any subject calls found in args as arguments of a call
-                for r in &mut results[before..] {
-                    r.is_arg_of_call = true;
-                }
+                collect_subject_calls(source, &arg, context.with_arg(), subject_names, results);
             }
         }
 
@@ -375,19 +675,23 @@ fn collect_subject_calls(
         if let Some(block) = call.block() {
             if let Some(block_node) = block.as_block_node() {
                 if let Some(body) = block_node.body() {
-                    let is_expect =
-                        name == b"expect" || (in_expect_block && call.receiver().is_none());
+                    let expect_anchor = if call.receiver().is_none() && name == b"expect" {
+                        let loc = call.location();
+                        Some(source.offset_to_line_col(loc.start_offset()))
+                    } else {
+                        None
+                    };
                     collect_subject_calls(
                         source,
                         &body,
-                        in_expect_block || is_expect,
-                        false,
+                        context.enter_block(expect_anchor),
                         subject_names,
                         results,
                     );
                 }
             }
         }
+        return;
     }
 }
 

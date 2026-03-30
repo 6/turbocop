@@ -98,3 +98,20 @@ RSpec.describe Grault do
     expect { subject }.to not_change { Grault.count }
   end
 end
+
+# RuboCop's TopLevelGroup mixin does not descend into a module-wrapped spec
+# when the file also has sibling top-level statements like `require`.
+require "rails_helper"
+
+module Maintenance
+  RSpec.describe Wrapped do
+    describe "#process" do
+      subject(:process) { described_class.process(procedure) }
+
+      it do
+        expect { process }.not_to change { foo }
+        expect { process }.not_to change { bar }
+      end
+    end
+  end
+end
