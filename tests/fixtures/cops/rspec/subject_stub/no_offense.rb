@@ -104,3 +104,16 @@ RSpec.describe Service do
     end
   end
 end
+
+# Derived subject values can stub the collaborator used to compute the subject.
+RSpec.describe Project do
+  subject { project.classification_progress }
+
+  let(:project) { Project.new }
+
+  before do
+    allow(project).to receive(:info_requests).and_return(
+      double(count: 3, classified: double(count: 2))
+    )
+  end
+end

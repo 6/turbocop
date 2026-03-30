@@ -127,3 +127,16 @@ describe Browser do
     end
   end
 end
+
+RSpec.describe Supply do
+  RSpec.describe Uploader do
+    shared_examples 'run supply to upload metadata' do |version_codes:, with_explicit_changelogs:|
+      subject(:release) { double('release', version_codes: version_codes) }
+
+      it 'flags named subject in nested shared_examples' do
+        expect(release).to receive(:release_notes=).with(match_array(expected_notes))
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/SubjectStub: Do not stub methods of the object under test.
+      end
+    end
+  end
+end
