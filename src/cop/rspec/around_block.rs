@@ -43,6 +43,14 @@ use crate::parse::source::SourceFile;
 /// (no trailing args). `example.run(test_server)` has args → not recognized
 /// as valid usage by RuboCop. Fixed: require `arguments().is_none()` for
 /// run/call in deep_uses_param.
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// FN=11: gcao/aspector uses bare `around :exec do |proxy, &block|` hooks in
+/// spec files. RuboCop still flags `proxy.call(&block)` / `proxy.run(&block)`
+/// because the parser represents `&block` as an attached block-pass child, so
+/// `(send $... {:call :run})` does not match. Fixed by requiring plain
+/// zero-argument `call`/`run` sends with no attached block argument.
 pub struct AroundBlock;
 
 /// Flags `around` hooks that don't yield or call `run`/`call` on the example.
@@ -220,10 +228,13 @@ fn deep_uses_param(block: &ruby_prism::BlockNode<'_>, param_name: &[u8]) -> bool
 
             let method = node.name().as_slice();
 
-            // Check for param.run or param.call
-            // RuboCop's (send $... {:call :run}) only matches when no args follow
-            // the method, so example.run(args) does NOT count as valid usage.
-            if (method == b"run" || method == b"call") && node.arguments().is_none() {
+            // Check for param.run or param.call.
+            // RuboCop's `(send $... {:call :run})` only matches a plain send:
+            // no trailing args and no attached block-pass (`proxy.call(&block)`).
+            if (method == b"run" || method == b"call")
+                && node.arguments().is_none()
+                && node.block().is_none()
+            {
                 if let Some(recv) = node.receiver() {
                     if is_param_ref(&recv, self.param_name) {
                         self.found = true;
@@ -324,7 +335,10 @@ fn body_uses_numbered_param_run(block: &ruby_prism::BlockNode<'_>) -> bool {
                 return;
             }
             let method = node.name().as_slice();
-            if method == b"run" || method == b"call" {
+            if (method == b"run" || method == b"call")
+                && node.arguments().is_none()
+                && node.block().is_none()
+            {
                 if let Some(recv) = node.receiver() {
                     if let Some(rc) = recv.as_call_node() {
                         if rc.name().as_slice() == b"_1" && rc.receiver().is_none() {
