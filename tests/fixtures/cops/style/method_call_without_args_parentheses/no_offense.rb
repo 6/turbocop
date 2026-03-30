@@ -11,6 +11,8 @@ Hash[]
 
 # Lambda call syntax
 thing.()
+foo(&block)
+items.map!(&:name)
 
 # Same-name local variable assignment (disambiguation)
 test = test()
