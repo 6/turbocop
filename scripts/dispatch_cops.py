@@ -685,7 +685,7 @@ def _run_nitrocop_on_file(
     try:
         with open(tmp_path, "w") as f:
             f.write(file_content)
-        return _run_nitrocop(binary_path, tmp_dir, cop)
+        return _run_nitrocop(binary_path, tmp_dir, cop, filename)
     finally:
         try:
             os.unlink(tmp_path)
@@ -697,8 +697,10 @@ def _run_nitrocop_on_file(
 BASELINE_CONFIG = PROJECT_ROOT / "bench" / "corpus" / "baseline_rubocop.yml"
 
 
-def _run_nitrocop(binary_path: Path, cwd: str, cop: str = "") -> list[dict]:
-    """Run nitrocop on test.rb in the given directory, return offenses list.
+def _run_nitrocop(
+    binary_path: Path, cwd: str, cop: str = "", filename: str = "test.rb",
+) -> list[dict]:
+    """Run nitrocop on a file in the given directory, return offenses list.
 
     Uses the corpus baseline config (same as the corpus oracle) instead of
     --force-default-config. This ensures pre-diagnostics match the actual
@@ -714,7 +716,7 @@ def _run_nitrocop(binary_path: Path, cwd: str, cop: str = "") -> list[dict]:
         cmd.append("--force-default-config")
     if cop:
         cmd.extend(["--only", cop])
-    cmd.append("test.rb")
+    cmd.append(filename)
     proc = subprocess.run(
         cmd, capture_output=True, text=True, timeout=15, cwd=cwd,
     )
@@ -760,21 +762,32 @@ def run_diagnostic(
                 })
                 continue
 
-            # Write temp file in its own directory (nitrocop needs a project root)
+            # Write temp file in its own directory (nitrocop needs a project root).
+            # Use the original filename from the corpus example so that cops
+            # with Include patterns (e.g., RSpec cops matching **/*_spec.rb)
+            # can match the file during snippet testing.
             tmp_dir = tempfile.mkdtemp(prefix="nitrocop_diag_")
-            tmp_path = os.path.join(tmp_dir, "test.rb")
+            parsed_loc = _parse_example_loc(loc)
+            snippet_filename = (
+                os.path.basename(parsed_loc[1]) if parsed_loc else "test.rb"
+            )
+            tmp_path = os.path.join(tmp_dir, snippet_filename)
             with open(tmp_path, "w") as f:
                 f.write("\n".join(source_lines) + "\n")
 
             try:
-                offenses = _run_nitrocop(binary_path, tmp_dir, cop)
+                offenses = _run_nitrocop(
+                    binary_path, tmp_dir, cop, snippet_filename,
+                )
 
                 # If no offenses with full context (may have parse errors from
                 # truncated source), retry with just the offense line
                 if not offenses and offense_line is not None:
                     with open(tmp_path, "w") as f:
                         f.write(offense_line + "\n")
-                    offenses = _run_nitrocop(binary_path, tmp_dir, cop)
+                    offenses = _run_nitrocop(
+                        binary_path, tmp_dir, cop, snippet_filename,
+                    )
 
                 detected = len(offenses) > 0
 
