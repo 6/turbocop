@@ -157,6 +157,12 @@ def run_nitrocop(
     try:
         data = json.loads(result.stdout)
         offenses = normalize_offenses(data.get("offenses", []))
+        # `--only` is intended to support single-cop corpus checks, but nitrocop
+        # can still emit post-processing offenses such as
+        # Lint/RedundantCopDisableDirective. Filter the parsed offenses here so
+        # aggregate cop checks only compare the requested cop's count.
+        if cop:
+            offenses = [offense for offense in offenses if offense.get("cop_name") == cop]
         count = deduplicate_offenses(offenses)
         return {"raw": result.stdout, "offenses": offenses, "count": count, "error": None}
     except json.JSONDecodeError as e:
