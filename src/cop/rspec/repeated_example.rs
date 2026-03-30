@@ -266,6 +266,28 @@ use std::collections::HashMap;
 /// intentionally left alone here because resolving those two FN sites in the sampled
 /// rspec corpus flips an existing count-balanced repo into a net FP regression; that
 /// config-sensitive mismatch needs separate investigation before widening traversal.
+///
+/// **Investigation (2026-03-30, round 2):** 4 FPs and 2 FNs remaining.
+///
+/// FP root cause 1: `ArgumentsNode` still had no structural boundary marker. Prism's
+/// default visitor just walks the children, so nested-call shapes like
+/// `recv(arg).foo(x)` and `recv.foo(arg, x)` produced the same byte stream when the
+/// receiver call and outer call shared the same method names. RuboCop's AST keeps
+/// those argument lists distinct.
+///
+/// FP root cause 2: `SourceLineNode` (`__LINE__`) was fingerprinted only by node type.
+/// Parser gem normalizes `__LINE__` to the integer literal for the current line, so
+/// two otherwise identical examples on different lines are NOT duplicates. nitrocop
+/// collapsed them, causing the `shared_example_group_spec.rb` false positives.
+///
+/// FN root cause: `LocalVariableWriteNode` was still treated as a leaf in
+/// `iter_child_nodes`, so assignment-wrapped examples like
+/// `pending_ex = pending { fail }` never exposed the RHS example call to the
+/// recursive scope walk.
+///
+/// Fix: emit argument counts in `visit_arguments_node`, fingerprint `SourceLineNode`
+/// using its resolved source line number, and recurse into `LocalVariableWriteNode`
+/// RHS values.
 pub struct RepeatedExample;
 
 impl Cop for RepeatedExample {
@@ -462,7 +484,7 @@ fn collect_examples_from_node(
     // Is this an example? (call with block, example method, nil receiver)
     if let Some(call) = is_example_node(node) {
         let m = call.name().as_slice();
-        if let Some(sig) = example_body_signature(&call, m) {
+        if let Some(sig) = example_body_signature(source, &call, m) {
             // Report at the CallNode location (covers `it "..." do ... end`)
             let loc = call.location();
             let (line, col) = source.offset_to_line_col(loc.start_offset());
@@ -607,6 +629,11 @@ fn iter_child_nodes<'a>(node: &ruby_prism::Node<'a>) -> Vec<ruby_prism::Node<'a>
     if let Some(write) = node.as_instance_variable_write_node() {
         return vec![write.value()];
     }
+    // For local variable writes: recurse into the RHS value so assignment-wrapped
+    // examples like `ex = example { ... }` are discovered.
+    if let Some(write) = node.as_local_variable_write_node() {
+        return vec![write.value()];
+    }
     // Default: no children to recurse into
     Vec::new()
 }
@@ -623,8 +650,12 @@ fn iter_child_nodes<'a>(node: &ruby_prism::Node<'a>) -> Vec<ruby_prism::Node<'a>
 /// Both are compared using Ruby's AST structural equality.
 ///
 /// For `its()` calls, the first arg (attribute accessor) is included per RuboCop behavior.
-fn example_body_signature(call: &ruby_prism::CallNode<'_>, method_name: &[u8]) -> Option<Vec<u8>> {
-    let mut fp = AstFingerprinter::new();
+fn example_body_signature(
+    source: &SourceFile,
+    call: &ruby_prism::CallNode<'_>,
+    method_name: &[u8],
+) -> Option<Vec<u8>> {
+    let mut fp = AstFingerprinter::new(source);
 
     // Separator between metadata and body sections
     const SECTION_SEP: u8 = 0xFF;
@@ -709,14 +740,16 @@ fn example_body_signature(call: &ruby_prism::CallNode<'_>, method_name: &[u8]) -
 ///
 /// This is whitespace-independent: `do\n  expr\nend` and `{ expr }` produce
 /// the same fingerprint because they have the same AST structure.
-struct AstFingerprinter {
+struct AstFingerprinter<'src> {
     buf: Vec<u8>,
+    source: &'src SourceFile,
 }
 
-impl AstFingerprinter {
-    fn new() -> Self {
+impl<'src> AstFingerprinter<'src> {
+    fn new(source: &'src SourceFile) -> Self {
         Self {
             buf: Vec::with_capacity(128),
+            source,
         }
     }
 
@@ -782,7 +815,7 @@ impl AstFingerprinter {
     }
 }
 
-impl<'pr> Visit<'pr> for AstFingerprinter {
+impl<'src, 'pr> Visit<'pr> for AstFingerprinter<'src> {
     // Emit a type tag for EVERY node visited, whether branch or leaf.
     // This ensures that structurally different leaf nodes (e.g., SourceFileNode
     // vs SourceLineNode, NilNode vs FalseNode) always produce different
@@ -1101,6 +1134,8 @@ impl<'pr> Visit<'pr> for AstFingerprinter {
     }
 
     fn visit_arguments_node(&mut self, node: &ruby_prism::ArgumentsNode<'pr>) {
+        let count = node.arguments().len() as u32;
+        self.buf.extend_from_slice(&count.to_le_bytes());
         ruby_prism::visit_arguments_node(self, node);
     }
 
@@ -1123,6 +1158,13 @@ impl<'pr> Visit<'pr> for AstFingerprinter {
     fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'pr>) {
         // Parentheses are transparent — just visit the body
         ruby_prism::visit_parentheses_node(self, node);
+    }
+
+    fn visit_source_line_node(&mut self, node: &ruby_prism::SourceLineNode<'pr>) {
+        let (line, _) = self
+            .source
+            .offset_to_line_col(node.location().start_offset());
+        self.buf.extend_from_slice(&(line as u64).to_le_bytes());
     }
 
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {

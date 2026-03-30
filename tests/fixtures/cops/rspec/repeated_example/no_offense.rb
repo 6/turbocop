@@ -325,6 +325,20 @@ describe 'pseudo variables' do
   it { defined?(__ENCODING__).should == 'expression' }
 end
 
+# __LINE__ is location-sensitive in RuboCop's AST normalization.
+# Two otherwise identical examples on different lines are NOT duplicates.
+describe 'source line values' do
+  it "first line" do
+    expect_warning_with_call_site(__FILE__, __LINE__ + 1)
+    group.send(shared_method_name, 'name but no block')
+  end
+
+  it "second line" do
+    expect_warning_with_call_site(__FILE__, __LINE__ + 1)
+    group.send(shared_method_name, 'name but no block')
+  end
+end
+
 # false vs nil are NOT duplicates
 # FalseNode and NilNode are different leaf types
 describe 'false vs nil literals' do
@@ -398,5 +412,17 @@ describe "hash spacing no offense" do
 
   it "second" do
     assert_equal({a: 1, b: 3}, $result)
+  end
+end
+
+# Nested call argument boundaries are significant in RuboCop's AST.
+# `recv(arg).foo(x)` and `recv.foo(arg, x)` are NOT duplicates.
+describe 'nested call argument boundaries' do
+  it "receiver call takes self" do
+    expect(plsql.t_address(@address_attributes).display_address(",")).to eq(@full_address)
+  end
+
+  it "outer call takes self" do
+    expect(plsql.t_address.display_address(@address_attributes, ",")).to eq(@full_address)
   end
 end
