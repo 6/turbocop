@@ -6,14 +6,17 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Flags `expect(...).to receive(...).and_return(...)` and similar patterns
+/// where a message expectation also configures a response.
+///
+/// 2026-03-30 FN fix: `expect(...).to receive(...).and_yield(&block)` was
+/// missed. RuboCop's `(send #message_expectation? #configured_response? _)`
+/// treats a lone `block_pass` as the single configured-response argument, while
+/// Prism stores `&block` in `call.block()` as a `BlockArgumentNode`. Count that
+/// Prism node as a single send argument so `and_yield(&block)` matches without
+/// broadening other configured-response cases.
 pub struct StubbedMock;
 
-/// Flags `expect(foo).to receive(:bar).and_return(...)` and similar patterns
-/// where a message expectation also configures a response.
-/// Prefer `allow` over `expect` when configuring a response.
-///
-/// Matches RuboCop's behavior: only checks the TOP-LEVEL matcher node against
-/// specific patterns. Intermediate methods like `.twice`/`.once` break the chain.
 impl Cop for StubbedMock {
     fn name(&self) -> &'static str {
         "RSpec/StubbedMock"
@@ -186,14 +189,11 @@ fn is_matcher_with_configured_response(node: &ruby_prism::Node<'_>) -> bool {
     if !is_configured_response(name) {
         return false;
     }
-    // RuboCop pattern (send #message_expectation? #configured_response? _) requires
-    // exactly one argument after the method name. Methods like and_call_original
-    // with no arguments don't match.
-    let has_args = call.arguments().is_some_and(|a| {
-        let args: Vec<_> = a.arguments().iter().collect();
-        args.len() == 1
-    });
-    if !has_args {
+    // RuboCop pattern (send #message_expectation? #configured_response? _)
+    // requires exactly one send argument. In Parser AST, that can be either a
+    // regular argument or a lone block_pass child like `and_yield(&block)`.
+    // Prism stores block passes separately in `call.block()`.
+    if !has_single_send_argument(&call) {
         return false;
     }
     if let Some(recv) = call.receiver() {
@@ -226,6 +226,18 @@ fn is_configured_response(name: &[u8]) -> bool {
             | b"and_call_original"
             | b"and_wrap_original"
     )
+}
+
+fn has_single_send_argument(call: &ruby_prism::CallNode<'_>) -> bool {
+    let regular_arg_count = call
+        .arguments()
+        .map(|args| args.arguments().iter().count())
+        .unwrap_or(0);
+    let has_block_pass = call
+        .block()
+        .is_some_and(|block| block.as_block_argument_node().is_some());
+
+    regular_arg_count + usize::from(has_block_pass) == 1
 }
 
 /// Pattern 3: receive_messages(hash) or receive_message_chain(... hash)
