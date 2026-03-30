@@ -51,6 +51,7 @@ arr&.[](-1)
 
 exif[0]&.raw_fields&.[](BORDER_TAG_IDS[border])&.[](0)
     ^^^ Style/ArrayFirstLast: Use `first`.
+                                                 ^^^^^ Style/ArrayFirstLast: Use `first`.
 
 assert_equal "hello", result[0].content[0][:text]
                             ^^^ Style/ArrayFirstLast: Use `first`.
@@ -120,3 +121,12 @@ version = T.let(requirements[0]&.[](:requirement), String)
 
 distribution_url = T.let(requirements[0]&.[](:source), T::Hash[Symbol, String])[:url]
                                      ^^^ Style/ArrayFirstLast: Use `first`.
+
+assert_equal 'Maybe', I18n.t(:available)[-0]
+                                        ^^^^ Style/ArrayFirstLast: Use `first`.
+
+local_variable_types[name]&.[](0)
+                            ^^^^^ Style/ArrayFirstLast: Use `first`.
+
+backgroundColor: @game.class::STAR_COLORS[@game.cost_level]&.[](0) || 'white',
+                                                             ^^^^^ Style/ArrayFirstLast: Use `first`.

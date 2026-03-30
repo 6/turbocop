@@ -82,6 +82,22 @@ use crate::parse::source::SourceFile;
 /// the parent is a regular `[]`/`[]=` send; a `&.[]` parent is a `csend`, so
 /// the inner `[0]` should still be flagged. Fix: only suppress nested bracket
 /// calls for regular bracket sends, not safe-navigation bracket sends.
+///
+/// Corpus investigation (2026-03-30):
+///
+/// FN=3 (final):
+///
+/// 1. `arr[-0]`: Prism parses `-0` as `IntegerNode` with `negative=true` and
+///    digit value `0`. The zero check required `!negative`, missing negative
+///    zero. Fix: check `digits.all(zero)` regardless of sign.
+///
+/// 2–3. `local_variable_types[name]&.[](0)` and
+///    `STAR_COLORS[@game.cost_level]&.[](0)`: The `check_call` method bailed
+///    out when the receiver was a `[]` call, but this wrongly skipped
+///    safe-navigation explicit bracket calls like `foo[x]&.[](0)`. In RuboCop,
+///    `csend` nodes are NOT `send_type?`, so `brace_method?` returns false and
+///    the offense is reported. Fix: only skip when the receiver is `[]` AND the
+///    current call is NOT a safe-navigation call.
 pub struct ArrayFirstLast;
 
 impl Cop for ArrayFirstLast {
@@ -167,7 +183,8 @@ fn preferred_message_for_integer(int_node: ruby_prism::IntegerNode<'_>) -> Optio
     let value = int_node.value();
     let (negative, digits) = value.to_u32_digits();
 
-    if !negative && digits.iter().all(|digit| *digit == 0) {
+    // Zero check: covers 0, -0, +0, 0x0000, etc. regardless of sign
+    if digits.iter().all(|digit| *digit == 0) {
         Some("Use `first`.")
     } else if negative
         && digits.first().copied() == Some(1)
@@ -375,9 +392,12 @@ impl ArrayFirstLastVisitor<'_> {
             None => return,
         };
 
-        // Skip if receiver is itself a [] call (chained indexing like hash[:key][0])
+        // Skip if receiver is itself a [] call (chained indexing like hash[:key][0]).
+        // Exception: when the current call is a safe-navigation call (e.g., foo[name]&.[](0)),
+        // the parent is a csend — RuboCop's brace_method? returns false for csend nodes,
+        // so the inner [] receiver should NOT cause suppression.
         if let Some(recv_call) = receiver.as_call_node() {
-            if recv_call.name().as_slice() == b"[]" {
+            if recv_call.name().as_slice() == b"[]" && !is_safe_navigation_call(call) {
                 return;
             }
         }
@@ -554,6 +574,29 @@ mod tests {
         assert!(
             d.is_empty(),
             "Should skip hidden-path files during repo scans: {:?}",
+            d
+        );
+    }
+
+    #[test]
+    fn detects_negative_zero() {
+        let d = run(b"arr[-0]\n");
+        assert_eq!(d.len(), 1, "Should detect arr[-0]: {:?}", d);
+    }
+
+    #[test]
+    fn detects_positive_zero() {
+        let d = run(b"arr[+0]\n");
+        assert_eq!(d.len(), 1, "Should detect arr[+0]: {:?}", d);
+    }
+
+    #[test]
+    fn detects_safe_nav_bracket_with_bracket_receiver() {
+        let d = run(b"local_variable_types[name]&.[](0)\n");
+        assert_eq!(
+            d.len(),
+            1,
+            "Should flag &.[](0) even when receiver is []: {:?}",
             d
         );
     }
