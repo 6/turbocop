@@ -64,3 +64,27 @@ assert !@called
 @signatures[pair_hash]      ||= {}
                       ^^^^^ Layout/ExtraSpacing: Unnecessary spacing detected.
 @data_gathering[pair_hash] ||= {}
+
+let(:output_missing) {      <<-EOT
+^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+option.  #{ BlueHydra.config["file"] ? "\n\nReading data from " + BlueHydra.config["file"]  + '.' : '' }
+^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+assert { case1("@gptあ")   == "あ" }
+^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+[0, 0] => [:posixclass,    :word, PosixClass, name: 'word', text: '[:word:]']
+^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+text str: 'The Title',   layout: :title # from custom-layout.yml
+^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+[[ 0.7493,  0.4482, -2.1426,  0.5586,  0.5540, -0.1676],
+^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+[[ 0.0258, -0.3633,  0.4725, -0.5102,  1.8175, -1.4423],
+^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+[-1.0710,  1.1253, -1.0413, -0.5237,  1.4925,  0.0183]],
+^ Layout/ExtraSpacing: Unnecessary spacing detected.
