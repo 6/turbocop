@@ -35,3 +35,6 @@ before :all do
   ::PathA::B::D = Class.new
   ^ Style/EmptyClassDefinition: Prefer a two-line class definition over `Class.new` for classes with no body.
 end
+
+::PersistenceTestsController = Class.new(ApplicationController, &EMPLOYEE_CONTROLLER_BLOCK)
+^ Style/EmptyClassDefinition: Prefer a two-line class definition over `Class.new` for classes with no body.
