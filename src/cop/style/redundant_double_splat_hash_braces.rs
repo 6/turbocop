@@ -10,7 +10,7 @@ const MSG: &str = "Remove the redundant double splat and braces, use keyword arg
 ///
 /// Corpus investigation (2026-03-30): 193 matches, 0 FP, 2 FN.
 ///
-/// The remaining misses were:
+/// Previously missed patterns (now fixed):
 /// 1. Prism wraps `**({ ... }.merge(args))` in `ParenthesesNode`/`StatementsNode`
 ///    before the merge call.
 /// 2. Hash literals like `{ a: 1, **{ b: 2 } }` use `HashNode`, not
@@ -39,16 +39,11 @@ impl Cop for RedundantDoubleSplatHashBraces {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let elements: Vec<ruby_prism::Node<'_>> =
-            if let Some(keyword_hash) = node.as_keyword_hash_node() {
-                keyword_hash.elements().iter().collect()
-            } else if let Some(hash) = node.as_hash_node() {
-                hash.elements().iter().collect()
-            } else {
-                return;
-            };
-
-        diagnostics.extend(self.check_hash_elements(source, elements.into_iter()));
+        if let Some(keyword_hash) = node.as_keyword_hash_node() {
+            diagnostics.extend(self.check_hash_elements(source, keyword_hash.elements().iter()));
+        } else if let Some(hash) = node.as_hash_node() {
+            diagnostics.extend(self.check_hash_elements(source, hash.elements().iter()));
+        }
     }
 }
 
