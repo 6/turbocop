@@ -4,6 +4,18 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Checks for duplicated magic comments at the top of a file.
+///
+/// Fixed: Emacs-style encoding comments (`# -*- encoding : utf-8 -*-`) were not
+/// recognized because leading whitespace in the inner content was not stripped,
+/// causing key extraction to fail. Also, `coding` and `encoding` were tracked
+/// as separate keys in the duplicate-detection set, so `# -*- encoding : utf-8 -*-`
+/// followed by `# coding: utf-8` was not flagged. Both keys are now normalized to
+/// `encoding` (along with hyphen-variants of other keys).
+///
+/// Additionally, RuboCop's `SimpleComment#encoding` regex requires a space after
+/// the colon for encoding/coding keys (e.g. `# coding: utf-8` matches but
+/// `#coding:utf-8` does not). This is now matched to avoid false positives.
 pub struct DuplicateMagicComment;
 
 impl Cop for DuplicateMagicComment {
@@ -63,7 +75,8 @@ impl Cop for DuplicateMagicComment {
                 .unwrap_or(&[]);
 
             // Emacs-style: -*- coding: utf-8 -*-
-            let comment = if comment.starts_with(b"-*-") {
+            let is_emacs = comment.starts_with(b"-*-");
+            let comment = if is_emacs {
                 let inner = &comment[3..];
                 if let Some(end) = inner.windows(3).position(|w| w == b"-*-") {
                     &inner[..end]
@@ -77,6 +90,13 @@ impl Cop for DuplicateMagicComment {
             // Extract key from key: value pattern
             if let Some(colon_pos) = comment.iter().position(|&b| b == b':') {
                 let key = &comment[..colon_pos];
+                // Trim leading whitespace (needed for Emacs-style inner content)
+                let key = key
+                    .iter()
+                    .position(|&b| b != b' ' && b != b'\t')
+                    .map(|start| &key[start..])
+                    .unwrap_or(key);
+                // Trim trailing whitespace
                 let key = key
                     .iter()
                     .rev()
@@ -99,7 +119,34 @@ impl Cop for DuplicateMagicComment {
                         | b"typed"
                 );
 
-                if is_magic && !seen_keys.insert(key_lower) {
+                // RuboCop's SimpleComment#encoding regex requires ": " (colon
+                // then space) for encoding/coding keys. Skip if no space follows
+                // the colon in non-Emacs comments so we don't flag e.g. `#coding:utf-8`.
+                if !is_emacs
+                    && matches!(key_lower.as_slice(), b"encoding" | b"coding")
+                    && colon_pos + 1 < comment.len()
+                    && comment[colon_pos + 1] != b' '
+                    && comment[colon_pos + 1] != b'\t'
+                {
+                    byte_offset += line_len;
+                    continue;
+                }
+
+                // Normalize aliases so duplicates across variant names are detected.
+                // E.g. `# encoding: utf-8` followed by `# coding: utf-8`.
+                let canonical = if is_magic {
+                    match key_lower.as_slice() {
+                        b"coding" => b"encoding".to_vec(),
+                        b"frozen-string-literal" => b"frozen_string_literal".to_vec(),
+                        b"warn-indent" => b"warn_indent".to_vec(),
+                        b"shareable-constant-value" => b"shareable_constant_value".to_vec(),
+                        _ => key_lower,
+                    }
+                } else {
+                    key_lower
+                };
+
+                if is_magic && !seen_keys.insert(canonical) {
                     let mut diag = self.diagnostic(
                         source,
                         i + 1,
