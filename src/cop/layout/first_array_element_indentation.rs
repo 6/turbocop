@@ -160,6 +160,15 @@ fn byte_col_to_char_col(line_bytes: &[u8], byte_col: usize) -> usize {
 /// the `(` from `super(` and suppressing paren-relative indentation in that
 /// case. Also repaired four malformed FN fixture snippets that had been pasted
 /// into `offense.rb` without their enclosing Ruby context.
+///
+/// **FN fix (2026-03-30):** Arrays in keyword or single-pair hash arguments
+/// were still missed when earlier arguments on the same call contained method
+/// chains, for example `load_yaml_file(File.join(...), permitted_classes: %i[`
+/// or `FactoryBot.create(... Time.now.utc, :groups => [`. The
+/// `has_method_call_between` heuristic treated any top-level `.` between `(`
+/// and the hash key as an "intermediate method call", even when that dot was
+/// in a PREVIOUS argument separated by a comma. Fix: only consider dots in the
+/// current top-level argument segment after the most recent comma.
 pub struct FirstArrayElementIndentation;
 
 /// Describes what the expected indentation is relative to.
@@ -398,15 +407,21 @@ fn find_hash_key_column(line_bytes: &[u8], bracket_col: usize) -> Option<usize> 
     Some(j)
 }
 
-/// Check if there is a method call (`.`) at depth 0 between `start` and `end_col`
-/// on the same line. This detects patterns like `expect(client.search body: [`
-/// where the hash key `body:` is an argument to `client.search` (intermediate
-/// method call), not to `expect(`. Tracks balanced parens/brackets/braces.
+/// Check if there is a method call (`.`) at depth 0 in the SAME top-level
+/// argument segment between `start` and `end_col` on the same line.
+///
+/// This detects patterns like `expect(client.search body: [` where the hash key
+/// `body:` is an argument to `client.search` (intermediate method call), not to
+/// `expect(`. Dots that appear in earlier arguments separated by a top-level
+/// comma must be ignored, e.g. `load_yaml_file(File.join(...), key: [`.
+///
+/// Tracks balanced parens/brackets/braces and resets at depth-0 commas.
 fn has_method_call_between(line_bytes: &[u8], start: usize, end_col: usize) -> bool {
     let end = end_col.min(line_bytes.len());
     let mut paren_depth: i32 = 0;
     let mut bracket_depth: i32 = 0;
     let mut brace_depth: i32 = 0;
+    let mut saw_method_call_in_current_arg = false;
     let mut i = start;
     while i < end {
         // Skip string literals
@@ -429,14 +444,17 @@ fn has_method_call_between(line_bytes: &[u8], start: usize, end_col: usize) -> b
             b']' => bracket_depth -= 1,
             b'{' => brace_depth += 1,
             b'}' => brace_depth -= 1,
+            b',' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+                saw_method_call_in_current_arg = false;
+            }
             b'.' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
-                return true;
+                saw_method_call_in_current_arg = true;
             }
             _ => {}
         }
         i += 1;
     }
-    false
+    saw_method_call_in_current_arg
 }
 
 /// Check if the `[` is immediately preceded by a `%` operator (string formatting).
@@ -1041,6 +1059,17 @@ mod tests {
         assert!(
             diags.is_empty(),
             "nested call array arg should use innermost paren"
+        );
+    }
+
+    #[test]
+    fn keyword_hash_value_after_prior_method_call_arg_still_uses_paren_relative() {
+        let src = b"outer(File.join(dir, basename), key: [\n        :a,\n      ])\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(
+            diags.is_empty(),
+            "method calls in earlier arguments should not suppress paren-relative indentation: {:?}",
+            diags
         );
     }
 
