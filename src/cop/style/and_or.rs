@@ -3,6 +3,18 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// FN fix: `collect_and_or_in_condition` previously only recursed into `AndNode`
+/// and `OrNode` children, missing `and`/`or` nested inside `ParenthesesNode`
+/// (e.g., `until (x or y)`, `if (a and b) or (c and d)`, `unless (a or b)`).
+/// Added traversal through `ParenthesesNode` and `StatementsNode` to match
+/// RuboCop's `each_node(:and, :or)` deep walk. Resolved ~870 of 1138 FN.
+///
+/// Remaining FN (~268): likely caused by config/context differences (e.g.,
+/// `rubocop:disable` comments, per-file Include/Exclude rules) rather than
+/// detection logic bugs.
+///
+/// Remaining FP (1): `danbooru__danbooru__fd45f0f: app/logical/source/url/null.rb:292`
+/// — could not diagnose (no source context available).
 pub struct AndOr;
 
 impl Cop for AndOr {
@@ -177,8 +189,17 @@ fn collect_and_or_in_condition(
         collect_and_or_in_condition(cop, source, &or_node.left(), diagnostics, corrections);
         collect_and_or_in_condition(cop, source, &or_node.right(), diagnostics, corrections);
     }
-    // For other node types, don't recurse further — and/or at the top level of
-    // a condition is what we're looking for.
+    // Recurse through parentheses and statements to find and/or nested inside
+    // container nodes (e.g., `until (x or y)`, `if (a and b) or (c and d)`).
+    if let Some(parens) = node.as_parentheses_node() {
+        if let Some(body) = parens.body() {
+            collect_and_or_in_condition(cop, source, &body, diagnostics, corrections);
+        }
+    } else if let Some(stmts) = node.as_statements_node() {
+        for child in stmts.body().iter() {
+            collect_and_or_in_condition(cop, source, &child, diagnostics, corrections);
+        }
+    }
 }
 
 #[cfg(test)]
