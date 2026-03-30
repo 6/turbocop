@@ -70,7 +70,9 @@ fn is_safe_nav(call: &ruby_prism::CallNode<'_>) -> bool {
 }
 
 fn has_real_block(call: &ruby_prism::CallNode<'_>) -> bool {
-    call.block().and_then(|block| block.as_block_node()).is_some()
+    call.block()
+        .and_then(|block| block.as_block_node())
+        .is_some()
 }
 
 struct SafeNavigationChainLengthVisitor<'a, 'src> {
