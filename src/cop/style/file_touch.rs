@@ -5,6 +5,10 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+const APPEND_FILE_MODES: &[&[u8]] = &[b"a", b"a+", b"ab", b"a+b", b"at", b"a+t"];
+
+/// Matches RuboCop's append-mode whitelist for empty-block `File.open` calls.
+/// nitrocop previously only detected `'a'`, which missed `File.open(filename, 'a+'){} if offset`.
 pub struct FileTouch;
 
 impl FileTouch {
@@ -18,6 +22,10 @@ impl FileTouch {
             }
         }
         false
+    }
+
+    fn is_append_file_mode(mode: &[u8]) -> bool {
+        APPEND_FILE_MODES.contains(&mode)
     }
 }
 
@@ -79,7 +87,7 @@ impl Cop for FileTouch {
             return;
         }
 
-        // Must have 'a' mode argument
+        // Must have an append-mode argument
         let args = match call.arguments() {
             Some(a) => a,
             None => return,
@@ -90,10 +98,10 @@ impl Cop for FileTouch {
             return;
         }
 
-        // Second arg should be 'a'
+        // Second arg should be one of RuboCop's append-mode string literals
         if let Some(str_node) = arg_list[1].as_string_node() {
             let content: &[u8] = str_node.unescaped();
-            if content != b"a" {
+            if !Self::is_append_file_mode(content) {
                 return;
             }
         } else {
