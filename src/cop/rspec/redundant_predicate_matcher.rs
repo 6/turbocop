@@ -13,22 +13,15 @@ use crate::parse::source::SourceFile;
 /// FN=21 from old-style `.should`/`.should_not` syntax (e.g.,
 /// `lines[1].should be_include("value")`). Fixed by adding `should` and
 /// `should_not` to the method name check alongside `to`/`not_to`/`to_not`.
+///
+/// Corpus investigation (2026-03-30): FN=1 in cookpad/mixed_gauge.
+/// `expect(repository.all).to all(be_respond_to(:connection))` was missed.
+/// RuboCop runs this cop on the redundant matcher send node itself
+/// (`RESTRICT_ON_SEND`), so nested matcher calls inside `all(...)` still get
+/// visited. nitrocop only inspected the top-level matcher passed to
+/// `.to`/`.should`. Fixed by recursively searching the matcher subtree while
+/// keeping detection scoped to expectation runners.
 pub struct RedundantPredicateMatcher;
-
-/// Maps redundant `be_X` matchers to their built-in equivalents.
-const REDUNDANT_MATCHERS: &[(&str, &str)] = &[
-    ("be_all", "all"),
-    ("be_cover", "cover"),
-    ("be_end_with", "end_with"),
-    ("be_eql", "eql"),
-    ("be_equal", "equal"),
-    ("be_exist", "exist"),
-    ("be_exists", "exist"),
-    ("be_include", "include"),
-    ("be_match", "match"),
-    ("be_respond_to", "respond_to"),
-    ("be_start_with", "start_with"),
-];
 
 /// Flags redundant predicate matchers like `be_include(x)` when `include(x)` exists.
 impl Cop for RedundantPredicateMatcher {
@@ -82,65 +75,75 @@ impl Cop for RedundantPredicateMatcher {
             return;
         }
 
-        let matcher = &arg_list[0];
-        let matcher_call = match matcher.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
+        let mut redundant_matchers = Vec::new();
+        collect_redundant_matchers(&arg_list[0], &mut redundant_matchers);
 
-        if matcher_call.receiver().is_some() {
-            return;
-        }
-
-        let matcher_name = matcher_call.name().as_slice();
-        let matcher_str = match std::str::from_utf8(matcher_name) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-
-        // RuboCop requires the matcher to have arguments — matchers without
-        // arguments (e.g., `be_exist`, `be_match`) are not considered redundant.
-        let matcher_args = matcher_call.arguments();
-        let has_args = matcher_args
-            .as_ref()
-            .is_some_and(|a| a.arguments().iter().next().is_some());
-
-        // Check if this is a redundant matcher
-        for &(redundant, builtin) in REDUNDANT_MATCHERS {
-            if matcher_str == redundant {
-                // Skip matchers without arguments (matches RuboCop's `arguments.empty?` guard)
-                if !has_args {
-                    return;
-                }
-
-                // Special case: be_all with a block is not redundant
-                if redundant == "be_all" {
-                    if matcher_call.block().is_some() {
-                        return;
-                    }
-                    // be_all(false) or be_all(1) are not redundant — only be_all(matcher) is
-                    if let Some(args) = &matcher_args {
-                        let inner_args: Vec<_> = args.arguments().iter().collect();
-                        if !inner_args.is_empty() {
-                            let arg = &inner_args[0];
-                            if arg.as_call_node().is_none() {
-                                return;
-                            }
-                        }
-                    }
-                }
-
-                let loc = matcher_call.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!("Use `{builtin}` instead of `{redundant}`."),
-                ));
-            }
+        for (offset, redundant, builtin) in redundant_matchers {
+            let (line, column) = source.offset_to_line_col(offset);
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                format!("Use `{builtin}` instead of `{redundant}`."),
+            ));
         }
     }
+}
+
+fn collect_redundant_matchers<'a>(
+    node: &ruby_prism::Node<'a>,
+    out: &mut Vec<(usize, &'static str, &'static str)>,
+) {
+    let Some(call) = node.as_call_node() else {
+        return;
+    };
+
+    if let Some((redundant, builtin)) = redundant_matcher(&call) {
+        out.push((call.location().start_offset(), redundant, builtin));
+    }
+
+    if let Some(recv) = call.receiver() {
+        collect_redundant_matchers(&recv, out);
+    }
+
+    if let Some(args) = call.arguments() {
+        for arg in args.arguments().iter() {
+            collect_redundant_matchers(&arg, out);
+        }
+    }
+}
+
+fn redundant_matcher(call: &ruby_prism::CallNode<'_>) -> Option<(&'static str, &'static str)> {
+    let (redundant, builtin) = match call.name().as_slice() {
+        b"be_all" => ("be_all", "all"),
+        b"be_cover" => ("be_cover", "cover"),
+        b"be_end_with" => ("be_end_with", "end_with"),
+        b"be_eql" => ("be_eql", "eql"),
+        b"be_equal" => ("be_equal", "equal"),
+        b"be_exist" => ("be_exist", "exist"),
+        b"be_exists" => ("be_exists", "exist"),
+        b"be_include" => ("be_include", "include"),
+        b"be_match" => ("be_match", "match"),
+        b"be_respond_to" => ("be_respond_to", "respond_to"),
+        b"be_start_with" => ("be_start_with", "start_with"),
+        _ => return None,
+    };
+
+    if call.receiver().is_some() || call.block().is_some() {
+        return None;
+    }
+
+    let args = call.arguments()?;
+    let first_arg = args.arguments().iter().next()?;
+
+    // RuboCop's `replaceable_arguments?` guard keeps `be_all` narrow: only
+    // matcher-like arguments are replaceable, while literal forms such as
+    // `be_all(false)` are not.
+    if redundant == "be_all" && first_arg.as_call_node().is_none() {
+        return None;
+    }
+
+    Some((redundant, builtin))
 }
 
 #[cfg(test)]

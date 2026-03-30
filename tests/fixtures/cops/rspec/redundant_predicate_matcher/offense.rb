@@ -8,3 +8,6 @@ result.should be_include("value")
               ^^^^^^^^^^^^^^^^^^ RSpec/RedundantPredicateMatcher: Use `include` instead of `be_include`.
 result.should_not be_include("value")
                   ^^^^^^^^^^^^^^^^^^ RSpec/RedundantPredicateMatcher: Use `include` instead of `be_include`.
+
+expect(repository.all).to all(be_respond_to(:connection))
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/RedundantPredicateMatcher: Use `respond_to` instead of `be_respond_to`.
