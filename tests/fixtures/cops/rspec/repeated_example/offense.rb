@@ -186,3 +186,16 @@ describe "assigned nested example groups" do
     end
   end
 end
+
+# Examples assigned to local variables should still be detected.
+describe "assigned examples" do
+  it "tracks assigned examples" do
+    RSpec.describe do
+      pending_ex = pending { fail }
+                   ^^^^^^^^^^^^^^^^ RSpec/RepeatedExample: Don't repeat examples within an example group. Repeated on line(s) 163.
+
+      failing_ex = example { fail }
+                   ^^^^^^^^^^^^^^^^ RSpec/RepeatedExample: Don't repeat examples within an example group. Repeated on line(s) 161.
+    end
+  end
+end
