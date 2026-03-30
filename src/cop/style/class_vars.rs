@@ -1,8 +1,8 @@
 use crate::cop::node_type::{
     CALL_NODE, CLASS_VARIABLE_AND_WRITE_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE,
-    CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE,
+    CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE, FOR_NODE, MULTI_WRITE_NODE,
 };
-use crate::cop::{Cop, CopConfig};
+use crate::cop::{CodeMap, Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
@@ -21,6 +21,23 @@ use crate::parse::source::SourceFile;
 /// - Added `MULTI_WRITE_NODE` handling and recursive traversal of nested
 ///   `MultiTargetNode` / `SplatNode` targets so every class-variable target in a
 ///   parallel assignment is flagged, matching RuboCop's per-target behavior.
+///
+/// ## Investigation findings (2026-03-30)
+///
+/// FN root cause (4 corpus misses):
+/// - Prism models `for @@var in expr` and `rescue => @@error` as
+///   `ClassVariableTargetNode` children of `ForNode` / `RescueNode`, not as
+///   `ClassVariableWriteNode`.
+/// - Broadly subscribing to `CLASS_VARIABLE_TARGET_NODE` would risk false
+///   positives in unrelated target contexts, and Prism's visitor bypasses the
+///   normal `check_node` dispatch for `RescueNode`.
+///
+/// Fix:
+/// - Added `FOR_NODE` handling so loop iterator targets are checked with the
+///   existing recursive target walker.
+/// - Added a narrow `check_source` visitor for rescue references so
+///   `rescue => @@error` matches RuboCop without broadening target-node
+///   coverage.
 pub struct ClassVars;
 
 impl Cop for ClassVars {
@@ -35,8 +52,28 @@ impl Cop for ClassVars {
             CLASS_VARIABLE_OPERATOR_WRITE_NODE,
             CLASS_VARIABLE_OR_WRITE_NODE,
             CLASS_VARIABLE_WRITE_NODE,
+            FOR_NODE,
             MULTI_WRITE_NODE,
         ]
+    }
+
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        use ruby_prism::Visit;
+
+        let mut visitor = RescueClassVarVisitor {
+            cop: self,
+            source,
+            diagnostics,
+        };
+        visitor.visit(&parse_result.node());
     }
 
     fn check_node(
@@ -92,6 +129,12 @@ impl Cop for ClassVars {
             return;
         }
 
+        // Check for-loop iterator targets: for @@foo in items
+        if let Some(for_node) = node.as_for_node() {
+            self.check_target_node(source, &for_node.index(), diagnostics);
+            return;
+        }
+
         // Check parallel assignment targets: @@foo, @@bar = value
         if let Some(multi_write) = node.as_multi_write_node() {
             self.check_multi_write_targets(source, multi_write, diagnostics);
@@ -121,6 +164,27 @@ impl Cop for ClassVars {
                 }
             }
         }
+    }
+}
+
+/// Visitor that finds rescue reference targets (`rescue => @@error`).
+///
+/// Prism visits rescue clauses through `visit_rescue_node` instead of the normal
+/// branch dispatch, so `check_node` never sees `RescueNode`.
+struct RescueClassVarVisitor<'a> {
+    cop: &'a ClassVars,
+    source: &'a SourceFile,
+    diagnostics: &'a mut Vec<Diagnostic>,
+}
+
+impl<'pr> ruby_prism::Visit<'pr> for RescueClassVarVisitor<'_> {
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        if let Some(reference) = node.reference() {
+            self.cop
+                .check_target_node(self.source, &reference, self.diagnostics);
+        }
+
+        ruby_prism::visit_rescue_node(self, node);
     }
 }
 

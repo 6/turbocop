@@ -50,3 +50,39 @@ _port, @@remote_ip = Socket.unpack_sockaddr_in(get_peername)
  ^^^ Style/ClassVars: Replace class var @@a with a class instance var.
       ^^^ Style/ClassVars: Replace class var @@b with a class instance var.
             ^^^ Style/ClassVars: Replace class var @@c with a class instance var.
+
+class RescueCapture
+  def capture(msg)
+    raise msg
+  rescue => @@captured_error
+            ^^^^^^^^^^^^^^^^ Style/ClassVars: Replace class var @@captured_error with a class instance var.
+    :caught
+  end
+end
+
+class ForLoopOne
+  m = [1, 2, 3]
+  for @@var in m
+      ^^^^^ Style/ClassVars: Replace class var @@var with a class instance var.
+    m
+  end
+end
+
+class RescueFoo
+  def foo
+    begin
+      raise "foo"
+    rescue => @@e
+              ^^^ Style/ClassVars: Replace class var @@e with a class instance var.
+    end
+    @@e
+  end
+end
+
+class ForLoopTwo
+  m = [1, 2, 3]
+  for @@var in m
+      ^^^^^ Style/ClassVars: Replace class var @@var with a class instance var.
+    m
+  end
+end
