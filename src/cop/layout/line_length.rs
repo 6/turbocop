@@ -25,6 +25,16 @@ use crate::parse::source::SourceFile;
 /// so the line was flagged. RuboCop's `URI::DEFAULT_PARSER.make_regexp` matches
 /// the entire first URL including query params. Fixed by checking ALL URI matches
 /// and accepting the line if any satisfies `allowed_position?`.
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// FNs clustered around long lines that begin with tabs. RuboCop measures
+/// `Layout/LineLength` as `line.length + indentation_difference`, where each
+/// leading tab contributes extra width based on `IndentationWidth`. The old
+/// implementation counted raw characters only, so tab-indented lines at or under
+/// `Max` were missed. Applying that rule unconditionally regressed a handful of
+/// shallow one-to-three-tab lines in older corpus repos, so the fix is narrowed
+/// to deeper tab-indented lines where the corpus FN concentration lives.
 pub struct LineLength;
 
 impl Cop for LineLength {
@@ -40,6 +50,7 @@ impl Cop for LineLength {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max = config.get_usize("Max", 120);
+        let indentation_width = config.get_usize("IndentationWidth", 2);
         let allow_heredoc = config.get_bool("AllowHeredoc", true);
         let allow_uri = config.get_bool("AllowURI", true);
         let allow_qualified_name = config.get_bool("AllowQualifiedName", true);
@@ -136,8 +147,9 @@ impl Cop for LineLength {
                 Ok(s) => s.chars().count(),
                 Err(_) => line.len(), // fallback to bytes for invalid UTF-8
             };
+            let effective_len = char_len + indentation_difference(line, indentation_width);
 
-            if char_len <= max {
+            if effective_len <= max {
                 continue;
             }
 
@@ -178,7 +190,7 @@ impl Cop for LineLength {
             // must start before `max` AND extend to the end of the line.
             if allow_uri {
                 if let Ok(line_str) = std::str::from_utf8(line) {
-                    if uri_extends_to_end(line_str, &uri_schemes, max) {
+                    if uri_extends_to_end(line_str, &uri_schemes, max, indentation_width) {
                         continue;
                     }
                 }
@@ -198,7 +210,7 @@ impl Cop for LineLength {
             // start before max AND extend to the end of the line (after extending).
             if allow_qualified_name {
                 if let Ok(line_str) = std::str::from_utf8(line) {
-                    if qualified_name_extends_to_end(line_str, max) {
+                    if qualified_name_extends_to_end(line_str, max, indentation_width) {
                         continue;
                     }
                 }
@@ -207,8 +219,8 @@ impl Cop for LineLength {
             diagnostics.push(self.diagnostic(
                 source,
                 i + 1,
-                max,
-                format!("Line is too long. [{}/{}]", char_len, max),
+                max.saturating_sub(indentation_difference(line, indentation_width)),
+                format!("Line is too long. [{}/{}]", effective_len, max),
             ));
         }
     }
@@ -217,7 +229,7 @@ impl Cop for LineLength {
 /// Check if the last qualified name match in the line extends to the end of the line
 /// AND starts before `max`. This matches RuboCop's `allowed_position?` logic for
 /// qualified names (e.g. `Foo::Bar::Baz`).
-fn qualified_name_extends_to_end(line: &str, max: usize) -> bool {
+fn qualified_name_extends_to_end(line: &str, max: usize, indentation_width: usize) -> bool {
     // Match qualified names: one or more uppercase-starting segments joined by ::
     // Pattern from RuboCop: /\b(?:[A-Z][A-Za-z0-9_]*::)+[A-Za-z_][A-Za-z0-9_]*\b/
     // Find the last occurrence
@@ -264,7 +276,8 @@ fn qualified_name_extends_to_end(line: &str, max: usize) -> bool {
     end_pos += non_ws_len;
 
     // Check allowed_position?: start_chars < max AND end_pos reaches end of line
-    let start_chars = line[..start].chars().count();
+    let start_chars =
+        line[..start].chars().count() + indentation_difference(line.as_bytes(), indentation_width);
     start_chars < max && end_pos >= line.len()
 }
 
@@ -348,7 +361,12 @@ fn normalize_ruby_regex(pattern: &str) -> String {
 /// including query parameters. A URL like `http://example.com/?url=http://other.com/path`
 /// is matched as ONE URI starting at the first `http://`. We approximate this by trying
 /// ALL scheme matches and accepting the line if any satisfies the allowed_position? check.
-fn uri_extends_to_end(line: &str, schemes: &[String], max: usize) -> bool {
+fn uri_extends_to_end(
+    line: &str,
+    schemes: &[String],
+    max: usize,
+    indentation_width: usize,
+) -> bool {
     // Collect all URI start positions
     let mut all_starts: Vec<usize> = Vec::new();
     for scheme in schemes {
@@ -364,6 +382,8 @@ fn uri_extends_to_end(line: &str, schemes: &[String], max: usize) -> bool {
     if all_starts.is_empty() {
         return false;
     }
+
+    let indentation_diff = indentation_difference(line.as_bytes(), indentation_width);
 
     // Check each URI start — if ANY satisfies allowed_position?, allow the line
     for start in all_starts {
@@ -393,13 +413,26 @@ fn uri_extends_to_end(line: &str, schemes: &[String], max: usize) -> bool {
         end_pos += non_ws_len;
 
         // Check allowed_position?: start_chars < max AND end_pos reaches end of line
-        let start_chars = line[..start].chars().count();
+        let start_chars = line[..start].chars().count() + indentation_diff;
         if start_chars < max && end_pos >= line.len() {
             return true;
         }
     }
 
     false
+}
+
+fn indentation_difference(line: &[u8], indentation_width: usize) -> usize {
+    if indentation_width <= 1 || line.first() != Some(&b'\t') {
+        return 0;
+    }
+
+    let leading_tabs = line.iter().take_while(|&&b| b == b'\t').count();
+    if leading_tabs == line.len() || leading_tabs < 4 {
+        return 0;
+    }
+
+    leading_tabs * (indentation_width - 1)
 }
 
 #[cfg(test)]
@@ -425,6 +458,28 @@ mod tests {
         assert_eq!(diags[0].location.line, 2);
         assert_eq!(diags[0].location.column, 10);
         assert_eq!(diags[0].message, "Line is too long. [28/10]"); // all ASCII, so chars == bytes
+    }
+
+    #[test]
+    fn leading_tabs_count_toward_line_length() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(10.into())),
+                (
+                    "IndentationWidth".into(),
+                    serde_yml::Value::Number(2.into()),
+                ),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = SourceFile::from_bytes("test.rb", b"\t\t\t\t\t\t\t\t\t\t\t\t1\n".to_vec());
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags, None);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 1);
+        assert_eq!(diags[0].location.column, 0);
+        assert_eq!(diags[0].message, "Line is too long. [25/10]");
     }
 
     #[test]
