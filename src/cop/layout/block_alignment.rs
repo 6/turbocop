@@ -230,6 +230,14 @@ use crate::parse::source::SourceFile;
 /// - Walk through balanced `{...}` receivers in `find_call_expression_col`
 /// - Use `LambdaNode::operator_loc()` and only accept line-indent alignment for
 ///   lambdas that actually start at that indent
+///
+/// ## Fixture sync (2026-03-30)
+///
+/// The remaining local `offense.rb` failure was fixture drift, not a new
+/// detection gap. Raw oracle snippets had been appended without parseable Ruby
+/// context, duplicating real FN examples already covered earlier in the fixture
+/// and by focused unit tests. The fix is to keep the shared fixture on the
+/// parseable examples rather than the orphaned snippets.
 pub struct BlockAlignment;
 
 impl Cop for BlockAlignment {
