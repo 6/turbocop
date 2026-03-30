@@ -173,8 +173,11 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         let (call_end_line, last_col) =
             source.offset_to_line_col(loc.end_offset().saturating_sub(1));
         let has_attached_block = call.block().is_some();
-        let separator_line = if let Some(block) = call.block().and_then(|node| node.as_block_node()) {
-            source.offset_to_line_col(block.opening_loc().start_offset()).0
+        let separator_line = if let Some(block) = call.block().and_then(|node| node.as_block_node())
+        {
+            source
+                .offset_to_line_col(block.opening_loc().start_offset())
+                .0
         } else {
             call_end_line
         };
@@ -189,29 +192,28 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
             let after_call =
                 &call_end_source_line[(last_col + 1).min(call_end_source_line.len())..];
             if let Some(next_same_line) = same_line_following_statement(after_call) {
-                if is_block_boundary_keyword(next_same_line) || is_attr_method_line(next_same_line) {
+                if is_block_boundary_keyword(next_same_line) || is_attr_method_line(next_same_line)
+                {
                     return;
                 }
                 if _allow_alias_syntax && next_same_line.starts_with(b"alias ") {
                     return;
                 }
-                for allowed_method in config
-                    .get_string_array("AllowedMethods")
-                    .unwrap_or_else(|| {
-                        DEFAULT_ALLOWED_METHODS
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect()
-                    })
+                for allowed_method in
+                    config
+                        .get_string_array("AllowedMethods")
+                        .unwrap_or_else(|| {
+                            DEFAULT_ALLOWED_METHODS
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        })
                 {
                     let method_bytes = allowed_method.as_bytes();
                     if next_same_line.starts_with(method_bytes) {
                         let after = next_same_line.get(method_bytes.len());
                         if (after.is_none()
-                            || matches!(
-                                after,
-                                Some(b' ') | Some(b'(') | Some(b'\n') | Some(b'\r')
-                            ))
+                            || matches!(after, Some(b' ') | Some(b'(') | Some(b'\n') | Some(b'\r')))
                             && !has_modifier_conditional(next_same_line)
                         {
                             return;
