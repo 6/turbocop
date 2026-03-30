@@ -220,28 +220,26 @@ impl Cop for ArrayIntersect {
                                 if let Some(recv_call) = recv.as_call_node() {
                                     let rm = std::str::from_utf8(recv_call.name().as_slice())
                                         .unwrap_or("");
-                                    if matches!(rm, "count" | "size" | "length") {
-                                        if recv_call.arguments().is_none()
-                                            && recv_call.block().is_none()
-                                        {
-                                            if let Some(inner_recv) = recv_call.receiver() {
-                                                if let Some((lhs, rhs)) =
-                                                    extract_intersection_parts(&inner_recv)
-                                                {
-                                                    let loc = node.location();
-                                                    let (line, column) = source
-                                                        .offset_to_line_col(loc.start_offset());
-                                                    let existing =
-                                                        std::str::from_utf8(loc.as_slice())
-                                                            .unwrap_or("");
-                                                    let msg = format!(
-                                                        "Use `{}.intersect?({})` instead of `{}`.",
-                                                        lhs, rhs, existing
-                                                    );
-                                                    diagnostics.push(
-                                                        self.diagnostic(source, line, column, msg),
-                                                    );
-                                                }
+                                    if matches!(rm, "count" | "size" | "length")
+                                        && recv_call.arguments().is_none()
+                                        && recv_call.block().is_none()
+                                    {
+                                        if let Some(inner_recv) = recv_call.receiver() {
+                                            if let Some((lhs, rhs)) =
+                                                extract_intersection_parts(&inner_recv)
+                                            {
+                                                let loc = node.location();
+                                                let (line, column) =
+                                                    source.offset_to_line_col(loc.start_offset());
+                                                let existing = std::str::from_utf8(loc.as_slice())
+                                                    .unwrap_or("");
+                                                let msg = format!(
+                                                    "Use `{}.intersect?({})` instead of `{}`.",
+                                                    lhs, rhs, existing
+                                                );
+                                                diagnostics.push(
+                                                    self.diagnostic(source, line, column, msg),
+                                                );
                                             }
                                         }
                                     }
@@ -254,30 +252,29 @@ impl Cop for ArrayIntersect {
         }
 
         // Pattern 3: (a & b).count.positive? / .zero?
-        if matches!(method_name, "positive?" | "zero?") {
-            if call.arguments().is_none() && call.block().is_none() {
-                if let Some(recv) = call.receiver() {
-                    if let Some(recv_call) = recv.as_call_node() {
-                        let rm = std::str::from_utf8(recv_call.name().as_slice()).unwrap_or("");
-                        if matches!(rm, "count" | "size" | "length") {
-                            if recv_call.arguments().is_none() && recv_call.block().is_none() {
-                                if let Some(inner_recv) = recv_call.receiver() {
-                                    if let Some((lhs, rhs)) =
-                                        extract_intersection_parts(&inner_recv)
-                                    {
-                                        let loc = node.location();
-                                        let (line, column) =
-                                            source.offset_to_line_col(loc.start_offset());
-                                        let existing =
-                                            std::str::from_utf8(loc.as_slice()).unwrap_or("");
-                                        let msg = format!(
-                                            "Use `{}.intersect?({})` instead of `{}`.",
-                                            lhs, rhs, existing
-                                        );
-                                        diagnostics
-                                            .push(self.diagnostic(source, line, column, msg));
-                                    }
-                                }
+        if matches!(method_name, "positive?" | "zero?")
+            && call.arguments().is_none()
+            && call.block().is_none()
+        {
+            if let Some(recv) = call.receiver() {
+                if let Some(recv_call) = recv.as_call_node() {
+                    let rm = std::str::from_utf8(recv_call.name().as_slice()).unwrap_or("");
+                    if matches!(rm, "count" | "size" | "length")
+                        && recv_call.arguments().is_none()
+                        && recv_call.block().is_none()
+                    {
+                        if let Some(inner_recv) = recv_call.receiver() {
+                            if let Some((lhs, rhs)) = extract_intersection_parts(&inner_recv) {
+                                let loc = node.location();
+                                let (line, column) =
+                                    source.offset_to_line_col(loc.start_offset());
+                                let existing =
+                                    std::str::from_utf8(loc.as_slice()).unwrap_or("");
+                                let msg = format!(
+                                    "Use `{}.intersect?({})` instead of `{}`.",
+                                    lhs, rhs, existing
+                                );
+                                diagnostics.push(self.diagnostic(source, line, column, msg));
                             }
                         }
                     }
