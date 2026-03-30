@@ -152,3 +152,37 @@ describe "minitest spec inside before" do
     end
   end
 end
+
+# Examples inside singleton class bodies should still be detected.
+describe "singleton class wrappers" do
+  class << self
+    def it_should_redirect_to_show
+      it do
+      ^ RSpec/RepeatedExample: Don't repeat examples within an example group. Repeated on line(s) 139.
+        is_expected.to redirect_to group_person_path(top_group, top_leader)
+      end
+    end
+
+    def it_should_redirect_to_index
+      it { is_expected.to redirect_to group_person_path(top_group, top_leader) }
+      ^ RSpec/RepeatedExample: Don't repeat examples within an example group. Repeated on line(s) 133.
+    end
+  end
+end
+
+# Assigned example groups with non-RSpec receivers are still searched recursively.
+describe "assigned nested example groups" do
+  before(:all) do
+    @group = Micronaut::Behaviour.describe(Foo, "find these examples") do
+      it("I have no options") {}
+      ^ RSpec/RepeatedExample: Don't repeat examples within an example group. Repeated on line(s) 152.
+      it("this is awesome", :awesome => true) {}
+      ^ RSpec/RepeatedExample: Don't repeat examples within an example group. Repeated on line(s) 150.
+      it("this is too", :awesome => true) {}
+      ^ RSpec/RepeatedExample: Don't repeat examples within an example group. Repeated on line(s) 149.
+      it("not so awesome", :awesome => false) {}
+      it("I also have no options") {}
+      ^ RSpec/RepeatedExample: Don't repeat examples within an example group. Repeated on line(s) 148.
+    end
+  end
+end

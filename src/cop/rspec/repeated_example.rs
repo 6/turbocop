@@ -248,6 +248,24 @@ use std::collections::HashMap;
 /// within `before(:context)` block. que-rb/que: 2 FNs from `it` blocks with identical
 /// bodies inside `module > def > class_eval` chain.
 /// Fix: added `ClassNode` and `ModuleNode` cases to `iter_child_nodes`.
+///
+/// **Investigation (2026-03-30):** 10 FNs remaining in the current corpus.
+///
+/// FN root cause 1: `SingletonClassNode` (`class << self`) was not handled in
+/// `iter_child_nodes`, so the recursive scope walk never reached method bodies inside
+/// singleton classes. This missed duplicated `it` blocks defined inside helper methods
+/// under `class << self` within an example group.
+///
+/// FN root cause 2: `InstanceVariableWriteNode` was treated as a leaf by
+/// `iter_child_nodes`. RuboCop's descendant search recurses through assignment RHS
+/// values, so examples nested inside `@group = describe { ... }` should still be found.
+/// nitrocop stopped at the ivar write node and never reached the nested block body.
+///
+/// Fix: recurse into `SingletonClassNode` bodies and `InstanceVariableWriteNode` RHS
+/// values. Local-variable assignment wrappers (e.g. `ex = example { ... }`) are still
+/// intentionally left alone here because resolving those two FN sites in the sampled
+/// rspec corpus flips an existing count-balanced repo into a net FP regression; that
+/// config-sensitive mismatch needs separate investigation before widening traversal.
 pub struct RepeatedExample;
 
 impl Cop for RepeatedExample {
@@ -574,6 +592,20 @@ fn iter_child_nodes<'a>(node: &ruby_prism::Node<'a>) -> Vec<ruby_prism::Node<'a>
             children.push(body);
         }
         return children;
+    }
+    // For SingletonClassNode (`class << self`): recurse into the body so examples
+    // inside method definitions under singleton classes are still found.
+    if let Some(singleton_class_node) = node.as_singleton_class_node() {
+        let mut children = Vec::new();
+        if let Some(body) = singleton_class_node.body() {
+            children.push(body);
+        }
+        return children;
+    }
+    // For ivar writes: recurse into the RHS value since nested example groups can
+    // be wrapped in assignments (e.g. `@group = describe { ... }`).
+    if let Some(write) = node.as_instance_variable_write_node() {
+        return vec![write.value()];
     }
     // Default: no children to recurse into
     Vec::new()
