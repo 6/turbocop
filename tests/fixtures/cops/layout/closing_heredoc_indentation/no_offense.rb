@@ -49,6 +49,13 @@ expect($stdout.string)
     content here
 RESULT
 
+# Nested call argument still aligns to the outermost call chain
+foo bar(
+  <<-EOF,
+  baz
+EOF
+)
+
 # Empty heredoc content, aligned
 let(:source) { <<~HEREDOC }
 HEREDOC

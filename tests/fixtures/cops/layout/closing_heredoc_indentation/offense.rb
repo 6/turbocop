@@ -68,3 +68,27 @@ second_migration_field =
   ^^ Layout/ClosingHeredocIndentation: `JS` is not aligned with `value: <<~JS,`.
     version: 1,
   )
+
+# Heredoc assigned with ||= still aligns to the assignment line
+def help_text
+  @help_text ||= <<~HEREDOC
+    usage
+HEREDOC
+^^^^^^^ Layout/ClosingHeredocIndentation: `HEREDOC` is not aligned with `@help_text ||= <<~HEREDOC`.
+end
+
+# Heredoc nested inside an array argument should not inherit the outer call indentation
+foo 1, [
+  <<-EOF,
+  bar
+EOF
+^^^ Layout/ClosingHeredocIndentation: `EOF` is not aligned with `<<-EOF,`.
+]
+
+# Repeated array-argument heredocs should still flag in adjacent examples
+foo 1, [
+  <<-EOF,
+  bar
+EOF
+^^^ Layout/ClosingHeredocIndentation: `EOF` is not aligned with `<<-EOF,`.
+]

@@ -5,11 +5,13 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
-/// Matches RuboCop's handling of heredocs nested in hash pairs passed to calls.
+/// Fixes the false negatives where call-argument indentation leaked too far.
 ///
-/// Hash values like `cooked: <<~DOC` or `:template => <<-DOC` are not direct
-/// method arguments, so their closing identifier must stay aligned with the
-/// opening pair line rather than inheriting the outer call indentation.
+/// RuboCop only allows the "beginning of method definition" indentation for
+/// direct heredoc arguments and contiguous call chains like
+/// `<<-DOC.strip_indent`. Container descendants like array elements and hash
+/// values must stay aligned with their own opening line instead, and the
+/// temporary call-chain indentation must be restored after each call visit.
 pub struct ClosingHeredocIndentation;
 
 impl Cop for ClosingHeredocIndentation {
@@ -41,13 +43,20 @@ struct HeredocVisitor<'a> {
     cop: &'a ClosingHeredocIndentation,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
-    /// When a heredoc is a direct argument to a method call (or chained call),
-    /// this holds the indentation of the outermost call in the chain.
-    /// Mirrors RuboCop's `argument_indentation_correct?` + `find_node_used_heredoc_argument`.
+    /// When visiting a direct heredoc argument or a contiguous call chain used
+    /// as a direct argument, this holds the indentation of the outermost call
+    /// in that chain. Container descendants like arrays clear this context.
     argument_indent: Option<usize>,
 }
 
 impl HeredocVisitor<'_> {
+    fn visit_direct_argument<'pr>(&mut self, node: &ruby_prism::Node<'pr>, outer_indent: usize) {
+        let saved = self.argument_indent;
+        self.argument_indent = argument_chain_node(node).then_some(outer_indent);
+        self.visit(node);
+        self.argument_indent = saved;
+    }
+
     fn check_heredoc(
         &mut self,
         opening_loc: ruby_prism::Location<'_>,
@@ -129,21 +138,23 @@ impl<'pr> Visit<'pr> for HeredocVisitor<'_> {
         let saved = self.argument_indent;
 
         // Visit the receiver (if any) with no argument context change —
-        // the receiver is not "an argument" of this call.
+        // unless this call is already part of a direct-argument call chain.
         if let Some(receiver) = node.receiver() {
+            self.argument_indent = saved;
             self.visit(&receiver);
         }
 
-        // Visit arguments: set argument_indent to the outermost call's indent.
-        // If we're already inside an argument context (nested calls), keep the
-        // outer one. Otherwise, use this call's line indent.
+        // Visit direct arguments one-by-one so array/hash descendants do not
+        // inherit the outer call indentation. Only direct heredocs and
+        // contiguous call chains keep the alignment exception.
         if let Some(arguments) = node.arguments() {
             let outer_indent = self
                 .argument_indent
                 .unwrap_or_else(|| line_indent(self.source, node.location().start_offset()));
-            self.argument_indent = Some(outer_indent);
-            self.visit(&arguments.as_node());
-            self.argument_indent = saved;
+
+            for argument in arguments.arguments().iter() {
+                self.visit_direct_argument(&argument, outer_indent);
+            }
         }
 
         // Visit the block (if any) with argument context cleared —
@@ -151,8 +162,9 @@ impl<'pr> Visit<'pr> for HeredocVisitor<'_> {
         if let Some(block) = node.block() {
             self.argument_indent = None;
             self.visit(&block);
-            self.argument_indent = saved;
         }
+
+        self.argument_indent = saved;
     }
 
     fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
@@ -204,6 +216,14 @@ fn line_indent(source: &SourceFile, offset: usize) -> usize {
         indent += 1;
     }
     indent
+}
+
+fn argument_chain_node(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_call_node().is_some()
+        || node.as_string_node().is_some()
+        || node.as_interpolated_string_node().is_some()
+        || node.as_x_string_node().is_some()
+        || node.as_interpolated_x_string_node().is_some()
 }
 
 #[cfg(test)]
