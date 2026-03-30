@@ -200,7 +200,7 @@ fn require_entry_from_call(
         _ => return None,
     };
 
-    let first_arg = first_positional_arg(&call)?;
+    let first_arg = first_positional_arg(call)?;
     let path = string_value(&first_arg)?;
 
     Some(RequireEntry {
