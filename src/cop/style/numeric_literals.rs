@@ -3,7 +3,8 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-const MSG: &str = "Use underscores(_) as thousands separator and separate every 3 digits with them.";
+const MSG: &str =
+    "Use underscores(_) as thousands separator and separate every 3 digits with them.";
 
 /// FP fix: implicit octal literals (leading `0` followed by digits, e.g. `00644`, `02744`)
 /// were flagged for missing underscores. RuboCop exempts all non-decimal bases including
