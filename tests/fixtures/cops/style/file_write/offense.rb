@@ -12,3 +12,6 @@ File.open(filename, 'w') do |f|
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/FileWrite: Use `File.write`.
   f.write(content)
 end
+
+d.write(File.open(file_name, 'w'))
+^ Style/FileWrite: Use `File.write`.

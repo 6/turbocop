@@ -3,6 +3,17 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03-30):
+///
+/// FN=1. nitrocop matched `File.open(...).write(...)` and block forms, but it
+/// missed RuboCop's narrower parent-call pattern where the `File.open(..., 'w')`
+/// expression is itself the sole argument to another `write(...)` call:
+/// `d.write(File.open(file_name, 'w'))`.
+///
+/// Fix: extend the existing `write(...)` matcher to also inspect its sole
+/// argument for `File.open(...)` in a truncating write mode. Report at the outer
+/// `write` call start so the fixture matches RuboCop, while still skipping
+/// broader multi-argument `write(...)` calls that RuboCop accepts.
 pub struct FileWrite;
 
 impl FileWrite {
@@ -187,6 +198,26 @@ impl Cop for FileWrite {
                             format!("Use `{write_method}`."),
                         ));
                         return;
+                    }
+                }
+            }
+
+            if let Some(args) = call.arguments() {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                if arg_list.len() == 1 {
+                    if let Some(open_call) = arg_list[0].as_call_node() {
+                        if let Some(mode) = Self::check_file_open_mode(&open_call) {
+                            let write_method = Self::write_method(&mode);
+                            let loc = call.location();
+                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                            diagnostics.push(self.diagnostic(
+                                source,
+                                line,
+                                column,
+                                format!("Use `{write_method}`."),
+                            ));
+                            return;
+                        }
                     }
                 }
             }

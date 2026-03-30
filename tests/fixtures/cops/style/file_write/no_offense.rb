@@ -5,6 +5,7 @@ File.open(filename, 'w') do |f|
 end
 File.open(filename, 'r').read
 File.open(filename, 'a').write(content)
+obj.write(File.open(path, 'w'), other)
 
 # Extra keyword args (encoding:) — not a simple File.write replacement
 File.open(path, 'w', encoding: Encoding::UTF_8) do |f|
