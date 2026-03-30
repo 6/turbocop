@@ -1,4 +1,4 @@
-use crate::cop::node_type::{BLOCK_NODE, LAMBDA_NODE};
+use crate::cop::node_type::{BLOCK_NODE, FORWARDING_SUPER_NODE, LAMBDA_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -22,6 +22,13 @@ use crate::parse::source::SourceFile;
 ///    The cop was not handling `LambdaNode` at all, causing 743 FNs across the
 ///    corpus. Repos like graphql-ruby (255 FNs), natalie (82), vagrant (43), and
 ///    danbooru (34) use lambda blocks heavily. Fixed by also handling `LAMBDA_NODE`.
+/// 5. Bare `super { ... }` parses as `ForwardingSuperNode` with an attached
+///    `BlockNode`. Prism's generated visitor walks that child via
+///    `visit_block_node(&node)` instead of generic `visit(&node.as_node())`, so
+///    AST cops listening only for `BLOCK_NODE` never receive the forwarded block.
+///    That caused missed brace-spacing offenses like `super {|x| ... }` and
+///    `super {['a', 'b']}`. Fixed by also listening on `FORWARDING_SUPER_NODE`
+///    and reusing the attached block's brace and parameter locations.
 pub struct SpaceInsideBlockBraces;
 
 impl Cop for SpaceInsideBlockBraces {
@@ -30,7 +37,7 @@ impl Cop for SpaceInsideBlockBraces {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, LAMBDA_NODE]
+        &[BLOCK_NODE, LAMBDA_NODE, FORWARDING_SUPER_NODE]
     }
 
     fn supports_autocorrect(&self) -> bool {
@@ -46,7 +53,8 @@ impl Cop for SpaceInsideBlockBraces {
         diagnostics: &mut Vec<Diagnostic>,
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Extract opening/closing/body/parameters from either BlockNode or LambdaNode
+        // Extract opening/closing/body/parameters from a directly visited BlockNode,
+        // LambdaNode, or a ForwardingSuperNode's attached block.
         let (opening, closing, block_body_empty, has_params, params_location) =
             if let Some(block) = node.as_block_node() {
                 (
@@ -63,6 +71,17 @@ impl Cop for SpaceInsideBlockBraces {
                     lambda.body().is_none(),
                     lambda.parameters().is_some(),
                     lambda.parameters().map(|p| p.location()),
+                )
+            } else if let Some(forwarding_super) = node.as_forwarding_super_node() {
+                let Some(block) = forwarding_super.block() else {
+                    return;
+                };
+                (
+                    block.opening_loc(),
+                    block.closing_loc(),
+                    block.body().is_none(),
+                    block.parameters().is_some(),
+                    block.parameters().map(|p| p.location()),
                 )
             } else {
                 return;

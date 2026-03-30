@@ -57,3 +57,43 @@ before {FlavourSaver.register_helper(:repeat) do |a, &block|
        ^ Layout/SpaceInsideBlockBraces: Space missing inside {.
   a.times { block.call }
 end}
+
+class ForwardingSuperExamples
+  def each
+    super {|*a| sleep 0.1 ; yield(*a) }
+          ^^ Layout/SpaceInsideBlockBraces: Space between { and | missing.
+  end
+
+  def union_to_s
+    super {['every ',' or ']}
+          ^ Layout/SpaceInsideBlockBraces: Space missing inside {.
+                            ^ Layout/SpaceInsideBlockBraces: Space missing inside }.
+  end
+
+  def intersect_to_s
+    super {['every ', ' and ']}
+          ^ Layout/SpaceInsideBlockBraces: Space missing inside {.
+                              ^ Layout/SpaceInsideBlockBraces: Space missing inside }.
+  end
+
+  def method_4(&block)
+    super {|y| block.call(y)}
+          ^^ Layout/SpaceInsideBlockBraces: Space between { and | missing.
+                            ^ Layout/SpaceInsideBlockBraces: Space missing inside }.
+  end
+
+  def downto(min)
+    super {|dt| yield dt.clear_timezone_offset }
+          ^^ Layout/SpaceInsideBlockBraces: Space between { and | missing.
+  end
+
+  def step(limit, step = 1)
+    super {|dt| yield dt.clear_timezone_offset }
+          ^^ Layout/SpaceInsideBlockBraces: Space between { and | missing.
+  end
+
+  def upto(max)
+    super {|dt| yield dt.clear_timezone_offset }
+          ^^ Layout/SpaceInsideBlockBraces: Space between { and | missing.
+  end
+end
