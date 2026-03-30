@@ -6,13 +6,14 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Corpus FN root cause: Prism represents qualified constant assignments like
-/// `Win32::Service = Class.new` and `::Foo = Class.new` as
-/// `ConstantPathWriteNode`, but this cop originally only checked
-/// `ConstantWriteNode`. That missed RuboCop-compatible offenses for namespaced
-/// and absolute constant targets. Fixed by matching both assignment node types
-/// while keeping the existing `Class.new` receiver, block, and parent-class
-/// guards unchanged.
+/// Corpus fixes:
+/// - Prism represents qualified constant assignments like
+///   `Win32::Service = Class.new` and `::Foo = Class.new` as
+///   `ConstantPathWriteNode`, so this cop must check both constant assignment
+///   node types.
+/// - `Class.new(Base, &BLOCK)` stores `&BLOCK` in `call.block()` as a
+///   `BlockArgumentNode`, not a real class body `BlockNode`. RuboCop still
+///   flags that form, so only actual block bodies should be skipped.
 pub struct EmptyClassDefinition;
 
 impl Cop for EmptyClassDefinition {
@@ -74,8 +75,9 @@ fn check_class_definition_style(
             if method_name == "new" {
                 if let Some(receiver) = call.receiver() {
                     if is_class_const(&receiver) {
-                        // Skip if it has a block
-                        if call.block().is_some() {
+                        // Skip if it has an actual class body block (`do...end` or `{}`),
+                        // but still flag `&block` block-pass arguments.
+                        if call.block().and_then(|block| block.as_block_node()).is_some() {
                             return Vec::new();
                         }
                         // Skip if chained with another method
