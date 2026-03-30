@@ -1,4 +1,4 @@
-use crate::cop::node_type::{node_type_tag, CALL_NODE, LAMBDA_NODE};
+use crate::cop::node_type::{CALL_NODE, LAMBDA_NODE, node_type_tag};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
@@ -398,7 +398,8 @@ impl BlockAlignment {
         }
 
         let start_of_line_indent = line_indent(bytes, opening_loc.start_offset());
-        let (_, lambda_start_col) = source.offset_to_line_col(lambda_node.location().start_offset());
+        let (_, lambda_start_col) =
+            source.offset_to_line_col(lambda_node.location().start_offset());
         let close_word = if is_brace { "`}`" } else { "`end`" };
         let open_word = if is_brace { "`{`" } else { "`do`" };
         let misaligned = match style {
@@ -438,7 +439,9 @@ fn block_alignment_target<'pr>(
         }
 
         current = parent;
-        stop_after_step = current.as_call_node().is_some_and(|call| has_block_node(&call));
+        stop_after_step = current
+            .as_call_node()
+            .is_some_and(|call| has_block_node(&call));
     }
 
     current
