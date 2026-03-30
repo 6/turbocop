@@ -79,14 +79,16 @@ use crate::parse::source::SourceFile;
 ///   In Prism, `elsif` subsequents are IfNodes while `else` subsequents are ElseNodes.
 ///   Fix: check that `if_node.subsequent()` is a direct IfNode before processing.
 /// - 2026-03-30 recheck of the remaining 6 corpus FN:
-///   - Added a full-context Discourse-derived fixture, and it passes without logic changes.
-///   - A standalone nitrocop smoke test with `Style/CaseLikeIf: MinBranchesCount: 2`
-///     correctly flags a 2-branch+else chain, so this cop does honor lowered branch counts.
-///   - `chatwoot/chatwoot@1345f6796609d867a2ef8f0b6c968eb63a54e8aa` explicitly sets
-///     `Style/CaseLikeIf: Enabled: false` in `.rubocop.yml`, yet the oracle still
-///     reports that file as an FN.
-///   - Conclusion: the remaining corpus FN do not reproduce as detection bugs in this
-///     file and point to corpus/config-context mismatch outside the cop implementation.
+///   - The only default-config candidate (`discourse/search.rb`) is already covered by the
+///     full-context fixture here and reproduces without logic changes.
+///   - The other representative corpus examples are all `if + elsif + else` chains, so they
+///     only become offenses when a repo lowers `Style/CaseLikeIf: MinBranchesCount` to `2`.
+///   - Added explicit config-backed unit tests for the repo-specific 2-branch `==`, `is_a?`,
+///     and `=~` shapes; they pass, so the remaining corpus FN point to config/context handling
+///     outside this cop's detector.
+///   - `chatwoot/chatwoot@1345f6796609d867a2ef8f0b6c968eb63a54e8aa` also explicitly sets
+///     `Style/CaseLikeIf: Enabled: false` in `.rubocop.yml`, yet the oracle still reports that
+///     file as an FN.
 pub struct CaseLikeIf;
 
 impl Cop for CaseLikeIf {
@@ -637,6 +639,38 @@ mod tests {
     #[test]
     fn honors_min_branches_count_two_for_two_branch_else_chain() {
         let fixture = b"if resource == 'export'\n^^^^^^^^^^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.\n  1\nelsif resource == 'import'\n  2\nelse\n  3\nend\n";
+        let mut options = HashMap::new();
+        options.insert(
+            "MinBranchesCount".to_string(),
+            serde_yml::Value::Number(2.into()),
+        );
+        let config = CopConfig {
+            options,
+            ..CopConfig::default()
+        };
+
+        assert_cop_offenses_full_with_config(&CaseLikeIf, fixture, config);
+    }
+
+    #[test]
+    fn honors_min_branches_count_two_for_is_a_chain() {
+        let fixture = b"if item.is_a?(Label::Base)\n^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.\n  label_path(id: item.origin)\nelsif item.is_a?(Collection::Base)\n  collection_path(id: item.origin)\nelse\n  concept_path(id: item.origin)\nend\n";
+        let mut options = HashMap::new();
+        options.insert(
+            "MinBranchesCount".to_string(),
+            serde_yml::Value::Number(2.into()),
+        );
+        let config = CopConfig {
+            options,
+            ..CopConfig::default()
+        };
+
+        assert_cop_offenses_full_with_config(&CaseLikeIf, fixture, config);
+    }
+
+    #[test]
+    fn honors_min_branches_count_two_for_regex_match_chain() {
+        let fixture = b"if adapter =~ /postgresql/i\n^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.\n  monthly_sql\nelsif adapter =~ /mysql/i\n  mysql_sql\nelse\n  sqlite_sql\nend\n";
         let mut options = HashMap::new();
         options.insert(
             "MinBranchesCount".to_string(),
