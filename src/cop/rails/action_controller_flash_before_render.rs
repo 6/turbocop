@@ -540,12 +540,7 @@ impl FlashVisitor<'_> {
                 || stmt.as_case_node().is_some();
 
             if !handled_context {
-                self.check_embedded_contexts_with_outer(
-                    stmt,
-                    rescue_context_nodes,
-                    true,
-                    false,
-                );
+                self.check_embedded_contexts_with_outer(stmt, rescue_context_nodes, true, false);
             }
         }
     }
