@@ -37,3 +37,34 @@ include_examples :offense,
   bar
     HEREDOC
     ^^^^^^^ Layout/ClosingHeredocIndentation: `HEREDOC` is not aligned with `<<-HEREDOC` or beginning of method definition.
+
+# Heredoc hash values should not align to the outermost call
+create_dynamic_portlet(:recently_updated_pages,
+                       :template => <<-TEMPLATE
+  body
+TEMPLATE
+^ Layout/ClosingHeredocIndentation: `TEMPLATE` is not aligned with `:template => <<-TEMPLATE`.
+)
+
+# Keyword heredoc values should not align to the outermost call either
+Fabricate(
+  :theme_field,
+  value: <<~HTML,
+    <script></script>
+HTML
+^ Layout/ClosingHeredocIndentation: `HTML` is not aligned with `value: <<~HTML,`.
+)
+
+# Trailing keyword args after the heredoc do not change the indentation rule
+second_migration_field =
+  Fabricate(
+    :migration_theme_field,
+    value: <<~JS,
+      export default function migrate(settings) {
+        settings.set("integer_setting", 3);
+        return settings;
+      }
+JS
+^^ Layout/ClosingHeredocIndentation: `JS` is not aligned with `value: <<~JS,`.
+    version: 1,
+  )

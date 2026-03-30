@@ -5,6 +5,25 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
+/// Layout/ClosingHeredocIndentation
+///
+/// Investigation findings (2026-03-30):
+/// Root cause of 30 false negatives: the visitor treated every heredoc anywhere
+/// inside a call's argument subtree as if RuboCop's "beginning of method
+/// definition" alignment exception applied. RuboCop only grants that exception
+/// when the heredoc node is itself a direct call argument or the receiver of a
+/// chained call. Fix: limit the alternate indentation context to direct
+/// heredoc arguments and direct call/receiver chains, while still preserving
+/// outermost-call alignment for nested calls like `foo(bar(<<~HEREDOC))` and
+/// direct call receivers like `<<~HEREDOC.strip_indent`.
+///
+/// Validation note (2026-03-30): `python3 scripts/check_cop.py
+/// Layout/ClosingHeredocIndentation --rerun --clone --sample 15` still reports
+/// `+19` sample FPs, but direct repo-level comparisons against `bundle exec
+/// rubocop --only Layout/ClosingHeredocIndentation` for each flagged repo
+/// (`discourse`, `awspec`, `activegraph`, `puma`) show zero extra or missing
+/// offenses for this cop. The sample regression comes from unrelated offenses
+/// leaking into nitrocop's `--only` JSON output, not from this cop's matching.
 pub struct ClosingHeredocIndentation;
 
 impl Cop for ClosingHeredocIndentation {
@@ -26,6 +45,7 @@ impl Cop for ClosingHeredocIndentation {
             source,
             diagnostics: Vec::new(),
             argument_indent: None,
+            argument_message: false,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -36,10 +56,14 @@ struct HeredocVisitor<'a> {
     cop: &'a ClosingHeredocIndentation,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
-    /// When a heredoc is a direct argument to a method call (or chained call),
-    /// this holds the indentation of the outermost call in the chain.
-    /// Mirrors RuboCop's `argument_indentation_correct?` + `find_node_used_heredoc_argument`.
+    /// When a heredoc is a direct argument to a method call (or inside the
+    /// receiver/direct-argument chain of such a call), this holds the
+    /// indentation of the outermost call in that chain.
     argument_indent: Option<usize>,
+    /// Tracks RuboCop's `node.argument?` distinction for the current heredoc
+    /// candidate. Chained receivers inherit `argument_indent`, but only direct
+    /// arguments use the "...or beginning of method definition" message.
+    argument_message: bool,
 }
 
 impl HeredocVisitor<'_> {
@@ -100,7 +124,7 @@ impl HeredocVisitor<'_> {
                 .count();
         let (close_line, close_col) = self.source.offset_to_line_col(close_content_offset);
 
-        let message = if self.argument_indent.is_some() {
+        let message = if self.argument_message {
             format!(
                 "`{}` is not aligned with `{}` or beginning of method definition.",
                 closing_trimmed, opening_trimmed
@@ -117,11 +141,33 @@ impl HeredocVisitor<'_> {
                 .diagnostic(self.source, close_line, close_col, message),
         );
     }
+
+    fn visit_direct_argument<'pr>(&mut self, node: ruby_prism::Node<'pr>, outer_indent: usize) {
+        let saved_indent = self.argument_indent;
+        let saved_message = self.argument_message;
+
+        if is_heredoc_node(self.source.as_bytes(), &node) {
+            self.argument_indent = Some(outer_indent);
+            self.argument_message = true;
+        } else if node.as_call_node().is_some() {
+            self.argument_indent = Some(outer_indent);
+            self.argument_message = false;
+        } else {
+            self.argument_indent = None;
+            self.argument_message = false;
+        }
+
+        self.visit(&node);
+
+        self.argument_indent = saved_indent;
+        self.argument_message = saved_message;
+    }
 }
 
 impl<'pr> Visit<'pr> for HeredocVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        let saved = self.argument_indent;
+        let saved_indent = self.argument_indent;
+        let saved_message = self.argument_message;
 
         // Visit the receiver (if any) with no argument context change —
         // the receiver is not "an argument" of this call.
@@ -133,21 +179,23 @@ impl<'pr> Visit<'pr> for HeredocVisitor<'_> {
         // If we're already inside an argument context (nested calls), keep the
         // outer one. Otherwise, use this call's line indent.
         if let Some(arguments) = node.arguments() {
-            let outer_indent = self
-                .argument_indent
+            let outer_indent = saved_indent
                 .unwrap_or_else(|| line_indent(self.source, node.location().start_offset()));
-            self.argument_indent = Some(outer_indent);
-            self.visit(&arguments.as_node());
-            self.argument_indent = saved;
+            for argument in arguments.arguments().iter() {
+                self.visit_direct_argument(argument, outer_indent);
+            }
         }
 
         // Visit the block (if any) with argument context cleared —
         // heredocs inside a block body are NOT arguments.
         if let Some(block) = node.block() {
             self.argument_indent = None;
+            self.argument_message = false;
             self.visit(&block);
-            self.argument_indent = saved;
         }
+
+        self.argument_indent = saved_indent;
+        self.argument_message = saved_message;
     }
 
     fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
@@ -190,6 +238,40 @@ fn line_indent(source: &SourceFile, offset: usize) -> usize {
         indent += 1;
     }
     indent
+}
+
+fn is_heredoc_node(bytes: &[u8], node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(string) = node.as_string_node() {
+        return string
+            .opening_loc()
+            .is_some_and(|opening| is_indenting_heredoc(bytes, opening));
+    }
+
+    if let Some(string) = node.as_interpolated_string_node() {
+        return string
+            .opening_loc()
+            .is_some_and(|opening| is_indenting_heredoc(bytes, opening));
+    }
+
+    if let Some(xstring) = node.as_x_string_node() {
+        return is_indenting_heredoc(bytes, xstring.opening_loc());
+    }
+
+    if let Some(xstring) = node.as_interpolated_x_string_node() {
+        return is_indenting_heredoc(bytes, xstring.opening_loc());
+    }
+
+    false
+}
+
+fn is_indenting_heredoc(bytes: &[u8], opening_loc: ruby_prism::Location<'_>) -> bool {
+    let opening = &bytes[opening_loc.start_offset()..opening_loc.end_offset()];
+    if !opening.starts_with(b"<<") {
+        return false;
+    }
+
+    let after_arrows = &opening[2..];
+    after_arrows.starts_with(b"~") || after_arrows.starts_with(b"-")
 }
 
 #[cfg(test)]
@@ -272,6 +354,38 @@ mod tests {
                 .contains("or beginning of method definition"),
             "Expected MSG_ARG format for argument heredoc, got: {}",
             diags[0].message,
+        );
+    }
+
+    #[test]
+    fn heredoc_hash_value_flags_offense() {
+        let source = b"Fabricate(\n  :theme_field,\n  value: <<~HTML,\n    <script></script>\nHTML\n)\n";
+        let diags = run_cop_full(&ClosingHeredocIndentation, source);
+        assert_eq!(diags.len(), 1);
+        assert!(
+            !diags[0]
+                .message
+                .contains("or beginning of method definition"),
+            "Expected plain message for hash value heredoc, got: {}",
+            diags[0].message,
+        );
+    }
+
+    #[test]
+    fn heredoc_nested_in_array_flags_offense() {
+        let source = b"foo(\n  [<<~HTML]\n    <p>x</p>\nHTML\n)\n";
+        let diags = run_cop_full(&ClosingHeredocIndentation, source);
+        assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn nested_call_heredoc_argument_uses_outermost_call_indent() {
+        let source = b"foo(\n  bar(\n    <<~HTML\n      <p>x</p>\nHTML\n  )\n)\n";
+        let diags = run_cop_full(&ClosingHeredocIndentation, source);
+        assert!(
+            diags.is_empty(),
+            "Expected no offenses for nested direct heredoc argument, got: {:?}",
+            diags,
         );
     }
 }
