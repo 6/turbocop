@@ -252,6 +252,20 @@ use crate::parse::source::SourceFile;
 /// is outside this cop (file discovery / global exclude / repo-root config
 /// handling in `fs.rs`, `linter.rs`, or `config/mod.rs`). No narrow matcher
 /// change here fixes the corpus gap without papering over the real issue.
+///
+/// ## Investigation (2026-03-30): FP=2, FN=2
+///
+/// - FP: parameter/local-variable receivers like `def delete(x); x.delete(x); end`
+///   are not matched by RuboCop's node pattern, so `LocalVariableReadNode`
+///   receivers and prefixed names derived from them must be ignored.
+/// - FP: Prism reports `def !@` as `name == "!"` while the source spelling is
+///   `!@`. Matching on `name_loc()` keeps unary `!@` from falsely looking like a
+///   delegation to unary `!`.
+/// - FN: outer `private` leaked into defs nested inside non-scope bodies
+///   (`Struct.new do ... end`, `if/else`, etc.). RuboCop only applies outer
+///   visibility to sibling defs in the same scope, so nested bodies now get an
+///   AST-aware override unless they declare visibility inline or within that same
+///   nested body.
 pub struct Delegate;
 
 impl Cop for Delegate {
@@ -351,7 +365,7 @@ impl Cop for Delegate {
         // Check method name matching:
         // 1. Direct match: def foo; bar.foo; end
         // 2. Prefixed match (when EnforceForPrefixed): def bar_foo; bar.foo; end
-        let def_name = def_node.name().as_slice();
+        let def_name = def_node.name_loc().as_slice();
         let call_name = call.name().as_slice();
 
         // Must have a receiver (delegating to another object)
@@ -423,8 +437,6 @@ impl Cop for Delegate {
                     && recv_call.arguments().is_none()
                     && recv_call.block().is_none()
             }
-        } else if receiver.as_local_variable_read_node().is_some() {
-            true
         } else {
             receiver.as_constant_read_node().is_some() || receiver.as_constant_path_node().is_some()
         };
@@ -479,11 +491,10 @@ impl Cop for Delegate {
         }
 
         // Skip private/protected methods — RuboCop only flags public methods.
-        // Exception: defs inside conditional blocks (if/unless/case/etc.) are NOT
-        // affected by a preceding `private` keyword in RuboCop's AST-based sibling
-        // check, because the def is a child of the conditional node, not the class body.
+        // Outer visibility does not flow into defs nested inside block/if/etc. bodies;
+        // only inline visibility or visibility declared in that same nested body applies.
         if crate::cop::util::is_private_or_protected(source, node.location().start_offset())
-            && !is_inside_conditional_block(source, node.location().start_offset())
+            && !outer_visibility_does_not_apply(source, node)
         {
             return;
         }
@@ -509,17 +520,20 @@ impl Cop for Delegate {
     }
 }
 
-/// Check if a def is inside a conditional/begin block at the class body level.
-/// RuboCop's VisibilityHelp uses AST sibling checks — a `def` inside an if/else/case
-/// block is NOT a sibling of `private`, so `private` doesn't affect it.
-/// Returns true if the def is inside such a block.
-fn is_inside_conditional_block(source: &SourceFile, def_offset: usize) -> bool {
+/// RuboCop's visibility helper only applies outer `private`/`protected` to sibling defs in
+/// the same class/module/sclass body. If a def is nested inside an `if`, `block`, etc., the
+/// outer visibility should be ignored unless the nested body itself sets visibility (or the
+/// def uses an inline modifier like `private def foo`).
+fn outer_visibility_does_not_apply(source: &SourceFile, def_node: &ruby_prism::Node<'_>) -> bool {
+    let def_offset = def_node.location().start_offset();
+    if has_inline_visibility_modifier(source, def_offset) {
+        return false;
+    }
+
     let (def_line, def_col) = source.offset_to_line_col(def_offset);
     let lines: Vec<&[u8]> = source.lines().collect();
+    let mut nested_body_visibility_private = false;
 
-    // Scan backwards from the def to find an enclosing block-opening keyword
-    // at a LOWER indent than the def. If found before a class/module/end
-    // boundary, the def is nested inside a conditional.
     for line in lines[..def_line.saturating_sub(1)].iter().rev() {
         let indent = line
             .iter()
@@ -527,40 +541,41 @@ fn is_inside_conditional_block(source: &SourceFile, def_offset: usize) -> bool {
             .count();
         let trimmed = &line[indent..];
 
-        // Skip blank lines and comments
         if trimmed.is_empty() || trimmed.starts_with(b"#") {
             continue;
         }
 
-        // Stop at class/module boundary at lower indent — we've left the scope
-        if indent < def_col && (trimmed.starts_with(b"class ") || trimmed.starts_with(b"module ")) {
-            return false;
+        // Visibility inside the SAME nested body still applies, so remember the most
+        // recent same-indent visibility keyword we saw before reaching the opener.
+        if indent == def_col {
+            if is_bare_visibility_keyword(trimmed, b"private")
+                || is_bare_visibility_keyword(trimmed, b"protected")
+            {
+                nested_body_visibility_private = true;
+            } else if is_bare_visibility_keyword(trimmed, b"public") {
+                nested_body_visibility_private = false;
+            }
         }
 
-        // Stop at `def ` at same indent — reached another method definition
-        if indent == def_col && trimmed.starts_with(b"def ") {
-            return false;
-        }
-
-        // Stop at `end` at lower indent — crossed out of a sibling method/block
-        // scope. Without this, conditional keywords (rescue/ensure/elsif/etc.)
-        // from inside OTHER methods would falsely match.
+        // A lower-indented `end` or scope opener means we left the nested body.
         if indent < def_col
             && (trimmed == b"end"
                 || trimmed.starts_with(b"end ")
                 || trimmed.starts_with(b"end;")
-                || trimmed.starts_with(b"end#"))
+                || trimmed.starts_with(b"end#")
+                || trimmed.starts_with(b"class ")
+                || trimmed.starts_with(b"module "))
         {
             return false;
         }
 
-        // Check for block-opening keywords at lower indent (the class body level).
-        // These indicate the def is nested inside a conditional/loop/begin block.
+        // A lower-indented conditional/block opener means the def is nested inside that
+        // body, so outer class/module visibility does not apply unless that body itself
+        // declared `private`/`protected`.
         if indent < def_col
             && (trimmed.starts_with(b"if ")
                 || trimmed.starts_with(b"unless ")
                 || trimmed.starts_with(b"case ")
-                || trimmed.starts_with(b"case\n")
                 || trimmed.starts_with(b"while ")
                 || trimmed.starts_with(b"until ")
                 || trimmed.starts_with(b"for ")
@@ -570,11 +585,62 @@ fn is_inside_conditional_block(source: &SourceFile, def_offset: usize) -> bool {
                 || trimmed.starts_with(b"elsif ")
                 || trimmed.starts_with(b"when ")
                 || trimmed.starts_with(b"rescue")
-                || trimmed.starts_with(b"ensure"))
+                || trimmed.starts_with(b"ensure")
+                || has_do_block_opener(trimmed))
         {
+            return !nested_body_visibility_private;
+        }
+    }
+
+    false
+}
+
+fn has_inline_visibility_modifier(source: &SourceFile, def_offset: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut line_start = def_offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+
+    let trimmed = bytes[line_start..def_offset]
+        .iter()
+        .copied()
+        .skip_while(|&b| b == b' ' || b == b'\t')
+        .collect::<Vec<u8>>();
+
+    trimmed.starts_with(b"private ")
+        || trimmed.starts_with(b"private(")
+        || trimmed.starts_with(b"protected ")
+        || trimmed.starts_with(b"protected(")
+        || trimmed.starts_with(b"private_class_method ")
+}
+
+fn is_bare_visibility_keyword(trimmed: &[u8], keyword: &[u8]) -> bool {
+    trimmed == keyword
+        || trimmed.strip_prefix(keyword).is_some_and(|rest| {
+            rest.starts_with(b" ")
+                && rest[1..]
+                    .iter()
+                    .all(|&b| b == b' ' || b == b'\t' || b == b'\r')
+                || rest.starts_with(b" #")
+        })
+}
+
+fn has_do_block_opener(trimmed: &[u8]) -> bool {
+    if trimmed == b"do" || trimmed.starts_with(b"do ") {
+        return true;
+    }
+
+    for (idx, window) in trimmed.windows(3).enumerate() {
+        if window != b" do" {
+            continue;
+        }
+        let next = trimmed.get(idx + 3).copied();
+        if next.is_none() || next == Some(b' ') || next == Some(b'|') {
             return true;
         }
     }
+
     false
 }
 
@@ -593,9 +659,6 @@ fn get_receiver_name(receiver: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
         {
             return Some(recv_call.name().as_slice().to_vec());
         }
-    }
-    if let Some(lv) = receiver.as_local_variable_read_node() {
-        return Some(lv.name().as_slice().to_vec());
     }
     if let Some(iv) = receiver.as_instance_variable_read_node() {
         // ivar name includes @, e.g. @foo → prefix is "@foo"

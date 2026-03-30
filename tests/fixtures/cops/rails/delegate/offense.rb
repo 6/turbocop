@@ -222,3 +222,34 @@ def length
 ^^^ Rails/Delegate: Use `delegate` to define delegations.
   @parts.length
 end
+
+# Outer `private` should not suppress delegations nested inside a block body.
+class StructuredFrames
+  private
+
+  Env = Struct.new(:frames, keyword_init: true) do
+    def pop = frames.pop
+    ^ Rails/Delegate: Use `delegate` to define delegations.
+  end
+end
+
+# Outer `private` should not suppress delegations nested inside an else body,
+# even when another def appears earlier in the same branch.
+class KeyHandler
+  private
+
+  if GTK4
+    def connect_key(keyval, modifier, flags, &block)
+      @user_accel_group.connect(keyval, modifier, flags, &block)
+    end
+  else
+    def connect_key(keyval, modifier, flags, &block)
+      @user_accel_group.connect(keyval, modifier, flags, &block)
+    end
+
+    def disconnect_key(keyval, modifier)
+    ^^^ Rails/Delegate: Use `delegate` to define delegations.
+      @user_accel_group.disconnect_key(keyval, modifier)
+    end
+  end
+end
