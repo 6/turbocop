@@ -6,3 +6,30 @@
 
 a.intersection(b).any?
 ^^^^^^^^^^^^^^^^^^^^^^ Style/ArrayIntersect: Use `intersect?` instead of `intersection(...).any?`.
+
+(a & b).count > 0
+^^^^^^^^^^^^^^^^^ Style/ArrayIntersect: Use `a.intersect?(b)` instead of `(a & b).count > 0`.
+
+(a & b).size > 0
+^^^^^^^^^^^^^^^^ Style/ArrayIntersect: Use `a.intersect?(b)` instead of `(a & b).size > 0`.
+
+(a & b).length > 0
+^^^^^^^^^^^^^^^^^^ Style/ArrayIntersect: Use `a.intersect?(b)` instead of `(a & b).length > 0`.
+
+(a & b).count == 0
+^^^^^^^^^^^^^^^^^^ Style/ArrayIntersect: Use `a.intersect?(b)` instead of `(a & b).count == 0`.
+
+(a & b).count != 0
+^^^^^^^^^^^^^^^^^^ Style/ArrayIntersect: Use `a.intersect?(b)` instead of `(a & b).count != 0`.
+
+(a & b).count.positive?
+^^^^^^^^^^^^^^^^^^^^^^^ Style/ArrayIntersect: Use `a.intersect?(b)` instead of `(a & b).count.positive?`.
+
+(a & b).count.zero?
+^^^^^^^^^^^^^^^^^^^ Style/ArrayIntersect: Use `a.intersect?(b)` instead of `(a & b).count.zero?`.
+
+a.intersection(b).size > 0
+^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ArrayIntersect: Use `a.intersect?(b)` instead of `a.intersection(b).size > 0`.
+
+a.intersection(b).count.positive?
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ArrayIntersect: Use `a.intersect?(b)` instead of `a.intersection(b).count.positive?`.
