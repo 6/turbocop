@@ -61,8 +61,9 @@ impl Cop for QuotedSymbols {
                 return;
             }
 
-            let has_interpolation =
-                inner.windows(2).any(|w| w == b"#{" || w == b"#@" || w == b"#$");
+            let has_interpolation = inner
+                .windows(2)
+                .any(|w| w == b"#{" || w == b"#@" || w == b"#$");
 
             if has_interpolation {
                 return; // Double quotes needed
