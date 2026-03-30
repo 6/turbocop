@@ -832,23 +832,20 @@ impl Cop for FirstArrayElementIndentation {
                     let paren_scan = find_left_paren_on_line(open_line_bytes, open_byte_col);
                     if let Some(paren_byte_col) = paren_scan.paren_col {
                         let paren_col = byte_col_to_char_col(open_line_bytes, paren_byte_col);
-                        let super_call_paren =
-                            is_super_call_paren(open_line_bytes, paren_byte_col);
+                        let super_call_paren = is_super_call_paren(open_line_bytes, paren_byte_col);
                         let intermediate_method_call = hash_key_byte_col.is_some_and(|hk| {
                             has_method_call_between(open_line_bytes, paren_byte_col + 1, hk)
                         });
-                        let use_paren_relative =
-                            !super_call_paren
-                                &&
-                            !is_preceded_by_percent_operator(open_line_bytes, open_byte_col)
-                                && !paren_scan.has_binary_operator_at_depth_zero
-                                && !paren_scan.is_grouping_paren
-                                && !intermediate_method_call
-                                && is_direct_argument(
-                                    source.as_bytes(),
-                                    closing_end_offset,
-                                    paren_scan.has_unmatched_brace,
-                                );
+                        let use_paren_relative = !super_call_paren
+                            && !is_preceded_by_percent_operator(open_line_bytes, open_byte_col)
+                            && !paren_scan.has_binary_operator_at_depth_zero
+                            && !paren_scan.is_grouping_paren
+                            && !intermediate_method_call
+                            && is_direct_argument(
+                                source.as_bytes(),
+                                closing_end_offset,
+                                paren_scan.has_unmatched_brace,
+                            );
                         if use_paren_relative {
                             (
                                 paren_col + 1,
