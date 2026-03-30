@@ -95,6 +95,12 @@ around do |&block|
     block.call
   end
 end
+around :exec do |proxy|
+  proxy.call
+end
+around :exec do |proxy|
+  proxy.run
+end
 # around with multiple args beyond sym doesn't match hook_block pattern
 around(:each, net_connect: true) do |ex|
   ex.run_with_retry retry: 2
