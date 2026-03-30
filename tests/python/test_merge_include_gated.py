@@ -241,10 +241,10 @@ def test_noop_when_ig_has_no_activity():
     assert merged["summary"]["matches"] == 900
 
 
-def test_does_not_overwrite_active_main_cop():
-    """If a cop already has data in main, it is NOT replaced."""
+def test_overrides_active_main_cop():
+    """IG data is authoritative — it replaces main data even when main is active."""
     main = _make_main()
-    # Give ReversibleMigration some data in main
+    # Give ReversibleMigration some data in main (e.g., from scan_roots asymmetry)
     for c in main["by_cop"]:
         if c["cop"] == "Rails/ReversibleMigration":
             c["matches"] = 10
@@ -253,9 +253,9 @@ def test_does_not_overwrite_active_main_cop():
 
     merged = _run_merge(main, _make_ig())
 
-    # Should keep the main data, not IG data
+    # Should be replaced with IG data (matches=15)
     cop_map = {c["cop"]: c for c in merged["by_cop"]}
-    assert cop_map["Rails/ReversibleMigration"]["matches"] == 10
+    assert cop_map["Rails/ReversibleMigration"]["matches"] == 15
 
 
 def test_overwrite_in_place():

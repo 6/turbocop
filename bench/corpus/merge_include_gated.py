@@ -6,8 +6,10 @@ Include patterns (e.g., db/**/*.rb) don't resolve when config is outside the
 repo directory. A parallel include-gated comparison runs these cops with an
 in-repo config. This script splices those results into the main results.
 
-The merge is safe because the main oracle has exactly zero data for these cops
-(both tools skip them), so there's no double-counting.
+The include-gated results are authoritative for these cops. Main comparison data
+is unreliable because the tools resolve Include patterns differently (nitrocop
+uses scan_roots, RuboCop doesn't). The merge unconditionally replaces main data
+with include-gated data for any cop that has IG activity.
 
 See docs/investigation-target-dir-relativization.md for full context.
 
@@ -34,7 +36,8 @@ def trunc4(rate: float) -> float:
 def merge(main: dict, ig: dict) -> dict:
     """Merge include-gated results into main corpus-results.json.
 
-    Only replaces cops that have activity in IG AND zero activity in main.
+    Replaces main entries with IG data for any cop that has IG activity.
+    IG data is authoritative — main data for these cops is unreliable.
     Returns the modified main dict.
     """
     # Build lookup of main by_cop entries by cop name
@@ -60,18 +63,23 @@ def merge(main: dict, ig: dict) -> dict:
             continue
 
         main_entry = main["by_cop"][idx]
-        main_inactive = main_entry["matches"] + main_entry["fp"] + main_entry["fn"] == 0
-        if not main_inactive:
-            # Safety: don't overwrite a cop that already has data in main
-            print(f"WARNING: skipping {cop_name} — already has data in main", file=sys.stderr)
-            continue
+        main_active = main_entry["matches"] + main_entry["fp"] + main_entry["fn"] > 0
+        if main_active:
+            # Include-gated data is authoritative for these cops. Main comparison
+            # data is unreliable because Include patterns resolve differently
+            # when config is outside the repo dir (scan_roots makes nitrocop
+            # match but RuboCop still fails → asymmetric FP). Log the override.
+            print(f"NOTE: overriding {cop_name} main data (m={main_entry['matches']}, "
+                  f"fp={main_entry['fp']}, fn={main_entry['fn']}) with include-gated results "
+                  f"(m={ig_entry['matches']}, fp={ig_entry['fp']}, fn={ig_entry['fn']})",
+                  file=sys.stderr)
 
         # Replace the main entry with IG data
         main["by_cop"][idx] = ig_entry
         merged_cops.append(cop_name)
 
     if not merged_cops:
-        print("No cops merged (include-gated results had no active cops with zero main data)", file=sys.stderr)
+        print("No cops merged (include-gated results had no active cops)", file=sys.stderr)
         return main
 
     print(f"Merged {len(merged_cops)} cops: {', '.join(sorted(merged_cops))}", file=sys.stderr)
