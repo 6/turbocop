@@ -105,3 +105,34 @@ elsif word =~ /\Aorder:\w+\z/i
 elsif word =~ /\Ain:title\z/i || word == "t"
 elsif word =~ /\Ain:likes\z/i
 end
+
+# Full Discourse-like context in a block should still be detected
+term.to_s.map do |(word, _)|
+  next if word.blank?
+
+  found = false
+
+  Search.advanced_filters.each do |matcher, block|
+    case_insensitive_matcher =
+      Regexp.new(matcher.source, matcher.options | Regexp::IGNORECASE)
+
+    cleaned = word.gsub(/["']/, "")
+    if cleaned =~ case_insensitive_matcher
+      (@filters ||= []) << [block, $1]
+      found = true
+    end
+  end
+
+  if word == "l"
+  ^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.
+    @order = :latest
+    nil
+  elsif word =~ /\Aorder:\w+\z/i
+    @order = word.downcase.gsub("order:", "").to_sym
+    nil
+  elsif word =~ /\Ain:title\z/i || word == "t"
+    @in_title = true
+  elsif word =~ /\Ain:likes\z/i
+    @in_likes = true
+  end
+end
