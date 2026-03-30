@@ -9,3 +9,10 @@ alpha & beta
 (array1 & array2).size
 (array1 & array2).length
 (array1 & array2).count
+
+# Size comparisons with non-zero values are not offenses
+(a & b).count > 1
+(a & b).count == 1
+(a & b).size > 1
+a.intersection(b).count > 1
+a.intersection(b).count == 1
