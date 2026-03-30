@@ -105,9 +105,7 @@ impl Cop for UnspecifiedException {
     }
 }
 
-fn find_empty_exception_matchers<'a>(
-    node: ruby_prism::Node<'a>,
-) -> Vec<ruby_prism::CallNode<'a>> {
+fn find_empty_exception_matchers<'a>(node: ruby_prism::Node<'a>) -> Vec<ruby_prism::CallNode<'a>> {
     let Some(call) = node.as_call_node() else {
         return Vec::new();
     };
