@@ -1321,7 +1321,11 @@ fn stmt_example_scope_var_interaction(
             // Args to hooks/lets/subjects are part of the leaky reference.
             let mut result = if !is_rspec_example(name) {
                 if let Some(args) = call.arguments() {
-                    if args.arguments().iter().any(|arg| node_references_var(&arg, var_name)) {
+                    if args
+                        .arguments()
+                        .iter()
+                        .any(|arg| node_references_var(&arg, var_name))
+                    {
                         VarInteraction::ReadOnly
                     } else {
                         VarInteraction::None
@@ -1382,8 +1386,7 @@ fn stmt_example_scope_var_interaction(
                                 .iter()
                                 .any(|s| node_references_var(&s, var_name));
                             if has_read {
-                                result =
-                                    combine_var_interactions(result, VarInteraction::ReadOnly);
+                                result = combine_var_interactions(result, VarInteraction::ReadOnly);
                             }
                         }
                     }
