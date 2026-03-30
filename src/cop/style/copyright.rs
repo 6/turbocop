@@ -107,9 +107,8 @@ impl Cop for Copyright {
                 continue;
             }
 
-            if trimmed.starts_with('#') {
+            if let Some(after_hash) = trimmed.strip_prefix('#') {
                 // RuboCop: token.text.sub(/\A# */, '') — strip first '#' then leading spaces
-                let after_hash = &trimmed[1..];
                 let comment_content = after_hash.trim_start_matches(' ');
                 multiline_notice.push_str(comment_content);
 
