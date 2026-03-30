@@ -33,3 +33,9 @@ def fetch uri, method = :get, headers = {}, params = [],
 ^ Layout/EmptyLinesAroundMethodBody: Extra empty line detected at method body beginning.
   request = build_request(uri, method, headers, params)
 end
+def self.get_single_choice(message, caption, choices, parent = nil,
+                           initial_selection: 0,
+                           pos: Wx::DEFAULT_POSITION) end
+
+^ Layout/EmptyLinesAroundMethodBody: Extra empty line detected at method body beginning.
+# Get the user selection as an index.

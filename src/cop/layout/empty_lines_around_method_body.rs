@@ -22,6 +22,17 @@ use crate::parse::source::SourceFile;
 /// parentheses. Earlier fixes in this cop already covered whitespace-only lines
 /// (not offenses) and multiline endless methods by using the `=` line as the
 /// body-start anchor.
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// FN=5: empty multiline method definitions like
+/// `def self.foo(a,\n             b) end` were still missed when followed by a
+/// blank line. The shared body helper exits when the computed body-start line
+/// equals the `end` line, which is correct for single-line defs but wrong for
+/// multiline empty defs whose signature and `end` share the last line. This
+/// cop now special-cases that narrow shape and treats the blank line
+/// immediately after the definition as a method-body-beginning offense,
+/// matching RuboCop.
 pub struct EmptyLinesAroundMethodBody;
 
 impl Cop for EmptyLinesAroundMethodBody {
@@ -61,7 +72,16 @@ impl Cop for EmptyLinesAroundMethodBody {
                 keyword_offset,
                 end_loc.start_offset(),
                 "method",
-                corrections,
+                corrections.as_mut().map(|corr| &mut **corr),
+            ));
+
+            diagnostics.extend(check_empty_line_after_empty_multiline_method_definition(
+                self.name(),
+                source,
+                &def_node,
+                keyword_offset,
+                end_loc.start_offset(),
+                corrections.as_mut().map(|corr| &mut **corr),
             ));
         } else if let Some(equal_loc) = def_node.equal_loc() {
             // Endless method (`def foo = expr`)
@@ -113,6 +133,68 @@ impl Cop for EmptyLinesAroundMethodBody {
             }
         }
     }
+}
+
+fn check_empty_line_after_empty_multiline_method_definition(
+    cop_name: &'static str,
+    source: &SourceFile,
+    def_node: &ruby_prism::DefNode<'_>,
+    body_start_offset: usize,
+    end_offset: usize,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+) -> Vec<Diagnostic> {
+    if def_node.body().is_some() {
+        return Vec::new();
+    }
+
+    let def_offset = def_node.def_keyword_loc().start_offset();
+    let (def_line, _) = source.offset_to_line_col(def_offset);
+    let (body_start_line, _) = source.offset_to_line_col(body_start_offset);
+    let (end_line, _) = source.offset_to_line_col(end_offset);
+
+    // RuboCop still treats a blank line after `def foo(\n  bar) end` as being at
+    // the method body beginning, but only when the multiline signature and the
+    // `end` share the same final line.
+    if body_start_line != end_line || body_start_line == def_line {
+        return Vec::new();
+    }
+
+    let blank_line = end_line + 1;
+    let Some(line) = util::line_at(source, blank_line) else {
+        return Vec::new();
+    };
+    if !util::is_blank_line(line) {
+        return Vec::new();
+    }
+
+    let mut diag = Diagnostic {
+        path: source.path_str().to_string(),
+        location: crate::diagnostic::Location {
+            line: blank_line,
+            column: 0,
+        },
+        severity: crate::diagnostic::Severity::Convention,
+        cop_name: cop_name.to_string(),
+        message: "Extra empty line detected at method body beginning.".to_string(),
+        corrected: false,
+    };
+    if let Some(ref mut corr) = corrections {
+        if let Some(start) = source.line_col_to_offset(blank_line, 0) {
+            let end = source
+                .line_col_to_offset(blank_line + 1, 0)
+                .unwrap_or(source.content.len());
+            corr.push(crate::correction::Correction {
+                start,
+                end,
+                replacement: String::new(),
+                cop_name,
+                cop_index: 0,
+            });
+            diag.corrected = true;
+        }
+    }
+
+    vec![diag]
 }
 
 fn regular_method_body_start_offset(
@@ -210,6 +292,29 @@ mod tests {
             "Should flag blank line after continued def signature: {diags:?}"
         );
         assert!(diags[0].message.contains("beginning"));
+    }
+
+    #[test]
+    fn multiline_empty_def_blank_after_end() {
+        let src =
+            b"def self.foo(a,\n             b) end\n\n# comment\n";
+        let diags = run_cop_full(&EmptyLinesAroundMethodBody, src);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag blank line after empty multiline def: {diags:?}"
+        );
+        assert!(diags[0].message.contains("beginning"));
+    }
+
+    #[test]
+    fn multiline_empty_def_no_blank_no_offense() {
+        let src = b"def self.foo(a,\n             b) end\n# comment\n";
+        let diags = run_cop_full(&EmptyLinesAroundMethodBody, src);
+        assert!(
+            diags.is_empty(),
+            "Empty multiline def without blank should not trigger: {diags:?}"
+        );
     }
 
     #[test]
