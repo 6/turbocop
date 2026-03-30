@@ -36,15 +36,35 @@ use crate::parse::source::SourceFile;
 /// Prism's comment bytes always start with `#`, so anchoring the regex with
 /// `^` ensures only actual directives at the start of the comment are matched.
 /// All 5 FPs were from rubocop's own source (YARD docs) and a shoryuken spec.
+///
+/// ## Investigation notes (2026-03-30)
+///
+/// 85 FNs + 1 FP remaining: The `^` anchor prevented matching inline
+/// directives embedded in longer comments (e.g., `# some text # rubocop:disable Foo`
+/// or `#: type_annotation # rubocop:disable Style/RedundantSelf`). Prism
+/// treats the whole line comment as one node, so the directive is not at
+/// position 0 of the comment bytes.
+///
+/// Fix: Removed the `^` anchor and instead use a strict cop-name pattern
+/// (`[A-Za-z]\w+(/[A-Za-z]\w+)*` or `all`) so that YARD prose like
+/// `# rubocop:enable ...` doesn't match (since `...` isn't a valid cop name).
+/// Also skip `disable all` and `todo all` directives because they suppress
+/// all cops including this one — RuboCop never reports an offense for them.
 pub struct DisableCopsWithinSourceCodeDirective;
 
 /// Regex matching rubocop directive comments with flexible whitespace,
 /// mirroring RuboCop's `DirectiveComment::DIRECTIVE_COMMENT_REGEXP`.
-/// Anchored to `^` since Prism comment bytes always start with `#`,
-/// preventing matches against directive-like text embedded in prose.
+/// Not anchored to `^` so it matches inline directives embedded in longer
+/// comments (e.g. `# some text # rubocop:disable Foo`). Uses a strict
+/// cop-name pattern instead to avoid matching YARD prose that mentions
+/// directives (e.g. `# rubocop:enable ...` where `...` is not a cop name).
 /// Captures: (1) mode (disable/enable/todo), (2) cop list.
-static DIRECTIVE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^#\s*rubocop\s*:\s*(disable|enable|todo)\s+(.+)").unwrap());
+static DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"#\s*rubocop\s*:\s*(disable|enable|todo)\s+(all\b|[A-Za-z]\w+(?:/[A-Za-z]\w+)*(?:\s*,\s*[A-Za-z]\w+(?:/[A-Za-z]\w+)*)*)",
+    )
+    .unwrap()
+});
 
 impl Cop for DisableCopsWithinSourceCodeDirective {
     fn name(&self) -> &'static str {
@@ -77,7 +97,15 @@ impl Cop for DisableCopsWithinSourceCodeDirective {
                 continue;
             };
 
+            let mode = &caps[1];
             let cop_list_raw = &caps[2];
+
+            // `# rubocop:disable all` and `# rubocop:todo all` suppress all
+            // cops including this one, so RuboCop never reports an offense for
+            // them.  Skip to avoid FPs.
+            if (mode == "disable" || mode == "todo") && cop_list_raw.trim() == "all" {
+                continue;
+            }
 
             // Strip trailing comment marker (-- reason)
             let cop_list = match cop_list_raw.find("--") {
