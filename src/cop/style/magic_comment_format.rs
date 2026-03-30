@@ -174,8 +174,7 @@ impl MagicCommentFormat {
             "kebab_case" => Self::has_underscores(directive),
             _ => false,
         };
-        let wrong_capitalization =
-            Self::wrong_capitalization(directive, directive_capitalization);
+        let wrong_capitalization = Self::wrong_capitalization(directive, directive_capitalization);
 
         if wrong_separator || wrong_capitalization {
             // Find the directive position in the line
