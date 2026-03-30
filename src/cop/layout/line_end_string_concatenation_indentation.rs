@@ -48,6 +48,22 @@ use ruby_prism::Visit;
 /// (set `Other`), `ParenthesesNode` (set `Begin`), and distinguished explicit
 /// vs implicit `BeginNode`. Multi-statement `StatementsNode` bodies set
 /// `Begin` to match Parser's `:begin` wrapper behavior.
+///
+/// ## Investigation findings (2026-03-30)
+///
+/// **Remaining 193 FNs:** Prism exposes two shapes that this cop was still
+/// mishandling. (1) In aligned mode, same-line adjacent literals inside a
+/// continued string (for example `'...'"\\r\\n" \\`) remain separate parts,
+/// but only the transition to the next line needs a trailing backslash. The
+/// old code required a backslash between every adjacent Prism part and returned
+/// early before alignment checks ran. (2) In always-indented contexts, the
+/// base column was computed by counting only leading spaces, so tab-indented
+/// method bodies looked already-correct and suppressed the first indent
+/// offense.
+///
+/// **Fix:** Only require backslashes when consecutive Prism parts start on
+/// different physical lines, and compute the indented base column from the
+/// first non-whitespace character so tabs match RuboCop's column accounting.
 pub struct LineEndStringConcatenationIndentation;
 
 impl Cop for LineEndStringConcatenationIndentation {
@@ -118,6 +134,36 @@ enum ParentType {
 }
 
 impl ConcatVisitor<'_> {
+    fn part_start_line_col(&self, part: &ruby_prism::Node<'_>) -> (usize, usize) {
+        self.source
+            .offset_to_line_col(part.location().start_offset())
+    }
+
+    fn part_is_single_line(&self, part: &ruby_prism::Node<'_>) -> bool {
+        let loc = part.location();
+        let (start_line, _) = self.source.offset_to_line_col(loc.start_offset());
+        let (end_line, _) = self
+            .source
+            .offset_to_line_col(loc.end_offset().saturating_sub(1).max(loc.start_offset()));
+        start_line == end_line
+    }
+
+    fn line_indent_column(&self, line_num: usize) -> usize {
+        if line_num == 0 {
+            return 0;
+        }
+
+        let lines: Vec<&[u8]> = self.source.lines().collect();
+        lines
+            .get(line_num - 1)
+            .map(|line| {
+                line.iter()
+                    .take_while(|&&b| b.is_ascii_whitespace())
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
     fn check_dstr(&mut self, node: &ruby_prism::InterpolatedStringNode<'_>) {
         let parts: Vec<_> = node.parts().iter().collect();
         if parts.len() < 2 {
@@ -127,30 +173,29 @@ impl ConcatVisitor<'_> {
         // Check that this is a backslash-concatenated string (multiline dstr
         // where each child is a single-line string/dstr part)
         let bytes = self.source.as_bytes();
-        let (first_line, _) = self
-            .source
-            .offset_to_line_col(parts[0].location().start_offset());
-        let (last_line, _) = self
-            .source
-            .offset_to_line_col(parts.last().unwrap().location().start_offset());
+        let (first_line, _) = self.part_start_line_col(&parts[0]);
+        let (last_line, _) = self.part_start_line_col(parts.last().unwrap());
         if first_line == last_line {
             return; // Not multiline
         }
 
-        // Check that each part is single-line and separated by backslash
+        // Check that each part is single-line.
         for part in &parts {
-            let loc = part.location();
-            let (sl, _) = self.source.offset_to_line_col(loc.start_offset());
-            let (el, _) = self
-                .source
-                .offset_to_line_col(loc.end_offset().saturating_sub(1).max(loc.start_offset()));
-            if sl != el {
+            if !self.part_is_single_line(part) {
                 return; // Multi-line part
             }
         }
 
-        // Check backslash between parts
+        // Prism keeps same-line adjacent literals as separate parts. RuboCop
+        // still treats these as one continued expression as long as each
+        // transition to the next physical line is a backslash continuation.
         for pair in parts.windows(2) {
+            let (left_line, _) = self.part_start_line_col(&pair[0]);
+            let (right_line, _) = self.part_start_line_col(&pair[1]);
+            if left_line == right_line {
+                continue;
+            }
+
             let end_offset = pair[0].location().end_offset();
             let start_offset = pair[1].location().start_offset();
             let between = &bytes[end_offset..start_offset];
@@ -185,27 +230,15 @@ impl ConcatVisitor<'_> {
         // Get column positions of each part
         let columns: Vec<usize> = parts
             .iter()
-            .map(|p| {
-                let (_, col) = self.source.offset_to_line_col(p.location().start_offset());
-                col
-            })
+            .map(|p| self.part_start_line_col(p).1)
             .collect();
 
         if use_indented && columns.len() >= 2 {
             // First, check indentation of the second part
-            // base_column = indentation of the first part's source line
-            let (first_part_line, _) = self
-                .source
-                .offset_to_line_col(parts[0].location().start_offset());
-            let first_line_indent = if first_part_line > 0 {
-                let lines: Vec<&[u8]> = self.source.lines().collect();
-                lines[first_part_line - 1]
-                    .iter()
-                    .take_while(|&&b| b == b' ')
-                    .count()
-            } else {
-                0
-            };
+            // base_column = first non-whitespace column of the first part's
+            // source line, matching RuboCop's `source_line =~ /\S/`.
+            let (first_part_line, _) = self.part_start_line_col(&parts[0]);
+            let first_line_indent = self.line_indent_column(first_part_line);
 
             let expected_indent = first_line_indent + self.indent_width;
 
