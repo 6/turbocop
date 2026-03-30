@@ -476,12 +476,7 @@ mod tests {
     #[test]
     fn detects_zero_index_as_argument_of_safe_navigation_bracket_call() {
         let d = run(b"foo&.[](arr[0])\n");
-        assert_eq!(
-            d.len(),
-            1,
-            "Should flag arr[0] under &.[] parent: {:?}",
-            d
-        );
+        assert_eq!(d.len(), 1, "Should flag arr[0] under &.[] parent: {:?}", d);
     }
 
     #[test]
