@@ -26,7 +26,7 @@ const MAGIC_COMMENT_DIRECTIVES: &[&str] = &[
 ];
 
 impl MagicCommentFormat {
-    fn directive_capitalization<'a>(config: &'a CopConfig) -> Option<&'a str> {
+    fn directive_capitalization(config: &CopConfig) -> Option<&str> {
         match config.options.get("DirectiveCapitalization") {
             Some(value) => value.as_str(),
             None => Some("lowercase"),
@@ -123,16 +123,16 @@ impl Cop for MagicCommentFormat {
                     if let Some(colon_pos) = part.find(':') {
                         let directive = part[..colon_pos].trim();
                         if Self::is_magic_comment_directive(directive) {
-                            Self::check_directive_style(
-                                diagnostics,
+                            if let Some(diagnostic) = self.check_directive_style(
                                 source,
                                 i,
                                 line,
                                 directive,
                                 style,
                                 directive_capitalization,
-                                self,
-                            );
+                            ) {
+                                diagnostics.push(diagnostic);
+                            }
                         }
                     }
                 }
@@ -141,16 +141,16 @@ impl Cop for MagicCommentFormat {
                 if let Some(colon_pos) = content.find(':') {
                     let directive = content[..colon_pos].trim();
                     if Self::is_magic_comment_directive(directive) {
-                        Self::check_directive_style(
-                            diagnostics,
+                        if let Some(diagnostic) = self.check_directive_style(
                             source,
                             i,
                             line,
                             directive,
                             style,
                             directive_capitalization,
-                            self,
-                        );
+                        ) {
+                            diagnostics.push(diagnostic);
+                        }
                     }
                 }
             }
@@ -160,15 +160,14 @@ impl Cop for MagicCommentFormat {
 
 impl MagicCommentFormat {
     fn check_directive_style(
-        diagnostics: &mut Vec<Diagnostic>,
+        &self,
         source: &SourceFile,
         line_idx: usize,
         line: &str,
         directive: &str,
         style: &str,
         directive_capitalization: Option<&str>,
-        cop: &MagicCommentFormat,
-    ) {
+    ) -> Option<Diagnostic> {
         let wrong_separator = match style {
             "snake_case" => Self::has_dashes(directive),
             "kebab_case" => Self::has_underscores(directive),
@@ -180,14 +179,13 @@ impl MagicCommentFormat {
             // Find the directive position in the line
             if let Some(pos) = line.find(directive) {
                 let line_num = line_idx + 1;
-                let expected_style = match Self::expected_style(style, directive_capitalization) {
-                    Some(expected_style) => expected_style,
-                    None => return,
-                };
+                let expected_style = Self::expected_style(style, directive_capitalization)?;
                 let msg = format!("Prefer {expected_style} case for magic comments.");
-                diagnostics.push(cop.diagnostic(source, line_num, pos, msg));
+                return Some(self.diagnostic(source, line_num, pos, msg));
             }
         }
+
+        None
     }
 }
 
