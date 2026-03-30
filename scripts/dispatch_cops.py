@@ -694,9 +694,24 @@ def _run_nitrocop_on_file(
             pass
 
 
+BASELINE_CONFIG = PROJECT_ROOT / "bench" / "corpus" / "baseline_rubocop.yml"
+
+
 def _run_nitrocop(binary_path: Path, cwd: str, cop: str = "") -> list[dict]:
-    """Run nitrocop on test.rb in the given directory, return offenses list."""
-    cmd = [str(binary_path), "--force-default-config", "--format", "json"]
+    """Run nitrocop on test.rb in the given directory, return offenses list.
+
+    Uses the corpus baseline config (same as the corpus oracle) instead of
+    --force-default-config. This ensures pre-diagnostics match the actual
+    corpus environment: all cops enabled, plugins loaded, TargetRubyVersion
+    set, etc. Without this, cops whose behavior depends on these settings
+    are misclassified as "config-only" because the pre-diagnostic can't
+    reproduce the FP/FN.
+    """
+    cmd = [str(binary_path), "--preview", "--no-cache", "--format", "json"]
+    if BASELINE_CONFIG.exists():
+        cmd.extend(["--config", str(BASELINE_CONFIG)])
+    else:
+        cmd.append("--force-default-config")
     if cop:
         cmd.extend(["--only", cop])
     cmd.append("test.rb")
