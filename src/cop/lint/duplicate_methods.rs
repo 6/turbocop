@@ -200,9 +200,23 @@ use ruby_prism::Visit;
 ///   control-flow begin bodies as plain blocks; nested rescue handling inside class/module
 ///   scopes remains unchanged so existing rescue/ensure behavior is preserved.
 ///
-/// FN=5:
-/// - Current local fixture still includes corpus FN reproductions added before this turn.
-///   They are separate from the FP fixes above and require additional detection work.
+/// FN=5 (all resolved):
+/// - `def ConstName.method` where constant is not in scope stack AND the two definitions
+///   have different indentation (e.g., top-level vs nested in `module Azure::Core`).
+///   RuboCop uses AST S-expression as key (format-independent), but nitrocop was using
+///   raw source text (whitespace-sensitive). Fixed by normalizing body text with
+///   `dedent_source` (trim each line) before building the structural dedup key.
+///   (3 FN: azure-sdk helpers.rb)
+/// - `def ConstName.method` single-line (`def Recorder.tag; "v1"; end`) vs multi-line.
+///   Same root cause as above — body text differs in format but not structure. The
+///   `dedent_source` normalization also fixes this case. (1 FN: seedbank recorder)
+/// - `attr :symbol` (legacy Ruby attr) inside `if`/`unless` was not tracked. RuboCop's
+///   `attribute_accessor?` matches `attr` without checking `inside_condition?`, unlike
+///   `alias_method`/`delegate`/`def_delegator*`. Fixed by removing the `if_depth == 0`
+///   guard for `attr`. Also changed `process_attr_legacy` to use `extract_symbol_only`
+///   (matching RuboCop's `sym_name` pattern which only matches symbol nodes, not strings)
+///   to avoid FP on `attr 'string-name'` calls used as DSL methods.
+///   (1 FN: love2d helpers.rb)
 pub struct DuplicateMethods;
 
 impl Cop for DuplicateMethods {
@@ -460,18 +474,48 @@ impl DupMethodVisitor<'_, '_> {
                     // AST (same receiver, params, body) produce the same key and are detected
                     // as duplicates; defs with different bodies produce different keys.
                     //
-                    // We replicate this by using the source text of the def node as the
-                    // dedup key, but producing a clean `ConstName.method` message format.
-                    let loc = node.location();
-                    let start = loc.start_offset();
-                    let end_off = loc.end_offset();
+                    // We replicate this by building a structural key from the body and
+                    // parameters text, normalized to remove indentation differences.
+                    // This matches RuboCop's AST-dump key behavior: structurally identical
+                    // defs (same body/params) produce the same key regardless of formatting
+                    // (indentation, single-line vs multi-line).
                     let source_bytes = self.source.as_bytes();
-                    if end_off <= source_bytes.len() {
-                        let def_source =
-                            std::str::from_utf8(&source_bytes[start..end_off]).unwrap_or("");
-                        // Use source text as the dedup key but const_name for the message
+                    let body_text = node
+                        .body()
+                        .map(|body| {
+                            let bloc = body.location();
+                            let bs = bloc.start_offset();
+                            let be = bloc.end_offset();
+                            if be <= source_bytes.len() {
+                                dedent_source(
+                                    std::str::from_utf8(&source_bytes[bs..be]).unwrap_or(""),
+                                )
+                            } else {
+                                String::new()
+                            }
+                        })
+                        .unwrap_or_default();
+                    let params_text = node
+                        .parameters()
+                        .map(|params| {
+                            let ploc = params.location();
+                            let ps = ploc.start_offset();
+                            let pe = ploc.end_offset();
+                            if pe <= source_bytes.len() {
+                                std::str::from_utf8(&source_bytes[ps..pe])
+                                    .unwrap_or("")
+                                    .trim()
+                                    .to_string()
+                            } else {
+                                String::new()
+                            }
+                        })
+                        .unwrap_or_default();
+                    {
                         let qualified = format!("{const_name}.{name}");
-                        let key = self.method_key(&format!("{def_source}.{name}"));
+                        let structural_key =
+                            format!("defs({const_name},{name},{params_text},{body_text})");
+                        let key = self.method_key(&format!("{structural_key}.{name}"));
 
                         if let Some(first_def) = self.definitions.get(&key) {
                             let first_line = first_def.line;
@@ -647,9 +691,9 @@ impl DupMethodVisitor<'_, '_> {
             "attr_writer" => self.process_attr(node, &arg_list, false, true),
             "attr_accessor" => self.process_attr(node, &arg_list, true, true),
             "attr" => {
-                if self.if_depth == 0 {
-                    self.process_attr_legacy(node, &arg_list);
-                }
+                // RuboCop's attribute_accessor? matches `attr` without checking
+                // inside_condition? — same as attr_reader/attr_writer/attr_accessor.
+                self.process_attr_legacy(node, &arg_list);
             }
             "def_delegator" | "def_instance_delegator" => {
                 if self.if_depth == 0 {
@@ -740,7 +784,9 @@ impl DupMethodVisitor<'_, '_> {
         if args.is_empty() {
             return;
         }
-        let name = match extract_symbol_or_string(&args[0]) {
+        // RuboCop's found_attr uses sym_name which only matches symbol nodes,
+        // not string nodes. `attr 'foo'` with a string arg is not tracked.
+        let name = match extract_symbol_only(&args[0]) {
             Some(n) => n,
             None => return,
         };
@@ -906,6 +952,18 @@ fn extract_symbol_only(node: &ruby_prism::Node<'_>) -> Option<String> {
         );
     }
     None
+}
+
+/// Normalize source text by trimming each line, producing an indentation-agnostic
+/// representation. Used for structural key comparison of `def ConstName.method`
+/// definitions where the constant is not in the scope stack — matching RuboCop's
+/// behavior where the AST S-expression (which ignores formatting) is used as the key.
+fn dedent_source(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| line.trim())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Extract a symbol or string value from a node.
