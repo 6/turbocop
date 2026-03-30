@@ -135,7 +135,8 @@ enum ParentType {
 
 impl ConcatVisitor<'_> {
     fn part_start_line_col(&self, part: &ruby_prism::Node<'_>) -> (usize, usize) {
-        self.source.offset_to_line_col(part.location().start_offset())
+        self.source
+            .offset_to_line_col(part.location().start_offset())
     }
 
     fn part_is_single_line(&self, part: &ruby_prism::Node<'_>) -> bool {
@@ -155,7 +156,11 @@ impl ConcatVisitor<'_> {
         let lines: Vec<&[u8]> = self.source.lines().collect();
         lines
             .get(line_num - 1)
-            .map(|line| line.iter().take_while(|&&b| b.is_ascii_whitespace()).count())
+            .map(|line| {
+                line.iter()
+                    .take_while(|&&b| b.is_ascii_whitespace())
+                    .count()
+            })
             .unwrap_or(0)
     }
 
