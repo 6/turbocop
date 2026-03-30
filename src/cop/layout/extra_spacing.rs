@@ -117,6 +117,17 @@ use std::ops::Range;
 ///     extract full variable names for `@foo`, `@@foo`, `$foo` sigils and
 ///     multi-character operators (`||`, `&&`, `<<`, `>>`, `||=`, etc.).
 ///     Fixes several FNs from gli, Arachni, and similar repos.
+///
+/// ## Investigation findings (2026-03-30)
+///
+/// 13. **Reported Skyline-style FPs are not emitted by this detector**: The largest
+///     remaining FP cluster is trailing whitespace on lines like `end  `. RuboCop
+///     does not report these under `Layout/ExtraSpacing` in isolation, and nitrocop
+///     also reports 0 offenses for the same snippet while still flagging the normal
+///     general case `x  = 1`. The scanner itself requires a following token
+///     (`space_count > 1 && i < line.len()`), so it cannot produce end-of-line
+///     whitespace offenses. Treat those corpus hits as config/location artifacts,
+///     not as a cop-logic bug to suppress in this file.
 pub struct ExtraSpacing;
 
 impl Cop for ExtraSpacing {
