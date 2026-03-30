@@ -96,11 +96,7 @@ impl Cop for HashSyntax {
                     };
                     let key = assoc.key();
                     !is_symbol_like_key(&key)
-                        || !is_acceptable_19_key(
-                            &key,
-                            prefer_rockets_nonalnum,
-                            target_ruby_version,
-                        )
+                        || !is_acceptable_19_key(&key, prefer_rockets_nonalnum, target_ruby_version)
                 });
 
                 if has_unconvertible {
@@ -491,7 +487,11 @@ mod tests {
             br##"task :"setup:#{provider}" => File.join(ARTIFACT_DIR, "#{provider}.box")"##;
         let diags = crate::testutil::run_cop_full(&HashSyntax, source);
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].message.contains("Use the new Ruby 1.9 hash syntax"));
+        assert!(
+            diags[0]
+                .message
+                .contains("Use the new Ruby 1.9 hash syntax")
+        );
     }
 
     #[test]
