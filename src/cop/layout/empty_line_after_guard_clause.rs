@@ -232,6 +232,43 @@ use crate::parse::source::SourceFile;
 ///    (N != M) is not considered "same line". Fix: only skip embedded expressions
 ///    when `if_start_line == if_end_line` (single-line guard). For multiline guards
 ///    with code on the end line, directly flag the offense.
+///
+/// ## Corpus investigation (2026-03-30: fixture FN batch)
+///
+/// A remaining FN cluster came from next-sibling text classification being too
+/// permissive in four narrow ways:
+///
+/// 1. **Inline comments leaking `if` into bare returns**: lines like
+///    `return '.html' # if all else falls through` were treated as modifier
+///    guards because `is_guard_line` searched the full line text. Fix: strip
+///    inline comments outside strings before same-line sibling classification.
+///
+/// 2. **Top-level `rescue` modifiers are not guard siblings**: lines like
+///    `return foo rescue 0 if cond` or `return "ip" if IPAddr.new(x) rescue false`
+///    are not `if_branch.guard_clause?` in RuboCop because the modifier `if`
+///    sits under a `rescue` expression. Fix: reject next-sibling guard
+///    suppression when the line contains a top-level `rescue`.
+///
+/// 3. **Nested ternaries inside `if` conditions**: a line like
+///    `if items.find { cond ? nil : break }` is not itself a ternary sibling.
+///    Fix: require ternary `? :` and guard keywords to appear at top level.
+///
+/// 4. **Block-form guard bodies with unterminated string literals**: a sibling
+///    `if..raise..end` whose raise string continues onto the next line is not a
+///    single-line guard clause. Fix: treat unclosed string/regex literals in the
+///    first body line as multiline, so they do not suppress the offense.
+///
+/// 5. **Percent-string interpolation is not an inline comment**: lines like
+///    `next %(#{$1}...) if cond` and `raise Error, %(#{value})` were truncated at
+///    `#{...}` by `strip_inline_comment`, so consecutive guard detection broke.
+///    Fix: teach inline-comment stripping and literal-closure checks about `%(...)`
+///    literals.
+///
+/// 6. **`end if ...` suffix belongs to the same statement**: for a multiline
+///    block guard followed by a trailing modifier (e.g. `end if next_line...`),
+///    the raw-text fast path treated the suffix as a separate next statement and
+///    raised a false positive. Fix: ignore attached modifier suffixes when checking
+///    for same-line trailing code after a multiline guard.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -421,6 +458,11 @@ impl Cop for EmptyLineAfterGuardClause {
             loc.end_offset().saturating_sub(1)
         };
 
+        // The full statement can extend past the block `end` keyword, e.g.
+        // `end if cond`. Use the node's actual end to decide whether there is a
+        // separate statement after the guard on the same physical line.
+        let statement_end_offset = loc.end_offset().saturating_sub(1);
+
         let if_end_line = source.offset_to_line_col(effective_end_offset).0;
 
         // Check for heredoc arguments — if present, the "end line" is after the
@@ -469,12 +511,15 @@ impl Cop for EmptyLineAfterGuardClause {
         let if_start_line = source.offset_to_line_col(loc.start_offset()).0;
         let mut has_code_after_multiline_guard = false;
         if heredoc_end_line.is_none() {
-            if let Some(cur_line) = lines.get(if_end_line.saturating_sub(1)) {
+            let statement_end_line = source.offset_to_line_col(statement_end_offset).0;
+            if let Some(cur_line) = lines.get(statement_end_line.saturating_sub(1)) {
                 // Compute the byte position within the line where the if node ends.
                 // effective_end_offset is a byte offset into the file; subtract the
                 // line's start byte offset to get the position within the line.
-                let line_start_byte = source.line_col_to_offset(if_end_line, 0).unwrap_or(0);
-                let end_byte_in_line = effective_end_offset.saturating_sub(line_start_byte);
+                let line_start_byte = source
+                    .line_col_to_offset(statement_end_line, 0)
+                    .unwrap_or(0);
+                let end_byte_in_line = statement_end_offset.saturating_sub(line_start_byte);
                 let after_pos = end_byte_in_line + 1;
                 if after_pos < cur_line.len() {
                     let rest = &cur_line[after_pos..];
@@ -482,7 +527,8 @@ impl Cop for EmptyLineAfterGuardClause {
                         .iter()
                         .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
                     {
-                        if rest[idx] != b'#' {
+                        let trailing = &rest[idx..];
+                        if trailing[0] != b'#' && !is_attached_modifier_suffix(trailing) {
                             if if_start_line == if_end_line {
                                 // Single-line guard with code after it on same line:
                                 // embedded expression (e.g. `arr.each { return x if cond }`)
@@ -880,6 +926,8 @@ fn starts_with_keyword(content: &[u8], keyword: &[u8]) -> bool {
 }
 
 fn is_guard_line(content: &[u8]) -> bool {
+    let content = strip_inline_comment(content);
+
     // RuboCop's next_sibling_empty_or_guard_clause? only skips when the next
     // sibling is an if/unless node that contains a guard clause. It does NOT
     // skip for bare guard statements (return, raise, etc.).
@@ -893,8 +941,13 @@ fn is_guard_line(content: &[u8]) -> bool {
     // considered guard lines for the purpose of this check.
     for keyword in GUARD_METHODS {
         if starts_with_keyword(content, keyword) {
+            if has_top_level_rescue_modifier(content) {
+                return false;
+            }
             // Check if this line also has a modifier `if` or `unless`
-            if contains_word(content, b"if") || contains_word(content, b"unless") {
+            if contains_word_at_top_level(content, b"if")
+                || contains_word_at_top_level(content, b"unless")
+            {
                 return true;
             }
             // Bare guard statement without modifier — not a guard clause
@@ -916,6 +969,8 @@ fn is_guard_line(content: &[u8]) -> bool {
 /// - `raise Error,` + `  "msg" unless cond` (argument continuation)
 /// - `raise "msg" if (` + `  long_cond` + `)` (multi-line condition)
 fn is_guard_line_with_continuations(content: &[u8], lines: &[&[u8]], line_idx: usize) -> bool {
+    let content = strip_inline_comment(content);
+
     // First check single-line (original logic)
     if is_guard_line(content) {
         return true;
@@ -958,13 +1013,15 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
             .position(|&b| b != b' ' && b != b'\t')
             .map(|s| &line[s..])
             .unwrap_or(b"");
+        let code = strip_inline_comment(trimmed_bytes);
 
         // Check if this line has a modifier `if`/`unless` BEFORE tracking depth.
         // This is important because `unless system(` has the modifier keyword before
         // the opening paren, so depth should be 0 when we check.
         if !is_first
             && depth <= 0
-            && (contains_word(trimmed_bytes, b"if") || contains_word(trimmed_bytes, b"unless"))
+            && (contains_word_at_top_level(code, b"if")
+                || contains_word_at_top_level(code, b"unless"))
         {
             // If the guard's arguments span multiple lines (comma/plus/open-paren
             // continuation), the guard fails RuboCop's `single_line?` check.
@@ -973,7 +1030,7 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
         is_first = false;
 
         // Track paren/brace depth to know when a multi-line expression closes
-        for &b in trimmed_bytes {
+        for &b in code {
             match b {
                 b'(' | b'{' | b'[' => depth += 1,
                 b')' | b'}' | b']' => depth -= 1,
@@ -982,11 +1039,7 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
         }
 
         // Check if line ends with continuation: backslash, operator, or comma
-        let stripped = trimmed_bytes
-            .iter()
-            .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
-            .map(|end| &trimmed_bytes[..=end])
-            .unwrap_or(trimmed_bytes);
+        let stripped = trim_trailing_whitespace(code);
 
         let arg_continuation = stripped.ends_with(b",") || stripped.ends_with(b"+") || depth > 0;
         let line_continuation = stripped.ends_with(b"\\");
@@ -1120,16 +1173,277 @@ fn trim_trailing_whitespace(line: &[u8]) -> &[u8] {
     &line[..end]
 }
 
+fn is_attached_modifier_suffix(content: &[u8]) -> bool {
+    starts_with_keyword(content, b"if") || starts_with_keyword(content, b"unless")
+}
+
+fn match_percent_literal(line: &[u8], i: usize) -> Option<(usize, u8, u8)> {
+    if line.get(i) != Some(&b'%') {
+        return None;
+    }
+
+    let mut delimiter_idx = i + 1;
+    let next = *line.get(delimiter_idx)?;
+
+    if next.is_ascii_alphabetic() {
+        delimiter_idx += 1;
+    }
+
+    let open = *line.get(delimiter_idx)?;
+    if open.is_ascii_alphanumeric() || open == b'_' || open.is_ascii_whitespace() {
+        return None;
+    }
+
+    let close = match open {
+        b'(' => b')',
+        b'[' => b']',
+        b'{' => b'}',
+        b'<' => b'>',
+        _ => open,
+    };
+
+    Some((delimiter_idx + 1, open, close))
+}
+
+/// Remove a trailing inline comment (`# ...`) from a line, but only when the
+/// `#` appears outside quoted strings or regex literals.
+fn strip_inline_comment(line: &[u8]) -> &[u8] {
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_regex = false;
+    let mut in_percent_literal: Option<(u8, u8, usize)> = None;
+    let mut i = 0;
+
+    while i < line.len() {
+        let b = line[i];
+        if let Some((open, close, nested_depth)) = in_percent_literal.as_mut() {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+
+            if *open != *close && b == *open {
+                *nested_depth += 1;
+                i += 1;
+                continue;
+            }
+
+            if b == *close {
+                if *nested_depth == 0 {
+                    in_percent_literal = None;
+                } else {
+                    *nested_depth -= 1;
+                }
+            }
+
+            i += 1;
+            continue;
+        }
+        if in_single_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'\'' {
+                in_single_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'"' {
+                in_double_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_regex {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'/' {
+                in_regex = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        match b {
+            b'\'' => in_single_quote = true,
+            b'"' => in_double_quote = true,
+            b'%' => {
+                if let Some((next_i, open, close)) = match_percent_literal(line, i) {
+                    in_percent_literal = Some((open, close, 0));
+                    i = next_i;
+                    continue;
+                }
+            }
+            b'/' => {
+                let is_regex_start = if i == 0 {
+                    true
+                } else {
+                    matches!(
+                        line[i - 1],
+                        b'='
+                            | b'('
+                            | b','
+                            | b'!'
+                            | b'~'
+                            | b' '
+                            | b'\t'
+                            | b'|'
+                            | b'&'
+                            | b'{'
+                            | b'['
+                            | b';'
+                            | b':'
+                    )
+                };
+                if is_regex_start {
+                    in_regex = true;
+                }
+            }
+            b'#' => return trim_trailing_whitespace(&line[..i]),
+            _ => {}
+        }
+
+        i += 1;
+    }
+
+    trim_trailing_whitespace(line)
+}
+
+fn has_top_level_rescue_modifier(line: &[u8]) -> bool {
+    contains_word_at_top_level(line, b"rescue")
+}
+
+/// Return true when the line ends inside a quoted string or regex literal,
+/// which means the expression necessarily continues onto the next line.
+fn has_unclosed_literal(line: &[u8]) -> bool {
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_regex = false;
+    let mut in_percent_literal: Option<(u8, u8, usize)> = None;
+    let mut i = 0;
+
+    while i < line.len() {
+        let b = line[i];
+        if let Some((open, close, nested_depth)) = in_percent_literal.as_mut() {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+
+            if *open != *close && b == *open {
+                *nested_depth += 1;
+                i += 1;
+                continue;
+            }
+
+            if b == *close {
+                if *nested_depth == 0 {
+                    in_percent_literal = None;
+                } else {
+                    *nested_depth -= 1;
+                }
+            }
+
+            i += 1;
+            continue;
+        }
+        if in_single_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'\'' {
+                in_single_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'"' {
+                in_double_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_regex {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'/' {
+                in_regex = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        match b {
+            b'\'' => in_single_quote = true,
+            b'"' => in_double_quote = true,
+            b'%' => {
+                if let Some((next_i, open, close)) = match_percent_literal(line, i) {
+                    in_percent_literal = Some((open, close, 0));
+                    i = next_i;
+                    continue;
+                }
+            }
+            b'/' => {
+                let is_regex_start = if i == 0 {
+                    true
+                } else {
+                    matches!(
+                        line[i - 1],
+                        b'='
+                            | b'('
+                            | b','
+                            | b'!'
+                            | b'~'
+                            | b' '
+                            | b'\t'
+                            | b'|'
+                            | b'&'
+                            | b'{'
+                            | b'['
+                            | b';'
+                            | b':'
+                    )
+                };
+                if is_regex_start {
+                    in_regex = true;
+                }
+            }
+            _ => {}
+        }
+
+        i += 1;
+    }
+
+    in_single_quote || in_double_quote || in_regex || in_percent_literal.is_some()
+}
+
 /// Check if a trimmed line inside a block is a bare guard statement.
 /// This matches RuboCop's `guard_clause?` which requires `single_line?` AND
 /// only matches bare guard calls (return/raise/fail/next/break), NOT modifier-form
 /// guards like `return unless condition`.
 /// Also handles `and`/`or`/`&&`/`||` return patterns.
 fn is_bare_guard_in_block(trimmed: &[u8], lines: &[&[u8]], line_idx: usize) -> bool {
+    let trimmed = strip_inline_comment(trimmed);
+
     // Check for guard keyword at the start of the line
     let has_guard_keyword = GUARD_METHODS
         .iter()
         .any(|kw| starts_with_keyword(trimmed, kw));
+
+    if has_top_level_rescue_modifier(trimmed) {
+        return false;
+    }
 
     // If the line starts with a guard keyword but also has a modifier `if`/`unless`,
     // it's NOT a bare guard statement — it's a modifier-form if/unless wrapping the
@@ -1168,6 +1482,7 @@ fn is_bare_guard_in_block(trimmed: &[u8], lines: &[&[u8]], line_idx: usize) -> b
         || stripped.ends_with(b",")
         || stripped.ends_with(b"+")
         || stripped.ends_with(b".")
+        || has_unclosed_literal(stripped)
     {
         return false;
     }
@@ -1211,10 +1526,15 @@ fn find_line_index_from(lines: &[&[u8]], from_idx: usize, content: &[u8]) -> Opt
 /// ` ? ` (question mark preceded by non-`?` and followed by space) that is NOT
 /// inside a string literal, plus a `:` separator.
 fn is_ternary_guard_line(content: &[u8]) -> bool {
+    let content = strip_inline_comment(content);
+
     // RuboCop only suppresses when the next sibling itself is a ternary IfNode.
     // Lines that START with `return`/`raise`/`next`/`break` are bare guard
     // statements whose value happens to contain a ternary expression, not
     // ternary guard siblings.
+    if starts_with_keyword(content, b"if") || starts_with_keyword(content, b"unless") {
+        return false;
+    }
     if GUARD_METHODS
         .iter()
         .any(|keyword| starts_with_keyword(content, keyword))
@@ -1226,6 +1546,7 @@ fn is_ternary_guard_line(content: &[u8]) -> bool {
     // A Ruby ternary looks like: `expr ? true_branch : false_branch`
     // Method calls ending in `?` look like: `foo.bar?` or `bar?(args)`
     let mut has_ternary_question = false;
+    let mut depth: i32 = 0;
     let mut in_single_quote = false;
     let mut in_double_quote = false;
     let mut i = 0;
@@ -1238,6 +1559,10 @@ fn is_ternary_guard_line(content: &[u8]) -> bool {
         } else if b == b'\\' && (in_single_quote || in_double_quote) {
             i += 1; // skip escaped char
         } else if b == b'?' && !in_single_quote && !in_double_quote {
+            if depth != 0 {
+                i += 1;
+                continue;
+            }
             // Distinguish ternary `?` from method `?`:
             // - Ternary: `cond ? expr : expr` — `?` is followed by space, and
             //   preceded by space/`)` (end of condition expression)
@@ -1266,6 +1591,12 @@ fn is_ternary_guard_line(content: &[u8]) -> bool {
                 // `a_check ? x` requires a space before `?` to be a ternary.
                 // So this case is a method call, not a ternary. Skip.
             }
+        } else if !in_single_quote && !in_double_quote {
+            match b {
+                b'(' | b'{' | b'[' => depth += 1,
+                b')' | b'}' | b']' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
         }
         i += 1;
     }
@@ -1275,6 +1606,7 @@ fn is_ternary_guard_line(content: &[u8]) -> bool {
     // Also verify there's a `:` separator (ternary else branch)
     let mut has_colon = false;
     let mut j = i + 1;
+    depth = 0;
     in_single_quote = false;
     in_double_quote = false;
     while j < content.len() {
@@ -1286,12 +1618,22 @@ fn is_ternary_guard_line(content: &[u8]) -> bool {
         } else if b == b'\\' && (in_single_quote || in_double_quote) {
             j += 1;
         } else if b == b':' && !in_single_quote && !in_double_quote {
+            if depth != 0 {
+                j += 1;
+                continue;
+            }
             // Check it's not a symbol (`:sym`) - should be preceded by space
             if j > 0
                 && (content[j - 1] == b' ' || content[j - 1] == b'\t' || content[j - 1] == b')')
             {
                 has_colon = true;
                 break;
+            }
+        } else if !in_single_quote && !in_double_quote {
+            match b {
+                b'(' | b'{' | b'[' => depth += 1,
+                b')' | b'}' | b']' => depth = depth.saturating_sub(1),
+                _ => {}
             }
         }
         j += 1;
@@ -1300,7 +1642,7 @@ fn is_ternary_guard_line(content: &[u8]) -> bool {
         return false;
     }
     for keyword in GUARD_METHODS {
-        if contains_word(content, keyword) {
+        if contains_guard_keyword_at_top_level(content, keyword) {
             return true;
         }
     }
@@ -1436,6 +1778,12 @@ fn contains_word_outside_strings(haystack: &[u8], word: &[u8]) -> bool {
 }
 
 fn contains_modifier_guard(content: &[u8]) -> bool {
+    let content = strip_inline_comment(content);
+
+    if has_top_level_rescue_modifier(content) {
+        return false;
+    }
+
     if !contains_word_at_top_level(content, b"if")
         && !contains_word_at_top_level(content, b"unless")
     {
@@ -1602,23 +1950,6 @@ fn contains_pattern_at_top_level(
         i += 1;
     }
 
-    false
-}
-
-fn contains_word(haystack: &[u8], word: &[u8]) -> bool {
-    let wlen = word.len();
-    if haystack.len() < wlen {
-        return false;
-    }
-    for i in 0..=(haystack.len() - wlen) {
-        if &haystack[i..i + wlen] == word {
-            let before_ok = i == 0 || !is_ident_char(haystack[i - 1]);
-            let after_ok = i + wlen >= haystack.len() || !is_ident_char(haystack[i + wlen]);
-            if before_ok && after_ok {
-                return true;
-            }
-        }
-    }
     false
 }
 
@@ -2118,6 +2449,123 @@ mod tests {
             diags.len(),
             1,
             "Expected 1 offense for multiline guard with semicolon on end line, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_block_guard_then_if_multiline_string_raise() {
+        let source = b"def foo(connect_string)\n  if GitRepository.repository_exists?(connect_string)\n    raise RepositoryCollision, \"There is already a repository at #{connect_string}\"\n  end\n  if File.exist?(connect_string)\n    raise IOError, \"Could not create a repository at #{connect_string}: some directory with same name exists\n                         already\"\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for block guard before multiline-string raise block, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_guard_then_rescue_modifier_return() {
+        let source = b"def rating_average\n  return self.rating_avg if attributes.has_key?('rating_avg')\n  return (rating_statistic.rating_avg || 0) rescue 0 if acts_as_rated_options[:stats_class]\n  avg\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense when next sibling uses rescue modifier around return, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_guard_then_rescue_modifier_condition() {
+        let source = b"def determine_lease_type\n  return nil if group.nil?\n  return \"ip\" if IPAddr.new(group) rescue false\n  return \"local\" if Admin::Group.exists? group\n  return \"external\"\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            2,
+            "Expected 2 offenses when rescue modifier is followed by another plain guard, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_guard_then_if_with_nested_ternary_in_condition() {
+        let source = b"def foo(remaining)\n  return if remaining.empty?\n  if remaining.find { |n| (type = n.type) == :blank ? nil : ((BLOCK_TYPES.include? type) ? true : break) }\n    el.options[:compound] = true\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense when next if condition contains nested ternary guard keywords, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_guard_then_bare_return_comment_contains_if() {
+        let source = b"def output_extension(mime)\n  return '.css' if mime.eql? 'text/css'\n  return '.html' # if all else falls trough\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense when next bare return only mentions `if` in a comment, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fp_guard_then_percent_interpolated_guard() {
+        let source = b"def inline_link_substitution(text)\n  text.gsub InlineLinkRx do\n    if $2 && !$5\n      next $&.slice 1, $&.length if $1.start_with? RS\n      next %(#{$1}#{$&.slice $1.length + 1, $&.length}) if $3.start_with? RS\n      next $& unless $6\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            0,
+            "Expected 0 offenses for consecutive guards with percent-string interpolation, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fp_block_guard_then_block_guard_with_percent_string() {
+        let source = b"def validate_processor(kind_name, block, processor)\n  unless (name = as_symbol processor.name)\n    raise ::ArgumentError, %(No name specified for #{kind_name} extension at #{block.source_location.join ':'})\n  end\n  unless processor.process_block_given?\n    raise ::NoMethodError, %(No block specified to process #{kind_name} extension at #{block.source_location.join ':'})\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            0,
+            "Expected 0 offenses for consecutive block guards with percent-string interpolation, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn fp_guard_end_if_before_elsif() {
+        let source = b"def parser_comment_guard(normal, next_line, reader, document, attributes)\n  if normal && next_line.start_with? '.'\n    return true\n  elsif !normal || (next_line.start_with? '/')\n    if next_line == '//'\n      return true\n    elsif normal && (uniform? next_line, '/', (ll = next_line.length))\n      unless ll == 3\n        reader.read_lines_until terminator: next_line, skip_first_line: true, preserve_last_line: true, skip_processing: true, context: :comment\n        return true\n      end\n    else\n      return true unless next_line.start_with? '///'\n    end if next_line.start_with? '//'\n  elsif normal && (next_line.start_with? ':') && AttributeEntryRx =~ next_line\n    process_attribute_entry reader, document, attributes, $~\n    return true\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            0,
+            "Expected 0 offenses for a guard block whose statement ends with `end if ...` before `elsif`, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+    }
+
+    #[test]
+    fn offense_when_statement_follows_end_on_same_line() {
+        let source = b"def foo(a)\n  if a\n    return\n  end; work\nend\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterGuardClause, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense when a separate statement follows `end` on the same line, got {}: {:?}",
             diags.len(),
             diags
         );

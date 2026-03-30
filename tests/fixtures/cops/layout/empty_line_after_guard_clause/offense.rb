@@ -356,3 +356,51 @@ def multiline_guard_semicolon
     x.valid?
   }; do_something
 end
+
+# FN fix: block-form guard followed by `if..raise..end` whose raise string spans
+# multiple lines, so the next if-block is not a guard clause.
+def block_guard_then_if_multiline_string_raise(connect_string)
+  if GitRepository.repository_exists?(connect_string)
+    raise RepositoryCollision, "There is already a repository at #{connect_string}"
+  end
+  ^^^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  if File.exist?(connect_string)
+    raise IOError, "Could not create a repository at #{connect_string}: some directory with same name exists
+                         already"
+  end
+end
+
+# FN fix: next sibling uses rescue modifier, so it is not itself a guard clause.
+def rating_average
+  return self.rating_avg if attributes.has_key?('rating_avg')
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  return (rating_statistic.rating_avg || 0) rescue 0 if acts_as_rated_options[:stats_class]
+  avg
+end
+
+# FN fix: rescue modifier around the next line should not suppress the offense.
+def determine_lease_type
+  return nil if group.nil?
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  return "ip" if IPAddr.new(group) rescue false
+  return "local" if Admin::Group.exists? group
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  return "external"
+end
+
+# FN fix: ternary guard detection must ignore ternaries nested inside an if
+# condition block literal.
+def guard_then_if_with_ternary_break_in_condition(remaining)
+  return if remaining.empty?
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  if remaining.find { |n| (type = n.type) == :blank ? nil : ((BLOCK_TYPES.include? type) ? true : break) }
+    el.options[:compound] = true
+  end
+end
+
+# FN fix: comment text containing `if` must not make a bare return look like a guard.
+def output_extension(mime)
+  return '.css' if mime.eql? 'text/css'
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  return '.html' # if all else falls trough
+end

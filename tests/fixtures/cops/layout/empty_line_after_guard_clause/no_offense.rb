@@ -784,3 +784,91 @@ def unless_else_guard_at_end
     do_thing
   end
 end
+
+# FN fix: block-form guard followed by non-guard if block with multiline raise string
+def block_guard_then_if_multiline_string_raise(connect_string)
+  if GitRepository.repository_exists?(connect_string)
+    raise RepositoryCollision, "There is already a repository at #{connect_string}"
+  end
+
+  if File.exist?(connect_string)
+    raise IOError, "Could not create a repository at #{connect_string}: some directory with same name exists
+                         already"
+  end
+end
+
+# FN fix: next sibling uses rescue modifier, so it is not itself a guard clause
+def rating_average
+  return self.rating_avg if attributes.has_key?('rating_avg')
+
+  return (rating_statistic.rating_avg || 0) rescue 0 if acts_as_rated_options[:stats_class]
+  avg
+end
+
+# FN fix: rescue modifier around the next line should not suppress the offense
+def determine_lease_type
+  return nil if group.nil?
+
+  return "ip" if IPAddr.new(group) rescue false
+  return "local" if Admin::Group.exists? group
+
+  return "external"
+end
+
+# FN fix: ternary guard detection must ignore ternaries nested inside an if condition
+def guard_then_if_with_ternary_break_in_condition(remaining)
+  return if remaining.empty?
+
+  if remaining.find { |n| (type = n.type) == :blank ? nil : ((BLOCK_TYPES.include? type) ? true : break) }
+    el.options[:compound] = true
+  end
+end
+
+# FN fix: comment text containing `if` must not make a bare return look like a guard
+def output_extension(mime)
+  return '.css' if mime.eql? 'text/css'
+
+  return '.html' # if all else falls trough
+end
+
+# FP fix: interpolation inside a percent string is not an inline comment
+def inline_link_substitution(text)
+  text.gsub InlineLinkRx do
+    if $2 && !$5
+      next $&.slice 1, $&.length if $1.start_with? RS
+      next %(#{$1}#{$&.slice $1.length + 1, $&.length}) if $3.start_with? RS
+      next $& unless $6
+    end
+  end
+end
+
+# FP fix: `#{...}` inside a percent string must not break block-guard detection
+def validate_processor(kind_name, block, processor)
+  unless (name = as_symbol processor.name)
+    raise ::ArgumentError, %(No name specified for #{kind_name} extension at #{block.source_location.join ':'})
+  end
+  unless processor.process_block_given?
+    raise ::NoMethodError, %(No block specified to process #{kind_name} extension at #{block.source_location.join ':'})
+  end
+end
+
+# FP fix: code after `end` can still belong to the same guard node (`end if ...`)
+def parser_comment_guard(normal, next_line, reader, document, attributes)
+  if normal && next_line.start_with? '.'
+    return true
+  elsif !normal || (next_line.start_with? '/')
+    if next_line == '//'
+      return true
+    elsif normal && (uniform? next_line, '/', (ll = next_line.length))
+      unless ll == 3
+        reader.read_lines_until terminator: next_line, skip_first_line: true, preserve_last_line: true, skip_processing: true, context: :comment
+        return true
+      end
+    else
+      return true unless next_line.start_with? '///'
+    end if next_line.start_with? '//'
+  elsif normal && (next_line.start_with? ':') && AttributeEntryRx =~ next_line
+    process_attribute_entry reader, document, attributes, $~
+    return true
+  end
+end
