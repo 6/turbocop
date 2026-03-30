@@ -9,3 +9,5 @@ if foo
 else
   baz
 end
+
+if foo; bar; else; end

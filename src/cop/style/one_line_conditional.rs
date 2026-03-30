@@ -3,6 +3,14 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Detects single-line `if/then/else/end` and `unless/then/else/end` constructs.
+///
+/// Fixed: was requiring `then` keyword, missing semicolon-delimited forms like
+/// `if foo; bar else baz end`. Removed the `then_keyword_loc` check to match
+/// RuboCop which only requires single-line + else branch, not `then`.
+///
+/// Also: RuboCop skips empty else bodies (`if x; y; else; end`) because
+/// `node.else_branch` is nil. Added corresponding check on ElseNode#statements.
 pub struct OneLineConditional;
 
 impl Cop for OneLineConditional {
@@ -43,14 +51,17 @@ impl Cop for OneLineConditional {
                 return;
             }
 
-            // Must have a then keyword
-            if if_node.then_keyword_loc().is_none() {
-                return;
-            }
-
-            // Must have an else branch
-            if if_node.subsequent().is_none() {
-                return;
+            // Must have an else branch with content (RuboCop's `node.else_branch`
+            // returns nil for empty else bodies like `if x; y; else; end`)
+            match if_node.subsequent() {
+                None => return,
+                Some(sub) => {
+                    if let Some(else_node) = sub.as_else_node() {
+                        if else_node.statements().is_none() {
+                            return;
+                        }
+                    }
+                }
             }
 
             // Must be single-line
@@ -79,11 +90,6 @@ impl Cop for OneLineConditional {
 
             // Must not be modifier form
             if unless_node.end_keyword_loc().is_none() {
-                return;
-            }
-
-            // Must have a then keyword
-            if unless_node.then_keyword_loc().is_none() {
                 return;
             }
 
