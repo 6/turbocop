@@ -103,6 +103,11 @@ Class.new do
   (attr :qux, true).should == [:qux, :qux=]
 end
 
+# attr call inside an array literal expression — not an accessor statement
+values = [
+  attr(:greeting, call(:concat, lit("Hello, "), field_ref(:name)))
+]
+
 # attr inside single-line block braces
 -> { Class.new { attr :foo } }.should raise_error(TypeError)
 mod.module_eval { attr_reader(:name) }
@@ -251,5 +256,29 @@ class DisasmWidget
   attr_accessor :clones
 
   def example
+  end
+end
+
+# DSL methods named `attr` inside branches are not attribute accessor statements
+module DryCrud
+  module Table
+    module Sorting
+      def sortable_attr(attr, header = nil, &block)
+        if template.sortable?(attr)
+          attr(attr, sort_header(attr, header), &block)
+        else
+          attr(attr, header, &block)
+        end
+      end
+    end
+  end
+end
+
+# wrapper methods that forward to `attr` are also not accessors
+module StandardTableBuilder
+  module Sorting
+    def sortable_attr(a, header = nil, &block)
+      attr(a, sort_header(a, header), &block)
+    end
   end
 end

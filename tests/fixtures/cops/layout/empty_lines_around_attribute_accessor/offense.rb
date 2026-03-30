@@ -123,3 +123,29 @@ class Configuration
   attr_accessor(:reporter) { AbstractAdapter.new }
   ^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
 end
+
+class InstallationOptions
+  def self.option(name, default, boolean: true)
+    defaults[name] = default
+    attr_accessor name
+    ^^^^^^^^^^^^^^^^^^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
+    alias_method "#{name}?", name if boolean
+  end
+end
+
+class InstallationOptionsMirror
+  def self.option(name, default, boolean: true)
+    defaults[name] = default
+    attr_accessor name
+    ^^^^^^^^^^^^^^^^^^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
+    alias_method "#{name}?", name if boolean
+  end
+end
+
+class ConfigurationBuilder
+  options.each do |o|
+    attr_reader o.name
+    ^^^^^^^^^^^^^^^^^^ Layout/EmptyLinesAroundAttributeAccessor: Add an empty line after attribute accessor.
+    alias_method :"#{o.name}?", o.name if o.type == BOOLEAN
+  end
+end

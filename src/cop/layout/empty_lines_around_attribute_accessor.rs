@@ -101,6 +101,19 @@ use crate::parse::source::SourceFile;
 /// Fix: accept semicolon-separated and `case`-predicate statement prefixes, use the block
 /// opening line as the separation point for block-form accessors, and avoid treating
 /// `when`/`end` as allowed structural followers for those specific contexts.
+///
+/// **Fix 9 (2026-03-30):** Final FP/FN reconciliation for the remaining oracle cases:
+/// (a) Prism stores both real block bodies and `&block` arguments in `call.block()`.
+///     The cop treated any non-nil block slot as block-form accessor syntax, so DSL wrappers
+///     like `attr(a, header, &block)` were always flagged. Fix: only treat `BlockNode`
+///     entries as block-form accessors.
+/// (b) `attr(...)` used as an array/parenthesized expression can still start at the first
+///     non-whitespace column of its line, so the line-prefix heuristic alone was too weak.
+///     Fix: treat `]`/`)` followers as structural closers for nested expression contexts
+///     where RuboCop has no statement sibling to inspect.
+/// (c) `has_modifier_conditional()` naively split at `#`, which truncated
+///     `alias_method "#{name}?", name if boolean` at string interpolation and hid the
+///     trailing `if` modifier. Fix: scan for `if`/`unless` outside strings and comments.
 pub struct EmptyLinesAroundAttributeAccessor;
 
 const ATTRIBUTE_METHODS: &[&[u8]] = &[b"attr_reader", b"attr_writer", b"attr_accessor", b"attr"];
@@ -172,15 +185,11 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         }
         let (call_end_line, last_col) =
             source.offset_to_line_col(loc.end_offset().saturating_sub(1));
-        let has_attached_block = call.block().is_some();
-        let separator_line = if let Some(block) = call.block().and_then(|node| node.as_block_node())
-        {
-            source
-                .offset_to_line_col(block.opening_loc().start_offset())
-                .0
-        } else {
-            call_end_line
-        };
+        let block_node = call.block().and_then(|node| node.as_block_node());
+        let has_attached_block = block_node.is_some();
+        let separator_line = block_node
+            .map(|block| source.offset_to_line_col(block.opening_loc().start_offset()).0)
+            .unwrap_or(call_end_line);
 
         // If there is non-whitespace, non-comment content after the call's end on the
         // same line, the attr call is part of a larger expression (e.g.,
@@ -286,7 +295,9 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
             .copied()
             .skip_while(|&b| b == b' ' || b == b'\t')
             .collect();
-        if !is_case_predicate && is_block_boundary_keyword(&next_trimmed) {
+        if !is_case_predicate
+            && (is_block_boundary_keyword(&next_trimmed) || is_expression_closer(&next_trimmed))
+        {
             return;
         }
 
@@ -333,7 +344,10 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                 if is_attr_method_line(&line_trimmed) {
                     return;
                 }
-                if !is_case_predicate && is_block_boundary_keyword(&line_trimmed) {
+                if !is_case_predicate
+                    && (is_block_boundary_keyword(&line_trimmed)
+                        || is_expression_closer(&line_trimmed))
+                {
                     return;
                 }
                 if _allow_alias_syntax && line_trimmed.starts_with(b"alias ") {
@@ -488,28 +502,86 @@ fn is_block_boundary_keyword(trimmed: &[u8]) -> bool {
     false
 }
 
+fn is_expression_closer(trimmed: &[u8]) -> bool {
+    matches!(trimmed.first(), Some(b')') | Some(b']'))
+}
+
 /// Returns true if the trimmed line contains a modifier `if` or `unless` keyword,
 /// indicating the method call is conditional (e.g., `alias_method :foo, :bar if cond`).
 /// RuboCop's AST sees this as an IfNode wrapping the send, not a plain allowed method.
 fn has_modifier_conditional(trimmed: &[u8]) -> bool {
-    let trimmed = trimmed
-        .split(|&b| b == b'#')
-        .next()
-        .map(trim_ascii_space)
-        .unwrap_or(trimmed);
-    // Search for ` if ` or ` unless ` as word boundaries in the line.
-    // We skip content inside strings/parens for simplicity — this is a heuristic.
-    for window in trimmed.windows(4) {
-        if window == b" if " {
-            return true;
+    contains_standalone_keyword_outside_strings_or_comments(trimmed, b"if")
+        || contains_standalone_keyword_outside_strings_or_comments(trimmed, b"unless")
+}
+
+fn contains_standalone_keyword_outside_strings_or_comments(
+    source: &[u8],
+    keyword: &[u8],
+) -> bool {
+    let mut i = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    while i < source.len() {
+        let byte = source[i];
+
+        if in_single {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
         }
-    }
-    for window in trimmed.windows(8) {
-        if window == b" unless " {
-            return true;
+
+        if in_double {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
         }
+
+        match byte {
+            b'#' => break,
+            b'\'' => {
+                in_single = true;
+                i += 1;
+                continue;
+            }
+            b'"' => {
+                in_double = true;
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+
+        if i + keyword.len() <= source.len() && &source[i..i + keyword.len()] == keyword {
+            let before_ok = i == 0 || !is_identifier_char(source[i - 1]);
+            let after_idx = i + keyword.len();
+            let after_ok = after_idx == source.len() || !is_identifier_char(source[after_idx]);
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+
+        i += 1;
     }
+
     false
+}
+
+fn is_identifier_char(byte: u8) -> bool {
+    matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
 }
 
 /// Returns true if the line is a `# rubocop:enable ...` directive comment.

@@ -123,3 +123,29 @@ class Configuration
   attr_accessor(:reporter) { AbstractAdapter.new }
 
 end
+
+class InstallationOptions
+  def self.option(name, default, boolean: true)
+    defaults[name] = default
+    attr_accessor name
+
+    alias_method "#{name}?", name if boolean
+  end
+end
+
+class InstallationOptionsMirror
+  def self.option(name, default, boolean: true)
+    defaults[name] = default
+    attr_accessor name
+
+    alias_method "#{name}?", name if boolean
+  end
+end
+
+class ConfigurationBuilder
+  options.each do |o|
+    attr_reader o.name
+
+    alias_method :"#{o.name}?", o.name if o.type == BOOLEAN
+  end
+end
