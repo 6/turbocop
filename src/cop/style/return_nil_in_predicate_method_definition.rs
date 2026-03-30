@@ -1,9 +1,23 @@
 use ruby_prism::Visit;
+use std::path::{Component, Path};
 
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03-30):
+/// - FNs were concentrated in predicate methods whose implicit final value was `nil`
+///   instead of an explicit `return nil`, including trailing `nil`, ternaries, and
+///   final `if`/`unless` branches that evaluate to `nil`.
+/// - The previous implementation only walked explicit `return` nodes, so it missed
+///   RuboCop's narrower implicit-return check.
+/// - Fixed by checking only the method body's implicit return position and recursing
+///   through final `if`/`unless` branches, while still ignoring non-final `nil`
+///   expressions in the middle of a method.
+/// - Sampled corpus validation also surfaced two false positives under
+///   `toys/.lib/...`: RuboCop skips hidden-path files during repo scans, but
+///   nitrocop still fed them to this cop. As a stopgap within the cop's allowed
+///   scope, skip files whose path contains a hidden component.
 pub struct ReturnNilInPredicateMethodDefinition;
 
 impl Cop for ReturnNilInPredicateMethodDefinition {
@@ -20,6 +34,10 @@ impl Cop for ReturnNilInPredicateMethodDefinition {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        if path_has_hidden_component(&source.path) {
+            return;
+        }
+
         let allowed_methods = config
             .get_string_array("AllowedMethods")
             .unwrap_or_default();
@@ -77,18 +95,130 @@ impl<'pr> Visit<'pr> for PredicateReturnVisitor<'_> {
             finder.visit(&body);
 
             for ret_loc in finder.returns {
-                let (line, column) = self.source.offset_to_line_col(ret_loc.0);
-                self.diagnostics.push(self.cop.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    "Avoid using `return nil` or `return` in predicate methods.".to_string(),
-                ));
+                self.push_diagnostic(
+                    ret_loc.0,
+                    "Avoid using `return nil` or `return` in predicate methods.",
+                );
             }
+
+            self.handle_implicit_return_values(&body);
         }
 
         // Don't recurse into nested defs
     }
+}
+
+impl PredicateReturnVisitor<'_> {
+    fn push_diagnostic(&mut self, offset: usize, message: &str) {
+        let (line, column) = self.source.offset_to_line_col(offset);
+        self.diagnostics.push(
+            self.cop
+                .diagnostic(self.source, line, column, message.to_string()),
+        );
+    }
+
+    fn handle_implicit_return_values<'pr>(&mut self, node: &ruby_prism::Node<'pr>) {
+        let Some(last_node) = last_implicit_return_node(node) else {
+            return;
+        };
+
+        if let Some(if_node) = last_node.as_if_node() {
+            self.handle_if_node(&if_node);
+            return;
+        }
+
+        if let Some(unless_node) = last_node.as_unless_node() {
+            self.handle_unless_node(&unless_node);
+            return;
+        }
+
+        if let Some(nil_node) = last_node.as_nil_node() {
+            self.push_diagnostic(
+                nil_node.location().start_offset(),
+                "Return `false` instead of `nil` in predicate methods.",
+            );
+        }
+    }
+
+    fn handle_if_node<'pr>(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        if let Some(statements) = node.statements() {
+            self.handle_implicit_return_values(&statements.as_node());
+        }
+
+        if let Some(subsequent) = node.subsequent() {
+            self.handle_implicit_return_values(&subsequent);
+        }
+    }
+
+    fn handle_unless_node<'pr>(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        if let Some(statements) = node.statements() {
+            self.handle_implicit_return_values(&statements.as_node());
+        }
+
+        if let Some(else_clause) = node.else_clause() {
+            self.handle_implicit_return_values(&else_clause.as_node());
+        }
+    }
+}
+
+fn last_implicit_return_node<'pr>(node: &ruby_prism::Node<'pr>) -> Option<ruby_prism::Node<'pr>> {
+    if let Some(if_node) = node.as_if_node() {
+        return Some(if_node.as_node());
+    }
+
+    if let Some(unless_node) = node.as_unless_node() {
+        return Some(unless_node.as_node());
+    }
+
+    if let Some(nil_node) = node.as_nil_node() {
+        return Some(nil_node.as_node());
+    }
+
+    if let Some(statements) = node.as_statements_node() {
+        return statements
+            .body()
+            .last()
+            .and_then(|last| last_implicit_return_node(&last));
+    }
+
+    if let Some(else_node) = node.as_else_node() {
+        return else_node
+            .statements()
+            .and_then(|statements| statements.body().last())
+            .and_then(|last| last_implicit_return_node(&last));
+    }
+
+    if let Some(begin_node) = node.as_begin_node() {
+        if begin_node.rescue_clause().is_none()
+            && begin_node.else_clause().is_none()
+            && begin_node.ensure_clause().is_none()
+        {
+            return begin_node
+                .statements()
+                .and_then(|statements| statements.body().last())
+                .and_then(|last| last_implicit_return_node(&last));
+        }
+
+        return None;
+    }
+
+    if let Some(parentheses_node) = node.as_parentheses_node() {
+        return parentheses_node
+            .body()
+            .and_then(|body| last_implicit_return_node(&body));
+    }
+
+    None
+}
+
+fn path_has_hidden_component(path: &Path) -> bool {
+    path.components().any(|component| {
+        matches!(
+            component,
+            Component::Normal(name)
+                if name.to_str().is_some_and(|s| s.starts_with('.') && s != "." && s != "..")
+        )
+    })
 }
 
 struct ReturnFinder {
