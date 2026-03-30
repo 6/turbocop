@@ -3,6 +3,22 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+fn leading_whitespace_columns(line: &[u8]) -> usize {
+    line.iter()
+        .take_while(|&&b| b == b' ' || b == b'\t')
+        .count()
+}
+
+/// Corpus investigation (2026-03-30)
+///
+/// FN root cause (64 FNs in phlex): tab-indented modifier/endless defs like
+/// `register_element def foo(` were missed in `consistent` style. The cop used
+/// `offset_to_line_col()` for the first parameter, which counts tabs as one
+/// column, but it computed the base indentation by counting only leading spaces
+/// on the definition line. For `\tregister_element def foo(` with
+/// `\t\t**attributes`, that mismatch produced expected=2 and actual=2, so the
+/// offense was skipped. Fix: compute the consistent-style base from the opening
+/// parenthesis line's leading whitespace, counting both spaces and tabs.
 pub struct FirstParameterIndentation;
 
 impl Cop for FirstParameterIndentation {
@@ -95,25 +111,16 @@ impl Cop for FirstParameterIndentation {
             return;
         }
 
-        let def_kw_loc = def_node.def_keyword_loc();
-        let def_line_indent = {
-            let bytes = source.as_bytes();
-            let mut line_start = def_kw_loc.start_offset();
-            while line_start > 0 && bytes[line_start - 1] != b'\n' {
-                line_start -= 1;
-            }
-            let mut indent = 0;
-            while line_start + indent < bytes.len() && bytes[line_start + indent] == b' ' {
-                indent += 1;
-            }
-            indent
-        };
-
         let width = config.get_usize("IndentationWidth", 2);
+        let open_line_indent = source
+            .lines()
+            .nth(open_line.saturating_sub(1))
+            .map(leading_whitespace_columns)
+            .unwrap_or(0);
 
         let expected = match style {
             "align_parentheses" => open_col + width,
-            _ => def_line_indent + width, // "consistent"
+            _ => open_line_indent + width, // "consistent"
         };
 
         if first_col != expected {
