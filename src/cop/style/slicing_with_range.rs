@@ -9,6 +9,10 @@ use crate::parse::source::SourceFile;
 ///   integer `-1`, missing the NilNode case. Fixed by treating NilNode right child
 ///   the same as absent (endless) for both `0..nil` (redundant) and `x..nil` (suggest
 ///   endless range) patterns, matching RuboCop's behavior.
+/// - FN: `x[idx .. - 1]` with spaces around unary minus — Prism parses the right side
+///   as `CallNode(name: :-@, receiver: IntegerNode(1))` instead of a direct
+///   `IntegerNode(-1)`. Fixed by teaching `int_value` to fold unary `-@`/`+@` calls on
+///   integer literals so the existing `..-1` logic also covers `.. - 1`.
 /// - FP fix: 4 corpus FPs on `x[0..]` / `x[0...]` patterns. RuboCop's NodePattern
 ///   `nil` matches a NilNode AST type, NOT an absent child. So `{(int -1) nil}` matches
 ///   `0..-1` and `0..nil` but NOT `0..` (endless range where right child is absent).
@@ -25,6 +29,20 @@ impl SlicingWithRange {
                 return s.parse::<i64>().ok();
             }
         }
+
+        // Prism parses spaced unary numeric literals like `- 1` as a `-@` call
+        // on `1`, while compact `-1` is a direct IntegerNode.
+        if let Some(call) = node.as_call_node() {
+            let name = call.name().as_slice();
+            if (name == b"-@" || name == b"+@")
+                && call.arguments().is_none()
+                && call.call_operator_loc().is_none()
+            {
+                let value = Self::int_value(&call.receiver()?)?;
+                return Some(if name == b"-@" { -value } else { value });
+            }
+        }
+
         None
     }
 
@@ -34,6 +52,30 @@ impl SlicingWithRange {
         match range.right() {
             None => false,
             Some(right) => right.as_nil_node().is_some(),
+        }
+    }
+
+    /// Match RuboCop's "current" message text:
+    /// - bracket form: `[start .. - 1]` / `[start..nil]`
+    /// - dot/safe-nav form: `start .. - 1` / `start..nil`
+    fn current_range_source(
+        source: &SourceFile,
+        call: &ruby_prism::CallNode<'_>,
+        range: &ruby_prism::RangeNode<'_>,
+    ) -> String {
+        if call.call_operator_loc().is_some() {
+            std::str::from_utf8(range.location().as_slice())
+                .unwrap_or("")
+                .to_string()
+        } else {
+            match (call.opening_loc(), call.closing_loc()) {
+                (Some(open), Some(close)) => source
+                    .byte_slice(open.start_offset(), close.end_offset(), "")
+                    .to_string(),
+                _ => std::str::from_utf8(range.location().as_slice())
+                    .map(|text| format!("[{text}]"))
+                    .unwrap_or_default(),
+            }
         }
     }
 }
@@ -143,12 +185,13 @@ impl Cop for SlicingWithRange {
                         if Self::int_value(&right) == Some(-1) {
                             let left_src =
                                 std::str::from_utf8(left.location().as_slice()).unwrap_or("1");
+                            let current_src = Self::current_range_source(source, &call, &irange);
                             let (line, column) = source.offset_to_line_col(bracket_offset);
                             diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
-                                format!("Prefer `[{left_src}..]` over `[{left_src}..-1]`."),
+                                format!("Prefer `[{left_src}..]` over `{current_src}`."),
                             ));
                             return;
                         }
@@ -161,13 +204,14 @@ impl Cop for SlicingWithRange {
                         if right.as_nil_node().is_some() {
                             let left_src =
                                 std::str::from_utf8(left.location().as_slice()).unwrap_or("1");
+                            let current_src = Self::current_range_source(source, &call, &irange);
                             let (line, column) = source.offset_to_line_col(bracket_offset);
                             diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 format!(
-                                    "Prefer `[{left_src}{op_str}]` over `[{left_src}{op_str}nil]`."
+                                    "Prefer `[{left_src}{op_str}]` over `{current_src}`."
                                 ),
                             ));
                         }
