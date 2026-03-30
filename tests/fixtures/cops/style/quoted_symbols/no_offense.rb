@@ -8,3 +8,12 @@
 { 'name': 1 }
 { "#{dynamic}": 1 }
 { "has\nnewline": 1 }
+:'a
+bc'
+:"a
+bc"
+:"a\\
+b"
+:""
+{ "": data }
+data.merge({"": data})

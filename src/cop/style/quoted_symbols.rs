@@ -3,6 +3,10 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Matches RuboCop's quoted-symbol escape rules more closely: backslashes only
+/// require double quotes when they would become real escape sequences, so
+/// `:"symbols__\\"`, `:"\\"`, and `"allowed_\\d":` remain offenses while
+/// empty or multiline quoted symbols stay accepted.
 pub struct QuotedSymbols;
 
 impl Cop for QuotedSymbols {
@@ -53,12 +57,14 @@ impl Cop for QuotedSymbols {
             if inner.is_empty() {
                 return;
             }
+            if inner.contains(&b'\n') || inner.contains(&b'\r') {
+                return;
+            }
 
-            let has_interpolation = inner.windows(2).any(|w| w == b"#{");
-            let has_escape = inner.contains(&b'\\');
-            let has_single_quote = inner.contains(&b'\'');
+            let has_interpolation =
+                inner.windows(2).any(|w| w == b"#{" || w == b"#@" || w == b"#$");
 
-            if has_interpolation || has_escape {
+            if has_interpolation {
                 return; // Double quotes needed
             }
 
@@ -72,7 +78,13 @@ impl Cop for QuotedSymbols {
                 _ => true,
             };
 
-            if prefer_single && !has_single_quote {
+            let string_literal_src = if is_hash_key_double {
+                src_bytes
+            } else {
+                &src_bytes[1..]
+            };
+
+            if prefer_single && !double_quotes_required(string_literal_src) {
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
                     source,
@@ -90,6 +102,9 @@ impl Cop for QuotedSymbols {
             if inner.is_empty() {
                 return;
             }
+            if inner.contains(&b'\n') || inner.contains(&b'\r') {
+                return;
+            }
 
             let has_double_quote = inner.contains(&b'"');
 
@@ -104,6 +119,29 @@ impl Cop for QuotedSymbols {
             }
         }
     }
+}
+
+fn double_quotes_required(src: &[u8]) -> bool {
+    let mut backslash_run = 0usize;
+
+    for &byte in src {
+        if byte == b'\'' {
+            return true;
+        }
+
+        if byte == b'\\' {
+            backslash_run += 1;
+            continue;
+        }
+
+        if backslash_run % 2 == 1 && byte != b'\\' && byte != b'"' {
+            return true;
+        }
+
+        backslash_run = 0;
+    }
+
+    false
 }
 
 #[cfg(test)]
