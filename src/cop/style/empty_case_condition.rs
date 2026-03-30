@@ -7,29 +7,21 @@ use crate::parse::source::SourceFile;
 /// Style/EmptyCaseCondition flags `case` statements with no predicate expression
 /// and suggests using `if`/`elsif` chains instead.
 ///
-/// ## Investigation findings (2026-03-15)
+/// ## Investigation findings
 ///
-/// ### FP root causes (65 FPs):
-/// - **Parent is send/csend/return/break/next (major, ~65 FPs):** RuboCop skips when the
-///   `case` node's parent AST type is `return`, `break`, `next`, `send`, or `csend`.
-///   This covers patterns like `case ... end.should` (send), `return case ... end`,
-///   `do_something case ... end` (send). The old nitrocop code used a text-based heuristic
-///   (`!trimmed.starts_with("case")`) that caught some of these but missed `send` parents
-///   where `case` starts at the beginning of the line.
-/// - **Branch contains return statement:** RuboCop skips when any branch body contains a
-///   `return` statement (or has a return as a descendant). Pattern: `case; when cond;
-///   return foo; end`. The old code didn't check for this at all.
+/// - RuboCop only suppresses this cop when the empty `case` node's direct
+///   parent is `return`, `break`, `next`, `send`, or `csend`.
+/// - nitrocop previously modeled that with sticky visitor state, which leaked
+///   through intermediate nodes such as `ArgumentsNode`, `KeywordHashNode`, and
+///   `AssocNode`.
+/// - That leaked suppression produced false negatives for hash values like
+///   `result.merge(key => case ... end)`, where the direct parent is an
+///   association node and RuboCop still registers an offense.
 ///
-/// ### FN root causes (77 FNs):
-/// - **Assignment parent (major, ~77 FNs):** `v = case; when ...; end` — the text heuristic
-///   `!trimmed.starts_with("case")` incorrectly suppressed flagging because `case` isn't at
-///   the start of the line. But assignment (`lvasgn`, `ivasgn`, etc.) is NOT in RuboCop's
-///   `NOT_SUPPORTED_PARENT_TYPES`, so these should be flagged.
+/// ## Fix
 ///
-/// ### Fix:
-/// Replaced text-based line heuristic with proper AST parent tracking via a visitor.
-/// Added `NOT_SUPPORTED_PARENT_TYPES` check (return/break/next/call) and
-/// `branch_contains_return` check matching RuboCop's behavior.
+/// Track the full traversal stack and inspect only the direct parent of each
+/// `CaseNode`, while keeping the existing branch-return suppression.
 pub struct EmptyCaseCondition;
 
 impl Cop for EmptyCaseCondition {
@@ -50,7 +42,7 @@ impl Cop for EmptyCaseCondition {
             cop: self,
             source,
             diagnostics: Vec::new(),
-            parent_kind: ParentKind::Other,
+            node_kind_stack: Vec::new(),
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -69,7 +61,7 @@ struct EmptyCaseVisitor<'a> {
     cop: &'a EmptyCaseCondition,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
-    parent_kind: ParentKind,
+    node_kind_stack: Vec<ParentKind>,
 }
 
 /// Visitor that checks if a subtree contains any return node.
@@ -107,23 +99,47 @@ fn branch_contains_return(case_node: &ruby_prism::CaseNode<'_>) -> bool {
     false
 }
 
-/// Helper macro to implement visitor methods that set parent_kind for their children.
-/// This ensures case nodes nested as direct children see the correct parent type.
-macro_rules! visit_with_parent {
-    ($method:ident, $node_type:ty, $default_visit:path, $kind:expr) => {
-        fn $method(&mut self, node: &$node_type) {
-            let prev = self.parent_kind;
-            self.parent_kind = $kind;
-            $default_visit(self, node);
-            self.parent_kind = prev;
-        }
-    };
+fn node_parent_kind(node: &ruby_prism::Node<'_>) -> ParentKind {
+    match node {
+        ruby_prism::Node::ReturnNode { .. }
+        | ruby_prism::Node::BreakNode { .. }
+        | ruby_prism::Node::NextNode { .. }
+        | ruby_prism::Node::CallNode { .. } => ParentKind::Unsupported,
+        _ => ParentKind::Other,
+    }
+}
+
+impl EmptyCaseVisitor<'_> {
+    fn direct_parent_kind(&self) -> ParentKind {
+        self.node_kind_stack
+            .iter()
+            .rev()
+            .nth(1)
+            .copied()
+            .unwrap_or(ParentKind::Other)
+    }
 }
 
 impl<'pr> Visit<'pr> for EmptyCaseVisitor<'_> {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.node_kind_stack.push(node_parent_kind(&node));
+    }
+
+    fn visit_branch_node_leave(&mut self) {
+        self.node_kind_stack.pop();
+    }
+
+    fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.node_kind_stack.push(node_parent_kind(&node));
+    }
+
+    fn visit_leaf_node_leave(&mut self) {
+        self.node_kind_stack.pop();
+    }
+
     fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
         // Only flag if case has no predicate (empty case condition)
-        if node.predicate().is_none() && self.parent_kind != ParentKind::Unsupported {
+        if node.predicate().is_none() && self.direct_parent_kind() != ParentKind::Unsupported {
             // Skip if any branch body contains a return statement (or descendant)
             if !branch_contains_return(node) {
                 let case_kw_loc = node.case_keyword_loc();
@@ -141,114 +157,8 @@ impl<'pr> Visit<'pr> for EmptyCaseVisitor<'_> {
             }
         }
 
-        // Continue visiting child nodes (reset parent kind since case's children
-        // are when/else nodes, not unsupported parents)
-        let prev = self.parent_kind;
-        self.parent_kind = ParentKind::Other;
         ruby_prism::visit_case_node(self, node);
-        self.parent_kind = prev;
     }
-
-    // Unsupported parent types: return, break, next, send/csend (CallNode)
-    visit_with_parent!(
-        visit_return_node,
-        ruby_prism::ReturnNode<'pr>,
-        ruby_prism::visit_return_node,
-        ParentKind::Unsupported
-    );
-    visit_with_parent!(
-        visit_break_node,
-        ruby_prism::BreakNode<'pr>,
-        ruby_prism::visit_break_node,
-        ParentKind::Unsupported
-    );
-    visit_with_parent!(
-        visit_next_node,
-        ruby_prism::NextNode<'pr>,
-        ruby_prism::visit_next_node,
-        ParentKind::Unsupported
-    );
-    visit_with_parent!(
-        visit_call_node,
-        ruby_prism::CallNode<'pr>,
-        ruby_prism::visit_call_node,
-        ParentKind::Unsupported
-    );
-
-    // All other node types reset parent_kind to Other so that case nodes
-    // nested deeper (e.g. inside a block body within a call) are not suppressed.
-    visit_with_parent!(
-        visit_def_node,
-        ruby_prism::DefNode<'pr>,
-        ruby_prism::visit_def_node,
-        ParentKind::Other
-    );
-    visit_with_parent!(
-        visit_block_node,
-        ruby_prism::BlockNode<'pr>,
-        ruby_prism::visit_block_node,
-        ParentKind::Other
-    );
-    visit_with_parent!(
-        visit_lambda_node,
-        ruby_prism::LambdaNode<'pr>,
-        ruby_prism::visit_lambda_node,
-        ParentKind::Other
-    );
-    visit_with_parent!(
-        visit_if_node,
-        ruby_prism::IfNode<'pr>,
-        ruby_prism::visit_if_node,
-        ParentKind::Other
-    );
-    visit_with_parent!(
-        visit_unless_node,
-        ruby_prism::UnlessNode<'pr>,
-        ruby_prism::visit_unless_node,
-        ParentKind::Other
-    );
-    visit_with_parent!(
-        visit_while_node,
-        ruby_prism::WhileNode<'pr>,
-        ruby_prism::visit_while_node,
-        ParentKind::Other
-    );
-    visit_with_parent!(
-        visit_until_node,
-        ruby_prism::UntilNode<'pr>,
-        ruby_prism::visit_until_node,
-        ParentKind::Other
-    );
-    visit_with_parent!(
-        visit_for_node,
-        ruby_prism::ForNode<'pr>,
-        ruby_prism::visit_for_node,
-        ParentKind::Other
-    );
-    visit_with_parent!(
-        visit_begin_node,
-        ruby_prism::BeginNode<'pr>,
-        ruby_prism::visit_begin_node,
-        ParentKind::Other
-    );
-    visit_with_parent!(
-        visit_class_node,
-        ruby_prism::ClassNode<'pr>,
-        ruby_prism::visit_class_node,
-        ParentKind::Other
-    );
-    visit_with_parent!(
-        visit_module_node,
-        ruby_prism::ModuleNode<'pr>,
-        ruby_prism::visit_module_node,
-        ParentKind::Other
-    );
-    visit_with_parent!(
-        visit_singleton_class_node,
-        ruby_prism::SingletonClassNode<'pr>,
-        ruby_prism::visit_singleton_class_node,
-        ParentKind::Other
-    );
 }
 
 #[cfg(test)]
