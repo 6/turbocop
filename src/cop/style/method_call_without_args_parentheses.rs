@@ -35,6 +35,13 @@ use crate::parse::source::SourceFile;
 /// stopped dropping parenthesized no-arg calls solely because they have a real
 /// block literal, while still skipping block-pass forms that Prism stores in
 /// `call.block()` as `BlockArgumentNode`.
+///
+/// Follow-up corpus fix (2026-03-30): RuboCop only exempts prefix `not(...)`,
+/// not receiver calls like `literal(false).not()`. It also exempts only the
+/// direct optional-parameter default expression, so nested zero-arg calls like
+/// `getModel()` in `data = getModel().getData()` must still be flagged.
+/// Finally, explicit operator dot-calls like `foo.[]()` and `foo.[]=()` are
+/// offenses even though bracket syntax like `Set[]` is still allowed.
 pub struct MethodCallWithoutArgsParentheses;
 
 impl Cop for MethodCallWithoutArgsParentheses {
@@ -66,17 +73,16 @@ impl Cop for MethodCallWithoutArgsParentheses {
             diagnostics: Vec::new(),
             // Stack of assignment variable names (for same_name_assignment detection)
             assignment_names: Vec::new(),
-            // Whether inside an OptionalParameterNode
-            in_optarg: false,
             // Stack of block info: true = block with no explicit params (it() exempt)
             block_stack: Vec::new(),
+            ancestors: Vec::new(),
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
     }
 }
 
-struct MethodCallVisitor<'a, 'src> {
+struct MethodCallVisitor<'a, 'src, 'pr> {
     cop: &'a MethodCallWithoutArgsParentheses,
     source: &'src SourceFile,
     allowed_methods: Vec<String>,
@@ -85,13 +91,13 @@ struct MethodCallVisitor<'a, 'src> {
     /// Stack of sets of variable names from enclosing assignments.
     /// Each entry is a vec of names assigned at that level.
     assignment_names: Vec<Vec<String>>,
-    /// Whether we're inside an optional parameter default value.
-    in_optarg: bool,
     /// Stack tracking block context. true = block has no explicit params (it() is exempt).
     block_stack: Vec<bool>,
+    /// Full ancestor stack, including the current branch node while visiting it.
+    ancestors: Vec<ruby_prism::Node<'pr>>,
 }
 
-impl<'a, 'src> MethodCallVisitor<'a, 'src> {
+impl<'a, 'src, 'pr> MethodCallVisitor<'a, 'src, 'pr> {
     fn is_same_name_assignment(&self, method_name: &str) -> bool {
         for names in &self.assignment_names {
             if names.iter().any(|n| n == method_name) {
@@ -103,6 +109,15 @@ impl<'a, 'src> MethodCallVisitor<'a, 'src> {
 
     fn in_block_without_explicit_params(&self) -> bool {
         self.block_stack.iter().any(|&exempt| exempt)
+    }
+
+    fn current_parent(&self) -> Option<&ruby_prism::Node<'pr>> {
+        self.ancestors.iter().rev().nth(1)
+    }
+
+    fn is_direct_optional_parameter_value(&self) -> bool {
+        self.current_parent()
+            .is_some_and(|node| node.as_optional_parameter_node().is_some())
     }
 
     fn check_call(&mut self, call: &ruby_prism::CallNode<'_>) {
@@ -141,13 +156,14 @@ impl<'a, 'src> MethodCallVisitor<'a, 'src> {
             return;
         }
 
-        // Skip operator methods ([], []=)
-        if method_bytes == b"[]" || method_bytes == b"[]=" {
+        // Skip bracket syntax like `Set[]`, but still flag explicit operator
+        // dot-calls such as `foo.[]()` and `foo.[]=()`.
+        if (method_bytes == b"[]" || method_bytes == b"[]=") && call.call_operator_loc().is_none() {
             return;
         }
 
-        // Skip `not()` — keyword
-        if method_bytes == b"not" || msg_loc.as_slice() == b"not" {
+        // Skip prefix `not(...)`, but still flag receiver calls like `obj.not()`.
+        if call.call_operator_loc().is_none() && msg_loc.as_slice() == b"not" {
             return;
         }
 
@@ -173,8 +189,8 @@ impl<'a, 'src> MethodCallVisitor<'a, 'src> {
             return;
         }
 
-        // Check default_argument? — inside an OptionalParameterNode
-        if self.in_optarg {
+        // Check default_argument? — only the direct OptionalParameterNode value
+        if self.is_direct_optional_parameter_value() {
             return;
         }
 
@@ -247,7 +263,17 @@ impl<'a, 'src> MethodCallVisitor<'a, 'src> {
     }
 }
 
-impl<'a, 'src, 'pr> Visit<'pr> for MethodCallVisitor<'a, 'src> {
+impl<'a, 'src, 'pr> Visit<'pr> for MethodCallVisitor<'a, 'src, 'pr> {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.ancestors.push(node);
+    }
+
+    fn visit_branch_node_leave(&mut self) {
+        self.ancestors.pop();
+    }
+
+    fn visit_leaf_node_enter(&mut self, _node: ruby_prism::Node<'pr>) {}
+
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         self.check_call(node);
         ruby_prism::visit_call_node(self, node);
@@ -328,14 +354,6 @@ impl<'a, 'src, 'pr> Visit<'pr> for MethodCallVisitor<'a, 'src> {
         self.assignment_names.push(names);
         ruby_prism::visit_multi_write_node(self, node);
         self.assignment_names.pop();
-    }
-
-    // Track optional parameter: `def foo(test = test())`
-    fn visit_optional_parameter_node(&mut self, node: &ruby_prism::OptionalParameterNode<'pr>) {
-        let old = self.in_optarg;
-        self.in_optarg = true;
-        ruby_prism::visit_optional_parameter_node(self, node);
-        self.in_optarg = old;
     }
 
     // Track block context for it() exemption
