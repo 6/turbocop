@@ -54,3 +54,17 @@ describe 'quoted with double' do
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/RepeatedExampleGroupDescription: Repeated describe block description on line(s) [40]
   it { other }
 end
+
+describe 'conditional repeats' do
+  if enabled
+    context 'with no upstream package source' do
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/RepeatedExampleGroupDescription: Repeated context block description on line(s) [54]
+      it { works }
+    end
+
+    context 'with no upstream package source' do
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/RepeatedExampleGroupDescription: Repeated context block description on line(s) [50]
+      it { also_works }
+    end
+  end
+end
