@@ -73,3 +73,9 @@ def same_line(first,
               second)
   first
 end
+
+# Tab-indented modifier def correctly indented
+	register_element def animate_transform(
+	  **attributes,
+		&content
+	) = nil

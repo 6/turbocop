@@ -70,3 +70,10 @@ def self.method_h(
 )
   first
 end
+
+# Tab-indented modifier def still uses the def line as the base indentation
+	register_element def animate_transform(
+		**attributes,
+		^^^^^^^^^^^^ Layout/FirstParameterIndentation: Use 3 (not 2) spaces for indentation.
+		&content
+	) = nil
