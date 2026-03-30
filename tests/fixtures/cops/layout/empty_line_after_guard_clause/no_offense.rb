@@ -872,3 +872,9 @@ def parser_comment_guard(normal, next_line, reader, document, attributes)
     return true
   end
 end
+
+# FP fix: nested modifier form is not itself a guard clause
+def nested_modifier_not_guard(path, replace)
+  return if File.exist?(path) unless replace
+  work
+end

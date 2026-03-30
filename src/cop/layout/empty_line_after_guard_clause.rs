@@ -269,6 +269,35 @@ use crate::parse::source::SourceFile;
 ///    the raw-text fast path treated the suffix as a separate next statement and
 ///    raised a false positive. Fix: ignore attached modifier suffixes when checking
 ///    for same-line trailing code after a multiline guard.
+///
+/// ## Corpus investigation (2026-03-30: semicolon and nested-modifier batch)
+///
+/// Four remaining mismatches came from next-sibling classification still being
+/// broader than RuboCop in a few line-oriented cases:
+///
+/// 1. **Top-level semicolon before a guard**: lines like
+///    `foo(); return if cond` are two sibling statements on one line. The next
+///    sibling is the `foo()` call, not a guard clause. Fix: reject
+///    `contains_modifier_guard()` matches when a top-level `;` appears on the line.
+///
+/// 2. **Nested modifiers need split handling**:
+///    - Nested modifier lines like `return if cond unless outer` and
+///      `return if a if b` are not standalone guard clauses and should not be
+///      reported themselves.
+///    - But those same lines also must NOT suppress the previous guard as a
+///      "next sibling guard clause".
+///    Fix: next-sibling text classification now requires exactly one top-level
+///    modifier keyword on the line, and modifier nodes with any trailing
+///    attached modifier suffix are skipped.
+///
+/// 3. **Symbol literals named like guard keywords**: `if node.type == :return`
+///    is not a guard block. Fix: reject top-level guard-keyword text matches
+///    when they are immediately preceded by `:`.
+///
+/// 4. **Open ternary returns in block siblings**: `return cond ?` on the first
+///    body line of the next `if` block is multiline and fails RuboCop's
+///    `single_line?` check. Fix: treat top-level ternaries without a same-line
+///    `:` as multiline in `is_bare_guard_in_block`.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -510,6 +539,7 @@ impl Cop for EmptyLineAfterGuardClause {
         // them — this is an offense (not an embedded expression).
         let if_start_line = source.offset_to_line_col(loc.start_offset()).0;
         let mut has_code_after_multiline_guard = false;
+        let mut has_attached_modifier_suffix = false;
         if heredoc_end_line.is_none() {
             let statement_end_line = source.offset_to_line_col(statement_end_offset).0;
             if let Some(cur_line) = lines.get(statement_end_line.saturating_sub(1)) {
@@ -528,7 +558,11 @@ impl Cop for EmptyLineAfterGuardClause {
                         .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
                     {
                         let trailing = &rest[idx..];
-                        if trailing[0] != b'#' && !is_attached_modifier_suffix(trailing) {
+                        if starts_with_keyword(trailing, b"if") {
+                            has_attached_modifier_suffix = true;
+                        } else if starts_with_keyword(trailing, b"unless") {
+                            has_attached_modifier_suffix = true;
+                        } else if trailing[0] != b'#' {
                             if if_start_line == if_end_line {
                                 // Single-line guard with code after it on same line:
                                 // embedded expression (e.g. `arr.each { return x if cond }`)
@@ -541,6 +575,10 @@ impl Cop for EmptyLineAfterGuardClause {
                     }
                 }
             }
+        }
+
+        if is_modifier && has_attached_modifier_suffix {
+            return;
         }
 
         // If a multiline guard has code after it on the end line (e.g., semicolon-
@@ -927,6 +965,9 @@ fn starts_with_keyword(content: &[u8], keyword: &[u8]) -> bool {
 
 fn is_guard_line(content: &[u8]) -> bool {
     let content = strip_inline_comment(content);
+    let if_modifier_count = count_top_level_word_occurrences(content, b"if");
+    let unless_modifier_count = count_top_level_word_occurrences(content, b"unless");
+    let modifier_count = if_modifier_count + unless_modifier_count;
 
     // RuboCop's next_sibling_empty_or_guard_clause? only skips when the next
     // sibling is an if/unless node that contains a guard clause. It does NOT
@@ -944,10 +985,11 @@ fn is_guard_line(content: &[u8]) -> bool {
             if has_top_level_rescue_modifier(content) {
                 return false;
             }
+            if modifier_count != 1 {
+                return false;
+            }
             // Check if this line also has a modifier `if` or `unless`
-            if contains_word_at_top_level(content, b"if")
-                || contains_word_at_top_level(content, b"unless")
-            {
+            if modifier_count == 1 {
                 return true;
             }
             // Bare guard statement without modifier — not a guard clause
@@ -1171,10 +1213,6 @@ fn trim_trailing_whitespace(line: &[u8]) -> &[u8] {
         .map(|e| e + 1)
         .unwrap_or(0);
     &line[..end]
-}
-
-fn is_attached_modifier_suffix(content: &[u8]) -> bool {
-    starts_with_keyword(content, b"if") || starts_with_keyword(content, b"unless")
 }
 
 fn match_percent_literal(line: &[u8], i: usize) -> Option<(usize, u8, u8)> {
@@ -1481,6 +1519,7 @@ fn is_bare_guard_in_block(trimmed: &[u8], lines: &[&[u8]], line_idx: usize) -> b
         || stripped.ends_with(b"+")
         || stripped.ends_with(b".")
         || has_unclosed_literal(stripped)
+        || has_open_top_level_ternary(stripped)
     {
         return false;
     }
@@ -1782,9 +1821,13 @@ fn contains_modifier_guard(content: &[u8]) -> bool {
         return false;
     }
 
-    if !contains_word_at_top_level(content, b"if")
-        && !contains_word_at_top_level(content, b"unless")
-    {
+    if contains_pattern_at_top_level(content, b";", false) {
+        return false;
+    }
+
+    let modifier_count = count_top_level_word_occurrences(content, b"if")
+        + count_top_level_word_occurrences(content, b"unless");
+    if modifier_count != 1 {
         return false;
     }
     for keyword in GUARD_METHODS {
@@ -1857,9 +1900,11 @@ fn contains_guard_keyword_at_top_level(haystack: &[u8], word: &[u8]) -> bool {
         if depth == 0 && i + plen <= haystack.len() && &haystack[i..i + plen] == word {
             let before_ok = i == 0 || !is_ident_char(haystack[i - 1]);
             let after_ok = i + plen >= haystack.len() || !is_ident_char(haystack[i + plen]);
-            // Reject if preceded by `.` (method call on receiver)
-            let not_method_call = i == 0 || haystack[i - 1] != b'.';
-            if before_ok && after_ok && not_method_call {
+            // Reject if preceded by `.` (method call on receiver) or `:`
+            // (symbol literal like `:return`).
+            let not_method_call_or_symbol =
+                i == 0 || (haystack[i - 1] != b'.' && haystack[i - 1] != b':');
+            if before_ok && after_ok && not_method_call_or_symbol {
                 return true;
             }
         }
@@ -1868,8 +1913,223 @@ fn contains_guard_keyword_at_top_level(haystack: &[u8], word: &[u8]) -> bool {
     false
 }
 
+fn has_open_top_level_ternary(content: &[u8]) -> bool {
+    let mut depth: i32 = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_regex = false;
+    let mut in_percent_literal: Option<(u8, u8, usize)> = None;
+    let mut saw_top_level_ternary_question = false;
+    let mut i = 0;
+
+    while i < content.len() {
+        let b = content[i];
+
+        if let Some((open, close, nested_depth)) = in_percent_literal.as_mut() {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if *open != *close && b == *open {
+                *nested_depth += 1;
+                i += 1;
+                continue;
+            }
+            if b == *close {
+                if *nested_depth == 0 {
+                    in_percent_literal = None;
+                } else {
+                    *nested_depth -= 1;
+                }
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_single_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == b'\'' {
+                in_single_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_double_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == b'"' {
+                in_double_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_regex {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == b'/' {
+                in_regex = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        match b {
+            b'\'' => {
+                in_single_quote = true;
+                i += 1;
+                continue;
+            }
+            b'"' => {
+                in_double_quote = true;
+                i += 1;
+                continue;
+            }
+            b'%' => {
+                if let Some((next_i, open, close)) = match_percent_literal(content, i) {
+                    in_percent_literal = Some((open, close, 0));
+                    i = next_i;
+                    continue;
+                }
+            }
+            b'/' => {
+                let is_regex_start = if i == 0 {
+                    true
+                } else {
+                    matches!(
+                        content[i - 1],
+                        b'=' | b'('
+                            | b','
+                            | b'!'
+                            | b'~'
+                            | b' '
+                            | b'\t'
+                            | b'|'
+                            | b'&'
+                            | b'{'
+                            | b'['
+                            | b';'
+                            | b':'
+                    )
+                };
+                if is_regex_start {
+                    in_regex = true;
+                    i += 1;
+                    continue;
+                }
+            }
+            b'(' | b'{' | b'[' => depth += 1,
+            b')' | b'}' | b']' => depth = depth.saturating_sub(1),
+            b'?' if depth == 0 => {
+                let preceded_by_end_of_expr =
+                    i > 0 && matches!(content[i - 1], b' ' | b'\t' | b')' | b']' | b'}');
+                let followed_by_space_or_eol = i + 1 >= content.len()
+                    || matches!(content[i + 1], b' ' | b'\t' | b'\r' | b'\n');
+                if preceded_by_end_of_expr && followed_by_space_or_eol {
+                    saw_top_level_ternary_question = true;
+                }
+            }
+            b':' if depth == 0 && saw_top_level_ternary_question => {
+                let preceded_by_separator =
+                    i > 0 && matches!(content[i - 1], b' ' | b'\t' | b')');
+                if preceded_by_separator {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+
+        i += 1;
+    }
+
+    saw_top_level_ternary_question
+}
+
 fn contains_word_at_top_level(haystack: &[u8], word: &[u8]) -> bool {
     contains_pattern_at_top_level(haystack, word, true)
+}
+
+fn count_top_level_word_occurrences(haystack: &[u8], word: &[u8]) -> usize {
+    let plen = word.len();
+    if haystack.len() < plen {
+        return 0;
+    }
+
+    let mut depth: i32 = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut count = 0;
+    let mut i = 0;
+
+    while i < haystack.len() {
+        let b = haystack[i];
+
+        if in_single_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'\'' {
+                in_single_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_double_quote {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            } else if b == b'"' {
+                in_double_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        match b {
+            b'\'' => {
+                in_single_quote = true;
+                i += 1;
+                continue;
+            }
+            b'"' => {
+                in_double_quote = true;
+                i += 1;
+                continue;
+            }
+            b'(' | b'{' | b'[' => {
+                depth += 1;
+                i += 1;
+                continue;
+            }
+            b')' | b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+
+        if depth == 0 && i + plen <= haystack.len() && &haystack[i..i + plen] == word {
+            let before_ok = i == 0 || !is_ident_char(haystack[i - 1]);
+            let after_ok = i + plen >= haystack.len() || !is_ident_char(haystack[i + plen]);
+            if before_ok && after_ok {
+                count += 1;
+            }
+        }
+
+        i += 1;
+    }
+
+    count
 }
 
 fn contains_pattern_at_top_level(

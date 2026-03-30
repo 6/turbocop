@@ -404,3 +404,73 @@ def output_extension(mime)
   ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
   return '.html' # if all else falls trough
 end
+
+# FN fix: next sibling with nested `if ... unless ...` is not itself a guard clause
+def guard_then_nested_modifier_not_guard(path, replace, name, opts)
+  return unless name && opts
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  return if File.exist?(path) unless replace
+  work
+end
+
+# FN fix: next sibling with a statement before `return if` is not a guard clause
+def guard_then_semicolon_modifier_guard
+  verify_file_download_permissions(@study); return if performed?
+                                            ^^^^^^^^^^^^^^^^^^^^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  execute_file_download(@study); return if performed?
+end
+
+# FN fix: `if ... == :return` is not a guard just because the symbol is named `:return`
+def guard_then_if_with_symbol_literal(node, result)
+  next if SKIPPABLE.include?(node.type)
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  if node.type == :return
+    result.concat reduce_to_value_nodes([node.children[0]])
+    # Return the result here because the rest of the code is
+    # unreachable
+    return result
+  else
+    result.concat explicit_return_values_from_compound_statement(node)
+  end
+end
+
+# FN fix: first body line of the next `if` block can be a multiline ternary return
+def guard_then_if_with_multiline_ternary_return(expr)
+  return (@options[:html] ? %(<a href="#grammar-production-#{@coder.encode expr}">#{@coder.encode expr}</a>) : expr.to_s) if expr.is_a?(Symbol)
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  if expr.is_a?(String)
+    return expr.length == 1 ?
+      format_ebnf_char(expr) :
+      format_ebnf_string(expr)
+  end
+end
+
+# FN fix: consecutive semicolon-prefixed guards still need empty lines between them
+def guard_chain_with_semicolon_prefix(message)
+  fnid = message['from']; return [] unless fnid
+                          ^^^^^^^^^^^^^^^^^^^^^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  fnode = @execution['nodes'][fnid]; return [] unless fnode
+                                     ^^^^^^^^^^^^^^^^^^^^^^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  remove_node(message, fnode) +
+    leave_tags(message, fnode)
+end
+
+# FN fix: multiple semicolon-prefixed guards in sequence
+def parent_is_trap?
+  pt = parent_node_tree; return false unless pt
+                         ^^^^^^^^^^^^^^^^^^^^^^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  pt0 = pt[0]; return false unless pt0.is_a?(String)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  pro = Flor::Procedure[pt0]; return false unless pro
+                              ^^^^^^^^^^^^^^^^^^^^^^^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  pro.names.include?('trap')
+end
+
+# FN fix: nested same-keyword modifiers are not guard siblings, so the previous
+# guard line still needs a blank line
+def nested_same_keyword_guard
+  return false if nil?
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  return false if empty? if respond_to?(:empty?)
+  true
+end
