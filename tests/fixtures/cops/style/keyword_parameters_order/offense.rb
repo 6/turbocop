@@ -8,3 +8,6 @@ end
 def o(arg, optional: true, required:)
            ^^^^^^^^^^^^^^ Style/KeywordParametersOrder: Place optional keyword parameters at the end of the parameters list.
 end
+
+let(:target) { ->(_a, key: nil, foo:) {} }
+                      ^^^^^^^^ Style/KeywordParametersOrder: Place optional keyword parameters at the end of the parameters list.
