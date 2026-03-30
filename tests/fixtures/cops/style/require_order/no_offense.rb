@@ -65,6 +65,15 @@ require "rubygems" rescue nil
 require 'minitest/autorun'
 require "rr"
 
+# `while` / `until` modifiers are separators too
+require 'c'
+require 'a' while foo
+require 'b'
+
+require 'c'
+require 'a' until foo
+require 'b'
+
 # __END__ — data section, not code
 require 'a'
 require 'b'
