@@ -163,6 +163,8 @@ struct FormatSpec {
     end: usize,
 }
 
+type AnnotatedNameParse = (String, Vec<u8>, Option<u32>, Option<usize>, u8, usize);
+
 /// Parse simple format specifiers from a format string.
 /// Returns None if the string contains specifiers we can't handle.
 fn parse_simple_format_specs(fmt: &str) -> Option<Vec<FormatSpec>> {
@@ -345,10 +347,7 @@ fn parse_template_name(bytes: &[u8], start: usize) -> Option<(String, usize)> {
     Some((name, i + 1))
 }
 
-fn parse_annotated_name(
-    bytes: &[u8],
-    start: usize,
-) -> Option<(String, Vec<u8>, Option<u32>, Option<usize>, u8, usize)> {
+fn parse_annotated_name(bytes: &[u8], start: usize) -> Option<AnnotatedNameParse> {
     if start >= bytes.len() || bytes[start] != b'<' {
         return None;
     }
