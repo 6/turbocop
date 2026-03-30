@@ -4,6 +4,15 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/OptionHash detects methods and blocks with option hash parameters
+/// (e.g., `opts = {}`) and suggests using keyword arguments instead.
+///
+/// Fixed: only bare `super` (forwarding super, without explicit arguments) exempts
+/// a method from detection. `super(args)` with explicit arguments does NOT exempt,
+/// matching RuboCop's `zsuper`-only check.
+///
+/// Also detects option hash params in block and lambda parameters (e.g.,
+/// `lambda do |opts = {}|` or `define do |name, opts = {}|`).
 pub struct OptionHash;
 
 impl Cop for OptionHash {
@@ -57,24 +66,71 @@ struct OptionHashVisitor<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
-/// Check if a node tree contains a `super` or `super(...)` call.
-fn has_super(node: &ruby_prism::Node<'_>) -> bool {
-    let mut visitor = HasSuperVisitor { found: false };
+/// Check if a node tree contains a bare `super` (forwarding super) call.
+/// Only bare `super` without explicit arguments exempts a method;
+/// `super(args)` does NOT.
+fn has_forwarding_super(node: &ruby_prism::Node<'_>) -> bool {
+    let mut visitor = HasForwardingSuperVisitor { found: false };
     visitor.visit(node);
     visitor.found
 }
 
-struct HasSuperVisitor {
+struct HasForwardingSuperVisitor {
     found: bool,
 }
 
-impl<'pr> Visit<'pr> for HasSuperVisitor {
+impl<'pr> Visit<'pr> for HasForwardingSuperVisitor {
     fn visit_forwarding_super_node(&mut self, _node: &ruby_prism::ForwardingSuperNode<'pr>) {
         self.found = true;
     }
+}
 
-    fn visit_super_node(&mut self, _node: &ruby_prism::SuperNode<'pr>) {
-        self.found = true;
+impl OptionHashVisitor<'_> {
+    /// Check a ParametersNode for a trailing option hash param and report a diagnostic.
+    fn check_params(&mut self, params: &ruby_prism::ParametersNode<'_>) {
+        // RuboCop's pattern: (args ... $(optarg [#suspicious_name? _] (hash)))
+        // The optarg must be the LAST child of the args node.
+        // In Prism terms: check only the last optional param, and only if
+        // no rest, posts, keywords, keyword_rest, or block follow it.
+        let has_rest = params.rest().is_some();
+        let has_posts = !params.posts().is_empty();
+        let has_keywords = !params.keywords().is_empty();
+        let has_keyword_rest = params.keyword_rest().is_some();
+        let has_block = params.block().is_some();
+
+        if has_rest || has_posts || has_keywords || has_keyword_rest || has_block {
+            return;
+        }
+
+        let optionals = params.optionals();
+        if let Some(last_opt) = optionals.iter().last() {
+            if let Some(opt_param) = last_opt.as_optional_parameter_node() {
+                let name = opt_param.name();
+                let name_str = std::str::from_utf8(name.as_slice()).unwrap_or("");
+                if self.suspicious_names.iter().any(|s| s == name_str) {
+                    // Check if default value is an empty hash.
+                    // RuboCop only flags `(hash)` which is an empty hash literal.
+                    let value = opt_param.value();
+                    let is_empty_hash = value
+                        .as_hash_node()
+                        .is_some_and(|h| h.elements().is_empty())
+                        || value
+                            .as_keyword_hash_node()
+                            .is_some_and(|h| h.elements().is_empty());
+                    if is_empty_hash {
+                        let loc = opt_param.location();
+                        let (line, column) =
+                            self.source.offset_to_line_col(loc.start_offset());
+                        self.diagnostics.push(self.cop.diagnostic(
+                            self.source,
+                            line,
+                            column,
+                            format!("Use keyword arguments instead of an options hash argument `{name_str}`."),
+                        ));
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -90,67 +146,58 @@ impl<'pr> Visit<'pr> for OptionHashVisitor<'_> {
             return;
         }
 
-        // Check if method body contains a super call
+        // Check if method body contains a bare super call (forwarding super only).
+        // super(args) with explicit arguments does NOT exempt the method.
         if let Some(body) = node.body() {
-            let body_node = body;
-            if has_super(&body_node) {
+            if has_forwarding_super(&body) {
                 // Still visit nested defs
-                self.visit(&body_node);
+                self.visit(&body);
                 return;
             }
         }
 
         if let Some(params) = node.parameters() {
-            // RuboCop's pattern: (args ... $(optarg [#suspicious_name? _] (hash)))
-            // The optarg must be the LAST child of the args node.
-            // In Prism terms: check only the last optional param, and only if
-            // no rest, posts, keywords, keyword_rest, or block follow it.
-            let has_rest = params.rest().is_some();
-            let has_posts = !params.posts().is_empty();
-            let has_keywords = !params.keywords().is_empty();
-            let has_keyword_rest = params.keyword_rest().is_some();
-            let has_block = params.block().is_some();
-
-            // The optarg can only be last if nothing follows optional params
-            if !has_rest && !has_posts && !has_keywords && !has_keyword_rest && !has_block {
-                // Check only the last optional parameter
-                let optionals = params.optionals();
-                if let Some(last_opt) = optionals.iter().last() {
-                    if let Some(opt_param) = last_opt.as_optional_parameter_node() {
-                        let name = opt_param.name();
-                        let name_str = std::str::from_utf8(name.as_slice()).unwrap_or("");
-                        if self.suspicious_names.iter().any(|s| s == name_str) {
-                            // Check if default value is an empty hash.
-                            // RuboCop only flags `(hash)` which is an empty hash literal.
-                            // Non-empty hashes like `{key: val}` are not flagged.
-                            let value = opt_param.value();
-                            let is_empty_hash = value
-                                .as_hash_node()
-                                .is_some_and(|h| h.elements().is_empty())
-                                || value
-                                    .as_keyword_hash_node()
-                                    .is_some_and(|h| h.elements().is_empty());
-                            if is_empty_hash {
-                                let loc = opt_param.location();
-                                let (line, column) =
-                                    self.source.offset_to_line_col(loc.start_offset());
-                                self.diagnostics.push(self.cop.diagnostic(
-                                    self.source,
-                                    line,
-                                    column,
-                                    format!("Use keyword arguments instead of an options hash argument `{name_str}`."),
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
+            self.check_params(&params);
         }
 
         // Visit body for nested defs
         if let Some(body) = node.body() {
             self.visit(&body);
         }
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        // Check for forwarding super in the block body (e.g. `defined? super`).
+        // RuboCop's super_used? searches the block body for zsuper too.
+        let body_has_super = node
+            .body()
+            .is_some_and(|body| has_forwarding_super(&body));
+        if !body_has_super {
+            if let Some(block_params) = node.parameters() {
+                if let Some(bp) = block_params.as_block_parameters_node() {
+                    if let Some(params) = bp.parameters() {
+                        self.check_params(&params);
+                    }
+                }
+            }
+        }
+        ruby_prism::visit_block_node(self, node);
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        let body_has_super = node
+            .body()
+            .is_some_and(|body| has_forwarding_super(&body));
+        if !body_has_super {
+            if let Some(block_params) = node.parameters() {
+                if let Some(bp) = block_params.as_block_parameters_node() {
+                    if let Some(params) = bp.parameters() {
+                        self.check_params(&params);
+                    }
+                }
+            }
+        }
+        ruby_prism::visit_lambda_node(self, node);
     }
 }
 
@@ -196,17 +243,18 @@ mod tests {
         use crate::testutil::run_cop_full;
         let source = b"def update(options = {})\n  super\nend\n";
         let diags = run_cop_full(&OptionHash, source);
-        assert!(diags.is_empty(), "Should skip methods that call super");
+        assert!(diags.is_empty(), "Should skip methods that call bare super");
     }
 
     #[test]
-    fn super_skips_explicit_super() {
+    fn super_with_args_does_not_skip() {
         use crate::testutil::run_cop_full;
         let source = b"def process(opts = {})\n  super(opts)\nend\n";
         let diags = run_cop_full(&OptionHash, source);
-        assert!(
-            diags.is_empty(),
-            "Should skip methods that call super(args)"
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag methods that call super(args) — only bare super exempts"
         );
     }
 }

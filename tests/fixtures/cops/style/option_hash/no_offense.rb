@@ -8,12 +8,9 @@ def qux(data = [])
 end
 def quux(options = "default")
 end
-# Method with super call should be skipped
+# Method with bare super call should be skipped
 def update(options = {})
   super
-end
-def process(opts = {})
-  super(opts)
 end
 # optarg not last param: followed by block
 def build(options = {}, &block)
