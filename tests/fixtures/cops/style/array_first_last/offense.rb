@@ -1,3 +1,5 @@
+# nitrocop-filename: common-tools/ci/.toys.rb
+
 arr[0]
    ^^^ Style/ArrayFirstLast: Use `first`.
 

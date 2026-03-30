@@ -58,11 +58,12 @@ use crate::parse::source::SourceFile;
 ///
 /// FP=2 in the sampled corpus gate: after fixing the chained-send misses,
 /// nitrocop started reporting offenses in `.github/workflows/scripts/*.rb`
-/// files inside `newrelic-ruby-agent`. RuboCop did not count those because
-/// repo-root scans skip hidden-path files by default, but nitrocop's current
-/// file discovery still fed them to the cop. As a stopgap within this cop's
-/// allowed scope, skip hidden-path files so corpus repo scans stay aligned
-/// with RuboCop until discovery is fixed globally.
+/// files inside `newrelic-ruby-agent`. RuboCop repo-root scans skip files
+/// under hidden directories, but it still inspects root dotfiles like
+/// `.watchr` and hidden basenames in visible directories like `.toys.rb`.
+/// The earlier stopgap skipped any hidden path component, which hid real
+/// offenses in those files. Fix: only skip files that live under a hidden
+/// directory component, not files whose basename happens to start with `.`.
 ///
 /// Corpus investigation (2026-03-30):
 ///
@@ -101,7 +102,7 @@ impl Cop for ArrayFirstLast {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        if path_has_hidden_component(&source.path) {
+        if path_has_hidden_directory(&source.path) {
             return;
         }
 
@@ -141,14 +142,25 @@ fn is_safe_navigation_call(call: &ruby_prism::CallNode<'_>) -> bool {
         .is_some_and(|loc| loc.as_slice() == b"&.")
 }
 
-fn path_has_hidden_component(path: &Path) -> bool {
-    path.components().any(|component| {
-        matches!(
+fn path_has_hidden_directory(path: &Path) -> bool {
+    let mut components = path.components().peekable();
+
+    while let Some(component) = components.next() {
+        let is_last = components.peek().is_none();
+        if is_last {
+            break;
+        }
+
+        if matches!(
             component,
             Component::Normal(name)
                 if name.to_str().is_some_and(|s| s.starts_with('.') && s != "." && s != "..")
-        )
-    })
+        ) {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn preferred_message_for_integer(int_node: ruby_prism::IntegerNode<'_>) -> Option<&'static str> {
@@ -512,7 +524,29 @@ mod tests {
     }
 
     #[test]
-    fn no_offense_in_hidden_path_repo_scan() {
+    fn detects_offense_in_root_dotfile_path() {
+        let d = run_with_path(".watchr", b"run_spec match[0]\n");
+        assert_eq!(
+            d.len(),
+            1,
+            "Should lint root dotfiles like .watchr: {:?}",
+            d
+        );
+    }
+
+    #[test]
+    fn detects_offense_in_hidden_basename_path() {
+        let d = run_with_path("common-tools/ci/.toys.rb", b"collection[0]\n");
+        assert_eq!(
+            d.len(),
+            1,
+            "Should lint hidden basenames in visible directories: {:?}",
+            d
+        );
+    }
+
+    #[test]
+    fn no_offense_in_hidden_directory_repo_scan() {
         let d = run_with_path(
             ".github/workflows/scripts/rubygems-publish.rb",
             b"ARGV[0]\n",
