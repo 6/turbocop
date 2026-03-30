@@ -78,17 +78,16 @@ use crate::parse::source::SourceFile;
 ///   the else_branch is both `if_type?` AND `elsif?` (keyword is 'elsif', not 'if').
 ///   In Prism, `elsif` subsequents are IfNodes while `else` subsequents are ElseNodes.
 ///   Fix: check that `if_node.subsequent()` is a direct IfNode before processing.
-/// - 2026-03-30 recheck of the remaining 6 corpus FN:
-///   - The only default-config candidate (`discourse/search.rb`) is already covered by the
-///     full-context fixture here and reproduces without logic changes.
-///   - The other representative corpus examples are all `if + elsif + else` chains, so they
-///     only become offenses when a repo lowers `Style/CaseLikeIf: MinBranchesCount` to `2`.
-///   - Added explicit config-backed unit tests for the repo-specific 2-branch `==`, `is_a?`,
-///     and `=~` shapes; they pass, so the remaining corpus FN point to config/context handling
-///     outside this cop's detector.
-///   - `chatwoot/chatwoot@1345f6796609d867a2ef8f0b6c968eb63a54e8aa` also explicitly sets
-///     `Style/CaseLikeIf: Enabled: false` in `.rubocop.yml`, yet the oracle still reports that
-///     file as an FN.
+/// - 6 FNs (2026-03-30): RuboCop's `MinBranchesCount` counts `else` bodies whose
+///   single expression is another `if_type?`, including ternaries. Its
+///   `branch_conditions` walk still skips ternaries, so `if/elsif/else <ternary>`
+///   chains are offenses even when only the non-ternary predicates are
+///   convertible. Prism wraps `else` bodies in `ElseNode`, so fix by counting
+///   `ElseNode -> single IfNode/UnlessNode` for the threshold while keeping the
+///   convertibility walk strict and skipping ternary predicates. This restores
+///   the missed corpus cases from kumi, chatwoot, discourse, iqvoc,
+///   mixpanel_client, and admin_data without regressing the nested-if/unless
+///   no-offense cases.
 pub struct CaseLikeIf;
 
 impl Cop for CaseLikeIf {
@@ -158,34 +157,16 @@ impl Cop for CaseLikeIf {
             _ => return,                                      // no elsif — if-else or standalone if
         }
 
-        // Count branches and collect predicates (if + elsif chain).
-        // RuboCop's `branch_conditions` walks into any if_type node in the chain,
-        // including nested if/unless nodes inside the `else` body. In Prism,
-        // elsif nodes are direct IfNode successors, but `else` wraps its body
-        // in an ElseNode. We must unwrap ElseNode → single-statement IfNode
-        // to match RuboCop's behavior. This prevents FPs where the else body
-        // contains a nested if/unless with a non-convertible condition.
-        let mut branch_count = 1;
-        let mut predicates = vec![if_node.predicate()];
-        let mut current_else = if_node.subsequent();
-        while let Some(else_clause) = current_else {
-            if let Some(elsif) = else_clause.as_if_node() {
-                branch_count += 1;
-                predicates.push(elsif.predicate());
-                current_else = elsif.subsequent();
-            } else if let Some((pred, next)) = unwrap_else_to_branch_info(&else_clause) {
-                // else body is a single if/unless node — continue walking
-                branch_count += 1;
-                predicates.push(pred);
-                current_else = next;
-            } else {
-                break;
-            }
-        }
-
-        if branch_count < min_branches {
+        // RuboCop uses different walks for branch counting vs. condition collection:
+        // `MinBranchesCount` counts ternary else bodies because Parser represents
+        // ternaries as if_type nodes, but `branch_conditions` stops before adding
+        // ternary predicates. Prism wraps else bodies in ElseNode, so we mirror
+        // that split explicitly.
+        if count_if_conditional_branches(&if_node) < min_branches {
             return;
         }
+
+        let predicates = collect_branch_conditions(&if_node);
 
         // Phase 1: Find the target from the first condition
         let target = match with_unwrapped(&predicates[0], &find_target) {
@@ -289,27 +270,100 @@ fn regexp_has_named_captures(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
-/// If a node is an ElseNode whose body is a single if/unless node, return that
-/// node's predicate and its continuation (subsequent/consequent for further walking).
-/// This matches RuboCop's behavior where `branch_conditions` walks through
-/// `node.else_branch` which in Parser AST can be a nested if/unless directly
-/// (both are if_type in Parser), while in Prism they're separate types wrapped
-/// in an ElseNode.
-fn unwrap_else_to_branch_info<'a>(
+/// Count branches the same way RuboCop's `MinBranchesCount#if_conditional_branches`
+/// does for `if` chains. In Parser AST, a ternary else body is an `if_type?`
+/// branch and therefore counts toward the threshold. In Prism, the else body is
+/// wrapped in an ElseNode, so we unwrap a single nested if/unless node here.
+fn count_if_conditional_branches(if_node: &ruby_prism::IfNode<'_>) -> usize {
+    1 + if_node
+        .subsequent()
+        .as_ref()
+        .map_or(0, count_else_if_type_branches)
+}
+
+fn count_else_if_type_branches(node: &ruby_prism::Node<'_>) -> usize {
+    if let Some(elsif) = node.as_if_node() {
+        return 1 + elsif
+            .subsequent()
+            .as_ref()
+            .map_or(0, count_else_if_type_branches);
+    }
+
+    let else_node = match node.as_else_node() {
+        Some(else_node) => else_node,
+        None => return 0,
+    };
+    let child = match single_statement_else_child(&else_node) {
+        Some(child) => child,
+        None => return 0,
+    };
+
+    if let Some(if_node) = child.as_if_node() {
+        return 1 + if_node
+            .subsequent()
+            .as_ref()
+            .map_or(0, count_else_if_type_branches);
+    }
+    if let Some(unless_node) = child.as_unless_node() {
+        return 1 + unless_node
+            .else_clause()
+            .map(|else_clause| count_else_if_type_branches(&else_clause.as_node()))
+            .unwrap_or(0);
+    }
+    0
+}
+
+/// Collect branch conditions the same way RuboCop's `branch_conditions` does.
+/// Unlike `MinBranchesCount`, this walk must stop before ternaries: Parser treats
+/// a ternary as `if_type?`, but `branch_conditions` explicitly rejects it.
+fn collect_branch_conditions<'a>(if_node: &ruby_prism::IfNode<'a>) -> Vec<ruby_prism::Node<'a>> {
+    let mut predicates = vec![if_node.predicate()];
+    let mut current_else = if_node.subsequent();
+    while let Some(else_clause) = current_else {
+        if let Some(elsif) = else_clause.as_if_node() {
+            predicates.push(elsif.predicate());
+            current_else = elsif.subsequent();
+        } else if let Some((pred, next)) = unwrap_else_to_condition_branch_info(&else_clause) {
+            predicates.push(pred);
+            current_else = next;
+        } else {
+            break;
+        }
+    }
+    predicates
+}
+
+fn single_statement_else_child<'a>(
+    else_node: &ruby_prism::ElseNode<'a>,
+) -> Option<ruby_prism::Node<'a>> {
+    let stmts = else_node.statements()?;
+    let mut children = stmts.body().iter();
+    let child = children.next()?;
+    if children.next().is_some() {
+        return None;
+    }
+    Some(child)
+}
+
+fn is_ternary_if_node(if_node: &ruby_prism::IfNode<'_>) -> bool {
+    if_node.if_keyword_loc().is_none()
+}
+
+/// If a node is an ElseNode whose body is a single non-ternary if/unless node,
+/// return that node's predicate and its continuation (subsequent/else clause) for
+/// RuboCop's `branch_conditions` walk.
+fn unwrap_else_to_condition_branch_info<'a>(
     node: &ruby_prism::Node<'a>,
 ) -> Option<(ruby_prism::Node<'a>, Option<ruby_prism::Node<'a>>)> {
     let else_node = node.as_else_node()?;
-    let stmts = else_node.statements()?;
-    let children: Vec<_> = stmts.body().iter().collect();
-    if children.len() != 1 {
-        return None;
-    }
-    let child = &children[0];
-    // IfNode (nested if or modifier if)
+    let child = single_statement_else_child(&else_node)?;
+
     if let Some(if_node) = child.as_if_node() {
+        if is_ternary_if_node(&if_node) {
+            return None;
+        }
         return Some((if_node.predicate(), if_node.subsequent()));
     }
-    // UnlessNode (modifier unless or full unless — both are if_type in Parser AST)
     if let Some(unless_node) = child.as_unless_node() {
         return Some((
             unless_node.predicate(),
@@ -631,7 +685,7 @@ fn is_class_reference(node: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::assert_cop_offenses_full_with_config;
+    use crate::testutil::{assert_cop_offenses_full, assert_cop_offenses_full_with_config};
     use std::collections::HashMap;
 
     crate::cop_fixture_tests!(CaseLikeIf, "cops/style/case_like_if");
@@ -650,6 +704,13 @@ mod tests {
         };
 
         assert_cop_offenses_full_with_config(&CaseLikeIf, fixture, config);
+    }
+
+    #[test]
+    fn counts_ternary_else_for_min_branches_without_validating_its_predicate() {
+        let fixture = b"current_val = query_hash['values'][0]\nif query_hash['attribute_key'] == 'phone_number'\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.\n  \"+#{current_val&.delete('+')}\"\nelsif query_hash['attribute_key'] == 'country_code'\n  current_val.downcase\nelse\n  current_val.is_a?(String) ? current_val.downcase : current_val\nend\n";
+
+        assert_cop_offenses_full(&CaseLikeIf, fixture);
     }
 
     #[test]
