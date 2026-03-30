@@ -99,9 +99,7 @@ impl ArrayCoercion {
         }
 
         let array = assignment.value().as_array_node()?;
-        if array.opening_loc().is_none() {
-            return None;
-        }
+        array.opening_loc()?;
 
         let elements: Vec<_> = array.elements().iter().collect();
         if elements.len() != 1 {
