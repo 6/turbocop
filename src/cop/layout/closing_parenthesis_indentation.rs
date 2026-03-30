@@ -1,4 +1,7 @@
-use crate::cop::node_type::{CALL_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE, PARENTHESES_NODE};
+use crate::cop::node_type::{
+    CALL_NODE, DEF_NODE, EMBEDDED_STATEMENTS_NODE, HASH_NODE, KEYWORD_HASH_NODE,
+    PARENTHESES_NODE,
+};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -35,6 +38,12 @@ fn leading_whitespace_columns(line: &[u8]) -> usize {
 /// only accepts line indentation when the grouped body has multiple unaligned
 /// child expressions. A single child expression, including heredoc bodies and
 /// multiline conditions like `if ((foo) && ... )`, must align `)` with `(`.
+///
+/// FN root cause #4 (2026-03-30): multiline `#{...}` string interpolations were
+/// skipped entirely. RuboCop reaches those through Parser `begin` nodes and applies
+/// the same hanging-close rules, reporting on the closing `}` with the standard
+/// `)` messages. Prism exposes them as `EmbeddedStatementsNode`, so the port must
+/// check that node type explicitly and reuse the grouped-expression logic.
 pub struct ClosingParenthesisIndentation;
 
 impl Cop for ClosingParenthesisIndentation {
@@ -49,6 +58,7 @@ impl Cop for ClosingParenthesisIndentation {
             HASH_NODE,
             KEYWORD_HASH_NODE,
             PARENTHESES_NODE,
+            EMBEDDED_STATEMENTS_NODE,
         ]
     }
 
@@ -87,12 +97,29 @@ impl Cop for ClosingParenthesisIndentation {
             let open_loc = parens.opening_loc();
             let close_loc = parens.closing_loc();
             if close_loc.as_slice() == b")" {
-                diagnostics.extend(check_grouped_parens(
+                diagnostics.extend(check_grouped_body(
                     source,
                     self,
                     open_loc,
                     close_loc,
-                    parens.body(),
+                    parenthesized_body_elements(parens.body()),
+                    config,
+                ));
+            }
+            return;
+        }
+
+        // Handle multiline string interpolation bodies: "#{...}"
+        if let Some(embedded) = node.as_embedded_statements_node() {
+            let open_loc = embedded.opening_loc();
+            let close_loc = embedded.closing_loc();
+            if close_loc.as_slice() == b"}" {
+                diagnostics.extend(check_grouped_body(
+                    source,
+                    self,
+                    open_loc,
+                    close_loc,
+                    embedded_body_elements(embedded.statements()),
                     config,
                 ));
             }
@@ -443,16 +470,37 @@ fn collect_def_param_columns(
     columns
 }
 
-/// Check closing parenthesis indentation for grouped expressions: `(expr)`.
-/// In RuboCop's Parser gem, `(expr)` produces a `begin` node handled by `on_begin`.
-/// `on_begin` calls `check(node, node.children)` — the children of the begin node
-/// are the expressions inside the parens.
-fn check_grouped_parens(
+fn parenthesized_body_elements(body: Option<ruby_prism::Node<'_>>) -> Vec<ruby_prism::Node<'_>> {
+    let Some(body) = body else {
+        return Vec::new();
+    };
+
+    if let Some(stmts) = body.as_statements_node() {
+        stmts.body().iter().collect()
+    } else {
+        vec![body]
+    }
+}
+
+fn embedded_body_elements(
+    statements: Option<ruby_prism::StatementsNode<'_>>,
+) -> Vec<ruby_prism::Node<'_>> {
+    let Some(statements) = statements else {
+        return Vec::new();
+    };
+
+    statements.body().iter().collect()
+}
+
+/// Check hanging closing delimiter indentation for grouped-expression-like bodies.
+/// RuboCop uses the same logic for `(expr)` and multiline `#{...}` interpolation
+/// bodies via `on_begin`.
+fn check_grouped_body(
     source: &SourceFile,
     cop: &ClosingParenthesisIndentation,
     open_loc: ruby_prism::Location<'_>,
     close_loc: ruby_prism::Location<'_>,
-    body: Option<ruby_prism::Node<'_>>,
+    elements: Vec<ruby_prism::Node<'_>>,
     config: &CopConfig,
 ) -> Vec<Diagnostic> {
     let (open_line, open_col) = source.offset_to_line_col(open_loc.start_offset());
@@ -468,39 +516,25 @@ fn check_grouped_parens(
         return Vec::new();
     }
 
-    let body = match body {
-        Some(b) => b,
-        None => {
-            // Empty parens: check no-elements case
-            // Accept `)` at open_col, open_line_indent, or node column
-            let open_line_indent = match util::line_at(source, open_line) {
-                Some(line) => leading_whitespace_columns(line),
-                None => 0,
-            };
-            if close_col != open_col && close_col != open_line_indent {
-                return vec![cop.diagnostic(
-                    source,
-                    close_line,
-                    close_col,
-                    format!(
-                        "Indent `)` to column {} (not {}).",
-                        open_line_indent, close_col
-                    ),
-                )];
-            }
-            return Vec::new();
+    if elements.is_empty() {
+        // Empty delimiters: accept either the opening-line indentation or the opener column.
+        let open_line_indent = match util::line_at(source, open_line) {
+            Some(line) => leading_whitespace_columns(line),
+            None => 0,
+        };
+        if close_col != open_col && close_col != open_line_indent {
+            return vec![cop.diagnostic(
+                source,
+                close_line,
+                close_col,
+                format!(
+                    "Indent `)` to column {} (not {}).",
+                    open_line_indent, close_col
+                ),
+            )];
         }
-    };
-
-    let elements: Vec<ruby_prism::Node<'_>> = if let Some(stmts) = body.as_statements_node() {
-        let elements: Vec<_> = stmts.body().iter().collect();
-        if elements.is_empty() {
-            return Vec::new();
-        }
-        elements
-    } else {
-        vec![body]
-    };
+        return Vec::new();
+    }
 
     let first_element = &elements[0];
     let (first_elem_line, _) = source.offset_to_line_col(first_element.location().start_offset());

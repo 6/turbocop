@@ -99,3 +99,24 @@ EOF
   ),
   ^ Layout/ClosingParenthesisIndentation: Align `)` with `(`.
 }
+
+# String interpolation with first expression on its own line: `}` should outdent
+message = "foo #{
+  bar
+  }"
+  ^ Layout/ClosingParenthesisIndentation: Indent `)` to column 0 (not 2).
+
+# String interpolation with first expression on same line: `}` should align with `#{`
+message = "foo #{bar
+  }"
+  ^ Layout/ClosingParenthesisIndentation: Align `)` with `(`.
+
+# Nested interpolation: expected column should use the surrounding line indentation
+class Foo
+  def bar
+    message = "foo #{
+      baz
+      }"
+      ^ Layout/ClosingParenthesisIndentation: Indent `)` to column 4 (not 6).
+  end
+end

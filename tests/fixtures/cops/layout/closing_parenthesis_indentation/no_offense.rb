@@ -86,3 +86,12 @@ hello
 EOF
      ),
 }
+
+# String interpolation with first expression on its own line: `}` correctly outdented
+message = "foo #{
+  bar
+}"
+
+# String interpolation with first expression on same line: `}` aligned with `#{`
+message = "foo #{bar
+               }"
