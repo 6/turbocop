@@ -91,9 +91,9 @@ impl RequireOrderVisitor<'_, '_> {
                 continue;
             };
 
-            let same_group = last_entry
-                .as_ref()
-                .is_some_and(|prev| prev.kind == entry.kind && in_same_section(self.source, prev, &entry));
+            let same_group = last_entry.as_ref().is_some_and(|prev| {
+                prev.kind == entry.kind && in_same_section(self.source, prev, &entry)
+            });
 
             if !same_group {
                 max_path = None;
@@ -180,7 +180,9 @@ fn modifier_entry_from_unless(node: ruby_prism::UnlessNode<'_>) -> Option<Requir
     require_entry_from_call(&call, report_offset, node.location())
 }
 
-fn only_statement<'pr>(stmts: &'pr ruby_prism::StatementsNode<'pr>) -> Option<ruby_prism::Node<'pr>> {
+fn only_statement<'pr>(
+    stmts: &'pr ruby_prism::StatementsNode<'pr>,
+) -> Option<ruby_prism::Node<'pr>> {
     if stmts.body().len() != 1 {
         return None;
     }
