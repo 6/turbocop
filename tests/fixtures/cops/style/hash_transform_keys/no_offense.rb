@@ -17,3 +17,8 @@ table.each_with_object({}) { |(id, attrs), index| index[attrs[:code]] = id }
 
 # Another inversion pattern — assigning the key to a derived new key
 data.each_with_object({}) { |(name, info), result| result[info[:label]] = name }
+
+# Key expression derives from the value param, not the key — not a key transformation
+Hash[pod_target_installation_results.map do |_, result|
+  [result.native_target, result]
+end]

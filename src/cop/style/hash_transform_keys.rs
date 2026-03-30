@@ -1,11 +1,22 @@
 use crate::cop::node_type::{
-    BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE,
+    ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE,
     LOCAL_VARIABLE_READ_NODE, MULTI_TARGET_NODE, STATEMENTS_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
+/// Detects hash key transformations that can use `transform_keys` instead.
+///
+/// Handles two patterns:
+/// - `each_with_object({}) { |(k, v), h| h[expr(k)] = v }` → `transform_keys`
+/// - `Hash[_.map { |k, v| [expr(k), v] }]` → `transform_keys`
+///
+/// The `Hash[_.map {...}]` pattern matches `Hash.[]` calls where the sole
+/// argument is a `.map` or `.collect` call with a block that returns a
+/// two-element array `[key_expr, val]`, where `val` is the unchanged value
+/// parameter and `key_expr` is a transformation of the key.
 pub struct HashTransformKeys;
 
 impl Cop for HashTransformKeys {
@@ -15,6 +26,7 @@ impl Cop for HashTransformKeys {
 
     fn interested_node_types(&self) -> &'static [u8] {
         &[
+            ARRAY_NODE,
             BLOCK_NODE,
             BLOCK_PARAMETERS_NODE,
             CALL_NODE,
@@ -35,16 +47,29 @@ impl Cop for HashTransformKeys {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Look for CallNode `each_with_object({})` with a block
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
         };
 
-        if call.name().as_slice() != b"each_with_object" {
-            return;
-        }
+        let call_name = call.name().as_slice();
 
+        if call_name == b"each_with_object" {
+            self.check_each_with_object(source, &call, diagnostics);
+        } else if call_name == b"[]" {
+            self.check_hash_brackets_map(source, &call, diagnostics);
+        }
+    }
+}
+
+impl HashTransformKeys {
+    /// Check `each_with_object({}) { |(k, v), h| h[expr(k)] = v }` pattern.
+    fn check_each_with_object(
+        &self,
+        source: &SourceFile,
+        call: &ruby_prism::CallNode<'_>,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let block = match call.block() {
             Some(b) => b,
             None => return,
@@ -161,13 +186,167 @@ impl Cop for HashTransformKeys {
                                     source,
                                     line,
                                     column,
-                                    "Prefer `transform_keys` over `each_with_object`.".to_string(),
+                                    "Prefer `transform_keys` over `each_with_object`."
+                                        .to_string(),
                                 ));
                             }
                         }
                     }
                 }
             }
+        }
+    }
+
+    /// Check `Hash[_.map { |k, v| [key_expr, v] }]` pattern.
+    fn check_hash_brackets_map(
+        &self,
+        source: &SourceFile,
+        call: &ruby_prism::CallNode<'_>,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // Receiver must be bare `Hash` constant (ConstantReadNode, not ConstantPathNode)
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return,
+        };
+        let const_node = match receiver.as_constant_read_node() {
+            Some(c) => c,
+            None => return,
+        };
+        if const_node.name().as_slice() != b"Hash" {
+            return;
+        }
+
+        // Must have exactly one argument: the map/collect call
+        let args = match call.arguments() {
+            Some(a) => a,
+            None => return,
+        };
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.len() != 1 {
+            return;
+        }
+
+        // The argument must be a CallNode for .map or .collect with a block
+        let map_call = match arg_list[0].as_call_node() {
+            Some(c) => c,
+            None => return,
+        };
+        let map_name = map_call.name().as_slice();
+        if map_name != b"map" && map_name != b"collect" {
+            return;
+        }
+
+        let block = match map_call.block() {
+            Some(b) => b,
+            None => return,
+        };
+        let block_node = match block.as_block_node() {
+            Some(b) => b,
+            None => return,
+        };
+
+        // Block must have exactly 2 simple (non-destructured) params: |k, v|
+        let params = match block_node.parameters() {
+            Some(p) => p,
+            None => return,
+        };
+        let block_params = match params.as_block_parameters_node() {
+            Some(bp) => bp,
+            None => return,
+        };
+        let bp_params = match block_params.parameters() {
+            Some(p) => p,
+            None => return,
+        };
+        let reqs: Vec<_> = bp_params.requireds().iter().collect();
+        if reqs.len() != 2 {
+            return;
+        }
+        // Both params must be simple RequiredParameterNode (not destructured)
+        let key_param = match reqs[0].as_required_parameter_node() {
+            Some(p) => p,
+            None => return,
+        };
+        let val_param = match reqs[1].as_required_parameter_node() {
+            Some(p) => p,
+            None => return,
+        };
+
+        // Block body must be a single ArrayNode with exactly 2 elements
+        let body = match block_node.body() {
+            Some(b) => b,
+            None => return,
+        };
+        let stmts = match body.as_statements_node() {
+            Some(s) => s,
+            None => return,
+        };
+        let body_nodes: Vec<_> = stmts.body().iter().collect();
+        if body_nodes.len() != 1 {
+            return;
+        }
+        let array = match body_nodes[0].as_array_node() {
+            Some(a) => a,
+            None => return,
+        };
+        let elements: Vec<_> = array.elements().iter().collect();
+        if elements.len() != 2 {
+            return;
+        }
+
+        // Second element must be a local variable read matching the value param
+        let val_elem = match elements[1].as_local_variable_read_node() {
+            Some(lv) => lv,
+            None => return,
+        };
+        if val_elem.name().as_slice() != val_param.name().as_slice() {
+            return;
+        }
+
+        // First element must NOT be a simple local variable read of the key param
+        // (if key is passed through unchanged, it's not a key transformation)
+        if let Some(key_lvar) = elements[0].as_local_variable_read_node() {
+            if key_lvar.name().as_slice() == key_param.name().as_slice() {
+                return;
+            }
+        }
+
+        // The key expression must actually reference the key parameter.
+        // Without this check, patterns like `Hash[x.map { |_, v| [v.foo, v] }]`
+        // would be falsely flagged — the key expression derives from the value,
+        // not the key, so this isn't a key transformation.
+        if !node_contains_lvar_read(&elements[0], key_param.name().as_slice()) {
+            return;
+        }
+
+        let loc = call.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Prefer `transform_keys` over `Hash[_.map {...}]`.".to_string(),
+        ));
+    }
+}
+
+/// Check if a node's subtree contains a `LocalVariableReadNode` with the given name.
+fn node_contains_lvar_read(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
+    let mut finder = LvarFinder { name, found: false };
+    finder.visit(node);
+    finder.found
+}
+
+struct LvarFinder<'a> {
+    name: &'a [u8],
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for LvarFinder<'_> {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+        if node.name().as_slice() == self.name {
+            self.found = true;
         }
     }
 }
