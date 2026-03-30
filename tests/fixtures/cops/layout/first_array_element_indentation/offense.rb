@@ -59,8 +59,8 @@ a << [
   ]
   ^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the start of the line where the left bracket is.
 
-# FN fixture repair: `%i[` keyword arg still uses paren-relative indentation
-load_yaml_file(foo, permitted_classes: %i[
+# FN fix: `%i[` keyword arg stays paren-relative even with earlier method-call args
+specs = load_yaml_file(File.join(dir, basename), permitted_classes: %i[
   ELTestIvarClass
   ^ Layout/FirstArrayElementIndentation: Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.
   SubELTestIvarClass
@@ -68,22 +68,22 @@ load_yaml_file(foo, permitted_classes: %i[
 ])
 ^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.
 
-# FN fixture repair: single-pair hash value in method call remains paren-relative
-FactoryBot.create(:limited_admin, :groups => [
+# FN fix: single-pair hash value stays paren-relative even with earlier method-call args
+admin_in_group = FactoryBot.create(:limited_admin, :last_sign_in_at => Time.now.utc, :current_sign_in_at => Time.now.utc, :groups => [
   group,
   ^ Layout/FirstArrayElementIndentation: Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.
 ])
 ^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.
 
-# FN fixture repair: single-element recipe array in method call
-LatexToPdf.generate_pdf(foo, {:recipe => [
+# FN fix: single-element recipe array stays paren-relative with nested call arg
+LatexToPdf.generate_pdf(IO.read(File.expand_path('../test_broken_doc_on_page_2.tex',__FILE__)),{:recipe => [
   { :command => 'xelatex', :runs => 2 }
   ^ Layout/FirstArrayElementIndentation: Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.
 ]})
 ^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.
 
-# FN fixture repair: multi-element recipe array in method call
-LatexToPdf.generate_pdf(foo, {:recipe => [
+# FN fix: multi-element recipe array stays paren-relative with nested call arg
+LatexToPdf.generate_pdf(IO.read(File.expand_path('../test_doc.tex',__FILE__)),{:recipe => [
   { :command => 'pdflatex', :extra_arguments => ['-draftmode'] },
   ^ Layout/FirstArrayElementIndentation: Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.
   { :command => 'bibtex', :arguments => [] },
