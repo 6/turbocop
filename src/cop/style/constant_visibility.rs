@@ -10,13 +10,10 @@ use std::collections::HashSet;
 /// Checks that constants defined in classes and modules have an explicit
 /// visibility declaration (`public_constant` or `private_constant`).
 ///
-/// Investigation note: the remaining corpus FN examples for nested class/module
-/// constants (`CONSUME_ON_ESCAPE`, `ClosedQueueError`, `TYPE`, `DEFAULTS`, etc.)
-/// reproduce as offenses in isolated fixture/stdin runs once they are placed in
-/// their original class/module scopes, so this cop's AST detection matches
-/// RuboCop for those shapes. The unresolved corpus mismatch comes from the
-/// file-based corpus run honoring repo/default config instead of the explicit
-/// baseline config, which leaves this disabled-by-default cop turned off.
+/// Prism wraps assignments under `# shareable_constant_value:` magic comments in
+/// `ShareableConstantNode`, so real files like `FilteredQueue` and
+/// `Net::IMAP::FakeServer::Configuration` were being skipped even though the
+/// underlying write is still a regular constant assignment that RuboCop flags.
 pub struct ConstantVisibility;
 
 impl Cop for ConstantVisibility {
@@ -95,20 +92,7 @@ impl Cop for ConstantVisibility {
 
         // Check for constant assignments without visibility
         for stmt in stmts.body().iter() {
-            let const_name = if let Some(const_write) = stmt.as_constant_write_node() {
-                Some(
-                    std::str::from_utf8(const_write.name().as_slice())
-                        .unwrap_or("")
-                        .to_string(),
-                )
-            } else if let Some(cpw) = stmt.as_constant_path_write_node() {
-                cpw.target()
-                    .name()
-                    .and_then(|n| std::str::from_utf8(n.as_slice()).ok())
-                    .map(|s| s.to_string())
-            } else {
-                None
-            };
+            let const_name = constant_name_for_assignment(&stmt);
 
             if let Some(const_name) = const_name {
                 if !visible_constants.contains(&const_name) {
@@ -127,6 +111,25 @@ impl Cop for ConstantVisibility {
             }
         }
     }
+}
+
+fn constant_name_for_assignment(node: &ruby_prism::Node<'_>) -> Option<String> {
+    if let Some(shareable) = node.as_shareable_constant_node() {
+        return constant_name_for_assignment(&shareable.write());
+    }
+
+    if let Some(const_write) = node.as_constant_write_node() {
+        return Some(
+            std::str::from_utf8(const_write.name().as_slice())
+                .unwrap_or("")
+                .to_string(),
+        );
+    }
+
+    node.as_constant_path_write_node()
+        .and_then(|cpw| cpw.target().name())
+        .and_then(|name| std::str::from_utf8(name.as_slice()).ok())
+        .map(|name| name.to_string())
 }
 
 #[cfg(test)]

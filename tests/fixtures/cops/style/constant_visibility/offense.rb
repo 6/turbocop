@@ -81,3 +81,10 @@ class Net::IMAP::FakeServer
     }
   end
 end
+
+# shareable_constant_value: literal
+
+class ShareableFoo
+  BAR = 42
+  ^^^^^^^^ Style/ConstantVisibility: Explicitly make `BAR` public or private using either `#public_constant` or `#private_constant`.
+end
