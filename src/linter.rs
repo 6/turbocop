@@ -431,7 +431,13 @@ fn lint_file(
         && !has_encoding_magic_comment(source.as_bytes())
     {
         let result = emit_invalid_utf8_diagnostic(
-            &source, config, registry, cop_filters, has_dir_overrides, tier_map, args,
+            &source,
+            config,
+            registry,
+            cop_filters,
+            has_dir_overrides,
+            tier_map,
+            args,
         );
         if cache.is_enabled() {
             cache.put(path, source.as_bytes(), &result);
