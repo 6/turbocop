@@ -247,13 +247,15 @@ fn block_body_matches_expect_send(call: &ruby_prism::CallNode<'_>) -> bool {
 impl VoidExpectVisitor<'_> {
     fn add_offense_at_offset(&mut self, offset: usize) {
         let (line, column) = self.source.offset_to_line_col(offset);
-        self.diagnostics.push(self.cop.diagnostic(
-            self.source,
-            line,
-            column,
-            "Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it."
-                .to_string(),
-        ));
+        self.diagnostics.push(
+            self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it."
+                    .to_string(),
+            ),
+        );
     }
 
     /// Check if a statement is a void expect call and flag it if so.
