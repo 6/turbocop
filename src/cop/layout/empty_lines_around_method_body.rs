@@ -296,8 +296,7 @@ mod tests {
 
     #[test]
     fn multiline_empty_def_blank_after_end() {
-        let src =
-            b"def self.foo(a,\n             b) end\n\n# comment\n";
+        let src = b"def self.foo(a,\n             b) end\n\n# comment\n";
         let diags = run_cop_full(&EmptyLinesAroundMethodBody, src);
         assert_eq!(
             diags.len(),
