@@ -38,7 +38,10 @@ const EXAMPLE_METHODS: &[&[u8]] = &[
 ];
 
 fn example_method_name(name: &[u8]) -> Option<&'static [u8]> {
-    EXAMPLE_METHODS.iter().copied().find(|method| *method == name)
+    EXAMPLE_METHODS
+        .iter()
+        .copied()
+        .find(|method| *method == name)
 }
 
 fn is_single_line_block(block: &ruby_prism::BlockNode<'_>) -> bool {
@@ -150,8 +153,9 @@ impl<'a, 'pr> Visit<'pr> for ImplicitSubjectVisitor<'a, 'pr> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         if node.receiver().is_none() {
             let method_name = node.name().as_slice();
-            let is_implicit =
-                method_name == b"is_expected" || method_name == b"should" || method_name == b"should_not";
+            let is_implicit = method_name == b"is_expected"
+                || method_name == b"should"
+                || method_name == b"should_not";
 
             if is_implicit {
                 let enclosing = self.enclosing_example();
@@ -283,7 +287,11 @@ mod tests {
         let source =
             b"it { is_expected.to contain_file(\"#{path}\").with(\n  :ensure => 'file',\n)}\n";
         let diags = crate::testutil::run_cop_full(&ImplicitSubject, source);
-        assert_eq!(diags.len(), 1, "multiline brace block should not be treated as one-line");
+        assert_eq!(
+            diags.len(),
+            1,
+            "multiline brace block should not be treated as one-line"
+        );
     }
 
     #[test]
@@ -300,6 +308,10 @@ mod tests {
         };
         let source = b"describe 'something' do\n  is_expected.to be_valid\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&ImplicitSubject, source, config);
-        assert_eq!(diags.len(), 1, "non-example contexts should still be flagged");
+        assert_eq!(
+            diags.len(),
+            1,
+            "non-example contexts should still be flagged"
+        );
     }
 }
