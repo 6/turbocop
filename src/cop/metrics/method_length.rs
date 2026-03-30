@@ -175,6 +175,27 @@ use crate::parse::source::SourceFile;
 /// ConfigLMM (1), brandur (1), engineyard (1), gisiahq (1), samvera (1),
 /// siberas (1) — all config resolution or vendored file issues.
 /// No cop-level fix needed.
+///
+/// ## =begin/=end trailing embdoc fix (2026-03-30)
+///
+/// FP=7 root cause: methods containing `=begin/=end` embedded documentation
+/// blocks AFTER the last body statement were over-counted. RuboCop uses
+/// `body.source.lines` whose range ends at the last body statement. Any
+/// content between the body and the method's `end` keyword (including
+/// `=begin/=end` blocks) is outside `body.source` and not counted.
+///
+/// Previous fix attempt (commit 2785f494, reverted in 129fbc30) modified
+/// the shared `count_body_lines_impl` to skip `=begin/=end` blocks. This
+/// broke ClassLength/ModuleLength/BlockLength because those cops DO count
+/// `=begin/=end` content within the body range (it appears between
+/// statements, not after the last one).
+///
+/// Correct fix: in `count_method_lines`, use the body node's end offset
+/// (not the method's `end` keyword) as `effective_end_offset` for
+/// non-BeginNode, non-heredoc bodies. This shortens the counting range to
+/// match `body.source.lines` without modifying the shared counting function.
+/// BeginNode bodies are excluded because their location extends to the
+/// method's `end` keyword, so the adjustment would be a no-op.
 pub struct MethodLength;
 
 /// Parsed config values for MethodLength.
@@ -419,6 +440,25 @@ fn count_method_lines(
         } else {
             end_offset
         }
+    } else if body.as_begin_node().is_none() {
+        // RuboCop uses `body.source.lines` whose range ends at the last body
+        // statement. For non-BeginNode bodies (StatementsNode, single expressions),
+        // the body's location ends at the last statement — not the method's `end`
+        // keyword. Any content between the body's last statement and the method's
+        // `end` (e.g., =begin/=end embedded documentation blocks) is outside
+        // body.source and must not be counted.
+        //
+        // BeginNode is excluded because its location extends to the method's
+        // `end` keyword (same as end_offset), so this adjustment is a no-op.
+        let body_end_off = body
+            .location()
+            .end_offset()
+            .saturating_sub(1)
+            .max(body.location().start_offset());
+        let (body_end_line, _) = source.offset_to_line_col(body_end_off);
+        source
+            .line_col_to_offset(body_end_line + 1, 0)
+            .unwrap_or(end_offset)
     } else {
         end_offset
     };
@@ -1242,15 +1282,15 @@ mod tests {
     #[test]
     fn method_with_begin_end_comment() {
         use crate::testutil::run_cop_full;
-        // Method with =begin/=end multi-line comment block.
-        // RuboCop counts =begin/=end content as body lines (not excluded by
-        // CountComments: false, which only skips # comments).
-        // Body has 13 code lines + 4 =begin/=end lines = 17 (above Max:10).
+        // Method with =begin/=end multi-line comment block after the last statement.
+        // RuboCop uses body.source.lines which ends at the last statement, so
+        // =begin/=end blocks after the body are excluded. Only 13 code lines
+        // are counted (the =begin/=end block is not part of body.source).
         let source = b"class Foo\n  def test_method\n    begin\n      break 1\n    rescue => e\n      handle(e)\n      log(e)\n      report(e)\n    end\n\n    begin\n      yield 1\n    rescue => e\n      handle(e)\n      log(e)\n    end\n\n=begin\n    This is a multi-line comment.\n    Should not count as code.\n=end\n  end\nend\n";
         let diags = run_cop_full(&MethodLength, source);
         assert!(
             !diags.is_empty(),
-            "Method with =begin/=end comment should fire (17 body lines > Max:10)"
+            "Method with =begin/=end comment should fire (13 body lines > Max:10)"
         );
     }
 
