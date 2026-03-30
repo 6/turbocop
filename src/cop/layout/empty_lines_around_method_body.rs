@@ -72,7 +72,7 @@ impl Cop for EmptyLinesAroundMethodBody {
                 keyword_offset,
                 end_loc.start_offset(),
                 "method",
-                corrections.as_mut().map(|corr| &mut **corr),
+                corrections.as_deref_mut(),
             ));
 
             diagnostics.extend(check_empty_line_after_empty_multiline_method_definition(
@@ -81,7 +81,7 @@ impl Cop for EmptyLinesAroundMethodBody {
                 &def_node,
                 keyword_offset,
                 end_loc.start_offset(),
-                corrections.as_mut().map(|corr| &mut **corr),
+                corrections.as_deref_mut(),
             ));
         } else if let Some(equal_loc) = def_node.equal_loc() {
             // Endless method (`def foo = expr`)
