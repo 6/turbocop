@@ -230,10 +230,9 @@ ensure
   cleanup
 end
 
-# =begin/=end content IS counted as body lines by RuboCop.
-# RuboCop's comment_line? only matches # comments, so =begin/=end
-# is always included regardless of CountComments.
-# This block has 6 code + 5 =begin/=end lines = 11 total (under Max=25).
+# =begin/=end embedded documentation is NOT counted by RuboCop.
+# Parser's AST body range excludes =begin/=end, so body.source.lines
+# doesn't see them. This block has 6 code lines (under Max=25).
 items.each do |x|
   a = 1
   b = 2
@@ -241,9 +240,8 @@ items.each do |x|
   d = 4
   e = 5
 =begin
-  This is a multi-line comment.
-  It IS counted as body lines.
-  Unlike # comments, =begin/=end is not excluded.
+  This is embedded documentation.
+  It is NOT counted as body lines.
 =end
   f = 6
 end
