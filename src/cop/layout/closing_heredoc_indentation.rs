@@ -5,6 +5,11 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
+/// Matches RuboCop's handling of heredocs nested in hash pairs passed to calls.
+///
+/// Hash values like `cooked: <<~DOC` or `:template => <<-DOC` are not direct
+/// method arguments, so their closing identifier must stay aligned with the
+/// opening pair line rather than inheriting the outer call indentation.
 pub struct ClosingHeredocIndentation;
 
 impl Cop for ClosingHeredocIndentation {
@@ -176,6 +181,15 @@ impl<'pr> Visit<'pr> for HeredocVisitor<'_> {
         self.check_heredoc(node.opening_loc(), node.closing_loc());
         ruby_prism::visit_x_string_node(self, node);
     }
+
+    fn visit_assoc_node(&mut self, node: &ruby_prism::AssocNode<'pr>) {
+        self.visit(&node.key());
+
+        let saved = self.argument_indent;
+        self.argument_indent = None;
+        self.visit(&node.value());
+        self.argument_indent = saved;
+    }
 }
 
 /// Get the indentation (leading spaces) of the line containing the given offset.
@@ -272,6 +286,33 @@ mod tests {
                 .contains("or beginning of method definition"),
             "Expected MSG_ARG format for argument heredoc, got: {}",
             diags[0].message,
+        );
+    }
+
+    #[test]
+    fn hash_pair_heredoc_value_aligned_to_outer_call_flags_offense() {
+        let source = b"message =\n  Fabricate.build(\n    :chat_message,\n    cooked: <<~COOKED,\n    content\n  COOKED\n  )\n";
+        let diags = run_cop_full(&ClosingHeredocIndentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected offense for hash pair heredoc aligned to outer call, got: {:?}",
+            diags,
+        );
+        assert_eq!(
+            diags[0].message,
+            "`COOKED` is not aligned with `cooked: <<~COOKED,`."
+        );
+    }
+
+    #[test]
+    fn hash_pair_heredoc_value_aligned_to_opening_is_allowed() {
+        let source = b"message =\n  Fabricate.build(\n    :chat_message,\n    cooked: <<~COOKED,\n    content\n    COOKED\n  )\n";
+        let diags = run_cop_full(&ClosingHeredocIndentation, source);
+        assert!(
+            diags.is_empty(),
+            "Expected no offenses for hash pair heredoc aligned to opening, got: {:?}",
+            diags,
         );
     }
 }
