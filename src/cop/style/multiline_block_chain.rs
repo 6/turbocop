@@ -149,7 +149,10 @@ impl BlockChainVisitor<'_> {
     }
 }
 
-fn multiline_block_closing_start(source: &SourceFile, receiver: &ruby_prism::Node<'_>) -> Option<usize> {
+fn multiline_block_closing_start(
+    source: &SourceFile,
+    receiver: &ruby_prism::Node<'_>,
+) -> Option<usize> {
     if let Some(recv_call) = receiver.as_call_node() {
         let block = recv_call.block()?.as_block_node()?;
         return multiline_block_closing_loc_for_block(source, &block);
