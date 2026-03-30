@@ -58,3 +58,31 @@ require_relative("a")
 require 'rack'
 ^ Style/RequireOrder: Sort `require` in alphabetical order.
 require 'webmachine/constants'
+
+require 'promise'
+  
+require 'facets/hash/symbolize_keys'
+^ Style/RequireOrder: Sort `require` in alphabetical order.
+
+require 'kconv' if(RUBY_VERSION.start_with? '1.9')
+require 'date'
+^ Style/RequireOrder: Sort `require` in alphabetical order.
+
+require "@hotwired/stimulus", :Application
+require "./controllers/counter_controller.js", :CounterController
+^ Style/RequireOrder: Sort `require` in alphabetical order.
+require "./controllers/accordion_controller.js", :AccordionController
+^ Style/RequireOrder: Sort `require` in alphabetical order.
+
+require 'readline'
+require 'yaml'
+Apricot.require "repl"
+^ Style/RequireOrder: Sort `require` in alphabetical order.
+
+require 'rake'
+require 'bundler'; Bundler.setup
+^ Style/RequireOrder: Sort `require` in alphabetical order.
+require 'rspec/core/rake_task'
+
+require "mocktail"; require "minitest/autorun"
+                    ^ Style/RequireOrder: Sort `require` in alphabetical order.
