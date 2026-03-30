@@ -296,7 +296,11 @@ fn check_array_min_max(call: &ruby_prism::CallNode<'_>) -> bool {
     }
 
     // One of the 2 elements must be a call to the opposite method on an array of 2
-    let inner_method = if outer_is_min { &b"max"[..] } else { &b"min"[..] };
+    let inner_method = if outer_is_min {
+        &b"max"[..]
+    } else {
+        &b"min"[..]
+    };
 
     elements[0]
         .as_call_node()
