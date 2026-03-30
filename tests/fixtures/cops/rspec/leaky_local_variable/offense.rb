@@ -481,3 +481,72 @@ describe SomeClass do
     expect(p_1).to eq(:bar)
   end
 end
+
+# File-level variable used inside interpolated backtick command
+def which(cmd)
+  cmd
+end
+
+insert_tee_log = '  2>&1 | tee -a vagrant.log ' if which('tee')
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+describe 'VM Life Cycle' do
+  it 'starts Linux and Windows VM' do
+    expect(`vagrant up  #{insert_tee_log}`).to include('tee')
+  end
+
+  it 'destroys Linux and Windows VM' do
+    expect(`vagrant destroy --force  #{insert_tee_log}`).to include('Done removing resources')
+  end
+end
+
+# Shared examples param reassigned, then used as let name
+RSpec.shared_examples 'a form field' do |field, html_options|
+  html_options ||= :options
+  ^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  include_context 'form', field
+
+  context 'when class/id/data attributes are provided' do
+    let(html_options) { { class: 'custom-field' } }
+
+    it 'sets the attributes on the field' do
+      expect(true).to eq(true)
+    end
+  end
+end
+
+# Variable used in example body failure message inside iterator-generated shared examples
+RSpec.shared_examples 'parse' do |pattern, checks|
+  context "given the pattern #{pattern}" do
+    checks.each do |_path, _expectations|
+      description = 'Expression'
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+      it "parses expression as #{description}" do
+        expect(true).to eq(false), "expected #{description} to round-trip"
+      end
+    end
+  end
+end
+
+# Variable used inside backtick command in nested shared_examples describe
+shared_examples 'inspect unmanaged files' do |base, skip_remote_mounts_test|
+  describe '--scope=unmanaged-files' do
+    def parse_md5sums(output)
+      output.split("\n").map { |e| e.split.first }
+    end
+
+    test_tarball = File.join(Machinery::ROOT, '../machinery/spec/definitions/vagrant/unmanaged_files.tgz')
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+    it 'extracts unmanaged files as tarballs' do
+      tmp_dir = Dir.mktmpdir('unmanaged_files', '/tmp')
+      expected_output = `cd "#{tmp_dir}"; tar -xf "#{test_tarball}"; md5sum "#{tmp_dir}/srv/test/"*`
+      FileUtils.rm_r(tmp_dir)
+      expected_md5sums = parse_md5sums(expected_output)
+
+      expect(expected_md5sums).not_to be_empty
+    end
+  end
+end
