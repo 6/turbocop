@@ -480,31 +480,37 @@ impl DupMethodVisitor<'_, '_> {
                     // defs (same body/params) produce the same key regardless of formatting
                     // (indentation, single-line vs multi-line).
                     let source_bytes = self.source.as_bytes();
-                    let body_text = node.body().map(|body| {
-                        let bloc = body.location();
-                        let bs = bloc.start_offset();
-                        let be = bloc.end_offset();
-                        if be <= source_bytes.len() {
-                            dedent_source(
-                                std::str::from_utf8(&source_bytes[bs..be]).unwrap_or(""),
-                            )
-                        } else {
-                            String::new()
-                        }
-                    }).unwrap_or_default();
-                    let params_text = node.parameters().map(|params| {
-                        let ploc = params.location();
-                        let ps = ploc.start_offset();
-                        let pe = ploc.end_offset();
-                        if pe <= source_bytes.len() {
-                            std::str::from_utf8(&source_bytes[ps..pe])
-                                .unwrap_or("")
-                                .trim()
-                                .to_string()
-                        } else {
-                            String::new()
-                        }
-                    }).unwrap_or_default();
+                    let body_text = node
+                        .body()
+                        .map(|body| {
+                            let bloc = body.location();
+                            let bs = bloc.start_offset();
+                            let be = bloc.end_offset();
+                            if be <= source_bytes.len() {
+                                dedent_source(
+                                    std::str::from_utf8(&source_bytes[bs..be]).unwrap_or(""),
+                                )
+                            } else {
+                                String::new()
+                            }
+                        })
+                        .unwrap_or_default();
+                    let params_text = node
+                        .parameters()
+                        .map(|params| {
+                            let ploc = params.location();
+                            let ps = ploc.start_offset();
+                            let pe = ploc.end_offset();
+                            if pe <= source_bytes.len() {
+                                std::str::from_utf8(&source_bytes[ps..pe])
+                                    .unwrap_or("")
+                                    .trim()
+                                    .to_string()
+                            } else {
+                                String::new()
+                            }
+                        })
+                        .unwrap_or_default();
                     {
                         let qualified = format!("{const_name}.{name}");
                         let structural_key =
