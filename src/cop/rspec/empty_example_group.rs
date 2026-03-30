@@ -54,6 +54,27 @@ use crate::parse::source::SourceFile;
 /// `examples?` pattern only matches direct children of the body (`send`, `block`),
 /// not `casgn` (constant assignment). Fix: override `visit_constant_write_node` in
 /// `ExampleFinder` to skip, matching RuboCop's behavior.
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// FP=0, FN=5.
+///
+/// Three root causes, all stemming from ExampleFinder traversing too deeply:
+///
+/// 1. **Local variable assignments** (3 FN): `examples = [...].each { it ... }` and
+///    `meta = example(...)` — `lvasgn` nodes don't match RuboCop's `examples?`
+///    patterns. Fix: override `visit_local_variable_write_node` to skip.
+///
+/// 2. **Method call arguments** (1 FN): `Pincers.for_nokogiri example` inside a
+///    `let` block — the bare `example` call used as an argument was incorrectly
+///    recognized as an RSpec example method. RuboCop's patterns only check
+///    top-level block children, not arguments of arbitrary calls.
+///    Fix: change ExampleFinder fallthrough to only visit block children, not
+///    receiver/arguments, matching RuboCop's shallow matching.
+///
+/// 3. **For loops** (1 FN): `for grouping in [...] do it ... end` — RuboCop's
+///    `examples_inside_block?` only matches `(block ...)`, not `(for ...)`.
+///    Fix: override `visit_for_node` to skip.
 pub struct EmptyExampleGroup;
 
 impl Cop for EmptyExampleGroup {
@@ -224,7 +245,18 @@ impl<'pr> Visit<'pr> for ExampleFinder {
             return;
         }
 
-        ruby_prism::visit_call_node(self, node);
+        // Only visit the block child, not arguments or receiver.
+        // RuboCop's `examples_inside_block?` only checks block bodies for examples,
+        // not method arguments. Without this, bare `example` calls used as arguments
+        // (e.g., `Pincers.for_nokogiri example` inside a `let` block) would be
+        // incorrectly treated as RSpec example methods.
+        if let Some(block_arg) = node.block() {
+            if let Some(block) = block_arg.as_block_node() {
+                if let Some(body) = block.body() {
+                    self.visit(&body);
+                }
+            }
+        }
     }
 
     // Also check inside if/else and case/when branches
@@ -269,6 +301,24 @@ impl<'pr> Visit<'pr> for ExampleFinder {
     fn visit_constant_write_node(&mut self, _node: &ruby_prism::ConstantWriteNode<'pr>) {
         // Skip — examples inside constant assignments don't make the group non-empty
     }
+
+    // Don't descend into local variable assignments. Like constant assignments,
+    // `lvasgn` nodes don't match RuboCop's `examples?` patterns. Examples wrapped
+    // in local variable assignments (e.g., `examples = [...].each { it ... }` or
+    // `meta = example(...)`) should not make the group non-empty.
+    fn visit_local_variable_write_node(
+        &mut self,
+        _node: &ruby_prism::LocalVariableWriteNode<'pr>,
+    ) {
+        // Skip — examples inside local variable assignments don't count
+    }
+
+    // Don't descend into `for` loops. RuboCop's `examples_inside_block?` only
+    // matches `(block ...)` nodes, not `(for ...)` nodes. Examples inside
+    // `for x in [...] do it { ... } end` are not recognized by RuboCop.
+    fn visit_for_node(&mut self, _node: &ruby_prism::ForNode<'pr>) {
+        // Skip — examples inside for loops don't count
+    }
 }
 
 #[cfg(test)]
@@ -285,5 +335,10 @@ mod tests {
         scenario_lambda_with_examples = "lambda_with_examples.rb",
         scenario_begin_block_with_examples = "begin_block_with_examples.rb",
         scenario_constant_only = "constant_only.rb",
+        scenario_local_var_wrapping_examples = "local_var_wrapping_examples.rb",
+        scenario_custom_method_with_example_arg = "custom_method_with_example_arg.rb",
+        scenario_rspec_describe_in_let = "rspec_describe_in_let.rb",
+        scenario_rspec_describe_with_lvar_it = "rspec_describe_with_lvar_it.rb",
+        scenario_for_loop_with_examples = "for_loop_with_examples.rb",
     );
 }
