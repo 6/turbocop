@@ -3,6 +3,18 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Enforces either `fetch` or `[]` for hash-style lookups.
+///
+/// ## Corpus investigation (2026-03-30)
+///
+/// Prism stores `&block` as `call.block()` with a `BlockArgumentNode`, while
+/// RuboCop's Parser-backed `node.arguments.one?` counts that block-pass as an
+/// argument. The original implementation only looked at `call.arguments()` and
+/// rejected every call with `call.block()`, so it missed `receiver.fetch(&block)`.
+///
+/// Fix: count `BlockArgumentNode` in the effective argument count for
+/// `EnforcedStyle: brackets`, but continue excluding literal blocks (`{}` /
+/// `do...end`) so `fetch(key) { default }` remains allowed.
 pub struct HashLookupMethod;
 
 impl Cop for HashLookupMethod {
@@ -39,22 +51,31 @@ impl Cop for HashLookupMethod {
             "brackets" => {
                 // Flag fetch calls, suggest []
                 if method_bytes == b"fetch" {
-                    if let Some(args) = call.arguments() {
-                        let arg_list: Vec<_> = args.arguments().iter().collect();
-                        // Only flag fetch with exactly 1 argument (no default)
-                        if arg_list.len() == 1
-                            && call.block().is_none()
-                            && call.receiver().is_some()
-                        {
-                            let loc = call.message_loc().unwrap_or_else(|| call.location());
-                            let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            diagnostics.push(self.diagnostic(
-                                source,
-                                line,
-                                column,
-                                "Use `[]` instead of `fetch`.".to_string(),
-                            ));
-                        }
+                    let has_block_arg = call
+                        .block()
+                        .is_some_and(|block| block.as_block_argument_node().is_some());
+                    let has_block_literal = call
+                        .block()
+                        .is_some_and(|block| block.as_block_node().is_some());
+                    let effective_arg_count = call
+                        .arguments()
+                        .map_or(0, |args| args.arguments().iter().count())
+                        + usize::from(has_block_arg);
+
+                    // RuboCop counts `&block` toward `arguments.one?`, but still
+                    // allows literal blocks (`fetch(key) { ... }`).
+                    if effective_arg_count == 1
+                        && !has_block_literal
+                        && call.receiver().is_some()
+                    {
+                        let loc = call.message_loc().unwrap_or_else(|| call.location());
+                        let (line, column) = source.offset_to_line_col(loc.start_offset());
+                        diagnostics.push(self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Use `[]` instead of `fetch`.".to_string(),
+                        ));
                     }
                 }
             }
