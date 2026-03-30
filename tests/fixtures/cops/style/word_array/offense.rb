@@ -69,3 +69,6 @@ LANGUAGE_ARRAY = [
   ["বাংলা", "bn", ["bn-BD", "বাংলাদেশ"]]
                   ^ Style/WordArray: Use `%w` or `%W` for an array of words.
 ]
+
+d.handle ['foobar', 'barfoo'], &cb
+         ^ Style/WordArray: Use `%w` or `%W` for an array of words.

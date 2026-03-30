@@ -46,6 +46,14 @@ const DEFAULT_WORD_REGEX: &str = r"^(?:\w|\w-\w|\n|\t)+$";
 /// inside those skipped rows, such as `["Europe", ["Denmark", ...]]` and
 /// `["বাংলা", "bn", ["bn-BD", "বাংলাদেশ"]]`, must still be checked.
 ///
+/// **FN fix 4:** Prism stores both real block literals (`do ... end`, `{}`)
+/// and block-pass arguments (`&cb`) in `call.block()`. RuboCop's
+/// `invalid_percent_array_context?` only suppresses a bracket array when it is
+/// a direct argument to a non-parenthesized call with a real block literal.
+/// nitrocop treated block-pass calls as ambiguous too, and it also suppressed
+/// nested arrays inside the direct argument array. That missed offenses like
+/// `d.handle ['foobar', 'barfoo'], &cb`, which RuboCop flags.
+///
 /// **Remaining FN:** Primarily `brackets` style enforcement direction
 /// (flagging ALL `%w[...]` arrays for conversion to brackets), which is not
 /// yet implemented.
@@ -209,7 +217,7 @@ impl Cop for WordArray {
             min_size,
             word_re,
             parent_is_complex_matrix: false,
-            in_ambiguous_block_context: false,
+            ambiguous_array_arg_start_offset: None,
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -227,8 +235,9 @@ struct WordArrayVisitor<'a, 'src, 'pr> {
     /// only its immediate child arrays, matching RuboCop's
     /// `within_matrix_of_complex_content?`.
     parent_is_complex_matrix: bool,
-    /// True when inside direct arguments of a non-parenthesized call with a block.
-    in_ambiguous_block_context: bool,
+    /// Start offset of the direct array argument to a non-parenthesized call
+    /// with a real block literal. Only that array is ambiguous for `%w`.
+    ambiguous_array_arg_start_offset: Option<usize>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -255,8 +264,8 @@ impl<'pr> WordArrayVisitor<'_, '_, 'pr> {
             return;
         }
 
-        // Skip if in ambiguous block context (invalid_percent_array_context?)
-        if self.in_ambiguous_block_context {
+        // Skip only the direct array argument in ambiguous block context.
+        if self.ambiguous_array_arg_start_offset == Some(node.location().start_offset()) {
             return;
         }
 
@@ -321,8 +330,12 @@ impl<'pr> WordArrayVisitor<'_, '_, 'pr> {
     /// Check if a call node represents an ambiguous block context:
     /// non-parenthesized method call with a block.
     fn is_ambiguous_block_call(&self, call: &ruby_prism::CallNode<'pr>) -> bool {
-        // Must have a block
-        if call.block().is_none() {
+        // Must have a real block. BlockArgumentNode (`&block`, `&(method :foo)`)
+        // is not ambiguous for percent arrays.
+        if call
+            .block()
+            .is_none_or(|block| block.as_block_node().is_none())
+        {
             return false;
         }
         // Must have arguments
@@ -355,13 +368,15 @@ impl<'pr> Visit<'pr> for WordArrayVisitor<'_, '_, 'pr> {
             }
             // Visit arguments — only suppress top-level ArrayNode arguments,
             // matching RuboCop's `parent.arguments.include?(node)` check.
+            // Arrays nested inside that direct argument are still checked.
             if let Some(args) = node.arguments() {
-                let prev = self.in_ambiguous_block_context;
+                let prev = self.ambiguous_array_arg_start_offset;
                 for arg in args.arguments().iter() {
-                    if arg.as_array_node().is_some() {
-                        self.in_ambiguous_block_context = true;
+                    if let Some(array) = arg.as_array_node() {
+                        self.ambiguous_array_arg_start_offset =
+                            Some(array.location().start_offset());
                         self.visit(&arg);
-                        self.in_ambiguous_block_context = prev;
+                        self.ambiguous_array_arg_start_offset = prev;
                     } else {
                         self.visit(&arg);
                     }
@@ -539,6 +554,27 @@ mod tests {
             diags.len(),
             2,
             "Should flag both subarrays in an all-word matrix"
+        );
+    }
+
+    #[test]
+    fn ambiguous_block_context_skips_only_direct_array_arg() {
+        use crate::testutil::run_cop_full;
+
+        let block_pass = b"d.handle ['foobar', 'barfoo'], &cb\n";
+        let block_pass_diags = run_cop_full(&WordArray, block_pass);
+        assert_eq!(
+            block_pass_diags.len(),
+            1,
+            "Block-pass calls are not ambiguous for `%w` and should still be flagged"
+        );
+
+        let nested = b"foo [['bar', 'baz']] do\nend\n";
+        let nested_diags = run_cop_full(&WordArray, nested);
+        assert_eq!(
+            nested_diags.len(),
+            1,
+            "Only the direct array arg is ambiguous; nested word arrays must still be checked"
         );
     }
 }
