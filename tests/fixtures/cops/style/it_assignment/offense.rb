@@ -38,3 +38,24 @@ def foo(**it); end
 
 def foo(&it); end
          ^^ Style/ItAssignment: `it` is the default block parameter; consider another name.
+
+it ,= @tag.upper_bound([tag, now])
+^ Style/ItAssignment: `it` is the default block parameter; consider another name.
+
+it ,= @tag.lower_bound([tag, key + 1])
+^ Style/ItAssignment: `it` is the default block parameter; consider another name.
+
+it ,= @tag.upper_bound([tag, key - 1])
+^ Style/ItAssignment: `it` is the default block parameter; consider another name.
+
+it ,= @tag.lower_bound([tag, INF])
+^ Style/ItAssignment: `it` is the default block parameter; consider another name.
+
+it ,= @tag.upper_bound([tag, 0])
+^ Style/ItAssignment: `it` is the default block parameter; consider another name.
+
+it ,= @tag.lower_bound([tag, okey])
+^ Style/ItAssignment: `it` is the default block parameter; consider another name.
+
+it ||= 0;  describe ||= 0
+^ Style/ItAssignment: `it` is the default block parameter; consider another name.
