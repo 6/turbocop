@@ -161,3 +161,18 @@ if check && student = find_user &&
     offering = find_offering
              ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
 end
+
+# Assignment inside class/def body that is part of an if condition (via &&)
+# The class expression is the RHS of &&, so assignments within are "in the condition"
+if should_install? &&
+    class RakeTest
+      def test_records_trace
+        trace = single_transaction_trace_posted
+              ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+      end
+      def test_records_events
+        event = single_event_posted[0]
+              ^ Lint/AssignmentInCondition: Use `==` if you meant to do a comparison or wrap the expression in parentheses to indicate you meant to assign in a condition.
+      end
+    end
+end

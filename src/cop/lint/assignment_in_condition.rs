@@ -23,19 +23,16 @@ use crate::parse::source::SourceFile;
 ///
 /// Corpus oracle reported FP=0, FN=3.
 ///
-/// FN=3: All 3 from newrelic/newrelic-ruby-agent rake_test.rb. The flagged lines
-/// are plain assignments in method bodies (`trace = single_transaction_trace_posted`,
-/// `expected = [...]`, `event = single_event_posted[0]`), NOT inside conditions.
-/// These are corpus oracle artifacts — RuboCop should not flag these, and nitrocop
-/// correctly does not. No code change needed.
+/// ## FN fix (2026-03-30): ClassNode/DefNode/ModuleNode traversal
 ///
-/// ## Corpus follow-up (2026-03-29)
-///
-/// Reproduced the real `newrelic` method-body snippet under both RuboCop and
-/// nitrocop with 0 offenses. The failing local fixture was caused by a bad test
-/// change that copied the oracle line numbers into `offense.rb` as standalone
-/// assignments. Keep detector behavior unchanged, cover the snippet in
-/// `no_offense.rb`, and treat the remaining CI FN entries as stale oracle data.
+/// FN=3: All from newrelic/newrelic-ruby-agent rake_test.rb. The file wraps
+/// an entire class in an `if cond &&` expression, making the class definition
+/// part of the condition. Assignments inside method bodies within that class
+/// are therefore "in the condition" per RuboCop's `traverse_node` which walks
+/// all children unconditionally (except blocks). Our `recurse_children` didn't
+/// handle ClassNode, ModuleNode, SingletonClassNode, or DefNode, so traversal
+/// stopped at the class boundary. Fix: added handlers to recurse into their
+/// body nodes.
 ///
 /// ## FN fix (2026-03-28): recurse into assignment values
 ///
@@ -571,6 +568,36 @@ fn recurse_children(
             cop,
             diagnostics,
         );
+        return;
+    }
+    // ClassNode / ModuleNode / SingletonClassNode — class/module expressions used
+    // as part of a condition (e.g., `if cond && class Foo; x = 1; end`).
+    // RuboCop's traverse_node walks all children, so we recurse into the body.
+    if let Some(class_node) = node.as_class_node() {
+        if let Some(body) = class_node.body() {
+            traverse_condition(source, &body, allow_safe, msg, cop, diagnostics);
+        }
+        return;
+    }
+    if let Some(module_node) = node.as_module_node() {
+        if let Some(body) = module_node.body() {
+            traverse_condition(source, &body, allow_safe, msg, cop, diagnostics);
+        }
+        return;
+    }
+    if let Some(singleton_class) = node.as_singleton_class_node() {
+        if let Some(body) = singleton_class.body() {
+            traverse_condition(source, &body, allow_safe, msg, cop, diagnostics);
+        }
+        return;
+    }
+    // DefNode — method definitions inside class/module bodies in conditions.
+    // Assignments in method bodies are part of the condition subtree per RuboCop.
+    if let Some(def_node) = node.as_def_node() {
+        if let Some(body) = def_node.body() {
+            traverse_condition(source, &body, allow_safe, msg, cop, diagnostics);
+        }
+        return;
     }
     // For other node types we don't recurse — they're leaf nodes or types
     // where assignments aren't relevant (e.g., literals, method args)
