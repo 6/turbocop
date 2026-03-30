@@ -2,7 +2,7 @@
 
 ## Overview
 
-nitrocop currently only detects offenses — it cannot fix them. RuboCop's `-a` (safe autocorrect) and `-A` (all autocorrect) flags are among its most-used features. This document covers the architecture, difficulty assessment, phased implementation roadmap, and conformance testing strategy for adding autocorrect to nitrocop.
+nitrocop supports autocorrect via `-a` (safe) and `-A` (all) flags. As of March 2026, **87 cops** have autocorrect implementations. This document covers the architecture, difficulty assessment, phased implementation roadmap, and conformance testing strategy.
 
 For the complete catalog of every autocorrectable cop (664 cops across 4 gems, with safety classifications and extraction scripts), see **[AUTOCORRECT_COPS.md](AUTOCORRECT_COPS.md)**.
 
@@ -136,10 +136,13 @@ pub struct Correction {
     pub end: usize,          // byte offset, exclusive
     pub replacement: String, // replacement text (empty = delete)
     pub cop_name: &'static str,
+    pub cop_index: usize,    // registry index for deterministic conflict resolution
 }
 ```
 
 **Design decision: byte offsets.** Prism provides `start_offset()`/`end_offset()`. Avoids lossy line:col round-trips.
+
+**Note on cop_index:** The field exists in the struct and `CorrectionSet` sorts by `(start, cop_index)` for tiebreaking, but as of March 2026 all 181 correction sites hardcode `cop_index: 0`. See Section 8.2 for the plan to wire this up.
 
 ### 3.2 CorrectionSet
 
@@ -264,11 +267,6 @@ This is stricter than RuboCop, which writes the (potentially broken) corrected s
 | `src/cache.rs` | Updated `test_args()` and `to_diagnostic()` | ✅ |
 | `tests/integration.rs` | Updated `default_args()` and Diagnostic literals | ✅ |
 
-**Not yet implemented** (deferred to when first cops produce corrections):
-- Linter iteration loop (re-parse + re-lint until convergence)
-- File writing after correction
-- `BatchedCopWalker` corrections buffer (currently passes `None`; will pass `Some(&mut vec)` when autocorrect is active)
-
 ### Phase 1: Trivial Cops (byte-range deletions and insertions) ✅ COMPLETE
 
 **Goal:** First cops that actually correct files. Validates the full pipeline: detection → correction → file write → re-lint convergence.
@@ -306,34 +304,50 @@ This is stricter than RuboCop, which writes the (potentially broken) corrected s
 | `Layout/EmptyComment` | Delete empty comment lines | ✅ |
 | `Lint/DuplicateMagicComment` | Delete duplicate magic comment lines | ✅ |
 
-### Phase 2: Simple Token Replacements
+### Phase 2: Simple Token Replacements ✅ COMPLETE
 
 **Goal:** Cops that replace one token/string with another. Builds confidence in AST-based corrections.
 
-**Difficulty: Easy.** Simple `Correction::replace(node.start_offset(), node.end_offset(), "new_text")`.
+**Status:** All originally listed cops implemented, plus additional token-replacement cops.
 
-| Cop | Correction |
-|-----|-----------|
-| `Style/StringLiterals` | Replace `"str"` with `'str'` (when no interpolation) |
-| `Style/StringLiteralsInInterpolation` | Replace quote style inside `#{}` |
-| `Lint/UnifiedInteger` | `Fixnum`/`Bignum` → `Integer` |
-| `Style/NilComparison` | `x == nil` → `x.nil?` |
-| `Style/Not` | `not x` → `!x` |
-| `Style/ColonMethodCall` | `Foo::bar` → `Foo.bar` |
-| `Style/DefWithParentheses` | Remove empty parens from `def foo()` |
-| `Style/EmptyLiteral` | `Array.new` → `[]`, `Hash.new` → `{}` |
-| `Style/Proc` | `Proc.new` → `proc` |
-| `Style/Attr` | `attr` → `attr_reader` |
-| `Style/RedundantSelf` | Remove `self.` prefix |
-| `Lint/RedundantStringCoercion` | Remove `.to_s` in interpolation |
-| `Style/SymbolLiteral` | Remove unnecessary symbol quotes |
-| `Style/CharacterLiteral` | `?c` → `'c'` |
-
-**Verification:** `corrected.rb` fixtures. Run on bench repos, diff against RuboCop.
+| Cop | Correction | Status |
+|-----|-----------|--------|
+| `Lint/UnifiedInteger` | `Fixnum`/`Bignum` → `Integer` | ✅ |
+| `Style/NilComparison` | `x == nil` → `x.nil?` | ✅ |
+| `Style/Not` | `not x` → `!x` | ✅ |
+| `Style/ColonMethodDefinition` | `self::method` → `self.method` | ✅ |
+| `Style/Proc` | `Proc.new` → `proc` | ✅ |
+| `Style/Attr` | `attr` → `attr_reader` | ✅ |
+| `Lint/RedundantStringCoercion` | Remove `.to_s` in interpolation | ✅ |
+| `Style/CharacterLiteral` | `?c` → `'c'` | ✅ |
+| `Lint/EmptyInterpolation` | Remove empty `#{}` | ✅ |
+| `Lint/RedundantWithIndex` | Remove redundant `.with_index` | ✅ |
+| `Lint/RedundantWithObject` | Remove redundant `.with_object` | ✅ |
+| `Style/EvenOdd` | `x % 2 == 0` → `x.even?` | ✅ |
+| `Style/Strip` | `.lstrip.rstrip` → `.strip` | ✅ |
+| `Style/StringChars` | `.split('').first` → `.chars.first` | ✅ |
+| `Style/RedundantSortBy` | `.sort_by { \|x\| x.foo }` → `.sort_by(&:foo)` | ✅ |
+| `Style/RedundantCapitalW` | `%W()` → `%w()` when no interpolation | ✅ |
+| `Style/RedundantFileExtensionInRequire` | Remove `.rb` from `require` | ✅ |
+| `Style/RedundantException` | Remove redundant `RuntimeError` | ✅ |
+| `Style/DirEmpty` | `Dir.entries(x).size == 2` → `Dir.empty?(x)` | ✅ |
+| `Style/NumericPredicate` | `x > 0` → `x.positive?` | ✅ |
+| `Style/SpecialGlobalVars` | `$!` → `$ERROR_INFO` etc. | ✅ |
+| `Style/FrozenStringLiteralComment` | Insert/remove magic comment | ✅ |
+| `Style/Encoding` | Remove unnecessary encoding comment | ✅ |
+| `Naming/HeredocDelimiterCase` | Fix heredoc delimiter case | ✅ |
+| `Naming/RescuedExceptionsVariableName` | Rename rescue variable | ✅ |
+| `Naming/BlockForwarding` | Anonymous block forwarding | ✅ |
+| `Bundler/OrderedGems` | Reorder gems | ✅ |
+| `Bundler/InsecureProtocolSource` | Fix insecure protocol | ✅ |
+| `Gemspec/AddRuntimeDependency` | Fix dependency method | ✅ |
+| `Gemspec/DeprecatedAttributeAssignment` | Fix deprecated assignment | ✅ |
+| `Gemspec/OrderedDependencies` | Reorder dependencies | ✅ |
+| `Gemspec/RequireMFA` | Add MFA requirement | ✅ |
 
 ### Phase 3: Conformance Testing Harness
 
-**Goal:** Automated way to measure how well nitrocop's autocorrect matches RuboCop, per-cop and per-file.
+**Goal:** Automated way to measure how well nitrocop's autocorrect matches RuboCop, per-cop and per-file. See also **Section 8.3** for the lighter-weight per-cop comparison script.
 
 **Difficulty: Moderate.** Not algorithmically hard, but substantial plumbing (temp dirs, running both tools, diffing, reporting).
 
@@ -344,40 +358,74 @@ This is stricter than RuboCop, which writes the (potentially broken) corrected s
 
 **Verification:** Running `cargo run --release --bin bench_nitrocop -- autocorrect-conform` produces a report.
 
-### Phase 4: AST-Based Corrections (Moderate)
+### Phase 4: AST-Based Corrections (Moderate) — Partially Complete
 
 **Goal:** Cops that require understanding AST structure for correct replacement. Covers the high-value middle ground.
 
-**Difficulty: Easy-Moderate.** Need node byte ranges and sometimes parent context.
-
-| Cop | Correction |
-|-----|-----------|
-| `Style/SymbolProc` | `{ \|x\| x.foo }` → `(&:foo)` |
-| `Style/NegatedIf` / `NegatedUnless` | Flip condition, swap if/unless keyword |
-| `Style/AndOr` | `and`/`or` → `&&`/`\|\|` (with parenthesization) |
-| `Style/HashSyntax` | Convert between `ruby19`/`hash_rockets` styles |
-| `Style/BlockDelimiters` | Switch between `do..end` and `{..}` |
-| `Style/Lambda` | `lambda { }` ↔ `-> { }` |
-| `Style/RedundantReturn` | Remove `return` keyword |
-| `Style/RedundantBegin` | Remove redundant `begin..end` |
-| `Style/RedundantParentheses` | Remove unnecessary parens |
-| `Style/WhenThen` | `when x then` → `when x\n` |
-| `Style/Semicolon` | Remove unnecessary semicolons |
+| Cop | Correction | Status |
+|-----|-----------|--------|
+| `Style/NegatedIf` | Flip condition, swap if/unless | ✅ |
+| `Style/NegatedUnless` | Flip condition, swap unless/if | ✅ |
+| `Style/NegatedWhile` | Flip condition, swap while/until | ✅ |
+| `Style/AndOr` | `and`/`or` → `&&`/`\|\|` (with parenthesization) | ✅ |
+| `Style/WhenThen` | `when x then` → `when x\n` | ✅ |
+| `Style/MultilineWhenThen` | Remove `then` from multiline `when` | ✅ |
+| `Style/MultilineIfThen` | Remove `then` from multiline `if` | ✅ |
+| `Style/UnlessElse` | Flip unless/else to if/else | ✅ |
+| `Style/EmptyElse` | Remove empty else clause | ✅ |
+| `Style/ParenthesesAroundCondition` | Remove unnecessary parens around condition | ✅ |
+| `Style/SymbolProc` | `{ \|x\| x.foo }` → `(&:foo)` | |
+| `Style/HashSyntax` | Convert between `ruby19`/`hash_rockets` styles | |
+| `Style/BlockDelimiters` | Switch between `do..end` and `{..}` | |
+| `Style/Lambda` | `lambda { }` ↔ `-> { }` | |
+| `Style/RedundantReturn` | Remove `return` keyword | |
+| `Style/RedundantBegin` | Remove redundant `begin..end` | |
+| `Style/RedundantParentheses` | Remove unnecessary parens | |
 
 **Verification:** `corrected.rb` fixtures + autocorrect-conform runs.
 
-### Phase 5: Layout Spacing Cops
+### Phase 5: Layout Spacing Cops — Largely Complete
 
 **Goal:** The ~30 most common spacing cops. This is the highest-impact but hardest-to-match category.
 
-**Difficulty: Moderate-Hard.** Each individual correction is "insert/remove a space", but matching RuboCop's exact behavior across all edge cases is challenging. RuboCop's layout corrections account for the majority of real-world autocorrect usage.
+**Status:** Most spacing and empty-line cops now have autocorrect. Indentation cops remain unimplemented.
 
-| Category | Cops | Approach |
-|----------|------|----------|
-| Space around operators | `SpaceAroundOperators`, `SpaceAroundKeyword`, etc. | Insert/remove spaces at known byte offsets |
-| Space inside brackets | `SpaceInsideBlockBraces`, `SpaceInsideHashLiteralBraces`, `SpaceInsideParens` | Insert/remove spaces after open / before close |
-| Empty lines | `EmptyLines`, `EmptyLineBetweenDefs`, `EmptyLinesAround*` | Insert/delete newline bytes |
-| Indentation | `IndentationWidth`, `IndentationConsistency` | Rewrite leading whitespace — context-dependent |
+| Cop | Status |
+|-----|--------|
+| `Layout/SpaceAroundOperators` | ✅ |
+| `Layout/SpaceAroundKeyword` | ✅ |
+| `Layout/SpaceAroundBlockParameters` | ✅ |
+| `Layout/SpaceAroundEqualsInParameterDefault` | ✅ |
+| `Layout/SpaceBeforeBlockBraces` | ✅ |
+| `Layout/SpaceInsideBlockBraces` | ✅ |
+| `Layout/SpaceInsideHashLiteralBraces` | ✅ |
+| `Layout/SpaceInsideParens` | ✅ |
+| `Layout/SpaceInsideArrayLiteralBrackets` | ✅ |
+| `Layout/SpaceInsideReferenceBrackets` | ✅ |
+| `Layout/SpaceInsideStringInterpolation` | ✅ |
+| `Layout/SpaceInsideRangeLiteral` | ✅ |
+| `Layout/SpaceInsidePercentLiteralDelimiters` | ✅ |
+| `Layout/SpaceInsideArrayPercentLiteral` | ✅ |
+| `Layout/SpaceAfterColon` | ✅ |
+| `Layout/SpaceAfterNot` | ✅ |
+| `Layout/SpaceAfterMethodName` | ✅ |
+| `Layout/ExtraSpacing` | ✅ |
+| `Layout/EmptyLineBetweenDefs` | ✅ |
+| `Layout/EmptyLineAfterGuardClause` | ✅ |
+| `Layout/EmptyLineAfterMagicComment` | ✅ |
+| `Layout/EmptyLinesAroundMethodBody` | ✅ |
+| `Layout/EmptyLinesAroundClassBody` | ✅ |
+| `Layout/EmptyLinesAroundModuleBody` | ✅ |
+| `Layout/EmptyLinesAroundBlockBody` | ✅ |
+| `Layout/EmptyLinesAroundBeginBody` | ✅ |
+| `Layout/EmptyLinesAroundAccessModifier` | ✅ |
+| `Layout/EmptyLinesAroundExceptionHandlingKeywords` | ✅ |
+| `Layout/EmptyLinesAroundAttributeAccessor` | ✅ |
+| `Layout/EmptyLinesAfterModuleInclusion` | ✅ |
+| `Layout/IndentationWidth` | |
+| `Layout/IndentationConsistency` | |
+| `Layout/HashAlignment` | |
+| `Layout/ArgumentAlignment` | |
 
 **Verification:** Autocorrect-conform runs are critical here. Layout cops are where conformance divergence is most likely.
 
@@ -492,7 +540,7 @@ Test that overlapping corrections from multiple cops are handled identically to 
 
 ## 6. Open Questions
 
-1. **Iteration limit**: Match RuboCop's 200, or start lower (e.g., 10) as a safety measure?
+1. ~~**Iteration limit**~~: Resolved — using 200, matching RuboCop. Implemented in `src/linter.rs`.
 
 2. **Atomic writes**: Write corrected files atomically (temp + rename)? RuboCop doesn't, but it's safer.
 
@@ -520,3 +568,61 @@ Test that overlapping corrections from multiple cops are handled identically to 
 | `src/formatter/json.rs` | `corrected`/`correctable` fields |
 | `src/parse/source.rs` | `line_col_to_offset()` helper |
 | Per-cop files | Use `corrections` param in `check_*` methods to produce `Correction` values |
+
+---
+
+## 8. Autocorrect Conflict Parity
+
+### 8.1 Current State
+
+**What's implemented:**
+- Byte-range overlap detection via `CorrectionSet` — corrections sorted by `(start, cop_index)`, overlapping edits dropped
+- 200-iteration convergence loop in `lint_source_inner` (`src/linter.rs`)
+- Source-equality convergence check (bail if corrections don't change the source)
+- Post-correction syntax validation (re-parse with Prism, discard if invalid)
+
+**What's missing:**
+- **Functional `cop_index`**: The `Correction` struct has a `cop_index` field and `CorrectionSet` sorts by it as a tiebreaker, but all 181 correction sites hardcode `cop_index: 0`. The tiebreaker is dead code.
+- **`autocorrect_incompatible_with`**: RuboCop lets cops declare other cops whose corrections should be entirely skipped when theirs are applied. Not implemented. (~10 cops use this in RuboCop.)
+- **Two-pass cop ordering**: RuboCop partitions cops into autocorrect vs non-autocorrect, runs autocorrect cops first, and skips non-autocorrect cops if corrections were made. Nitrocop runs all cops in a single pass (universal → pattern → AST order). This is an optimization, not a correctness issue — without it, nitrocop just does slightly more work per iteration.
+- **Checksum-based infinite loop detection**: RuboCop detects cycles by tracking source checksums across iterations. Nitrocop uses source-equality (bail if source didn't change), which catches fixed points but not cycles (A→B→A). In practice, cycles are rare because `CorrectionSet` deterministically resolves conflicts the same way each iteration.
+
+**Why this matters:** When multiple cops produce corrections that overlap or interact, the conflict resolution strategy determines which corrections survive. Differences here can cause nitrocop's autocorrected output to diverge from RuboCop's even when each cop's correction logic is identical in isolation.
+
+**Why it's not urgent yet:** The iteration loop handles most conflicts through convergence — corrections that were dropped in one pass get applied in the next. The gaps above affect edge cases (same-offset tiebreaking, cop-pair conflicts). Measuring actual divergence should precede investing in conflict-layer sophistication.
+
+### 8.2 Wire cop_index (next step)
+
+The `cop_index` field in `Correction` exists so that `CorrectionSet` can break ties deterministically when two corrections start at the same byte offset (lower index wins, matching RuboCop's "first merged wins" by cop registration order). Currently dead code.
+
+**Approach:**
+1. Add a `cop_index: usize` field to `CopConfig` (or pass it alongside CopConfig in `lint_source_once`)
+2. Set it from the registry index during cop dispatch in `lint_source_once`
+3. Update all 181 correction sites to use the index instead of hardcoded `0`
+4. Mechanical change — each cop constructs `Correction { ..., cop_index: config.cop_index }` instead of `cop_index: 0`
+
+**Why this matters:** Without functional cop_index, when two corrections start at the same offset the winner is arbitrary (depends on Vec ordering). With it, the winner is deterministic and matches RuboCop's registration-order priority.
+
+**Scope:** ~181 files, but each change is a one-line substitution. The CopConfig plumbing is ~10 lines.
+
+### 8.3 Autocorrect comparison harness (next step)
+
+Before investing in `autocorrect_incompatible_with` or two-pass ordering, measure how much nitrocop's autocorrect actually diverges from RuboCop's on real-world code.
+
+**Approach:**
+- Lightweight Python script under `scripts/` (not the full `bench_nitrocop` conform harness from Phase 3)
+- Input: a cop name
+- For files in the corpus that trigger offenses for that cop:
+  1. Run `rubocop -A --only Department/CopName` and capture corrected output
+  2. Run `nitrocop -A --only Department/CopName` and capture corrected output
+  3. Diff the results
+- Output: files matched, files diverged, example diffs
+- Prioritize cops that already have autocorrect (87 as of March 2026)
+
+**Why a script, not bench_nitrocop?** The full conform harness (Phase 3) runs all cops across all repos — expensive and conflates cop-interaction effects. A per-cop script isolates each cop's correction behavior, which is what we need to measure before worrying about multi-cop conflicts.
+
+### 8.4 Deferred (implement only if harness shows divergence)
+
+- **`autocorrect_incompatible_with`**: Only ~10 RuboCop cops declare it. The specific pairs: `SpaceBeforeBlockBraces ↔ SymbolProc`, `SpaceInsideBlockBraces ↔ BlockDelimiters`, and a few others. Implement if the comparison harness shows these pairs produce different output.
+- **Two-pass cop ordering**: An optimization that reduces wasted work per iteration. Not a correctness issue. Implement if performance profiling shows autocorrect iterations are a bottleneck.
+- **Checksum-based cycle detection**: Replace or augment the source-equality check with a checksum history to detect A→B→A cycles. Implement if infinite-loop reports surface in practice.
