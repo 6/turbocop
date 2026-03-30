@@ -417,7 +417,11 @@ mod tests {
         let source =
             b"if params[:layer] == '*' and query[:resource] == :objects\n  ;\nelse\n  foo\nend\n";
         let diags = crate::testutil::run_cop_full(&IfWithSemicolon, source);
-        assert_eq!(diags.len(), 0, "Should not flag bare semicolon body on next line");
+        assert_eq!(
+            diags.len(),
+            0,
+            "Should not flag bare semicolon body on next line"
+        );
     }
 
     #[test]
