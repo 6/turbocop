@@ -64,10 +64,7 @@ impl Cop for HashLookupMethod {
 
                     // RuboCop counts `&block` toward `arguments.one?`, but still
                     // allows literal blocks (`fetch(key) { ... }`).
-                    if effective_arg_count == 1
-                        && !has_block_literal
-                        && call.receiver().is_some()
-                    {
+                    if effective_arg_count == 1 && !has_block_literal && call.receiver().is_some() {
                         let loc = call.message_loc().unwrap_or_else(|| call.location());
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
                         diagnostics.push(self.diagnostic(
