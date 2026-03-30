@@ -66,6 +66,16 @@ use ruby_prism::Visit;
 ///
 /// Fix: Compare start_line and end_line of the string node's location.
 /// Skip `StringNode` keys where end_line > start_line.
+///
+/// ## Investigation findings (2026-03-30)
+///
+/// Root cause of 2 FNs: Prism represents `__FILE__` hash keys as
+/// `SourceFileNode`, but this cop only checked `StringNode`. RuboCop's
+/// Parser-based matcher treats `__FILE__` like a string literal here, so
+/// both `{ __FILE__ => 1 }` and `foo(__FILE__ => 1)` should be flagged.
+///
+/// Fix: Treat `SourceFileNode` hash keys like string keys, while keeping
+/// the existing env-hash exemptions and UTF-8 validity check.
 pub struct StringHashKeys;
 
 impl Cop for StringHashKeys {
@@ -188,6 +198,17 @@ fn is_const(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
 }
 
 impl StringHashKeysVisitor<'_> {
+    fn add_key_diagnostic(&mut self, key: ruby_prism::Node<'_>) {
+        let loc = key.location();
+        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Prefer symbols instead of strings as hash keys.".to_string(),
+        ));
+    }
+
     fn check_hash_elements<'pr, I>(&mut self, elements: I, hash_offset: usize)
     where
         I: Iterator<Item = ruby_prism::Node<'pr>>,
@@ -225,14 +246,12 @@ impl StringHashKeysVisitor<'_> {
                     if std::str::from_utf8(str_node.unescaped()).is_err() {
                         continue;
                     }
-                    let loc = key.location();
-                    let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Prefer symbols instead of strings as hash keys.".to_string(),
-                    ));
+                    self.add_key_diagnostic(key);
+                } else if let Some(source_file_node) = key.as_source_file_node() {
+                    if std::str::from_utf8(source_file_node.filepath()).is_err() {
+                        continue;
+                    }
+                    self.add_key_diagnostic(key);
                 }
             }
         }
