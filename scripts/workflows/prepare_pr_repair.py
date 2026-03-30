@@ -40,7 +40,6 @@ SKIPPABLE_STEP_NAMES = {
 }
 
 PYTHON_WORKFLOW_STEPS = {
-    "Format",
     "Validate corpus manifest",
     "No vendor include macros",
     "Python script tests",

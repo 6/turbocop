@@ -1047,8 +1047,8 @@ def cmd_finalize(args: list[str]) -> int:
         "--unset-extraheader",
     ])
 
-    # 4. Auto-format changed Rust cop files
-    r = _git("diff", "--name-only", opts.base_sha, "--", "src/cop", check=False)
+    # 4. Auto-format changed Rust files
+    r = _git("diff", "--name-only", opts.base_sha, "--", "*.rs", check=False)
     rust_files = [f for f in r.stdout.strip().splitlines() if f.strip().endswith(".rs")]
     if rust_files:
         _run(["cargo", "fmt", "--"] + rust_files)

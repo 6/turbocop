@@ -481,6 +481,12 @@ jobs:
             exit 0
           fi
 
+          # Auto-format any changed Rust files before committing
+          RUST_FILES=$(git diff --name-only "${{ steps.prep.outputs.base_sha }}" -- '*.rs' | head -200)
+          if [ -n "$RUST_FILES" ]; then
+            echo "$RUST_FILES" | xargs cargo fmt --
+          fi
+
           if ! git diff --quiet; then
             git add -A
             git commit -m "Repair PR #${{ steps.pr.outputs.number }}: auto-repair (${{ steps.repair.outputs.backend }})"
