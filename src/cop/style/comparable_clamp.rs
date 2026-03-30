@@ -304,10 +304,10 @@ fn check_array_min_max(call: &ruby_prism::CallNode<'_>) -> bool {
 
     elements[0]
         .as_call_node()
-        .map_or(false, |c| is_array_method_call(&c, inner_method))
+        .is_some_and(|c| is_array_method_call(&c, inner_method))
         || elements[1]
             .as_call_node()
-            .map_or(false, |c| is_array_method_call(&c, inner_method))
+            .is_some_and(|c| is_array_method_call(&c, inner_method))
 }
 
 /// Check if a CallNode is `[a, b].method_name` with no arguments and a 2-element array receiver.
