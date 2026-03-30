@@ -5,15 +5,14 @@ use crate::parse::source::SourceFile;
 
 /// Layout/HeredocIndentation: checks heredoc body indentation.
 ///
-/// FN=3 fix (2026-03): All 3 FNs were `<<-` heredocs in ransack repo where `.squish`
-/// was called on a separate line after the closing delimiter (e.g., `SQL\n.squish`).
-/// Root cause: `is_squish_heredoc` only checked bytes after the opening (`<<-SQL.squish`)
-/// but not after the closing delimiter. Added `is_squish_after_closing` to also detect
-/// `.squish`/`.squish!` on the line following the closing delimiter.
-///
-/// Note: squish detection fires unconditionally (without checking
-/// `ActiveSupportExtensionsEnabled`) matching the corpus oracle behavior where
-/// rubocop-rails enables it by default.
+/// Fixes found in corpus work:
+/// - `<<-...squish` can call `.squish` or `.squish!` on the line after the closing
+///   delimiter, so the cop checks both the opening line and the line after the
+///   closing delimiter.
+/// - `<<~` false negatives clustered in tab-indented test files because
+///   `base_indent_level` counted only leading spaces on the opening line. RuboCop's
+///   indent calculation counts leading tabs too, so the expected heredoc body indent
+///   was too small and bad heredocs were missed.
 pub struct HeredocIndentation;
 
 impl Cop for HeredocIndentation {
@@ -272,7 +271,10 @@ fn base_indent_level(source: &SourceFile, opening_offset: usize) -> usize {
     let (line, _) = source.offset_to_line_col(opening_offset);
     let lines: Vec<&[u8]> = source.lines().collect();
     if line > 0 && line <= lines.len() {
-        lines[line - 1].iter().take_while(|&&b| b == b' ').count()
+        lines[line - 1]
+            .iter()
+            .take_while(|&&b| b == b' ' || b == b'\t')
+            .count()
     } else {
         0
     }
@@ -386,6 +388,21 @@ mod tests {
             diags.is_empty(),
             "Expected no offense for <<- with tab-indented body, got: {:?}",
             diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn squiggly_heredoc_in_tab_indented_scope_is_offense() {
+        let source =
+            b"test do\n\tassert_equal error.message, <<~ERROR\n  Type mismatch\n\tERROR\nend\n";
+        let diags = run_cop_full(&HeredocIndentation, source);
+        assert!(
+            !diags.is_empty(),
+            "Expected offense for <<~ with a tab-indented opening line and under-indented body"
+        );
+        assert_eq!(
+            diags[0].message,
+            "Use 2 spaces for indentation in a heredoc."
         );
     }
 }

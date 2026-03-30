@@ -73,3 +73,11 @@ c = <<SQL
 SELECT * FROM users
 ^^^^^^^^^^^^^^^^^^^ Layout/HeredocIndentation: Use 2 spaces for indentation in a heredoc by using `<<~` instead of `<<`.
 SQL
+
+# <<~ with tab-indented opening line still expects two extra indentation characters
+test do
+	assert_equal error.message, <<~ERROR
+  Type mismatch
+^^^^^^^^^^^^^^^ Layout/HeredocIndentation: Use 2 spaces for indentation in a heredoc.
+	ERROR
+end
