@@ -6,24 +6,17 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Corpus investigation (FP=3, FN=37 in standard corpus; FP=3, FN=70 in extended):
+/// Corpus follow-up (2026-03-30): fixed two FN clusters while preserving the
+/// existing `&proc` no-offenses.
 ///
-/// FP root cause: `format 'text/plain', &:inspect` — format called with a block
-/// argument (`&block`). nitrocop saw 1 positional string arg and flagged it, but
-/// the block argument makes this a different kind of call. Fixed by checking
-/// `call.block().is_some()` and skipping when a block is present.
-///
-/// FN root causes:
-/// 1. `format(CONSTANT)` — single constant argument (ConstantReadNode/ConstantPathNode).
-///    nitrocop registered interest in these nodes but only checked string/dstr in the match.
-///    Fixed by handling constant nodes as valid single-arg patterns.
-/// 2. `format('%s %s', 'foo', 'bar')` — multi-arg format calls where all format args are
-///    string/symbol/numeric/boolean/nil literals. This is the `detect_unnecessary_fields`
-///    method in vendor RuboCop. Implemented detection of multi-arg format calls where the
-///    format string uses simple specifiers (%s, %d, %i, %u, %f with optional width/precision)
-///    and all arguments are literals.
-/// 3. Splat check was wrong — checked the single arg node itself instead of iterating args
-///    for SplatNode presence. Also need to check `call.block()` for block_argument (`&`).
+/// 1. RuboCop only limits the single-argument shortcut (`format('x')`,
+///    `format(CONSTANT)`) to bare/`Kernel` receivers. The multi-argument literal
+///    formatter still flags receiver calls like `@parameter.format("%s", "x")`.
+///    nitrocop was applying the receiver restriction too broadly.
+/// 2. Prism stores both real blocks (`do ... end`, `{}`) and block passes
+///    (`&:inspect`, `&block`) in `call.block()`. The earlier blanket skip
+///    suppressed real offenses like `format 'text/html' do |obj| ... end`.
+///    Fixed by skipping only `BlockArgumentNode` forms.
 pub struct RedundantFormat;
 
 /// Check if a node is a literal that can be used with %s format specifier.
@@ -377,6 +370,32 @@ fn has_splat_arg(args: &[ruby_prism::Node<'_>]) -> bool {
     false
 }
 
+fn receiverless_or_kernel(call: &ruby_prism::CallNode<'_>) -> bool {
+    match call.receiver() {
+        None => true,
+        Some(receiver) => {
+            if let Some(cr) = receiver.as_constant_read_node() {
+                return cr.name().as_slice() == b"Kernel";
+            }
+
+            if let Some(cp) = receiver.as_constant_path_node() {
+                return cp.parent().is_none()
+                    && cp
+                        .name()
+                        .map(|name| name.as_slice() == b"Kernel")
+                        .unwrap_or(false);
+            }
+
+            false
+        }
+    }
+}
+
+fn has_block_argument(call: &ruby_prism::CallNode<'_>) -> bool {
+    call.block()
+        .is_some_and(|block| block.as_block_argument_node().is_some())
+}
+
 /// Escape control characters in a string for display.
 fn escape_control_chars(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
@@ -434,29 +453,6 @@ impl Cop for RedundantFormat {
             return;
         }
 
-        // Must be called without a receiver, or on Kernel/::Kernel
-        if let Some(receiver) = call.receiver() {
-            let is_kernel = if let Some(cr) = receiver.as_constant_read_node() {
-                cr.name().as_slice() == b"Kernel"
-            } else if let Some(cp) = receiver.as_constant_path_node() {
-                cp.parent().is_none()
-                    && cp
-                        .name()
-                        .map(|n| n.as_slice() == b"Kernel")
-                        .unwrap_or(false)
-            } else {
-                false
-            };
-            if !is_kernel {
-                return;
-            }
-        }
-
-        // Skip if a block argument is present (e.g., `format 'text/plain', &:inspect`)
-        if call.block().is_some() {
-            return;
-        }
-
         let args = match call.arguments() {
             Some(a) => a,
             None => return,
@@ -475,6 +471,14 @@ impl Cop for RedundantFormat {
         let method_str = std::str::from_utf8(method_bytes).unwrap_or("format");
 
         if arg_list.len() == 1 {
+            if has_block_argument(&call) {
+                return;
+            }
+
+            if !receiverless_or_kernel(&call) {
+                return;
+            }
+
             let arg = &arg_list[0];
 
             // Single string/dstr argument
@@ -613,13 +617,21 @@ impl RedundantFormat {
         }
 
         let result = parts.join("");
-        let escaped = escape_control_chars(&result);
-
         let has_interpolation = format_args.iter().any(|a| {
             a.as_interpolated_string_node().is_some() || a.as_interpolated_symbol_node().is_some()
         });
+        let escaped = escape_control_chars(&result);
+        let format_uses_double_quotes = fmt_node
+            .location()
+            .as_slice()
+            .first()
+            .is_some_and(|byte| *byte == b'"');
 
-        let quoted = if has_interpolation || escaped.contains('\\') || escaped != result {
+        let quoted = if has_interpolation
+            || escaped.contains('\\')
+            || escaped != result
+            || format_uses_double_quotes
+        {
             format!("\"{}\"", escaped)
         } else {
             format!("'{}'", escaped)

@@ -30,3 +30,27 @@ format('%s', 'hello')
 
 format('%s', :foo)
 ^^^^^^^^^^^^^^^^^^ Style/RedundantFormat: Use `'foo'` directly instead of `format`.
+
+expect(@parameter.format("hello %s", "world")).to eq("hello world")
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/RedundantFormat: Use `"hello world"` directly instead of `format`.
+
+expect(@parameter.format("hello %s", "world")).to eq("hello [redacted]")
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/RedundantFormat: Use `"hello world"` directly instead of `format`.
+
+format 'text/latex' do |obj|
+^ Style/RedundantFormat: Use `'text/latex'` directly instead of `format`.
+
+format 'text/latex' do |obj|
+^ Style/RedundantFormat: Use `'text/latex'` directly instead of `format`.
+
+format 'text/html' do |obj|
+^ Style/RedundantFormat: Use `'text/html'` directly instead of `format`.
+
+format 'text/latex' do |obj|
+^ Style/RedundantFormat: Use `'text/latex'` directly instead of `format`.
+
+format 'text/html' do |obj|
+^ Style/RedundantFormat: Use `'text/html'` directly instead of `format`.
+
+format 'text/latex' do |obj|
+^ Style/RedundantFormat: Use `'text/latex'` directly instead of `format`.
