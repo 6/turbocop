@@ -138,10 +138,12 @@ def run_nitrocop(
         cmd += ["--only", cop]
     cmd.append(repo_dir)
 
-    # Run from outside any git tree to avoid .gitignore interference.
-    # Default to /tmp if no cwd provided — the command uses absolute paths
-    # so cwd only affects git/ignore behavior.
-    effective_cwd = cwd or "/tmp"
+    # Run from the repo directory so that Include patterns from gem defaults
+    # (e.g., `spec/**/*.rb`) resolve correctly. For non-dotfile configs like
+    # baseline_rubocop.yml, base_dir = cwd, so patterns must be relative to
+    # the repo root. GIT_CEILING_DIRECTORIES prevents .gitignore from parent
+    # directories interfering.
+    effective_cwd = cwd or repo_dir
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout, env=env,
