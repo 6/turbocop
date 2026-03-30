@@ -359,7 +359,8 @@ mod tests {
 
     #[test]
     fn heredoc_hash_value_flags_offense() {
-        let source = b"Fabricate(\n  :theme_field,\n  value: <<~HTML,\n    <script></script>\nHTML\n)\n";
+        let source =
+            b"Fabricate(\n  :theme_field,\n  value: <<~HTML,\n    <script></script>\nHTML\n)\n";
         let diags = run_cop_full(&ClosingHeredocIndentation, source);
         assert_eq!(diags.len(), 1);
         assert!(
