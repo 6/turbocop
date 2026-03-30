@@ -76,11 +76,3 @@ if Mouse.button_released?
   end
 end
 
-# Standalone `;` on the next line is an empty body statement, not loc.begin
-if params[:layer] == '*' and query[:resource] == :objects
-  ;
-else
-  params[:layer].split(',').each do |layer_name|
-    layer_id = CDKLayer.id_from_name(layer_name)
-  end
-end

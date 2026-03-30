@@ -59,3 +59,12 @@ when :slash then slt = tt
 else if at; zt = tt; else; at = tt; end
      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IfWithSemicolon: Do not use `if at;` - use a newline instead.
 end
+
+# Standalone `;` on next line with empty if-body — Prism Translation Parser
+# treats the `;` as loc.begin (then-keyword), so RuboCop flags this.
+if params[:layer] == '*' and query[:resource] == :objects
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IfWithSemicolon: Do not use `if params[:layer] == '*' and query[:resource] == :objects;` - use a newline instead.
+  ;
+else
+  process
+end
