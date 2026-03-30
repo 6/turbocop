@@ -6,8 +6,8 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Corpus follow-up (2026-03-30): fixed two FN clusters while preserving the
-/// existing `&proc` no-offenses.
+/// Corpus follow-up (2026-03-30): fixed the remaining FN clusters while
+/// preserving the existing receiver, block, and splat safeguards.
 ///
 /// 1. RuboCop only limits the single-argument shortcut (`format('x')`,
 ///    `format(CONSTANT)`) to bare/`Kernel` receivers. The multi-argument literal
@@ -17,6 +17,12 @@ use crate::parse::source::SourceFile;
 ///    (`&:inspect`, `&block`) in `call.block()`. The earlier blanket skip
 ///    suppressed real offenses like `format 'text/html' do |obj| ... end`.
 ///    Fixed by skipping only `BlockArgumentNode` forms.
+/// 3. RuboCop also flags named keyword formats like `%-38<form_uuid>s` and
+///    `%{summary}` when every referenced hash value is literal. nitrocop's
+///    parser rejected named placeholders entirely, and `%s` replacements could
+///    not rebuild interpolated string/symbol arguments. Fixed by resolving a
+///    single literal hash argument by key and by reconstructing interpolated
+///    string content before quoting the final replacement.
 pub struct RedundantFormat;
 
 /// Check if a node is a literal that can be used with %s format specifier.
@@ -69,9 +75,25 @@ fn literal_to_string(node: &ruby_prism::Node<'_>) -> Option<String> {
         let content = s.content_loc().as_slice();
         return std::str::from_utf8(content).ok().map(|v| v.to_string());
     }
+    if let Some(s) = node.as_interpolated_string_node() {
+        let mut content = String::new();
+        for part in s.parts().iter() {
+            let text = std::str::from_utf8(part.location().as_slice()).ok()?;
+            content.push_str(text);
+        }
+        return Some(content);
+    }
     if let Some(sym) = node.as_symbol_node() {
         let val = sym.unescaped();
         return std::str::from_utf8(val).ok().map(|v| v.to_string());
+    }
+    if let Some(sym) = node.as_interpolated_symbol_node() {
+        let mut content = String::new();
+        for part in sym.parts().iter() {
+            let text = std::str::from_utf8(part.location().as_slice()).ok()?;
+            content.push_str(text);
+        }
+        return Some(content);
     }
     if node.as_integer_node().is_some() {
         let src = node.location().as_slice();
@@ -136,6 +158,9 @@ struct FormatSpec {
     width: Option<i32>,
     precision: Option<usize>,
     flags: Vec<u8>,
+    name: Option<String>,
+    start: usize,
+    end: usize,
 }
 
 /// Parse simple format specifiers from a format string.
@@ -150,6 +175,7 @@ fn parse_simple_format_specs(fmt: &str) -> Option<Vec<FormatSpec>> {
             i += 1;
             continue;
         }
+        let start = i;
         i += 1;
         if i >= bytes.len() {
             return None;
@@ -157,9 +183,6 @@ fn parse_simple_format_specs(fmt: &str) -> Option<Vec<FormatSpec>> {
         if bytes[i] == b'%' {
             i += 1;
             continue;
-        }
-        if bytes[i] == b'<' || bytes[i] == b'{' {
-            return None;
         }
         let pos_start = i;
         while i < bytes.len() && bytes[i].is_ascii_digit() {
@@ -176,38 +199,51 @@ fn parse_simple_format_specs(fmt: &str) -> Option<Vec<FormatSpec>> {
             i += 1;
         }
 
-        let mut width: Option<i32> = None;
-        if i < bytes.len() && bytes[i] == b'*' {
-            return None;
-        }
-        let w_start = i;
-        while i < bytes.len() && bytes[i].is_ascii_digit() {
-            i += 1;
-        }
-        if i > w_start {
-            let w_str = std::str::from_utf8(&bytes[w_start..i]).ok()?;
-            let w: i32 = w_str.parse().ok()?;
-            width = Some(if flags.contains(&b'-') { -w } else { w });
+        let width_before = parse_static_width(bytes, &mut i)?;
+        let precision_before = parse_static_precision(bytes, &mut i)?;
+
+        if i < bytes.len() && bytes[i] == b'{' {
+            let (name, end) = parse_template_name(bytes, i)?;
+            specs.push(FormatSpec {
+                spec_type: b's',
+                width: width_before.map(|width| signed_width(width, &flags)),
+                precision: precision_before,
+                flags,
+                name: Some(name),
+                start,
+                end,
+            });
+            i = end;
+            continue;
         }
 
-        let mut precision: Option<usize> = None;
-        if i < bytes.len() && bytes[i] == b'.' {
-            i += 1;
-            if i < bytes.len() && bytes[i] == b'*' {
+        if i < bytes.len() && bytes[i] == b'<' {
+            let (name, more_flags, width_after, precision_after, spec_type, end) =
+                parse_annotated_name(bytes, i)?;
+            if width_before.is_some() && width_after.is_some() {
                 return None;
             }
-            let p_start = i;
-            while i < bytes.len() && bytes[i].is_ascii_digit() {
-                i += 1;
+            if precision_before.is_some() && precision_after.is_some() {
+                return None;
             }
-            if i > p_start {
-                let p_str = std::str::from_utf8(&bytes[p_start..i]).ok()?;
-                precision = Some(p_str.parse().ok()?);
-            } else {
-                precision = Some(0);
-            }
+            flags.extend(more_flags);
+            specs.push(FormatSpec {
+                spec_type,
+                width: width_before
+                    .or(width_after)
+                    .map(|width| signed_width(width, &flags)),
+                precision: precision_before.or(precision_after),
+                flags,
+                name: Some(name),
+                start,
+                end,
+            });
+            i = end;
+            continue;
         }
 
+        let width = width_before.map(|width| signed_width(width, &flags));
+        let precision = precision_before;
         if i >= bytes.len() {
             return None;
         }
@@ -241,10 +277,140 @@ fn parse_simple_format_specs(fmt: &str) -> Option<Vec<FormatSpec>> {
             width,
             precision,
             flags,
+            name: None,
+            start,
+            end: i,
         });
     }
 
     Some(specs)
+}
+
+fn parse_static_width(bytes: &[u8], i: &mut usize) -> Option<Option<u32>> {
+    if *i < bytes.len() && bytes[*i] == b'*' {
+        return None;
+    }
+
+    let start = *i;
+    while *i < bytes.len() && bytes[*i].is_ascii_digit() {
+        *i += 1;
+    }
+
+    if *i == start {
+        return Some(None);
+    }
+
+    let width = std::str::from_utf8(&bytes[start..*i]).ok()?.parse().ok()?;
+    Some(Some(width))
+}
+
+fn parse_static_precision(bytes: &[u8], i: &mut usize) -> Option<Option<usize>> {
+    if *i >= bytes.len() || bytes[*i] != b'.' {
+        return Some(None);
+    }
+
+    *i += 1;
+    if *i < bytes.len() && bytes[*i] == b'*' {
+        return None;
+    }
+
+    let start = *i;
+    while *i < bytes.len() && bytes[*i].is_ascii_digit() {
+        *i += 1;
+    }
+
+    if *i == start {
+        return Some(Some(0));
+    }
+
+    let precision = std::str::from_utf8(&bytes[start..*i]).ok()?.parse().ok()?;
+    Some(Some(precision))
+}
+
+fn parse_template_name(bytes: &[u8], start: usize) -> Option<(String, usize)> {
+    if start >= bytes.len() || bytes[start] != b'{' {
+        return None;
+    }
+
+    let mut i = start + 1;
+    let name_start = i;
+    while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+        i += 1;
+    }
+    if i == name_start || i >= bytes.len() || bytes[i] != b'}' {
+        return None;
+    }
+
+    let name = std::str::from_utf8(&bytes[name_start..i]).ok()?.to_string();
+    Some((name, i + 1))
+}
+
+fn parse_annotated_name(
+    bytes: &[u8],
+    start: usize,
+) -> Option<(String, Vec<u8>, Option<u32>, Option<usize>, u8, usize)> {
+    if start >= bytes.len() || bytes[start] != b'<' {
+        return None;
+    }
+
+    let mut i = start + 1;
+    let name_start = i;
+    while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+        i += 1;
+    }
+    if i == name_start || i >= bytes.len() || bytes[i] != b'>' {
+        return None;
+    }
+
+    let name = std::str::from_utf8(&bytes[name_start..i]).ok()?.to_string();
+    i += 1;
+
+    let mut flags = Vec::new();
+    while i < bytes.len() && matches!(bytes[i], b'-' | b'+' | b' ' | b'0' | b'#') {
+        flags.push(bytes[i]);
+        i += 1;
+    }
+
+    let width = parse_static_width(bytes, &mut i)?;
+    let precision = parse_static_precision(bytes, &mut i)?;
+    if i >= bytes.len() {
+        return None;
+    }
+
+    let spec_type = bytes[i];
+    if !matches!(
+        spec_type,
+        b's' | b'd'
+            | b'i'
+            | b'u'
+            | b'f'
+            | b'g'
+            | b'e'
+            | b'x'
+            | b'X'
+            | b'o'
+            | b'b'
+            | b'B'
+            | b'c'
+            | b'p'
+            | b'a'
+            | b'A'
+            | b'E'
+            | b'G'
+    ) {
+        return None;
+    }
+
+    Some((name, flags, width, precision, spec_type, i + 1))
+}
+
+fn signed_width(width: u32, flags: &[u8]) -> i32 {
+    let width = width as i32;
+    if flags.contains(&b'-') {
+        -width
+    } else {
+        width
+    }
 }
 
 /// Check if an argument matches its format specifier type.
@@ -368,6 +534,57 @@ fn has_splat_arg(args: &[ruby_prism::Node<'_>]) -> bool {
         }
     }
     false
+}
+
+fn is_hash_arg(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_keyword_hash_node().is_some() || node.as_hash_node().is_some()
+}
+
+fn hash_value_for_name<'a>(
+    hash_arg: &ruby_prism::Node<'a>,
+    name: &str,
+) -> Option<ruby_prism::Node<'a>> {
+    let key = name.as_bytes();
+
+    if let Some(keyword_hash) = hash_arg.as_keyword_hash_node() {
+        for element in keyword_hash.elements().iter() {
+            if let Some(assoc) = element.as_assoc_node() {
+                if let Some(symbol) = assoc.key().as_symbol_node() {
+                    if symbol.unescaped() == key {
+                        return Some(assoc.value());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(hash) = hash_arg.as_hash_node() {
+        for element in hash.elements().iter() {
+            if let Some(assoc) = element.as_assoc_node() {
+                if let Some(symbol) = assoc.key().as_symbol_node() {
+                    if symbol.unescaped() == key {
+                        return Some(assoc.value());
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+enum ResolvedArgument<'a> {
+    Positional(usize),
+    Named(ruby_prism::Node<'a>),
+}
+
+impl<'a> ResolvedArgument<'a> {
+    fn node<'b>(&'b self, format_args: &'b [ruby_prism::Node<'a>]) -> &'b ruby_prism::Node<'a> {
+        match self {
+            Self::Positional(index) => &format_args[*index],
+            Self::Named(node) => node,
+        }
+    }
 }
 
 fn receiverless_or_kernel(call: &ruby_prism::CallNode<'_>) -> bool {
@@ -516,6 +733,67 @@ impl Cop for RedundantFormat {
 }
 
 impl RedundantFormat {
+    fn resolve_format_arguments<'a>(
+        &self,
+        specs: &[FormatSpec],
+        format_args: &[ruby_prism::Node<'a>],
+    ) -> Option<Vec<ResolvedArgument<'a>>> {
+        if specs.iter().all(|spec| spec.name.is_none()) {
+            if specs.len() != format_args.len() {
+                return None;
+            }
+            if specs
+                .iter()
+                .zip(format_args.iter())
+                .all(|(spec, arg)| arg_matches_spec(spec, arg))
+            {
+                return Some((0..format_args.len()).map(ResolvedArgument::Positional).collect());
+            }
+            return None;
+        }
+
+        let hash_indices: Vec<_> = format_args
+            .iter()
+            .enumerate()
+            .filter(|(_, arg)| is_hash_arg(arg))
+            .map(|(index, _)| index)
+            .collect();
+        if hash_indices.len() != 1 {
+            return None;
+        }
+
+        let positional_indices: Vec<_> = format_args
+            .iter()
+            .enumerate()
+            .filter(|(_, arg)| !is_hash_arg(arg))
+            .map(|(index, _)| index)
+            .collect();
+        if specs.iter().filter(|spec| spec.name.is_none()).count() != positional_indices.len() {
+            return None;
+        }
+
+        let hash_index = hash_indices[0];
+        let mut positional_index = 0;
+        let mut resolved = Vec::with_capacity(specs.len());
+
+        for spec in specs {
+            let resolved_arg = if let Some(name) = &spec.name {
+                ResolvedArgument::Named(hash_value_for_name(&format_args[hash_index], name)?)
+            } else {
+                let arg = *positional_indices.get(positional_index)?;
+                positional_index += 1;
+                ResolvedArgument::Positional(arg)
+            };
+
+            if !arg_matches_spec(spec, resolved_arg.node(format_args)) {
+                return None;
+            }
+            resolved.push(resolved_arg);
+        }
+
+        Some(resolved)
+    }
+
     fn detect_unnecessary_fields(
         &self,
         source: &SourceFile,
@@ -547,78 +825,34 @@ impl RedundantFormat {
         };
 
         let format_args = &arg_list[1..];
-
-        // Must have exactly the right number of args
-        if specs.len() != format_args.len() {
-            return;
-        }
-
-        // All args must be literals matching their specifier
-        for (spec, arg) in specs.iter().zip(format_args.iter()) {
-            if !arg_matches_spec(spec, arg) {
-                return;
-            }
-        }
+        let resolved_args = match self.resolve_format_arguments(&specs, format_args) {
+            Some(args) => args,
+            None => return,
+        };
 
         // Compute the formatted result
         let mut parts = Vec::new();
         let mut last_end = 0;
-        let bytes = fmt_str.as_bytes();
-        let mut spec_idx = 0;
-        let mut i = 0;
-
-        while i < bytes.len() {
-            if bytes[i] != b'%' {
-                i += 1;
-                continue;
+        for (spec, arg) in specs.iter().zip(resolved_args.iter()) {
+            if spec.start > last_end {
+                parts.push(fmt_str[last_end..spec.start].to_string());
             }
-            if i > last_end {
-                parts.push(fmt_str[last_end..i].to_string());
+            match format_value(spec, arg.node(format_args)) {
+                Some(s) => parts.push(s),
+                None => return,
             }
-            i += 1;
-            if i >= bytes.len() {
-                break;
-            }
-            if bytes[i] == b'%' {
-                parts.push("%".to_string());
-                i += 1;
-                last_end = i;
-                continue;
-            }
-            // Skip over the specifier to find its end
-            while i < bytes.len() && matches!(bytes[i], b'-' | b'+' | b' ' | b'0' | b'#') {
-                i += 1;
-            }
-            while i < bytes.len() && bytes[i].is_ascii_digit() {
-                i += 1;
-            }
-            if i < bytes.len() && bytes[i] == b'.' {
-                i += 1;
-                while i < bytes.len() && bytes[i].is_ascii_digit() {
-                    i += 1;
-                }
-            }
-            if i < bytes.len() {
-                i += 1;
-            }
-            last_end = i;
-
-            if spec_idx < specs.len() {
-                match format_value(&specs[spec_idx], &format_args[spec_idx]) {
-                    Some(s) => parts.push(s),
-                    None => return,
-                }
-                spec_idx += 1;
-            }
+            last_end = spec.end;
         }
 
-        if last_end < bytes.len() {
+        if last_end < fmt_str.len() {
             parts.push(fmt_str[last_end..].to_string());
         }
 
         let result = parts.join("");
-        let has_interpolation = format_args.iter().any(|a| {
-            a.as_interpolated_string_node().is_some() || a.as_interpolated_symbol_node().is_some()
+        let has_interpolation = resolved_args.iter().any(|arg| {
+            let node = arg.node(format_args);
+            node.as_interpolated_string_node().is_some()
+                || node.as_interpolated_symbol_node().is_some()
         });
         let escaped = escape_control_chars(&result);
         let format_uses_double_quotes = fmt_node
