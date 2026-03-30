@@ -93,6 +93,7 @@ impl Cop for MagicCommentFormat {
             .collect();
         let style = config.get_str("EnforcedStyle", "snake_case");
         let directive_capitalization = Self::directive_capitalization(config);
+        let _value_capitalization = config.get_str("ValueCapitalization", "");
 
         // Only check lines before the first code statement
         for (i, line) in lines.iter().enumerate() {
