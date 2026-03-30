@@ -44,14 +44,25 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Investigation findings (2026-03-16, second pass)
 ///
-/// **FP root cause — block pass promoting single-arg call to multi-arg:**
-/// When a call has a sole keyword hash argument plus a block pass
-/// (e.g., `add_listener(:before => :x, &method(:y))`), the block pass
-/// (`BlockArgumentNode`) was appended to `effective_args` BEFORE the
-/// `len() < 2` gate. This made the cop treat it as a 2-arg call and check
-/// alignment, but RuboCop's `multiple_arguments?` uses `node.arguments`
-/// which excludes block pass nodes. Fix: move the block-arg append AFTER
-/// the minimum-count check, so block pass can't promote a single-arg call.
+/// **Interim fix — sole keyword hash + block pass:**
+/// An earlier revision reduced false positives by preventing a trailing
+/// `BlockArgumentNode` from turning a sole keyword-hash call into a checked
+/// multi-argument call. A later investigation (2026-03-30 below) refined this
+/// to match Parser more closely by treating block pass as part of
+/// `node.arguments` first and then applying RuboCop's flattening rules.
+///
+/// ## Investigation findings (2026-03-30)
+///
+/// **FP+FN root cause — block-pass parity must match Parser's `node.arguments`:**
+/// RuboCop's `node.arguments` includes block-pass arguments for normal calls
+/// like `capture(fields, &block)`, but `with_first_argument` still drops the
+/// block pass when the first argument is a bare keyword hash by flattening to
+/// `first_arg.pairs` only. Our previous "append block after the len gate"
+/// shortcut fixed `render(layout: ..., &block)` false positives, but it also
+/// hid real offenses in `capture(fields, &block)`. The fix is to build a
+/// parser-style argument list that already includes `BlockArgumentNode`, then
+/// apply RuboCop's flattening rules to that list instead of special-casing the
+/// block pass afterward.
 pub struct ArgumentAlignment;
 
 impl Cop for ArgumentAlignment {
@@ -90,32 +101,40 @@ impl Cop for ArgumentAlignment {
         };
 
         let arg_list = arguments.arguments();
-        if arg_list.is_empty() {
+        if arg_list.is_empty() && call_node.block().is_none() {
+            return;
+        }
+
+        // Build a Parser-style argument list. In RuboCop/Parser, block-pass
+        // arguments (`&block`) are part of `node.arguments`; in Prism they live
+        // on `call.block()`.
+        let mut args_vec: Vec<ruby_prism::Node<'_>> = arg_list.iter().collect();
+        if let Some(block) = call_node.block() {
+            if block.as_block_argument_node().is_some() {
+                args_vec.push(block);
+            }
+        }
+
+        if args_vec.is_empty() {
             return;
         }
 
         // Collect effective arguments, matching RuboCop's behavior:
         //
         // with_first_argument style (arguments_or_first_arg_pairs):
-        //   - If the first arg is a bare KeywordHashNode (sole arg), expand to
-        //     its .pairs only (excludes AssocSplatNode). Need >= 2 pairs.
-        //   - Otherwise, use node.arguments with the last arg's KeywordHashNode
-        //     expanded to its .pairs.
+        //   - If the first arg is a bare KeywordHashNode, expand to its .pairs
+        //     only (excludes AssocSplatNode). This also drops any trailing
+        //     block-pass arg, matching Parser's `first_arg.pairs` behavior.
+        //   - Otherwise, use node.arguments as-is (including block pass).
         //
         // with_fixed_indentation style (arguments_with_last_arg_pairs):
         //   - All args except last, plus last arg's KeywordHashNode .pairs
         //     (or the last arg itself if not a keyword hash).
-        //
-        // In both cases, block arguments from call_node.block() (BlockArgumentNode)
-        // are included as additional alignment targets.
-        let args_vec: Vec<ruby_prism::Node<'_>> = arg_list.iter().collect();
-        let is_sole_keyword_hash =
-            args_vec.len() == 1 && args_vec[0].as_keyword_hash_node().is_some();
 
         let mut effective_args: Vec<ruby_prism::Node<'_>> = Vec::new();
 
-        if is_sole_keyword_hash && style != "with_fixed_indentation" {
-            // with_first_argument: expand first (sole) arg's pairs only
+        if style != "with_fixed_indentation" && args_vec[0].as_keyword_hash_node().is_some() {
+            // with_first_argument: expand first arg's pairs only
             let kw_hash = args_vec[0].as_keyword_hash_node().unwrap();
             for elem in kw_hash.elements().iter() {
                 // Only include AssocNode (pair), skip AssocSplatNode
@@ -150,23 +169,8 @@ impl Cop for ArgumentAlignment {
             }
         }
 
-        // RuboCop's multiple_arguments? check uses node.arguments (which excludes
-        // block pass). We must check the count BEFORE adding block arguments,
-        // because a block pass should not promote a single-arg call into a
-        // multi-arg call for alignment purposes.
         if effective_args.len() < 2 {
             return;
-        }
-
-        // Include block argument (&block, &handler, etc.) from call_node.block().
-        // In Prism, BlockArgumentNode is on call_node.block(), not in arguments().
-        // Added AFTER the multiple_arguments? gate so that a sole keyword hash arg
-        // with a block pass (e.g., `add_listener(:before => :x, &method(:y))`)
-        // doesn't trigger alignment checking when there's only one real argument.
-        if let Some(block) = call_node.block() {
-            if block.as_block_argument_node().is_some() {
-                effective_args.push(block);
-            }
         }
 
         let first_arg = &effective_args[0];

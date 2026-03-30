@@ -42,3 +42,13 @@ builder.send(:collection,
   &collection_block
   ^ Layout/ArgumentAlignment: Align the arguments of a method call if they span more than one line.
 )
+
+# Misaligned block pass in a ternary branch call
+(block ? capture(fields,
+  &block) : render(partial_name, f: fields)) + fields.hidden_field(:_destroy)
+  ^ Layout/ArgumentAlignment: Align the arguments of a method call if they span more than one line.
+
+# Same shape with a different continuation indent
+(block ? capture(fields,
+    &block) : render(partial_name, f: fields)) + fields.hidden_field(:_destroy)
+    ^ Layout/ArgumentAlignment: Align the arguments of a method call if they span more than one line.
