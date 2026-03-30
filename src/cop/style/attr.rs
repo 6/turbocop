@@ -97,9 +97,10 @@ impl Cop for Attr {
                 // parentheses, while deleting trailing args through the closing
                 // paren when present.
                 let first_arg = &arg_list[0];
-                let delete_end = call_node
-                    .closing_loc()
-                    .map_or_else(|| call_node.location().end_offset(), |loc| loc.start_offset());
+                let delete_end = call_node.closing_loc().map_or_else(
+                    || call_node.location().end_offset(),
+                    |loc| loc.start_offset(),
+                );
                 corr.push(crate::correction::Correction {
                     start: first_arg.location().end_offset(),
                     end: delete_end,
