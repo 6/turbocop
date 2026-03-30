@@ -10,10 +10,13 @@ use std::collections::HashSet;
 /// Checks that constants defined in classes and modules have an explicit
 /// visibility declaration (`public_constant` or `private_constant`).
 ///
-/// Fix: added detection of `ConstantPathWriteNode` (e.g. `Foo::Bar = value`,
-/// `::Const = value`) alongside the existing `ConstantWriteNode` handling.
-/// This resolved ~276 FN from protobuf-generated files and similar patterns
-/// where constants are assigned via path expressions inside class/module bodies.
+/// Investigation note: the remaining corpus FN examples for nested class/module
+/// constants (`CONSUME_ON_ESCAPE`, `ClosedQueueError`, `TYPE`, `DEFAULTS`, etc.)
+/// reproduce as offenses in isolated fixture/stdin runs once they are placed in
+/// their original class/module scopes, so this cop's AST detection matches
+/// RuboCop for those shapes. The unresolved corpus mismatch comes from the
+/// file-based corpus run honoring repo/default config instead of the explicit
+/// baseline config, which leaves this disabled-by-default cop turned off.
 pub struct ConstantVisibility;
 
 impl Cop for ConstantVisibility {

@@ -40,3 +40,44 @@ module Proto
   Trace::CachePolicy::Scope = lookup("Trace.CachePolicy.Scope").enummodule
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConstantVisibility: Explicitly make `Scope` public or private using either `#public_constant` or `#private_constant`.
 end
+
+module Backports
+  class FilteredQueue
+    CONSUME_ON_ESCAPE = true
+    ^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConstantVisibility: Explicitly make `CONSUME_ON_ESCAPE` public or private using either `#public_constant` or `#private_constant`.
+  end
+
+  class Ractor
+    class BaseQueue < FilteredQueue
+      ClosedQueueError = Ractor::ClosedError
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConstantVisibility: Explicitly make `ClosedQueueError` public or private using either `#public_constant` or `#private_constant`.
+    end
+
+    class IncomingQueue < BaseQueue
+      TYPE = :incoming
+      ^^^^^^^^^^^^^^^^ Style/ConstantVisibility: Explicitly make `TYPE` public or private using either `#public_constant` or `#private_constant`.
+    end
+
+    class OutgoingQueue < BaseQueue
+      TYPE = :outgoing
+      ^^^^^^^^^^^^^^^^ Style/ConstantVisibility: Explicitly make `TYPE` public or private using either `#public_constant` or `#private_constant`.
+      WrappedException = ::Struct.new(:exception, :ractor)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConstantVisibility: Explicitly make `WrappedException` public or private using either `#public_constant` or `#private_constant`.
+    end
+  end
+end
+
+class Net::IMAP::FakeServer
+  class Configuration
+    CA_FILE     = File.expand_path("../../fixtures/cacert.pem", __dir__)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConstantVisibility: Explicitly make `CA_FILE` public or private using either `#public_constant` or `#private_constant`.
+    SERVER_KEY  = File.expand_path("../../fixtures/server.key", __dir__)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConstantVisibility: Explicitly make `SERVER_KEY` public or private using either `#public_constant` or `#private_constant`.
+    SERVER_CERT = File.expand_path("../../fixtures/server.crt", __dir__)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConstantVisibility: Explicitly make `SERVER_CERT` public or private using either `#public_constant` or `#private_constant`.
+    DEFAULTS = {
+    ^^^^^^^^^^^^ Style/ConstantVisibility: Explicitly make `DEFAULTS` public or private using either `#public_constant` or `#private_constant`.
+      tls: { ca_file: CA_FILE, key: SERVER_KEY, cert: SERVER_CERT }.freeze,
+    }
+  end
+end
