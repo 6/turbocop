@@ -76,6 +76,27 @@ use crate::parse::source::SourceFile;
 ///    `bare_access_modifier?` returns false and the cop doesn't fire.
 ///    Fix: push `NonClass` scope for `AndNode`/`OrNode` so blocks nested
 ///    inside boolean combinators are not treated as macro scopes (2026-03-16).
+///
+/// 8. Comment lines after a class/module opening were still treated as part of
+///    the opening-line exemption because the previous-line scan accepted any
+///    earlier body-opening line as a separator. RuboCop only grants that
+///    exemption when the modifier is on the immediate next line after the
+///    opening. Fix: rely on the explicit body-opening line check and stop
+///    treating older body-opening lines as blank separators (2026-03-30).
+///
+/// 9. `body_end?` in RuboCop only applies to class/module/sclass bodies, not to
+///    generic macro blocks, and its boundary tracking is overwritten by nested
+///    class-like definitions visited earlier in the same outer body. Fix: only
+///    apply the closing-boundary exemption to root/class-like scopes, and
+///    disable it for a class-like scope once a nested class/module/sclass has
+///    been visited before the modifier (2026-03-30).
+///
+/// 10. Inline body-opening forms like `module Backend; private` and
+///     `module Utils module_function` are still bare access modifiers in
+///     RuboCop as long as everything from the selector to end-of-line is just
+///     the selector plus optional whitespace/comment. Fix: validate the trailing
+///     slice starting at the selector column instead of requiring the whole line
+///     to contain only the modifier (2026-03-30).
 pub struct EmptyLinesAroundAccessModifier;
 
 const ACCESS_MODIFIERS: &[&[u8]] = &[b"private", b"protected", b"public", b"module_function"];
@@ -91,97 +112,26 @@ fn is_comment_line(line: &[u8]) -> bool {
     false
 }
 
-/// Check if a line is a class/module opening or block opening that serves as
-/// a boundary before an access modifier (no blank line required).
-fn is_body_opening(line: &[u8]) -> bool {
-    let trimmed: Vec<u8> = line
-        .iter()
-        .copied()
-        .skip_while(|&b| b == b' ' || b == b'\t')
-        .collect();
-    if trimmed.is_empty() {
+/// Check whether the source from `column` to end-of-line is exactly the access
+/// modifier keyword, optionally followed by whitespace and a trailing comment.
+/// This matches plain `private`, `private # comment`, and same-line body-opening
+/// forms such as `module Backend; private # comment`.
+fn is_trailing_bare_modifier_line(line: &[u8], column: usize, method_name: &[u8]) -> bool {
+    let end_pos = column.saturating_add(method_name.len());
+    if end_pos > line.len() || &line[column..end_pos] != method_name {
         return false;
     }
-    // class/module definition
-    if trimmed.starts_with(b"class ")
-        || trimmed.starts_with(b"class\n")
-        || trimmed == b"class"
-        || trimmed.starts_with(b"module ")
-        || trimmed.starts_with(b"module\n")
-        || trimmed == b"module"
-    {
-        return true;
-    }
-    // Block opening: line ends with `do`, `do |...|`, or `{`
-    // Strip trailing whitespace and carriage return
-    let end_trimmed: Vec<u8> = trimmed
-        .iter()
-        .copied()
-        .rev()
-        .skip_while(|&b| b == b' ' || b == b'\t' || b == b'\r')
-        .collect::<Vec<u8>>()
-        .into_iter()
-        .rev()
-        .collect();
-    if end_trimmed.ends_with(b"do") {
-        // Make sure "do" is a keyword, not part of a word like "undo"
-        let before_do = end_trimmed.len() - 2;
-        if before_do == 0
-            || !end_trimmed[before_do - 1].is_ascii_alphanumeric()
-                && end_trimmed[before_do - 1] != b'_'
-        {
-            return true;
-        }
-    }
-    // Block opening with `do |...|`
-    if end_trimmed.ends_with(b"|") {
-        // Look for `do ` or `do|` pattern somewhere in the line
-        if end_trimmed.windows(3).any(|w| w == b"do " || w == b"do|") {
-            return true;
-        }
-    }
-    if end_trimmed.ends_with(b"{") {
-        return true;
-    }
-    false
-}
 
-/// Check if a line contains only the access modifier keyword (possibly with a
-/// trailing comment). Returns true for `private`, `private # comment`, etc.
-fn is_bare_modifier_line(line: &[u8], method_name: &[u8]) -> bool {
-    let trimmed: Vec<u8> = line
-        .iter()
-        .copied()
-        .skip_while(|&b| b == b' ' || b == b'\t')
-        .collect();
-    // Strip trailing whitespace/newline
-    let end_trimmed: Vec<u8> = trimmed
-        .iter()
-        .copied()
-        .rev()
-        .skip_while(|&b| b == b' ' || b == b'\t' || b == b'\r' || b == b'\n')
-        .collect::<Vec<u8>>()
-        .into_iter()
-        .rev()
-        .collect();
-    // Exact match: just the modifier keyword
-    if end_trimmed == method_name {
-        return true;
-    }
-    // Modifier followed by whitespace then comment: `private # comment`
-    if end_trimmed.starts_with(method_name) {
-        let rest = &end_trimmed[method_name.len()..];
-        // After the modifier, skip whitespace then expect `#`
-        let after_ws: Vec<u8> = rest
-            .iter()
-            .copied()
-            .skip_while(|&b| b == b' ' || b == b'\t')
-            .collect();
-        if after_ws.starts_with(b"#") {
-            return true;
+    let mut idx = end_pos;
+    while idx < line.len() {
+        match line[idx] {
+            b' ' | b'\t' | b'\r' | b'\n' => idx += 1,
+            b'#' => return true,
+            _ => return false,
         }
     }
-    false
+
+    true
 }
 
 /// Allow inline brace-block forms like `1.times { private }` and
@@ -231,12 +181,15 @@ fn is_inline_brace_block_modifier_line(line: &[u8], column: usize, method_name: 
 struct ModifierInfo {
     /// Byte offset of the access modifier call.
     offset: usize,
-    /// The 1-based line number of the body opening of the enclosing class/module/block.
-    /// For `class Foo < Bar`, this is Bar's line. For `class Foo`, this is the class line.
-    /// For blocks, this is the block opening line.
+    /// Byte offset of the body opening of the enclosing class/module/block.
+    /// For `class Foo < Bar`, this is `Bar`'s location start. For `class Foo`,
+    /// this is the `class` keyword offset. For blocks, this is the block opening.
     body_opening_line: usize,
-    /// The 1-based line number of the `end` closing the enclosing class/module/block.
+    /// Byte offset of the end of the enclosing class/module/block.
     body_closing_line: usize,
+    /// Whether this modifier should treat the line before the closing `end` as a
+    /// valid blank-after boundary.
+    body_end_boundary: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -252,34 +205,49 @@ enum ScopeKind {
 struct AccessModifierCollector {
     /// Collected access modifier info.
     modifiers: Vec<ModifierInfo>,
-    /// Stack of (scope_kind, body_opening_line, body_closing_line) for scope tracking.
-    scope_stack: Vec<(ScopeKind, usize, usize)>,
+    /// Stack of scope state for access-modifier tracking.
+    scope_stack: Vec<ScopeState>,
+}
+
+struct ScopeState {
+    kind: ScopeKind,
+    body_opening_line: usize,
+    body_closing_line: usize,
+    seen_nested_class_like: bool,
 }
 
 impl AccessModifierCollector {
     fn in_access_modifier_scope(&self) -> bool {
         self.scope_stack
             .last()
-            .map(|(kind, _, _)| {
+            .map(|scope| {
                 matches!(
-                    kind,
+                    scope.kind,
                     ScopeKind::Root | ScopeKind::ClassLike | ScopeKind::DslBlock
                 )
             })
             .unwrap_or(false)
     }
 
-    fn current_scope(&self) -> (usize, usize) {
+    fn current_scope(&self) -> (usize, usize, bool) {
         self.scope_stack
             .last()
-            .map(|(_, opening, closing)| (*opening, *closing))
-            .unwrap_or((0, 0))
+            .map(|scope| {
+                (
+                    scope.body_opening_line,
+                    scope.body_closing_line,
+                    matches!(scope.kind, ScopeKind::Root)
+                        || matches!(scope.kind, ScopeKind::ClassLike)
+                            && !scope.seen_nested_class_like,
+                )
+            })
+            .unwrap_or((0, 0, false))
     }
 
     fn current_scope_kind(&self) -> ScopeKind {
         self.scope_stack
             .last()
-            .map(|(kind, _, _)| *kind)
+            .map(|scope| scope.kind)
             .unwrap_or(ScopeKind::Root)
     }
 
@@ -300,26 +268,49 @@ impl AccessModifierCollector {
         if call.block().is_some() {
             return;
         }
-        let (body_opening_line, body_closing_line) = self.current_scope();
+        let (body_opening_line, body_closing_line, body_end_boundary) = self.current_scope();
         self.modifiers.push(ModifierInfo {
             offset: call.location().start_offset(),
             body_opening_line,
             body_closing_line,
+            body_end_boundary,
         });
     }
 
     fn push_class_scope(&mut self, body_opening_line: usize, body_closing_line: usize) {
-        self.scope_stack
-            .push((ScopeKind::ClassLike, body_opening_line, body_closing_line));
+        self.scope_stack.push(ScopeState {
+            kind: ScopeKind::ClassLike,
+            body_opening_line,
+            body_closing_line,
+            seen_nested_class_like: false,
+        });
     }
 
     fn push_dsl_block_scope(&mut self, body_opening_line: usize, body_closing_line: usize) {
-        self.scope_stack
-            .push((ScopeKind::DslBlock, body_opening_line, body_closing_line));
+        self.scope_stack.push(ScopeState {
+            kind: ScopeKind::DslBlock,
+            body_opening_line,
+            body_closing_line,
+            seen_nested_class_like: false,
+        });
     }
 
     fn push_non_class_scope(&mut self) {
-        self.scope_stack.push((ScopeKind::NonClass, 0, 0));
+        self.scope_stack.push(ScopeState {
+            kind: ScopeKind::NonClass,
+            body_opening_line: 0,
+            body_closing_line: 0,
+            seen_nested_class_like: false,
+        });
+    }
+
+    fn note_nested_class_like(&mut self) {
+        for scope in self.scope_stack.iter_mut().rev() {
+            if matches!(scope.kind, ScopeKind::ClassLike) {
+                scope.seen_nested_class_like = true;
+                break;
+            }
+        }
     }
 
     fn pop_scope(&mut self) {
@@ -369,6 +360,7 @@ fn is_class_constructor_call(call: &ruby_prism::CallNode<'_>) -> bool {
 
 impl<'pr> ruby_prism::Visit<'pr> for AccessModifierCollector {
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        self.note_nested_class_like();
         // For multiline class definitions like `class Foo <\n  Bar`,
         // the body opening line is the parent class's line (where Bar is).
         // For simple `class Foo`, it's the class keyword line.
@@ -384,6 +376,7 @@ impl<'pr> ruby_prism::Visit<'pr> for AccessModifierCollector {
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+        self.note_nested_class_like();
         let opening = node.location().start_offset();
         let closing = node.location().end_offset();
         self.push_class_scope(opening, closing);
@@ -392,6 +385,7 @@ impl<'pr> ruby_prism::Visit<'pr> for AccessModifierCollector {
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
+        self.note_nested_class_like();
         // For `class << self`, the expression is `self` — use its line as opening.
         let opening = node.expression().location().start_offset();
         let closing = node.location().end_offset();
@@ -548,7 +542,12 @@ impl Cop for EmptyLinesAroundAccessModifier {
         // Collect access modifier offsets that are in class/module bodies
         let mut collector = AccessModifierCollector {
             modifiers: Vec::new(),
-            scope_stack: vec![(ScopeKind::Root, 0, 0)],
+            scope_stack: vec![ScopeState {
+                kind: ScopeKind::Root,
+                body_opening_line: 0,
+                body_closing_line: 0,
+                seen_nested_class_like: false,
+            }],
         };
         use ruby_prism::Visit;
         collector.visit(&parse_result.node());
@@ -572,7 +571,7 @@ impl Cop for EmptyLinesAroundAccessModifier {
             // Ensure the access modifier is the only thing on its line (optionally with comment)
             if line > 0 && line <= lines.len() {
                 let current_line = lines[line - 1];
-                if !is_bare_modifier_line(current_line, method_name)
+                if !is_trailing_bare_modifier_line(current_line, col, method_name)
                     && !is_inline_brace_block_modifier_line(current_line, col, method_name)
                 {
                     continue;
@@ -607,7 +606,9 @@ impl Cop for EmptyLinesAroundAccessModifier {
             let is_at_body_opening = line == body_opening_line + 1;
 
             // Check if we're at a body end (line right before the closing `end`)
-            let is_at_body_end = line == body_closing_line - 1;
+            let is_at_body_end = modifier.body_end_boundary && line == body_closing_line - 1;
+            let is_before_scope_closing_end =
+                body_closing_line > 0 && line == body_closing_line - 1;
 
             // Find the previous non-comment line
             let has_blank_before = {
@@ -622,8 +623,7 @@ impl Cop for EmptyLinesAroundAccessModifier {
                             idx -= 1;
                             continue;
                         }
-                        found_blank_or_boundary =
-                            is_blank_or_whitespace_line(prev) || is_body_opening(prev);
+                        found_blank_or_boundary = is_blank_or_whitespace_line(prev);
                         break;
                     }
                     found_blank_or_boundary
@@ -643,7 +643,10 @@ impl Cop for EmptyLinesAroundAccessModifier {
             match enforced_style {
                 "around" => {
                     if !has_blank_before || !has_blank_after {
-                        let msg = if !has_blank_after && has_blank_before {
+                        let msg = if (modifier.body_end_boundary || !is_before_scope_closing_end)
+                            && has_blank_before
+                            && !has_blank_after
+                        {
                             format!("Keep a blank line after `{modifier_str}`.")
                         } else {
                             format!("Keep a blank line before and after `{modifier_str}`.")
