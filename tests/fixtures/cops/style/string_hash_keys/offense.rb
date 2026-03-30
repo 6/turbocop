@@ -28,3 +28,9 @@ end
   ^^^^^^^^^^^^^^ Style/StringHashKeys: Prefer symbols instead of strings as hash keys.
 { "foo bar" => 1 }
   ^^^^^^^^^ Style/StringHashKeys: Prefer symbols instead of strings as hash keys.
+
+h = { __FILE__ => [1] }
+      ^^^^^^^^ Style/StringHashKeys: Prefer symbols instead of strings as hash keys.
+
+expect(Coverage).to receive(:result).once.and_return(__FILE__ => [0, 1])
+                                                     ^^^^^^^^ Style/StringHashKeys: Prefer symbols instead of strings as hash keys.
