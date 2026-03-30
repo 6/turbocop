@@ -38,6 +38,17 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from shared.corpus_artifacts import download_corpus_results as _download_corpus
 
 PROJECT_ROOT = SCRIPTS_DIR.parent
+TIERS_JSON = PROJECT_ROOT / "src" / "resources" / "tiers.json"
+
+
+def _cop_tier(cop: str) -> str:
+    """Return 'stable' or 'preview' for the given cop name."""
+    try:
+        data = json.loads(TIERS_JSON.read_text())
+        return data.get("overrides", {}).get(cop, data.get("default_tier", "preview"))
+    except Exception:
+        return "preview"
+
 
 # Department → vendor gem directory mapping
 DEPT_TO_VENDOR = {
@@ -1357,6 +1368,22 @@ condition that matches the SPECIFIC differentiating context.
         for note in pitfalls:
             parts.append(f"- {note}")
         parts.append("")
+
+    # Tier/preview note — agents must know that preview-tier cops are skipped
+    # by default CLI invocations, so `cargo run -- file.rb` won't show offenses
+    # unless `--preview` is passed.
+    tier = _cop_tier(cop)
+    if tier == "preview":
+        parts.append(f"""### ⚠ Preview-tier cop
+`{cop}` is in the **preview** tier. Plain `cargo run -- file.rb` will NOT
+report offenses for this cop unless you pass `--preview`:
+```bash
+cargo run --quiet -- --preview --no-cache --force-default-config --only {cop} /tmp/test.rb
+```
+Unit tests (`cargo test --lib`) are NOT affected — they bypass tier gating.
+If the CLI reports 0 offenses but your unit test passes, you almost certainly
+forgot `--preview`. Do NOT rewrite the cop architecture to work around this.
+""")
 
     # Fixtures inline — they're small and provide essential context for the agent
     if offense_fixture:
