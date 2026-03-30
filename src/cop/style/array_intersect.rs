@@ -54,8 +54,9 @@ fn extract_intersection_parts(node: &ruby_prism::Node<'_>) -> Option<(String, St
             let args = call.arguments()?;
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() == 1 {
-                let lhs =
-                    std::str::from_utf8(recv.location().as_slice()).unwrap_or("").to_string();
+                let lhs = std::str::from_utf8(recv.location().as_slice())
+                    .unwrap_or("")
+                    .to_string();
                 let rhs = std::str::from_utf8(arg_list[0].location().as_slice())
                     .unwrap_or("")
                     .to_string();
@@ -129,35 +130,33 @@ impl Cop for ArrayIntersect {
                                             source.offset_to_line_col(loc.start_offset());
 
                                         // Keep backward-compatible message for original patterns
-                                        let msg = if matches!(
-                                            method_name,
-                                            "any?" | "empty?" | "none?"
-                                        ) {
-                                            format!(
-                                                "Use `intersect?` instead of `({}).{}`.",
-                                                std::str::from_utf8(
-                                                    inner_call.location().as_slice()
+                                        let msg =
+                                            if matches!(method_name, "any?" | "empty?" | "none?") {
+                                                format!(
+                                                    "Use `intersect?` instead of `({}).{}`.",
+                                                    std::str::from_utf8(
+                                                        inner_call.location().as_slice()
+                                                    )
+                                                    .unwrap_or("array1 & array2"),
+                                                    method_name
                                                 )
-                                                .unwrap_or("array1 & array2"),
-                                                method_name
-                                            )
-                                        } else if let Some((lhs, rhs)) =
-                                            extract_intersection_parts(&receiver)
-                                        {
-                                            let existing =
-                                                std::str::from_utf8(loc.as_slice()).unwrap_or("");
-                                            format!(
-                                                "Use `{}.intersect?({})` instead of `{}`.",
-                                                lhs, rhs, existing
-                                            )
-                                        } else {
-                                            let existing =
-                                                std::str::from_utf8(loc.as_slice()).unwrap_or("");
-                                            format!(
-                                                "Use `intersect?` instead of `{}`.",
-                                                existing
-                                            )
-                                        };
+                                            } else if let Some((lhs, rhs)) =
+                                                extract_intersection_parts(&receiver)
+                                            {
+                                                let existing = std::str::from_utf8(loc.as_slice())
+                                                    .unwrap_or("");
+                                                format!(
+                                                    "Use `{}.intersect?({})` instead of `{}`.",
+                                                    lhs, rhs, existing
+                                                )
+                                            } else {
+                                                let existing = std::str::from_utf8(loc.as_slice())
+                                                    .unwrap_or("");
+                                                format!(
+                                                    "Use `intersect?` instead of `{}`.",
+                                                    existing
+                                                )
+                                            };
                                         diagnostics
                                             .push(self.diagnostic(source, line, column, msg));
                                     }
@@ -181,10 +180,8 @@ impl Cop for ArrayIntersect {
                                     let (line, column) =
                                         source.offset_to_line_col(loc.start_offset());
 
-                                    let msg = if matches!(
-                                        method_name,
-                                        "any?" | "empty?" | "none?"
-                                    ) {
+                                    let msg = if matches!(method_name, "any?" | "empty?" | "none?")
+                                    {
                                         format!(
                                             "Use `intersect?` instead of `intersection(...).{}`.",
                                             method_name
@@ -241,9 +238,9 @@ impl Cop for ArrayIntersect {
                                                         "Use `{}.intersect?({})` instead of `{}`.",
                                                         lhs, rhs, existing
                                                     );
-                                                    diagnostics.push(self.diagnostic(
-                                                        source, line, column, msg,
-                                                    ));
+                                                    diagnostics.push(
+                                                        self.diagnostic(source, line, column, msg),
+                                                    );
                                                 }
                                             }
                                         }
@@ -261,8 +258,7 @@ impl Cop for ArrayIntersect {
             if call.arguments().is_none() && call.block().is_none() {
                 if let Some(recv) = call.receiver() {
                     if let Some(recv_call) = recv.as_call_node() {
-                        let rm =
-                            std::str::from_utf8(recv_call.name().as_slice()).unwrap_or("");
+                        let rm = std::str::from_utf8(recv_call.name().as_slice()).unwrap_or("");
                         if matches!(rm, "count" | "size" | "length") {
                             if recv_call.arguments().is_none() && recv_call.block().is_none() {
                                 if let Some(inner_recv) = recv_call.receiver() {
@@ -278,9 +274,8 @@ impl Cop for ArrayIntersect {
                                             "Use `{}.intersect?({})` instead of `{}`.",
                                             lhs, rhs, existing
                                         );
-                                        diagnostics.push(
-                                            self.diagnostic(source, line, column, msg),
-                                        );
+                                        diagnostics
+                                            .push(self.diagnostic(source, line, column, msg));
                                     }
                                 }
                             }
@@ -329,11 +324,8 @@ mod tests {
             );
             c
         };
-        let diags = crate::testutil::run_cop_full_with_config(
-            &ArrayIntersect,
-            b"(a & b).blank?\n",
-            config,
-        );
+        let diags =
+            crate::testutil::run_cop_full_with_config(&ArrayIntersect, b"(a & b).blank?\n", config);
         assert_eq!(diags.len(), 1);
         assert_eq!(
             diags[0].message,
