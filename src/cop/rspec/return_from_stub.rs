@@ -22,6 +22,7 @@ use crate::parse::source::SourceFile;
 /// - Ranges (`RangeNode` — e.g., `1..10`)
 /// - Regular expressions (`RegularExpressionNode` — e.g., `/pattern/`)
 /// - Rational/imaginary literals (`RationalNode`, `ImaginaryNode` — e.g., `1r`, `1i`)
+///
 /// All added to match RuboCop's `recursive_literal_or_const?` behavior.
 ///
 /// ## Corpus investigation (2026-03-14, round 1)
