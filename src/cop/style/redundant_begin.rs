@@ -4,6 +4,26 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Checks for redundant explicit `begin..end` blocks.
+///
+/// ## Investigation (2026-03-30)
+///
+/// FN root cause: the original Prism port only handled three contexts:
+/// normal `def` bodies, `do..end` block bodies, and simple variable
+/// assignments. RuboCop also flags redundant explicit `begin` blocks when they
+/// appear as:
+/// - the sole body statement of branch bodies (`if`/`else`/`unless`,
+///   `case`/`when`/`in`, non-modifier `while`/`until`)
+/// - standalone explicit `begin` statements at top level or as single nested
+///   statements
+/// - assignment values on Prism-only write nodes such as `IndexOrWriteNode`
+///   (`foo[bar] ||= begin ... end`)
+///
+/// Fix: add explicit begin handling for those missing contexts while preserving
+/// RuboCop's allowlist for direct method-call arguments/receivers, logical
+/// operator operands, post-condition `while`/`until` loops, and Prism's
+/// `RescueModifierNode` form (`begin foo rescue nil end`), where `begin` is
+/// still required for grouping or syntax.
 pub struct RedundantBegin;
 
 impl Cop for RedundantBegin {
@@ -37,59 +57,9 @@ struct RedundantBeginVisitor<'a> {
 }
 
 impl RedundantBeginVisitor<'_> {
-    /// Check if a body (block, lambda, etc.) contains a redundant `begin` block.
-    /// A `begin..rescue..end` or `begin..ensure..end` inside a block body is
-    /// redundant when it's the only statement, because the block itself supports
-    /// rescue/ensure directly.
-    fn check_body_begin(&mut self, body: Option<ruby_prism::Node<'_>>) {
-        let body = match body {
-            Some(b) => b,
-            None => return,
-        };
-
-        // The body is either a StatementsNode containing a single BeginNode,
-        // or directly a BeginNode
-        let begin_node = if let Some(b) = body.as_begin_node() {
-            b
-        } else if let Some(stmts) = body.as_statements_node() {
-            let body_nodes: Vec<_> = stmts.body().into_iter().collect();
-            if body_nodes.len() != 1 {
-                // Multiple statements — visit children and return
-                for child in body_nodes.iter() {
-                    self.visit(child);
-                }
-                return;
-            }
-            match body_nodes[0].as_begin_node() {
-                Some(b) => b,
-                None => {
-                    self.visit(&body_nodes[0]);
-                    return;
-                }
-            }
-        } else {
-            self.visit(&body);
+    fn add_begin_offense(&mut self, begin_node: &ruby_prism::BeginNode<'_>) {
+        let Some(begin_kw_loc) = begin_node.begin_keyword_loc() else {
             return;
-        };
-
-        // Must have an explicit `begin` keyword
-        let begin_kw_loc = match begin_node.begin_keyword_loc() {
-            Some(loc) => loc,
-            None => {
-                // No explicit begin — visit children
-                if let Some(stmts) = begin_node.statements() {
-                    for child in stmts.body().iter() {
-                        self.visit(&child);
-                    }
-                }
-                if let Some(rescue) = begin_node.rescue_clause() {
-                    self.visit_rescue_node(&rescue);
-                }
-                if let Some(ensure) = begin_node.ensure_clause() {
-                    self.visit_ensure_node(&ensure);
-                }
-                return;
-            }
         };
 
         let offset = begin_kw_loc.start_offset();
@@ -100,8 +70,18 @@ impl RedundantBeginVisitor<'_> {
             column,
             "Redundant `begin` block detected.".to_string(),
         ));
+    }
 
-        // Visit children for nested checks
+    fn begin_body_nodes<'pr>(
+        begin_node: &ruby_prism::BeginNode<'pr>,
+    ) -> Vec<ruby_prism::Node<'pr>> {
+        begin_node
+            .statements()
+            .map(|stmts| stmts.body().iter().collect())
+            .unwrap_or_default()
+    }
+
+    fn visit_begin_children<'pr>(&mut self, begin_node: &ruby_prism::BeginNode<'pr>) {
         if let Some(stmts) = begin_node.statements() {
             for child in stmts.body().iter() {
                 self.visit(&child);
@@ -115,210 +95,365 @@ impl RedundantBeginVisitor<'_> {
         }
     }
 
-    /// Check if an assignment value is a redundant `begin` block.
-    /// `x = begin...end` or `x ||= begin...end` is redundant when:
-    /// - The begin has an explicit `begin` keyword
-    /// - There is only a single statement in the body
-    /// - There are no rescue/ensure/else clauses
-    fn check_assignment_begin(&mut self, value: &ruby_prism::Node<'_>) {
-        let begin_node = match value.as_begin_node() {
-            Some(b) => b,
-            None => {
-                // Continue visiting for nested structures
-                self.visit(value);
-                return;
-            }
+    fn body_is_allowable_rescue_modifier(body_nodes: &[ruby_prism::Node<'_>]) -> bool {
+        if body_nodes.len() != 1 {
+            return false;
+        }
+
+        let Some(rescue_modifier) = body_nodes[0].as_rescue_modifier_node() else {
+            return false;
         };
 
-        // Must have an explicit `begin` keyword
-        let begin_kw_loc = match begin_node.begin_keyword_loc() {
-            Some(loc) => loc,
-            None => {
-                self.visit(value);
-                return;
-            }
-        };
+        let expression = rescue_modifier.expression();
+        expression.as_if_node().is_none() && expression.as_unless_node().is_none()
+    }
 
-        // If it has rescue/ensure/else, the begin is NOT redundant
-        if begin_node.rescue_clause().is_some()
+    fn inspect_generic_begin<'pr>(
+        &mut self,
+        begin_node: &ruby_prism::BeginNode<'pr>,
+        root_program_begin: bool,
+    ) {
+        if begin_node.begin_keyword_loc().is_none()
+            || begin_node.rescue_clause().is_some()
             || begin_node.ensure_clause().is_some()
             || begin_node.else_clause().is_some()
         {
-            // Visit children for nested checks
-            if let Some(stmts) = begin_node.statements() {
-                for child in stmts.body().iter() {
-                    self.visit(&child);
-                }
-            }
-            if let Some(rescue) = begin_node.rescue_clause() {
-                self.visit_rescue_node(&rescue);
-            }
-            if let Some(ensure) = begin_node.ensure_clause() {
-                self.visit_ensure_node(&ensure);
-            }
+            self.visit_begin_children(begin_node);
             return;
         }
 
-        // Must have exactly one statement in the body
-        let stmts = match begin_node.statements() {
-            Some(s) => s,
-            None => return,
-        };
-        let body_nodes: Vec<_> = stmts.body().into_iter().collect();
-        if body_nodes.len() != 1 {
-            // Multiple statements — begin is not redundant in assignment context
-            for child in body_nodes.iter() {
-                self.visit(child);
-            }
+        let body_nodes = Self::begin_body_nodes(begin_node);
+        if body_nodes.is_empty() {
             return;
         }
 
-        let offset = begin_kw_loc.start_offset();
-        let (line, column) = self.source.offset_to_line_col(offset);
-        self.diagnostics.push(self.cop.diagnostic(
-            self.source,
-            line,
-            column,
-            "Redundant `begin` block detected.".to_string(),
-        ));
-
-        // Visit the begin body for nested checks
-        for child in body_nodes.iter() {
-            self.visit(child);
+        if Self::body_is_allowable_rescue_modifier(&body_nodes) {
+            self.visit_begin_children(begin_node);
+            return;
         }
+
+        // RuboCop's kwbegin search prefers the deepest offensive begin, so an
+        // outer `begin` that only wraps another explicit `begin` does not fire.
+        if body_nodes.len() == 1
+            && body_nodes[0]
+                .as_begin_node()
+                .is_some_and(|inner| inner.begin_keyword_loc().is_some())
+        {
+            self.visit_begin_children(begin_node);
+            return;
+        }
+
+        if root_program_begin || body_nodes.len() == 1 {
+            self.add_begin_offense(begin_node);
+        }
+
+        self.visit_begin_children(begin_node);
     }
-}
 
-impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
-    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        let body = match node.body() {
-            Some(b) => b,
-            None => return,
+    fn inspect_branch_statements<'pr>(
+        &mut self,
+        statements: Option<ruby_prism::StatementsNode<'pr>>,
+    ) {
+        let Some(statements) = statements else {
+            return;
         };
 
-        // The body might be a BeginNode directly or a StatementsNode containing
-        // a single BeginNode
-        let begin_node = if let Some(b) = body.as_begin_node() {
-            b
-        } else if let Some(stmts) = body.as_statements_node() {
-            let body_nodes: Vec<_> = stmts.body().into_iter().collect();
-            if body_nodes.len() != 1 {
-                // Continue visiting children for nested defs/begins
-                for child in body_nodes.iter() {
-                    self.visit(child);
-                }
-                return;
+        let body_nodes: Vec<_> = statements.body().iter().collect();
+        if body_nodes.len() != 1 {
+            for child in body_nodes {
+                self.visit(&child);
             }
-            match body_nodes[0].as_begin_node() {
-                Some(b) => b,
-                None => {
-                    self.visit(&body_nodes[0]);
+            return;
+        }
+
+        let Some(begin_node) = body_nodes[0].as_begin_node() else {
+            self.visit(&body_nodes[0]);
+            return;
+        };
+
+        if begin_node.begin_keyword_loc().is_none()
+            || begin_node.rescue_clause().is_some()
+            || begin_node.ensure_clause().is_some()
+            || begin_node.else_clause().is_some()
+            || Self::body_is_allowable_rescue_modifier(&Self::begin_body_nodes(&begin_node))
+        {
+            self.visit_begin_children(&begin_node);
+            return;
+        }
+
+        self.add_begin_offense(&begin_node);
+        self.visit_begin_children(&begin_node);
+    }
+
+    fn visit_post_condition_loop_statements<'pr>(
+        &mut self,
+        statements: Option<ruby_prism::StatementsNode<'pr>>,
+    ) {
+        let Some(statements) = statements else {
+            return;
+        };
+
+        let body_nodes: Vec<_> = statements.body().iter().collect();
+        if body_nodes.len() == 1 {
+            if let Some(begin_node) = body_nodes[0].as_begin_node() {
+                if begin_node.begin_keyword_loc().is_some() {
+                    self.visit_begin_children(&begin_node);
                     return;
                 }
             }
+        }
+
+        for child in body_nodes {
+            self.visit(&child);
+        }
+    }
+
+    fn check_body_begin(&mut self, body: Option<ruby_prism::Node<'_>>) {
+        let body = match body {
+            Some(body) => body,
+            None => return,
+        };
+
+        let begin_node = if let Some(begin_node) = body.as_begin_node() {
+            begin_node
+        } else if let Some(statements) = body.as_statements_node() {
+            let body_nodes: Vec<_> = statements.body().iter().collect();
+            if body_nodes.len() != 1 {
+                for child in body_nodes {
+                    self.visit(&child);
+                }
+                return;
+            }
+
+            let Some(begin_node) = body_nodes[0].as_begin_node() else {
+                self.visit(&body_nodes[0]);
+                return;
+            };
+            begin_node
         } else {
             self.visit(&body);
             return;
         };
 
-        // Must have an explicit `begin` keyword
-        let begin_kw_loc = match begin_node.begin_keyword_loc() {
-            Some(loc) => loc,
-            None => {
-                // Visit the begin body for nested checks
-                if let Some(stmts) = begin_node.statements() {
-                    for child in stmts.body().iter() {
-                        self.visit(&child);
-                    }
-                }
-                return;
-            }
+        if begin_node.begin_keyword_loc().is_none() {
+            self.visit_begin_children(&begin_node);
+            return;
+        }
+
+        if Self::body_is_allowable_rescue_modifier(&Self::begin_body_nodes(&begin_node)) {
+            self.visit_begin_children(&begin_node);
+            return;
+        }
+
+        self.add_begin_offense(&begin_node);
+        self.visit_begin_children(&begin_node);
+    }
+
+    fn check_assignment_begin(&mut self, value: &ruby_prism::Node<'_>) {
+        let Some(begin_node) = value.as_begin_node() else {
+            self.visit(value);
+            return;
         };
 
-        let offset = begin_kw_loc.start_offset();
-        let (line, column) = self.source.offset_to_line_col(offset);
-        self.diagnostics.push(self.cop.diagnostic(
-            self.source,
-            line,
-            column,
-            "Redundant `begin` block detected.".to_string(),
-        ));
+        if begin_node.begin_keyword_loc().is_none()
+            || begin_node.rescue_clause().is_some()
+            || begin_node.ensure_clause().is_some()
+            || begin_node.else_clause().is_some()
+        {
+            self.visit_begin_children(&begin_node);
+            return;
+        }
 
-        // Visit the begin body for nested checks
-        if let Some(stmts) = begin_node.statements() {
-            for child in stmts.body().iter() {
-                self.visit(&child);
+        let body_nodes = Self::begin_body_nodes(&begin_node);
+        if Self::body_is_allowable_rescue_modifier(&body_nodes) {
+            self.visit_begin_children(&begin_node);
+            return;
+        }
+
+        if body_nodes.len() != 1 {
+            self.visit_begin_children(&begin_node);
+            return;
+        }
+
+        self.add_begin_offense(&begin_node);
+        self.visit_begin_children(&begin_node);
+    }
+
+    fn visit_allowed_direct_begin_child(&mut self, node: &ruby_prism::Node<'_>) {
+        let Some(begin_node) = node.as_begin_node() else {
+            self.visit(node);
+            return;
+        };
+
+        if begin_node.begin_keyword_loc().is_none() {
+            self.visit(node);
+            return;
+        }
+
+        self.visit_begin_children(&begin_node);
+    }
+}
+
+impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
+    fn visit_program_node(&mut self, node: &ruby_prism::ProgramNode<'pr>) {
+        let body_nodes: Vec<_> = node.statements().body().iter().collect();
+        if body_nodes.len() == 1 {
+            if let Some(begin_node) = body_nodes[0].as_begin_node() {
+                self.inspect_generic_begin(&begin_node, true);
+                return;
             }
+        }
+
+        for child in body_nodes {
+            self.visit(&child);
         }
     }
 
-    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
-        // Continue visiting children to find nested begin nodes (e.g. nested defs)
-        if let Some(stmts) = node.statements() {
-            for child in stmts.body().iter() {
-                self.visit(&child);
-            }
-        }
-        if let Some(rescue) = node.rescue_clause() {
-            self.visit_rescue_node(&rescue);
-        }
-        if let Some(ensure) = node.ensure_clause() {
-            self.visit_ensure_node(&ensure);
-        }
-    }
-
-    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
-        // Skip brace blocks ({ }) — only do..end blocks support implicit
-        // begin/rescue. Ruby syntax doesn't allow bare rescue in { } blocks.
-        if node.opening_loc().as_slice() == b"{" {
-            // Still need to visit children for nested checks
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        let is_endless = node.end_keyword_loc().is_none() && node.equal_loc().is_some();
+        if is_endless {
             if let Some(body) = node.body() {
                 self.visit(&body);
             }
             return;
         }
+
+        self.check_body_begin(node.body());
+    }
+
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        self.inspect_generic_begin(node, false);
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        if node.opening_loc().as_slice() == b"{" {
+            if let Some(body) = node.body() {
+                self.visit(&body);
+            }
+            return;
+        }
+
         self.check_body_begin(node.body());
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
-        // RuboCop skips stabby lambdas entirely — they don't support implicit
-        // begin/rescue in their body (even with do..end form).
-        // Still visit children for nested checks.
         if let Some(body) = node.body() {
             self.visit(&body);
         }
     }
 
-    fn visit_instance_variable_or_write_node(
-        &mut self,
-        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
-    ) {
-        self.check_assignment_begin(&node.value());
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        self.visit(&node.predicate());
+
+        if node.end_keyword_loc().is_none() {
+            if let Some(statements) = node.statements() {
+                self.visit(&statements.as_node());
+            }
+        } else {
+            self.inspect_branch_statements(node.statements());
+        }
+
+        if let Some(subsequent) = node.subsequent() {
+            self.visit(&subsequent);
+        }
     }
 
-    fn visit_local_variable_or_write_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
-    ) {
-        self.check_assignment_begin(&node.value());
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        self.visit(&node.predicate());
+
+        if node.end_keyword_loc().is_none() {
+            if let Some(statements) = node.statements() {
+                self.visit(&statements.as_node());
+            }
+        } else {
+            self.inspect_branch_statements(node.statements());
+        }
+
+        if let Some(else_clause) = node.else_clause() {
+            self.visit(&else_clause.as_node());
+        }
     }
 
-    fn visit_class_variable_or_write_node(
-        &mut self,
-        node: &ruby_prism::ClassVariableOrWriteNode<'pr>,
-    ) {
-        self.check_assignment_begin(&node.value());
+    fn visit_else_node(&mut self, node: &ruby_prism::ElseNode<'pr>) {
+        self.inspect_branch_statements(node.statements());
     }
 
-    fn visit_global_variable_or_write_node(
-        &mut self,
-        node: &ruby_prism::GlobalVariableOrWriteNode<'pr>,
-    ) {
-        self.check_assignment_begin(&node.value());
+    fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
+        if let Some(predicate) = node.predicate() {
+            self.visit(&predicate);
+        }
+        for condition in node.conditions().iter() {
+            self.visit(&condition);
+        }
+        if let Some(else_clause) = node.else_clause() {
+            self.visit(&else_clause.as_node());
+        }
     }
 
-    fn visit_constant_or_write_node(&mut self, node: &ruby_prism::ConstantOrWriteNode<'pr>) {
-        self.check_assignment_begin(&node.value());
+    fn visit_case_match_node(&mut self, node: &ruby_prism::CaseMatchNode<'pr>) {
+        for condition in node.conditions().iter() {
+            self.visit(&condition);
+        }
+        if let Some(else_clause) = node.else_clause() {
+            self.visit(&else_clause.as_node());
+        }
+    }
+
+    fn visit_when_node(&mut self, node: &ruby_prism::WhenNode<'pr>) {
+        for condition in node.conditions().iter() {
+            self.visit(&condition);
+        }
+        self.inspect_branch_statements(node.statements());
+    }
+
+    fn visit_in_node(&mut self, node: &ruby_prism::InNode<'pr>) {
+        self.inspect_branch_statements(node.statements());
+    }
+
+    fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        self.visit(&node.predicate());
+
+        if node.is_begin_modifier() {
+            self.visit_post_condition_loop_statements(node.statements());
+            return;
+        }
+
+        self.inspect_branch_statements(node.statements());
+    }
+
+    fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        self.visit(&node.predicate());
+
+        if node.is_begin_modifier() {
+            self.visit_post_condition_loop_statements(node.statements());
+            return;
+        }
+
+        self.inspect_branch_statements(node.statements());
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.visit_allowed_direct_begin_child(&receiver);
+        }
+        if let Some(arguments) = node.arguments() {
+            for argument in arguments.arguments().iter() {
+                self.visit_allowed_direct_begin_child(&argument);
+            }
+        }
+        if let Some(block) = node.block() {
+            self.visit(&block);
+        }
+    }
+
+    fn visit_and_node(&mut self, node: &ruby_prism::AndNode<'pr>) {
+        self.visit_allowed_direct_begin_child(&node.left());
+        self.visit_allowed_direct_begin_child(&node.right());
+    }
+
+    fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'pr>) {
+        self.visit_allowed_direct_begin_child(&node.left());
+        self.visit_allowed_direct_begin_child(&node.right());
     }
 
     fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
@@ -344,6 +479,154 @@ impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
     }
 
     fn visit_constant_write_node(&mut self, node: &ruby_prism::ConstantWriteNode<'pr>) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_constant_path_write_node(&mut self, node: &ruby_prism::ConstantPathWriteNode<'pr>) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_instance_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_class_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOrWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_global_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOrWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_constant_or_write_node(&mut self, node: &ruby_prism::ConstantOrWriteNode<'pr>) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_constant_path_or_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOrWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_instance_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableAndWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_class_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableAndWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_global_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableAndWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_constant_and_write_node(&mut self, node: &ruby_prism::ConstantAndWriteNode<'pr>) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_constant_path_and_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathAndWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_instance_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOperatorWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_class_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOperatorWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_global_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_constant_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantOperatorWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_constant_path_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOperatorWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_call_or_write_node(&mut self, node: &ruby_prism::CallOrWriteNode<'pr>) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_call_and_write_node(&mut self, node: &ruby_prism::CallAndWriteNode<'pr>) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_call_operator_write_node(&mut self, node: &ruby_prism::CallOperatorWriteNode<'pr>) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_index_or_write_node(&mut self, node: &ruby_prism::IndexOrWriteNode<'pr>) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_index_and_write_node(&mut self, node: &ruby_prism::IndexAndWriteNode<'pr>) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_index_operator_write_node(&mut self, node: &ruby_prism::IndexOperatorWriteNode<'pr>) {
         self.check_assignment_begin(&node.value());
     }
 }
