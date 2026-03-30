@@ -1,11 +1,19 @@
 use crate::cop::node_type::{
-    CALL_NODE, CLASS_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE, SYMBOL_NODE,
+    CALL_NODE, CLASS_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, MODULE_NODE,
+    STATEMENTS_NODE, SYMBOL_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashSet;
 
+/// Checks that constants defined in classes and modules have an explicit
+/// visibility declaration (`public_constant` or `private_constant`).
+///
+/// Fix: added detection of `ConstantPathWriteNode` (e.g. `Foo::Bar = value`,
+/// `::Const = value`) alongside the existing `ConstantWriteNode` handling.
+/// This resolved ~276 FN from protobuf-generated files and similar patterns
+/// where constants are assigned via path expressions inside class/module bodies.
 pub struct ConstantVisibility;
 
 impl Cop for ConstantVisibility {
@@ -21,6 +29,7 @@ impl Cop for ConstantVisibility {
         &[
             CALL_NODE,
             CLASS_NODE,
+            CONSTANT_PATH_WRITE_NODE,
             CONSTANT_WRITE_NODE,
             MODULE_NODE,
             STATEMENTS_NODE,
@@ -83,9 +92,23 @@ impl Cop for ConstantVisibility {
 
         // Check for constant assignments without visibility
         for stmt in stmts.body().iter() {
-            if let Some(const_write) = stmt.as_constant_write_node() {
-                let const_name = std::str::from_utf8(const_write.name().as_slice()).unwrap_or("");
-                if !visible_constants.contains(const_name) {
+            let const_name = if let Some(const_write) = stmt.as_constant_write_node() {
+                Some(
+                    std::str::from_utf8(const_write.name().as_slice())
+                        .unwrap_or("")
+                        .to_string(),
+                )
+            } else if let Some(cpw) = stmt.as_constant_path_write_node() {
+                cpw.target()
+                    .name()
+                    .and_then(|n| std::str::from_utf8(n.as_slice()).ok())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            };
+
+            if let Some(const_name) = const_name {
+                if !visible_constants.contains(&const_name) {
                     let loc = stmt.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     diagnostics.push(self.diagnostic(
