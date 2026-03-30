@@ -12,3 +12,13 @@ with backslash newline"
 "\#@@class_var"
 "foo\0bar"
 "foo\abar"
+"#\{not interpolated}"
+"#\$global_ref"
+"#\@ivar_ref"
+%(foo\)bar)
+<<~'SQUOTE'
+  not \"interpolating\"
+SQUOTE
+<<~HEREDOC
+  \ text
+HEREDOC
