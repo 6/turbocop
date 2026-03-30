@@ -96,3 +96,29 @@ def cache_key_prefix
       ":#{attribute}"
   end
 end
+
+# Tabs still count toward the base indentation in always-indented contexts
+def cmd_file
+		"# WARNING - This file was automatically generated on #{Time.now}\n"	\
+		"check process #{self.clean_name} with pidfile \"#{self.pid_file}\"\n"	\
+		^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineEndStringConcatenationIndentation: Indent the first part of a string concatenated with backslash.
+        	"\tstart program = \"#{self.start_cmd}\"\n"			\
+        	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineEndStringConcatenationIndentation: Align parts of a string concatenated with backslash.
+        	"\tstop  program = \"#{self.stop_cmd}\"\n"
+end
+
+# Same-line adjacent string literals should not break backslash detection
+expected = {
+  'xl/workbook.xml' =>
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'"\r\n" \
+                                                             ^^^^^^ Layout/LineEndStringConcatenationIndentation: Align parts of a string concatenated with backslash.
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '\
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineEndStringConcatenationIndentation: Align parts of a string concatenated with backslash.
+              'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' \
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineEndStringConcatenationIndentation: Align parts of a string concatenated with backslash.
+      '<workbookPr date1904="false"/>' \
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/LineEndStringConcatenationIndentation: Align parts of a string concatenated with backslash.
+      '<sheets></sheets>' \
+    '</workbook>',
+    ^^^^^^^^^^^^^ Layout/LineEndStringConcatenationIndentation: Align parts of a string concatenated with backslash.
+}
