@@ -24,3 +24,6 @@
 
 %{port: #{hash["key"]}}
 ^^^^^^^^^^^^^^^^^^^^^^^ Style/PercentLiteralDelimiters: `%`-literals should be delimited by `(` and `)`.
+
+delimiter = %s"()<>\[\]{}/%\s"
+            ^^^^^^^^^^^^^^^^^^ Style/PercentLiteralDelimiters: `%s`-literals should be delimited by `(` and `)`.

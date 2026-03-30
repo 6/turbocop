@@ -29,6 +29,17 @@ use std::collections::HashMap;
 ///   only check `StringNode` parts (literal text), skip `EmbeddedStatementsNode`
 ///   parts (interpolation). For arrays, only check `StringNode`/`SymbolNode`
 ///   elements.
+///
+/// ## Investigation findings (2026-03-30)
+///
+/// ### FN root cause fixed (1 FN):
+/// - `%s` symbol literals with non-preferred delimiters were incorrectly
+///   exempted when their raw symbol body contained the preferred delimiter
+///   characters, e.g. `%s"()<>\[\]{}/%\s"`. RuboCop still flags non-preferred
+///   `%s` delimiters in this case, so `%s` must not use the generic
+///   content-contains-delimiter skip that applies to strings, regexps, and
+///   arrays. Fixed by carving `%s` out of that skip logic while keeping the
+///   existing `%w`/`%i` same-delimiter guard unchanged.
 pub struct PercentLiteralDelimiters;
 
 impl PercentLiteralDelimiters {
@@ -256,22 +267,30 @@ impl Cop for PercentLiteralDelimiters {
         };
 
         if actual_delim != expected_open {
-            // Check if the literal content contains the preferred delimiters.
-            // For interpolated nodes, only check literal string parts (StringNode),
-            // not interpolation expressions (EmbeddedStatementsNode).
-            // This matches RuboCop's contains_preferred_delimiter? behavior.
-            if Self::literal_content_contains(node, source, &opening, expected_open, expected_close)
-            {
-                return;
-            }
-
-            // For %w and %i literals, also check if content contains the same
-            // characters as the currently-used delimiters (matchpairs).
-            // RuboCop's include_same_character_as_used_for_delimiter? check.
-            if literal_type == "%w" || literal_type == "%i" {
-                let (used_open, used_close) = matchpair(actual_delim);
-                if Self::literal_content_contains(node, source, &opening, used_open, used_close) {
+            if literal_type != "%s" {
+                // Check if the literal content contains the preferred delimiters.
+                // For interpolated nodes, only check literal string parts (StringNode),
+                // not interpolation expressions (EmbeddedStatementsNode).
+                // This matches RuboCop's contains_preferred_delimiter? behavior.
+                if Self::literal_content_contains(
+                    node,
+                    source,
+                    &opening,
+                    expected_open,
+                    expected_close,
+                ) {
                     return;
+                }
+
+                // For %w and %i literals, also check if content contains the same
+                // characters as the currently-used delimiters (matchpairs).
+                // RuboCop's include_same_character_as_used_for_delimiter? check.
+                if literal_type == "%w" || literal_type == "%i" {
+                    let (used_open, used_close) = matchpair(actual_delim);
+                    if Self::literal_content_contains(node, source, &opening, used_open, used_close)
+                    {
+                        return;
+                    }
                 }
             }
 
