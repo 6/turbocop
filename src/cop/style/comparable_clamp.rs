@@ -3,6 +3,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Detects both `if/elsif/else` clamp patterns and `[[a, b].max, c].min` style
+/// array min/max patterns that can be replaced with `Comparable#clamp`.
+///
+/// The array min/max pattern was the source of ~150 false negatives. RuboCop's
+/// `array_min_max?` matcher detects four variants where an inner `[a, b].min` or
+/// `[a, b].max` is nested inside an outer `[..., c].max` or `[..., c].min`
+/// (always with opposite inner/outer methods).
 pub struct ComparableClamp;
 
 impl Cop for ComparableClamp {
@@ -23,6 +30,21 @@ impl Cop for ComparableClamp {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // Check for array min/max pattern: [[a, b].max, c].min and variants
+        if let Some(call) = node.as_call_node() {
+            if check_array_min_max(&call) {
+                let loc = call.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `Comparable#clamp` instead.".to_string(),
+                ));
+                return;
+            }
+        }
+
         // Pattern: if x < low then low elsif x > high then high else x end
         // (or with > / reversed operand positions)
         // Must match RuboCop's exact structural pattern:
@@ -233,6 +255,78 @@ fn is_clamp_pattern(
     }
 
     true
+}
+
+/// Check if a CallNode matches the `[[a, b].max, c].min` pattern (or variants).
+///
+/// Matches RuboCop's `array_min_max?` pattern:
+///   (send (array (send (array _ _) :max) _) :min)
+///   (send (array _ (send (array _ _) :max)) :min)
+///   (send (array (send (array _ _) :min) _) :max)
+///   (send (array _ (send (array _ _) :min)) :max)
+fn check_array_min_max(call: &ruby_prism::CallNode<'_>) -> bool {
+    let method = call.name().as_slice();
+    let outer_is_min = match method {
+        b"min" => true,
+        b"max" => false,
+        _ => return false,
+    };
+
+    // Must have no arguments (e.g., `.min` not `.min(n)`)
+    if call.arguments().is_some() {
+        return false;
+    }
+
+    // Receiver must be an array literal with exactly 2 elements
+    let receiver = match call.receiver() {
+        Some(r) => r,
+        None => return false,
+    };
+    let array = match receiver.as_array_node() {
+        Some(a) => a,
+        None => return false,
+    };
+    // Must be an explicit array literal (has `[` opening)
+    if array.opening_loc().is_none() {
+        return false;
+    }
+    let elements: Vec<_> = array.elements().iter().collect();
+    if elements.len() != 2 {
+        return false;
+    }
+
+    // One of the 2 elements must be a call to the opposite method on an array of 2
+    let inner_method = if outer_is_min { &b"max"[..] } else { &b"min"[..] };
+
+    elements[0]
+        .as_call_node()
+        .map_or(false, |c| is_array_method_call(&c, inner_method))
+        || elements[1]
+            .as_call_node()
+            .map_or(false, |c| is_array_method_call(&c, inner_method))
+}
+
+/// Check if a CallNode is `[a, b].method_name` with no arguments and a 2-element array receiver.
+fn is_array_method_call(call: &ruby_prism::CallNode<'_>, expected_method: &[u8]) -> bool {
+    if call.name().as_slice() != expected_method {
+        return false;
+    }
+    if call.arguments().is_some() {
+        return false;
+    }
+    let receiver = match call.receiver() {
+        Some(r) => r,
+        None => return false,
+    };
+    let array = match receiver.as_array_node() {
+        Some(a) => a,
+        None => return false,
+    };
+    if array.opening_loc().is_none() {
+        return false;
+    }
+    let count = array.elements().iter().count();
+    count == 2
 }
 
 #[cfg(test)]
