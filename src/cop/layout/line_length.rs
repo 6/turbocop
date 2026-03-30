@@ -331,11 +331,7 @@ fn match_qualified_name(bytes: &[u8], start: usize) -> Option<usize> {
         return None; // No word boundary
     }
 
-    if has_double_colon {
-        Some(pos)
-    } else {
-        None
-    }
+    if has_double_colon { Some(pos) } else { None }
 }
 
 /// Normalize a Ruby regex pattern string for use with Rust's regex crate.
