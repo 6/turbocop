@@ -121,7 +121,10 @@ impl<'a, 'src> MethodCallVisitor<'a, 'src> {
             Some(l) => l,
             None => return,
         };
-        let has_block_literal = call.block().and_then(|block| block.as_block_node()).is_some();
+        let has_block_literal = call
+            .block()
+            .and_then(|block| block.as_block_node())
+            .is_some();
 
         // Prism stores block-pass (`foo(&block)`, `map(&:name)`) on `call.block()`
         // rather than in `arguments()`. RuboCop treats these as argument-bearing
