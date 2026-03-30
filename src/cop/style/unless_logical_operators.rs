@@ -11,6 +11,13 @@ use ruby_prism::Visit;
 /// arguments, and attached blocks. We still preserve RuboCop's top-level paren
 /// behavior by only treating the predicate as direct `and`/`or` when the root
 /// node itself is an `AndNode` or `OrNode`.
+///
+/// Fixed 11 FP / 11 FN pairs caused by reporting at `keyword_loc()` instead of
+/// `location()`. For modifier `unless` spanning multiple lines (backslash
+/// continuation, `end unless`, `begin...end unless`), the `unless` keyword is
+/// on a different line than the statement start. RuboCop reports at the node
+/// start (e.g., `loop do`, `raise ...`, `begin`), so we must use
+/// `location().start_offset()` to match.
 pub struct UnlessLogicalOperators;
 
 impl Cop for UnlessLogicalOperators {
@@ -49,7 +56,7 @@ impl Cop for UnlessLogicalOperators {
                 // Flag any logical operators in unless conditions
                 if contains_logical_operator(&predicate) {
                     let (line, column) =
-                        source.offset_to_line_col(unless_node.keyword_loc().start_offset());
+                        source.offset_to_line_col(unless_node.location().start_offset());
                     diagnostics.push(self.diagnostic(
                         source,
                         line,
@@ -62,7 +69,7 @@ impl Cop for UnlessLogicalOperators {
                 // Flag mixed logical operators (both && and ||)
                 if contains_mixed_logical_operators(&predicate) {
                     let (line, column) =
-                        source.offset_to_line_col(unless_node.keyword_loc().start_offset());
+                        source.offset_to_line_col(unless_node.location().start_offset());
                     diagnostics.push(self.diagnostic(
                         source,
                         line,
