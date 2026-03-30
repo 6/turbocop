@@ -393,7 +393,8 @@ mod tests {
 
     #[test]
     fn squiggly_heredoc_in_tab_indented_scope_is_offense() {
-        let source = b"test do\n\tassert_equal error.message, <<~ERROR\n  Type mismatch\n\tERROR\nend\n";
+        let source =
+            b"test do\n\tassert_equal error.message, <<~ERROR\n  Type mismatch\n\tERROR\nend\n";
         let diags = run_cop_full(&HeredocIndentation, source);
         assert!(
             !diags.is_empty(),
