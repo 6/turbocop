@@ -162,7 +162,10 @@ fn collect_top_level_group_candidates_from_node<'a>(
     node: ruby_prism::Node<'a>,
 ) -> Vec<ruby_prism::Node<'a>> {
     if let Some(module_node) = node.as_module_node() {
-        if let Some(statements) = module_node.body().and_then(|body| body.as_statements_node()) {
+        if let Some(statements) = module_node
+            .body()
+            .and_then(|body| body.as_statements_node())
+        {
             return collect_top_level_group_candidates_from_statements(&statements);
         }
         return Vec::new();
@@ -301,7 +304,10 @@ fn flag_repeated_calls(
     }
 }
 
-fn collect_subject_names_in_group_scope(node: &ruby_prism::Node<'_>, subject_names: &mut Vec<Vec<u8>>) {
+fn collect_subject_names_in_group_scope(
+    node: &ruby_prism::Node<'_>,
+    subject_names: &mut Vec<Vec<u8>>,
+) {
     if let Some(stmts) = node.as_statements_node() {
         for child in stmts.body().iter() {
             collect_subject_names_in_group_scope(&child, subject_names);
@@ -509,7 +515,13 @@ fn collect_subject_calls(
 ) {
     if let Some(stmts) = node.as_statements_node() {
         for stmt in stmts.body().iter() {
-            collect_subject_calls(source, &stmt, context.reset_position(), subject_names, results);
+            collect_subject_calls(
+                source,
+                &stmt,
+                context.reset_position(),
+                subject_names,
+                results,
+            );
         }
         return;
     }
@@ -520,28 +532,52 @@ fn collect_subject_calls(
     // The subject call here is NOT chained (parent is a const, not a send).
     if let Some(const_path) = node.as_constant_path_node() {
         if let Some(parent) = const_path.parent() {
-            collect_subject_calls(source, &parent, context.reset_position(), subject_names, results);
+            collect_subject_calls(
+                source,
+                &parent,
+                context.reset_position(),
+                subject_names,
+                results,
+            );
         }
         return;
     }
 
     if let Some(parentheses) = node.as_parentheses_node() {
         if let Some(body) = parentheses.body() {
-            collect_subject_calls(source, &body, context.reset_position(), subject_names, results);
+            collect_subject_calls(
+                source,
+                &body,
+                context.reset_position(),
+                subject_names,
+                results,
+            );
         }
         return;
     }
 
     if let Some(hash) = node.as_hash_node() {
         for element in hash.elements().iter() {
-            collect_subject_calls(source, &element, context.reset_position(), subject_names, results);
+            collect_subject_calls(
+                source,
+                &element,
+                context.reset_position(),
+                subject_names,
+                results,
+            );
         }
         return;
     }
 
     if let Some(hash) = node.as_keyword_hash_node() {
         for element in hash.elements().iter() {
-            collect_subject_calls(source, &element, context.reset_position(), subject_names, results);
+            collect_subject_calls(
+                source,
+                &element,
+                context.reset_position(),
+                subject_names,
+                results,
+            );
         }
         return;
     }
@@ -566,14 +602,26 @@ fn collect_subject_calls(
 
     if let Some(array) = node.as_array_node() {
         for element in array.elements().iter() {
-            collect_subject_calls(source, &element, context.reset_position(), subject_names, results);
+            collect_subject_calls(
+                source,
+                &element,
+                context.reset_position(),
+                subject_names,
+                results,
+            );
         }
         return;
     }
 
     if let Some(begin_node) = node.as_begin_node() {
         if let Some(stmts) = begin_node.statements() {
-            collect_subject_calls(source, &stmts.as_node(), context.reset_position(), subject_names, results);
+            collect_subject_calls(
+                source,
+                &stmts.as_node(),
+                context.reset_position(),
+                subject_names,
+                results,
+            );
         }
         if let Some(rescue_clause) = begin_node.rescue_clause() {
             collect_subject_calls(
@@ -598,7 +646,13 @@ fn collect_subject_calls(
 
     if let Some(rescue_node) = node.as_rescue_node() {
         if let Some(stmts) = rescue_node.statements() {
-            collect_subject_calls(source, &stmts.as_node(), context.reset_position(), subject_names, results);
+            collect_subject_calls(
+                source,
+                &stmts.as_node(),
+                context.reset_position(),
+                subject_names,
+                results,
+            );
         }
         if let Some(subsequent) = rescue_node.subsequent() {
             collect_subject_calls(
@@ -659,7 +713,13 @@ fn collect_subject_calls(
 
         // Recurse into receiver, marking it as a receiver context
         if let Some(recv) = call.receiver() {
-            collect_subject_calls(source, &recv, context.with_receiver(), subject_names, results);
+            collect_subject_calls(
+                source,
+                &recv,
+                context.with_receiver(),
+                subject_names,
+                results,
+            );
         }
 
         // Only direct call arguments are exempt. Nested wrappers like
