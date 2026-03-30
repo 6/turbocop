@@ -12,12 +12,11 @@ use ruby_prism::Visit;
 /// behavior by only treating the predicate as direct `and`/`or` when the root
 /// node itself is an `AndNode` or `OrNode`.
 ///
-/// Fixed 11 FP / 11 FN pairs caused by reporting at `keyword_loc()` instead of
-/// `location()`. For modifier `unless` spanning multiple lines (backslash
-/// continuation, `end unless`, `begin...end unless`), the `unless` keyword is
-/// on a different line than the statement start. RuboCop reports at the node
-/// start (e.g., `loop do`, `raise ...`, `begin`), so we must use
-/// `location().start_offset()` to match.
+/// Fixed 11 FP / 11 FN pairs caused by two issues:
+/// 1. Location: `keyword_loc()` → `location()`. For modifier `unless` spanning
+///    multiple lines, RuboCop's `add_offense(node)` uses `node.source_range`
+///    which starts at the statement beginning, not the `unless` keyword.
+/// 2. Messages: RuboCop uses `"in an \`unless\`."` not `"in \`unless\` conditions."`.
 pub struct UnlessLogicalOperators;
 
 impl Cop for UnlessLogicalOperators {
@@ -61,7 +60,7 @@ impl Cop for UnlessLogicalOperators {
                         source,
                         line,
                         column,
-                        "Do not use logical operators in `unless` conditions.".to_string(),
+                        "Do not use any logical operator in an `unless`.".to_string(),
                     ));
                 }
             }
@@ -74,7 +73,7 @@ impl Cop for UnlessLogicalOperators {
                         source,
                         line,
                         column,
-                        "Do not use mixed logical operators in `unless` conditions.".to_string(),
+                        "Do not use mixed logical operators in an `unless`.".to_string(),
                     ));
                 }
             }
