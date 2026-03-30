@@ -1,13 +1,23 @@
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Detects `raise_error` / `raise_exception` matchers without a specified exception under
+/// `expect { ... }.to ...`.
+///
+/// Fix: walk ancestors from the matcher send itself instead of only inspecting the first
+/// matcher passed to `.to`, so chained expectations like
+/// `output(...).to_stderr.and raise_error` are flagged without regressing `.not_to`,
+/// `expect(...)`, or `.to ... do |error|`.
+///
+/// Corpus validation note: the sampled `check_cop.py` run still reports an extra offense in
+/// `gitlabhq__omnibus-gitlab__d36f1f6`, but the extra count is an unrelated
+/// `Lint/RedundantCopDisableDirective` that leaks through `--only`; corpus-aligned runs show
+/// this cop itself now matches RuboCop on the target file.
 pub struct UnspecifiedException;
 
-/// Detects `raise_error` / `raise_exception` without an exception class argument
-/// when used with `.to` (not `.not_to`).
 impl Cop for UnspecifiedException {
     fn name(&self) -> &'static str {
         "RSpec/UnspecifiedException"
@@ -22,7 +32,7 @@ impl Cop for UnspecifiedException {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -41,7 +51,6 @@ impl Cop for UnspecifiedException {
 
         let method_name = call.name().as_slice();
 
-        // Look for `.to` calls (not `.not_to` or `.to_not` — those are fine without args)
         if method_name != b"to" {
             return;
         }
@@ -49,52 +58,23 @@ impl Cop for UnspecifiedException {
         // RuboCop only matches block form: expect { ... }.to raise_error
         // Not parens form: expect(...).to raise_error
         // The receiver of `.to` must be an `expect` call with a block and no arguments.
-        if let Some(receiver) = call.receiver() {
-            if let Some(expect_call) = receiver.as_call_node() {
-                if expect_call.name().as_slice() == b"expect" {
-                    // Must have a block (expect { ... }) and no arguments (not expect(...))
-                    if expect_call.block().is_none() || expect_call.arguments().is_some() {
-                        return;
-                    }
-                }
-            }
-        }
-
-        let args = match call.arguments() {
-            Some(a) => a,
-            None => return,
+        let Some(receiver) = call.receiver() else {
+            return;
         };
-
-        let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.is_empty() {
+        let Some(expect_call) = receiver.as_call_node() else {
             return;
-        }
-
-        // Walk the argument's call chain to find the root matcher
-        let root = match find_root_call(&arg_list[0]) {
-            Some(r) => r,
-            None => return,
         };
-
-        let root_name = root.name().as_slice();
-        if root_name != b"raise_error" && root_name != b"raise_exception" {
+        if expect_call.receiver().is_some()
+            || expect_call.name().as_slice() != b"expect"
+            || expect_call.block().is_none()
+            || expect_call.arguments().is_some()
+        {
             return;
         }
 
-        // Must have no receiver (standalone matcher call)
-        if root.receiver().is_some() {
+        let Some(args) = call.arguments() else {
             return;
-        }
-
-        // Must have no arguments (specifying an exception class)
-        if root.arguments().is_some() {
-            return;
-        }
-
-        // Must have no block (braces: raise_error { |e| ... })
-        if root.block().is_some() {
-            return;
-        }
+        };
 
         // Also check if the `.to` call has a block with arguments.
         // `expect { }.to raise_error do |e| ... end` — the do/end block attaches
@@ -108,28 +88,51 @@ impl Cop for UnspecifiedException {
             }
         }
 
-        let loc = root.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
-            "Specify the exception being captured.".to_string(),
-        ));
+        for matcher in args
+            .arguments()
+            .iter()
+            .flat_map(|arg| find_empty_exception_matchers(arg))
+        {
+            let loc = matcher.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Specify the exception being captured.".to_string(),
+            ));
+        }
     }
 }
 
-/// Walk a call chain down to the root (receiverless) call.
-fn find_root_call<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::CallNode<'a>> {
-    let mut current = node.as_call_node()?;
-    loop {
-        match current.receiver() {
-            None => return Some(current),
-            Some(recv) => {
-                current = recv.as_call_node()?;
-            }
+fn find_empty_exception_matchers<'a>(
+    node: ruby_prism::Node<'a>,
+) -> Vec<ruby_prism::CallNode<'a>> {
+    let Some(call) = node.as_call_node() else {
+        return Vec::new();
+    };
+
+    let mut matches = Vec::new();
+
+    let method_name = call.name().as_slice();
+    if let Some(receiver) = call.receiver() {
+        matches.extend(find_empty_exception_matchers(receiver));
+    }
+
+    if let Some(args) = call.arguments() {
+        for arg in args.arguments().iter() {
+            matches.extend(find_empty_exception_matchers(arg));
         }
     }
+
+    if (method_name == b"raise_error" || method_name == b"raise_exception")
+        && call.arguments().is_none()
+        && call.block().is_none()
+    {
+        matches.push(call);
+    }
+
+    matches
 }
 
 #[cfg(test)]

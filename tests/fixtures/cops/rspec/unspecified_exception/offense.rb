@@ -14,3 +14,6 @@ RSpec.describe User do
                       ^^^^^^^^^^^ RSpec/UnspecifiedException: Specify the exception being captured.
   end
 end
+
+expect { GitlabCtl::Backup.perform }.to output(/Could not find '#{etc_path}' directory. Is your package installed correctly?/).to_stderr.and raise_error
+                                                                                                                                             ^^^^^^^^^^^ RSpec/UnspecifiedException: Specify the exception being captured.
