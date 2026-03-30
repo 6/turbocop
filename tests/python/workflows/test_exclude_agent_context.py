@@ -42,6 +42,25 @@ def test_configure_claude_idempotent(tmp_path: Path):
 
     settings = json.loads((claude_dir / "settings.local.json").read_text())
     assert settings["permissions"]["deny"].count("Skill") == 1
+    # Hook should also not be duplicated
+    bash_hooks = [
+        h for h in settings["hooks"]["PreToolUse"] if h["matcher"] == "Bash"
+    ]
+    assert len(bash_hooks) == 1
+
+
+def test_configure_claude_adds_pretooluse_hook(tmp_path: Path):
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    cfg = exclude_agent_context.configure_claude(tmp_path)
+
+    assert "hooks" in cfg
+    hooks = cfg["hooks"]["PreToolUse"]
+    assert len(hooks) == 1
+    assert hooks[0]["matcher"] == "Bash"
+    sub = hooks[0]["hooks"][0]
+    assert "deny-git-commit-push.sh" in sub["command"]
+    assert sub["timeout"] == 5
 
 
 def test_configure_codex_disables_skills(tmp_path: Path):

@@ -1284,13 +1284,13 @@ You are fixing ONE cop in **nitrocop**, a Rust Ruby linter that uses Prism for p
 4. Verify test fails: `cargo test --lib -- cop::{dept_snake}::{snake}`
 5. Fix `src/cop/{dept_snake}/{snake}.rs`
 6. Verify test passes: `cargo test --lib -- cop::{dept_snake}::{snake}`
-7. **Validate against corpus** (REQUIRED before committing):
+7. **Validate against corpus** (REQUIRED before finishing):
    ```bash
    python3 scripts/check_cop.py {cop} --rerun --clone --sample 15
    ```
    If this reports FP or FN regression, your fix is too broad — narrow it down.
 8. Add a `///` doc comment on the cop struct documenting what you found and fixed
-9. Commit only your cop's files
+9. Leave your changes unstaged — the workflow commits for you
 
 ### Fixture Format
 Mark offenses with `^` markers on the line AFTER the offending source line.
@@ -1342,7 +1342,7 @@ Instead:
    - File path patterns (e.g., spec files excluded by default)
 2. Look at `src/config/` for how config affects this cop
 3. If you can fix the config resolution, do so. Otherwise document your findings as a
-   `///` comment on the cop struct and commit what you have.""")
+   `///` comment on the cop struct and leave your changes as-is.""")
 
     elif diagnostics and has_config_issues and has_code_bugs:
         parts.append("""
@@ -1361,18 +1361,18 @@ caused by config/context differences, not a detection bug.
 1. Investigate config resolution (Include/Exclude, cop enablement, disable comments)
 2. The fix is likely in `src/config/` or the cop's config handling, not detection logic
 3. If you cannot determine the root cause within 5 minutes, document your findings as
-   a `///` comment on the cop struct and commit
+   a `///` comment on the cop struct and leave your changes as-is
 
-### Do NOT commit doc-only changes when CODE BUGs were reported
+### Do NOT make doc-only changes when CODE BUGs were reported
 If the pre-diagnostic classified examples as **CODE BUG** but you cannot reproduce them
-or find a code fix, do NOT fall back to committing only `///` doc comments. The
+or find a code fix, do NOT fall back to only adding `///` doc comments. The
 pre-diagnostic ran your binary against real corpus files — if it says CODE BUG, the
 mismatch is real. Re-read the pre-diagnostic output and double-check your test covers
 the exact pattern (receiver shape, nesting depth, argument structure, modifier context).
 
-If after thorough investigation you still cannot fix the code, **exit without committing**.
+If after thorough investigation you still cannot fix the code, **exit without making changes**.
 The workflow will close the PR cleanly and the issue stays open for a future retry.
-Doc-only commits add noise to git history without closing the FP/FN gap.
+Doc-only changes add noise to git history without closing the FP/FN gap.
 
 ### When the pre-diagnostic contradicts existing doc comments
 If the pre-diagnostic classifies an example as **CODE BUG** but existing `///` doc
@@ -1402,7 +1402,7 @@ condition that matches the SPECIFIC differentiating context.
 ### Rules
 - Only modify `src/cop/{dept_snake}/{snake}.rs` and `tests/fixtures/cops/{dept_snake}/{snake}/`
 - Run `cargo test --lib -- cop::{dept_snake}::{snake}` to verify your fix (do NOT run the full test suite)
-- Run `python3 scripts/check_cop.py {cop} --rerun --clone --sample 15` before committing to catch regressions
+- Run `python3 scripts/check_cop.py {cop} --rerun --clone --sample 15` before finishing to catch regressions
 - Do NOT touch unrelated files
 - Do NOT use `git stash`
 - Do NOT push — you do not have push permission; the workflow handles pushing after you exit

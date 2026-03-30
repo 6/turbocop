@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 def configure_claude(repo_root: Path) -> dict:
-    """Exclude CLAUDE.md/AGENTS.md and deny the Skill tool.
+    """Exclude CLAUDE.md/AGENTS.md, deny Skill, and block git commit/push.
 
     Returns the final settings dict written to disk.
     """
@@ -23,6 +23,29 @@ def configure_claude(repo_root: Path) -> dict:
     deny = cfg.setdefault("permissions", {}).setdefault("deny", [])
     if "Skill" not in deny:
         deny.append("Skill")
+
+    # Block git commit/push — the workflow handles these after the agent exits.
+    hook_script = str(repo_root / "scripts" / "hooks" / "deny-git-commit-push.sh")
+    hook_entry = {
+        "matcher": "Bash",
+        "hooks": [{
+            "type": "command",
+            "command": f"bash {hook_script}",
+            "timeout": 5,
+        }],
+    }
+    pre_tool_use = cfg.setdefault("hooks", {}).setdefault("PreToolUse", [])
+    already = any(
+        h.get("matcher") == "Bash"
+        and any(
+            "deny-git-commit-push" in sub.get("command", "")
+            for sub in h.get("hooks", [])
+        )
+        for h in pre_tool_use
+    )
+    if not already:
+        pre_tool_use.append(hook_entry)
+
     settings_path.write_text(json.dumps(cfg, indent=2) + "\n")
     return cfg
 

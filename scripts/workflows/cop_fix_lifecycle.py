@@ -1081,7 +1081,8 @@ def cmd_finalize(args: list[str]) -> int:
     mode_note = f" ({opts.mode})" if opts.mode not in ("fix",) else ""
     diff_check = _git("diff", "--quiet", check=False)
     if diff_check.returncode != 0:
-        _git("add", "-A")
+        _git("add", "-u")
+        _git("add", "src/", "tests/", "bench/", "scripts/", check=False)
         _git("commit", "-m", f"Fix {opts.cop}: agent-generated fix{mode_note} ({opts.backend})")
 
     # 7. Push + promote
