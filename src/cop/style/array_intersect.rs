@@ -11,10 +11,11 @@ use crate::parse::source::SourceFile;
 ///   and `array1.none? { array2.member?(_1) }`, but the Prism port only checked
 ///   intersection receivers (`(a & b)` / `a.intersection(b)`). Fixed by matching
 ///   explicit, numbered, and Ruby 3.4 `it` block parameters.
-/// - The `.present?` / `.blank?` family already matches when
-///   `ActiveSupportExtensionsEnabled` is present in the cop config. Remaining
-///   corpus misses in that family point at config propagation rather than local
-///   AST matching in this file.
+/// - The `.present?` / `.blank?` detection logic was correct but
+///   `ActiveSupportExtensionsEnabled` was never injected from AllCops into this
+///   cop's config (it was missing from the injection list in `src/config/mod.rs`).
+///   Fixed by adding `Style/ArrayIntersect` to the injection list, resolving all
+///   124 corpus FN (all were `.present?` patterns in Rails repos).
 ///
 /// Handles four families of patterns:
 /// 1. Direct predicates: `(a & b).any?` / `.empty?` / `.none?`

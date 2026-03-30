@@ -2277,6 +2277,7 @@ impl ResolvedConfig {
         }
         // Inject ActiveSupportExtensionsEnabled from AllCops for cops that need it
         if name == "Lint/DuplicateMethods"
+            || name == "Style/ArrayIntersect"
             || name == "Style/CollectionQuerying"
             || name == "Style/RedundantFilterChain"
         {
