@@ -30,3 +30,31 @@ RSpec.describe Foo do
     step_six
   end
 end
+
+it "handles block comment followed by line comment" do
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ExampleLength: Example has too many lines. [7/5]
+  ss = stmts <<-eof
+# comments1
+
+=begin
+comments2
+=end
+# comments3
+def hello; end
+eof
+  expect(ss.last.comments).to eq "comments3"
+end
+
+it "handles block comment followed by block comment" do
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ExampleLength: Example has too many lines. [10/5]
+  ss = stmts <<-eof
+=begin
+comments1
+=end
+=begin
+comments2
+=end
+def hello; end
+eof
+  expect(ss.last.comments).to eq "comments2"
+end
