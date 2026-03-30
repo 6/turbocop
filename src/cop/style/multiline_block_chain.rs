@@ -35,6 +35,23 @@ use ruby_prism::Visit;
 ///    CallNodes until we find a call whose receiver is a multiline block. We
 ///    stop (break) on the first match, matching RuboCop's `break` after
 ///    `add_offense`.
+///
+/// ### Fix (2026-03-30): Deep send-tree walk + LambdaNode support
+/// Two root causes for FN=20:
+///
+/// 1. **Shallow receiver-chain walk:** The previous fix walked only the direct
+///    receiver chain of CallNodes. RuboCop's `each_node(:call)` walks ALL
+///    descendant call nodes in the send_node tree, including calls nested inside
+///    parenthesized expressions, Hash[], if/else branches, and operator calls.
+///    Fix: replaced the receiver-chain loop with a recursive `SendTreeSearcher`
+///    visitor that walks receiver + arguments (but not blocks) of every CallNode
+///    in the send tree.
+///
+/// 2. **LambdaNode not recognized as a block type:** Patterns like
+///    `-> do...end.method do...end` were missed because the receiver was a
+///    LambdaNode, not a CallNode with a block. RuboCop treats lambda as
+///    `any_block_type?`. Fix: `SendTreeSearcher` also checks for multiline
+///    LambdaNode receivers.
 pub struct MultilineBlockChain;
 
 /// Visitor that checks for multiline block chains.
@@ -58,8 +75,9 @@ impl<'pr> Visit<'pr> for BlockChainVisitor<'_> {
         };
 
         if has_block {
-            // Walk the receiver chain looking for a call with a multiline block
-            self.check_receiver_chain(node);
+            // Deep-search the send tree (receiver + arguments) for any call
+            // whose receiver is a multiline block or lambda
+            self.check_send_tree(node);
         }
 
         // Continue traversal into children
@@ -68,70 +86,26 @@ impl<'pr> Visit<'pr> for BlockChainVisitor<'_> {
 }
 
 impl BlockChainVisitor<'_> {
-    /// Check if a node is a multiline block (do..end or {..}).
-    fn is_multiline_block(&self, block: &ruby_prism::Node<'_>) -> bool {
-        if block.as_block_node().is_none() {
-            return false;
-        }
-        let block_loc = block.location();
-        let (block_start, _) = self.source.offset_to_line_col(block_loc.start_offset());
-        let (block_end, _) = self
-            .source
-            .offset_to_line_col(block_loc.end_offset().saturating_sub(1));
-        block_start != block_end
-    }
+    fn check_send_tree(&mut self, node: &ruby_prism::CallNode<'_>) {
+        let mut searcher = SendTreeSearcher {
+            source: self.source,
+            found_end_offset: None,
+        };
+        // Start the deep search from this CallNode — checks its receiver,
+        // then recursively walks receiver + arguments (not the block)
+        searcher.visit_call_node(node);
 
-    fn check_receiver_chain(&mut self, node: &ruby_prism::CallNode<'_>) {
-        // RuboCop: node.send_node.each_node(:call) walks through ALL call nodes
-        // in the method chain. For each, it checks if the receiver is a multiline
-        // block. We walk the receiver chain iteratively.
-        //
-        // For `a do..end.c1.c2 do..end`, the chain from `.c2` is:
-        //   .c2 -> receiver .c1 -> receiver (a do..end)
-        // We check: does .c2's receiver (.c1) have a multiline block? No.
-        // Then: does .c1's receiver (a do..end) have a multiline block? Check if
-        // (a do..end) is a call with a multiline block receiver... Actually no,
-        // `a` is the call, and it has a block. We need to check if `.c1`'s
-        // receiver is any_block_type AND multiline.
-        //
-        // In Prism, `a do..end` is a CallNode with a block. The receiver of `.c1`
-        // is this CallNode. We need to check if that CallNode's block is multiline.
-
-        let mut current_call = node.receiver();
-        while let Some(recv_node) = current_call {
-            if let Some(recv_call) = recv_node.as_call_node() {
-                // Does this call have a multiline block?
-                if let Some(block) = recv_call.block() {
-                    if self.is_multiline_block(&block) {
-                        // Found a multiline block in the chain.
-                        // RuboCop reports at receiver.loc.end.begin_pos — the closing
-                        // delimiter of the block (end/}). We report at the end_offset
-                        // of the block minus the closing keyword length to get its start.
-                        let block_loc = block.location();
-                        let end_offset = block_loc.end_offset();
-                        // Find the start of the closing delimiter. For `end` it's 3 bytes
-                        // back, for `}` it's 1 byte back. We can check the source byte.
-                        let closing_start = self.find_block_closing_start(end_offset);
-                        let (line, column) = self.source.offset_to_line_col(closing_start);
-                        self.diagnostics.push(Diagnostic {
-                            path: self.source.path_str().to_string(),
-                            location: Location { line, column },
-                            severity: Severity::Convention,
-                            cop_name: self.cop_name.to_string(),
-                            message: "Avoid multi-line chains of blocks.".to_string(),
-                            corrected: false,
-                        });
-                        // Done — if there are more blocks in the chain, they will be
-                        // found by subsequent on_block (visit_call_node) calls.
-                        return;
-                    }
-                }
-                // No multiline block on this call — continue walking up the chain
-                current_call = recv_call.receiver();
-            } else {
-                // Not a call node — stop walking
-                return;
-            }
+        if let Some(end_offset) = searcher.found_end_offset {
+            let closing_start = self.find_block_closing_start(end_offset);
+            let (line, column) = self.source.offset_to_line_col(closing_start);
+            self.diagnostics.push(Diagnostic {
+                path: self.source.path_str().to_string(),
+                location: Location { line, column },
+                severity: Severity::Convention,
+                cop_name: self.cop_name.to_string(),
+                message: "Avoid multi-line chains of blocks.".to_string(),
+                corrected: false,
+            });
         }
     }
 
@@ -146,6 +120,74 @@ impl BlockChainVisitor<'_> {
         } else {
             // Fallback: shouldn't normally happen
             end_offset.saturating_sub(1)
+        }
+    }
+}
+
+/// Sub-visitor that deeply searches a send tree for any CallNode whose
+/// receiver is a multiline block (CallNode with multiline BlockNode)
+/// or a multiline LambdaNode. Matches RuboCop's `each_node(:call)` walk
+/// on the send_node, which traverses all descendant call nodes.
+struct SendTreeSearcher<'a> {
+    source: &'a SourceFile,
+    found_end_offset: Option<usize>,
+}
+
+impl SendTreeSearcher<'_> {
+    fn is_multiline(&self, loc: &ruby_prism::Location<'_>) -> bool {
+        let (start_line, _) = self.source.offset_to_line_col(loc.start_offset());
+        let (end_line, _) = self
+            .source
+            .offset_to_line_col(loc.end_offset().saturating_sub(1));
+        start_line != end_line
+    }
+
+    /// Check if a receiver node is a multiline block (CallNode with BlockNode)
+    /// or a multiline LambdaNode. Returns the end_offset of the block/lambda
+    /// if matched.
+    fn check_receiver(&self, receiver: &ruby_prism::Node<'_>) -> Option<usize> {
+        // Check for CallNode with multiline BlockNode
+        if let Some(recv_call) = receiver.as_call_node() {
+            if let Some(block) = recv_call.block() {
+                if block.as_block_node().is_some() && self.is_multiline(&block.location()) {
+                    return Some(block.location().end_offset());
+                }
+            }
+        }
+        // Check for multiline LambdaNode
+        if let Some(lambda) = receiver.as_lambda_node() {
+            let loc = lambda.location();
+            if self.is_multiline(&loc) {
+                return Some(loc.end_offset());
+            }
+        }
+        None
+    }
+}
+
+impl<'pr> Visit<'pr> for SendTreeSearcher<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if self.found_end_offset.is_some() {
+            return;
+        }
+        // Check if this call's receiver is a multiline block or lambda
+        if let Some(receiver) = node.receiver() {
+            if let Some(offset) = self.check_receiver(&receiver) {
+                self.found_end_offset = Some(offset);
+                return;
+            }
+        }
+        // Walk receiver and arguments (NOT block) to find deeper matches.
+        // This matches RuboCop's each_node(:call) walking into all descendants
+        // of the send_node (which excludes the block).
+        if let Some(recv) = node.receiver() {
+            self.visit(&recv);
+            if self.found_end_offset.is_some() {
+                return;
+            }
+        }
+        if let Some(args) = node.arguments() {
+            self.visit_arguments_node(&args);
         }
     }
 }

@@ -63,3 +63,35 @@ end
   .map do |i|
   i.name
 end
+
+# Lambda multiline block chained with method having a block
+-> do
+  x
+end.each do |i|
+^^^ Style/MultilineBlockChain: Avoid multi-line chains of blocks.
+  i
+end
+
+# Multiline block inside parens with operator, chained with block
+(items.select do |i|
+  i.valid?
+end - excluded).each do |i|
+^^^ Style/MultilineBlockChain: Avoid multi-line chains of blocks.
+  i
+end
+
+# Multiline brace block inside Hash[], chained with block
+Hash[items.map { |c|
+  [c.key, c.value]
+}.compact].tap do |h|
+^ Style/MultilineBlockChain: Avoid multi-line chains of blocks.
+  h.size
+end
+
+# Multiline brace block followed by operator inside parens, chained with block
+(items.collect { |tz|
+  tz.name
+} + extra).each do |item|
+^ Style/MultilineBlockChain: Avoid multi-line chains of blocks.
+  item
+end
