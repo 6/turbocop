@@ -1,6 +1,12 @@
 use crate::cop::Cop;
 use crate::diagnostic::Severity;
 
+const INVALID_RETRY_WITHOUT_RESCUE: &str = "Invalid retry without rescue";
+
+fn is_invalid_retry_without_rescue(message: &str) -> bool {
+    message == INVALID_RETRY_WITHOUT_RESCUE
+}
+
 /// Checks for syntax errors.
 ///
 /// This cop is a registration stub — the actual detection logic lives in
@@ -35,10 +41,13 @@ use crate::diagnostic::Severity;
 /// adding `emit_invalid_utf8_diagnostic()` in `lint_file()` to emit the
 /// diagnostic instead of returning empty. Resolved 21 of 27 FN.
 ///
-/// Remaining 6 FN are semantic parse errors ("Invalid retry without rescue",
-/// "Invalid return in class/module body") and config/context mismatches.
-/// Emitting Prism's semantic parse errors was attempted but caused +35 FP
-/// because Prism reports these more broadly than RuboCop's Parser gem.
+/// FN=2: standalone `retry` statements were still missed because the linter's
+/// semantic-error filter suppresses Prism's `Invalid retry without rescue`
+/// parse error to avoid broader semantic-error false positives. Fixed by
+/// re-emitting only that exact parse error from this cop's `check_source`
+/// hook, which runs on files without structural parse failures. Other semantic
+/// Prism errors remain filtered in the linter because broad emission caused
+/// false positives in corpus validation.
 pub struct Syntax;
 
 impl Cop for Syntax {
@@ -50,13 +59,35 @@ impl Cop for Syntax {
         Severity::Fatal
     }
 
+    fn check_source(
+        &self,
+        source: &crate::parse::source::SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
+        _config: &crate::cop::CopConfig,
+        diagnostics: &mut Vec<crate::diagnostic::Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        for err in parse_result.errors() {
+            if !is_invalid_retry_without_rescue(err.message()) {
+                continue;
+            }
+
+            let (line, column) = source.offset_to_line_col(err.location().start_offset());
+            diagnostics.push(self.diagnostic(source, line, column, err.message().to_string()));
+        }
+    }
+
     // Syntax errors are reported by the parser (Prism), not by this cop.
-    // This struct exists for configuration compatibility with RuboCop.
+    // This struct also handles the narrow bare-`retry` semantic parse error
+    // that Prism reports but the linter-wide structural-error path suppresses.
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    crate::cop_fixture_tests!(Syntax, "cops/lint/syntax");
 
     #[test]
     fn cop_name() {
@@ -212,5 +243,27 @@ mod tests {
         assert_eq!(d.message, "Invalid byte sequence in utf-8.");
         assert_eq!(d.location.line, 1);
         assert_eq!(d.location.column, 0);
+    }
+
+    #[test]
+    fn invalid_retry_without_rescue_is_reported() {
+        let diags = lint_bytes(b"retry\n");
+
+        assert_eq!(diags.len(), 1, "Expected 1 diagnostic, got {:?}", diags);
+        let d = &diags[0];
+        assert_eq!(d.cop_name, "Lint/Syntax");
+        assert_eq!(d.message, INVALID_RETRY_WITHOUT_RESCUE);
+        assert_eq!(d.location.line, 1);
+        assert_eq!(d.location.column, 0);
+    }
+
+    #[test]
+    fn retry_inside_rescue_is_not_reported() {
+        let diags = lint_bytes(b"begin\nrescue StandardError\n  retry\nend\n");
+        assert!(
+            diags.is_empty(),
+            "Expected no diagnostics for retry inside rescue, got {:?}",
+            diags
+        );
     }
 }

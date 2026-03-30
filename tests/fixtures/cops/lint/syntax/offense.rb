@@ -4,3 +4,9 @@
 x = 1
 y = 2
 z = 3
+
+retry
+^ Lint/Syntax: Invalid retry without rescue
+
+retry
+^ Lint/Syntax: Invalid retry without rescue
