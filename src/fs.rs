@@ -116,6 +116,13 @@ fn tracked_ruby_files(dir: &Path) -> Vec<PathBuf> {
         .lines()
         .filter_map(|line| {
             let rel_from_root = Path::new(line);
+            // Skip files under hidden directories (e.g. .jbundler/, .rbnext/).
+            // RuboCop's TargetFinder skips paths containing "/." via hidden_path?.
+            // The WalkBuilder already filters these from the directory walk, but
+            // git ls-files returns them unconditionally.
+            if has_hidden_dir_component(rel_from_root) {
+                return None;
+            }
             let rel_to_dir = if rel_prefix.as_os_str().is_empty() {
                 rel_from_root
             } else {
@@ -186,6 +193,29 @@ const RUBY_FILENAMES: &[&str] = &[
     "Vagabondfile",
     "Vagrantfile",
 ];
+
+/// Returns true if any directory component of the path starts with a dot
+/// (excluding `.` and `..`). Matches RuboCop's `hidden_path?` which checks
+/// for `File::SEPARATOR + "."` in the path string.
+fn has_hidden_dir_component(path: &Path) -> bool {
+    use std::path::Component;
+    let mut components = path.components().peekable();
+    while let Some(component) = components.next() {
+        // Skip the last component (filename) — hidden filenames like .pryrc
+        // are legitimate Ruby targets, only hidden *directories* are skipped.
+        if components.peek().is_none() {
+            break;
+        }
+        if let Component::Normal(name) = component {
+            if let Some(s) = name.to_str() {
+                if s.starts_with('.') && s != "." && s != ".." {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
 
 fn is_ruby_file(path: &Path) -> bool {
     // Check by extension
