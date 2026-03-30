@@ -524,10 +524,7 @@ impl Cop for Delegate {
 /// the same class/module/sclass body. If a def is nested inside an `if`, `block`, etc., the
 /// outer visibility should be ignored unless the nested body itself sets visibility (or the
 /// def uses an inline modifier like `private def foo`).
-fn outer_visibility_does_not_apply(
-    source: &SourceFile,
-    def_node: &ruby_prism::Node<'_>,
-) -> bool {
+fn outer_visibility_does_not_apply(source: &SourceFile, def_node: &ruby_prism::Node<'_>) -> bool {
     let def_offset = def_node.location().start_offset();
     if has_inline_visibility_modifier(source, def_offset) {
         return false;
@@ -622,7 +619,9 @@ fn is_bare_visibility_keyword(trimmed: &[u8], keyword: &[u8]) -> bool {
     trimmed == keyword
         || trimmed.strip_prefix(keyword).is_some_and(|rest| {
             rest.starts_with(b" ")
-                && rest[1..].iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r')
+                && rest[1..]
+                    .iter()
+                    .all(|&b| b == b' ' || b == b'\t' || b == b'\r')
                 || rest.starts_with(b" #")
         })
 }
