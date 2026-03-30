@@ -124,6 +124,7 @@ fn find_empty_exception_matchers<'a>(node: ruby_prism::Node<'a>) -> Vec<ruby_pri
     }
 
     if (method_name == b"raise_error" || method_name == b"raise_exception")
+        && call.receiver().is_none()
         && call.arguments().is_none()
         && call.block().is_none()
     {
