@@ -28,6 +28,16 @@ use std::collections::HashMap;
 /// single-quoted vs double-quoted strings to be treated as different descriptions.
 /// RuboCop's AST node equality treats "foo" and 'foo' identically (both are str nodes).
 /// Fixed by normalizing StringNode/SymbolNode to their unescaped values.
+///
+/// ## Investigation (2026-03-30)
+///
+/// FN=2 in `garethr/garethr-docker`: duplicate `context` descriptions inside
+/// `if` branches were missed even though the cop listened for `StatementsNode`.
+/// Prism's generated visitor calls `visit_statements_node()` directly from
+/// `visit_if_node`/`visit_unless_node`/`visit_when_node`/`visit_else_node`,
+/// which bypasses `visit_branch_node_enter`; nested branch bodies never reached
+/// `check_node`. Fixed by recursively checking conditional branch bodies from
+/// each visited sibling statement list.
 pub struct RepeatedExampleGroupDescription;
 
 impl Cop for RepeatedExampleGroupDescription {
@@ -57,26 +67,34 @@ impl Cop for RepeatedExampleGroupDescription {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle ProgramNode (top-level) and StatementsNode (module/class/block bodies).
-        // ProgramNode is needed because Prism may not visit the top-level StatementsNode
-        // as a separate node in the walk.
-        let stmts: Vec<ruby_prism::Node<'_>> = if let Some(program) = node.as_program_node() {
-            program.statements().body().iter().collect()
+        // ProgramNode is needed because Prism visits the top-level statements through
+        // ProgramNode rather than dispatching a standalone top-level StatementsNode.
+        if let Some(program) = node.as_program_node() {
+            check_sibling_groups(self, source, &program.statements(), diagnostics);
         } else if let Some(stmts_node) = node.as_statements_node() {
-            stmts_node.body().iter().collect()
-        } else {
-            return;
-        };
-
-        // RuboCop's several_example_groups? requires at least 2 example groups
-        let example_group_count = stmts.iter().filter(|s| is_example_group_call(s)).count();
-        if example_group_count < 2 {
-            return;
+            check_sibling_groups(self, source, &stmts_node, diagnostics);
         }
+    }
+}
 
+fn check_sibling_groups(
+    cop: &RepeatedExampleGroupDescription,
+    source: &SourceFile,
+    stmts: &ruby_prism::StatementsNode<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let stmt_nodes: Vec<_> = stmts.body().iter().collect();
+
+    // RuboCop's several_example_groups? only considers direct sibling groups in
+    // the current statement list. Nested conditional branches are handled
+    // separately below.
+    let example_group_count = stmt_nodes.iter().filter(|s| is_example_group_call(s)).count();
+
+    if example_group_count >= 2 {
         #[allow(clippy::type_complexity)] // internal collection used only in this function
         let mut desc_map: HashMap<Vec<u8>, Vec<(usize, usize, Vec<u8>)>> = HashMap::new();
 
-        for stmt in &stmts {
+        for stmt in &stmt_nodes {
             let call = match extract_example_group_call(stmt) {
                 Some(c) => c,
                 None => continue,
@@ -108,28 +126,85 @@ impl Cop for RepeatedExampleGroupDescription {
                 .push((line, col, name.to_vec()));
         }
 
-        for locs in desc_map.values() {
-            if locs.len() > 1 {
-                for (idx, (line, col, group_name)) in locs.iter().enumerate() {
-                    let other_lines: Vec<String> = locs
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| *i != idx)
-                        .map(|(_, (l, _, _))| l.to_string())
-                        .collect();
-                    let group_type = std::str::from_utf8(group_name).unwrap_or("describe");
-                    let display_type = group_type
-                        .strip_prefix('f')
-                        .or(group_type.strip_prefix('x'))
-                        .unwrap_or(group_type);
-                    let msg = format!(
-                        "Repeated {} block description on line(s) [{}]",
-                        display_type,
-                        other_lines.join(", ")
-                    );
-                    diagnostics.push(self.diagnostic(source, *line, *col, msg));
-                }
-            }
+        push_repeated_description_diagnostics(cop, source, desc_map, diagnostics);
+    }
+
+    for stmt in stmt_nodes {
+        collect_branch_diagnostics(cop, source, &stmt, diagnostics);
+    }
+}
+
+fn push_repeated_description_diagnostics(
+    cop: &RepeatedExampleGroupDescription,
+    source: &SourceFile,
+    desc_map: HashMap<Vec<u8>, Vec<(usize, usize, Vec<u8>)>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for locs in desc_map.values() {
+        if locs.len() <= 1 {
+            continue;
+        }
+
+        for (idx, (line, col, group_name)) in locs.iter().enumerate() {
+            let other_lines: Vec<String> = locs
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != idx)
+                .map(|(_, (l, _, _))| l.to_string())
+                .collect();
+            let group_type = std::str::from_utf8(group_name).unwrap_or("describe");
+            let display_type = group_type
+                .strip_prefix('f')
+                .or(group_type.strip_prefix('x'))
+                .unwrap_or(group_type);
+            let msg = format!(
+                "Repeated {} block description on line(s) [{}]",
+                display_type,
+                other_lines.join(", ")
+            );
+            diagnostics.push(cop.diagnostic(source, *line, *col, msg));
+        }
+    }
+}
+
+fn collect_branch_diagnostics(
+    cop: &RepeatedExampleGroupDescription,
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if let Some(if_node) = node.as_if_node() {
+        if let Some(stmts) = if_node.statements() {
+            check_sibling_groups(cop, source, &stmts, diagnostics);
+        }
+        if let Some(subsequent) = if_node.subsequent() {
+            collect_branch_diagnostics(cop, source, &subsequent, diagnostics);
+        }
+    } else if let Some(unless_node) = node.as_unless_node() {
+        if let Some(stmts) = unless_node.statements() {
+            check_sibling_groups(cop, source, &stmts, diagnostics);
+        }
+        if let Some(else_clause) = unless_node.else_clause() {
+            collect_branch_diagnostics(cop, source, &else_clause.as_node(), diagnostics);
+        }
+    } else if let Some(else_node) = node.as_else_node() {
+        if let Some(stmts) = else_node.statements() {
+            check_sibling_groups(cop, source, &stmts, diagnostics);
+        }
+    } else if let Some(case_node) = node.as_case_node() {
+        for condition in case_node.conditions().iter() {
+            collect_branch_diagnostics(cop, source, &condition, diagnostics);
+        }
+        if let Some(else_clause) = case_node.else_clause() {
+            collect_branch_diagnostics(cop, source, &else_clause.as_node(), diagnostics);
+        }
+    } else if let Some(when_node) = node.as_when_node() {
+        if let Some(stmts) = when_node.statements() {
+            check_sibling_groups(cop, source, &stmts, diagnostics);
+        }
+    } else if let Some(in_node) = node.as_in_node() {
+        if let Some(stmts) = in_node.statements() {
+            check_sibling_groups(cop, source, &stmts, diagnostics);
         }
     }
 }
