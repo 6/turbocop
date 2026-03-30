@@ -8,6 +8,17 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Flags `inject`/`reduce` calls that can be replaced with `each_with_object`.
+///
+/// The initial value argument must not be a basic literal (integer, float,
+/// string, symbol, nil, true, false). Any other expression — including
+/// constructor calls like `Hash.new(0)`, local variables, and constant-path
+/// calls like `ActiveSupport::OrderedHash.new` — is accepted, matching
+/// RuboCop's `simple_method_arg?` check.
+///
+/// Fix (2026-03-30): removed the overly strict requirement that the initial
+/// value be a hash/array literal (`{}`, `[]`). This caused 218 FN where the
+/// argument was a method call, local variable, or constructor expression.
 pub struct EachWithObject;
 
 /// Check if the accumulator variable is reassigned anywhere in the block body.
@@ -123,14 +134,7 @@ impl Cop for EachWithObject {
             return;
         }
 
-        // Initial value must be a hash or array literal (mutable collection)
         let initial = &arg_list[0];
-        let is_mutable = initial.as_hash_node().is_some()
-            || initial.as_keyword_hash_node().is_some()
-            || initial.as_array_node().is_some();
-        if !is_mutable {
-            return;
-        }
 
         // Must have a block
         let block = match call.block() {
