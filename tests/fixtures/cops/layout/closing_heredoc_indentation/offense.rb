@@ -37,3 +37,34 @@ include_examples :offense,
   bar
     HEREDOC
     ^^^^^^^ Layout/ClosingHeredocIndentation: `HEREDOC` is not aligned with `<<-HEREDOC` or beginning of method definition.
+
+# Hash pair heredoc value should not inherit outer call indentation
+create_dynamic_portlet(:recently_updated_pages,
+                       :template => <<-TEMPLATE
+<h2>Recent Updates</h2>
+TEMPLATE
+^^^^^^^^ Layout/ClosingHeredocIndentation: `TEMPLATE` is not aligned with `:template => <<-TEMPLATE`.
+)
+
+# Keyword argument heredoc aligned to outer call is still an offense
+message =
+  Fabricate.build(
+    :chat_message,
+    cooked: <<~COOKED,
+    content
+  COOKED
+  ^^^^^^ Layout/ClosingHeredocIndentation: `COOKED` is not aligned with `cooked: <<~COOKED,`.
+  )
+
+# Keyword argument heredoc with following arguments still aligns to its own opening
+second_migration_field =
+  Fabricate(
+    :migration_theme_field,
+    value: <<~JS,
+    export default function migrate(settings) {
+      settings.set("integer_setting", 3);
+    }
+  JS
+  ^^ Layout/ClosingHeredocIndentation: `JS` is not aligned with `value: <<~JS,`.
+    version: 1,
+  )
