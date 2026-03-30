@@ -42,13 +42,24 @@ use crate::parse::source::SourceFile;
 /// symmetrically and dropped the whole chain. The fix scans the `||` leaves
 /// left-to-right, preserving the first repeated group while still ignoring
 /// later subchains that RuboCop does not flag.
+///
+/// Corpus investigation (round 4): an allowed method-value comparison at the
+/// front of an all-`==` chain could still poison the scan state and hide a
+/// later repeated local-variable group, for example
+/// `l == @buffer.current_line || e == :space || e == :comment`. RuboCop treats
+/// the first comparison as comparison-shaped for `nested_comparison?`, but it
+/// does not add that variable to `find_offending_var`. The fix keeps these
+/// nodes in the tree shape while skipping them entirely during offending-var
+/// grouping, so later repeated comparisons are still detected.
 pub struct MultipleComparison;
 
 /// Result of analyzing a single `==` comparison.
 enum ComparisonResult {
-    /// A valid comparison: variable source bytes and whether it counts.
-    /// count=0 means skipped (e.g., AllowMethodComparison), count=1 means counted.
-    Valid { var_src: Vec<u8>, count: usize },
+    /// A valid comparison that contributes to offending-var grouping.
+    Counted { var_src: Vec<u8> },
+    /// An allowed method-value comparison that still counts as comparison-shaped
+    /// for `nested_comparison?`, but should not affect the offending variable.
+    SkippedMethodValue,
     /// Both sides are local variables — skip but don't break chain.
     DoubleVar,
 }
@@ -102,21 +113,22 @@ impl MultipleComparison {
         };
 
         match result {
-            ComparisonResult::Valid {
-                var_src,
-                count: cmp_count,
-            } => match first_var {
+            ComparisonResult::Counted { var_src } => match first_var {
                 Some(existing) if existing == &var_src => {
-                    *count += cmp_count;
+                    *count += 1;
                 }
                 Some(_) => {
                     *blocked = true;
                 }
                 None => {
                     *first_var = Some(var_src);
-                    *count += cmp_count;
+                    *count += 1;
                 }
             },
+            ComparisonResult::SkippedMethodValue => {
+                // AllowMethodComparison=true: keep the node comparison-shaped
+                // without letting it define the offending variable.
+            }
             ComparisonResult::DoubleVar => {
                 // `lvar == lvar` participates in the tree shape but is ignored.
             }
@@ -157,9 +169,9 @@ impl MultipleComparison {
             }
 
             if allow_method && value_is_call {
-                return Some(ComparisonResult::Valid { var_src, count: 0 });
+                return Some(ComparisonResult::SkippedMethodValue);
             }
-            return Some(ComparisonResult::Valid { var_src, count: 1 });
+            return Some(ComparisonResult::Counted { var_src });
         }
 
         // Try simple_comparison_rhs: (send $_ :== {lvar call})
@@ -172,9 +184,9 @@ impl MultipleComparison {
             }
 
             if allow_method && value_is_call {
-                return Some(ComparisonResult::Valid { var_src, count: 0 });
+                return Some(ComparisonResult::SkippedMethodValue);
             }
-            return Some(ComparisonResult::Valid { var_src, count: 1 });
+            return Some(ComparisonResult::Counted { var_src });
         }
 
         // Neither side is an lvar or call — not a matchable comparison

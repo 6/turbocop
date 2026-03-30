@@ -79,3 +79,6 @@ name = 'name'
 type = 'type'
 r[0] == name && (r[1] == type || r[1] == '*' || type == '*')
                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MultipleComparison: Avoid comparing a variable with multiple items in a conditional, use `Array#include?` instead.
+
+l == @buffer.current_line || e == :space || e == :comment
+^ Style/MultipleComparison: Avoid comparing a variable with multiple items in a conditional, use `Array#include?` instead.
