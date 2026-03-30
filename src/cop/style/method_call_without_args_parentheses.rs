@@ -18,16 +18,23 @@ use crate::parse::source::SourceFile;
 /// was read from config but never applied as regex matching.
 ///
 /// Root cause of FNs: nitrocop skipped ALL bare `it()` calls without a
-/// receiver. RuboCop only skips `it()` inside a block whose parameters are
-/// empty and have no delimiters (i.e., `{ it() }` or `do it() end`, but NOT
-/// `{ || it() }` or `{ |_n| it() }`). `it()` in def bodies and blocks with
-/// explicit params should still be flagged.
+/// receiver, and also skipped every parenthesized zero-arg call with an
+/// attached real block literal (`at_exit() do`, `synchronize() do`). RuboCop
+/// only skips `it()` inside a block whose parameters are empty and have no
+/// delimiters (i.e., `{ it() }` or `do it() end`, but NOT `{ || it() }` or
+/// `{ |_n| it() }`). `it()` in def bodies, blocks with explicit params, and
+/// ordinary no-arg block calls should still be flagged, but block-pass calls
+/// like `foo(&block)` still count as having an argument and must remain
+/// allowed.
 ///
 /// Fix: Converted from `check_node` to `check_source` with a visitor that
 /// tracks assignment context (local variable writes, or-writes, op-writes,
 /// multi-writes, optional parameters) and block context (whether inside a
 /// block with no explicit params). Implemented `AllowedPatterns` regex
-/// matching. Fixed `it()` exemption to only apply in parameterless blocks.
+/// matching. Fixed `it()` exemption to only apply in parameterless blocks, and
+/// stopped dropping parenthesized no-arg calls solely because they have a real
+/// block literal, while still skipping block-pass forms that Prism stores in
+/// `call.block()` as `BlockArgumentNode`.
 pub struct MethodCallWithoutArgsParentheses;
 
 impl Cop for MethodCallWithoutArgsParentheses {
@@ -109,16 +116,19 @@ impl<'a, 'src> MethodCallVisitor<'a, 'src> {
             return;
         }
 
-        // Must have no block
-        if call.block().is_some() {
-            return;
-        }
-
         // Must have a message (method name)
         let msg_loc = match call.message_loc() {
             Some(l) => l,
             None => return,
         };
+        let has_block_literal = call.block().and_then(|block| block.as_block_node()).is_some();
+
+        // Prism stores block-pass (`foo(&block)`, `map(&:name)`) on `call.block()`
+        // rather than in `arguments()`. RuboCop treats these as argument-bearing
+        // calls, so only real block literals belong to this FN fix.
+        if call.block().is_some() && !has_block_literal {
+            return;
+        }
 
         let method_name = call.name();
         let method_bytes = method_name.as_slice();
@@ -151,9 +161,10 @@ impl<'a, 'src> MethodCallVisitor<'a, 'src> {
         let method_str = std::str::from_utf8(method_bytes).unwrap_or("");
 
         // Check `it()` exemption — only exempt inside a block with no explicit params
-        // AND with no receiver
+        // AND with no receiver. `it() { ... }` is still an offense.
         if method_bytes == b"it"
             && call.receiver().is_none()
+            && !has_block_literal
             && self.in_block_without_explicit_params()
         {
             return;

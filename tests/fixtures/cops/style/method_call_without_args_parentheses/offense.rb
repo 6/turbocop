@@ -44,3 +44,27 @@ obj.method += func()
 # Mass assignment where LHS is a send (c[2]) — method with same name is flagged
 c[2], x = c()
            ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+at_exit() do
+       ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+synchronize() do
+           ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+synchronize() do
+           ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+synchronize_allow_reads() do
+                       ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+synchronize_allow_reads() do
+                       ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+synchronize() do
+           ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+synchronize() do
+           ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
+
+synchronize() do
+           ^^ Style/MethodCallWithoutArgsParentheses: Do not use parentheses for method calls with no arguments.
