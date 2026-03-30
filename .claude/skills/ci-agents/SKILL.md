@@ -110,6 +110,9 @@ gh workflow run batch-dispatch.yml -f department=Style -f count=5 -f backend=cla
 
 # All departments, codex, only cops with ≤20 total FP+FN
 gh workflow run batch-dispatch.yml -f count=10 -f backend=codex -f max_total=20
+
+# Delayed dispatch — wait 60 minutes before dispatching (max 330m)
+gh workflow run batch-dispatch.yml -f department=Style -f count=5 -f backend=claude -f delay=60
 ```
 
 For single-cop dispatch via `agent-cop-fix`:
@@ -196,6 +199,7 @@ python3 scripts/dispatch_cops.py tiers
 - `/ci-agents sync Rails` — jump to Phase 1, scoped to Rails department
 - `/ci-agents dispatch` — jump to Phase 2 (prompts for department)
 - `/ci-agents dispatch Rails` — jump to Phase 2, scoped to Rails department
+- `/ci-agents dispatch Style 5 claude 60` — dispatch with delay (last arg = minutes to wait)
 - `/ci-agents retry` — jump to Phase 4 (retry failures)
 - `/ci-agents status` — show current PR status and merge candidates
 - `/ci-agents validate` — jump to Phase 5 (trigger corpus oracle)
