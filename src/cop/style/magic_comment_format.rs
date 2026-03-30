@@ -2,6 +2,16 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/MagicCommentFormat enforces separator style plus directive capitalization
+/// on leading magic comments.
+///
+/// Investigation findings (2026-03-30):
+/// - FN root cause: this cop only checked `_` vs `-` separators, so directives like
+///   `# Encoding: utf-8` were missed under RuboCop's default
+///   `DirectiveCapitalization: lowercase` setting.
+/// - Fix: combine separator and capitalization checks into the directive offense so
+///   `Encoding` now reports `Prefer lower snake case for magic comments.` without
+///   changing the existing separator matches.
 pub struct MagicCommentFormat;
 
 const MAGIC_COMMENT_DIRECTIVES: &[&str] = &[
@@ -16,6 +26,13 @@ const MAGIC_COMMENT_DIRECTIVES: &[&str] = &[
 ];
 
 impl MagicCommentFormat {
+    fn directive_capitalization(config: &CopConfig) -> Option<&str> {
+        match config.options.get("DirectiveCapitalization") {
+            Some(value) => value.as_str(),
+            None => Some("lowercase"),
+        }
+    }
+
     fn is_magic_comment_directive(word: &str) -> bool {
         let normalized = word.replace(['-', '_'], "_").to_lowercase();
         MAGIC_COMMENT_DIRECTIVES
@@ -29,6 +46,32 @@ impl MagicCommentFormat {
 
     fn has_dashes(s: &str) -> bool {
         s.contains('-')
+    }
+
+    fn wrong_capitalization(text: &str, expected: Option<&str>) -> bool {
+        match expected {
+            Some("lowercase") => text != text.to_lowercase(),
+            Some("uppercase") => text != text.to_uppercase(),
+            _ => false,
+        }
+    }
+
+    fn expected_style(style: &str, directive_capitalization: Option<&str>) -> Option<String> {
+        let mut parts = Vec::new();
+
+        match directive_capitalization {
+            Some("lowercase") => parts.push("lower"),
+            Some("uppercase") => parts.push("upper"),
+            _ => {}
+        }
+
+        match style {
+            "snake_case" => parts.push("snake"),
+            "kebab_case" => parts.push("kebab"),
+            _ => return None,
+        }
+
+        Some(parts.join(" "))
     }
 }
 
@@ -49,8 +92,8 @@ impl Cop for MagicCommentFormat {
             .filter_map(|l| std::str::from_utf8(l).ok())
             .collect();
         let style = config.get_str("EnforcedStyle", "snake_case");
-        let _directive_cap = config.get_str("DirectiveCapitalization", "");
-        let _value_cap = config.get_str("ValueCapitalization", "");
+        let directive_capitalization = Self::directive_capitalization(config);
+        let _value_capitalization = config.get_str("ValueCapitalization", "");
 
         // Only check lines before the first code statement
         for (i, line) in lines.iter().enumerate() {
@@ -81,15 +124,16 @@ impl Cop for MagicCommentFormat {
                     if let Some(colon_pos) = part.find(':') {
                         let directive = part[..colon_pos].trim();
                         if Self::is_magic_comment_directive(directive) {
-                            Self::check_directive_style(
-                                diagnostics,
+                            if let Some(diagnostic) = self.check_directive_style(
                                 source,
                                 i,
                                 line,
                                 directive,
                                 style,
-                                self,
-                            );
+                                directive_capitalization,
+                            ) {
+                                diagnostics.push(diagnostic);
+                            }
                         }
                     }
                 }
@@ -98,15 +142,16 @@ impl Cop for MagicCommentFormat {
                 if let Some(colon_pos) = content.find(':') {
                     let directive = content[..colon_pos].trim();
                     if Self::is_magic_comment_directive(directive) {
-                        Self::check_directive_style(
-                            diagnostics,
+                        if let Some(diagnostic) = self.check_directive_style(
                             source,
                             i,
                             line,
                             directive,
                             style,
-                            self,
-                        );
+                            directive_capitalization,
+                        ) {
+                            diagnostics.push(diagnostic);
+                        }
                     }
                 }
             }
@@ -116,40 +161,32 @@ impl Cop for MagicCommentFormat {
 
 impl MagicCommentFormat {
     fn check_directive_style(
-        diagnostics: &mut Vec<Diagnostic>,
+        &self,
         source: &SourceFile,
         line_idx: usize,
         line: &str,
         directive: &str,
         style: &str,
-        cop: &MagicCommentFormat,
-    ) {
-        // Directives that can vary: frozen_string_literal / frozen-string-literal
-        // encoding doesn't vary
-        // shareable_constant_value / shareable-constant-value
-        // typed doesn't vary
-        if !Self::has_underscores(directive) && !Self::has_dashes(directive) {
-            return;
-        }
-
-        let wrong = match style {
+        directive_capitalization: Option<&str>,
+    ) -> Option<Diagnostic> {
+        let wrong_separator = match style {
             "snake_case" => Self::has_dashes(directive),
             "kebab_case" => Self::has_underscores(directive),
             _ => false,
         };
+        let wrong_capitalization = Self::wrong_capitalization(directive, directive_capitalization);
 
-        if wrong {
+        if wrong_separator || wrong_capitalization {
             // Find the directive position in the line
             if let Some(pos) = line.find(directive) {
                 let line_num = line_idx + 1;
-                let msg = match style {
-                    "snake_case" => "Prefer snake case for magic comments.".to_string(),
-                    "kebab_case" => "Prefer kebab case for magic comments.".to_string(),
-                    _ => return,
-                };
-                diagnostics.push(cop.diagnostic(source, line_num, pos, msg));
+                let expected_style = Self::expected_style(style, directive_capitalization)?;
+                let msg = format!("Prefer {expected_style} case for magic comments.");
+                return Some(self.diagnostic(source, line_num, pos, msg));
             }
         }
+
+        None
     }
 }
 
