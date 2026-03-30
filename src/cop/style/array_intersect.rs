@@ -266,10 +266,8 @@ impl Cop for ArrayIntersect {
                         if let Some(inner_recv) = recv_call.receiver() {
                             if let Some((lhs, rhs)) = extract_intersection_parts(&inner_recv) {
                                 let loc = node.location();
-                                let (line, column) =
-                                    source.offset_to_line_col(loc.start_offset());
-                                let existing =
-                                    std::str::from_utf8(loc.as_slice()).unwrap_or("");
+                                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                let existing = std::str::from_utf8(loc.as_slice()).unwrap_or("");
                                 let msg = format!(
                                     "Use `{}.intersect?({})` instead of `{}`.",
                                     lhs, rhs, existing
