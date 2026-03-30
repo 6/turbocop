@@ -3,6 +3,25 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+fn body_starts_on_same_line(
+    source: &SourceFile,
+    statements: Option<ruby_prism::StatementsNode<'_>>,
+    then_line: usize,
+) -> bool {
+    statements
+        .and_then(|stmts| stmts.body().into_iter().next())
+        .map(|first_body| {
+            source
+                .offset_to_line_col(first_body.location().start_offset())
+                .0
+                == then_line
+        })
+        .unwrap_or(false)
+}
+
+/// Prism exposes `if true then ; end` / `unless cond then ; end` as empty-body
+/// conditionals whose `then` and `end` share a line. RuboCop still flags those,
+/// so only real same-line bodies are exempt from this cop.
 pub struct MultilineIfThen;
 
 impl Cop for MultilineIfThen {
@@ -55,34 +74,9 @@ impl Cop for MultilineIfThen {
             // Check if this is a multiline if (then and body/end are on different lines)
             let then_line = source.offset_to_line_col(then_loc.start_offset()).0;
 
-            // For "table style" if/then/elsif/end, all on one line - allow it
-            // Check if the body is on the same line as `then`
-            if let Some(stmts) = if_node.statements() {
-                let body_nodes: Vec<_> = stmts.body().into_iter().collect();
-                if !body_nodes.is_empty() {
-                    let first_body_line = source
-                        .offset_to_line_col(body_nodes[0].location().start_offset())
-                        .0;
-                    if first_body_line == then_line {
-                        // Table style: `if cond then body` all on same line
-                        return;
-                    }
-                }
-            } else {
-                // No body statements. Check if end is on the same line as then.
-                if let Some(end_loc) = if_node.end_keyword_loc() {
-                    let end_line = source.offset_to_line_col(end_loc.start_offset()).0;
-                    if end_line == then_line {
-                        return;
-                    }
-                }
-                // If there's a subsequent (elsif/else) on same line, it's table style
-                if let Some(sub) = if_node.subsequent() {
-                    let sub_line = source.offset_to_line_col(sub.location().start_offset()).0;
-                    if sub_line == then_line {
-                        return;
-                    }
-                }
+            // Table style is only allowed when a real body starts on the same line.
+            if body_starts_on_same_line(source, if_node.statements(), then_line) {
+                return;
             }
 
             let keyword_name = if kw_text == b"elsif" { "elsif" } else { "if" };
@@ -125,22 +119,8 @@ impl Cop for MultilineIfThen {
 
             let then_line = source.offset_to_line_col(then_loc.start_offset()).0;
 
-            // Check for table style (body on same line as then)
-            if let Some(stmts) = unless_node.statements() {
-                let body_nodes: Vec<_> = stmts.body().into_iter().collect();
-                if !body_nodes.is_empty() {
-                    let first_body_line = source
-                        .offset_to_line_col(body_nodes[0].location().start_offset())
-                        .0;
-                    if first_body_line == then_line {
-                        return;
-                    }
-                }
-            } else if let Some(end_loc) = unless_node.end_keyword_loc() {
-                let end_line = source.offset_to_line_col(end_loc.start_offset()).0;
-                if end_line == then_line {
-                    return;
-                }
+            if body_starts_on_same_line(source, unless_node.statements(), then_line) {
+                return;
             }
 
             let (line, column) = source.offset_to_line_col(then_loc.start_offset());

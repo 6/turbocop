@@ -9,3 +9,7 @@ end
 
 unless cond
 end
+
+if true ; end.should == nil
+
+if false ; end.should == nil
