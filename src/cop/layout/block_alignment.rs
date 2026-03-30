@@ -204,6 +204,32 @@ use crate::parse::source::SourceFile;
 ///   local RuboCop/json validation (`devdocs`, `jruby`, and 6 repos with local
 ///   JSON/tooling issues), so the residual batch excess is likely validation noise
 ///   rather than a confirmed cop-logic mismatch.
+///
+/// ## Corpus investigation findings (2026-03-30)
+///
+/// Root causes of the remaining 9 FN:
+/// 1. **`call_expr_col` overrode wrapper targets** — same-line `||`, `&&`, `<<`,
+///    and `*` wrappers computed the right outer target, but the fallback
+///    `call_expr_col` still accepted the inner call start.
+/// 2. **Wrapper-stopping parents still allowed assignment LHS** — when a block
+///    closer immediately chained into another block, safe-navigation send, or
+///    rescue modifier, RuboCop stopped before the outer assignment, but
+///    nitrocop still accepted the assignment LHS.
+/// 3. **Receiver chains ending at `}`** — `find_call_expression_col` handled
+///    `)`/`]` receivers but stopped just after `}` in `}.each do` chains.
+/// 4. **Multiline stabby lambdas** — `LambdaNode::location()` can start after
+///    the `->` operator when lambda arguments wrap, and the line indent of a
+///    mid-line `->` is not a valid alternate target.
+///
+/// Fixes applied:
+/// - Ignore `call_expr_col` when a same-line operator or splat wrapper already
+///   provides the outer alignment target
+/// - Drop assignment-LHS alignment whenever the closer immediately feeds an
+///   outer wrapper that RuboCop stops on, while still allowing plain `||=` and
+///   `&&=` memoization blocks
+/// - Walk through balanced `{...}` receivers in `find_call_expression_col`
+/// - Use `LambdaNode::operator_loc()` and only accept line-indent alignment for
+///   lambdas that actually start at that indent
 pub struct BlockAlignment;
 
 impl Cop for BlockAlignment {
@@ -224,18 +250,25 @@ impl Cop for BlockAlignment {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Handle LambdaNode (-> { } or -> do end) separately
         if let Some(lambda_node) = node.as_lambda_node() {
             self.check_lambda_alignment(source, &lambda_node, config, diagnostics);
             return;
         }
 
-        let call_node = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
+        if let Some(call_node) = node.as_call_node() {
+            self.check_call_alignment(source, &call_node, config, diagnostics);
+        }
+    }
+}
 
-        // Only process CallNodes that have a block (do..end or {..})
+impl BlockAlignment {
+    fn check_call_alignment(
+        &self,
+        source: &SourceFile,
+        call_node: &ruby_prism::CallNode<'_>,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let block_node = match call_node.block().and_then(|b| b.as_block_node()) {
             Some(b) => b,
             None => return,
@@ -278,19 +311,32 @@ impl Cop for BlockAlignment {
         // When there's an assignment, the alignment target is the LHS (matching RuboCop's
         // behavior where `block_end_align_target` walks past assignment nodes).
         let assignment_col = find_assignment_lhs_col(bytes, call_start_offset);
+        let accept_call_start = assignment_col.is_some()
+            && accept_intermediate_call_start(
+                bytes,
+                closing_loc.start_offset(),
+                closing_loc.as_slice().len(),
+            );
         let splat_col = find_same_line_splat_col(bytes, call_start_offset);
+        let same_line_operator_col = find_same_line_operator_lhs(bytes, opening_loc.start_offset())
+            .or_else(|| find_same_line_operator_lhs(bytes, call_start_offset));
 
         // The expression start column: if there's an assignment on the same line as
         // the call start, use the LHS column. If the block call is wrapped in a
-        // same-line splat (`wrap *items.map { ... }`), align with the `*` column.
-        // Otherwise use the CallNode's column.
-        let expression_start_col = splat_col.or(assignment_col).unwrap_or(call_start_col);
+        // same-line logical/shovel operator, or in a same-line splat
+        // (`wrap *items.map { ... }`), align with that wrapper instead of the
+        // inner call expression. Otherwise use the CallNode's column.
+        let expression_start_col = same_line_operator_col
+            .or(splat_col)
+            .or_else(|| (!accept_call_start).then_some(assignment_col).flatten())
+            .unwrap_or(call_start_col);
 
         // Also compute the expression start line's indent.
         let expression_start_indent = line_indent(bytes, call_start_offset);
 
         // Find the column of the call expression on the do-line (for hash-value blocks).
         let call_expr_col = find_call_expression_col(bytes, opening_loc.start_offset());
+        let accept_call_expr_col = splat_col.is_none() && same_line_operator_col.is_none();
 
         let (end_line, end_col) = source.offset_to_line_col(closing_loc.start_offset());
 
@@ -348,7 +394,6 @@ impl Cop for BlockAlignment {
                 // NOTE: Cross-line operator continuations (||/&& on previous line) are NOT
                 // valid alignment targets. RuboCop's `disqualified_parent?` stops the
                 // ancestry walk when the parent is on a different line (except for masgn).
-                let same_line_operator_col = find_same_line_operator_lhs(bytes, call_start_offset);
                 // Accept call_start_col as an extra target only when the block is on the
                 // RHS of an assignment and RuboCop would stop its ancestor walk before the
                 // assignment target. That happens for:
@@ -360,12 +405,6 @@ impl Cop for BlockAlignment {
                 // Plain chained calls like `result = foo { ... }.to_json` do NOT qualify:
                 // RuboCop walks through the normal send node to the assignment and aligns
                 // the closer with the LHS.
-                let accept_call_start = assignment_col.is_some()
-                    && accept_intermediate_call_start(
-                        bytes,
-                        closing_loc.start_offset(),
-                        closing_loc.as_slice().len(),
-                    );
                 // Only accept expression_start_indent when the call actually starts
                 // at the line's indent position (i.e., the call is the first thing on
                 // the line). When the call is mid-line (e.g., inside parens like
@@ -376,7 +415,7 @@ impl Cop for BlockAlignment {
                     && end_col != expression_start_col
                     && (!call_starts_at_indent || end_col != expression_start_indent)
                     && (!accept_call_start || end_col != call_start_col)
-                    && end_col != call_expr_col
+                    && (!accept_call_expr_col || end_col != call_expr_col)
                     && same_line_operator_col.is_none_or(|c| end_col != c)
                 {
                     diagnostics.push(self.diagnostic(
@@ -392,9 +431,7 @@ impl Cop for BlockAlignment {
             }
         }
     }
-}
 
-impl BlockAlignment {
     /// Check alignment for lambda/proc blocks (`-> { }` or `-> do end`).
     /// LambdaNode has opening_loc/closing_loc like BlockNode but is its own node type.
     fn check_lambda_alignment(
@@ -424,8 +461,9 @@ impl BlockAlignment {
 
         let start_of_line_indent = line_indent(bytes, opening_loc.start_offset());
 
-        // Lambda's location starts at the `->` operator
-        let lambda_start_offset = lambda_node.location().start_offset();
+        // Use the `->` operator itself. With wrapped lambda arguments, the node's
+        // overall span can begin after the stabby operator.
+        let lambda_start_offset = lambda_node.operator_loc().start_offset();
         let (_, lambda_start_col) = source.offset_to_line_col(lambda_start_offset);
 
         let assignment_col = find_assignment_lhs_col(bytes, lambda_start_offset);
@@ -467,13 +505,15 @@ impl BlockAlignment {
             }
             _ => {
                 // "either": accept alignment with do-line indent,
-                // expression start col/indent, or lambda start col.
+                // expression start col, the lambda start col, or the expression
+                // start line indent only when the lambda actually starts there.
                 // NOTE: do_col (column of `{`/`do`) is NOT a valid target.
                 // NOTE: call_expr_col is NOT used for lambdas — the backward walk
                 // from `{`/`do` gives the `->` position, not a meaningful call expr.
+                let lambda_starts_at_indent = lambda_start_col == expression_start_indent;
                 if end_col != start_of_line_indent
                     && end_col != expression_start_col
-                    && end_col != expression_start_indent
+                    && (!lambda_starts_at_indent || end_col != expression_start_indent)
                     && end_col != lambda_start_col
                 {
                     diagnostics.push(self.diagnostic(
@@ -604,9 +644,10 @@ fn find_assignment_lhs_col(bytes: &[u8], call_start_offset: usize) -> Option<usi
 ///   key: value.map do |x|
 ///        ^--- call_expr_col (aligned with value.map)
 ///
-/// When the block is on the RHS of an assignment (=, +=, ||=, etc.), this
+/// When the block is on the RHS of an assignment (=, +=, <<=, etc.), this
 /// continues walking backward through the assignment operator to find the LHS
 /// variable, matching RuboCop's behavior of aligning with the assignment target.
+/// Logical assignments like `||=`/`&&=` are intentionally excluded.
 /// Returns the column of the first character of the call expression.
 fn find_call_expression_col(bytes: &[u8], do_offset: usize) -> usize {
     // Find start of current line
@@ -622,14 +663,19 @@ fn find_call_expression_col(bytes: &[u8], do_offset: usize) -> usize {
     }
 
     // Now walk backward through the call expression.
-    // We need to handle balanced parens/brackets and stop at unbalanced
-    // delimiters or spaces not inside parens.
+    // We need to handle balanced parens/brackets/braces and stop at
+    // unbalanced delimiters or spaces not inside nested structures.
     let mut paren_depth: i32 = 0;
+    let mut brace_depth: i32 = 0;
     while pos > line_start {
         let ch = bytes[pos - 1];
         match ch {
             b')' | b']' => {
                 paren_depth += 1;
+                pos -= 1;
+            }
+            b'}' => {
+                brace_depth += 1;
                 pos -= 1;
             }
             b'(' | b'[' => {
@@ -640,7 +686,15 @@ fn find_call_expression_col(bytes: &[u8], do_offset: usize) -> usize {
                     break;
                 }
             }
-            _ if paren_depth > 0 => {
+            b'{' => {
+                if brace_depth > 0 {
+                    brace_depth -= 1;
+                    pos -= 1;
+                } else {
+                    break;
+                }
+            }
+            _ if paren_depth > 0 || brace_depth > 0 => {
                 pos -= 1;
             } // inside parens, eat everything
             _ if ch.is_ascii_alphanumeric()
@@ -676,7 +730,7 @@ fn find_call_expression_col(bytes: &[u8], do_offset: usize) -> usize {
 }
 
 /// If `pos` points just after a call expression and there's an assignment
-/// operator (=, +=, -=, *=, /=, ||=, &&=, <<=, >>=, etc.) before it,
+/// operator (=, +=, -=, *=, /=, <<=, >>=, etc.) before it,
 /// skip backward through the operator and whitespace, then walk backward
 /// through the LHS identifier to find the assignment target.
 /// Returns the new position (start of LHS), or `pos` unchanged if no
@@ -708,11 +762,19 @@ fn skip_assignment_backward(bytes: &[u8], line_start: usize, pos: usize) -> usiz
                         op_start -= 1; // **=
                     }
                 }
-                b'|' if op_start >= 2 + line_start && bytes[op_start - 2] == b'|' => {
-                    op_start -= 2;
+                b'|' => {
+                    if op_start >= 2 + line_start && bytes[op_start - 2] == b'|' {
+                        op_start -= 2; // ||=
+                    } else {
+                        op_start -= 1; // |=
+                    }
                 }
-                b'&' if op_start >= 2 + line_start && bytes[op_start - 2] == b'&' => {
-                    op_start -= 2;
+                b'&' => {
+                    if op_start >= 2 + line_start && bytes[op_start - 2] == b'&' {
+                        op_start -= 2; // &&=
+                    } else {
+                        op_start -= 1; // &=
+                    }
                 }
                 b'<' if op_start >= 2 + line_start && bytes[op_start - 2] == b'<' => {
                     op_start -= 2;
@@ -898,30 +960,86 @@ fn chained_call_opens_block(bytes: &[u8], mut pos: usize) -> bool {
     false
 }
 
-/// Check if there's a `&&`, `||`, or `<<` operator on the same line BEFORE the
-/// call_start_offset. If so, return the column of the expression start on the LHS
-/// of that operator. This handles patterns like:
+/// Check if there's a `&&`, `||`, or `<<` operator on the same line before the
+/// block opener (`do`/`{`). If so, return the column of the expression start on
+/// the LHS of that operator. This handles patterns like:
 ///   next true if urls&.size&.positive? && urls&.all? do |url|
 ///   if adjustment_type == "removal" && article.tag_list.none? do |tag|
 ///   acc << items.map do |item|
 ///   lists << tag.ul(:class => "foo") do
 ///
 /// Returns the column of the first non-whitespace token of the LHS expression.
-fn find_same_line_operator_lhs(bytes: &[u8], call_start_offset: usize) -> Option<usize> {
-    let mut line_start = call_start_offset;
+fn find_same_line_operator_lhs(bytes: &[u8], opener_offset: usize) -> Option<usize> {
+    let mut line_start = opener_offset;
     while line_start > 0 && bytes[line_start - 1] != b'\n' {
         line_start -= 1;
     }
 
-    // Look backward from call_start_offset to find &&, ||, or << on the same line
-    let mut pos = call_start_offset;
+    // Walk backward from the block opener to the start of the immediate call
+    // expression on this line, then check whether that call is wrapped by
+    // &&, ||, or << on the same line.
+    let mut pos = opener_offset;
 
-    // Skip whitespace before the call expression
+    // Skip whitespace before `do` / `{`
     while pos > line_start && bytes[pos - 1] == b' ' {
         pos -= 1;
     }
 
-    // Check for &&, ||, or <<
+    let mut paren_depth: i32 = 0;
+    let mut brace_depth: i32 = 0;
+    while pos > line_start {
+        let ch = bytes[pos - 1];
+        match ch {
+            b')' | b']' => {
+                paren_depth += 1;
+                pos -= 1;
+            }
+            b'}' => {
+                brace_depth += 1;
+                pos -= 1;
+            }
+            b'(' | b'[' => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                    pos -= 1;
+                } else {
+                    break;
+                }
+            }
+            b'{' => {
+                if brace_depth > 0 {
+                    brace_depth -= 1;
+                    pos -= 1;
+                } else {
+                    break;
+                }
+            }
+            _ if paren_depth > 0 || brace_depth > 0 => {
+                pos -= 1;
+            }
+            _ if ch.is_ascii_alphanumeric()
+                || ch == b'_'
+                || ch == b'.'
+                || ch == b'?'
+                || ch == b'!'
+                || ch == b'@'
+                || ch == b'$'
+                || ch == b'%' =>
+            {
+                pos -= 1;
+            }
+            b':' if pos >= 2 + line_start && bytes[pos - 2] == b':' => {
+                pos -= 2;
+            }
+            _ => break,
+        }
+    }
+
+    while pos > line_start && bytes[pos - 1] == b' ' {
+        pos -= 1;
+    }
+
+    // Check for &&, ||, or << immediately before the call expression
     if pos >= 2 + line_start {
         let op1 = bytes[pos - 2];
         let op2 = bytes[pos - 1];
@@ -1548,6 +1666,163 @@ mod tests {
             "FN: brace at col 4 misaligned with -> at col 2. Got: {:?}",
             diags
         );
+    }
+
+    #[test]
+    fn fn_same_line_or_wrapper_misaligned() {
+        let source = b"def changed?\n  to_be_destroyed.any? || proxy_target.any? do |record|\n    record.changed?\n                          end\nend\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "FN: end should align with the || expression, not proxy_target.any?. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_hash_receiver_each_block_misaligned() {
+        let source = b"{\n  \"Ab$9\" => 4,\n  \"blah\" => -2\n}.each do |password, bonus_bits|\n  puts password\n end\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "FN: end should align with the hash receiver / }}.each line. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_hash_receiver_each_block_aligned() {
+        let source = b"{\n  \"Ab$9\" => 4,\n  \"blah\" => -2\n}.each do |password, bonus_bits|\n  puts password\nend\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "Hash receiver chained into each should allow end at col 0. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_splat_wrapper_block_misaligned() {
+        let source = b"rdoc.rdoc_files.include(\n  *FileList.new(\"*\") do |list|\n     list.exclude(\"TODO\")\n   end.to_a)\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "FN: end should align with the splat, not FileList. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_shovel_wrapper_do_end_misaligned() {
+        let source = b"out << sequence.each_with_object(+'') do |col_name, s|\n  s << col_name.to_s\n       end\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "FN: end should align with out <<, not sequence.each_with_object. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_shovel_wrapper_brace_block_misaligned() {
+        let source = b"def handle_message(msg, connection = {})\n  if request?(msg)\n    tp << ThreadPoolJob.new(msg) { |i|\n      handle_request(i, false, connection)\n          }\n  end\nend\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "FN: }} should align with tp <<, not ThreadPoolJob.new. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_or_asgn_chain_block_misaligned() {
+        let source = b"def link_options\n  @link_options ||= pages.published.pluck(:name, :slug)\n    .each_with_object(DEFAULT_LINKS.dup) do |(name, slug), memo|\n    memo[name] = slug\n  end.sort_by { |_key, value| navigation_links.index(value) || 0 }.to_h\nend\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "FN: ||= chain should not accept the assignment LHS here. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_or_asgn_chain_block_aligned() {
+        let source = b"def link_options\n  @link_options ||= pages.published.pluck(:name, :slug)\n    .each_with_object(DEFAULT_LINKS.dup) do |(name, slug), memo|\n    memo[name] = slug\n    end.sort_by { |_key, value| navigation_links.index(value) || 0 }.to_h\nend\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "Correctly aligned ||= continuation chain should not be flagged. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_or_asgn_plain_block_aligned() {
+        let source = b"result ||= items.map do |item|\n  item\nend\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "Plain ||= memoization block should align with the assignment LHS. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_or_asgn_plain_chained_send_aligned() {
+        let source = b"result ||= items.map do |item|\n  item\nend.to_json\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "Plain chained send after ||= should still allow the assignment LHS. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn fn_multiline_stabby_lambda_do_end_misaligned() {
+        let source = b"          scope :_candlestick, -> (timeframe: '1h',\n                           segment_by: segment_by_column,\n                           time: time_column,\n                           volume: 'volume',\n                           value: value_column) do\n             select(time)\n          end\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "FN: multiline stabby lambda should align with -> or do-line indent. Got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn helper_finds_same_line_or_lhs() {
+        let source = b"  to_be_destroyed.any? || proxy_target.any? do |record|\n";
+        let opener = std::str::from_utf8(source)
+            .unwrap()
+            .find(" do |record|")
+            .unwrap()
+            + 1;
+        assert_eq!(find_same_line_operator_lhs(source, opener), Some(2));
+    }
+
+    #[test]
+    fn helper_finds_same_line_shovel_lhs() {
+        let source = b"out << sequence.each_with_object(+'') do |col_name, s|\n";
+        let opener = std::str::from_utf8(source)
+            .unwrap()
+            .find(" do |col_name, s|")
+            .unwrap()
+            + 1;
+        assert_eq!(find_same_line_operator_lhs(source, opener), Some(0));
+    }
+
+    #[test]
+    fn helper_finds_same_line_shovel_lhs_for_brace_block() {
+        let source = b"    tp << ThreadPoolJob.new(msg) { |i|\n";
+        let opener = std::str::from_utf8(source).unwrap().find("{ |i|").unwrap();
+        assert_eq!(find_same_line_operator_lhs(source, opener), Some(4));
     }
 
     // FP: do on continuation line of multi-line method call with assignment

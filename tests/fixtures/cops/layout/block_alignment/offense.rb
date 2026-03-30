@@ -126,3 +126,62 @@ end
 result = items.map { |item|
          }.to_json
          ^ Layout/BlockAlignment: Align `}` with the start of the line where the block is defined.
+
+# FN: same-line || wrapper should not let end align with the inner call expression
+def changed?
+  to_be_destroyed.any? || proxy_target.any? do |record|
+    record.changed?
+                          end
+                          ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+end
+
+# FN: hash literal receiver should align end with `{` / `}.each do`, not just after `}`
+{
+  "Ab$9" => 4,
+  "blah" => -2
+}.each do |password, bonus_bits|
+  puts password
+ end
+ ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+
+# FN: splat wrapper should align end with `*`, not `FileList`
+rdoc.rdoc_files.include(
+  *FileList.new("*") do |list|
+     list.exclude("TODO")
+   end.to_a)
+   ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+
+# FN: << wrapper should align end with lhs, not the inner call
+out << sequence.each_with_object(+'') do |col_name, s|
+  s << col_name.to_s
+       end
+       ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+
+# FN: << wrapper should align } with lhs, not the inner call
+def handle_message(msg, connection = {})
+  if request?(msg)
+    tp << ThreadPoolJob.new(msg) { |i|
+      handle_request(i, false, connection)
+          }
+          ^ Layout/BlockAlignment: Align `}` with the start of the line where the block is defined.
+  end
+end
+
+# FN: ||= chain should not align end with assignment lhs here
+def link_options
+  @link_options ||= pages.published.pluck(:name, :slug)
+    .each_with_object(DEFAULT_LINKS.dup) do |(name, slug), memo|
+    memo[name] = slug
+  end.sort_by { |_key, value| navigation_links.index(value) || 0 }.to_h
+  ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
+end
+
+# FN: multiline stabby lambda should align end with `->` or the do-line indent
+          scope :_candlestick, -> (timeframe: '1h',
+                           segment_by: segment_by_column,
+                           time: time_column,
+                           volume: 'volume',
+                           value: value_column) do
+             select(time)
+          end
+          ^^^ Layout/BlockAlignment: Align `end` with the start of the line where the block is defined.
