@@ -88,7 +88,10 @@ fn check_sibling_groups(
     // RuboCop's several_example_groups? only considers direct sibling groups in
     // the current statement list. Nested conditional branches are handled
     // separately below.
-    let example_group_count = stmt_nodes.iter().filter(|s| is_example_group_call(s)).count();
+    let example_group_count = stmt_nodes
+        .iter()
+        .filter(|s| is_example_group_call(s))
+        .count();
 
     if example_group_count >= 2 {
         #[allow(clippy::type_complexity)] // internal collection used only in this function
