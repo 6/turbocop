@@ -74,6 +74,14 @@ use crate::parse::source::SourceFile;
 ///    same block, e.g. `expect(subject).to receive(:fork) do ... expect(subject).to
 ///    receive(:open!) ... end`. Fixed by continuing to recurse into the block after
 ///    reporting the outer offense.
+///
+/// Round 6 FN fix (1→0):
+/// 10. Shared groups nested under a real example group DO contribute named subjects.
+///     RuboCop associates `subject(:release)` inside nested `shared_examples` with the
+///     nearest non-shared example-group ancestor, so `expect(release).to receive(...)`
+///     is still an offense there. Top-level shared groups must continue to ignore named
+///     subjects to preserve the `adapter` no-offense cases. Fixed by letting nested
+///     shared groups inherit the parent scope's named-subject tracking flag.
 pub struct SubjectStub;
 
 impl Cop for SubjectStub {
@@ -284,7 +292,14 @@ fn collect_subject_stub_offenses(
 
     // Second pass: check for stubs on subject names and recurse into nested groups
     for stmt in stmts.body().iter() {
-        check_for_subject_stubs(source, &stmt, subject_names, diagnostics, cop);
+        check_for_subject_stubs(
+            source,
+            &stmt,
+            subject_names,
+            track_named_subjects,
+            diagnostics,
+            cop,
+        );
     }
 
     // Restore subject names for this scope (don't leak child-scope subjects to siblings)
@@ -299,6 +314,7 @@ fn check_for_subject_stubs(
     source: &SourceFile,
     node: &ruby_prism::Node<'_>,
     subject_names: &[Vec<u8>],
+    track_named_subjects: bool,
     diagnostics: &mut Vec<Diagnostic>,
     cop: &SubjectStub,
 ) {
@@ -313,7 +329,14 @@ fn check_for_subject_stubs(
         // This handles cases like: expect(Thread).to receive(:new) do |&block|
         //   expect(subject).to receive(:method)  # block is on .to, not .and_return
         // end.and_return(fake_thread)
-        recurse_into_call_blocks(&call, source, subject_names, diagnostics, cop);
+        recurse_into_call_blocks(
+            &call,
+            source,
+            subject_names,
+            track_named_subjects,
+            diagnostics,
+            cop,
+        );
     }
 
     // Check instance method def nodes for subject stubs too.
@@ -326,7 +349,14 @@ fn check_for_subject_stubs(
         if let Some(body) = def_node.body() {
             if let Some(stmts) = body.as_statements_node() {
                 for s in stmts.body().iter() {
-                    check_for_subject_stubs(source, &s, subject_names, diagnostics, cop);
+                    check_for_subject_stubs(
+                        source,
+                        &s,
+                        subject_names,
+                        track_named_subjects,
+                        diagnostics,
+                        cop,
+                    );
                 }
             }
         }
@@ -342,6 +372,7 @@ fn recurse_into_call_blocks(
     call: &ruby_prism::CallNode<'_>,
     source: &SourceFile,
     subject_names: &[Vec<u8>],
+    track_named_subjects: bool,
     diagnostics: &mut Vec<Diagnostic>,
     cop: &SubjectStub,
 ) {
@@ -352,12 +383,13 @@ fn recurse_into_call_blocks(
             if is_rspec_example_group(call_name) {
                 // Nested example group — create new scope with inherited subject names
                 let mut child_names = subject_names.to_vec();
-                let track_named_subjects = !is_rspec_shared_group(call_name);
+                let child_tracks_named_subjects =
+                    !is_rspec_shared_group(call_name) || track_named_subjects;
                 collect_subject_stub_offenses(
                     source,
                     bn,
                     &mut child_names,
-                    track_named_subjects,
+                    child_tracks_named_subjects,
                     diagnostics,
                     cop,
                 );
@@ -366,7 +398,14 @@ fn recurse_into_call_blocks(
                 if let Some(body) = bn.body() {
                     if let Some(stmts) = body.as_statements_node() {
                         for s in stmts.body().iter() {
-                            check_for_subject_stubs(source, &s, subject_names, diagnostics, cop);
+                            check_for_subject_stubs(
+                                source,
+                                &s,
+                                subject_names,
+                                track_named_subjects,
+                                diagnostics,
+                                cop,
+                            );
                         }
                     }
                 }
@@ -379,7 +418,14 @@ fn recurse_into_call_blocks(
     // (e.g., .to has a do...end block, but .and_return is the outermost call).
     if let Some(recv) = call.receiver() {
         if let Some(recv_call) = recv.as_call_node() {
-            recurse_into_call_blocks(&recv_call, source, subject_names, diagnostics, cop);
+            recurse_into_call_blocks(
+                &recv_call,
+                source,
+                subject_names,
+                track_named_subjects,
+                diagnostics,
+                cop,
+            );
         }
     }
 }
