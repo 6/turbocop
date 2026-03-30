@@ -329,6 +329,17 @@ use crate::parse::source::SourceFile;
 /// - Block-local scoping edge cases (~32 FN): variables captured across
 ///   multiple nested blocks, rescue/ensure reassignment, lambda assignments,
 ///   etc. These require VariableForce-level dataflow analysis.
+///
+/// ## Investigation (FN: hook predicate reads before conditional writes, 2026-03-30)
+///
+/// Corpus cases from OpenVox initialized a variable to `nil` at group scope and
+/// then used `if module_def.nil?; module_def = ...; end` inside a `before` hook.
+/// Our deep-write heuristic treated that hook as `WriteBeforeRead`, killing the
+/// outer assignment, because `node_reads_var_without_prior_write` checked the
+/// branch body but ignored reads in the `if`/`unless` predicate. RuboCop's
+/// VariableForce counts the predicate read as a reference to the outer value, so
+/// the group-level `module_def = nil` is an offense. Fix: predicate reads now
+/// count as reads-before-write in `node_reads_var_without_prior_write`.
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
@@ -2646,6 +2657,9 @@ fn node_reads_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
 fn node_reads_var_without_prior_write(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
     // For conditional nodes (if/unless), check within each branch
     if let Some(if_node) = node.as_if_node() {
+        if node_reads_var(&if_node.predicate(), var_name) {
+            return true;
+        }
         if let Some(stmts) = if_node.statements() {
             if stmts_read_var_without_prior_write(&stmts, var_name) {
                 return true;
@@ -2659,6 +2673,9 @@ fn node_reads_var_without_prior_write(node: &ruby_prism::Node<'_>, var_name: &[u
         return false;
     }
     if let Some(unless_node) = node.as_unless_node() {
+        if node_reads_var(&unless_node.predicate(), var_name) {
+            return true;
+        }
         if let Some(stmts) = unless_node.statements() {
             if stmts_read_var_without_prior_write(&stmts, var_name) {
                 return true;
@@ -3576,6 +3593,38 @@ end
                 .map(|d| format!("{}:{}", d.location.line, d.location.column))
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_fn_nil_initialized_var_read_in_hook_predicate_before_write() {
+        let source = br#"describe 'Puppet Ruby Generator' do
+  context 'when generating static code' do
+    module_def = nil
+
+    before(:each) do
+      if module_def.nil?
+        module_def = build_module
+      end
+    end
+
+    it 'keeps the generated module' do
+      expect(module_def).not_to be_nil
+    end
+  end
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for nil init read in hook predicate, got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(diags[0].location.line, 3, "Offense should be on line 3");
     }
 
     #[test]
