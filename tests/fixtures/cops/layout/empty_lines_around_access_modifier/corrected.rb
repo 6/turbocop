@@ -129,3 +129,66 @@ ActiveSupport.on_load(:active_storage_attachment) do
   def no_reuse
   end
 end
+
+# Nested class-like scopes earlier in the body still affect the later modifier
+class Outer
+  class << self
+    def build
+    end
+  end
+
+  private
+
+end
+
+# Access modifier at the end of a block still needs a blank line after
+describe CategoryController do
+  it "works" do
+  end
+
+  private
+
+end
+
+# Comment lines after a class opening do not preserve the opening-line exemption
+class OptionParser::AC < OptionParser
+  # :stopdoc:
+
+  private
+
+  def _check_ac_args(name, block)
+  end
+end
+
+# Multiple comment lines after a class opening still require a blank line before
+class AwesomePrint
+# for awesome_print >= 1.0.0
+#class AwesomePrint::Formatter
+
+  private
+
+  def awesome_hash(h)
+  end
+end
+
+# Inline module body on the same line as a modifier
+class Pagy
+
+  module Backend; private # the whole module is private so no problem with including it in a controller
+
+    def pagy_cursor(collection, vars = {})
+    end
+  end
+end
+
+# Inline module body on the same line as module_function
+module Jekyll
+  class Menus
+
+    module Utils module_function
+
+      def deep_merge(old, _new)
+      end
+    end
+  end
+end
