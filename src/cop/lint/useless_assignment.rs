@@ -48,6 +48,11 @@ use ruby_prism::Visit;
 ///   rescue clause started from pre-body state and couldn't see the body write.
 ///   This fixes ~180-240 FPs from retry counters, boolean flags, and timing
 ///   variables written in begin bodies and read in rescue clauses.
+/// - FN fix: Non-loop branches with a single local assignment now preserve
+///   unread writes that would otherwise be discarded during merge. This fixes
+///   modifier-`if`, repeated sibling `if`, and simple `case` patterns where
+///   RuboCop reports multiple unread writes to the same variable but the old
+///   merge logic only remembered the first one.
 ///
 /// ## Remaining gaps (758 FP, 1366 FN as of corpus investigation)
 ///
@@ -225,6 +230,10 @@ struct ScopeAnalyzer {
     /// the "other" branch's offset is stored here. At end-of-scope, these are
     /// reported as useless if the variable was not read after the branch.
     branch_extra_writes: Vec<(String, usize)>,
+    /// Nesting depth of loop-backed control flow. Branch-local write tracking
+    /// is intentionally disabled inside loops because later iterations can
+    /// read those writes in ways this approximation cannot model precisely.
+    loop_depth: usize,
 }
 
 impl ScopeAnalyzer {
@@ -238,6 +247,7 @@ impl ScopeAnalyzer {
             protected_offsets: HashSet::new(),
             ever_read_offsets: HashSet::new(),
             branch_extra_writes: Vec::new(),
+            loop_depth: 0,
         }
     }
 
@@ -275,6 +285,34 @@ impl ScopeAnalyzer {
                     name: name.to_string(),
                     offset: prev_offset,
                 });
+            }
+        }
+    }
+
+    fn remember_branch_write(&mut self, name: &str, offset: usize) {
+        if self
+            .branch_extra_writes
+            .iter()
+            .any(|(existing_name, existing_offset)| {
+                existing_name == name && *existing_offset == offset
+            })
+        {
+            return;
+        }
+        self.branch_extra_writes.push((name.to_string(), offset));
+    }
+
+    fn remember_simple_branch_write(
+        &mut self,
+        branch_write: Option<(String, usize)>,
+        merged: &LiveState,
+    ) {
+        if self.loop_depth > 0 {
+            return;
+        }
+        if let Some((name, offset)) = branch_write {
+            if merged.live_writes.get(&name) != Some(&offset) {
+                self.remember_branch_write(&name, offset);
             }
         }
     }
@@ -885,8 +923,10 @@ impl ScopeAnalyzer {
 
         // Analyze consequent (if-branch)
         let mut if_state = before.clone();
+        let mut simple_if_write = None;
         if let Some(stmts) = node.statements() {
             let body: Vec<_> = stmts.body().iter().collect();
+            simple_if_write = single_local_write(&body);
             self.analyze_statements(&body, &mut if_state);
         }
 
@@ -907,19 +947,22 @@ impl ScopeAnalyzer {
             // useless, but merge_branches keeps only one offset. Store the
             // "lost" offset to be reported at end-of-scope if the variable
             // is not read after the branch.
-            for (name, &if_offset) in &if_state.live_writes {
-                if let Some(&else_offset) = else_state.live_writes.get(name) {
-                    if !before.live_writes.contains_key(name) && if_offset != else_offset {
-                        // merge_branches keeps else_offset. Store if_offset as extra.
-                        self.branch_extra_writes.push((name.clone(), if_offset));
+            if self.loop_depth == 0 {
+                for (name, &if_offset) in &if_state.live_writes {
+                    if let Some(&else_offset) = else_state.live_writes.get(name) {
+                        if !before.live_writes.contains_key(name) && if_offset != else_offset {
+                            // merge_branches keeps else_offset. Store if_offset as extra.
+                            self.branch_extra_writes.push((name.clone(), if_offset));
+                        }
                     }
                 }
             }
-            // Both branches exist — merge
             *state = LiveState::merge_branches(&if_state, &else_state);
         } else {
             // Single-branch if — merge with pre-branch state
-            *state = LiveState::merge_optional_branch(&before, &if_state);
+            let merged = LiveState::merge_optional_branch(&before, &if_state);
+            self.remember_simple_branch_write(simple_if_write, &merged);
+            *state = merged;
         }
 
         self.restore_protected(saved_protected);
@@ -938,8 +981,10 @@ impl ScopeAnalyzer {
         self.protect_live_writes(&before);
 
         let mut body_state = before.clone();
+        let mut simple_body_write = None;
         if let Some(stmts) = node.statements() {
             let body: Vec<_> = stmts.body().iter().collect();
+            simple_body_write = single_local_write(&body);
             self.analyze_statements(&body, &mut body_state);
         }
 
@@ -950,16 +995,20 @@ impl ScopeAnalyzer {
                 self.analyze_statements(&body, &mut else_state);
             }
             // Track extra writes from both branches (same as analyze_if)
-            for (name, &body_offset) in &body_state.live_writes {
-                if let Some(&else_offset) = else_state.live_writes.get(name) {
-                    if !before.live_writes.contains_key(name) && body_offset != else_offset {
-                        self.branch_extra_writes.push((name.clone(), body_offset));
+            if self.loop_depth == 0 {
+                for (name, &body_offset) in &body_state.live_writes {
+                    if let Some(&else_offset) = else_state.live_writes.get(name) {
+                        if !before.live_writes.contains_key(name) && body_offset != else_offset {
+                            self.branch_extra_writes.push((name.clone(), body_offset));
+                        }
                     }
                 }
             }
             *state = LiveState::merge_branches(&body_state, &else_state);
         } else {
-            *state = LiveState::merge_optional_branch(&before, &body_state);
+            let merged = LiveState::merge_optional_branch(&before, &body_state);
+            self.remember_simple_branch_write(simple_body_write, &merged);
+            *state = merged;
         }
 
         self.restore_protected(saved_protected);
@@ -973,6 +1022,7 @@ impl ScopeAnalyzer {
         let saved_protected = self.protect_live_writes(&before);
         let mut has_else = false;
         let mut branch_states = Vec::new();
+        let mut branch_writes = Vec::new();
 
         for condition in node.conditions().iter() {
             if let Some(when_node) = condition.as_when_node() {
@@ -982,7 +1032,10 @@ impl ScopeAnalyzer {
                 }
                 if let Some(stmts) = when_node.statements() {
                     let body: Vec<_> = stmts.body().iter().collect();
+                    branch_writes.push(single_local_write(&body));
                     self.analyze_statements(&body, &mut branch_state);
+                } else {
+                    branch_writes.push(None);
                 }
                 branch_states.push(branch_state);
             }
@@ -993,24 +1046,31 @@ impl ScopeAnalyzer {
             let mut else_state = before.clone();
             if let Some(stmts) = else_clause.statements() {
                 let body: Vec<_> = stmts.body().iter().collect();
+                branch_writes.push(single_local_write(&body));
                 self.analyze_statements(&body, &mut else_state);
+            } else {
+                branch_writes.push(None);
             }
             branch_states.push(else_state);
         }
 
-        if has_else && branch_states.len() > 1 {
+        let merged = if has_else && branch_states.len() > 1 {
             let mut merged = branch_states[0].clone();
             for bs in &branch_states[1..] {
                 merged = LiveState::merge_branches(&merged, bs);
             }
-            *state = merged;
+            merged
         } else {
             let mut merged = before;
             for bs in &branch_states {
                 merged = LiveState::merge_optional_branch(&merged, bs);
             }
-            *state = merged;
+            merged
+        };
+        for branch_write in branch_writes {
+            self.remember_simple_branch_write(branch_write, &merged);
         }
+        *state = merged;
 
         self.restore_protected(saved_protected);
     }
@@ -1023,6 +1083,7 @@ impl ScopeAnalyzer {
         let saved_protected = self.protect_live_writes(&before);
         let mut branch_states = Vec::new();
         let mut has_else = false;
+        let mut branch_writes = Vec::new();
 
         for condition in node.conditions().iter() {
             if let Some(in_node) = condition.as_in_node() {
@@ -1030,7 +1091,10 @@ impl ScopeAnalyzer {
                 self.analyze_node(&in_node.pattern(), &mut branch_state);
                 if let Some(stmts) = in_node.statements() {
                     let body: Vec<_> = stmts.body().iter().collect();
+                    branch_writes.push(single_local_write(&body));
                     self.analyze_statements(&body, &mut branch_state);
+                } else {
+                    branch_writes.push(None);
                 }
                 branch_states.push(branch_state);
             }
@@ -1041,29 +1105,37 @@ impl ScopeAnalyzer {
             let mut else_state = before.clone();
             if let Some(stmts) = else_clause.statements() {
                 let body: Vec<_> = stmts.body().iter().collect();
+                branch_writes.push(single_local_write(&body));
                 self.analyze_statements(&body, &mut else_state);
+            } else {
+                branch_writes.push(None);
             }
             branch_states.push(else_state);
         }
 
-        if has_else && branch_states.len() > 1 {
+        let merged = if has_else && branch_states.len() > 1 {
             let mut merged = branch_states[0].clone();
             for bs in &branch_states[1..] {
                 merged = LiveState::merge_branches(&merged, bs);
             }
-            *state = merged;
+            merged
         } else {
             let mut merged = before;
             for bs in &branch_states {
                 merged = LiveState::merge_optional_branch(&merged, bs);
             }
-            *state = merged;
+            merged
+        };
+        for branch_write in branch_writes {
+            self.remember_simple_branch_write(branch_write, &merged);
         }
+        *state = merged;
 
         self.restore_protected(saved_protected);
     }
 
     fn analyze_while(&mut self, node: &ruby_prism::WhileNode<'_>, state: &mut LiveState) {
+        self.loop_depth += 1;
         // Protect pre-loop writes if the condition contains an lvar assignment
         // (handles `puts a while (a = false)` pattern).
         let has_predicate_lvar_write = contains_local_variable_write(&node.predicate());
@@ -1099,9 +1171,11 @@ impl ScopeAnalyzer {
         }
 
         self.restore_protected(saved_protected);
+        self.loop_depth -= 1;
     }
 
     fn analyze_until(&mut self, node: &ruby_prism::UntilNode<'_>, state: &mut LiveState) {
+        self.loop_depth += 1;
         let has_predicate_lvar_write = contains_local_variable_write(&node.predicate());
         let saved_protected = if has_predicate_lvar_write {
             self.protect_live_writes(state)
@@ -1124,9 +1198,11 @@ impl ScopeAnalyzer {
             *state = LiveState::merge_optional_branch(&before, &loop_state2);
         }
         self.restore_protected(saved_protected);
+        self.loop_depth -= 1;
     }
 
     fn analyze_for(&mut self, node: &ruby_prism::ForNode<'_>, state: &mut LiveState) {
+        self.loop_depth += 1;
         // Analyze collection expression
         self.analyze_node(&node.collection(), state);
 
@@ -1145,6 +1221,7 @@ impl ScopeAnalyzer {
             *state = LiveState::merge_optional_branch(&before, &loop_state2);
         }
         self.restore_protected(saved_protected);
+        self.loop_depth -= 1;
     }
 
     fn analyze_for_index(&mut self, index: &ruby_prism::Node<'_>, state: &mut LiveState) {
@@ -1355,6 +1432,18 @@ fn contains_local_variable_write(node: &ruby_prism::Node<'_>) -> bool {
     let mut detector = WriteDetector { found: false };
     detector.visit(node);
     detector.found
+}
+
+/// Return the branch-local write when a branch body is exactly one assignment.
+fn single_local_write(stmts: &[ruby_prism::Node<'_>]) -> Option<(String, usize)> {
+    if stmts.len() != 1 {
+        return None;
+    }
+    let write_node = stmts[0].as_local_variable_write_node()?;
+    Some((
+        node_name(write_node.name().as_slice()),
+        write_node.name_loc().start_offset(),
+    ))
 }
 
 /// Helper to convert name bytes to String.

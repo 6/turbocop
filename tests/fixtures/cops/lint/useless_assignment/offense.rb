@@ -163,3 +163,41 @@ end
 for item in items
     ^^^^ Lint/UselessAssignment: Useless assignment to variable - `item`.
 end
+
+# Modifier-if reassignment after a prior write: both writes are useless.
+begin
+  pwn_provider = 'ruby-gem'
+  ^^^^^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `pwn_provider`.
+  pwn_provider = ENV.fetch('PWN_PROVIDER') if ENV.keys.any? { |s| s == 'PWN_PROVIDER' }
+  ^^^^^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `pwn_provider`.
+end
+
+# Each unread case branch assignment is its own offense.
+case option
+when :R
+  track_data = read_card
+  ^^^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `track_data`.
+when :B
+  track_data = backup_card
+  ^^^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `track_data`.
+when :L
+  track_data = PWN::Plugins::MSR206.load_card_from_file(
+  ^^^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `track_data`.
+    msr206_obj: msr206_obj
+  )
+end
+
+# Sequential optional branches that assign the same variable keep both writes.
+if api_version == 'v1'
+  tests_by_engagement_object = test_list[:objects].select do |test|
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `tests_by_engagement_object`.
+    test[:engagement] == engagement_resource_uri
+  end
+end
+
+if api_version == 'v2'
+  tests_by_engagement_object = test_list[:results].select do |test|
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `tests_by_engagement_object`.
+    test[:engagement] == engagement_resource_uri
+  end
+end
