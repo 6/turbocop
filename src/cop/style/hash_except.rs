@@ -201,22 +201,21 @@ impl Cop for HashExcept {
                 }
 
                 // One side must be the key param, other must be a literal
-                let value_node =
-                    if let Some(lvar) = cmp_recv.as_local_variable_read_node() {
-                        if lvar.name().as_slice() == key_name {
-                            &cmp_arg_list[0]
-                        } else {
-                            return;
-                        }
-                    } else if let Some(lvar) = cmp_arg_list[0].as_local_variable_read_node() {
-                        if lvar.name().as_slice() == key_name {
-                            &cmp_recv
-                        } else {
-                            return;
-                        }
+                let value_node = if let Some(lvar) = cmp_recv.as_local_variable_read_node() {
+                    if lvar.name().as_slice() == key_name {
+                        &cmp_arg_list[0]
                     } else {
                         return;
-                    };
+                    }
+                } else if let Some(lvar) = cmp_arg_list[0].as_local_variable_read_node() {
+                    if lvar.name().as_slice() == key_name {
+                        &cmp_recv
+                    } else {
+                        return;
+                    }
+                } else {
+                    return;
+                };
 
                 // Value must be a symbol or string literal
                 let is_sym_or_str =
@@ -327,7 +326,9 @@ impl HashExcept {
             format!("*{}", String::from_utf8_lossy(src))
         };
 
-        let loc = outer_call.message_loc().unwrap_or_else(|| outer_call.location());
+        let loc = outer_call
+            .message_loc()
+            .unwrap_or_else(|| outer_call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
