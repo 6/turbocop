@@ -1335,6 +1335,13 @@ caused by config/context differences, not a detection bug.
 3. If you cannot determine the root cause within 5 minutes, document your findings as
    a `///` comment on the cop struct and commit
 
+### When the pre-diagnostic contradicts existing doc comments
+If the pre-diagnostic classifies an example as **CODE BUG** but existing `///` doc
+comments on the cop struct say it's "not real" or a "corpus artifact," the
+pre-diagnostic takes precedence — it ran your current binary against the actual
+corpus source. Prior conclusions may have been based on incorrect manual
+verification. Investigate the example fresh rather than deferring to the doc comment.
+
 ### CRITICAL: Avoid regressions in the opposite direction
 When fixing FPs, your change MUST NOT suppress legitimate detections. When fixing FNs,
 your change MUST NOT flag code that RuboCop accepts. A fix that eliminates a few issues

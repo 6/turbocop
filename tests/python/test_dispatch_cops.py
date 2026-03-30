@@ -396,6 +396,43 @@ def test_config_only_classification():
     assert (False and 0 == 0 and 8 > 0) is False
 
 
+def test_generate_task_includes_diagnostic_contradiction_guidance(tmp_path):
+    """When pre-diagnostic says CODE BUG, the prompt should warn agents not to
+    defer to doc comments that say otherwise."""
+    # Create minimal fixtures and source
+    dept_dir = tmp_path / "src" / "cop" / "style"
+    dept_dir.mkdir(parents=True)
+    (dept_dir / "foo_bar.rs").write_text("pub struct FooBar;\n")
+    fix_dir = tmp_path / "tests" / "fixtures" / "cops" / "style" / "foo_bar"
+    fix_dir.mkdir(parents=True)
+    (fix_dir / "offense.rb").write_text("x = 1\n^ Style/FooBar: msg\n")
+    (fix_dir / "no_offense.rb").write_text("y = 2\n")
+
+    # Patch module-level constants and helpers
+    saved = {
+        "PROJECT_ROOT": gct.PROJECT_ROOT,
+        "get_corpus_data": gct.get_corpus_data,
+        "find_vendor_ruby_source": gct.find_vendor_ruby_source,
+        "find_vendor_spec": gct.find_vendor_spec,
+    }
+    gct.PROJECT_ROOT = tmp_path
+    gct.get_corpus_data = lambda *a, **kw: {
+        "fp": 0, "fn": 1, "matches": 100,
+        "repo_breakdown": {},
+        "fp_examples": [],
+        "fn_examples": [{"loc": "repo: file.rb:10", "msg": "missed"}],
+    }
+    gct.find_vendor_ruby_source = lambda *a: None
+    gct.find_vendor_spec = lambda *a: None
+    try:
+        task = gct.generate_task("Style/FooBar")
+        assert "When the pre-diagnostic contradicts existing doc comments" in task
+        assert "pre-diagnostic takes precedence" in task
+    finally:
+        for k, v in saved.items():
+            setattr(gct, k, v)
+
+
 def test_cmd_issues_sync_reopens_diverging_issue_and_closes_resolved_issue():
     calls = []
     original_funcs = {
