@@ -19,6 +19,14 @@ use crate::parse::source::SourceFile;
 /// `<<~GRAPHQL,` or `body: <<~BODY,` were rejected as if they were content.
 /// Fix: mirror RuboCop's heredoc path and, when any argument contains a heredoc,
 /// only search for a trailing comma on the same opener line.
+///
+/// Investigation (2026-03-30)
+///
+/// Root cause of 8 FNs: `is_heredoc_argument` did not recurse into explicit
+/// `HashNode` values (e.g., `{ text: <<-END }`), only `KeywordHashNode`. When a
+/// heredoc was nested inside a hash literal, `has_heredoc` was false, causing the
+/// scanner to read through heredoc body content and miss the trailing comma.
+/// Fix: add `HashNode` handling to `is_heredoc_argument`.
 pub struct TrailingCommaInArguments;
 
 /// Collect effective element locations, expanding any KeywordHashNode into its
@@ -120,6 +128,13 @@ fn is_heredoc_argument(node: &ruby_prism::Node<'_>) -> bool {
 
     if let Some(kw_hash) = node.as_keyword_hash_node() {
         return kw_hash
+            .elements()
+            .iter()
+            .any(|elem| is_heredoc_argument(&elem));
+    }
+
+    if let Some(hash) = node.as_hash_node() {
+        return hash
             .elements()
             .iter()
             .any(|elem| is_heredoc_argument(&elem));

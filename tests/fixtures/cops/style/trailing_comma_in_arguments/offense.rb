@@ -32,3 +32,10 @@ foo(
     hello
   BODY
 )
+
+foo(
+  a: { text: <<-END },
+                     ^ Style/TrailingCommaInArguments: Avoid comma after the last parameter of a method call.
+content
+  END
+)
