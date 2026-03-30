@@ -8,6 +8,21 @@ use ruby_prism::Visit;
 /// RSpec/VoidExpect: flags `expect(...)` or `expect { ... }` calls that are not
 /// chained with `.to`, `.not_to`, or `.to_not`.
 ///
+/// Investigation (0 FP, 1 FN -> 0 FP, 0 FN):
+///
+/// Root cause of the remaining FN: RuboCop's Parser-based `void?` check uses AST
+/// structural equality, not identity, for `parent.body == expect`. In
+/// `expect { expect }.to raise_error`, the inner bare `expect` inside the block is
+/// structurally identical to the outer block-form `expect` send. That makes
+/// RuboCop flag BOTH the outer `expect {` send and the inner bare `expect`.
+/// nitrocop was treating the outer block-form `expect` as non-void as soon as it
+/// saw the chained `.to`, so it missed the extra offense on the outer send.
+///
+/// Fix: when a matcher method chains off a direct block-form `expect`, compare the
+/// block body's sole statement against the outer `expect` send shape (receiverless
+/// `expect` with the same arguments). If they match, flag the outer `expect`
+/// instead of treating it as a valid chained expectation.
+///
 /// Investigation (0 FP, 6804 FN -> 0 FP, 0 FN):
 ///
 /// Root cause of 6,804 FNs: RuboCop's `void?` check uses the Parser AST's parent
@@ -152,16 +167,15 @@ struct VoidExpectVisitor<'a> {
     pending_begin_body: usize,
 }
 
-/// If the node is a DIRECT receiverless `expect` call (NOT wrapped in parentheses),
-/// return its start offset. Parenthesized expects like `(expect x)` are excluded
-/// because RuboCop treats them as void even when `.to` is chained.
-fn extract_direct_expect_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
-    if let Some(call) = node.as_call_node() {
-        if call.name().as_slice() == b"expect" && call.receiver().is_none() {
-            return Some(call.location().start_offset());
-        }
+fn extract_direct_expect_call<'pr>(
+    node: &ruby_prism::Node<'pr>,
+) -> Option<ruby_prism::CallNode<'pr>> {
+    let call = node.as_call_node()?;
+    if call.name().as_slice() == b"expect" && call.receiver().is_none() {
+        Some(call)
+    } else {
+        None
     }
-    None
 }
 
 /// If the node is a ParenthesesNode containing a single receiverless `expect` call,
@@ -181,7 +195,67 @@ fn extract_paren_expect_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
     None
 }
 
+fn call_args_match_by_source(
+    left: &ruby_prism::CallNode<'_>,
+    right: &ruby_prism::CallNode<'_>,
+) -> bool {
+    let left_args: Vec<_> = left
+        .arguments()
+        .map(|args| args.arguments().iter().collect())
+        .unwrap_or_default();
+    let right_args: Vec<_> = right
+        .arguments()
+        .map(|args| args.arguments().iter().collect())
+        .unwrap_or_default();
+
+    left_args.len() == right_args.len()
+        && left_args
+            .iter()
+            .zip(right_args.iter())
+            .all(|(left, right)| left.location().as_slice() == right.location().as_slice())
+}
+
+/// RuboCop's Parser AST checks `parent.body == expect` using structural equality.
+/// For `expect { expect }.to raise_error`, the outer block-form `expect` send is
+/// structurally equal to the block body's sole bare `expect`, so RuboCop flags the
+/// outer `expect` even though `.to` is chained on the full expression.
+fn block_body_matches_expect_send(call: &ruby_prism::CallNode<'_>) -> bool {
+    let block = match call.block().and_then(|block| block.as_block_node()) {
+        Some(block) => block,
+        None => return false,
+    };
+    let body = match block.body().and_then(|body| body.as_statements_node()) {
+        Some(body) => body,
+        None => return false,
+    };
+    let body_nodes: Vec<_> = body.body().iter().collect();
+    if body_nodes.len() != 1 {
+        return false;
+    }
+    let inner = match extract_direct_expect_call(&body_nodes[0]) {
+        Some(inner) => inner,
+        None => return false,
+    };
+
+    inner.block().is_none()
+        && inner.receiver().is_none()
+        && call.receiver().is_none()
+        && inner.name().as_slice() == call.name().as_slice()
+        && call_args_match_by_source(call, &inner)
+}
+
 impl VoidExpectVisitor<'_> {
+    fn add_offense_at_offset(&mut self, offset: usize) {
+        let (line, column) = self.source.offset_to_line_col(offset);
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it."
+                .to_string(),
+        ));
+    }
+
     /// Check if a statement is a void expect call and flag it if so.
     fn check_void_expect_stmt(&mut self, stmt: &ruby_prism::Node<'_>) {
         // Direct expect call as a statement
@@ -189,13 +263,7 @@ impl VoidExpectVisitor<'_> {
             if call.name().as_slice() == b"expect" && call.receiver().is_none() {
                 let offset = call.location().start_offset();
                 if !self.chained_expect_offsets.contains(&offset) {
-                    let (line, column) = self.source.offset_to_line_col(offset);
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.".to_string(),
-                    ));
+                    self.add_offense_at_offset(offset);
                 }
             }
         }
@@ -203,13 +271,7 @@ impl VoidExpectVisitor<'_> {
         // Always void per RuboCop (parens create begin parent)
         if let Some(offset) = extract_paren_expect_offset(stmt) {
             if !self.chained_expect_offsets.contains(&offset) {
-                let (line, column) = self.source.offset_to_line_col(offset);
-                self.diagnostics.push(self.cop.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    "Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.".to_string(),
-                ));
+                self.add_offense_at_offset(offset);
                 // Mark as handled so inner StatementsNode visit doesn't double-flag
                 self.chained_expect_offsets.push(offset);
             }
@@ -226,21 +288,21 @@ impl Visit<'_> for VoidExpectVisitor<'_> {
         // 2. Parenthesized expect receiver -> flag as void (RuboCop's begin_type? logic)
         if MATCHER_METHODS.iter().any(|m| name.as_slice() == *m) {
             if let Some(receiver) = node.receiver() {
-                if let Some(offset) = extract_direct_expect_offset(&receiver) {
-                    self.chained_expect_offsets.push(offset);
+                if let Some(expect_call) = extract_direct_expect_call(&receiver) {
+                    let offset = expect_call.location().start_offset();
+                    if self.in_example > 0 && block_body_matches_expect_send(&expect_call) {
+                        self.add_offense_at_offset(offset);
+                        self.chained_expect_offsets.push(offset);
+                    } else {
+                        self.chained_expect_offsets.push(offset);
+                    }
                 }
                 // Parenthesized expects like `(expect x).to be 1` are void per RuboCop:
                 // parens create a begin node parent for the expect send, and begin_type?
                 // makes void? return true regardless of the outer .to chain.
                 if self.in_example > 0 {
                     if let Some(offset) = extract_paren_expect_offset(&receiver) {
-                        let (line, column) = self.source.offset_to_line_col(offset);
-                        self.diagnostics.push(self.cop.diagnostic(
-                            self.source,
-                            line,
-                            column,
-                            "Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.".to_string(),
-                        ));
+                        self.add_offense_at_offset(offset);
                         // Mark as handled so visit_statements_node doesn't flag it again
                         // when visiting the StatementsNode inside the ParenthesesNode.
                         self.chained_expect_offsets.push(offset);
@@ -375,6 +437,22 @@ impl Visit<'_> for VoidExpectVisitor<'_> {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(VoidExpect, "cops/rspec/void_expect");
+
+    #[test]
+    fn chained_block_expect_with_nested_bare_expect_is_void_twice() {
+        use crate::testutil::run_cop_full;
+        let cop = VoidExpect;
+
+        let d = run_cop_full(
+            &cop,
+            b"it 'test' do\n  expect {\n    expect\n  }.to raise_error(ArgumentError)\nend\n",
+        );
+        assert_eq!(
+            d.len(),
+            2,
+            "expected outer block-form expect and inner bare expect to both be void: {d:?}"
+        );
+    }
 
     #[test]
     fn explicit_begin_end_not_void() {

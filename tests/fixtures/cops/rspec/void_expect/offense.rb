@@ -55,3 +55,13 @@ it 'parenthesized chained not_to' do
   (expect result).not_to eq(2)
    ^^^^^^^^^^^^^ RSpec/VoidExpect: Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.
 end
+
+# Chained block-form expect is still void when the block body is a bare `expect`
+# that is structurally identical to the outer expect send.
+it 'nested bare expect in block expectation' do
+  expect {
+  ^^^^^^ RSpec/VoidExpect: Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.
+    expect
+    ^^^^^^ RSpec/VoidExpect: Do not use `expect()` without `.to` or `.not_to`. Chain the methods or remove it.
+  }.to raise_error(ArgumentError)
+end
