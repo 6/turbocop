@@ -1,7 +1,9 @@
 use crate::cop::node_type::{
     BLOCK_NODE, BLOCK_PARAMETER_NODE, DEF_NODE, KEYWORD_REST_PARAMETER_NODE, LAMBDA_NODE,
-    LOCAL_VARIABLE_WRITE_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE,
-    REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, REST_PARAMETER_NODE,
+    LOCAL_VARIABLE_AND_WRITE_NODE, LOCAL_VARIABLE_OPERATOR_WRITE_NODE,
+    LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_TARGET_NODE, LOCAL_VARIABLE_WRITE_NODE,
+    OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE,
+    REQUIRED_PARAMETER_NODE, REST_PARAMETER_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -19,6 +21,12 @@ const PARAMETER_MSG: &str = "`it` is the default block parameter; consider anoth
 /// params like `def foo(it)`, `def foo(*it)`, `def foo(it:)`, `def foo(**it)`,
 /// and `def foo(&it)`. Fix: dispatch on the corresponding Prism parameter node
 /// types and report when the parameter name is exactly `it`.
+///
+/// Additionally, compound assignment forms (`it ||= 0`, `it &&= 0`, `it += 1`)
+/// and multi-write targets (`it ,= expr`) were missed because they use
+/// `LocalVariableOrWriteNode`, `LocalVariableAndWriteNode`,
+/// `LocalVariableOperatorWriteNode`, and `LocalVariableTargetNode` respectively,
+/// not `LocalVariableWriteNode`. Fix: dispatch on those node types as well.
 pub struct ItAssignment;
 
 impl Cop for ItAssignment {
@@ -33,6 +41,10 @@ impl Cop for ItAssignment {
             DEF_NODE,
             KEYWORD_REST_PARAMETER_NODE,
             LAMBDA_NODE,
+            LOCAL_VARIABLE_AND_WRITE_NODE,
+            LOCAL_VARIABLE_OPERATOR_WRITE_NODE,
+            LOCAL_VARIABLE_OR_WRITE_NODE,
+            LOCAL_VARIABLE_TARGET_NODE,
             LOCAL_VARIABLE_WRITE_NODE,
             OPTIONAL_KEYWORD_PARAMETER_NODE,
             OPTIONAL_PARAMETER_NODE,
@@ -83,6 +95,34 @@ impl Cop for ItAssignment {
                     ASSIGNMENT_MSG,
                     diagnostics,
                 );
+            }
+            return;
+        }
+
+        if let Some(write_node) = node.as_local_variable_or_write_node() {
+            if write_node.name().as_slice() == b"it" {
+                add_offense(self, source, &write_node.name_loc(), PARAMETER_MSG, diagnostics);
+            }
+            return;
+        }
+
+        if let Some(write_node) = node.as_local_variable_and_write_node() {
+            if write_node.name().as_slice() == b"it" {
+                add_offense(self, source, &write_node.name_loc(), PARAMETER_MSG, diagnostics);
+            }
+            return;
+        }
+
+        if let Some(write_node) = node.as_local_variable_operator_write_node() {
+            if write_node.name().as_slice() == b"it" {
+                add_offense(self, source, &write_node.name_loc(), PARAMETER_MSG, diagnostics);
+            }
+            return;
+        }
+
+        if let Some(target_node) = node.as_local_variable_target_node() {
+            if target_node.name().as_slice() == b"it" {
+                add_offense(self, source, &target_node.location(), PARAMETER_MSG, diagnostics);
             }
             return;
         }
