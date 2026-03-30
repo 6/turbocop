@@ -3,6 +3,11 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Matches both explicit- and implicit-receiver `is_a?`/`kind_of?` sends.
+///
+/// The corpus false negatives here were receiverless calls such as
+/// `if kind_of?(ExtManagementSystem)`, which RuboCop flags via `on_send`.
+/// The previous implementation returned early unless Prism reported a receiver.
 pub struct ClassCheck;
 
 impl Cop for ClassCheck {
@@ -38,11 +43,6 @@ impl Cop for ClassCheck {
             return;
         }
 
-        // Must have a receiver
-        if call_node.receiver().is_none() {
-            return;
-        }
-
         // Check against enforced style
         let (prefer, current) = if enforced_style == "is_a?" {
             ("is_a?", "kind_of?")
@@ -71,5 +71,21 @@ impl Cop for ClassCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     crate::cop_fixture_tests!(ClassCheck, "cops/style/class_check");
+
+    #[test]
+    fn flags_receiverless_is_a_when_kind_of_is_enforced() {
+        let mut config = CopConfig::default();
+        config.options.insert(
+            "EnforcedStyle".to_string(),
+            serde_yml::Value::String("kind_of?".into()),
+        );
+
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &ClassCheck,
+            b"is_a?(Date)\n^^^^^ Style/ClassCheck: Prefer `Object#kind_of?` over `Object#is_a?`.\n",
+            config,
+        );
+    }
 }
