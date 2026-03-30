@@ -104,3 +104,10 @@ class ReceiverCalls
   singleton_class.prepend SomeModule
   ^^^^^^^^^^^^^^^ Layout/ClassStructure: `module_inclusion` is supposed to appear before `public_methods`.
 end
+
+class InitializerBlockTraversal
+  initializer "lucide-rails.helper" do
+    ActionView::Base.include LucideRails::RailsHelper
+    ^^^^^^^^^^^^^^^^ Layout/ClassStructure: `module_inclusion` is supposed to appear before `initializer`.
+  end
+end

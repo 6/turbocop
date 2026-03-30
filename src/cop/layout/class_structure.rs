@@ -53,6 +53,16 @@ use crate::parse::source::SourceFile;
 /// the methods keep their section visibility (e.g., `private`), so no ordering
 /// violation occurs. Fixed by requiring exactly one argument in
 /// `find_inline_visibility`.
+///
+/// ## Investigation findings (2026-03-30)
+///
+/// **Root cause of 1 FN:** when a class body consisted of a single block-backed
+/// call like `initializer "x" do ... end`, nitrocop only iterated the outer
+/// `CallNode`. RuboCop's `class_elements` effectively compares both the
+/// `initializer` send and the single block body node, which means
+/// `ActionView::Base.include ...` inside that block can be ordered against the
+/// initializer itself. Fixed by expanding only single-statement class bodies
+/// with a real `BlockNode`, leaving multi-statement class bodies unchanged.
 pub struct ClassStructure;
 
 /// Default expected order (matches vendor/rubocop/config/default.yml).
@@ -122,11 +132,6 @@ impl Cop for ClassStructure {
             None => return,
         };
 
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
-        };
-
         // Build expected order from config (or defaults).
         let expected_order: Vec<String> =
             config.get_string_array("ExpectedOrder").unwrap_or_else(|| {
@@ -143,7 +148,7 @@ impl Cop for ClassStructure {
         let mut current_visibility = "public";
         let mut previous_index: Option<usize> = None;
 
-        let all_stmts: Vec<_> = stmts.body().iter().collect();
+        let all_stmts = class_elements(body);
 
         for (idx, stmt) in all_stmts.iter().enumerate() {
             // Track visibility changes (bare private/protected/public without args)
@@ -213,6 +218,47 @@ impl Cop for ClassStructure {
             previous_index = Some(order_index);
         }
     }
+}
+
+/// Mirror RuboCop's `class_elements` for Prism:
+/// - normal multi-statement class bodies use their top-level statements
+/// - a single block-backed call exposes both the outer call and the block body
+fn class_elements<'a>(body: ruby_prism::Node<'a>) -> Vec<ruby_prism::Node<'a>> {
+    if let Some(stmts) = body.as_statements_node() {
+        let stmts: Vec<_> = stmts.body().iter().collect();
+        if stmts.len() == 1 {
+            return expand_block_body(stmts.into_iter().next().unwrap());
+        }
+        return stmts;
+    }
+
+    expand_block_body(body)
+}
+
+fn expand_block_body<'a>(stmt: ruby_prism::Node<'a>) -> Vec<ruby_prism::Node<'a>> {
+    let block_body = stmt
+        .as_call_node()
+        .and_then(|call| call.block())
+        .and_then(|block| block.as_block_node())
+        .and_then(|block| block.body())
+        .map(single_statement_or_self);
+
+    let mut elements = vec![stmt];
+    if let Some(body) = block_body {
+        elements.push(body);
+    }
+
+    elements
+}
+
+fn single_statement_or_self<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
+    if let Some(stmts) = node.as_statements_node() {
+        if stmts.body().len() == 1 {
+            return stmts.body().iter().next().unwrap();
+        }
+    }
+
+    node
 }
 
 /// Build a map from method_name -> category_name from the Categories config.
