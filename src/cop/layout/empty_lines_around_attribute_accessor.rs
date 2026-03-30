@@ -188,7 +188,11 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         let block_node = call.block().and_then(|node| node.as_block_node());
         let has_attached_block = block_node.is_some();
         let separator_line = block_node
-            .map(|block| source.offset_to_line_col(block.opening_loc().start_offset()).0)
+            .map(|block| {
+                source
+                    .offset_to_line_col(block.opening_loc().start_offset())
+                    .0
+            })
             .unwrap_or(call_end_line);
 
         // If there is non-whitespace, non-comment content after the call's end on the
@@ -514,10 +518,7 @@ fn has_modifier_conditional(trimmed: &[u8]) -> bool {
         || contains_standalone_keyword_outside_strings_or_comments(trimmed, b"unless")
 }
 
-fn contains_standalone_keyword_outside_strings_or_comments(
-    source: &[u8],
-    keyword: &[u8],
-) -> bool {
+fn contains_standalone_keyword_outside_strings_or_comments(source: &[u8], keyword: &[u8]) -> bool {
     let mut i = 0;
     let mut in_single = false;
     let mut in_double = false;
