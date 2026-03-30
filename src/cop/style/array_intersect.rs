@@ -80,9 +80,7 @@ fn extract_intersection_parts(node: &ruby_prism::Node<'_>) -> Option<(String, St
     None
 }
 
-fn single_body_expression<'a>(
-    body: ruby_prism::Node<'a>,
-) -> Option<ruby_prism::Node<'a>> {
+fn single_body_expression<'a>(body: ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
     if let Some(stmts) = body.as_statements_node() {
         let mut stmt_iter = stmts.body().iter();
         let first = stmt_iter.next()?;
@@ -96,9 +94,7 @@ fn single_body_expression<'a>(
     }
 }
 
-fn explicit_block_param_matches(
-    params: &ruby_prism::BlockParametersNode<'_>,
-) -> Option<Vec<u8>> {
+fn explicit_block_param_matches(params: &ruby_prism::BlockParametersNode<'_>) -> Option<Vec<u8>> {
     let inner = params.parameters()?;
     let requireds: Vec<_> = inner.requireds().iter().collect();
     if requireds.len() != 1
@@ -149,7 +145,9 @@ fn extract_member_block_parts(
             .as_local_variable_read_node()
             .is_some_and(|arg| arg.name().as_slice() == b"_1")
     } else if ruby_version >= 3.4 && params.as_it_parameters_node().is_some() {
-        member_arg_list[0].as_it_local_variable_read_node().is_some()
+        member_arg_list[0]
+            .as_it_local_variable_read_node()
+            .is_some()
     } else {
         false
     };
@@ -221,10 +219,7 @@ impl Cop for ArrayIntersect {
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let existing = source.byte_slice(
                     loc.start_offset(),
-                    call.block()
-                        .unwrap()
-                        .location()
-                        .end_offset(),
+                    call.block().unwrap().location().end_offset(),
                     "array1.any? { |e| array2.member?(e) }",
                 );
                 let bang = if method_name == "none?" { "!" } else { "" };
