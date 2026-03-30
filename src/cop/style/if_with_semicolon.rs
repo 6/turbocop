@@ -86,9 +86,9 @@ use ruby_prism::Visit;
 /// `if params[:layer] == '*' and query[:resource] == :objects` followed by a
 /// standalone `;` body on the next line. Re-verified directly with RuboCop on
 /// 2026-03-30: the extracted source is NOT an offense; only the same predicate
-/// with a same-line `;` then-keyword is flagged. Kept detection unchanged and
-/// added a no-offense fixture for the exact extracted shape to guard against
-/// broadening this cop away from RuboCop.
+/// with a same-line `;` then-keyword is flagged. Detection stays unchanged.
+/// The fix for this route was correcting the fixture expectation so the
+/// standalone-body `;` shape remains covered as a no-offense regression test.
 pub struct IfWithSemicolon;
 
 impl Cop for IfWithSemicolon {
