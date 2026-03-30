@@ -34,3 +34,12 @@ described_class.new(
     time_precision: "s",
   }.merge(args)
 )
+
+logger.success(label: type, **({ duration: duration.round(2), meta: meta }.merge(arguments)))
+                            ^ Style/RedundantDoubleSplatHashBraces: Remove the redundant double splat and braces, use keyword arguments directly.
+
+{a: 1, **{b: 2}, c: 3}.should == {a: 1, b: 2, c: 3}
+       ^ Style/RedundantDoubleSplatHashBraces: Remove the redundant double splat and braces, use keyword arguments directly.
+
+h = { **{ a: 1 } }
+      ^ Style/RedundantDoubleSplatHashBraces: Remove the redundant double splat and braces, use keyword arguments directly.

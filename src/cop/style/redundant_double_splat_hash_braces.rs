@@ -1,20 +1,24 @@
-use crate::cop::node_type::KEYWORD_HASH_NODE;
+use crate::cop::node_type::{HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 const MSG: &str = "Remove the redundant double splat and braces, use keyword arguments directly.";
 
-/// Flags keyword splats whose value is a braced hash literal, including
-/// `**{...}.merge(...)` and `**{...}.merge!(...)` chains.
+/// Flags redundant double-splat hash braces in both method-call keyword hashes
+/// and plain hash literals, including `**({ ... }.merge(...))` forms.
 ///
-/// Corpus investigation (2026-03-30): 0 FP, 59 FN, 136 matches.
+/// Corpus investigation (2026-03-30): 193 matches, 0 FP, 2 FN.
 ///
-/// Nitrocop only handled a direct `HashNode` value under `**`, so it missed
-/// RuboCop offenses where Prism wraps the braced hash in a `CallNode` for
-/// `.merge`/`.merge!`. Fix: walk merge-call receivers from the keyword splat
-/// value and only flag when the chain bottoms out at a non-empty braced hash
-/// without hash-rocket pairs.
+/// The remaining misses were:
+/// 1. Prism wraps `**({ ... }.merge(args))` in `ParenthesesNode`/`StatementsNode`
+///    before the merge call.
+/// 2. Hash literals like `{ a: 1, **{ b: 2 } }` use `HashNode`, not
+///    `KeywordHashNode`.
+///
+/// Fix: visit both hash node kinds and unwrap grouped expressions before
+/// following `merge`/`merge!` receiver chains down to a non-empty braced hash
+/// with only keyword-style pairs.
 pub struct RedundantDoubleSplatHashBraces;
 
 impl Cop for RedundantDoubleSplatHashBraces {
@@ -23,7 +27,7 @@ impl Cop for RedundantDoubleSplatHashBraces {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[KEYWORD_HASH_NODE]
+        &[HASH_NODE, KEYWORD_HASH_NODE]
     }
 
     fn check_node(
@@ -35,19 +39,38 @@ impl Cop for RedundantDoubleSplatHashBraces {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Look for **{key: val, ...} in keyword arguments (KeywordHashNode in method calls)
-        // Only check KeywordHashNode (method call keyword args), not plain HashNode
-        let keyword_hash = match node.as_keyword_hash_node() {
-            Some(kh) => kh,
-            None => return,
+        let elements: Vec<ruby_prism::Node<'_>> = if let Some(keyword_hash) = node.as_keyword_hash_node()
+        {
+            keyword_hash.elements().iter().collect()
+        } else if let Some(hash) = node.as_hash_node() {
+            hash.elements().iter().collect()
+        } else {
+            return;
         };
 
-        diagnostics.extend(self.check_hash_elements(source, keyword_hash.elements().iter()));
+        diagnostics.extend(self.check_hash_elements(source, elements.into_iter()));
     }
 }
 
 impl RedundantDoubleSplatHashBraces {
     fn redundant_hash(value: &ruby_prism::Node<'_>) -> bool {
+        if let Some(parentheses) = value.as_parentheses_node() {
+            return parentheses
+                .body()
+                .is_some_and(|body| Self::redundant_hash(&body));
+        }
+
+        if let Some(statements) = value.as_statements_node() {
+            let mut body = statements.body().iter();
+            let Some(first) = body.next() else {
+                return false;
+            };
+            if body.next().is_some() {
+                return false;
+            }
+            return Self::redundant_hash(&first);
+        }
+
         if let Some(hash) = value.as_hash_node() {
             return Self::convertible_hash(&hash);
         }
