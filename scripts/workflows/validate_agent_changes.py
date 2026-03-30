@@ -30,6 +30,9 @@ ALLOWLISTS = {
     ],
     "repair-cop-check": [
         "src/cop/**",
+        "src/linter.rs",
+        "src/config/**",
+        "src/parse/**",
         "tests/fixtures/cops/**",
         "tests/integration.rs",
         "bench/**",

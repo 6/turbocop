@@ -78,8 +78,15 @@ use crate::parse::source::SourceFile;
 ///   the else_branch is both `if_type?` AND `elsif?` (keyword is 'elsif', not 'if').
 ///   In Prism, `elsif` subsequents are IfNodes while `else` subsequents are ElseNodes.
 ///   Fix: check that `if_node.subsequent()` is a direct IfNode before processing.
-///   The 6 FNs are 2-branch+else chains where the repos configure MinBranchesCount=2;
-///   RuboCop with default MinBranchesCount=3 does not flag them.
+/// - 2026-03-30 recheck of the remaining 6 corpus FN:
+///   - Added a full-context Discourse-derived fixture, and it passes without logic changes.
+///   - A standalone nitrocop smoke test with `Style/CaseLikeIf: MinBranchesCount: 2`
+///     correctly flags a 2-branch+else chain, so this cop does honor lowered branch counts.
+///   - `chatwoot/chatwoot@1345f6796609d867a2ef8f0b6c968eb63a54e8aa` explicitly sets
+///     `Style/CaseLikeIf: Enabled: false` in `.rubocop.yml`, yet the oracle still
+///     reports that file as an FN.
+///   - Conclusion: the remaining corpus FN do not reproduce as detection bugs in this
+///     file and point to corpus/config-context mismatch outside the cop implementation.
 pub struct CaseLikeIf;
 
 impl Cop for CaseLikeIf {
@@ -622,5 +629,24 @@ fn is_class_reference(node: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::assert_cop_offenses_full_with_config;
+    use std::collections::HashMap;
+
     crate::cop_fixture_tests!(CaseLikeIf, "cops/style/case_like_if");
+
+    #[test]
+    fn honors_min_branches_count_two_for_two_branch_else_chain() {
+        let fixture = b"if resource == 'export'\n^^^^^^^^^^^^^^^^^^^^^^^ Style/CaseLikeIf: Convert `if-elsif` to `case-when`.\n  1\nelsif resource == 'import'\n  2\nelse\n  3\nend\n";
+        let mut options = HashMap::new();
+        options.insert(
+            "MinBranchesCount".to_string(),
+            serde_yml::Value::Number(2.into()),
+        );
+        let config = CopConfig {
+            options,
+            ..CopConfig::default()
+        };
+
+        assert_cop_offenses_full_with_config(&CaseLikeIf, fixture, config);
+    }
 }
