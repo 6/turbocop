@@ -40,3 +40,11 @@ changes = `git rev-list v#{ENV["PREVIOUS_VERSION"]}..HEAD | bundle exec github_f
 
 `#{taylor("squash --stdout")}`
           ^ Style/StringLiterals: Prefer single-quoted strings when you don't need string interpolation or special symbols.
+
+s.files = `git ls-files`.split("
+                               ^ Style/StringLiterals: Prefer single-quoted strings when you don't need string interpolation or special symbols.
+")
+
+notice = "Only in a/both_dirs: sub_a_only_dir
+         ^ Style/StringLiterals: Prefer single-quoted strings when you don't need string interpolation or special symbols.
+"

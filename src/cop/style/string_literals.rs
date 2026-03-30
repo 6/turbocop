@@ -4,13 +4,17 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Investigation findings (2026-03-29): the remaining FNs came from ordinary
-/// string literals inside backtick xstring interpolations like
-/// `` `#{command.join(" ")}` `` and `` `...#{ENV["PREVIOUS_VERSION"]}...` ``.
-/// The previous visitor treated every `#{}` as `inside_interpolation`, which is
-/// correct for dstr/dsym/regexp but wrong for xstrings. Track xstring context
-/// separately so strings inside xstring interpolation are checked as regular
-/// code, while nested dstr/dsym/regexp interpolations still stay skipped.
+/// Investigation findings:
+/// - 2026-03-29: ordinary string literals inside backtick xstring
+///   interpolations like `` `#{command.join(" ")}` `` must still be checked,
+///   while nested dstr/dsym/regexp interpolations remain skipped.
+/// - 2026-03-30: some repos enable `ConsistentQuotesInMultiline`, and Prism
+///   parses plain multiline literals like `split("\n")` and `"Only in ...\n"`
+///   as `StringNode`s instead of multiline `dstr`s. The corpus oracle also
+///   expects the narrow `single line + trailing newline` `StringNode` form to
+///   be checked even with the default config. Only skip multiline `StringNode`s
+///   when they are the broader multi-line-body form RuboCop still accepts by
+///   default.
 pub struct StringLiterals;
 
 impl Cop for StringLiterals {
@@ -113,11 +117,10 @@ impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
 
         let content = node.content_loc().as_slice();
 
-        // When ConsistentQuotesInMultiline is enabled, skip multiline strings —
-        // these should be checked for consistency as a group (not individually)
-        if self.consistent_multiline && content.contains(&b'\n') {
-            return;
-        }
+        let is_multiline = content.contains(&b'\n');
+        let ends_with_newline = content.last() == Some(&b'\n');
+        let newline_count = content.iter().filter(|&&b| b == b'\n').count();
+        let default_multiline_offense = ends_with_newline && newline_count == 1;
 
         match self.enforced_style.as_str() {
             "single_quotes" => {
@@ -127,8 +130,10 @@ impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
                     if self.in_interpolation {
                         return;
                     }
-                    // Skip multi-line strings — RuboCop doesn't flag these
-                    if content.contains(&b'\n') {
+                    // By default RuboCop skips plain multiline StringNode
+                    // literals, but `ConsistentQuotesInMultiline: true`
+                    // re-enables them.
+                    if is_multiline && !self.consistent_multiline && !default_multiline_offense {
                         return;
                     }
                     // Check if single quotes can be used:
@@ -164,9 +169,10 @@ impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
                     {
                         return;
                     }
-                    // Skip multi-line strings — RuboCop doesn't flag these
-                    // in the per-string StringLiterals check.
-                    if content.contains(&b'\n') {
+                    // By default RuboCop skips plain multiline StringNode
+                    // literals, but `ConsistentQuotesInMultiline: true`
+                    // re-enables them.
+                    if is_multiline && !self.consistent_multiline && !default_multiline_offense {
                         return;
                     }
                     // Skip if this string is inside a #{ } interpolation context —
@@ -233,13 +239,39 @@ fn needs_double_quotes(content: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     crate::cop_fixture_tests!(StringLiterals, "cops/style/string_literals");
+
+    fn consistent_multiline_config() -> CopConfig {
+        CopConfig {
+            options: HashMap::from([(
+                "ConsistentQuotesInMultiline".into(),
+                serde_yml::Value::Bool(true),
+            )]),
+            ..CopConfig::default()
+        }
+    }
+
+    fn consistent_multiline_double_quotes_config() -> CopConfig {
+        CopConfig {
+            options: HashMap::from([
+                (
+                    "ConsistentQuotesInMultiline".into(),
+                    serde_yml::Value::Bool(true),
+                ),
+                (
+                    "EnforcedStyle".into(),
+                    serde_yml::Value::String("double_quotes".into()),
+                ),
+            ]),
+            ..CopConfig::default()
+        }
+    }
 
     #[test]
     fn config_double_quotes() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -261,7 +293,6 @@ mod tests {
     #[test]
     fn double_quotes_skips_inside_interpolation() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -283,7 +314,6 @@ mod tests {
     #[test]
     fn double_quotes_skips_string_containing_double_quotes() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -304,7 +334,6 @@ mod tests {
     #[test]
     fn double_quotes_skips_hash_brace_content() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -325,9 +354,8 @@ mod tests {
     }
 
     #[test]
-    fn double_quotes_skips_multiline_strings() {
+    fn double_quotes_skips_non_trailing_multiline_strings() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -336,12 +364,14 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        // Multi-line single-quoted string should NOT be flagged
-        let source = b"x = '\n  hello\n  world\n'\n";
+        // Non-trailing multi-line single-quoted strings should still be
+        // skipped by default. The trailing-newline form is covered
+        // separately by the corpus regression tests.
+        let source = b"x = 'hello\n  world'\n";
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
         assert!(
             diags.is_empty(),
-            "Should not flag multi-line single-quoted string: {:?}",
+            "Should not flag non-trailing multi-line single-quoted string: {:?}",
             diags
         );
     }
@@ -349,7 +379,6 @@ mod tests {
     #[test]
     fn double_quotes_flags_string_inside_hash() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -371,7 +400,6 @@ mod tests {
     #[test]
     fn double_quotes_flags_string_after_earlier_interpolation() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -397,7 +425,6 @@ mod tests {
     #[test]
     fn double_quotes_flags_escaped_backslash_in_single_quotes() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -420,7 +447,6 @@ mod tests {
     #[test]
     fn double_quotes_flags_escaped_single_quote() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -443,7 +469,6 @@ mod tests {
     #[test]
     fn double_quotes_skips_hash_at_content() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -465,7 +490,6 @@ mod tests {
     #[test]
     fn double_quotes_skips_hash_dollar_content() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -487,7 +511,6 @@ mod tests {
     #[test]
     fn double_quotes_skips_backslash_n_content() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -509,7 +532,6 @@ mod tests {
     #[test]
     fn double_quotes_flags_plain_hash() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
@@ -530,22 +552,88 @@ mod tests {
     }
 
     #[test]
-    fn consistent_multiline_skips_multiline_strings() {
+    fn consistent_multiline_still_skips_strings_that_require_double_quotes() {
         use crate::testutil::run_cop_full_with_config;
-        use std::collections::HashMap;
 
-        let config = CopConfig {
-            options: HashMap::from([(
-                "ConsistentQuotesInMultiline".into(),
-                serde_yml::Value::Bool(true),
-            )]),
-            ..CopConfig::default()
-        };
-        // Multiline string with double quotes should not be flagged when ConsistentQuotesInMultiline is true
+        let config = consistent_multiline_config();
+        // The string contains \n (escape), so single quotes still can't be used
+        // even when multiline checking is enabled.
         let source = b"x = \"hello\\nworld\"\n";
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
-        // The string contains \n (escape), so single quotes can't be used — shouldn't fire anyway
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn consistent_multiline_offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &StringLiterals,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/string_literals/consistent_multiline_offense.rb"
+            ),
+            consistent_multiline_config(),
+        );
+    }
+
+    #[test]
+    fn default_config_flags_trailing_newline_multiline_string_nodes() {
+        use crate::testutil::run_cop_full;
+
+        let source = b"s.files = `git ls-files`.split(\"\n\")\n";
+        let diags = run_cop_full(&StringLiterals, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Default config should flag trailing-newline multiline StringNodes: {:?}",
+            diags
+        );
+        assert_eq!(diags[0].location.line, 1);
+        assert_eq!(diags[0].location.column, 31);
+    }
+
+    #[test]
+    fn default_config_still_skips_non_trailing_multiline_string_nodes() {
+        use crate::testutil::run_cop_full;
+
+        let source = b"sql = \"SELECT * FROM foo\n       WHERE bar = baz\"\n";
+        let diags = run_cop_full(&StringLiterals, source);
+        assert!(
+            diags.is_empty(),
+            "Default config should still skip non-trailing multiline StringNodes: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn default_config_still_skips_multiple_line_body_strings() {
+        use crate::testutil::run_cop_full;
+
+        let source = b"x = \"a\nb\n\"\n";
+        let diags = run_cop_full(&StringLiterals, source);
+        assert!(
+            diags.is_empty(),
+            "Default config should skip multi-line-body StringNodes: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn consistent_multiline_double_quotes_flags_multiline_single_quoted_strings() {
+        use crate::testutil::run_cop_full_with_config;
+
+        let source = b"x = '\nhello\n'\n";
+        let diags = run_cop_full_with_config(
+            &StringLiterals,
+            source,
+            consistent_multiline_double_quotes_config(),
+        );
+        assert_eq!(
+            diags.len(),
+            1,
+            "Consistent multiline double_quotes config should flag multiline single quotes: {:?}",
+            diags
+        );
+        assert_eq!(diags[0].location.line, 1);
+        assert_eq!(diags[0].location.column, 4);
     }
 
     #[test]
