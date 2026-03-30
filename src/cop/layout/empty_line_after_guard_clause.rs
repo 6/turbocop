@@ -2038,8 +2038,7 @@ fn has_open_top_level_ternary(content: &[u8]) -> bool {
                 }
             }
             b':' if depth == 0 && saw_top_level_ternary_question => {
-                let preceded_by_separator =
-                    i > 0 && matches!(content[i - 1], b' ' | b'\t' | b')');
+                let preceded_by_separator = i > 0 && matches!(content[i - 1], b' ' | b'\t' | b')');
                 if preceded_by_separator {
                     return false;
                 }
