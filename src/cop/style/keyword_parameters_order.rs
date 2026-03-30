@@ -1,11 +1,18 @@
 use crate::cop::node_type::{
-    BLOCK_NODE, BLOCK_PARAMETERS_NODE, DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE,
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, DEF_NODE, LAMBDA_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE,
     REQUIRED_KEYWORD_PARAMETER_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03-30): RuboCop flags optional keyword
+/// parameters before required keyword parameters in stabby lambdas such as
+/// `->(_a, key: nil, foo:) {}`. Nitrocop only inspected `DefNode` and
+/// `BlockNode`, but Prism represents `->` literals as `LambdaNode` with nested
+/// `BlockParametersNode`, so lambda keyword parameters were skipped. Fixed by
+/// handling `LAMBDA_NODE` and extracting lambda parameters through the same
+/// block-parameter path.
 pub struct KeywordParametersOrder;
 
 impl Cop for KeywordParametersOrder {
@@ -18,6 +25,7 @@ impl Cop for KeywordParametersOrder {
             BLOCK_NODE,
             BLOCK_PARAMETERS_NODE,
             DEF_NODE,
+            LAMBDA_NODE,
             OPTIONAL_KEYWORD_PARAMETER_NODE,
             REQUIRED_KEYWORD_PARAMETER_NODE,
         ]
@@ -32,11 +40,21 @@ impl Cop for KeywordParametersOrder {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Check both def and block parameters
+        // Check def, block, and lambda parameters
         let parameters = if let Some(def_node) = node.as_def_node() {
             def_node.parameters()
         } else if let Some(block_node) = node.as_block_node() {
             if let Some(params) = block_node.parameters() {
+                if let Some(bp) = params.as_block_parameters_node() {
+                    bp.parameters()
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else if let Some(lambda_node) = node.as_lambda_node() {
+            if let Some(params) = lambda_node.parameters() {
                 if let Some(bp) = params.as_block_parameters_node() {
                     bp.parameters()
                 } else {
