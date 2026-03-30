@@ -7,11 +7,12 @@ use crate::parse::source::SourceFile;
 
 /// Style/HashSyntax: checks hash literal syntax (rocket vs ruby19).
 ///
-/// Fixed: quoted symbol keys like `:"chef version"` were incorrectly treated as
-/// unconvertible, causing the entire hash to be skipped. RuboCop considers these
-/// convertible to `"chef version":` syntax (available since Ruby 2.2). Added
-/// `is_acceptable_19_symbol` that checks both simple identifiers and quoted symbols
-/// via `opening_loc()`.
+/// Fixed: quoted symbol keys like `:"chef version"` and interpolated symbol keys
+/// like `:"#{field}_string"` were incorrectly treated as unconvertible. Prism
+/// parses the latter as `InterpolatedSymbolNode`, but RuboCop's `any_sym_type?`
+/// treats both forms as symbol keys. The cop now accepts both plain and
+/// interpolated quoted symbols when deciding whether `=>` can become Ruby 1.9
+/// label syntax on Ruby >= 2.2.
 pub struct HashSyntax;
 
 impl Cop for HashSyntax {
@@ -94,14 +95,8 @@ impl Cop for HashSyntax {
                         None => return false,
                     };
                     let key = assoc.key();
-                    match key.as_symbol_node() {
-                        Some(ref sym) => !is_acceptable_19_symbol(
-                            sym,
-                            prefer_rockets_nonalnum,
-                            target_ruby_version,
-                        ),
-                        None => true, // Non-symbol key
-                    }
+                    !is_symbol_like_key(&key)
+                        || !is_acceptable_19_key(&key, prefer_rockets_nonalnum, target_ruby_version)
                 });
 
                 if has_unconvertible {
@@ -115,7 +110,7 @@ impl Cop for HashSyntax {
                         None => continue,
                     };
                     let key = assoc.key();
-                    if key.as_symbol_node().is_some() {
+                    if is_symbol_like_key(&key) {
                         if let Some(op_loc) = assoc.operator_loc() {
                             if op_loc.as_slice() == b"=>" {
                                 let (line, column) =
@@ -140,7 +135,7 @@ impl Cop for HashSyntax {
                         None => continue,
                     };
                     let key = assoc.key();
-                    if key.as_symbol_node().is_some() {
+                    if is_symbol_like_key(&key) {
                         let uses_rocket = assoc
                             .operator_loc()
                             .is_some_and(|op| op.as_slice() == b"=>");
@@ -290,6 +285,24 @@ fn check_shorthand_syntax(
         }
         _ => {}
     }
+}
+
+fn is_symbol_like_key(key: &ruby_prism::Node<'_>) -> bool {
+    key.as_symbol_node().is_some() || key.as_interpolated_symbol_node().is_some()
+}
+
+fn is_acceptable_19_key(
+    key: &ruby_prism::Node<'_>,
+    prefer_rockets_nonalnum: bool,
+    target_ruby_version: f64,
+) -> bool {
+    if let Some(sym) = key.as_symbol_node() {
+        return is_acceptable_19_symbol(&sym, prefer_rockets_nonalnum, target_ruby_version);
+    }
+
+    // Interpolated symbol keys are always quoted (e.g. `:"#{field}_string"`),
+    // so they follow RuboCop's quoted-symbol path and are convertible on Ruby >= 2.2.
+    key.as_interpolated_symbol_node().is_some() && target_ruby_version > 2.1
 }
 
 /// Check if a symbol node represents an acceptable Ruby 1.9 syntax key.
@@ -448,6 +461,36 @@ mod tests {
         assert!(
             diags.is_empty(),
             "Quoted symbol keys should stay on hash rockets before Ruby 2.2"
+        );
+    }
+
+    #[test]
+    fn interpolated_symbol_keys_require_ruby_22() {
+        let config = CopConfig {
+            options: HashMap::from([(
+                "TargetRubyVersion".into(),
+                serde_yml::Value::Number(serde_yml::value::Number::from(2.1)),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = br##"{ :"#{field}_string" => nil }"##;
+        let diags = run_cop_full_with_config(&HashSyntax, source, config);
+        assert!(
+            diags.is_empty(),
+            "Interpolated symbol keys should stay on hash rockets before Ruby 2.2"
+        );
+    }
+
+    #[test]
+    fn interpolated_symbol_keys_register_offense() {
+        let source =
+            br##"task :"setup:#{provider}" => File.join(ARTIFACT_DIR, "#{provider}.box")"##;
+        let diags = crate::testutil::run_cop_full(&HashSyntax, source);
+        assert_eq!(diags.len(), 1);
+        assert!(
+            diags[0]
+                .message
+                .contains("Use the new Ruby 1.9 hash syntax")
         );
     }
 
