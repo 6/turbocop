@@ -80,15 +80,14 @@ use ruby_prism::Visit;
 /// FN=1 (not real): waagsociety/citysdk-ld `filters.rb:181` — same as round 4.
 /// Corpus artifact (`;` is body, not then-keyword).
 ///
-/// ## Corpus investigation (2026-03-30, round 6)
+/// ## Corpus reinvestigation (2026-03-30)
 ///
-/// FN=1: waagsociety/citysdk-ld `filters.rb:181` — `if cond\n  ;\nelse`.
-/// Prism reports `then_keyword_loc: None` and `statements(): None` for this
-/// pattern — the `;` is invisible to both the primary and fallback detection
-/// paths. However, the parser gem (used by RuboCop) treats the `;` as the
-/// begin keyword (`loc.begin.is?(';')` returns true). Fix: when there's no
-/// then-keyword and no body, scan the full multi-line region between predicate
-/// and subsequent/end for a bare `;` outside comments.
+/// Cached oracle data still reports waagsociety/citysdk-ld `filters.rb:181`
+/// (`if cond\n  ;\nelse`) as an FN. Fresh verification with RuboCop 1.84.2 and
+/// parser 3.3.11.1 on both the extracted snippet and the general pattern shows
+/// `node.loc.begin` is nil and no offense is reported. The prior round-6
+/// multiline fallback was therefore incorrect and was removed; keep this shape
+/// covered as a no-offense until the corpus/oracle discrepancy is explained.
 pub struct IfWithSemicolon;
 
 impl Cop for IfWithSemicolon {
@@ -233,12 +232,11 @@ impl IfWithSemicolonVisitor<'_> {
         }
 
         // Check for semicolon: Prism's then_keyword_loc is ";" or "then".
-        // Fallback: scan between predicate and body for semicolons.
+        // Fallback: scan between predicate and body on the same line.
         let has_semicolon = if let Some(then_loc) = if_node.then_keyword_loc() {
             then_loc.as_slice() == b";"
         } else {
             let pred_end = if_node.predicate().location().end_offset();
-            let has_body = if_node.statements().is_some();
             let body_start = if let Some(stmts) = if_node.statements() {
                 stmts.location().start_offset()
             } else if let Some(sub) = if_node.subsequent() {
@@ -248,15 +246,7 @@ impl IfWithSemicolonVisitor<'_> {
             } else {
                 return;
             };
-            // When there's no body, the `;` may sit on a separate line (e.g.
-            // `if cond\n  ;\nelse`). The parser gem treats this `;` as the
-            // begin/then keyword, so RuboCop flags it. Prism doesn't set
-            // then_keyword_loc for this pattern, so scan across newlines.
-            if has_body {
-                has_semicolon_between(self.source, pred_end, body_start)
-            } else {
-                has_semicolon_between_multiline(self.source, pred_end, body_start)
-            }
+            has_semicolon_between(self.source, pred_end, body_start)
         };
 
         if !has_semicolon {
@@ -301,7 +291,6 @@ impl IfWithSemicolonVisitor<'_> {
             then_loc.as_slice() == b";"
         } else {
             let pred_end = unless_node.predicate().location().end_offset();
-            let has_body = unless_node.statements().is_some();
             let body_start = if let Some(stmts) = unless_node.statements() {
                 stmts.location().start_offset()
             } else if let Some(else_clause) = unless_node.else_clause() {
@@ -311,11 +300,7 @@ impl IfWithSemicolonVisitor<'_> {
             } else {
                 return;
             };
-            if has_body {
-                has_semicolon_between(self.source, pred_end, body_start)
-            } else {
-                has_semicolon_between_multiline(self.source, pred_end, body_start)
-            }
+            has_semicolon_between(self.source, pred_end, body_start)
         };
 
         if !has_semicolon {
@@ -347,32 +332,6 @@ fn has_semicolon_between(source: &SourceFile, pred_end: usize, body_start: usize
             .iter()
             .take_while(|&&b| b != b'\n' && b != b'#')
             .any(|&b| b == b';')
-    } else {
-        false
-    }
-}
-
-/// Like `has_semicolon_between` but scans across newlines. Used when Prism
-/// reports no body statements — the `;` may be on a subsequent line (e.g.
-/// `if cond\n  ;\nelse`). Skips comment regions on each line.
-fn has_semicolon_between_multiline(
-    source: &SourceFile,
-    pred_end: usize,
-    body_start: usize,
-) -> bool {
-    if pred_end < body_start {
-        let between = &source.content[pred_end..body_start];
-        let mut in_comment = false;
-        for &b in between {
-            if b == b'#' {
-                in_comment = true;
-            } else if b == b'\n' {
-                in_comment = false;
-            } else if b == b';' && !in_comment {
-                return true;
-            }
-        }
-        false
     } else {
         false
     }
@@ -452,14 +411,13 @@ mod tests {
     }
 
     #[test]
-    fn citysdk_semicolon_body_on_next_line() {
-        // Pattern: `if cond\n  ;\nelse` — Prism reports no then_keyword_loc and no
-        // statements, but the parser gem treats the `;` as the begin keyword, so
-        // RuboCop flags this. The multiline fallback scan catches it.
+    fn citysdk_semicolon_body_on_next_line_not_flagged() {
+        // A bare `;` on the next line is parsed as an empty body statement, not
+        // the begin keyword. RuboCop/parser leave `loc.begin` nil here.
         let source =
             b"if params[:layer] == '*' and query[:resource] == :objects\n  ;\nelse\n  foo\nend\n";
         let diags = crate::testutil::run_cop_full(&IfWithSemicolon, source);
-        assert_eq!(diags.len(), 1, "Should flag semicolon-as-body on next line");
+        assert_eq!(diags.len(), 0, "Should not flag bare semicolon body on next line");
     }
 
     #[test]
