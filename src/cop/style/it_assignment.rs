@@ -101,28 +101,52 @@ impl Cop for ItAssignment {
 
         if let Some(write_node) = node.as_local_variable_or_write_node() {
             if write_node.name().as_slice() == b"it" {
-                add_offense(self, source, &write_node.name_loc(), PARAMETER_MSG, diagnostics);
+                add_offense(
+                    self,
+                    source,
+                    &write_node.name_loc(),
+                    PARAMETER_MSG,
+                    diagnostics,
+                );
             }
             return;
         }
 
         if let Some(write_node) = node.as_local_variable_and_write_node() {
             if write_node.name().as_slice() == b"it" {
-                add_offense(self, source, &write_node.name_loc(), PARAMETER_MSG, diagnostics);
+                add_offense(
+                    self,
+                    source,
+                    &write_node.name_loc(),
+                    PARAMETER_MSG,
+                    diagnostics,
+                );
             }
             return;
         }
 
         if let Some(write_node) = node.as_local_variable_operator_write_node() {
             if write_node.name().as_slice() == b"it" {
-                add_offense(self, source, &write_node.name_loc(), PARAMETER_MSG, diagnostics);
+                add_offense(
+                    self,
+                    source,
+                    &write_node.name_loc(),
+                    PARAMETER_MSG,
+                    diagnostics,
+                );
             }
             return;
         }
 
         if let Some(target_node) = node.as_local_variable_target_node() {
             if target_node.name().as_slice() == b"it" {
-                add_offense(self, source, &target_node.location(), PARAMETER_MSG, diagnostics);
+                add_offense(
+                    self,
+                    source,
+                    &target_node.location(),
+                    PARAMETER_MSG,
+                    diagnostics,
+                );
             }
             return;
         }
