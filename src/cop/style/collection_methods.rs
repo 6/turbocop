@@ -32,6 +32,8 @@ fn has_block_or_implicit_block(
     false
 }
 
+/// Matches RuboCop's unsafe name-based behavior for Enumerable aliases,
+/// including implicit-self calls like `collect {}` and `inject(:+)`.
 pub struct CollectionMethods;
 
 impl Cop for CollectionMethods {
@@ -78,11 +80,6 @@ impl Cop for CollectionMethods {
             Some(c) => c,
             None => return,
         };
-
-        // Must have a receiver (collection.method)
-        if call.receiver().is_none() {
-            return;
-        }
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
 

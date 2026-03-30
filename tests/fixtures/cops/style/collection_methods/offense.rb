@@ -24,3 +24,27 @@
 # member? with a block should be flagged
 [1, 2, 3].member? { |e| e > 1 }
           ^^^^^^^ Style/CollectionMethods: Prefer `include?` over `member?`.
+
+collect { |value| value.to_f }
+^ Style/CollectionMethods: Prefer `map` over `collect`.
+
+detect { |family| family.name == name.to_s }
+^ Style/CollectionMethods: Prefer `find` over `detect`.
+
+inject({}) do |hash, column_family|
+^ Style/CollectionMethods: Prefer `reduce` over `inject`.
+
+detect { |field| field.name == name }
+^ Style/CollectionMethods: Prefer `find` over `detect`.
+
+Hash[collect { |field| [field.name, field] }]
+     ^^^^^^^ Style/CollectionMethods: Prefer `map` over `collect`.
+
+inject(:scope)
+^ Style/CollectionMethods: Prefer `reduce` over `inject`.
+
+inject(:pal_script_compiler)
+^ Style/CollectionMethods: Prefer `reduce` over `inject`.
+
+inject(:cache)
+^ Style/CollectionMethods: Prefer `reduce` over `inject`.
