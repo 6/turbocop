@@ -158,8 +158,7 @@ impl<'a, 'src, 'pr> MethodCallVisitor<'a, 'src, 'pr> {
 
         // Skip bracket syntax like `Set[]`, but still flag explicit operator
         // dot-calls such as `foo.[]()` and `foo.[]=()`.
-        if (method_bytes == b"[]" || method_bytes == b"[]=") && call.call_operator_loc().is_none()
-        {
+        if (method_bytes == b"[]" || method_bytes == b"[]=") && call.call_operator_loc().is_none() {
             return;
         }
 
