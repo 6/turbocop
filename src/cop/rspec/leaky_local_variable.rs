@@ -1,5 +1,5 @@
 use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;
@@ -353,6 +353,19 @@ use crate::parse::source::SourceFile;
 /// walking assignment values plus common expression containers (hash/array/call
 /// args, splats, interpolations, boolean/range nodes) while still stopping at
 /// example-scope and Ruby-scope boundaries.
+///
+/// ## Investigation (FN: let/subject args and backtick interpolation, 2026-03-30)
+///
+/// Two remaining corpus clusters came from treating every "example scope" the
+/// same:
+/// - We skipped all arguments to `it`/`specify`/`before`/`let`/`subject`
+///   together. RuboCop only exempts arguments to actual example methods like
+///   `it` and `specify`; locals used in `let(html_options)` or `let(:foo, &bar)`
+///   are still leaky references and must count.
+/// - Backtick commands like `` `vagrant up #{insert_tee_log}` `` and
+///   `` `tar -xf "#{test_tarball}"` `` are `InterpolatedXStringNode`s. Our
+///   reference walker handled interpolated strings, symbols, and regexps, but
+///   not xstrings, so reads inside command interpolation were invisible.
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
@@ -1303,15 +1316,35 @@ fn stmt_example_scope_var_interaction(
 
         // Example scopes: it, before, let, subject, etc.
         if no_recv && is_example_scope(name) {
+            // Only actual example methods (`it`, `specify`, etc.) get the
+            // "arguments are allowed" exemption for descriptions/metadata.
+            // Args to hooks/lets/subjects are part of the leaky reference.
+            let mut result = if !is_rspec_example(name) {
+                if let Some(args) = call.arguments() {
+                    if args.arguments().iter().any(|arg| node_references_var(&arg, var_name)) {
+                        VarInteraction::ReadOnly
+                    } else {
+                        VarInteraction::None
+                    }
+                } else {
+                    VarInteraction::None
+                }
+            } else {
+                VarInteraction::None
+            };
+
             if let Some(blk) = call.block() {
                 if let Some(bn) = blk.as_block_node() {
                     if block_has_param(&bn, var_name) {
-                        return VarInteraction::None; // shadowed by block param
+                        return result; // shadowed in body, args (if any) already counted
                     }
                     if let Some(body) = bn.body() {
                         if let Some(stmts) = body.as_statements_node() {
                             if var_written_before_read_in_stmts(&stmts, var_name) {
-                                return VarInteraction::WriteBeforeRead;
+                                return combine_var_interactions(
+                                    result,
+                                    VarInteraction::WriteBeforeRead,
+                                );
                             }
                             // Deep write check: the block may write the
                             // variable inside a nested call (e.g., `expect do
@@ -1333,9 +1366,15 @@ fn stmt_example_scope_var_interaction(
                                     .iter()
                                     .any(|s| node_reads_var_without_prior_write(&s, var_name));
                                 if !has_outer_read {
-                                    return VarInteraction::WriteBeforeRead;
+                                    return combine_var_interactions(
+                                        result,
+                                        VarInteraction::WriteBeforeRead,
+                                    );
                                 }
-                                return VarInteraction::WriteAndReadBeforeWrite;
+                                return combine_var_interactions(
+                                    result,
+                                    VarInteraction::WriteAndReadBeforeWrite,
+                                );
                             }
                             // Check if the variable is referenced at all
                             let has_read = stmts
@@ -1343,15 +1382,14 @@ fn stmt_example_scope_var_interaction(
                                 .iter()
                                 .any(|s| node_references_var(&s, var_name));
                             if has_read {
-                                return VarInteraction::ReadOnly;
+                                result =
+                                    combine_var_interactions(result, VarInteraction::ReadOnly);
                             }
                         }
                     }
                 }
             }
-            // Also check args (example description/metadata)
-            // But args references are "allowed" per RuboCop, so don't count
-            return VarInteraction::None;
+            return result;
         }
 
         // Includes methods: it_behaves_like, include_examples, etc.
@@ -2361,6 +2399,17 @@ fn check_var_used_in_example_scopes(node: &ruby_prism::Node<'_>, var_name: &[u8]
 
         // Example scopes: it, before, let, subject, etc.
         if no_recv && is_example_scope(name) {
+            // `it`/`specify` descriptions and metadata are allowed, but
+            // args to lets/subjects/hooks are not.
+            if !is_rspec_example(name) {
+                if let Some(args) = call.arguments() {
+                    for arg in args.arguments().iter() {
+                        if node_references_var(&arg, var_name) {
+                            return true;
+                        }
+                    }
+                }
+            }
             // Check if the block body references the variable
             if let Some(blk) = call.block() {
                 if let Some(bn) = blk.as_block_node() {
@@ -3212,6 +3261,22 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
 
     // Interpolated regular expressions: /#{x}/
     if let Some(interp) = node.as_interpolated_regular_expression_node() {
+        for part in interp.parts().iter() {
+            if let Some(embedded) = part.as_embedded_statements_node() {
+                if let Some(stmts) = embedded.statements() {
+                    for s in stmts.body().iter() {
+                        if node_references_var(&s, var_name) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Interpolated backtick commands: `cmd #{var}`
+    if let Some(interp) = node.as_interpolated_x_string_node() {
         for part in interp.parts().iter() {
             if let Some(embedded) = part.as_embedded_statements_node() {
                 if let Some(stmts) = embedded.statements() {
@@ -4090,6 +4155,68 @@ end
                 .map(|d| format!("{}:{}", d.location.line, d.location.column))
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_fn_var_used_in_let_name_argument() {
+        let source = br#"RSpec.shared_examples 'a form field' do |field, html_options|
+  html_options ||= :options
+
+  include_context 'form', field
+
+  context 'when class/id/data attributes are provided' do
+    let(html_options) { { class: 'custom-field' } }
+
+    it 'sets the attributes on the field' do
+      expect(true).to eq(true)
+    end
+  end
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for let-name arg leak, got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(diags[0].location.line, 2, "Offense should be on line 2");
+    }
+
+    #[test]
+    fn test_fn_var_used_in_interpolated_xstring() {
+        let source = br#"def which(cmd)
+  cmd
+end
+
+insert_tee_log = '  2>&1 | tee -a vagrant.log ' if which('tee')
+
+describe 'VM Life Cycle' do
+  it 'starts Linux and Windows VM' do
+    expect(`vagrant up  #{insert_tee_log}`).to include('tee')
+  end
+
+  it 'destroys Linux and Windows VM' do
+    expect(`vagrant destroy --force  #{insert_tee_log}`).to include('Done removing resources')
+  end
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for interpolated xstring leak, got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(diags[0].location.line, 5, "Offense should be on line 5");
     }
 
     // Note: def self.method with .each containing context/let (DataDog pattern)
