@@ -751,7 +751,6 @@ fn collect_subject_calls(
                 }
             }
         }
-        return;
     }
 }
 
