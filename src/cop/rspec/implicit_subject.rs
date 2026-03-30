@@ -1,9 +1,21 @@
-use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
+/// Flags `is_expected`, `should`, and `should_not` when RuboCop requires
+/// explicit subject usage.
+///
+/// Corpus fix notes:
+/// - False negatives came from finding the "enclosing example" by scanning
+///   backward through source lines. That let sibling lines such as
+///   `its(:count) { ... }` incorrectly exempt the following
+///   `its_map { is_expected ... }` call as if it were inside an `its` block.
+/// - The same line-based heuristic also guessed single-line examples from raw
+///   source text, which is brittle for multiline brace blocks.
+/// - Fixed by walking Prism ancestors to the real enclosing example block and
+///   deriving `its` / single-line / single-statement behavior from that block.
 pub struct ImplicitSubject;
 
 /// RSpec example method names (it, specify, example, scenario, its, etc.)
@@ -25,79 +37,27 @@ const EXAMPLE_METHODS: &[&[u8]] = &[
     b"pending",
 ];
 
-fn is_identifier_byte(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_'
+fn example_method_name(name: &[u8]) -> Option<&'static [u8]> {
+    EXAMPLE_METHODS
+        .iter()
+        .copied()
+        .find(|method| *method == name)
 }
 
-/// Check if trimmed line starts with an RSpec example method call (e.g. `it `, `its(`, `specify {`).
-/// Returns the example method name if found, or None.
-fn line_example_method(trimmed: &[u8]) -> Option<&'static [u8]> {
-    for &method in EXAMPLE_METHODS {
-        if trimmed.len() > method.len() && trimmed.starts_with(method) {
-            let next = trimmed[method.len()];
-            // Method name must be followed by space, `(`, `{`, or `'`/`"`
-            if next == b' ' || next == b'(' || next == b'{' || next == b'\'' || next == b'"' {
-                return Some(method);
-            }
-        }
-    }
-    None
+fn is_single_line_block(block: &ruby_prism::BlockNode<'_>) -> bool {
+    !block.location().as_slice().contains(&b'\n')
 }
 
-/// Check if a line contains an RSpec example method call anywhere on the line.
-/// Used for one-line nested forms like:
-/// `items.each { |item| it { is_expected.to ... } }`
-fn line_contains_example_method(trimmed: &[u8]) -> Option<&'static [u8]> {
-    for &method in EXAMPLE_METHODS {
-        if trimmed.len() <= method.len() {
-            continue;
-        }
+fn is_single_statement_block(block: &ruby_prism::BlockNode<'_>) -> bool {
+    let Some(body) = block.body() else {
+        return true;
+    };
 
-        for start in 0..=(trimmed.len() - method.len()) {
-            if &trimmed[start..start + method.len()] != method {
-                continue;
-            }
-
-            // Require a token boundary before the method name.
-            if start > 0 && is_identifier_byte(trimmed[start - 1]) {
-                continue;
-            }
-
-            // Method name must be followed by space, `(`, `{`, or `'`/`"`.
-            if start + method.len() >= trimmed.len() {
-                continue;
-            }
-
-            let next = trimmed[start + method.len()];
-            if next == b' ' || next == b'(' || next == b'{' || next == b'\'' || next == b'"' {
-                return Some(method);
-            }
-        }
+    if let Some(stmts) = body.as_statements_node() {
+        stmts.body().len() <= 1
+    } else {
+        true
     }
-
-    None
-}
-
-/// Check if a line contains `end` as a standalone token.
-fn line_contains_end_keyword(line: &[u8]) -> bool {
-    if line.len() < 3 {
-        return false;
-    }
-
-    for i in 0..=(line.len() - 3) {
-        if &line[i..i + 3] != b"end" {
-            continue;
-        }
-
-        let before_ok = i == 0 || !is_identifier_byte(line[i - 1]);
-        let after_ok = i + 3 == line.len() || !is_identifier_byte(line[i + 3]);
-
-        if before_ok && after_ok {
-            return true;
-        }
-    }
-
-    false
 }
 
 impl Cop for ImplicitSubject {
@@ -113,106 +73,65 @@ impl Cop for ImplicitSubject {
         RSPEC_DEFAULT_INCLUDE
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Config: EnforcedStyle — "single_line_only" (default), "single_statement_only", or "disallow"
-        let enforced_style = config.get_str("EnforcedStyle", "single_line_only");
-
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
+        let mut visitor = ImplicitSubjectVisitor {
+            cop: self,
+            source,
+            enforced_style: config.get_str("EnforcedStyle", "single_line_only"),
+            diagnostics,
+            ancestors: Vec::new(),
         };
+        visitor.visit(&parse_result.node());
+    }
+}
 
-        if call.receiver().is_some() {
-            return;
-        }
+struct ImplicitSubjectVisitor<'a, 'pr> {
+    cop: &'a ImplicitSubject,
+    source: &'a SourceFile,
+    enforced_style: &'a str,
+    diagnostics: &'a mut Vec<Diagnostic>,
+    ancestors: Vec<ruby_prism::Node<'pr>>,
+}
 
-        let method_name = call.name().as_slice();
+impl<'a, 'pr> ImplicitSubjectVisitor<'a, 'pr> {
+    fn enclosing_example(&self) -> Option<(&'static [u8], ruby_prism::BlockNode<'pr>)> {
+        let mut idx = self.ancestors.len().checked_sub(2)?;
 
-        let is_implicit = method_name == b"is_expected"
-            || method_name == b"should"
-            || method_name == b"should_not";
-
-        if !is_implicit {
-            return;
-        }
-
-        let loc = call.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-
-        // Find the enclosing example block by scanning backward through source lines.
-        // We look for the nearest line that starts with an RSpec example method.
-        let enclosing = find_enclosing_example(source, line);
-
-        // If inside an `its` block, implicit subject is always allowed
-        // (RuboCop exempts `its` in all styles).
-        if let Some((method, _)) = enclosing {
-            if method == b"its" {
-                return;
-            }
-        }
-
-        // "disallow" style: flag all implicit subject usage (except `its` handled above)
-        if enforced_style == "disallow" {
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Don't use implicit subject.".to_string(),
-            ));
-            return;
-        }
-
-        // Determine if this is a single-line example block
-        let is_single_line = match enclosing {
-            Some((_, example_line)) => {
-                // Check if the example block is on a single line
-                let example_line_bytes = source.lines().nth(example_line - 1).unwrap_or(b"");
-                // Single-line if the example opener line contains an inline closer
-                // (`}` for brace blocks, `end` for one-line do/end blocks)
-                // and the implicit subject call is on the same line as the example opener
-                line == example_line
-                    && (example_line_bytes.contains(&b'}')
-                        || line_contains_end_keyword(example_line_bytes))
-            }
-            None => false,
-        };
-
-        match enforced_style {
-            "single_line_only" => {
-                if is_single_line {
-                    return; // Single-line example — allowed
-                }
-            }
-            "single_statement_only" => {
-                if is_single_line {
-                    return; // Single-line is always single-statement
-                }
-                // Multi-line but single-statement: check if there's only one statement
-                // by seeing if the implicit subject line is the only statement line in the block.
-                if let Some((_, example_line)) = enclosing {
-                    if is_single_statement_block(source, example_line, line) {
-                        return; // Single-statement multi-line — allowed
+        loop {
+            if let Some(block) = self.ancestors[idx].as_block_node() {
+                if let Some(call_idx) = idx.checked_sub(1) {
+                    if let Some(call) = self.ancestors[call_idx].as_call_node() {
+                        if call.receiver().is_none() {
+                            if let Some(method) = example_method_name(call.name().as_slice()) {
+                                return Some((method, block));
+                            }
+                        }
                     }
                 }
             }
-            _ => {}
+
+            let Some(next_idx) = idx.checked_sub(1) else {
+                break;
+            };
+            idx = next_idx;
         }
 
-        // This is used in a context that should be flagged
-        diagnostics.push(self.diagnostic(
-            source,
+        None
+    }
+
+    fn add_offense(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let loc = node.location();
+        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
             line,
             column,
             "Don't use implicit subject.".to_string(),
@@ -220,70 +139,65 @@ impl Cop for ImplicitSubject {
     }
 }
 
-/// Find the enclosing RSpec example block by scanning backward from the given line.
-/// Returns the example method name and the line number of the example opener, or None.
-fn find_enclosing_example(source: &SourceFile, from_line: usize) -> Option<(&'static [u8], usize)> {
-    // First check the same line (single-line examples like `it { is_expected.to ... }`)
-    for check_line in (1..=from_line).rev() {
-        let line_bytes = source.lines().nth(check_line - 1).unwrap_or(b"");
-        let trimmed = match line_bytes.iter().position(|&b| b != b' ' && b != b'\t') {
-            Some(s) => &line_bytes[s..],
-            None => continue,
-        };
+impl<'a, 'pr> Visit<'pr> for ImplicitSubjectVisitor<'a, 'pr> {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.ancestors.push(node);
+    }
 
-        // Same-line nested examples:
-        // `helper { it { is_expected.to ... } }`
-        if check_line == from_line {
-            if let Some(method) = line_contains_example_method(trimmed) {
-                return Some((method, check_line));
+    fn visit_branch_node_leave(&mut self) {
+        self.ancestors.pop();
+    }
+
+    fn visit_leaf_node_enter(&mut self, _node: ruby_prism::Node<'pr>) {}
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if node.receiver().is_none() {
+            let method_name = node.name().as_slice();
+            let is_implicit = method_name == b"is_expected"
+                || method_name == b"should"
+                || method_name == b"should_not";
+
+            if is_implicit {
+                let enclosing = self.enclosing_example();
+
+                if let Some((method, _)) = enclosing {
+                    if method == b"its" {
+                        ruby_prism::visit_call_node(self, node);
+                        return;
+                    }
+                }
+
+                if self.enforced_style == "disallow" {
+                    self.add_offense(node);
+                    ruby_prism::visit_call_node(self, node);
+                    return;
+                }
+
+                let is_single_line = enclosing
+                    .as_ref()
+                    .is_some_and(|(_, block)| is_single_line_block(block));
+
+                match self.enforced_style {
+                    "single_line_only" => {
+                        if !is_single_line {
+                            self.add_offense(node);
+                        }
+                    }
+                    "single_statement_only" => {
+                        let is_single_statement = enclosing
+                            .as_ref()
+                            .is_some_and(|(_, block)| is_single_statement_block(block));
+                        if !is_single_line && !is_single_statement {
+                            self.add_offense(node);
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
 
-        if let Some(method) = line_example_method(trimmed) {
-            return Some((method, check_line));
-        }
-
-        // Stop scanning if we hit a line that looks like a block-level construct
-        // (class, module, describe, context, def) to avoid crossing block boundaries.
-        if trimmed.starts_with(b"describe ")
-            || trimmed.starts_with(b"context ")
-            || trimmed.starts_with(b"RSpec.")
-            || trimmed.starts_with(b"class ")
-            || trimmed.starts_with(b"module ")
-        {
-            return None;
-        }
+        ruby_prism::visit_call_node(self, node);
     }
-    None
-}
-
-/// Check if a multi-line example block contains only a single statement.
-/// `example_line` is the line of the `it`/`specify`/etc. opener.
-/// `call_line` is the line of the implicit subject call.
-/// A single-statement block has exactly one non-blank, non-end line between the opener and closing.
-fn is_single_statement_block(source: &SourceFile, example_line: usize, call_line: usize) -> bool {
-    // Count non-blank statement lines between the example opener and the end
-    let mut statement_count = 0;
-    let total_lines = source.lines().count();
-
-    for check_line in (example_line + 1)..=total_lines {
-        let line_bytes = source.lines().nth(check_line - 1).unwrap_or(b"");
-        let trimmed = match line_bytes.iter().position(|&b| b != b' ' && b != b'\t') {
-            Some(s) => &line_bytes[s..],
-            None => continue, // blank line
-        };
-
-        // Stop at the closing `end`
-        if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\n") {
-            break;
-        }
-
-        statement_count += 1;
-    }
-
-    // The call_line should be in a block with exactly one statement
-    let _ = call_line; // used for context; we count all statements
-    statement_count == 1
 }
 
 #[cfg(test)]
@@ -342,7 +256,6 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        // Single statement in multi-line block — should be allowed
         let source = b"it 'checks' do\n  is_expected.to be_good\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&ImplicitSubject, source, config);
         assert_eq!(
@@ -364,9 +277,41 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        // Multiple statements in multi-line block — should be flagged
         let source = b"it 'checks' do\n  subject.age = 18\n  is_expected.to be_valid\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&ImplicitSubject, source, config);
         assert_eq!(diags.len(), 1, "multi-statement should be flagged");
+    }
+
+    #[test]
+    fn single_line_only_flags_multiline_brace_examples() {
+        let source =
+            b"it { is_expected.to contain_file(\"#{path}\").with(\n  :ensure => 'file',\n)}\n";
+        let diags = crate::testutil::run_cop_full(&ImplicitSubject, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "multiline brace block should not be treated as one-line"
+        );
+    }
+
+    #[test]
+    fn single_statement_only_flags_non_example_contexts() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("single_statement_only".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"describe 'something' do\n  is_expected.to be_valid\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ImplicitSubject, source, config);
+        assert_eq!(
+            diags.len(),
+            1,
+            "non-example contexts should still be flagged"
+        );
     }
 }
