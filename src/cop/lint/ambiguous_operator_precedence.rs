@@ -24,13 +24,15 @@ use crate::parse::source::SourceFile;
 ///   behavior where `array << i or return` is allowed but `a and b or c` is
 ///   flagged. Also added OrNode to child detection (for completeness, though
 ///   OR_PREC is already the highest so it never triggers `cp < parent_prec`).
-/// - FP fix (2026-03): Prism uses `CallNode` for both infix operators
-///   (`a + b`) and explicit operator method calls (`obj.+(b)`, `obj&.+(b)`,
-///   `Sequel.&(...)`). RuboCop only checks infix operator syntax here. The
-///   previous implementation keyed off the method name alone, so it falsely
-///   flagged explicit `.`/`&.` operator calls inside `||`, `>>`, ternaries, and
-///   Sequel DSL calls. We now only assign precedence to CallNodes that use
-///   infix operator syntax (`call_operator_loc().is_none()`).
+/// - FN fix (2026-03): RuboCop does use explicit operator-method calls as
+///   parents when looking for ambiguous infix children, so cases like
+///   `html.<<(" " * n)`, `self.+(span * 7, :day)`, and `Sequel.|(a, b & c)`
+///   must flag the infix child expression. However, RuboCop still does not
+///   treat explicit operator-method calls as child offenses themselves, so
+///   patterns like `gt&.+(...) || gte` and `Sequel.&(...)` remain allowed.
+///   Nitrocop now mirrors that split: explicit operator calls contribute
+///   precedence only on the parent side, while only infix operator children
+///   are eligible for offenses.
 pub struct AmbiguousOperatorPrecedence;
 
 // Precedence levels (lower index = higher precedence).
@@ -59,7 +61,11 @@ fn precedence_level(op: &[u8]) -> Option<usize> {
     None
 }
 
-fn infix_precedence(call: &ruby_prism::CallNode<'_>) -> Option<usize> {
+fn operator_parent_precedence(call: &ruby_prism::CallNode<'_>) -> Option<usize> {
+    precedence_level(call.name().as_slice())
+}
+
+fn infix_child_precedence(call: &ruby_prism::CallNode<'_>) -> Option<usize> {
     if call.call_operator_loc().is_some() {
         return None;
     }
@@ -131,7 +137,7 @@ impl Cop for AmbiguousOperatorPrecedence {
             None => return,
         };
 
-        let outer_prec = match infix_precedence(&call) {
+        let outer_prec = match operator_parent_precedence(&call) {
             Some(p) => p,
             None => return,
         };
@@ -141,7 +147,7 @@ impl Cop for AmbiguousOperatorPrecedence {
         if let Some(args) = call.arguments() {
             for arg in args.arguments().iter() {
                 if let Some(arg_call) = arg.as_call_node() {
-                    if let Some(arg_prec) = infix_precedence(&arg_call) {
+                    if let Some(arg_prec) = infix_child_precedence(&arg_call) {
                         if arg_prec < outer_prec {
                             let loc = arg_call.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -161,7 +167,7 @@ impl Cop for AmbiguousOperatorPrecedence {
         // e.g., `a ** b + c`: outer is `+` (prec 2), recv `a ** b` is `**` (prec 0)
         if let Some(recv) = call.receiver() {
             if let Some(recv_call) = recv.as_call_node() {
-                if let Some(recv_prec) = infix_precedence(&recv_call) {
+                if let Some(recv_prec) = infix_child_precedence(&recv_call) {
                     if recv_prec < outer_prec {
                         let loc = recv_call.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -195,7 +201,7 @@ impl AmbiguousOperatorPrecedence {
                 Some(OR_PREC)
             } else if check_arithmetic {
                 if let Some(call) = child.as_call_node() {
-                    infix_precedence(&call)
+                    infix_child_precedence(&call)
                 } else {
                     None
                 }
