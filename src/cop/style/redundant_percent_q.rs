@@ -6,13 +6,14 @@ use std::path::{Component, Path};
 
 /// Checks for usage of `%q`/`%Q` when normal quotes would do.
 ///
-/// The corpus misses were static `%Q` strings that merely contained `"` or
-/// spanned multiple lines. RuboCop still flags those unless the full `%Q`
-/// source either contains both quote kinds, is dynamic and contains `"`, or
-/// is a static literal whose source really requires double quotes (for example
-/// because of a single quote or a non-quote escape). Matching against the full
-/// node source also preserves `%q` behavior for strings whose quote mix is not
-/// visible in Prism's extracted content slice.
+/// Fixed two FN sources (15 total):
+/// 1. `has_non_backslash_escape` treated `\<newline>` as a real escape, but
+///    RuboCop's `/\\./ ` does not match newlines — so multiline `%q{...}`
+///    strings whose only backslashes precede newlines were falsely accepted.
+/// 2. `acceptable_static_percent_capital_q` applied `double_quotes_required`
+///    to multiline `%Q` StringNodes. RuboCop's parser represents multiline
+///    strings as `dstr` where `str_type?` is false, skipping that check.
+///    Added a `!source.contains(b'\n')` guard to match.
 pub struct RedundantPercentQ;
 
 impl Cop for RedundantPercentQ {
@@ -124,7 +125,10 @@ fn acceptable_percent_q(source: &[u8]) -> bool {
 }
 
 fn acceptable_static_percent_capital_q(source: &[u8]) -> bool {
-    source.contains(&b'"') && double_quotes_required(source)
+    // RuboCop only applies double_quotes_required? for `str` (single-line) nodes.
+    // The Ruby parser represents multiline strings as `dstr` where str_type? is false.
+    // Prism always uses StringNode for static strings, so check for newlines to match.
+    source.contains(&b'"') && !source.contains(&b'\n') && double_quotes_required(source)
 }
 
 fn acceptable_dynamic_percent_capital_q(source: &[u8]) -> bool {
@@ -132,14 +136,21 @@ fn acceptable_dynamic_percent_capital_q(source: &[u8]) -> bool {
 }
 
 /// Check if the source contains escape sequences other than just `\\`.
+/// Matches RuboCop's `src.scan(/\\./).any?(ESCAPED_NON_BACKSLASH)` where
+/// `/\\./ ` does not match `\<newline>` because `.` excludes newlines.
 fn has_non_backslash_escape(source: &[u8]) -> bool {
     let mut i = 0;
     while i < source.len() {
         if source[i] == b'\\' && i + 1 < source.len() {
-            if source[i + 1] != b'\\' {
+            let next = source[i + 1];
+            if next == b'\n' {
+                // RuboCop's /\\./ doesn't match \<newline>, skip it
+                i += 2;
+            } else if next != b'\\' {
                 return true;
+            } else {
+                i += 2;
             }
-            i += 2;
         } else {
             i += 1;
         }
