@@ -7,28 +7,38 @@ use crate::parse::source::SourceFile;
 /// each target gets exactly one value and the assignment can be safely rewritten
 /// as sequential assignments.
 ///
-/// ## Swap exemption (FP fix, 183 FPs in corpus)
-/// RuboCop exempts "swap" assignments where the RHS references any LHS target,
-/// creating a dependency cycle that prevents safe reordering. Examples:
-///   - `a, b = b, a`
-///   - `array[i], array[j] = array[j], array[i]`
-///   - `self[0], self[2] = self[2], self[0]`
-///   - `min_x, max_x = max_x, min_x if min_x > max_x`
+/// ## Swap/cycle exemption (FP+FN fix, ~1300 FNs + ~8 FPs resolved)
+/// The old implementation treated ANY variable overlap between LHS and RHS as a
+/// "swap" and skipped it. This was too broad: `old, @var = @var, true` has an
+/// overlap but no cycle — it can safely be rewritten sequentially.
 ///
-/// RuboCop implements this via topological sort with cycle detection
-/// (`TSort::Cyclic`). We use a simpler approach: extract the source text of
-/// each LHS target and each RHS element, then check if any RHS element's source
-/// *exactly matches* any LHS target's source. If so, there is a dependency and
-/// the assignment is allowed (it may be a swap or have order-dependent
-/// semantics). We use exact equality rather than substring matching to avoid
-/// false positives like `a, b = foo(), bar()` where `bar()` contains `a`.
+/// We now use proper cycle detection (Kahn's algorithm / topological sort),
+/// matching RuboCop's `AssignmentSorter`. Dependencies are detected via
+/// word-boundary substring matching on source text, which handles:
+///   - Simple swaps: `a, b = b, a`
+///   - Expression cycles: `x, y = y, x+y` (Fibonacci pattern)
+///   - Indexed/method swaps: `arr[0], arr[1] = arr[1], arr[0]`
+///   - Nested-call cycles: `a.x, a.y = f(a.y), f(a.x)`
+///   - Rotations: `a, b, c = b, c, a`
 ///
-/// ## Trailing-comma / ImplicitRestNode (FN fix, 10 FNs in corpus)
+/// One-directional dependencies (no cycle) are correctly flagged:
+///   - `old, @var = @var, true` → `old = @var; @var = true`
+///   - `state, opts = opts, nil` → sequential rewrite is safe
+///
+/// ## Nested group / flattened target count (FP fix)
+/// RuboCop's `node.assignments` flattens nested groups: `(a, b), c` has 3
+/// assignments, not 2. We replicate this by counting leaf targets recursively,
+/// so `(a, b), c = [1, 2], 3` (3 targets, 2 RHS) is correctly skipped.
+///
+/// ## Trailing-comma / ImplicitRestNode
 /// `@name, @config, @bulk, = name, config, bulk` has a trailing comma that
-/// Prism represents as `ImplicitRestNode` in the `rest()` slot. The old code
-/// skipped all multi-writes with `rest().is_some()`, but `ImplicitRestNode`
-/// is not a real splat — it just means "discard extra RHS values". We now only
+/// Prism represents as `ImplicitRestNode` in the `rest()` slot. We only
 /// skip when `rest()` is a real `SplatNode` (i.e., `*var`).
+///
+/// ## Remaining limitations
+/// - `self.a, self.b = b, a`: RuboCop's `add_self_to_getters` converts bare
+///   getters to `self.x` for dependency analysis. We don't do this, so these
+///   rare implicit-self swaps may be false positives.
 pub struct ParallelAssignment;
 
 impl Cop for ParallelAssignment {
@@ -75,10 +85,14 @@ impl Cop for ParallelAssignment {
         // with the implicit array of values. For `a, b = foo`, it's just a single node.
         let value = multi_write.value();
 
-        // Check if RHS is an array node (implicit or explicit) with matching count
+        // Check if RHS is an array node (implicit or explicit) with matching count.
+        // RuboCop flattens nested groups in the LHS count (e.g., `(a, b), c` counts
+        // as 3 targets, not 2). We replicate this: if the LHS has nested
+        // MultiTargetNodes, use the flattened leaf count for the size comparison.
         if let Some(arr) = value.as_array_node() {
             let elements: Vec<_> = arr.elements().iter().collect();
-            if elements.len() != targets.len() {
+            let flat_target_count = count_flat_targets(&targets);
+            if elements.len() != flat_target_count {
                 return;
             }
 
@@ -105,20 +119,28 @@ impl Cop for ParallelAssignment {
     }
 }
 
-/// Check if any RHS element exactly matches any LHS target by source text,
-/// indicating a swap or order-dependent assignment that should be allowed.
+/// Check if the parallel assignment has a cyclic dependency that prevents safe
+/// rewriting as sequential assignments (i.e., it is a swap or rotation).
 ///
-/// Uses exact string equality (not substring) to avoid false positives like
-/// `a, b = foo(), bar()` where `bar()` contains `a` as a substring.
-/// This catches:
-/// - Simple swaps: `a, b = b, a`
-/// - Indexed swaps: `arr[0], arr[1] = arr[1], arr[0]`
-/// - Method swaps: `node.left, node.right = node.right, node.left`
+/// RuboCop uses topological sort (Kahn's algorithm) with cycle detection on the
+/// AST. We replicate the cycle-detection approach using source-text analysis:
+/// build a dependency graph where edge i→j means "RHS[i] references LHS[j]",
+/// then check for cycles with Kahn's algorithm.
+///
+/// Dependency detection uses word-boundary substring matching: LHS target text
+/// must appear in the RHS element text as a whole token (not inside a larger
+/// identifier). This handles both exact swaps (`a, b = b, a`) and expression
+/// cycles (`x, y = y, x+y`).
+///
+/// Simple overlaps WITHOUT cycles (e.g., `x, @y = @y, true`) are NOT swaps —
+/// they can be rewritten as `x = @y; @y = true` and must be flagged.
 fn is_swap_assignment(
     source: &SourceFile,
     targets: &[ruby_prism::Node<'_>],
     rhs_elements: &[ruby_prism::Node<'_>],
 ) -> bool {
+    let n = targets.len();
+
     // Extract source text for each LHS target
     let lhs_texts: Vec<&str> = targets
         .iter()
@@ -137,19 +159,119 @@ fn is_swap_assignment(
         })
         .collect();
 
-    // If any RHS element's source text exactly matches any LHS target's source text,
-    // the assignment has dependencies (potential swap). We use exact equality rather
-    // than substring matching to avoid false positives like `a, b = foo(), bar()`
-    // where `bar()` contains `a` as a substring but is unrelated.
-    for rhs_text in &rhs_texts {
-        for lhs_text in &lhs_texts {
-            if !lhs_text.is_empty() && *rhs_text == *lhs_text {
-                return true;
+    if lhs_texts.len() != n || rhs_texts.len() != n {
+        return false;
+    }
+
+    // Build dependency graph: edge i→j means RHS[i] references LHS[j]
+    // (assignment i reads the old value of target j, so i must execute before j).
+    // Skip self-references (i == j) — `a, b = a, b` has no real dependency.
+    let mut in_degree = vec![0u32; n];
+    let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
+
+    for i in 0..n {
+        for j in 0..n {
+            if i != j
+                && !lhs_texts[j].is_empty()
+                && has_variable_reference(rhs_texts[i], lhs_texts[j])
+            {
+                adj[i].push(j);
+                in_degree[j] += 1;
             }
         }
     }
 
+    // Kahn's algorithm: if topological sort cannot process all nodes, there is a cycle.
+    let mut queue: Vec<usize> = (0..n).filter(|&i| in_degree[i] == 0).collect();
+    let mut sorted_count = 0usize;
+
+    while let Some(node) = queue.pop() {
+        sorted_count += 1;
+        for &neighbor in &adj[node] {
+            in_degree[neighbor] -= 1;
+            if in_degree[neighbor] == 0 {
+                queue.push(neighbor);
+            }
+        }
+    }
+
+    // Cycle exists → swap/rotation → allow the assignment
+    sorted_count < n
+}
+
+/// Check if `rhs_text` contains a reference to `target` using word-boundary
+/// matching. Returns true if `target` appears in `rhs_text` as a whole token
+/// (not inside a larger identifier).
+///
+/// For sigiled variables (`@foo`), also ensures the match isn't part of a
+/// class variable (`@@foo`).
+fn has_variable_reference(rhs_text: &str, target: &str) -> bool {
+    if rhs_text == target {
+        return true;
+    }
+
+    let rhs_bytes = rhs_text.as_bytes();
+    let target_bytes = target.as_bytes();
+
+    if target_bytes.is_empty() || target_bytes.len() > rhs_bytes.len() {
+        return false;
+    }
+
+    let mut start = 0;
+    while start + target_bytes.len() <= rhs_bytes.len() {
+        match rhs_text[start..].find(target) {
+            Some(rel_pos) => {
+                let abs_pos = start + rel_pos;
+                let end_pos = abs_pos + target_bytes.len();
+
+                // Word boundary before: start of string or non-ident char
+                let before_ok = abs_pos == 0 || !is_ruby_ident_char(rhs_bytes[abs_pos - 1]);
+
+                // For @-prefixed targets, also reject if preceded by @ (would be @@var)
+                let sigil_ok =
+                    !(target_bytes[0] == b'@' && abs_pos > 0 && rhs_bytes[abs_pos - 1] == b'@');
+
+                // Word boundary after: end of string or non-ident char
+                let after_ok =
+                    end_pos >= rhs_bytes.len() || !is_ruby_ident_char(rhs_bytes[end_pos]);
+
+                if before_ok && sigil_ok && after_ok {
+                    return true;
+                }
+
+                start = abs_pos + 1;
+            }
+            None => break,
+        }
+    }
+
     false
+}
+
+fn is_ruby_ident_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Count the flattened number of leaf targets in the LHS, recursing into
+/// nested `MultiTargetNode` groups. RuboCop's `node.assignments` returns a
+/// flattened list (e.g., `(a, b), c` has 3 assignments), so we need to
+/// match that count when comparing against the RHS element count.
+fn count_flat_targets(targets: &[ruby_prism::Node<'_>]) -> usize {
+    let mut count = 0;
+    for t in targets {
+        if let Some(multi) = t.as_multi_target_node() {
+            // Recurse into nested group
+            let children: Vec<_> = multi.lefts().iter().collect();
+            count += count_flat_targets(&children);
+            // Also count any rest target in the nested group
+            if multi.rest().is_some() {
+                count += 1;
+            }
+        } else {
+            count += 1;
+        }
+    }
+    count
 }
 
 #[cfg(test)]

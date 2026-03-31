@@ -5,13 +5,17 @@ use crate::parse::source::SourceFile;
 
 /// Checks for nested method calls without parentheses inside a parenthesized outer call.
 ///
-/// ## Investigation notes (2026-03-15)
-/// - 147 FPs caused by `!=` and `!~` operators not being recognized as operators.
-///   The old character-based check (`!b.is_ascii_alphanumeric() && *b != b'!' ...`) excluded `!`
-///   from the "operator character" set (because `!` also appears at the end of method names like
-///   `save!`), which meant `!=` and `!~` were not skipped as operators.
-/// - Fixed by replacing the character-based heuristic with an explicit operator method name list,
-///   matching RuboCop's `operator_method?` behavior.
+/// ## Investigation notes (2026-03-31)
+/// - 74 FNs came from block-pass nested calls like `expect(items.map &:id)` and
+///   `expect(obj.call &block)`. In Prism these are `CallNode`s with `arguments: None` and
+///   `block: BlockArgumentNode`, so the old `arguments().is_none()` check skipped them even though
+///   RuboCop still flags them as nested calls that need parentheses.
+/// - The remaining corpus FP used a real attached block (`do ... end`) on the nested call.
+///   RuboCop does not report those nested block calls, so we only treat `BlockArgumentNode` as
+///   argument-like and continue skipping real `BlockNode`s.
+/// - 147 older FPs caused by `!=` and `!~` operators not being recognized as operators.
+///   That was fixed by replacing the character-based heuristic with an explicit operator method
+///   name list, matching RuboCop's `operator_method?` behavior.
 pub struct NestedParenthesizedCalls;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
@@ -65,14 +69,26 @@ impl Cop for NestedParenthesizedCalls {
                 Some(c) => c,
                 None => continue,
             };
+            let has_block_argument = inner_call
+                .block()
+                .is_some_and(|block| block.as_block_argument_node().is_some());
+            let has_block_node = inner_call
+                .block()
+                .is_some_and(|block| block.as_block_node().is_some());
 
             // Inner call must NOT have parentheses
             if inner_call.opening_loc().is_some() {
                 continue;
             }
 
-            // Inner call must have arguments (otherwise it's just a method call)
-            if inner_call.arguments().is_none() {
+            // RuboCop flags block-pass calls like `map &:id`, but not real block calls.
+            if has_block_node {
+                continue;
+            }
+
+            // Inner call must have arguments or a block pass (otherwise it's just a method call)
+            let inner_args = inner_call.arguments();
+            if inner_args.is_none() && !has_block_argument {
                 continue;
             }
 
@@ -97,8 +113,7 @@ impl Cop for NestedParenthesizedCalls {
             if let Some(ref allowed) = allowed_methods {
                 let name_str = std::str::from_utf8(inner_bytes).unwrap_or("");
                 let outer_arg_count = args.arguments().iter().count();
-                let inner_arg_count = inner_call
-                    .arguments()
+                let inner_arg_count = inner_args
                     .map(|a| a.arguments().iter().count())
                     .unwrap_or(0);
                 if outer_arg_count == 1

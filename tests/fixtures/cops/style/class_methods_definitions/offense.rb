@@ -88,3 +88,64 @@ class H
   end
 end
 
+# inline private def does not count as a plain def child
+class I
+  class << self
+  ^^^^^^^^^^^^^ Style/ClassMethodsDefinitions: Do not define public methods within class << self.
+    private def helper
+      1
+    end
+
+    def visible
+      2
+    end
+  end
+end
+
+# inline protected def does not count as a plain def child
+class J
+  class << self
+  ^^^^^^^^^^^^^ Style/ClassMethodsDefinitions: Do not define public methods within class << self.
+    protected def guarded
+      1
+    end
+
+    def visible
+      2
+    end
+  end
+end
+
+# later inline private def does not make earlier direct defs non-public
+class K
+  class << self
+  ^^^^^^^^^^^^^ Style/ClassMethodsDefinitions: Do not define public methods within class << self.
+    def visible
+      42
+    end
+
+    private def helper
+      1
+    end
+  end
+end
+
+# direct defs stay countable even with accessor calls and inline private defs
+class L
+  class << self
+  ^^^^^^^^^^^^^ Style/ClassMethodsDefinitions: Do not define public methods within class << self.
+    attr_writer :console
+
+    private def console?
+      @console ||= false
+    end
+
+    def debug(message)
+      message
+    end
+
+    def info(message)
+      message
+    end
+  end
+end

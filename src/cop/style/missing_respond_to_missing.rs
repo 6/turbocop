@@ -3,6 +3,13 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Matches RuboCop's parent-chain lookup for `respond_to_missing?`.
+///
+/// The previous implementation only scanned direct statements in class/module bodies,
+/// which missed `method_missing` under `class << self`, `if` branches, and dynamic
+/// `class_eval` blocks. The fix tracks the same effective search root RuboCop derives
+/// from ancestor shape, while still allowing descendant `respond_to_missing?` methods in
+/// nested classes/modules to satisfy outer `method_missing` definitions when RuboCop does.
 pub struct MissingRespondToMissing;
 
 impl Cop for MissingRespondToMissing {
@@ -22,128 +29,247 @@ impl Cop for MissingRespondToMissing {
         let mut visitor = MethodMissingVisitor {
             source,
             diagnostics: Vec::new(),
+            defs: Vec::new(),
+            ancestors: Vec::new(),
+            entered_nodes: Vec::new(),
         };
         visitor.visit(&parse_result.node());
+        visitor.finish();
         diagnostics.extend(visitor.diagnostics);
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum AncestorKind {
+    Program,
+    Class,
+    Module,
+    SingletonClass,
+    Def,
+    Other,
+}
+
+impl AncestorKind {
+    fn is_boundary(self) -> bool {
+        matches!(
+            self,
+            AncestorKind::Class
+                | AncestorKind::Module
+                | AncestorKind::SingletonClass
+                | AncestorKind::Def
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AncestorFrame {
+    kind: AncestorKind,
+    start_offset: usize,
+    has_multiple_body_statements: bool,
+}
+
+impl AncestorFrame {
+    fn from_node(node: ruby_prism::Node<'_>) -> Self {
+        let kind = if node.as_program_node().is_some() {
+            AncestorKind::Program
+        } else if node.as_class_node().is_some() {
+            AncestorKind::Class
+        } else if node.as_module_node().is_some() {
+            AncestorKind::Module
+        } else if node.as_singleton_class_node().is_some() {
+            AncestorKind::SingletonClass
+        } else if node.as_def_node().is_some() {
+            AncestorKind::Def
+        } else {
+            AncestorKind::Other
+        };
+
+        let has_multiple_body_statements = match kind {
+            AncestorKind::Class => body_has_multiple_statements(
+                node.as_class_node()
+                    .and_then(|class_node| class_node.body()),
+            ),
+            AncestorKind::Module => body_has_multiple_statements(
+                node.as_module_node()
+                    .and_then(|module_node| module_node.body()),
+            ),
+            AncestorKind::SingletonClass => body_has_multiple_statements(
+                node.as_singleton_class_node()
+                    .and_then(|singleton_class_node| singleton_class_node.body()),
+            ),
+            AncestorKind::Def => body_has_multiple_statements(
+                node.as_def_node().and_then(|def_node| def_node.body()),
+            ),
+            _ => false,
+        };
+
+        Self {
+            kind,
+            start_offset: node.location().start_offset(),
+            has_multiple_body_statements,
+        }
+    }
+}
+
+fn body_has_multiple_statements(body: Option<ruby_prism::Node<'_>>) -> bool {
+    match body {
+        Some(node) => node
+            .as_statements_node()
+            .map(|statements| statements.body().len() > 1)
+            .unwrap_or(false),
+        None => false,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ScopeKey {
+    kind: AncestorKind,
+    start_offset: usize,
+}
+
+impl ScopeKey {
+    fn from_frame(frame: AncestorFrame) -> Self {
+        Self {
+            kind: frame.kind,
+            start_offset: frame.start_offset,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MethodRole {
+    MethodMissing,
+    RespondToMissing,
+}
+
+struct DefRecord {
+    role: MethodRole,
+    is_class_method: bool,
+    start_offset: usize,
+    root: Option<ScopeKey>,
+    ancestor_scopes: Vec<ScopeKey>,
 }
 
 struct MethodMissingVisitor<'src> {
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
+    defs: Vec<DefRecord>,
+    ancestors: Vec<AncestorFrame>,
+    entered_nodes: Vec<bool>,
 }
 
 impl MethodMissingVisitor<'_> {
-    /// Check a class or module body for method_missing without respond_to_missing?
-    fn check_body(&mut self, body: Option<ruby_prism::Node<'_>>) {
-        let body = match body {
-            Some(b) => b,
-            None => return,
-        };
+    fn current_root_key(&self) -> Option<ScopeKey> {
+        let mut index = self.ancestors.len().checked_sub(2)?;
+        let mut saw_wrapper = false;
 
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
-        };
+        loop {
+            let frame = *self.ancestors.get(index)?;
 
-        // Collect all method defs in the body (one level deep only)
-        let mut has_instance_method_missing = Vec::new();
-        let mut has_instance_respond_to_missing = false;
-        let mut has_class_method_missing = Vec::new();
-        let mut has_class_respond_to_missing = false;
+            match frame.kind {
+                AncestorKind::Program => return None,
+                AncestorKind::SingletonClass => return Some(ScopeKey::from_frame(frame)),
+                AncestorKind::Class | AncestorKind::Module | AncestorKind::Def => {
+                    let has_outer_boundary = self.ancestors[..index]
+                        .iter()
+                        .rev()
+                        .any(|ancestor| ancestor.kind.is_boundary());
 
-        for stmt in stmts.body().into_iter() {
-            // Check direct def nodes
-            if let Some(def_node) = stmt.as_def_node() {
-                let name = def_node.name();
-                let name_bytes = name.as_slice();
-
-                if def_node.receiver().is_some() {
-                    // self.method_missing or self.respond_to_missing?
-                    if name_bytes == b"method_missing" {
-                        has_class_method_missing.push(def_node.location().start_offset());
-                    } else if name_bytes == b"respond_to_missing?" {
-                        has_class_respond_to_missing = true;
+                    if saw_wrapper || frame.has_multiple_body_statements || !has_outer_boundary {
+                        return Some(ScopeKey::from_frame(frame));
                     }
-                } else if name_bytes == b"method_missing" {
-                    has_instance_method_missing.push(def_node.location().start_offset());
-                } else if name_bytes == b"respond_to_missing?" {
-                    has_instance_respond_to_missing = true;
+                }
+                AncestorKind::Other => {
+                    saw_wrapper = true;
                 }
             }
 
-            // Check for inline access modifier: `private def method_missing`
-            if let Some(call_node) = stmt.as_call_node() {
-                let method_bytes = call_node.name().as_slice();
-                if method_bytes == b"private"
-                    || method_bytes == b"protected"
-                    || method_bytes == b"public"
-                {
-                    if let Some(args) = call_node.arguments() {
-                        for arg in args.arguments().into_iter() {
-                            if let Some(def_node) = arg.as_def_node() {
-                                let name = def_node.name();
-                                let name_bytes = name.as_slice();
+            index = index.checked_sub(1)?;
+        }
+    }
 
-                                if def_node.receiver().is_some() {
-                                    if name_bytes == b"method_missing" {
-                                        has_class_method_missing
-                                            .push(def_node.location().start_offset());
-                                    } else if name_bytes == b"respond_to_missing?" {
-                                        has_class_respond_to_missing = true;
-                                    }
-                                } else if name_bytes == b"method_missing" {
-                                    has_instance_method_missing
-                                        .push(def_node.location().start_offset());
-                                } else if name_bytes == b"respond_to_missing?" {
-                                    has_instance_respond_to_missing = true;
-                                }
-                            }
-                        }
-                    }
-                }
+    fn current_ancestor_scopes(&self) -> Vec<ScopeKey> {
+        self.ancestors
+            .iter()
+            .take(self.ancestors.len().saturating_sub(1))
+            .filter(|ancestor| ancestor.kind.is_boundary())
+            .copied()
+            .map(ScopeKey::from_frame)
+            .collect()
+    }
+
+    fn record_def(&mut self, node: &ruby_prism::DefNode<'_>) {
+        let role = match node.name().as_slice() {
+            b"method_missing" => MethodRole::MethodMissing,
+            b"respond_to_missing?" => MethodRole::RespondToMissing,
+            _ => return,
+        };
+
+        self.defs.push(DefRecord {
+            role,
+            is_class_method: node.receiver().is_some(),
+            start_offset: node.location().start_offset(),
+            root: self.current_root_key(),
+            ancestor_scopes: self.current_ancestor_scopes(),
+        });
+    }
+
+    fn finish(&mut self) {
+        let mut offense_offsets = Vec::new();
+
+        for method_missing in self
+            .defs
+            .iter()
+            .filter(|record| record.role == MethodRole::MethodMissing)
+        {
+            let root = match method_missing.root {
+                Some(root) => root,
+                None => continue,
+            };
+
+            let has_match = self.defs.iter().any(|respond| {
+                respond.role == MethodRole::RespondToMissing
+                    && respond.is_class_method == method_missing.is_class_method
+                    && respond.ancestor_scopes.contains(&root)
+            });
+
+            if !has_match {
+                offense_offsets.push(method_missing.start_offset);
             }
         }
 
-        // Flag instance method_missing without instance respond_to_missing?
-        if !has_instance_respond_to_missing {
-            for offset in &has_instance_method_missing {
-                let (line, column) = self.source.offset_to_line_col(*offset);
-                self.diagnostics.push(MissingRespondToMissing.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    "When using `method_missing`, define `respond_to_missing?`.".to_string(),
-                ));
-            }
-        }
+        offense_offsets.sort_unstable();
 
-        // Flag class method_missing without class respond_to_missing?
-        if !has_class_respond_to_missing {
-            for offset in &has_class_method_missing {
-                let (line, column) = self.source.offset_to_line_col(*offset);
-                self.diagnostics.push(MissingRespondToMissing.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    "When using `method_missing`, define `respond_to_missing?`.".to_string(),
-                ));
-            }
+        for offset in offense_offsets {
+            let (line, column) = self.source.offset_to_line_col(offset);
+            self.diagnostics.push(MissingRespondToMissing.diagnostic(
+                self.source,
+                line,
+                column,
+                "When using `method_missing`, define `respond_to_missing?`.".to_string(),
+            ));
         }
     }
 }
 
 impl<'pr> Visit<'pr> for MethodMissingVisitor<'_> {
-    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
-        self.check_body(node.body());
-        // Don't recurse into nested classes/modules here;
-        // the Visit trait will call us for nested classes automatically
-        ruby_prism::visit_class_node(self, node);
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        let keep = node.as_statements_node().is_none();
+        self.entered_nodes.push(keep);
+        if keep {
+            self.ancestors.push(AncestorFrame::from_node(node));
+        }
     }
 
-    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        self.check_body(node.body());
-        ruby_prism::visit_module_node(self, node);
+    fn visit_branch_node_leave(&mut self) {
+        if self.entered_nodes.pop().unwrap_or(false) {
+            self.ancestors.pop();
+        }
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        self.record_def(node);
+        ruby_prism::visit_def_node(self, node);
     }
 }
 

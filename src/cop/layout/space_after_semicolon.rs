@@ -29,6 +29,17 @@ use crate::parse::source::SourceFile;
 /// code following the semicolon.
 ///
 /// Fix: skip semicolons where the next byte is `\`.
+///
+/// ## Corpus investigation (2026-03-31)
+///
+/// Corpus oracle reported FP=4, FN=0.
+///
+/// FP=4 root cause: semicolons followed by closing delimiters (`)`, `]`, `|`)
+/// were flagged. RuboCop's `SpaceAfterPunctuation#allowed_type?` exempts
+/// tokens of type tRPAREN, tRBRACK, tPIPE, and tSTRING_DEND after a
+/// semicolon. All 4 FPs were `;)` patterns like `break;)` and `end;)`.
+///
+/// Fix: skip semicolons where the next byte is `)`, `]`, or `|`.
 pub struct SpaceAfterSemicolon;
 
 impl Cop for SpaceAfterSemicolon {
@@ -64,6 +75,13 @@ impl Cop for SpaceAfterSemicolon {
                 // Backslash after semicolon is a line continuation, not a
                 // missing space. RuboCop does not flag these.
                 if matches!(next, Some(b'\\')) {
+                    continue;
+                }
+
+                // RuboCop skips semicolons followed by closing delimiters
+                // (tRPAREN, tRBRACK, tPIPE) via `allowed_type?` in
+                // SpaceAfterPunctuation. Match that behavior.
+                if matches!(next, Some(b')') | Some(b']') | Some(b'|')) {
                     continue;
                 }
 

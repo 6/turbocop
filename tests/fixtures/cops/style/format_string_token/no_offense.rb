@@ -51,9 +51,17 @@ s = %[service %s
 # String with interpolation in format specifier: %#{var}s is not a token
 t = format("%#{padding}s: %s", prefix, message)
 u = sprintf("| %-#{width}s | %-#{offset}s |", key, value)
-# Named tokens on continuation lines of plain multiline strings: Parser splits
-# these into dstr parts that lose ancestor context, so RuboCop doesn't flag them.
-v = _("Status update
-  %{url}") % { url: target_url }
+# Adjacent string literals passed to format are parsed as dstr parts, so
+# unannotated tokens inside each part are not in the immediate format context.
+v = format(
+  '  Executed %d times in %.1fms (%.1f/%.1f/%.1fms min/median/max),' \
+  " returning %d rows(%d bytes):\n"\
+  "    %s\n" \
+  "    First exec was: %s\n" \
+  '    %s',
+  queries, total_time, min_time, median_time, max_time, rows, bytes, name, sql, backtrace
+)
+# Continuation-line template tokens after escaped newlines are skipped because
+# RuboCop's Parser-backed str node value drops the trailing `%{...}` here.
 w = _("Status update
   details: \n\n%{explanation}") % { explanation: reason }

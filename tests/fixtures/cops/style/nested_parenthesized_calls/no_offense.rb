@@ -22,3 +22,6 @@ method1(a =~ b)
 method1(a !~ b)
 method1(a << b)
 method1(a ** b)
+
+# Nested calls with real blocks are excluded
+write(render_view_component(Primer::OpenProject::CollapsibleSection.new(id: 1)) { |section| section.with_title { :ok } })
