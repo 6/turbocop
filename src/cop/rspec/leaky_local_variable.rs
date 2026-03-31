@@ -366,6 +366,16 @@ use crate::parse::source::SourceFile;
 ///   `` `tar -xf "#{test_tarball}"` `` are `InterpolatedXStringNode`s. Our
 ///   reference walker handled interpolated strings, symbols, and regexps, but
 ///   not xstrings, so reads inside command interpolation were invisible.
+///
+/// ## Investigation (FN: module/class wrapper scopes, 2026-03-31)
+///
+/// Corpus misses in `saml-idp` and `syntax_suggest` assign locals in a
+/// `module` body before an `RSpec.describe` nested in that same Ruby scope:
+/// `module X; payload = ...; RSpec.describe { it { payload } } end`.
+/// `check_source` only analyzed file-level statements plus `def` bodies, so
+/// locals in `module`/`class` bodies were invisible unless they lived inside a
+/// method. Fix: reuse the existing outer-scope assignment analysis for
+/// `module`/`class` statement lists before recursing into nested defs.
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
@@ -535,42 +545,18 @@ fn check_def_level_vars_in_node(
     if let Some(def_node) = node.as_def_node() {
         if let Some(body) = def_node.body() {
             if let Some(stmts) = body.as_statements_node() {
-                // Collect assignments in the def body (stopping at describe blocks)
-                let mut assigns: Vec<VarAssign> = Vec::new();
-                for s in stmts.body().iter() {
-                    collect_file_level_assignments(&s, &mut assigns, false);
-                }
-                if !assigns.is_empty() {
-                    let live = filter_dead_file_level_assignments(&assigns, &stmts);
-                    for assign in &live {
-                        let mut used = false;
-                        for s in stmts.body().iter() {
-                            if check_var_used_in_describe_blocks(&s, &assign.name) {
-                                used = true;
-                                break;
-                            }
-                        }
-                        if used {
-                            let (line, column) = source.offset_to_line_col(assign.offset);
-                            diagnostics.push(cop.diagnostic(
-                                source,
-                                line,
-                                column,
-                                "Do not use local variables defined outside of examples inside of them."
-                                    .to_string(),
-                            ));
-                        }
-                    }
-                }
+                diagnose_outer_scope_var_leaks_in_stmts(source, &stmts, diagnostics, cop);
             }
         }
         return; // don't recurse into nested defs
     }
 
-    // Recurse into class/module bodies to find defs
+    // Class/module bodies are also Ruby local-variable scopes whose locals can
+    // leak into nested describe/shared-context blocks.
     if let Some(class_node) = node.as_class_node() {
         if let Some(body) = class_node.body() {
             if let Some(stmts) = body.as_statements_node() {
+                diagnose_outer_scope_var_leaks_in_stmts(source, &stmts, diagnostics, cop);
                 for s in stmts.body().iter() {
                     check_def_level_vars_in_node(&s, source, diagnostics, cop);
                 }
@@ -581,10 +567,52 @@ fn check_def_level_vars_in_node(
     if let Some(module_node) = node.as_module_node() {
         if let Some(body) = module_node.body() {
             if let Some(stmts) = body.as_statements_node() {
+                diagnose_outer_scope_var_leaks_in_stmts(source, &stmts, diagnostics, cop);
                 for s in stmts.body().iter() {
                     check_def_level_vars_in_node(&s, source, diagnostics, cop);
                 }
             }
+        }
+    }
+}
+
+/// Diagnose outer-scope local variables for a Ruby scope body (`def`, `module`,
+/// or `class`) by reusing the same assignment collection and describe-block
+/// reachability checks as file-level analysis.
+fn diagnose_outer_scope_var_leaks_in_stmts(
+    source: &SourceFile,
+    stmts: &ruby_prism::StatementsNode<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+    cop: &LeakyLocalVariable,
+) {
+    let mut assigns: Vec<VarAssign> = Vec::new();
+    for s in stmts.body().iter() {
+        collect_file_level_assignments(&s, &mut assigns, false);
+    }
+    if assigns.is_empty() {
+        return;
+    }
+
+    let live = filter_dead_file_level_assignments(&assigns, stmts);
+    for assign in &live {
+        let mut used = false;
+        for s in stmts.body().iter() {
+            if check_var_used_in_describe_blocks(&s, &assign.name) {
+                used = true;
+                break;
+            }
+        }
+        if used {
+            let (line, column) = source.offset_to_line_col(assign.offset);
+            diagnostics.push(
+                cop.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Do not use local variables defined outside of examples inside of them."
+                        .to_string(),
+                ),
+            );
         }
     }
 }
@@ -4039,6 +4067,34 @@ end
                 .map(|d| format!("{}:{}", d.location.line, d.location.column))
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_fn_module_body_vars_leak_into_describe() {
+        let source = br#"module SamlIdp
+  metadata_1 = <<-eos
+<md:EntityDescriptor></md:EntityDescriptor>
+  eos
+
+  RSpec.describe 'incoming metadata' do
+    it 'parses the metadata' do
+      expect(metadata_1).to include('EntityDescriptor')
+    end
+  end
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for module body var leak, got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(diags[0].location.line, 2, "Offense should be on line 2");
     }
 
     #[test]

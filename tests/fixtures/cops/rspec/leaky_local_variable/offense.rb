@@ -550,3 +550,17 @@ shared_examples 'inspect unmanaged files' do |base, skip_remote_mounts_test|
     end
   end
 end
+
+# Module-level variable used in nested RSpec.describe example
+module SamlIdp
+  metadata_1 = <<-eos
+  ^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+<md:EntityDescriptor></md:EntityDescriptor>
+  eos
+
+  RSpec.describe 'incoming metadata' do
+    it 'parses the metadata' do
+      expect(metadata_1).to include('EntityDescriptor')
+    end
+  end
+end
