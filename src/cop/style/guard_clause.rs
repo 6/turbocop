@@ -378,7 +378,10 @@ impl GuardClauseVisitor<'_, '_> {
             if self.branch_is_trivial(remaining_branch) {
                 return;
             }
-            format!("{} {}; {}; end", conditional_keyword, condition_src, guard_src)
+            format!(
+                "{} {}; {}; end",
+                conditional_keyword, condition_src, guard_src
+            )
         } else {
             inline_example
         };
