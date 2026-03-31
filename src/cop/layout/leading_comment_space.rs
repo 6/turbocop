@@ -82,6 +82,23 @@ use crate::parse::source::SourceFile;
 /// allowed through, matching the linter's `is_semantic_parse_error()` approach.
 /// `retry` outside rescue and `return in class/module body` remain as bail-out
 /// triggers since RuboCop's `valid_syntax?` returns false for those.
+///
+/// ## Corpus investigation (2026-03-31)
+///
+/// CI reports FP=7, FN=0. All 7 false positives are duplicate shebang blocks at
+/// the top of executable files, e.g.:
+///
+/// ```text
+/// #!/usr/bin/env ruby
+/// #!/usr/bin/env ruby
+/// # This command will automatically be run ...
+/// ```
+///
+/// RuboCop allows a `#!` comment on line 2+ when it directly continues an
+/// allowed shebang comment from the previous line. nitrocop only exempted
+/// `#!` on line 1, so it incorrectly flagged the continuation line. Fixed by
+/// tracking whether the immediately previous comment was an allowed shebang and
+/// only exempting directly consecutive `#!` lines in that narrow case.
 pub struct LeadingCommentSpace;
 
 impl Cop for LeadingCommentSpace {
@@ -107,6 +124,8 @@ impl Cop for LeadingCommentSpace {
         let _allow_rbs_inline = config.get_bool("AllowRBSInlineAnnotation", false);
         let _allow_steep = config.get_bool("AllowSteepAnnotation", false);
         let bytes = source.as_bytes();
+        let mut previous_comment_line = None;
+        let mut previous_comment_allowed_shebang = false;
 
         // Only bail out on "structural" parse errors — those that RuboCop's
         // parser gem also considers syntax errors (valid_syntax? = false).
@@ -125,22 +144,33 @@ impl Cop for LeadingCommentSpace {
             let start = loc.start_offset();
             let end = loc.end_offset();
             let text = &bytes[start..end];
+            let (line, column) = source.offset_to_line_col(start);
+            let is_shebang = text.starts_with(b"#!");
+            let is_shebang_continuation = is_shebang
+                && line > 1
+                && previous_comment_line == Some(line - 1)
+                && previous_comment_allowed_shebang;
 
             if !missing_space_after_hash(text) {
+                previous_comment_line = Some(line);
+                previous_comment_allowed_shebang = false;
                 continue;
             }
 
-            let (line, column) = source.offset_to_line_col(start);
-
-            // Skip shebangs (#!) only on the first line of the file.
-            // Non-first-line #! comments (e.g. commented-out code like
-            // `#!self.foo.empty?`) should be flagged.
-            if text.starts_with(b"#!") && line == 1 {
+            // Skip shebangs (#!) on the first line and directly consecutive
+            // shebang-continuation lines. Non-consecutive `#!` comments
+            // (e.g. commented-out code like `#!self.foo.empty?`) should be
+            // flagged.
+            if is_shebang && (line == 1 || is_shebang_continuation) {
+                previous_comment_line = Some(line);
+                previous_comment_allowed_shebang = true;
                 continue;
             }
 
             // Skip rackup options (#\) on the first line of config.ru files.
             if text.starts_with(b"#\\") && line == 1 && is_config_ru(source) {
+                previous_comment_line = Some(line);
+                previous_comment_allowed_shebang = false;
                 continue;
             }
             let mut diag =
@@ -156,6 +186,8 @@ impl Cop for LeadingCommentSpace {
                 diag.corrected = true;
             }
             diagnostics.push(diag);
+            previous_comment_line = Some(line);
+            previous_comment_allowed_shebang = false;
         }
     }
 }
@@ -235,6 +267,15 @@ mod tests {
     fn allows_shebang_on_first_line() {
         let diags =
             crate::testutil::run_cop_full(&LeadingCommentSpace, b"#!/usr/bin/env ruby\nx = 1\n");
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn allows_shebang_continuation_after_first_line_shebang() {
+        let diags = crate::testutil::run_cop_full(
+            &LeadingCommentSpace,
+            b"#!/usr/bin/env ruby\n#!/usr/bin/env ruby\nx = 1\n",
+        );
         assert!(diags.is_empty());
     }
 
