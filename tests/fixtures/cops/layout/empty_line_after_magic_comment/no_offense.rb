@@ -1,3 +1,13 @@
+# -*- encoding : utf-8 -*-
+__END__
+require File.dirname(__FILE__) + '/../spec_helper'
+require File.dirname(__FILE__) + '/oauth_controller_spec_helper'
+require 'oauth/client/action_controller_request'
+
+describe OauthClientsController, "index" do
+  include OAuthControllerSpecHelper
+  before(:each) do
+
 # frozen_string_literal: true
 
 class Foo

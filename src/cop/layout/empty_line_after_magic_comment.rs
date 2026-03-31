@@ -40,6 +40,13 @@ use std::sync::OnceLock;
 /// `:\s+` which matched multiple spaces, but RuboCop's SimpleComment#encoding
 /// uses a literal `": "` (colon-space) so multi-space comments don't match.
 /// Fixed by changing `:\s+` to `: ` in encoding_re().
+///
+/// Follow-up investigation on 2026-03-31 found 6 FP in files whose first
+/// non-comment line is an exact `__END__` marker. RuboCop with Prism treats
+/// those files as having no code before the data section, so it does not
+/// require a blank line after a leading magic comment. This implementation now
+/// stops the top-of-file scan at an exact `__END__` line; prefixed, indented,
+/// or trailing-space variants still count as code because RuboCop flags them.
 pub struct EmptyLineAfterMagicComment;
 
 impl Cop for EmptyLineAfterMagicComment {
@@ -100,11 +107,7 @@ impl Cop for EmptyLineAfterMagicComment {
 }
 
 fn last_magic_comment_line(lines: &[&[u8]]) -> Option<usize> {
-    let first_code_idx = lines.iter().position(|line| {
-        let trimmed = trim_leading_space(strip_utf8_bom(line));
-        !trimmed.is_empty() && !trimmed.starts_with(b"#")
-    });
-    let limit = first_code_idx.unwrap_or(lines.len());
+    let limit = magic_comment_scan_limit(lines)?;
 
     let mut last_magic = None;
     for (idx, line) in lines.iter().take(limit).enumerate() {
@@ -115,6 +118,22 @@ fn last_magic_comment_line(lines: &[&[u8]]) -> Option<usize> {
     }
 
     last_magic
+}
+
+fn magic_comment_scan_limit(lines: &[&[u8]]) -> Option<usize> {
+    for (idx, line) in lines.iter().enumerate() {
+        let line = if idx == 0 { strip_utf8_bom(line) } else { line };
+        let trimmed = trim_leading_space(line);
+        if trimmed.is_empty() || trimmed.starts_with(b"#") {
+            continue;
+        }
+        if is_data_section_marker(line) {
+            return None;
+        }
+        return Some(idx);
+    }
+
+    Some(lines.len())
 }
 
 fn is_magic_comment(line: &[u8]) -> bool {
@@ -170,6 +189,10 @@ fn trim_leading_space(line: &[u8]) -> &[u8] {
         .position(|&b| b != b' ' && b != b'\t' && b != b'\r')
         .unwrap_or(line.len());
     &line[start..]
+}
+
+fn is_data_section_marker(line: &[u8]) -> bool {
+    line.strip_suffix(b"\r").unwrap_or(line) == b"__END__"
 }
 
 fn strip_utf8_bom(line: &[u8]) -> &[u8] {
@@ -324,6 +347,30 @@ mod tests {
             "expected no offense for multi-space encoding comment, got {:?}",
             diags
         );
+    }
+
+    #[test]
+    fn no_offense_when_magic_comment_precedes_exact_end_marker() {
+        let source = b"# -*- encoding : utf-8 -*-\n__END__\nrequire_relative \"helper\"\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterMagicComment, source);
+        assert!(
+            diags.is_empty(),
+            "expected no offense when magic comment is followed by exact __END__, got {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn offense_when_magic_comment_precedes_end_prefix_identifier() {
+        let source = b"# frozen_string_literal: true\n__END__foo = 1\nclass Foo; end\n";
+        let diags = crate::testutil::run_cop_full(&EmptyLineAfterMagicComment, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "expected offense for __END__ prefix identifier after magic comment"
+        );
+        assert_eq!(diags[0].location.line, 2);
+        assert_eq!(diags[0].message, "Add an empty line after magic comments.");
     }
 
     #[test]
