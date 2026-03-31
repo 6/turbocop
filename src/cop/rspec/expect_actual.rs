@@ -24,6 +24,20 @@ use crate::parse::source::SourceFile;
 /// - Require exactly one runner argument.
 /// - Match only RuboCop-compatible matcher forms.
 /// - Treat `__FILE__` (`SourceFileNode`) as a literal.
+///
+/// ## FP fix (2026-03-31)
+///
+/// FP=5 came from matcher calls with attached blocks, such as
+/// `expect(true).to satisfy("be true") { |value| value }`.
+///
+/// Prism splits matcher blocks across two places:
+/// - Brace blocks stay on the matcher call argument
+///   (`expect(true).to satisfy("be true") { ... }`).
+/// - `do/end` blocks move to the runner call (`expect(true).to satisfy("be true") do ... end`).
+///
+/// RuboCop still flags the `do/end` form, but not the brace form. The narrow
+/// fix is to ignore matcher arguments that are `CallNode`s with a real
+/// `BlockNode`, while still allowing runner-level `do/end` blocks through.
 pub struct ExpectActual;
 
 impl Cop for ExpectActual {
@@ -227,6 +241,14 @@ fn is_literal_value(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
 
 fn expect_actual_matcher_name<'a>(node: &'a ruby_prism::Node<'_>) -> Option<&'a [u8]> {
     let matcher = node.as_call_node()?;
+
+    if matcher
+        .block()
+        .and_then(|block| block.as_block_node())
+        .is_some()
+    {
+        return None;
+    }
 
     // Regular matcher call: eq(expected), include(expected), etc.
     if matcher.receiver().is_none() && matcher.arguments().is_some() {

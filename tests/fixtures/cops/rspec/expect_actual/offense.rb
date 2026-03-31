@@ -12,5 +12,13 @@ describe Foo do
            ^^^^ RSpec/ExpectActual: Provide the actual value you are testing to `expect(...)`.
     expect(__FILE__).to eq(expected_path)
            ^^^^^^^^ RSpec/ExpectActual: Provide the actual value you are testing to `expect(...)`.
+    expect(true).to satisfy("be true") do |val|
+           ^^^^ RSpec/ExpectActual: Provide the actual value you are testing to `expect(...)`.
+      val
+    end
+    expect(false).not_to satisfy("be true") do |val|
+           ^^^^^ RSpec/ExpectActual: Provide the actual value you are testing to `expect(...)`.
+      val
+    end
   end
 end

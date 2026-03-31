@@ -35,4 +35,23 @@ describe Foo do
       end
     ').to eq(actual_code)
   end
+
+  # Matcher blocks bind to the runner path and RuboCop does not match them
+  it 'allows matcher calls with attached blocks' do
+    expect(5).to arbitrary_matcher { 5 }
+    expect(5).to arbitrary_matcher(expected: 4) { 5 }
+    expect(5).to arbitrary_matcher(expected: 4).with(5) { 3 }
+    expect(true).to satisfy("be true") { |val| val }
+    expect(false).not_to satisfy("be true") { |val| val }
+  end
+
+  it 'allows matcher blocks inside block expectations' do
+    expect {
+      expect(false).to satisfy("be true") { |val| val }
+    }.to fail_with("expected false to be true")
+
+    expect {
+      expect(true).not_to satisfy("be true") { |val| val }
+    }.to fail_with("expected true not to be true")
+  end
 end
