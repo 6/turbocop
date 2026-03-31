@@ -9,19 +9,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-11)
+/// Mirrors RuboCop's narrow ternary-condition exemptions found in corpus work.
 ///
-/// Corpus oracle reported FP=1, FN=0.
+/// 2026-03-15: only `[]=` counts as a safe assignment in ternary conditions.
+/// Broad setter-method exemptions fixed one FP but introduced new FNs.
 ///
-/// **First attempt (reverted):** treated all setter-style `CallNode`s (methods
-/// ending in `=`) as safe assignments. This was too broad — it fixed the FP
-/// but introduced 2 new FNs elsewhere (shifted from 1783→1781 against
-/// expected 1782).
-///
-/// **Second attempt (2026-03-15):** narrowed scope to only `[]=` (indexed
-/// assignment like `@hash[key] = val`). This is the specific pattern in the
-/// FP location (`asciidoctor`, line 1092). Other setter methods like
-/// `foo.bar = val` are left unhandled to avoid the previous regression.
+/// 2026-03-31: parenthesized one-line pattern matching like
+/// `(foo in bar) ? a : b` is accepted by RuboCop and must not be flagged.
 pub struct TernaryParentheses;
 
 /// Check if a parenthesized node contains a safe assignment (=) in ternary context.
@@ -38,6 +32,28 @@ fn is_ternary_safe_assignment(paren: &ruby_prism::ParenthesesNode<'_>) -> bool {
         }
     }
     is_write_or_indexed_assign(&body)
+}
+
+/// Check if a parenthesized ternary condition is a one-line pattern match
+/// (`(foo in bar)` / `(foo => bar)`), which RuboCop exempts.
+fn is_parenthesized_one_line_pattern_matching(paren: &ruby_prism::ParenthesesNode<'_>) -> bool {
+    let body = match paren.body() {
+        Some(b) => b,
+        None => return false,
+    };
+    if let Some(stmts) = body.as_statements_node() {
+        let stmts_body = stmts.body();
+        if stmts_body.len() != 1 {
+            return false;
+        }
+        let inner = &stmts_body.iter().next().unwrap();
+        return is_one_line_pattern_matching(inner);
+    }
+    is_one_line_pattern_matching(&body)
+}
+
+fn is_one_line_pattern_matching(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_match_predicate_node().is_some() || node.as_match_required_node().is_some()
 }
 
 /// Check if a node is a variable write or an indexed assignment (`[]=`).
@@ -150,6 +166,14 @@ impl Cop for TernaryParentheses {
         if allow_safe && is_parenthesized {
             if let Some(paren) = predicate.as_parentheses_node() {
                 if is_ternary_safe_assignment(&paren) {
+                    return;
+                }
+            }
+        }
+
+        if is_parenthesized {
+            if let Some(paren) = predicate.as_parentheses_node() {
+                if is_parenthesized_one_line_pattern_matching(&paren) {
                     return;
                 }
             }
@@ -304,6 +328,17 @@ mod tests {
             diags.len(),
             1,
             "Should flag safe assignment parens when disallowed"
+        );
+    }
+
+    #[test]
+    fn allows_parenthesized_one_line_pattern_matching() {
+        let source = b"(descriptor in Element[slot:]) ? slot : nil\n";
+        let diags = run_cop_full(&TernaryParentheses, source);
+        assert!(
+            diags.is_empty(),
+            "Should allow parenthesized one-line pattern matching: {:?}",
+            diags
         );
     }
 }

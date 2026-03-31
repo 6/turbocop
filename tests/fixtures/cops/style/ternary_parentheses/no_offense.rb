@@ -15,3 +15,26 @@ yield ? 1 : 0
 
 # Safe assignment: indexed assignment in ternary condition
 (@cache[key] = compute_value) ? true : false
+
+Children =
+  Data.define(:descriptors, :slots) do
+    def self.[](descriptors)
+      new(
+        descriptors,
+        descriptors.group_by do |descriptor|
+          (descriptor in Element[slot:]) ? slot : nil
+        end
+      )
+    end
+
+    def marshal_load(a)
+      descriptors = a.first || []
+      initialize(
+        descriptors:,
+        slots:
+          descriptors.group_by do |descriptor|
+            (descriptor in Element[slot:]) ? slot : nil
+          end
+      )
+    end
+  end
