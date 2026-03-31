@@ -107,3 +107,16 @@ class WithRBSMixed
 
   attr_reader :two, :three
 end
+
+# Bare accessor calls with no arguments (e.g. used as annotations) - not grouped
+class BareAttr
+  attr
+  def label
+    @object.attributes['name']
+  end
+
+  attr
+  def value
+    @object.attributes['_id']
+  end
+end

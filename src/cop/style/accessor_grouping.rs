@@ -66,6 +66,17 @@ use crate::parse::source::SourceFile;
 /// Fix: when the previous sibling is a call with a real `BlockNode`, measure blank-line
 /// spacing from the block start line instead of the call's full end line. This matches
 /// RuboCop's unwrapped-send behavior without broadening grouping after ordinary calls.
+///
+/// ## Investigation findings (2026-03-31, bare accessor calls)
+///
+/// 2 FPs from bare `attr` calls with no arguments (used as annotation/decorator methods,
+/// e.g., in Oj::Serializer). RuboCop's `attribute_accessor?` node matcher uses an
+/// intersection pattern that requires at least one argument: `[(send nil? ${:attr ...} $...)
+/// (_ _ _ _ ...)]`. The second sub-pattern `(_ _ _ _ ...)` requires at least 3 children
+/// (receiver, method_name, one argument), so bare `attr` without arguments does not match.
+///
+/// Fix: added `call.arguments().is_some()` check when identifying accessor calls and when
+/// checking if the previous sibling is an accessor in `is_groupable_accessor`.
 pub struct AccessorGrouping;
 
 const ACCESSOR_METHODS: &[&str] = &["attr_reader", "attr_writer", "attr_accessor", "attr"];
@@ -182,7 +193,10 @@ fn check_grouped(
                 continue;
             }
 
-            if ACCESSOR_METHODS.contains(&name) && call.receiver().is_none() {
+            if ACCESSOR_METHODS.contains(&name)
+                && call.receiver().is_none()
+                && call.arguments().is_some()
+            {
                 info.is_accessor = true;
                 info.accessor_name = name.to_string();
 
@@ -312,8 +326,11 @@ fn is_groupable_accessor(
             return false;
         }
 
-        // Previous is an accessor — groupable
-        if ACCESSOR_METHODS.contains(&prev_name) && prev_call.receiver().is_none() {
+        // Previous is an accessor — groupable (must have arguments; bare `attr` etc. are not accessors)
+        if ACCESSOR_METHODS.contains(&prev_name)
+            && prev_call.receiver().is_none()
+            && prev_call.arguments().is_some()
+        {
             return true;
         }
 
