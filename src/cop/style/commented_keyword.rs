@@ -26,6 +26,10 @@ use crate::parse::source::SourceFile;
 ///      prefix no longer started at `def`. Fixed by using
 ///      `SourceFile::line_start_offset(line_num)` instead of
 ///      `comment_start - comment_col`.
+/// - 1 FN: files with non-UTF-8 source encoding (e.g., ISO-8859-9) caused
+///   `from_utf8` on the text before the comment to fail, skipping the line.
+///   Fixed by using `String::from_utf8_lossy` for `raw_before`, since only
+///   ASCII keyword prefixes need to be matched.
 pub struct CommentedKeyword;
 
 /// Keywords that should not have comments on the same line.
@@ -95,13 +99,12 @@ impl Cop for CommentedKeyword {
             // Get the source line containing this comment
             let (line_num, comment_col) = source.offset_to_line_col(comment_start);
 
-            // Get the full source line text before the comment
+            // Get the full source line text before the comment.
+            // Use lossy conversion: non-UTF-8 bytes (e.g., ISO-8859-9 encoded
+            // strings) become U+FFFD but ASCII keyword prefixes are preserved.
             let line_start_offset = source.line_start_offset(line_num);
-            let raw_before = match std::str::from_utf8(&bytes[line_start_offset..comment_start]) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            let before_comment = raw_before.trim_start();
+            let raw_before_cow = String::from_utf8_lossy(&bytes[line_start_offset..comment_start]);
+            let before_comment = raw_before_cow.trim_start();
 
             // Skip if the comment is the only thing on the line (full-line comment)
             if before_comment.is_empty() {
@@ -173,4 +176,19 @@ fn contains_allowed_annotation(comment_body: &str, annotation: &str) -> bool {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(CommentedKeyword, "cops/style/commented_keyword");
+
+    #[test]
+    fn non_utf8_bytes_before_comment() {
+        // ISO-8859-9 encoded file: byte 0xDE is S-cedilla, not valid UTF-8.
+        // The cop must still detect the keyword comment even when the source
+        // line contains non-UTF-8 bytes before the `#`.
+        let source = b"def cedilla; \"\xDE\"; end # S-cedilla\n";
+        let diags = crate::testutil::run_cop_full(&CommentedKeyword, source);
+        assert_eq!(diags.len(), 1, "expected 1 offense, got {diags:?}");
+        assert!(
+            diags[0].message.contains("`def`"),
+            "expected def keyword, got: {}",
+            diags[0].message
+        );
+    }
 }
