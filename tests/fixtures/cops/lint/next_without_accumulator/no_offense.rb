@@ -27,3 +27,16 @@ result = [(1..3), (4..6)].reduce([]) do |acc, elems|
   end
   acc
 end
+
+def resolve_expr(e)
+  case v = super(e)
+  when Expression
+    v.reduce { |i|
+      next if not i.kind_of?(Indirection)
+      next if not (0...i.len).find { |off| @symbolic_memory[i.pointer + off] }
+      memory_read_int(i.pointer, i.len || @cpu.size / 8)
+    }
+  else
+    v
+  end
+end

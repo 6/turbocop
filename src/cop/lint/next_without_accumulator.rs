@@ -22,6 +22,16 @@ use ruby_prism::Visit;
 /// Fix: recurse normally through method/class/module bodies, and track actual
 /// block depth plus the active reduce-block depth so nested blocks are ignored
 /// unless they are themselves `reduce`/`inject` blocks.
+///
+/// ## Corpus investigation (2026-03-31)
+///
+/// Corpus oracle reported FP=2, FN=0.
+///
+/// **FP root cause:** nitrocop treated any block attached to `reduce`/`inject`
+/// as accumulator-bearing, including `collection.reduce { |item| ... }` and
+/// `collection.reduce(:+) { ... }`. RuboCop only checks reduce/inject calls
+/// with an explicit, non-symbol accumulator argument, so bare `next` inside a
+/// no-argument reduction is accepted upstream and must be ignored here.
 pub struct NextWithoutAccumulator;
 
 impl Cop for NextWithoutAccumulator {
@@ -74,9 +84,7 @@ impl<'pr> Visit<'pr> for NextWithoutAccVisitor<'_, '_> {
 
             self.block_depth += 1;
 
-            let method_name = node.name().as_slice();
-            let is_reduce =
-                node.receiver().is_some() && (method_name == b"reduce" || method_name == b"inject");
+            let is_reduce = reduce_call_with_explicit_accumulator(node);
             if is_reduce {
                 self.reduce_block_depths.push(self.block_depth);
             }
@@ -128,6 +136,26 @@ impl<'pr> Visit<'pr> for NextWithoutAccVisitor<'_, '_> {
             ));
         }
     }
+}
+
+fn reduce_call_with_explicit_accumulator(node: &ruby_prism::CallNode<'_>) -> bool {
+    if node.receiver().is_none() {
+        return false;
+    }
+
+    let method_name = node.name().as_slice();
+    if method_name != b"reduce" && method_name != b"inject" {
+        return false;
+    }
+
+    let Some(arguments) = node.arguments() else {
+        return false;
+    };
+    let Some(first_argument) = arguments.arguments().iter().next() else {
+        return false;
+    };
+
+    first_argument.as_symbol_node().is_none()
 }
 
 #[cfg(test)]
