@@ -1,10 +1,10 @@
 x = 1 +
-  2
+    2
 
 y = 3 + 4
 
 z = a &&
-  b
+    b
 
 # Chained || on continuation line (both on same line = no offense)
 def related_to_local_activity?
@@ -31,6 +31,11 @@ end
 def regexp_first_argument?(send_node)
   send_node.first_argument&.regexp_type? \
     && REGEXP_ARGUMENT_METHODS.include?(send_node.method_name)
+end
+
+def searchable_child_matches(child, name, type)
+  (name.nil? ? true : child.name == name) \
+  && (type.nil? ? true : child.is_a?(type))
 end
 
 # Operations inside parentheses (grouped expressions) are not checked
@@ -60,7 +65,7 @@ foo.pick(
 # And/Or in keyword condition with double-width indentation
 def find_key
   if (key_id = request.headers.fetch("KEY", "").presence) &&
-      (signature = request.headers.fetch("SIG", "").presence)
+     (signature = request.headers.fetch("SIG", "").presence)
     use_key(key_id, signature)
   end
 end

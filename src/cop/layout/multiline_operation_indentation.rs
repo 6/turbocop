@@ -4,6 +4,22 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Checks indentation of multiline binary operations using RuboCop's context
+/// rules instead of the previous permissive column heuristics.
+///
+/// 2026-03-31:
+/// - FN root cause: chained `&&`/`||` conditions in `if` predicates, plain
+///   multiline boolean expressions, assignment RHS continuations, and modifier
+///   `if` conditions were all missed because the cop accepted too many fallback
+///   columns (`left_indent`, `left_col`, line indent) and skipped outer boolean
+///   nodes when the left side was another boolean op.
+/// - FP root cause: leading-operator continuations such as
+///   `expr \\\n&& other_expr` were treated like right operands that began their
+///   line, even though RuboCop ignores them.
+/// - Fix: only inspect RHS operands that actually begin their line, stop
+///   special-casing nested boolean chains, and choose the expected column from
+///   RuboCop-style ancestor context: keyword predicates, assignment RHS,
+///   method-call arguments, and grouped/parenthesized exclusions.
 pub struct MultilineOperationIndentation;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
@@ -31,17 +47,8 @@ impl Cop for MultilineOperationIndentation {
     ) {
         let style = config.get_str("EnforcedStyle", "aligned");
 
-        // Check CallNode with operator methods (binary operators are parsed as calls)
         if let Some(call_node) = node.as_call_node() {
-            let method_name = call_node.name().as_slice();
-
-            if !OPERATOR_METHODS.contains(&method_name) {
-                return;
-            }
-
-            // Skip if inside a grouped expression or method call arg list parentheses.
-            // Matches RuboCop's not_for_this_cop? check for operator method calls.
-            if is_inside_parentheses(source, node) {
+            if !Self::relevant_operator_call(&call_node) {
                 return;
             }
 
@@ -55,126 +62,352 @@ impl Cop for MultilineOperationIndentation {
                 None => return,
             };
 
-            let args: Vec<_> = args_node.arguments().iter().collect();
-            if args.is_empty() {
-                return;
-            }
-
-            let recv_loc = receiver.location();
-            let (recv_start_line, _) = source.offset_to_line_col(recv_loc.start_offset());
-            let (recv_end_line, _) = source.offset_to_line_col(recv_loc.end_offset());
-            let first_arg = &args[0];
-            let arg_loc = first_arg.location();
-            let (arg_line, arg_col) = source.offset_to_line_col(arg_loc.start_offset());
-
-            // Only check multiline operations: the arg must be on a
-            // different line than where the receiver ENDS (not starts).
-            // For `end + tag.hr`, receiver ends at `end` on the same line as `tag.hr`.
-            if arg_line == recv_end_line {
-                return;
-            }
-
-            let width = config.get_usize("IndentationWidth", 2);
-
-            let recv_line_bytes = source.lines().nth(recv_start_line - 1).unwrap_or(b"");
-            let recv_indent = indentation_of(recv_line_bytes);
-            let expected_indented = recv_indent + width;
-            let expected = match style {
-                "aligned" => {
-                    // Align with the receiver's column
-                    let (_, recv_col) = source.offset_to_line_col(recv_loc.start_offset());
-                    recv_col
-                }
-                _ => expected_indented, // "indented" (default)
+            let first_arg = match args_node.arguments().iter().next() {
+                Some(arg) => arg,
+                None => return,
             };
 
-            // RuboCop's `kw_node_with_special_indentation` doubles the
-            // indentation width when the operation is inside a keyword expression
-            // (return, if, while, etc.).
-            let kw_expected = if is_in_keyword_condition(source, recv_start_line) {
-                Some(recv_indent + 2 * width)
-            } else {
-                None
-            };
-
-            let right_line_bytes = source.lines().nth(arg_line - 1).unwrap_or(b"");
-            let line_indent = indentation_of(right_line_bytes);
-
-            // For "aligned" style, RuboCop accepts both aligned and properly
-            // indented forms in non-condition contexts (assignments, method args).
-            let is_ok = if style == "aligned" {
-                arg_col == expected
-                    || arg_col == expected_indented
-                    || line_indent == expected_indented
-                    || arg_col == recv_indent
-                    || kw_expected.is_some_and(|kw| arg_col == kw || line_indent == kw)
-            } else {
-                arg_col == expected
-                    || arg_col == recv_indent
-                    || kw_expected.is_some_and(|kw| arg_col == kw || line_indent == kw)
-            };
-
-            if !is_ok {
-                diagnostics.push(self.diagnostic(
-                    source,
-                    arg_line,
-                    arg_col,
-                    format!(
-                        "Use {} (not {}) spaces for indentation of a continuation line.",
-                        width,
-                        arg_col.saturating_sub(recv_indent)
-                    ),
-                ));
+            let lhs = left_hand_side(receiver);
+            if let Some(diagnostic) =
+                self.check_operation(source, node, &lhs, &first_arg, config, style)
+            {
+                diagnostics.push(diagnostic);
             }
+            return;
         }
 
-        // Check AndNode
         if let Some(and_node) = node.as_and_node() {
-            // Skip if inside a grouped expression (parentheses) or method call
-            // arg list parentheses — matches RuboCop's not_for_this_cop? check.
-            if is_inside_parentheses(source, node) {
-                return;
-            }
-            diagnostics.extend(self.check_binary_node(
+            if let Some(diagnostic) = self.check_operation(
                 source,
+                node,
                 &and_node.left(),
                 &and_node.right(),
                 config,
                 style,
-            ));
+            ) {
+                diagnostics.push(diagnostic);
+            }
             return;
         }
 
-        // Check OrNode
         if let Some(or_node) = node.as_or_node() {
-            // Skip if inside a grouped expression or method call arg list parentheses
-            if is_inside_parentheses(source, node) {
-                return;
-            }
-            diagnostics.extend(self.check_binary_node(
+            if let Some(diagnostic) = self.check_operation(
                 source,
+                node,
                 &or_node.left(),
                 &or_node.right(),
                 config,
                 style,
-            ));
+            ) {
+                diagnostics.push(diagnostic);
+            }
         }
     }
 }
 
-/// Check if a node is enclosed by parentheses by scanning the source.
-/// This matches RuboCop's `not_for_this_cop?` which skips and/or nodes inside
-/// grouped expressions `(expr)` or method call arg list parentheses `foo(expr)`.
-///
-/// We scan backwards from the node's start offset counting unbalanced parens.
-/// If we find an unmatched `(` that is also balanced by a `)` after the node's
-/// end, the node is inside parentheses.
+impl MultilineOperationIndentation {
+    fn relevant_operator_call(call: &ruby_prism::CallNode<'_>) -> bool {
+        OPERATOR_METHODS.contains(&call.name().as_slice()) && call.call_operator_loc().is_none()
+    }
+
+    fn check_operation(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        left: &ruby_prism::Node<'_>,
+        right: &ruby_prism::Node<'_>,
+        config: &CopConfig,
+        style: &str,
+    ) -> Option<Diagnostic> {
+        if !begins_its_line(source, right.location().start_offset())
+            || not_for_this_cop(source, node)
+        {
+            return None;
+        }
+
+        let (right_line, right_col) = source.offset_to_line_col(right.location().start_offset());
+        let width = config.get_usize("IndentationWidth", 2);
+        let assignment = assignment_context(source, node.location().start_offset());
+        let should_align = should_align(source, node, style, &assignment);
+        let correct_column = if should_align {
+            source.offset_to_line_col(node.location().start_offset()).1
+        } else {
+            indentation_for_node(source, left) + correct_indentation(source, node, width)
+        };
+
+        if right_col != correct_column {
+            return Some(self.diagnostic(
+                source,
+                right_line,
+                right_col,
+                message(source, node, left, right, width, &assignment, should_align),
+            ));
+        }
+
+        None
+    }
+}
+
+#[derive(Clone)]
+struct KeywordContext {
+    keyword: &'static str,
+    postfix: bool,
+}
+
+#[derive(Default)]
+struct AssignmentContext {
+    is_assignment: bool,
+    starts_next_line: bool,
+}
+
+fn begins_its_line(source: &SourceFile, start_offset: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut pos = start_offset.min(bytes.len());
+
+    while pos > 0 {
+        pos -= 1;
+        match bytes[pos] {
+            b'\n' => return true,
+            b' ' | b'\t' => continue,
+            _ => return false,
+        }
+    }
+
+    true
+}
+
+fn indentation_for_node(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {
+    let (line, _) = source.offset_to_line_col(node.location().start_offset());
+    indentation_of(source.lines().nth(line - 1).unwrap_or(b""))
+}
+
+fn correct_indentation(source: &SourceFile, node: &ruby_prism::Node<'_>, width: usize) -> usize {
+    match keyword_context(source, node.location().start_offset()) {
+        Some(ctx) if !ctx.postfix => width * 2,
+        _ => width,
+    }
+}
+
+fn should_align(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    style: &str,
+    assignment: &AssignmentContext,
+) -> bool {
+    if assignment.starts_next_line {
+        return true;
+    }
+
+    if style != "aligned" {
+        return false;
+    }
+
+    keyword_context(source, node.location().start_offset()).is_some() || assignment.is_assignment
+}
+
+fn message(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    left: &ruby_prism::Node<'_>,
+    right: &ruby_prism::Node<'_>,
+    width: usize,
+    assignment: &AssignmentContext,
+    should_align: bool,
+) -> String {
+    let what = operation_description(source, node, assignment);
+    if should_align {
+        format!("Align the operands of {what} spanning multiple lines.")
+    } else {
+        let used_indentation = source.offset_to_line_col(right.location().start_offset()).1
+            - indentation_for_node(source, left);
+        format!(
+            "Use {} (not {}) spaces for indenting {} spanning multiple lines.",
+            correct_indentation(source, node, width),
+            used_indentation,
+            what
+        )
+    }
+}
+
+fn operation_description(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    assignment: &AssignmentContext,
+) -> String {
+    if let Some(ctx) = keyword_context(source, node.location().start_offset()) {
+        let kind = if ctx.keyword == "for" {
+            "collection"
+        } else {
+            "condition"
+        };
+        let statement_article = if ctx.keyword.starts_with('i') || ctx.keyword.starts_with('u') {
+            "an"
+        } else {
+            "a"
+        };
+        return format!(
+            "a {kind} in {statement_article} `{}` statement",
+            ctx.keyword
+        );
+    }
+
+    if assignment.is_assignment {
+        return "an expression in an assignment".to_string();
+    }
+
+    "an expression".to_string()
+}
+
+fn keyword_context(source: &SourceFile, start_offset: usize) -> Option<KeywordContext> {
+    let (line, col) = source.offset_to_line_col(start_offset);
+    let line_bytes = source.lines().nth(line - 1).unwrap_or(b"");
+    let line_prefix = &line_bytes[..col.min(line_bytes.len())];
+    let trimmed = trim_leading_ascii_whitespace(line_bytes);
+
+    if trimmed.starts_with(b"if ") || trimmed.starts_with(b"elsif ") {
+        return Some(KeywordContext {
+            keyword: if trimmed.starts_with(b"elsif ") {
+                "elsif"
+            } else {
+                "if"
+            },
+            postfix: false,
+        });
+    }
+    if trimmed.starts_with(b"unless ") {
+        return Some(KeywordContext {
+            keyword: "unless",
+            postfix: false,
+        });
+    }
+    if trimmed.starts_with(b"while ") {
+        return Some(KeywordContext {
+            keyword: "while",
+            postfix: false,
+        });
+    }
+    if trimmed.starts_with(b"until ") {
+        return Some(KeywordContext {
+            keyword: "until",
+            postfix: false,
+        });
+    }
+    if trimmed.starts_with(b"for ") {
+        return Some(KeywordContext {
+            keyword: "for",
+            postfix: false,
+        });
+    }
+    if trimmed.starts_with(b"return ") {
+        return Some(KeywordContext {
+            keyword: "return",
+            postfix: false,
+        });
+    }
+    if ends_with_keyword(line_prefix, b" if ") {
+        return Some(KeywordContext {
+            keyword: "if",
+            postfix: true,
+        });
+    }
+    if ends_with_keyword(line_prefix, b" unless ") {
+        return Some(KeywordContext {
+            keyword: "unless",
+            postfix: true,
+        });
+    }
+
+    None
+}
+
+fn not_for_this_cop(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
+    is_inside_parentheses(source, node)
+}
+
+fn assignment_context(source: &SourceFile, start_offset: usize) -> AssignmentContext {
+    let (line, col) = source.offset_to_line_col(start_offset);
+    let line_bytes = source.lines().nth(line - 1).unwrap_or(b"");
+    let line_prefix = &line_bytes[..col.min(line_bytes.len())];
+
+    let mut context = AssignmentContext::default();
+    if has_assignment_operator(line_prefix) {
+        context.is_assignment = true;
+        return context;
+    }
+
+    if line > 1 {
+        let prev_line = source.lines().nth(line - 2).unwrap_or(b"");
+        if line_ends_with_assignment(prev_line) {
+            context.is_assignment = true;
+            context.starts_next_line = true;
+        }
+    }
+
+    context
+}
+
+fn left_hand_side(lhs: ruby_prism::Node<'_>) -> ruby_prism::Node<'_> {
+    lhs
+}
+
+fn trim_leading_ascii_whitespace(bytes: &[u8]) -> &[u8] {
+    let start = bytes
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .unwrap_or(bytes.len());
+    &bytes[start..]
+}
+
+fn ends_with_keyword(line_prefix: &[u8], keyword: &[u8]) -> bool {
+    line_prefix.ends_with(keyword)
+        || trim_leading_ascii_whitespace(line_prefix).starts_with(&keyword[1..])
+}
+
+fn has_assignment_operator(prefix: &[u8]) -> bool {
+    for i in 0..prefix.len() {
+        if prefix[i] != b'=' {
+            continue;
+        }
+
+        if i + 1 < prefix.len() && prefix[i + 1] == b'=' {
+            continue;
+        }
+        if i > 0 && matches!(prefix[i - 1], b'=' | b'!' | b'<' | b'>' | b':') {
+            continue;
+        }
+        if i + 1 < prefix.len() && prefix[i + 1] == b'>' {
+            continue;
+        }
+
+        return true;
+    }
+
+    false
+}
+
+fn line_ends_with_assignment(line: &[u8]) -> bool {
+    let trimmed = line
+        .iter()
+        .rposition(|b| !b.is_ascii_whitespace())
+        .map(|end| &line[..=end])
+        .unwrap_or(b"");
+    trimmed.ends_with(b"=")
+        || trimmed.ends_with(b"+=")
+        || trimmed.ends_with(b"-=")
+        || trimmed.ends_with(b"*=")
+        || trimmed.ends_with(b"/=")
+        || trimmed.ends_with(b"%=")
+        || trimmed.ends_with(b"<<=")
+        || trimmed.ends_with(b">>=")
+        || trimmed.ends_with(b"&&=")
+        || trimmed.ends_with(b"||=")
+}
+
 fn is_inside_parentheses(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
     let bytes = source.as_bytes();
     let node_start = node.location().start_offset();
     let node_end = node.location().end_offset();
 
-    // Scan backwards from node_start to find unmatched '('
     let mut depth = 0i32;
     let mut pos = node_start;
     while pos > 0 {
@@ -185,8 +418,6 @@ fn is_inside_parentheses(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bo
                 if depth > 0 {
                     depth -= 1;
                 } else {
-                    // Found an unmatched '(' before the node.
-                    // Now verify there's a matching ')' after the node.
                     let mut fwd_depth = 0i32;
                     for &b in &bytes[node_end..] {
                         match b {
@@ -204,130 +435,11 @@ fn is_inside_parentheses(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bo
                     return false;
                 }
             }
-            // Don't cross method/class/module boundaries
-            b'\n' => {
-                // Check if this line starts a method/class def (rough check)
-                // We allow scanning through multiple lines within a single expression.
-            }
             _ => {}
         }
     }
+
     false
-}
-
-/// Check if the given line starts with a keyword that creates a condition
-/// context (if, elsif, unless, while, until, return, for). RuboCop's
-/// `kw_node_with_special_indentation` doubles the indentation width for
-/// operations inside such conditions.
-fn is_in_keyword_condition(source: &SourceFile, line: usize) -> bool {
-    let line_bytes = source.lines().nth(line - 1).unwrap_or(b"");
-    let trimmed: &[u8] = {
-        let start = line_bytes
-            .iter()
-            .position(|&b| b != b' ' && b != b'\t')
-            .unwrap_or(line_bytes.len());
-        &line_bytes[start..]
-    };
-    trimmed.starts_with(b"if ")
-        || trimmed.starts_with(b"elsif ")
-        || trimmed.starts_with(b"unless ")
-        || trimmed.starts_with(b"while ")
-        || trimmed.starts_with(b"until ")
-        || trimmed.starts_with(b"return ")
-        || trimmed.starts_with(b"for ")
-}
-
-impl MultilineOperationIndentation {
-    fn check_binary_node(
-        &self,
-        source: &SourceFile,
-        left: &ruby_prism::Node<'_>,
-        right: &ruby_prism::Node<'_>,
-        config: &CopConfig,
-        style: &str,
-    ) -> Vec<Diagnostic> {
-        let (left_line, left_col) = source.offset_to_line_col(left.location().start_offset());
-        let (left_end_line, _) = source.offset_to_line_col(left.location().end_offset());
-        let (right_line, right_col) = source.offset_to_line_col(right.location().start_offset());
-
-        // Use end of left operand for same-line check. For chained ||/&&
-        // like `a || b || c`, the outer Or has left=Or(a,b) spanning lines
-        // but `c` may be on the same line as `b` (the end of the left subtree).
-        if right_line == left_end_line {
-            return Vec::new();
-        }
-
-        // Skip nested boolean expressions: when the left operand is itself
-        // an And/Or node, alignment expectations get complex and the inner
-        // operation is already checked separately.
-        if left.as_and_node().is_some() || left.as_or_node().is_some() {
-            return Vec::new();
-        }
-
-        let width = config.get_usize("IndentationWidth", 2);
-
-        let left_line_bytes = source.lines().nth(left_line - 1).unwrap_or(b"");
-        let left_indent = indentation_of(left_line_bytes);
-        let expected_indented = left_indent + width;
-        let expected = match style {
-            "aligned" => left_col,
-            _ => expected_indented, // "indented" (default)
-        };
-
-        // When the continuation line starts with the operator (leading operator
-        // style), check the line's indentation rather than the right operand's.
-        let right_line_bytes = source.lines().nth(right_line - 1).unwrap_or(b"");
-        let line_indent = indentation_of(right_line_bytes);
-
-        // RuboCop's `kw_node_with_special_indentation` doubles the indentation
-        // width when the operation is in a keyword condition (if/elsif/unless/
-        // while/until/return). For `indented` style, accept both normal and
-        // double-width indentation when in such a context.
-        let kw_expected = if is_in_keyword_condition(source, left_line) {
-            Some(left_indent + 2 * width)
-        } else {
-            None
-        };
-
-        // For "aligned" style, accept both aligned and indented forms.
-        // For "indented" style, also accept:
-        // - Line indentation matching expected (leading operator: `&& expr`)
-        // - Right col matching left indent (aligned with containing expression)
-        // - Right col matching left col (aligned with left operand)
-        // - Keyword-condition double-width indentation
-        // For both styles, also accept:
-        // - Line indentation matching expected_indented (leading operator: `&& expr`)
-        // - Right col matching left indent (aligned with containing expression)
-        // - Right col matching left col (aligned with left operand)
-        let is_ok = if style == "aligned" {
-            right_col == expected
-                || right_col == expected_indented
-                || line_indent == expected_indented
-                || right_col == left_indent
-                || kw_expected.is_some_and(|kw| right_col == kw || line_indent == kw)
-        } else {
-            right_col == expected
-                || line_indent == expected
-                || right_col == left_indent
-                || right_col == left_col
-                || kw_expected.is_some_and(|kw| right_col == kw || line_indent == kw)
-        };
-
-        if !is_ok {
-            return vec![self.diagnostic(
-                source,
-                right_line,
-                right_col,
-                format!(
-                    "Use {} (not {}) spaces for indentation of a continuation line.",
-                    width,
-                    right_col.saturating_sub(left_indent)
-                ),
-            )];
-        }
-
-        Vec::new()
-    }
 }
 
 #[cfg(test)]
@@ -412,21 +524,21 @@ mod tests {
             "aligned style should accept operand-aligned continuation"
         );
 
-        // In "aligned" style, RuboCop accepts indented form in non-condition contexts.
-        let src2 = b"x = a &&\n  b\n";
+        // Ordinary expressions still use a normal indentation step.
+        let src2 = b"a &&\n  b\n";
         let diags2 = run_cop_full_with_config(&MultilineOperationIndentation, src2, config.clone());
         assert!(
             diags2.is_empty(),
-            "aligned style should accept indented continuation in non-condition contexts"
+            "aligned style should accept indented continuation outside assignment/keyword contexts"
         );
 
-        // But wildly misaligned should still be flagged
-        let src3 = b"x = a &&\n        b\n";
+        // Assignment RHS should not accept ordinary indentation in aligned style.
+        let src3 = b"x = a &&\n  b\n";
         let diags3 = run_cop_full_with_config(&MultilineOperationIndentation, src3, config);
         assert_eq!(
             diags3.len(),
             1,
-            "aligned style should flag incorrectly indented continuation"
+            "aligned style should flag indented assignment continuation"
         );
     }
 }
