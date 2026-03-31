@@ -21,6 +21,11 @@ use crate::parse::source::SourceFile;
 ///    Fixed by requiring `sort_by` to have a block or arguments.
 /// 4. **Message format for `[]`** -- reported `sort...[]` instead of `sort...[0]` or
 ///    `sort...[-1]`. Fixed by including the index argument in the accessor display.
+/// 5. **`sort` with block argument FP** -- `sort(&method(:cmp)).last` and `sort(&:foo).first`
+///    were flagged because `&block_arg` is stored in Prism's `call.block()` (as a
+///    `BlockArgumentNode`), not in `call.arguments()`, so the `arguments().is_none()` guard
+///    passed. RuboCop only flags `sort` with no args or a real block, not block arguments.
+///    Fixed by checking that `block()` is not a `BlockArgumentNode`.
 pub struct RedundantSort;
 
 impl RedundantSort {
@@ -41,6 +46,16 @@ impl RedundantSort {
         let name = call.name();
         let name_bytes = name.as_slice();
         if name_bytes == b"sort" && call.arguments().is_none() {
+            // sort(&block_arg) passes the block argument via call.block() as a
+            // BlockArgumentNode, not via call.arguments(). RuboCop does not flag
+            // sort(&method(:cmp)).last or sort(&:foo).first — only plain sort or
+            // sort with a real block { |a,b| ... } are redundant.
+            if call
+                .block()
+                .is_some_and(|b| b.as_block_argument_node().is_some())
+            {
+                return None;
+            }
             return Some("sort");
         }
         if name_bytes == b"sort_by" && (call.block().is_some() || call.arguments().is_some()) {

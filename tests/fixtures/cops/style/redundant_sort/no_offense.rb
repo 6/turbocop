@@ -12,3 +12,5 @@ mongo_client["users"].find.sort(_id: 1).first
 [[1, 2], [3, 4]].first.sort
 [1, 2, 3].sort_by(&:foo).at(-2)
 mongo_client["users"].find.sort(_id: 1)[-1]
+languages.sort(&method(:version_compare)).last
+languages.sort(&:foo).first
