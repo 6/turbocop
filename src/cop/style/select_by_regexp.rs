@@ -7,42 +7,136 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Detects `select`/`filter`/`find_all`/`reject` blocks whose sole predicate is
+/// a direct regexp match on the block variable.
+///
+/// Matches RuboCop's broader direct-usage rules for:
+/// - explicit single block params (`|item| item.match?(pattern)`, `pattern =~ item`)
+/// - numbered params (`_1`)
+/// - implicit `it` params
+/// - regexp sources that are locals/constants/method calls, not just literals
+///
+/// Also preserves RuboCop's exclusions for:
+/// - safe-navigation predicates like `text&.match?(...)`
+/// - blocks with destructuring or extra params such as `|name, *_attrs|`
 pub struct SelectByRegexp;
 
+enum BlockArg<'a> {
+    Named(&'a [u8]),
+    Numbered,
+    It,
+}
+
 impl SelectByRegexp {
-    fn is_regexp(node: &ruby_prism::Node<'_>) -> bool {
-        node.as_regular_expression_node().is_some()
-            || node.as_interpolated_regular_expression_node().is_some()
+    fn has_safe_navigation(call: &ruby_prism::CallNode<'_>) -> bool {
+        call.call_operator_loc()
+            .is_some_and(|loc| loc.as_slice() == b"&.")
     }
 
-    fn is_local_var_named(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
-        if let Some(lvar) = node.as_local_variable_read_node() {
-            return lvar.name().as_slice() == name;
-        }
-        false
-    }
-
-    fn check_block_body(body: &ruby_prism::Node<'_>, block_arg_name: &[u8]) -> bool {
-        if let Some(call) = body.as_call_node() {
-            let name = call.name();
-            let name_bytes = name.as_slice();
-            if matches!(name_bytes, b"match?" | b"=~" | b"!~") {
-                if let Some(receiver) = call.receiver() {
-                    if let Some(args) = call.arguments() {
-                        let arg_list: Vec<_> = args.arguments().iter().collect();
-                        if arg_list.len() == 1 {
-                            let recv_is_var = Self::is_local_var_named(&receiver, block_arg_name);
-                            let arg_is_var = Self::is_local_var_named(&arg_list[0], block_arg_name);
-                            let recv_is_re = Self::is_regexp(&receiver);
-                            let arg_is_re = Self::is_regexp(&arg_list[0]);
-
-                            return (recv_is_var && arg_is_re) || (recv_is_re && arg_is_var);
-                        }
-                    }
-                }
+    fn single_body_call<'a>(body: &'a ruby_prism::Node<'a>) -> Option<ruby_prism::CallNode<'a>> {
+        if let Some(stmts) = body.as_statements_node() {
+            let mut body_nodes = stmts.body().iter();
+            let first = body_nodes.next()?;
+            if body_nodes.next().is_some() {
+                return None;
             }
+            return first.as_call_node();
         }
-        false
+
+        body.as_call_node()
+    }
+
+    fn block_arg<'a>(block_node: &'a ruby_prism::BlockNode<'a>) -> Option<BlockArg<'a>> {
+        let params = block_node.parameters()?;
+
+        if let Some(numbered) = params.as_numbered_parameters_node() {
+            return if numbered.maximum() == 1 {
+                Some(BlockArg::Numbered)
+            } else {
+                None
+            };
+        }
+
+        if params.as_it_parameters_node().is_some() {
+            return Some(BlockArg::It);
+        }
+
+        let block_params = params.as_block_parameters_node()?;
+        let inner = block_params.parameters()?;
+        let requireds: Vec<_> = inner.requireds().iter().collect();
+
+        let has_explicit_rest = inner
+            .rest()
+            .is_some_and(|rest| rest.as_implicit_rest_node().is_none());
+
+        if requireds.len() != 1
+            || !inner.optionals().is_empty()
+            || has_explicit_rest
+            || !inner.posts().is_empty()
+            || !inner.keywords().is_empty()
+            || inner.keyword_rest().is_some()
+            || inner.block().is_some()
+        {
+            return None;
+        }
+
+        let required = requireds[0].as_required_parameter_node()?;
+        Some(BlockArg::Named(required.name().as_slice()))
+    }
+
+    fn matches_block_arg(node: &ruby_prism::Node<'_>, block_arg: &BlockArg<'_>) -> bool {
+        match block_arg {
+            BlockArg::Named(name) => node
+                .as_local_variable_read_node()
+                .is_some_and(|lvar| lvar.name().as_slice() == *name),
+            BlockArg::Numbered => node
+                .as_local_variable_read_node()
+                .is_some_and(|lvar| lvar.name().as_slice() == b"_1"),
+            BlockArg::It => node.as_it_local_variable_read_node().is_some(),
+        }
+    }
+
+    fn extract_match_call<'a>(
+        body: &'a ruby_prism::Node<'a>,
+        block_arg: &BlockArg<'a>,
+    ) -> Option<ruby_prism::CallNode<'a>> {
+        let call = Self::single_body_call(body)?;
+
+        if Self::has_safe_navigation(&call) {
+            return None;
+        }
+
+        let name = call.name().as_slice();
+        if !matches!(name, b"match?" | b"=~" | b"!~") {
+            return None;
+        }
+
+        let receiver = call.receiver()?;
+        let args = call.arguments()?;
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.len() != 1 {
+            return None;
+        }
+
+        if Self::matches_block_arg(&receiver, block_arg)
+            || Self::matches_block_arg(&arg_list[0], block_arg)
+        {
+            return Some(call);
+        }
+
+        None
+    }
+
+    fn replacement(method_name: &[u8], body_method_name: &[u8]) -> Option<&'static str> {
+        let mismatch = body_method_name == b"!~";
+
+        match (method_name, mismatch) {
+            (b"select" | b"filter" | b"find_all", false) => Some("grep"),
+            (b"reject", false) => Some("grep_v"),
+            (b"select" | b"filter" | b"find_all", true) => Some("grep_v"),
+            (b"reject", true) => Some("grep"),
+            _ => None,
+        }
     }
 
     fn is_hash_receiver(node: &ruby_prism::Node<'_>) -> bool {
@@ -150,29 +244,8 @@ impl Cop for SelectByRegexp {
             None => return,
         };
 
-        // Get block parameters - must have exactly one
-        let block_params = match block_node.parameters() {
-            Some(p) => p,
-            None => return,
-        };
-
-        let block_params_node = match block_params.as_block_parameters_node() {
-            Some(p) => p,
-            None => return,
-        };
-
-        let inner_params = match block_params_node.parameters() {
-            Some(p) => p,
-            None => return,
-        };
-
-        let requireds: Vec<_> = inner_params.requireds().into_iter().collect();
-        if requireds.len() != 1 {
-            return;
-        }
-
-        let block_arg_name = match requireds[0].as_required_parameter_node() {
-            Some(req) => req.name().as_slice().to_vec(),
+        let block_arg = match Self::block_arg(&block_node) {
+            Some(arg) => arg,
             None => return,
         };
 
@@ -182,23 +255,14 @@ impl Cop for SelectByRegexp {
             None => return,
         };
 
-        if let Some(stmts) = body.as_statements_node() {
-            let body_nodes: Vec<_> = stmts.body().into_iter().collect();
-            if body_nodes.len() != 1 {
-                return;
-            }
+        let body_call = match Self::extract_match_call(&body, &block_arg) {
+            Some(call) => call,
+            None => return,
+        };
 
-            if !Self::check_block_body(&body_nodes[0], &block_arg_name) {
-                return;
-            }
-        } else {
-            return;
-        }
-
-        let replacement = match method_bytes {
-            b"select" | b"filter" | b"find_all" => "grep",
-            b"reject" => "grep_v",
-            _ => return,
+        let replacement = match Self::replacement(method_bytes, body_call.name().as_slice()) {
+            Some(replacement) => replacement,
+            None => return,
         };
 
         let method_str = std::str::from_utf8(method_bytes).unwrap_or("select");
