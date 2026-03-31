@@ -198,3 +198,8 @@ d.instance_eval do
   abort
   bar
 end
+
+# retry outside rescue is invalid syntax (Prism: "Invalid retry without rescue")
+# RuboCop with Prism parser skips retry tests (spec line 19), so it does not flag this
+retry
+retry

@@ -82,6 +82,15 @@ use ruby_prism::Visit;
 /// `PARSER_ENGINE=parser_prism` showed that it still flags unreachable code
 /// after `retry`, including the corpus example. Fixed by restoring
 /// `node.as_retry_node().is_some()` to `is_flow_command()`.
+///
+/// ## Investigation (2026-03-31)
+///
+/// FP=1: `retry` at top level (outside rescue) in `ruby-formatter/rufo`'s
+/// `retry.rb.spec` was flagged as flow-breaking. `retry` outside a rescue body
+/// is invalid syntax under Prism ("Invalid retry without rescue"), and the
+/// RuboCop spec explicitly skips `retry` tests when `PARSER_ENGINE=parser_prism`
+/// (spec line 19). Fixed by tracking `rescue_depth` in the visitor and only
+/// treating `RetryNode` as flow-breaking when `rescue_depth > 0`.
 pub struct UnreachableCode;
 
 impl Cop for UnreachableCode {
@@ -108,6 +117,7 @@ impl Cop for UnreachableCode {
             diagnostics: Vec::new(),
             redefined: Vec::new(),
             instance_eval_count: 0,
+            rescue_depth: 0,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -120,6 +130,7 @@ struct UnreachableVisitor<'a, 'src> {
     diagnostics: Vec<Diagnostic>,
     redefined: Vec<Vec<u8>>,
     instance_eval_count: u32,
+    rescue_depth: u32,
 }
 
 const REDEFINABLE_FLOW_METHODS: &[&[u8]] =
@@ -130,15 +141,18 @@ fn is_redefinable_flow_method(name: &[u8]) -> bool {
 }
 
 /// Check if a node is a simple flow-breaking statement (return, break, next, etc.)
+/// `retry` is only flow-breaking inside a rescue body — outside rescue it is
+/// invalid syntax under Prism, and RuboCop with Prism skips retry tests.
 fn is_flow_command(
     node: &ruby_prism::Node<'_>,
     redefined: &[Vec<u8>],
     instance_eval_count: u32,
+    rescue_depth: u32,
 ) -> bool {
     node.as_return_node().is_some()
         || node.as_break_node().is_some()
         || node.as_next_node().is_some()
-        || node.as_retry_node().is_some()
+        || (rescue_depth > 0 && node.as_retry_node().is_some())
         || node.as_redo_node().is_some()
         || is_flow_call(node, redefined, instance_eval_count)
 }
@@ -212,8 +226,9 @@ fn flow_expression(
     node: &ruby_prism::Node<'_>,
     redefined: &mut Vec<Vec<u8>>,
     instance_eval_count: u32,
+    rescue_depth: u32,
 ) -> bool {
-    if is_flow_command(node, redefined, instance_eval_count) {
+    if is_flow_command(node, redefined, instance_eval_count, rescue_depth) {
         return true;
     }
 
@@ -230,7 +245,7 @@ fn flow_expression(
 
     // if/elsif/else: flow-breaking if both if-branch and else-branch break flow
     if let Some(if_node) = node.as_if_node() {
-        return check_if_flow(&if_node, redefined, instance_eval_count);
+        return check_if_flow(&if_node, redefined, instance_eval_count, rescue_depth);
     }
 
     // unless: also an IfNode in Prism (just with different structure)
@@ -238,12 +253,12 @@ fn flow_expression(
 
     // case/when/else
     if let Some(case_node) = node.as_case_node() {
-        return check_case_flow(&case_node, redefined, instance_eval_count);
+        return check_case_flow(&case_node, redefined, instance_eval_count, rescue_depth);
     }
 
     // case/in pattern matching
     if let Some(case_match) = node.as_case_match_node() {
-        return check_case_match_flow(&case_match, redefined, instance_eval_count);
+        return check_case_match_flow(&case_match, redefined, instance_eval_count, rescue_depth);
     }
 
     // begin..end (explicit)
@@ -258,7 +273,7 @@ fn flow_expression(
             return stmts
                 .body()
                 .iter()
-                .any(|s| flow_expression(&s, redefined, instance_eval_count));
+                .any(|s| flow_expression(&s, redefined, instance_eval_count, rescue_depth));
         }
     }
 
@@ -269,7 +284,7 @@ fn flow_expression(
                 return stmts_node
                     .body()
                     .iter()
-                    .any(|s| flow_expression(&s, redefined, instance_eval_count));
+                    .any(|s| flow_expression(&s, redefined, instance_eval_count, rescue_depth));
             }
         }
     }
@@ -281,6 +296,7 @@ fn check_if_flow(
     node: &ruby_prism::IfNode<'_>,
     redefined: &mut Vec<Vec<u8>>,
     instance_eval_count: u32,
+    rescue_depth: u32,
 ) -> bool {
     let if_branch = node.statements();
     let else_branch = node.subsequent();
@@ -297,7 +313,7 @@ fn check_if_flow(
     let if_breaks = if_stmts
         .body()
         .iter()
-        .any(|s| flow_expression(&s, redefined, instance_eval_count));
+        .any(|s| flow_expression(&s, redefined, instance_eval_count, rescue_depth));
     if !if_breaks {
         return false;
     }
@@ -308,12 +324,12 @@ fn check_if_flow(
             return stmts
                 .body()
                 .iter()
-                .any(|s| flow_expression(&s, redefined, instance_eval_count));
+                .any(|s| flow_expression(&s, redefined, instance_eval_count, rescue_depth));
         }
         return false;
     }
     if let Some(ref elsif_node) = else_clause.as_if_node() {
-        return check_if_flow(elsif_node, redefined, instance_eval_count);
+        return check_if_flow(elsif_node, redefined, instance_eval_count, rescue_depth);
     }
     false
 }
@@ -322,6 +338,7 @@ fn check_case_flow(
     node: &ruby_prism::CaseNode<'_>,
     redefined: &mut Vec<Vec<u8>>,
     instance_eval_count: u32,
+    rescue_depth: u32,
 ) -> bool {
     // Must have an else branch
     let Some(else_clause) = node.else_clause() else {
@@ -332,7 +349,7 @@ fn check_case_flow(
         if !stmts
             .body()
             .iter()
-            .any(|s| flow_expression(&s, redefined, instance_eval_count))
+            .any(|s| flow_expression(&s, redefined, instance_eval_count, rescue_depth))
         {
             return false;
         }
@@ -351,7 +368,7 @@ fn check_case_flow(
                 if !stmts
                     .body()
                     .iter()
-                    .any(|s| flow_expression(&s, redefined, instance_eval_count))
+                    .any(|s| flow_expression(&s, redefined, instance_eval_count, rescue_depth))
                 {
                     return false;
                 }
@@ -369,6 +386,7 @@ fn check_case_match_flow(
     node: &ruby_prism::CaseMatchNode<'_>,
     redefined: &mut Vec<Vec<u8>>,
     instance_eval_count: u32,
+    rescue_depth: u32,
 ) -> bool {
     // Must have an else branch
     let Some(else_clause) = node.else_clause() else {
@@ -378,7 +396,7 @@ fn check_case_match_flow(
         if !stmts
             .body()
             .iter()
-            .any(|s| flow_expression(&s, redefined, instance_eval_count))
+            .any(|s| flow_expression(&s, redefined, instance_eval_count, rescue_depth))
         {
             return false;
         }
@@ -397,7 +415,7 @@ fn check_case_match_flow(
                 if !stmts
                     .body()
                     .iter()
-                    .any(|s| flow_expression(&s, redefined, instance_eval_count))
+                    .any(|s| flow_expression(&s, redefined, instance_eval_count, rescue_depth))
                 {
                     return false;
                 }
@@ -423,7 +441,12 @@ impl<'pr> Visit<'pr> for UnreachableVisitor<'_, '_> {
         // Match RuboCop's each_cons(2) approach: for each consecutive pair,
         // if the first expression is flow-breaking, flag the second.
         for pair in body.windows(2) {
-            if flow_expression(&pair[0], &mut self.redefined, self.instance_eval_count) {
+            if flow_expression(
+                &pair[0],
+                &mut self.redefined,
+                self.instance_eval_count,
+                self.rescue_depth,
+            ) {
                 let loc = pair[1].location();
                 let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                 self.diagnostics.push(self.cop.diagnostic(
@@ -436,6 +459,12 @@ impl<'pr> Visit<'pr> for UnreachableVisitor<'_, '_> {
         }
 
         ruby_prism::visit_statements_node(self, node);
+    }
+
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        self.rescue_depth += 1;
+        ruby_prism::visit_rescue_node(self, node);
+        self.rescue_depth -= 1;
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
