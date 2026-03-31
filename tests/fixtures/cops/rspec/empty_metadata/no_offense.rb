@@ -13,3 +13,6 @@ describe({}) do
 end
 # Empty hash as middle argument, not metadata
 example(name.to_s, {}, caller(0)[1])
+# Empty hash without a block — not metadata (RuboCop requires a block)
+example :ExampleA, { }
+it 'Something', {}

@@ -12,6 +12,16 @@ use crate::parse::source::SourceFile;
 /// and a description/subject argument precedes it. Cases like `describe({})`
 /// where `{}` is the subject (first arg) or `example(name, {}, caller)` where
 /// `{}` is a middle argument are not metadata and should not be flagged.
+///
+/// ## Corpus investigation (2026-03-31)
+///
+/// Corpus oracle reported FP=1, FN=0.
+///
+/// FP=1: `example :ExampleA, { }` without a block. RuboCop's Metadata mixin
+/// uses an `on_block` callback that only fires when the call has a block
+/// (do..end or braces). Without a block, the `{}` is just a regular hash
+/// argument, not RSpec metadata. Fixed by requiring `call.block()` to be a
+/// `BlockNode` before flagging.
 pub struct EmptyMetadata;
 
 impl Cop for EmptyMetadata {
@@ -60,6 +70,13 @@ impl Cop for EmptyMetadata {
         };
 
         if !is_rspec {
+            return;
+        }
+
+        // RuboCop's Metadata mixin only triggers on calls with blocks (do..end
+        // or braces). Without a block, the `{}` is just a hash argument, not
+        // RSpec metadata.
+        if call.block().and_then(|b| b.as_block_node()).is_none() {
             return;
         }
 
