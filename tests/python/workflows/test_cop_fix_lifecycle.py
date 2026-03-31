@@ -596,6 +596,79 @@ def test_build_prompt_reduce_collects_prior_attempts(tmp_path):
     assert "Reduce Mode" in content
 
 
+def test_build_prompt_reduce_has_time_budget_and_sample_guidance(tmp_path):
+    task_file = tmp_path / "context" / "task.md"
+    final_file = tmp_path / "context" / "final-task.md"
+    prior_file = tmp_path / "context" / "prior-attempts.md"
+    task_file.parent.mkdir(parents=True, exist_ok=True)
+    task_file.write_text("Fix the cop.\n")
+
+    env = {
+        **os.environ,
+        "TASK_FILE": str(task_file),
+        "FINAL_TASK_FILE": str(final_file),
+        "PRIOR_ATTEMPTS_FILE": str(prior_file),
+        "GITHUB_OUTPUT": str(tmp_path / "output.txt"),
+    }
+
+    def fake_run_ok(cmd, **kwargs):
+        del kwargs
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with (
+        patch.dict(os.environ, env),
+        patch.object(cop_fix_lifecycle, "_run_ok", side_effect=fake_run_ok),
+    ):
+        result = cop_fix_lifecycle.cmd_build_prompt([
+            "--cop", "Layout/IndentationWidth",
+            "--mode", "reduce",
+            "--extra-context", "",
+            "--filter", "cop::layout::indentation_width",
+        ])
+
+    assert result == 0
+    content = final_file.read_text()
+    # Intermediate checks use --sample 5
+    assert "--sample 5" in content
+    # Final validation uses --sample 15
+    assert "--sample 15" in content
+    # Time budget section exists
+    assert "Time Budget" in content
+    assert "90 minutes" in content
+    assert "commit and stop" in content
+    # Should NOT tell agent to use --sample 15 for every change
+    assert "after each change" not in content
+
+
+def test_build_prompt_fix_mode_has_no_time_budget(tmp_path):
+    task_file = tmp_path / "context" / "task.md"
+    final_file = tmp_path / "context" / "final-task.md"
+    prior_file = tmp_path / "context" / "prior-attempts.md"
+    task_file.parent.mkdir(parents=True, exist_ok=True)
+    task_file.write_text("Fix the cop.\n")
+
+    env = {
+        **os.environ,
+        "TASK_FILE": str(task_file),
+        "FINAL_TASK_FILE": str(final_file),
+        "PRIOR_ATTEMPTS_FILE": str(prior_file),
+        "GITHUB_OUTPUT": str(tmp_path / "output.txt"),
+    }
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "build-prompt",
+         "--cop", "Style/NegatedWhile",
+         "--mode", "fix",
+         "--extra-context", "",
+         "--filter", "cop::style::negated_while"],
+        capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0
+    content = final_file.read_text()
+    assert "Time Budget" not in content
+    assert "Reduce Mode" not in content
+
+
 # ── CLI error handling ──────────────────────────────────────────────────
 
 def test_unknown_command():
@@ -663,4 +736,8 @@ if __name__ == "__main__":
         test_close_pr_no_changes_bare_message_without_findings(Path(d))
     with tempfile.TemporaryDirectory() as d:
         test_build_prompt_reduce_collects_prior_attempts(Path(d))
+    with tempfile.TemporaryDirectory() as d:
+        test_build_prompt_reduce_has_time_budget_and_sample_guidance(Path(d))
+    with tempfile.TemporaryDirectory() as d:
+        test_build_prompt_fix_mode_has_no_time_budget(Path(d))
     print("All tests passed.")
