@@ -18,6 +18,12 @@ use crate::parse::source::SourceFile;
 /// Plain single-argument trailing-comma blocks such as `items.each { |item,| }`
 /// still remain non-offenses unless they appear in that chained outer-block
 /// context.
+///
+/// FP fix (2026-03-31): when an earlier block in the receiver chain already
+/// has piped parameters (even without a trailing comma), RuboCop's token-based
+/// approach picks up those pipes first, masking any later single-param
+/// trailing-comma block. We now stop the receiver-chain walk when an earlier
+/// piped block is found, matching RuboCop's behavior.
 pub struct TrailingCommaInBlockArgs;
 
 fn block_param_count(block: &ruby_prism::BlockNode<'_>) -> Option<usize> {
@@ -68,6 +74,27 @@ fn trailing_comma_offset(source: &SourceFile, block: &ruby_prism::BlockNode<'_>)
     (bytes[pos] == b',').then_some(pos)
 }
 
+/// Check whether a call node (or any call in its receiver chain) has a block
+/// with piped parameters (i.e. `block_parameters_node` is present).
+fn receiver_chain_has_piped_block(node: &ruby_prism::Node<'_>) -> bool {
+    let call = match node.as_call_node() {
+        Some(call) => call,
+        None => return false,
+    };
+
+    if let Some(receiver) = call.receiver() {
+        if receiver_chain_has_piped_block(&receiver) {
+            return true;
+        }
+    }
+
+    call.block()
+        .and_then(|block| block.as_block_node())
+        .and_then(|block| block.parameters())
+        .and_then(|params| params.as_block_parameters_node())
+        .is_some()
+}
+
 fn receiver_chain_trailing_comma_offset(
     source: &SourceFile,
     node: &ruby_prism::Node<'_>,
@@ -77,6 +104,12 @@ fn receiver_chain_trailing_comma_offset(
     if let Some(receiver) = call.receiver() {
         if let Some(offset) = receiver_chain_trailing_comma_offset(source, &receiver) {
             return Some(offset);
+        }
+        // If a deeper block already has piped parameters, stop searching.
+        // RuboCop's token-based approach picks up the earliest pipe tokens
+        // in the source range, so later blocks are masked.
+        if receiver_chain_has_piped_block(&receiver) {
+            return None;
         }
     }
 
