@@ -1,8 +1,18 @@
-use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
+use crate::cop::node_type::STRING_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
-use crate::parse::source::SourceFile;
+use crate::parse::{parse_source, source::SourceFile};
 
+/// Mirrors RuboCop's `on_str` handling for `%q/%Q` literals.
+///
+/// Prism reports empty percent literals and some other `%q/%Q` shapes as
+/// `StringNode`s, while the Parser gem that RuboCop uses treats empty and
+/// multiline percent literals as `dstr`, so RuboCop never inspects them here.
+/// The original nitrocop implementation also skipped every backslash, which
+/// missed safe `%Q` -> `%q` conversions like `\\n` and LaTeX-heavy strings.
+/// Fix: only inspect static `StringNode` percent literals, skip empty/multiline
+/// cases to match Parser, and reparse the case-swapped literal to compare
+/// `unescaped()` bytes before reporting an offense.
 pub struct PercentQLiterals;
 
 impl Cop for PercentQLiterals {
@@ -11,7 +21,7 @@ impl Cop for PercentQLiterals {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[INTERPOLATED_STRING_NODE, STRING_NODE]
+        &[STRING_NODE]
     }
 
     fn check_node(
@@ -25,74 +35,79 @@ impl Cop for PercentQLiterals {
     ) {
         let style = config.get_str("EnforcedStyle", "lower_case_q");
 
-        // Check for %Q or %q string nodes using the opening_loc, which
-        // reliably identifies percent literals vs regular string content.
-        let opening_bytes = if let Some(s) = node.as_string_node() {
-            s.opening_loc().map(|loc| loc.as_slice())
-        } else if let Some(s) = node.as_interpolated_string_node() {
-            s.opening_loc().map(|loc| loc.as_slice())
-        } else {
-            None
+        let Some(string) = node.as_string_node() else {
+            return;
         };
-
-        let opening = match opening_bytes {
-            Some(b) => b,
-            None => return,
+        let Some(opening) = string.opening_loc().map(|loc| loc.as_slice()) else {
+            return;
         };
+        let raw_content = string.content_loc().as_slice();
 
-        if style == "lower_case_q" {
-            // Flag %Q when %q would suffice (no interpolation, no escape sequences)
-            if opening.starts_with(b"%Q") {
-                if let Some(s) = node.as_string_node() {
-                    // StringNode means no interpolation.
-                    let raw_content = s.content_loc().as_slice();
-                    // Skip if content contains backslashes — converting %Q to %q
-                    // would change escape sequence interpretation (e.g. \t, \n, \\).
-                    if raw_content.contains(&b'\\') {
-                        return;
-                    }
-                    // Skip multiline strings. The Parser gem (used by RuboCop) treats
-                    // multiline percent literals as `dstr` nodes, not `str`, so RuboCop's
-                    // `on_str` handler never sees them. Match that behavior.
-                    if raw_content.contains(&b'\n') {
-                        return;
-                    }
-                    let loc = node.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Use `%q` instead of `%Q`.".to_string(),
-                    ));
-                }
-            }
-        } else if style == "upper_case_q" {
-            // Flag %q when %Q is preferred
-            if opening.starts_with(b"%q") {
-                if let Some(s) = node.as_string_node() {
-                    let raw_content = s.content_loc().as_slice();
-                    // Skip if content contains backslashes — converting %q to %Q
-                    // would change escape sequence interpretation or cause parse errors.
-                    if raw_content.contains(&b'\\') {
-                        return;
-                    }
-                    // Skip multiline strings (Parser gem treats these as dstr, not str).
-                    if raw_content.contains(&b'\n') {
-                        return;
-                    }
-                }
-                let loc = node.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Use `%Q` instead of `%q`.".to_string(),
-                ));
-            }
+        // Parser gem reports empty and multiline percent literals as `dstr`,
+        // so RuboCop's `on_str` never sees them.
+        if raw_content.is_empty() || raw_content.contains(&b'\n') {
+            return;
         }
+
+        let (expected_opening, message) = match style {
+            "lower_case_q" => (
+                b"%Q".as_slice(),
+                "Do not use `%Q` unless interpolation is needed. Use `%q`.",
+            ),
+            "upper_case_q" => (b"%q".as_slice(), "Use `%Q` instead of `%q`."),
+            _ => return,
+        };
+
+        if !opening.starts_with(expected_opening) {
+            return;
+        }
+
+        if !swapcase_preserves_string_semantics(string) {
+            return;
+        }
+
+        let loc = node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        diagnostics.push(self.diagnostic(source, line, column, message.to_string()));
     }
+}
+
+fn swapcase_preserves_string_semantics(string: ruby_prism::StringNode<'_>) -> bool {
+    let literal = string.location().as_slice();
+    if literal.len() < 2 || literal[0] != b'%' {
+        return false;
+    }
+    let original_unescaped = string.unescaped().to_vec();
+
+    let mut corrected = literal.to_vec();
+    corrected[1] = match corrected[1] {
+        b'Q' => b'q',
+        b'q' => b'Q',
+        _ => return false,
+    };
+
+    let parse_result = parse_source(&corrected);
+    if parse_result.errors().next().is_some() {
+        return false;
+    }
+
+    let root = parse_result.node();
+    let Some(program) = root.as_program_node() else {
+        return false;
+    };
+    let mut body = program.statements().body().iter();
+    let Some(corrected_node) = body.next() else {
+        return false;
+    };
+    if body.next().is_some() {
+        return false;
+    }
+
+    let Some(corrected_string) = corrected_node.as_string_node() else {
+        return false;
+    };
+
+    original_unescaped == corrected_string.unescaped()
 }
 
 #[cfg(test)]
