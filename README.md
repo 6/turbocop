@@ -56,14 +56,14 @@ nitrocop supports 910 cops from 6 RuboCop gems.
 
 Compared with RuboCop on [**5,590 open-source repos**](docs/corpus.md) (590k Ruby files).
 
-98.7% of compared issue reports matched (28.1M of 28.4M). 773 of 910 cops matched exactly; 137 differed.
+98.7% of compared issue reports matched (28.1M of 28.4M). 778 of 910 cops matched exactly; 132 differed.
 
 **[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (588 cops)
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| Layout | 100 | 76 | 24 | 76.0% |
-| Lint | 148 | 128 | 20 | 86.4% |
+| Layout | 100 | 78 | 22 | 78.0% |
+| Lint | 148 | 131 | 17 | 88.5% |
 | Style | 287 | 222 | 65 | 77.3% |
 | Metrics | 10 | 10 | 0 | ✓ 100.0% |
 | Naming | 19 | 19 | 0 | ✓ 100.0% |
@@ -71,7 +71,7 @@ Compared with RuboCop on [**5,590 open-source repos**](docs/corpus.md) (590k Rub
 | Bundler | 7 | 7 | 0 | ✓ 100.0% |
 | Gemspec | 10 | 10 | 0 | ✓ 100.0% |
 | Migration | 1 | 1 | 0 | ✓ 100.0% |
-| **Total** | **588** | **479** | **109** | **81.4%** |
+| **Total** | **588** | **484** | **104** | **82.3%** |
 
 **[rubocop-rails](https://github.com/rubocop/rubocop-rails)** `2.34.3` (138 cops)
 
