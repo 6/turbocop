@@ -67,3 +67,27 @@ def rescue_no_return
     default_value
   end
 end
+
+# ternary with return (not redundant per RuboCop)
+def ternary_return
+  do_something
+rescue StandardError => e
+  log(e)
+  condition ? return : raise
+end
+
+# return in begin body when rescue has else clause
+def begin_rescue_else(x)
+  begin
+    case x
+    when :ok
+      do_something
+    else
+      return
+    end
+  rescue StandardError
+    handle_error
+  else
+    success_result
+  end
+end
