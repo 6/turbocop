@@ -35,3 +35,32 @@ Hash[options.map { |k, v| [k.to_sym, v] }]
 
 ::Hash[options.map { |k, v| [k.to_sym, v] }]
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/HashTransformKeys: Prefer `transform_keys` over `Hash[_.map {...}]`.
+
+h[:constraints] = field.constraints.map { |k, v| [k.underscore, v] }.to_h
+                  ^ Style/HashTransformKeys: Prefer `transform_keys` over `map {...}.to_h`.
+
+string_tags = raw_tags.collect { |k, v| [k.to_s, v] }.to_h
+              ^ Style/HashTransformKeys: Prefer `transform_keys` over `map {...}.to_h`.
+
+string_tags = tags.collect { |k, v| [k.to_s, v] }.to_h
+              ^ Style/HashTransformKeys: Prefer `transform_keys` over `map {...}.to_h`.
+
+let(:rack_headers) { headers.map { |k, v| [RackSupport.header_to_rack(k), v] }.to_h }
+                     ^ Style/HashTransformKeys: Prefer `transform_keys` over `map {...}.to_h`.
+
+span.to_hash.map { |k, v| [k.to_s, v] }.to_h
+^ Style/HashTransformKeys: Prefer `transform_keys` over `map {...}.to_h`.
+
+span.to_hash.map { |k, v| [k.to_s, v] }.to_h
+^ Style/HashTransformKeys: Prefer `transform_keys` over `map {...}.to_h`.
+
+spectra.map do |filename, lines|
+^ Style/HashTransformKeys: Prefer `transform_keys` over `map {...}.to_h`.
+  [normalized_path(filename), lines]
+end.to_h
+
+hash.map { |key, value| [key.to_sym, value] }.to_h
+^ Style/HashTransformKeys: Prefer `transform_keys` over `map {...}.to_h`.
+
+x.to_h { |k, v| [k.to_sym, v] }
+^ Style/HashTransformKeys: Prefer `transform_keys` over `to_h {...}`.
