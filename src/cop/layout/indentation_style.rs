@@ -2,6 +2,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 /// ## Corpus investigation
 ///
@@ -32,6 +33,18 @@ use crate::parse::source::SourceFile;
 /// is a closing delimiter only if it's the LAST line within its heredoc range
 /// (i.e., the next line's start offset falls outside the heredoc range).
 /// Added `CodeMap::heredoc_range_end()` to support this check.
+///
+/// ## Corpus investigation (2026-03-31, FP=4)
+///
+/// 4 FP on multiline regular interpolated strings (`"...#{ ... }..."`).
+/// Root cause: `CodeMap` intentionally treats `#{}` bodies as code, but
+/// RuboCop suppresses `Layout/IndentationStyle` when the matched leading
+/// whitespace is contained by the enclosing non-heredoc `dstr` expression.
+/// That means tab-indented lines inside interpolation bodies, and on the line
+/// starting with the closing `}`, should NOT be flagged.
+/// Fix: collect non-heredoc `InterpolatedStringNode` expression ranges in this
+/// cop and skip indentation checks when the leading whitespace falls entirely
+/// inside one of those ranges.
 pub struct IndentationStyle;
 
 impl Cop for IndentationStyle {
@@ -46,7 +59,7 @@ impl Cop for IndentationStyle {
     fn check_source(
         &self,
         source: &SourceFile,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
@@ -54,6 +67,7 @@ impl Cop for IndentationStyle {
     ) {
         let style = config.get_str("EnforcedStyle", "spaces");
         let indent_width = config.get_usize("IndentationWidth", 2);
+        let interpolated_string_ranges = regular_interpolated_string_ranges(parse_result);
 
         let mut offset = 0;
 
@@ -62,6 +76,17 @@ impl Cop for IndentationStyle {
             let line_start = offset;
             // Advance offset past this line and its newline
             offset += line.len() + 1; // +1 for the '\n' delimiter
+            let indent_end = line
+                .iter()
+                .take_while(|&&b| b == b' ' || b == b'\t')
+                .count();
+            let is_heredoc_closing = is_heredoc_closing_delimiter(line, code_map, line_start);
+            let in_interpolated_string = indent_end > 0
+                && range_contained_in_any(
+                    &interpolated_string_ranges,
+                    line_start,
+                    line_start + indent_end,
+                );
 
             // Skip lines whose indentation starts in a string/heredoc region.
             // RuboCop checks indentation in comments (including =begin/=end blocks)
@@ -71,19 +96,15 @@ impl Cop for IndentationStyle {
             // outside the string_literal_range, so RuboCop checks its indentation.
             // Exception 2: regex literals are NOT skipped. RuboCop's
             // string_literal_ranges only covers :str/:dstr nodes, not :regexp.
-            if !code_map.is_not_string(line_start)
+            if (!code_map.is_not_string(line_start) || in_interpolated_string)
                 && !code_map.is_regex(line_start)
-                && !is_heredoc_closing_delimiter(line, code_map, line_start)
+                && !is_heredoc_closing
             {
                 continue;
             }
 
             if style == "spaces" {
                 // Flag tabs in indentation
-                let indent_end = line
-                    .iter()
-                    .take_while(|&&b| b == b' ' || b == b'\t')
-                    .count();
                 let indent = &line[..indent_end];
                 if indent.contains(&b'\t') {
                     let tab_col = indent.iter().position(|&b| b == b'\t').unwrap_or(0);
@@ -93,7 +114,7 @@ impl Cop for IndentationStyle {
                     // checked even though they're inside ranges in the CodeMap.
                     if code_map.is_not_string(tab_offset)
                         || code_map.is_regex(tab_offset)
-                        || is_heredoc_closing_delimiter(line, code_map, line_start)
+                        || is_heredoc_closing
                     {
                         let mut diag = self.diagnostic(
                             source,
@@ -124,17 +145,13 @@ impl Cop for IndentationStyle {
                 }
             } else {
                 // "tabs" — flag spaces in indentation
-                let indent_end = line
-                    .iter()
-                    .take_while(|&&b| b == b' ' || b == b'\t')
-                    .count();
                 let indent = &line[..indent_end];
                 if indent.contains(&b' ') {
                     let space_col = indent.iter().position(|&b| b == b' ').unwrap_or(0);
                     let space_offset = line_start + space_col;
                     if code_map.is_not_string(space_offset)
                         || code_map.is_regex(space_offset)
-                        || is_heredoc_closing_delimiter(line, code_map, line_start)
+                        || is_heredoc_closing
                     {
                         let mut diag = self.diagnostic(
                             source,
@@ -165,6 +182,39 @@ impl Cop for IndentationStyle {
             }
         }
     }
+}
+
+#[derive(Default)]
+struct InterpolatedStringRangeCollector {
+    ranges: Vec<(usize, usize)>,
+}
+
+impl<'pr> Visit<'pr> for InterpolatedStringRangeCollector {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        if let Some(string) = node.as_interpolated_string_node() {
+            if let Some(opening) = string.opening_loc() {
+                if !opening.as_slice().starts_with(b"<<") {
+                    let loc = node.location();
+                    self.ranges.push((loc.start_offset(), loc.end_offset()));
+                }
+            }
+        }
+    }
+}
+
+fn regular_interpolated_string_ranges(
+    parse_result: &ruby_prism::ParseResult<'_>,
+) -> Vec<(usize, usize)> {
+    let mut collector = InterpolatedStringRangeCollector::default();
+    collector.visit(&parse_result.node());
+    collector.ranges.sort_unstable();
+    collector.ranges
+}
+
+fn range_contained_in_any(ranges: &[(usize, usize)], start: usize, end: usize) -> bool {
+    ranges
+        .iter()
+        .any(|&(range_start, range_end)| start >= range_start && end <= range_end)
 }
 
 /// Check if a line is a heredoc closing delimiter.
