@@ -201,3 +201,6 @@ if api_version == 'v2'
     test[:engagement] == engagement_resource_uri
   end
 end
+
+track_data = PWN::Plugins::MSR206.clone_card(
+^ Lint/UselessAssignment: Useless assignment to variable - `track_data`.
