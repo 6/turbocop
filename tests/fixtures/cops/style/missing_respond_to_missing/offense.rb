@@ -27,3 +27,44 @@ class Test4
   ^^^^^^^^^^^^^^^^^^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
   end
 end
+
+module Test5
+  class << self
+    def method_missing(method_name, *args, &block)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+    end
+  end
+end
+
+class Test6
+  if RUBY_VERSION < "3"
+    def self.method_missing(message, *args, &block)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+    end
+  else
+    def self.method_missing(message, *args, **kwargs, &block)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+    end
+  end
+end
+
+class Test7
+  def helper
+    class_eval do
+      def method_missing(method_name, *args, &block)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+      end
+    end
+  end
+end
+
+class Test8
+  def self.respond_to_missing?
+  end
+
+  class << self
+    def method_missing(method_name, *args, &block)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+    end
+  end
+end
