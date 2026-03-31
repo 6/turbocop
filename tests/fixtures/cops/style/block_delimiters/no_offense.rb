@@ -110,6 +110,23 @@ render node: -> {
   puts "rendered"
 end
 
+# Block using `it` (itblock) inside operator argument chain — ignored
+# With TargetRubyVersion 4.0, RuboCop parses `it` blocks as :itblock,
+# and `single_argument_operator_method?` returns false for itblocks because
+# `block_type?` only matches :block. So `get_blocks` runs and ignores them.
+spec_files = Dir.glob("lib/**/*.rb") +
+             Dir.glob(
+               "templates/**/*",
+               flags: File::FNM_DOTMATCH
+             ).reject {
+               it =~ /\/\.{1,2}$/
+             }.reject {
+               it =~ /\.DS_Store$/
+             } +
+             [
+               "exe/brut",
+             ]
+
 # Hash[] with multi-line chained block — allowed
 Hash[list.map { |k, v|
   [k, v.to_s]

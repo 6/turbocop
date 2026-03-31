@@ -87,6 +87,19 @@ use std::collections::HashSet;
 /// That mistake suppressed real offenses like `expect { ... }.to output(...)` and
 /// `result = items.map { ... }`. Fix: removed the `return_value_used` tracking/exemption
 /// and added regression fixtures for chained/assigned multi-line brace blocks.
+///
+/// ## Investigation findings (2026-03-31)
+///
+/// Root cause of 1 FP in `thirdtank/brut`: blocks using `it` (implicit parameter) inside
+/// operator method arguments. The corpus config uses `TargetRubyVersion: 4.0`, which causes
+/// RuboCop's Parser to parse `reject { it =~ /.../ }` as an `:itblock` node instead of
+/// `:block`. RuboCop's `single_argument_operator_method?` checks `first_argument.block_type?`,
+/// which returns false for `:itblock` (and `:numblock`) since `block_type?` checks
+/// `@type == :block` exactly. When `single_argument_operator_method?` returns false,
+/// `on_send` proceeds to call `get_blocks`, which finds and ignores the blocks via
+/// `ignore_node`. In Prism, all blocks are `BlockNode` regardless of parameter style.
+/// Fix: added `is_explicit_block()` check that returns false when the block's parameters
+/// are `ItParametersNode` or `NumberedParametersNode`, matching Parser's type distinction.
 pub struct BlockDelimiters;
 
 impl Cop for BlockDelimiters {
@@ -266,6 +279,13 @@ impl<'a> Visit<'_> for BlockDelimitersVisitor<'a> {
         // (i.e., a call whose block is the argument). When the argument is a
         // send/call chain (e.g., `a + items.map { }.join`), the block is nested
         // inside the expression and should be found via collect_ignored_blocks.
+        //
+        // RuboCop quirk: `block_type?` checks `@type == :block`, which returns
+        // false for `:itblock` (Ruby 4.0 `it` parameter) and `:numblock`
+        // (`_1`/`_2` numbered parameters). So `single_argument_operator_method?`
+        // returns false for those, causing `get_blocks` to run and ignore them.
+        // We replicate this by checking that the block has explicit parameters
+        // (BlockParametersNode), not it/numbered parameters.
         let is_single_arg_operator = is_operator_method(method_name)
             && node.arguments().is_some_and(|args| {
                 args.arguments().len() == 1
@@ -273,7 +293,7 @@ impl<'a> Visit<'_> for BlockDelimitersVisitor<'a> {
                         arg.as_call_node()
                             .and_then(|c| c.block())
                             .and_then(|b| b.as_block_node())
-                            .is_some()
+                            .is_some_and(|block| is_explicit_block(block))
                     })
             });
 
@@ -354,6 +374,21 @@ impl<'a> Visit<'_> for BlockDelimitersVisitor<'a> {
             }
         }
         ruby_prism::visit_forwarding_super_node(self, node);
+    }
+}
+
+/// Check if a block corresponds to Parser's `:block` type (not `:itblock` or `:numblock`).
+/// Returns false for blocks with `it` parameters (`:itblock` in Parser) or numbered
+/// parameters like `_1` (`:numblock` in Parser). Blocks with explicit parameters
+/// (`|x, y|`) or no parameters at all are both `:block` type.
+fn is_explicit_block(block: ruby_prism::BlockNode<'_>) -> bool {
+    match block.parameters() {
+        Some(p) => {
+            // ItParametersNode → :itblock, NumberedParametersNode → :numblock
+            p.as_it_parameters_node().is_none() && p.as_numbered_parameters_node().is_none()
+        }
+        // No parameters → :block type
+        None => true,
     }
 }
 
