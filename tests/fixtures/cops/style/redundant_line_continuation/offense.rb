@@ -41,3 +41,45 @@ end
 class Foo \
           ^ Style/RedundantLineContinuation: Redundant line continuation.
 end
+
+foo \
+    ^ Style/RedundantLineContinuation: Redundant line continuation.
+  && bar
+
+foo \
+    ^ Style/RedundantLineContinuation: Redundant line continuation.
+  || bar
+
+def merge_strategy(namespace_subclasses)
+  return nil unless namespace_subclasses.empty? \
+                                                ^ Style/RedundantLineContinuation: Redundant line continuation.
+    || (namespace_subclasses.length == 1 && namespace_subclasses.first < RbiGenerator::Namespace) \
+                                                                                                  ^ Style/RedundantLineContinuation: Redundant line continuation.
+    || namespace_subclasses.to_set == Set[RbiGenerator::ClassNamespace, RbiGenerator::StructClassNamespace] \
+                                                                                                            ^ Style/RedundantLineContinuation: Redundant line continuation.
+    || namespace_subclasses.to_set == Set[RbiGenerator::ClassNamespace, RbiGenerator::EnumClassNamespace]
+end
+
+(name.nil? ? true : child.name == name) \
+                                        ^ Style/RedundantLineContinuation: Redundant line continuation.
+  && (type.nil? ? true : child.is_a?(type))
+
+Constant === other && name == other.name && value == other.value \
+                                                                 ^ Style/RedundantLineContinuation: Redundant line continuation.
+  && eigen_constant == other.eigen_constant && heredocs == other.heredocs
+
+paths.each do |path|
+  next if !expanded_inclusions.any? { |i| path.start_with?(i) } \
+                                                                ^ Style/RedundantLineContinuation: Redundant line continuation.
+    || expanded_exclusions.any? { |e| path.start_with?(e) }
+end
+
+parse_err 'node after a sig must be a method definition', def_node \
+  unless [:attr_reader, :attr_writer, :attr_accessor].include?(method_name) \
+                                                                            ^ Style/RedundantLineContinuation: Redundant line continuation.
+    || target != nil
+
+parse_err 'node after a sig must be a method definition', def_node \
+  unless [:attr_reader, :attr_writer, :attr_accessor].include?(method_name) \
+                                                                            ^ Style/RedundantLineContinuation: Redundant line continuation.
+    || target != nil

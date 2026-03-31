@@ -7,17 +7,19 @@ super \
 x = 'hello' \
   'world'
 
+message = \
+  "hello" +
+  "world"
+
+sources = \
+  foo |
+  bar
+
 y = 1
 z = 2
 
 x = "line with a literal backslash \\"
 y = "another \\ line"
-
-foo \
-  && bar
-
-foo \
-  || bar
 
 1 \
   + 2
