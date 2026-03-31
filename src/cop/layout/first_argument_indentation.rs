@@ -76,6 +76,17 @@ use crate::parse::source::SourceFile;
 /// skipped because `dot?` is false for `&.`. Fixed by matching RuboCop's
 /// `operator_method? && !dot?` behavior and by emitting the quoted base-range
 /// message for single-line special inner calls like ``Sequel.|(``.
+///
+/// ## Investigation (2026-03-31)
+///
+/// **FP fix (1 FP):** `include(inner_call(...) { ... })` was incorrectly
+/// treated as a `special_for_inner_method_call_in_parentheses` case. In
+/// RuboCop's parser AST, a send with an attached block is wrapped in a `block`
+/// node, so the inner send's parent is not the outer `send` and the special
+/// inner-call indentation rule does not apply. Prism keeps the block on the
+/// `CallNode`, so the previous stack-based parent check misclassified this
+/// shape. Fixed by excluding calls with attached blocks from the special
+/// inner-call path while keeping plain parenthesized inner calls unchanged.
 pub struct FirstArgumentIndentation;
 
 impl Cop for FirstArgumentIndentation {
@@ -133,6 +144,11 @@ struct ParentCallInfo {
     is_eligible: bool,
 }
 
+struct CallMetadata<'a> {
+    name: &'a str,
+    has_attached_block: bool,
+}
+
 impl FirstArgVisitor<'_> {
     fn check_call(
         &mut self,
@@ -141,7 +157,7 @@ impl FirstArgVisitor<'_> {
         opening_loc: Option<ruby_prism::Location<'_>>,
         call_operator_loc: Option<ruby_prism::Location<'_>>,
         arguments: Option<ruby_prism::ArgumentsNode<'_>>,
-        name: &str,
+        metadata: CallMetadata<'_>,
     ) {
         // Must have arguments (parenthesized or not)
         let args_node = match arguments {
@@ -181,19 +197,27 @@ impl FirstArgVisitor<'_> {
         }
 
         // Skip bare operators (like `a + b`) and setter methods (like `self.x = 1`)
-        if is_bare_operator(name, has_regular_dot) || is_setter_method(name) {
+        if is_bare_operator(metadata.name, has_regular_dot) || is_setter_method(metadata.name) {
             return;
         }
 
-        let expected =
-            self.compute_expected_indent(call_start_offset, first_arg_loc.start_offset(), arg_line);
+        let expected = self.compute_expected_indent(
+            call_start_offset,
+            first_arg_loc.start_offset(),
+            arg_line,
+            metadata.has_attached_block,
+        );
 
         if arg_col != expected {
             self.diagnostics.push(self.cop.diagnostic(
                 self.source,
                 arg_line,
                 arg_col,
-                self.message(call_start_offset, first_arg_loc.start_offset()),
+                self.message(
+                    call_start_offset,
+                    first_arg_loc.start_offset(),
+                    metadata.has_attached_block,
+                ),
             ));
         }
     }
@@ -203,6 +227,7 @@ impl FirstArgVisitor<'_> {
         call_start_offset: usize,
         first_arg_start_offset: usize,
         arg_line: usize,
+        has_attached_block: bool,
     ) -> usize {
         if self.style == "consistent" {
             // Always use previous code line indent + width
@@ -216,7 +241,7 @@ impl FirstArgVisitor<'_> {
         }
 
         // special_for_inner_method_call or special_for_inner_method_call_in_parentheses
-        if self.is_special_inner_call(call_start_offset) {
+        if self.is_special_inner_call(call_start_offset, has_attached_block) {
             // Check if base_range (from call start to first arg) spans multiple lines
             let (call_start_line, call_start_col) =
                 self.source.offset_to_line_col(call_start_offset);
@@ -246,7 +271,11 @@ impl FirstArgVisitor<'_> {
     /// Check if the current call is a "special inner call" — meaning it is an
     /// argument of an outer method call. For `special_for_inner_method_call_in_parentheses`,
     /// the outer call must be parenthesized.
-    fn is_special_inner_call(&self, call_start_offset: usize) -> bool {
+    fn is_special_inner_call(&self, call_start_offset: usize, has_attached_block: bool) -> bool {
+        if has_attached_block {
+            return false;
+        }
+
         if let Some(parent) = self.parent_call_stack.last() {
             if !parent.is_eligible {
                 return false;
@@ -280,15 +309,20 @@ impl FirstArgVisitor<'_> {
         }
     }
 
-    fn uses_base_range_message(&self, call_start_offset: usize) -> bool {
+    fn uses_base_range_message(&self, call_start_offset: usize, has_attached_block: bool) -> bool {
         match self.style {
             "consistent" => false,
             "consistent_relative_to_receiver" => true,
-            _ => self.is_special_inner_call(call_start_offset),
+            _ => self.is_special_inner_call(call_start_offset, has_attached_block),
         }
     }
 
-    fn message(&self, call_start_offset: usize, first_arg_start_offset: usize) -> String {
+    fn message(
+        &self,
+        call_start_offset: usize,
+        first_arg_start_offset: usize,
+        has_attached_block: bool,
+    ) -> String {
         let base_text = self
             .source
             .try_byte_slice(call_start_offset, first_arg_start_offset)
@@ -297,7 +331,7 @@ impl FirstArgVisitor<'_> {
         let (call_start_line, _) = self.source.offset_to_line_col(call_start_offset);
         let (arg_start_line, _) = self.source.offset_to_line_col(first_arg_start_offset);
 
-        let base = if self.uses_base_range_message(call_start_offset)
+        let base = if self.uses_base_range_message(call_start_offset, has_attached_block)
             && !base_text.contains('\n')
             && is_single_line_base_range(
                 self.source,
@@ -461,7 +495,10 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
             node.opening_loc(),
             call_operator_loc,
             node.arguments(),
-            name_str,
+            CallMetadata {
+                name: name_str,
+                has_attached_block: node.block().is_some(),
+            },
         );
 
         // Determine if this call is parenthesized and eligible for being a
@@ -502,7 +539,10 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
             node.lparen_loc(),
             None,
             node.arguments(),
-            "super",
+            CallMetadata {
+                name: "super",
+                has_attached_block: false,
+            },
         );
 
         // super() is NOT eligible as a parent for special_inner_call checks.
@@ -591,6 +631,28 @@ mod tests {
             diags.len(),
             1,
             "non-inner call with wrong indent should be flagged"
+        );
+    }
+
+    #[test]
+    fn inner_call_with_attached_block_uses_previous_line_indent() {
+        let source = b"include(foo.new(\n  bar\n) { |x| x })\n";
+        let diags = run_cop_full(&FirstArgumentIndentation, source);
+        assert!(
+            diags.is_empty(),
+            "inner call with attached block should not use special inner-call indentation, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn plain_inner_call_without_block_still_uses_special_indent() {
+        let source = b"include(foo.new(\n  bar\n))\n";
+        let diags = run_cop_full(&FirstArgumentIndentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "plain inner call without block should still be flagged"
         );
     }
 }
