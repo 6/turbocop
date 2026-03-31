@@ -4,6 +4,8 @@ use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 use std::collections::HashSet;
 
+type NodeRange = (usize, usize);
+
 /// Corpus investigation (FP=120, FN=161):
 /// Root cause: nitrocop reported one offense per string at the string's start position,
 /// while RuboCop reports one offense per format token at the token's exact position.
@@ -41,10 +43,21 @@ use std::collections::HashSet;
 /// a single line; multiline heredocs and percent literals still lose format context.
 ///
 /// Plain multiline quoted strings (2026-03): Prism keeps `"line1\nline2 %{tok}"` as one
-/// `StringNode`, but Parser splits it into `dstr` parts where continuation-line parts
-/// lose their ancestor context (the `%` send). Named tokens on continuation lines are
-/// therefore not flagged by RuboCop. We skip named tokens past the first physical line
-/// for plain multiline quoted strings to match this behavior.
+/// `StringNode`, but Parser splits it into `dstr` parts and RuboCop still visits each
+/// `str` part in aggressive mode. The bug was treating continuation lines as always safe,
+/// which hid real template-token offenses from corpus strings like Strong Migrations'
+/// embedded code examples. Fix: keep multiline handling only for format-context-sensitive
+/// checks (conservative mode and unannotated tokens), not for named-token detection.
+/// The one exception is continuation-line parts whose raw source contains escaped newlines
+/// before the token (for example `"...\n  details: \\n\\n%{explanation}"`): RuboCop's
+/// `str` node `value` drops the trailing `%{...}` in that shape, so we skip that narrow
+/// case to avoid a new FP.
+///
+/// Adjacent string literals in `format(...)` calls (2026-03): Prism gives the top-level
+/// concatenation node and its first child string the same start offset. Tracking context
+/// by start offset leaked format context onto the first child and falsely flagged `%d/%s`
+/// in the first segment of a concatenated format string. Fix: track exact node spans
+/// instead of start offsets.
 pub struct FormatStringToken;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,15 +258,15 @@ impl Cop for FormatStringToken {
             conservative: mode == "conservative",
             allowed_methods,
             allowed_patterns,
-            format_context_offsets: HashSet::new(),
-            allowed_method_string_offsets: HashSet::new(),
+            format_context_ranges: HashSet::new(),
+            allowed_method_string_ranges: HashSet::new(),
             inside_xstr_or_regexp: 0,
         };
 
-        // First pass: collect offsets of strings in format contexts and allowed method contexts
+        // First pass: collect string spans in format contexts and allowed method contexts
         let mut collector = FormatContextCollector {
-            format_context_offsets: &mut visitor.format_context_offsets,
-            allowed_method_string_offsets: &mut visitor.allowed_method_string_offsets,
+            format_context_ranges: &mut visitor.format_context_ranges,
+            allowed_method_string_ranges: &mut visitor.allowed_method_string_ranges,
             allowed_methods: &visitor.allowed_methods,
             allowed_patterns: &visitor.allowed_patterns,
         };
@@ -265,11 +278,11 @@ impl Cop for FormatStringToken {
     }
 }
 
-/// Collects start offsets of string nodes that are in a format context
+/// Collects exact spans of string nodes that are in a format context
 /// (first arg to format/sprintf/printf, or LHS of %).
 struct FormatContextCollector<'a> {
-    format_context_offsets: &'a mut HashSet<usize>,
-    allowed_method_string_offsets: &'a mut HashSet<usize>,
+    format_context_ranges: &'a mut HashSet<NodeRange>,
+    allowed_method_string_ranges: &'a mut HashSet<NodeRange>,
     allowed_methods: &'a Option<Vec<String>>,
     allowed_patterns: &'a Option<Vec<String>>,
 }
@@ -291,36 +304,45 @@ impl FormatContextCollector<'_> {
         false
     }
 
-    /// Collect start offset of the top-level string/interpolated-string node only.
+    /// Collect the exact span of the top-level string/interpolated-string node only.
     /// Does NOT propagate to parts inside interpolated strings, matching RuboCop's
     /// `format_string_in_typical_context?` which only checks the immediate parent.
-    fn collect_top_level_string_offset(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<usize>) {
+    fn collect_top_level_string_range(
+        node: &ruby_prism::Node<'_>,
+        ranges: &mut HashSet<NodeRange>,
+    ) {
         if node.as_string_node().is_some() || node.as_interpolated_string_node().is_some() {
-            offsets.insert(node.location().start_offset());
+            let location = node.location();
+            ranges.insert((location.start_offset(), location.end_offset()));
         }
     }
 
-    /// Collect string offsets in a subtree, stopping at nested CallNode boundaries.
+    /// Collect exact string spans in a subtree, stopping at nested CallNode boundaries.
     /// This matches RuboCop's `use_allowed_method?` which checks `each_ancestor(:send).first`,
     /// meaning only the NEAREST send ancestor matters. Strings inside nested method calls
     /// have a different nearest send ancestor and should NOT be suppressed.
-    fn collect_shallow_string_offsets(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<usize>) {
+    fn collect_shallow_string_ranges(node: &ruby_prism::Node<'_>, ranges: &mut HashSet<NodeRange>) {
         if node.as_string_node().is_some() || node.as_interpolated_string_node().is_some() {
-            offsets.insert(node.location().start_offset());
+            let location = node.location();
+            ranges.insert((location.start_offset(), location.end_offset()));
         }
         struct ShallowStringCollector<'a> {
-            offsets: &'a mut HashSet<usize>,
+            ranges: &'a mut HashSet<NodeRange>,
         }
         impl<'pr> Visit<'pr> for ShallowStringCollector<'_> {
             fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
-                self.offsets.insert(node.location().start_offset());
+                let location = node.location();
+                self.ranges
+                    .insert((location.start_offset(), location.end_offset()));
                 ruby_prism::visit_string_node(self, node);
             }
             fn visit_interpolated_string_node(
                 &mut self,
                 node: &ruby_prism::InterpolatedStringNode<'pr>,
             ) {
-                self.offsets.insert(node.location().start_offset());
+                let location = node.location();
+                self.ranges
+                    .insert((location.start_offset(), location.end_offset()));
                 ruby_prism::visit_interpolated_string_node(self, node);
             }
             fn visit_call_node(&mut self, _node: &ruby_prism::CallNode<'pr>) {
@@ -329,7 +351,7 @@ impl FormatContextCollector<'_> {
                 // so AllowedMethods should not suppress them.
             }
         }
-        let mut sc = ShallowStringCollector { offsets };
+        let mut sc = ShallowStringCollector { ranges };
         sc.visit(node);
     }
 }
@@ -345,10 +367,7 @@ impl<'pr> Visit<'pr> for FormatContextCollector<'_> {
             if let Some(args) = node.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if !arg_list.is_empty() {
-                    Self::collect_top_level_string_offset(
-                        &arg_list[0],
-                        self.format_context_offsets,
-                    );
+                    Self::collect_top_level_string_range(&arg_list[0], self.format_context_ranges);
                 }
             }
         }
@@ -356,7 +375,7 @@ impl<'pr> Visit<'pr> for FormatContextCollector<'_> {
         // Check if this is the % operator: "string" % args
         if method_name == "%" {
             if let Some(receiver) = node.receiver() {
-                Self::collect_top_level_string_offset(&receiver, self.format_context_offsets);
+                Self::collect_top_level_string_range(&receiver, self.format_context_ranges);
             }
         }
 
@@ -366,7 +385,7 @@ impl<'pr> Visit<'pr> for FormatContextCollector<'_> {
             // but NOT strings nested inside other method calls (their nearest send differs).
             if let Some(args) = node.arguments() {
                 for arg in args.arguments().iter() {
-                    Self::collect_shallow_string_offsets(&arg, self.allowed_method_string_offsets);
+                    Self::collect_shallow_string_ranges(&arg, self.allowed_method_string_ranges);
                 }
             }
         }
@@ -384,10 +403,10 @@ struct FormatStringTokenVisitor<'a> {
     conservative: bool,
     allowed_methods: Option<Vec<String>>,
     allowed_patterns: Option<Vec<String>>,
-    /// Offsets of top-level strings that are in a format context (format/sprintf/printf/%)
-    format_context_offsets: HashSet<usize>,
-    /// Offsets of strings that are args to allowed methods
-    allowed_method_string_offsets: HashSet<usize>,
+    /// Exact spans of top-level strings that are in a format context (format/sprintf/printf/%)
+    format_context_ranges: HashSet<NodeRange>,
+    /// Exact spans of strings that are args to allowed methods
+    allowed_method_string_ranges: HashSet<NodeRange>,
     /// Depth counter for xstr/regexp contexts (skip strings inside these)
     inside_xstr_or_regexp: usize,
 }
@@ -419,7 +438,7 @@ impl FormatStringTokenVisitor<'_> {
         true
     }
 
-    fn plain_multiline_string_skips_named_continuations(node: &ruby_prism::StringNode<'_>) -> bool {
+    fn is_plain_multiline_quoted_string(node: &ruby_prism::StringNode<'_>) -> bool {
         let content = node.content_loc().as_slice();
         if !content.contains(&b'\n') {
             return false;
@@ -429,10 +448,19 @@ impl FormatStringTokenVisitor<'_> {
             return false;
         };
         let opening = opening.as_slice();
-
-        // Only plain quoted strings — heredocs and % literals are handled by
-        // loses_format_context_when_multiline already.
         !opening.starts_with(b"<<") && !opening.starts_with(b"%")
+    }
+
+    fn line_contains_escaped_newline_before_token(content: &[u8], token_offset: usize) -> bool {
+        let line_start = content[..token_offset]
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |idx| idx + 1);
+        let line_prefix = &content[line_start..token_offset];
+
+        line_prefix
+            .windows(2)
+            .any(|pair| matches!(pair, [b'\\', b'n'] | [b'\\', b'r']))
     }
 
     fn check_string_content(
@@ -440,7 +468,7 @@ impl FormatStringTokenVisitor<'_> {
         content: &[u8],
         content_start_offset: usize,
         in_format_context: bool,
-        skip_named_continuations: bool,
+        plain_multiline_quoted: bool,
     ) {
         let content_str = match std::str::from_utf8(content) {
             Ok(s) => s,
@@ -485,7 +513,12 @@ impl FormatStringTokenVisitor<'_> {
                             let (line, column) = self
                                 .source
                                 .offset_to_line_col(content_start_offset + tok.offset);
-                            if skip_named_continuations && line > first_line {
+                            if plain_multiline_quoted
+                                && line > first_line
+                                && Self::line_contains_escaped_newline_before_token(
+                                    content, tok.offset,
+                                )
+                            {
                                 continue;
                             }
                             self.diagnostics.push(self.cop.diagnostic(
@@ -520,7 +553,12 @@ impl FormatStringTokenVisitor<'_> {
                             let (line, column) = self
                                 .source
                                 .offset_to_line_col(content_start_offset + tok.offset);
-                            if skip_named_continuations && line > first_line {
+                            if plain_multiline_quoted
+                                && line > first_line
+                                && Self::line_contains_escaped_newline_before_token(
+                                    content, tok.offset,
+                                )
+                            {
                                 continue;
                             }
                             self.diagnostics.push(self.cop.diagnostic(
@@ -552,7 +590,10 @@ impl FormatStringTokenVisitor<'_> {
                         let (line, column) = self
                             .source
                             .offset_to_line_col(content_start_offset + tok.offset);
-                        if skip_named_continuations && line > first_line {
+                        if plain_multiline_quoted
+                            && line > first_line
+                            && Self::line_contains_escaped_newline_before_token(content, tok.offset)
+                        {
                             continue;
                         }
                         let msg = if tok.style == TokenStyle::Annotated {
@@ -582,14 +623,15 @@ impl<'pr> Visit<'pr> for FormatStringTokenVisitor<'_> {
             return;
         }
 
-        let offset = node.location().start_offset();
+        let location = node.location();
+        let range = (location.start_offset(), location.end_offset());
 
         // Skip if this string is an argument to an allowed method
-        if self.allowed_method_string_offsets.contains(&offset) {
+        if self.allowed_method_string_ranges.contains(&range) {
             return;
         }
 
-        let raw_format_context = self.format_context_offsets.contains(&offset);
+        let raw_format_context = self.format_context_ranges.contains(&range);
 
         // Use content_loc for positional mapping (raw source bytes)
         let content_loc = node.content_loc();
@@ -599,14 +641,14 @@ impl<'pr> Visit<'pr> for FormatStringTokenVisitor<'_> {
         // format context. Keep single-line heredoc receivers in format context.
         let in_format_context =
             raw_format_context && !Self::loses_format_context_when_multiline(node);
-        let skip_named_continuations = Self::plain_multiline_string_skips_named_continuations(node);
+        let plain_multiline_quoted = Self::is_plain_multiline_quoted_string(node);
         let content_start = content_loc.start_offset();
 
         self.check_string_content(
             content,
             content_start,
             in_format_context,
-            skip_named_continuations,
+            plain_multiline_quoted,
         );
     }
 

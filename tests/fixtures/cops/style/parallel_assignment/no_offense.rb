@@ -20,3 +20,10 @@ node.left, node.right = node.right, node.left
 
 # Conditional swap
 min_x, max_x = max_x, min_x if min_x > max_x
+
+# Expression-based cycles (Fibonacci pattern, etc.)
+x, y = y, x + y
+a, b = (a + b), (a - b)
+
+# Nested group with size mismatch (RuboCop doesn't flag)
+(a, b), c = [1, 2], 3

@@ -37,3 +37,19 @@ SQL
 multi = _("Status %{url}
                   ^^^^^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).
   approved") % { url: target_url }
+
+all = '%{1}%{votes_count}%{_1} votes on %{2}%{ideas_count}%{_2} ideas'
+       ^^^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).
+           ^^^^^^^^^^^^^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).
+                         ^^^^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).
+                                        ^^^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).
+                                            ^^^^^^^^^^^^^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).
+                                                          ^^^^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).
+
+migration = "header
+
+class %{migration_name} < ActiveRecord::Migration%{migration_suffix}
+      ^^^^^^^^^^^^^^^^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).
+                                                 ^^^^^^^^^^^^^^^^^^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).
+  %{command}"
+  ^^^^^^^^^^ Style/FormatStringToken: Prefer annotated tokens (like `%<foo>s`) over template tokens (like `%{foo}`).

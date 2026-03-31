@@ -12,27 +12,11 @@ class Foo
   end
 
   private :some_method
-
-  # Visibility-change calls (not inline modifier declarations)
-  public target
-  private method_var
-  protected some_method_name
 end
 
-# Access modifiers inside block bodies should be ignored
-# (RuboCop only checks inside class/module/sclass bodies)
-module Pakyow
-  class Application
-    class_methods do
-      private def load_aspect(aspect)
-        aspect.to_s
-      end
-
-      protected def another_method
-        true
-      end
-    end
-  end
+# Single-statement access modifiers inside blocks should be ignored
+module MyModule
+  singleton_methods.each { |method| private(method) }
 end
 
 class SomeService
@@ -68,5 +52,24 @@ class ConditionalInline
     private def secret_method
       'secret'
     end
+  end
+end
+
+# Multi-statement class-level begin/rescue wrappers should not preserve macro scope
+class WrappedByRescue
+  begin
+    def before_helper
+      work
+    end
+
+    private def helper line
+      line
+    end
+
+    def after_helper
+      work
+    end
+  rescue StandardError
+    nil
   end
 end

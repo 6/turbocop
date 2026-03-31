@@ -97,6 +97,49 @@ def test_python_plus_rust_failure_uses_python_scope():
     assert result["guard_profile"] == "repair-python-workflow"
 
 
+def test_fix_backend_used_as_default_for_hard_route():
+    run = {
+        "jobs": [
+            make_job("cop-check", ["Check cops against corpus baseline"]),
+        ],
+    }
+    result = prepare_pr_repair.classify_run(run, fix_backend="claude-oauth-hard")
+    assert result["route"] == "hard"
+    assert result["backend"] == "claude-oauth-hard"
+
+
+def test_fix_backend_used_as_default_for_easy_route():
+    run = {
+        "jobs": [
+            make_job("build-and-test (ubuntu-24.04)", ["Clippy", "Test"]),
+        ],
+    }
+    result = prepare_pr_repair.classify_run(run, fix_backend="claude-oauth-normal")
+    assert result["route"] == "easy"
+    assert result["backend"] == "claude-oauth-normal"
+
+
+def test_fix_backend_not_used_for_skip_route():
+    run = {
+        "jobs": [
+            make_job("build-and-test (macos-latest)", ["Build"]),
+        ],
+    }
+    result = prepare_pr_repair.classify_run(run, fix_backend="claude-oauth-hard")
+    assert result["route"] == "skip"
+    assert result["backend"] == ""
+
+
+def test_fix_backend_falls_back_to_codex_hard_when_empty():
+    run = {
+        "jobs": [
+            make_job("cop-check", ["Check cops against corpus baseline"]),
+        ],
+    }
+    result = prepare_pr_repair.classify_run(run, fix_backend="")
+    assert result["backend"] == "codex-hard"
+
+
 def test_prompt_includes_route_and_failed_packet():
     run = {"number": 57, "workflowName": "Checks", "jobs": []}
     classification = {
@@ -205,6 +248,10 @@ if __name__ == "__main__":
     test_macos_only_failure_is_skipped()
     test_python_only_failure_skips_as_infra()
     test_python_plus_rust_failure_uses_python_scope()
+    test_fix_backend_used_as_default_for_hard_route()
+    test_fix_backend_used_as_default_for_easy_route()
+    test_fix_backend_not_used_for_skip_route()
+    test_fix_backend_falls_back_to_codex_hard_when_empty()
     test_prompt_includes_route_and_failed_packet()
     test_normalize_log_strips_actions_prefix_and_cleanup_noise()
     test_prefetch_corpus_context_uses_runtime_env_paths()

@@ -29,3 +29,43 @@ class NoMethodMissing
   def foo
   end
 end
+
+class Test4
+  class << self
+    def respond_to_missing?
+    end
+
+    def method_missing
+    end
+  end
+end
+
+class Test5
+  def respond_to_missing?
+  end
+
+  if condition
+    def method_missing
+    end
+  end
+end
+
+class Test6
+  def respond_to_missing?
+  end
+
+  class_eval do
+    def method_missing
+    end
+  end
+end
+
+module Test7
+  def method_missing
+  end
+
+  class Inner
+    def respond_to_missing?
+    end
+  end
+end

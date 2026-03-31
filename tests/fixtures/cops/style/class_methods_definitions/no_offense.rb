@@ -72,6 +72,15 @@ class H
   end
 end
 
+# Inline public def only — no direct child plain def nodes
+class T
+  class << self
+    public def visible
+      42
+    end
+  end
+end
+
 # Mixed public and protected — not ALL methods are public
 class I
   class << self

@@ -4,39 +4,56 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/Next: Use `next` to skip iteration instead of wrapping conditionals.
+///
+/// Key fixes applied:
+/// - Check the LAST statement in block body, not just single-statement bodies
+///   (RuboCop's `ends_with_condition?` logic). This was the main source of FN.
+/// - Added `while`/`until` loop support (RuboCop's `on_while`/`on_until`).
+/// - Added `loop` and other missing enumerator methods (`inject`, `reduce`,
+///   `find_index`, `map!`, `select!`, `reject!`).
+/// - Added `each_*` prefix matching for dynamic enumerator methods.
+/// - Removed `any?`/`none?` (not in RuboCop's ENUMERATOR_METHODS, caused FP).
+///
+/// Remaining FN sources: `AllowConsecutiveConditionals` handling, `if_else_children?`
+/// check (skip when nested if-else in body), `exit_body_type?` (skip when body is
+/// break/return), and some config/context differences.
 pub struct Next;
 
-/// Iterator methods whose blocks should use `next` instead of wrapping conditionals
+/// Iterator methods whose blocks should use `next` instead of wrapping conditionals.
+/// Matches RuboCop's `ENUMERATOR_METHODS` plus any method starting with `each_`.
 const ITERATION_METHODS: &[&[u8]] = &[
-    b"each",
-    b"each_with_index",
-    b"each_with_object",
-    b"each_pair",
-    b"each_key",
-    b"each_value",
-    b"each_slice",
-    b"each_cons",
     b"collect",
-    b"map",
-    b"select",
-    b"filter",
-    b"reject",
+    b"collect_concat",
     b"detect",
+    b"downto",
+    b"each",
+    b"filter",
     b"find",
     b"find_all",
+    b"find_index",
     b"flat_map",
-    b"collect_concat",
-    b"any?",
-    b"all?",
-    b"none?",
-    b"sort_by",
-    b"min_by",
+    b"inject",
+    b"loop",
+    b"map",
+    b"map!",
     b"max_by",
+    b"min_by",
+    b"reduce",
+    b"reject",
+    b"reject!",
+    b"reverse_each",
+    b"select",
+    b"select!",
+    b"sort_by",
     b"times",
     b"upto",
-    b"downto",
-    b"reverse_each",
 ];
+
+/// Check if a method name is an enumerator method (static list or `each_*` prefix)
+fn is_enumerator_method(name: &[u8]) -> bool {
+    ITERATION_METHODS.contains(&name) || name.starts_with(b"each_")
+}
 
 impl Cop for Next {
     fn name(&self) -> &'static str {
@@ -83,11 +100,12 @@ impl NextVisitor<'_> {
         };
 
         let body_stmts: Vec<_> = stmts.body().iter().collect();
-        if body_stmts.len() != 1 {
+        if body_stmts.is_empty() {
             return;
         }
 
-        let stmt = &body_stmts[0];
+        // RuboCop checks if the LAST statement is an if/unless (ends_with_condition?)
+        let stmt = &body_stmts[body_stmts.len() - 1];
 
         // Check for if/unless that wraps the entire block body
         if let Some(if_node) = stmt.as_if_node() {
@@ -174,7 +192,7 @@ impl<'pr> Visit<'pr> for NextVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let method_bytes = node.name().as_slice();
 
-        if ITERATION_METHODS.contains(&method_bytes) {
+        if is_enumerator_method(method_bytes) {
             if let Some(block) = node.block() {
                 if let Some(block_node) = block.as_block_node() {
                     if let Some(body) = block_node.body() {
@@ -204,6 +222,26 @@ impl<'pr> Visit<'pr> for NextVisitor<'_> {
         }
         // Visit children
         self.visit(&node.collection());
+        if let Some(stmts) = node.statements() {
+            self.visit(&stmts.as_node());
+        }
+    }
+
+    fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        if let Some(stmts) = node.statements() {
+            self.check_block_body(&stmts.as_node());
+        }
+        // Visit children
+        if let Some(stmts) = node.statements() {
+            self.visit(&stmts.as_node());
+        }
+    }
+
+    fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        if let Some(stmts) = node.statements() {
+            self.check_block_body(&stmts.as_node());
+        }
+        // Visit children
         if let Some(stmts) = node.statements() {
             self.visit(&stmts.as_node());
         }

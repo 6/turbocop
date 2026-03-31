@@ -138,6 +138,14 @@ def cmd_pr_state(args: argparse.Namespace) -> int:
     attempts = inspect_attempts(comments, pr.get("headRefOid", ""))
     linked_issue_number, linked_cop = parse_linked_issue(pr.get("body", ""))
 
+    # Extract the original fix backend from model:* label
+    labels = [label["name"] for label in pr.get("labels", [])]
+    fix_backend = ""
+    for label in labels:
+        if label.startswith("model:"):
+            fix_backend = label[len("model:"):]
+            break
+
     print(f"number={pr['number']}")
     print(f"title={pr['title']}")
     print(f"url={pr['url']}")
@@ -145,6 +153,7 @@ def cmd_pr_state(args: argparse.Namespace) -> int:
     print(f"head_sha={pr['headRefOid']}")
     print(f"linked_issue_number={linked_issue_number or ''}")
     print(f"linked_cop={linked_cop}")
+    print(f"fix_backend={fix_backend}")
     print(f"should_run={'true' if should_run else 'false'}")
     print(f"skip_reason={reason}")
     print(f"prior_pushes={attempts['prior_pushes']}")

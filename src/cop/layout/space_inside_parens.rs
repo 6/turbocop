@@ -93,6 +93,20 @@ use crate::parse::source::SourceFile;
 /// character-literal token when identifying the previous same-line code item,
 /// which preserves `no_space` behavior without weakening legitimate close-side
 /// checks.
+///
+/// ## Corpus investigation (2026-03-31, second pass)
+///
+/// FP=2: both from parenthesized expressions used as hash values in
+/// label syntax, e.g. `max: ( plan.to_i * 1024)` or
+/// `status: ( @type == 'error') ? 400 : 200`. The corpus oracle uses
+/// `TargetRubyVersion: 4.0`, under which RuboCop's parser assigns
+/// the `(` a different token type that `left_parens?` does not match,
+/// so the opening-side space check is skipped (but the closing side
+/// still applies). Fix: added `label_value_paren()` which detects
+/// the `identifier: (` pattern by walking backward from `(` and
+/// checking for a `:` immediately preceded by an identifier character
+/// (excluding `::` constant resolution). This feeds into
+/// `ignores_open_side()` alongside the existing command-form check.
 pub struct SpaceInsideParens;
 
 const MSG: &str = "Space inside parentheses detected.";
@@ -351,7 +365,46 @@ fn ignores_open_side(node: &ruby_prism::Node<'_>, bytes: &[u8], open_start: usiz
         return false;
     }
 
-    command_form_prefix(bytes, open_start).is_some()
+    command_form_prefix(bytes, open_start).is_some() || label_value_paren(bytes, open_start)
+}
+
+/// Detects when `(` is used as a hash value in label syntax, e.g. `key: (expr)`.
+///
+/// In Ruby 4.0 parsing mode, RuboCop's tokenizer assigns a different token type
+/// to `(` in this context, so `left_parens?` returns false and the opening-side
+/// space check is skipped. The closing side is still checked because `)` always
+/// matches `right_parens?`.
+fn label_value_paren(bytes: &[u8], open_start: usize) -> bool {
+    if open_start < 3 {
+        return false;
+    }
+
+    // Walk backward past whitespace before `(`
+    let mut idx = open_start;
+    while idx > 0 && matches!(bytes[idx - 1], b' ' | b'\t' | b'\r') {
+        idx -= 1;
+    }
+    if idx == open_start {
+        return false; // No space before `(` — not a command-form label value
+    }
+
+    // Expect `:`
+    if idx == 0 || bytes[idx - 1] != b':' {
+        return false;
+    }
+    idx -= 1;
+
+    // Reject `::` (constant resolution)
+    if idx > 0 && bytes[idx - 1] == b':' {
+        return false;
+    }
+
+    // Require an identifier character before `:`
+    if idx == 0 || !is_identifier_tail(bytes[idx - 1]) {
+        return false;
+    }
+
+    true
 }
 
 fn command_form_prefix(bytes: &[u8], open_start: usize) -> Option<&[u8]> {

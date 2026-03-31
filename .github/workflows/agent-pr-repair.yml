@@ -246,6 +246,7 @@ jobs:
             --verify-out "$REPAIR_VERIFY_SCRIPT" \
             --json-out "$REPAIR_JSON_FILE" \
             --backend-override "$BACKEND_OVERRIDE" \
+            --fix-backend "${{ steps.pr.outputs.fix_backend }}" \
             --extra-context "${{ github.event.inputs.extra_context || '' }}" \
             >> "$GITHUB_OUTPUT"
         id: repair

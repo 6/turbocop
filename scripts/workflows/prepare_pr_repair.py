@@ -218,7 +218,7 @@ def command_for_step(step_name: str) -> str | None:
     return None
 
 
-def classify_run(run: dict) -> dict:
+def classify_run(run: dict, fix_backend: str = "") -> dict:
     jobs = [job for job in run.get("jobs", []) if job.get("conclusion") in FAILED_CONCLUSIONS]
     commands: list[str] = []
     command_keys: set[str] = set()
@@ -274,12 +274,15 @@ def classify_run(run: dict) -> dict:
             "reason": "; ".join(reasons),
         }
 
+    # Default to the original fix backend if available, otherwise codex-hard
+    default_backend = fix_backend or "codex-hard"
+
     if hard_jobs:
         route = "hard"
-        backend = "codex-hard"
+        backend = default_backend
     elif easy_jobs:
         route = "easy"
-        backend = "codex-hard"
+        backend = default_backend
     else:
         route = "skip"
         backend = ""
@@ -379,6 +382,8 @@ def build_prompt(
         "codex-hard": "codex / hard",
         "claude-normal": "claude / normal",
         "claude-hard": "claude / hard",
+        "claude-oauth-normal": "claude-oauth / normal",
+        "claude-oauth-hard": "claude-oauth / hard",
         "minimax": "minimax / normal",
     }
     backend_label = backend_label_map.get(backend, backend)
@@ -529,14 +534,17 @@ def main() -> None:
             "codex-hard",
             "claude-normal",
             "claude-hard",
+            "claude-oauth-normal",
+            "claude-oauth-hard",
         ],
         default="auto",
     )
+    parser.add_argument("--fix-backend", default="", help="Original fix backend from PR model:* label")
     parser.add_argument("--extra-context", default="", help="Additional human instructions")
     args = parser.parse_args()
 
     run = load_run(args.repo, args.run_id)
-    classification = classify_run(run)
+    classification = classify_run(run, fix_backend=args.fix_backend)
     if args.backend_override != "auto" and classification["route"] != "skip":
         classification["backend"] = args.backend_override
 
