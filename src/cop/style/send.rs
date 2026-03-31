@@ -3,6 +3,10 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/Send: flags calls to `send` (with arguments) and suggests `__send__` or `public_send`.
+///
+/// Fixed: previously required a receiver, missing bare `send(args)` calls.
+/// RuboCop flags both `obj.send(arg)` and `send(arg)` (no receiver).
 pub struct Send;
 
 impl Cop for Send {
@@ -42,10 +46,7 @@ impl Cop for Send {
             return;
         }
 
-        // Must have a receiver (Foo.send, not bare send)
-        if call.receiver().is_none() {
-            return;
-        }
+        // Bare `send(args)` without receiver is also an offense (matches RuboCop)
 
         let msg_loc = call.message_loc().unwrap_or_else(|| call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
