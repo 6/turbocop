@@ -88,3 +88,11 @@ text str: 'The Title',   layout: :title # from custom-layout.yml
 
 [-1.0710,  1.1253, -1.0413, -0.5237,  1.4925,  0.0183]],
                                     ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+html = <<-EOF
+#{foo(1,  2)}
+        ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+#{bar(3, 4)}
+#{baz(5,  6)}
+        ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+EOF

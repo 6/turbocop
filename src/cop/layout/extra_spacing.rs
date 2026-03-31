@@ -120,14 +120,22 @@ use std::ops::Range;
 ///
 /// ## Investigation findings (2026-03-30)
 ///
-/// 13. **Reported Skyline-style FPs are not emitted by this detector**: The largest
-///     remaining FP cluster is trailing whitespace on lines like `end  `. RuboCop
-///     does not report these under `Layout/ExtraSpacing` in isolation, and nitrocop
-///     also reports 0 offenses for the same snippet while still flagging the normal
-///     general case `x  = 1`. The scanner itself requires a following token
-///     (`space_count > 1 && i < line.len()`), so it cannot produce end-of-line
-///     whitespace offenses. Treat those corpus hits as config/location artifacts,
-///     not as a cop-logic bug to suppress in this file.
+/// 13. **CRLF trailing-space FPs (fixed 2026-03-31)**: `SourceFile::lines()`
+///     splits on `\n` and leaves a terminal `\r` on CRLF lines. The scanner
+///     treated spaces before that `\r` as spacing before another token, so old
+///     Windows-style files produced false positives on trailing whitespace like
+///     `end  \r\n` or `render ...    \r\n`. RuboCop leaves those to
+///     `Layout/TrailingWhitespace`. Fixed by normalizing per-line slices before
+///     scanning/alignment and by using `SourceFile::line_start_offset` for byte
+///     offsets instead of manual newline-width accounting.
+///
+/// 14. **Heredoc interpolation FNs (fixed 2026-03-31)**: CodeMap marks whole
+///     heredoc bodies as non-code, so raw scanners must opt back into `#{...}`
+///     ranges explicitly. ExtraSpacing only checked `is_code()`, which skipped
+///     real gaps such as `#{foo(1,  2)}` inside heredocs and left the Skyline
+///     helper-browser examples undetected. Fixed by scanning heredoc
+///     interpolation offsets while still excluding nested string/regex/symbol
+///     literals within those interpolations.
 pub struct ExtraSpacing;
 
 impl Cop for ExtraSpacing {
@@ -152,7 +160,7 @@ impl Cop for ExtraSpacing {
         let allow_before_trailing_comments = config.get_bool("AllowBeforeTrailingComments", false);
         let _force_equal_sign_alignment = config.get_bool("ForceEqualSignAlignment", false);
 
-        let lines: Vec<&[u8]> = source.lines().collect();
+        let lines: Vec<&[u8]> = source.lines().map(trim_terminal_cr).collect();
         let src_bytes = source.as_bytes();
 
         // Collect multiline hash pair ranges to ignore (key..value spacing
@@ -170,11 +178,9 @@ impl Cop for ExtraSpacing {
         // Identify comment-only lines (0-indexed) for skipping during alignment search
         let comment_only_lines = build_comment_only_lines(&lines);
 
-        // Track cumulative byte offset for each line start
-        let mut line_start_offset: usize = 0;
-
         for (line_idx, &line) in lines.iter().enumerate() {
             let line_num = line_idx + 1;
+            let line_start_offset = source.line_start_offset(line_num);
             let mut i = 0;
 
             // Skip leading whitespace (indentation)
@@ -213,8 +219,12 @@ impl Cop for ExtraSpacing {
                         // Get the byte offset in the full source
                         let abs_offset = line_start_offset + space_start;
 
-                        // Skip if inside string/comment
-                        if !code_map.is_code(abs_offset) {
+                        // Skip if inside string/comment, except for code inside
+                        // #{...} interpolation within heredocs.
+                        if !code_map.is_code(abs_offset)
+                            && (!code_map.is_heredoc_interpolation(abs_offset)
+                                || code_map.is_non_code_in_heredoc_interpolation(abs_offset))
+                        {
                             continue;
                         }
 
@@ -277,9 +287,6 @@ impl Cop for ExtraSpacing {
                     i += 1;
                 }
             }
-
-            // Advance to next line: line content + 1 for '\n'
-            line_start_offset += line.len() + 1;
         }
     }
 }
@@ -809,6 +816,10 @@ fn line_indentation(line: &[u8]) -> usize {
         .count()
 }
 
+fn trim_terminal_cr(line: &[u8]) -> &[u8] {
+    line.strip_suffix(b"\r").unwrap_or(line)
+}
+
 /// Convert a byte offset to a character column (0-indexed).
 /// Each UTF-8 character (regardless of byte length) counts as 1 column.
 fn byte_to_char_col(line: &[u8], byte_col: usize) -> usize {
@@ -880,6 +891,21 @@ mod tests {
         // Single-line hash with extra spaces should be flagged
         let diags = run_cop_full(&cop, b"hash = {a:   1,  b:    2}\n");
         assert_eq!(diags.len(), 3, "Expected 3 offenses in single-line hash");
+    }
+
+    #[test]
+    fn trailing_spaces_before_crlf_are_ignored() {
+        use crate::testutil::run_cop_full;
+        let cop = ExtraSpacing;
+
+        // Trailing spaces before CRLF line endings are handled by
+        // Layout/TrailingWhitespace, not Layout/ExtraSpacing.
+        let src = b"class A\r\n  def x\r\n    render :nothing => true, :status => :not_found    \r\n  end  \r\nend\r\n";
+        let diags = run_cop_full(&cop, src);
+        assert!(
+            diags.is_empty(),
+            "Trailing spaces before CRLF should not be flagged as extra spacing: {diags:?}"
+        );
     }
 
     #[test]
