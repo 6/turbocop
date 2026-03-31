@@ -81,6 +81,18 @@ use crate::parse::source::SourceFile;
 /// command form while explicitly denying boolean keywords like `and`/`or`.
 /// That preserves `check ( value )`, fixes receiver-call FPs, and keeps
 /// boolean grouping parens checked.
+///
+/// ## Corpus investigation (2026-03-31)
+///
+/// The workflow packet still cited four remaining FPs, but fresh verification
+/// showed the live isolated detection bug was narrower: a trailing `?\ `
+/// space-character literal before `)` (for example `foo(?\ )`,
+/// `expr.index(?\ )`, or `join(?\ )`). The close-side scanner walked backward
+/// over the literal's source-space byte as if it were separator whitespace and
+/// reported an extraneous space. Fix: treat that byte as part of the
+/// character-literal token when identifying the previous same-line code item,
+/// which preserves `no_space` behavior without weakening legitimate close-side
+/// checks.
 pub struct SpaceInsideParens;
 
 const MSG: &str = "Space inside parentheses detected.";
@@ -457,6 +469,9 @@ fn previous_same_line_code(bytes: &[u8], close_start: usize) -> Option<usize> {
 
     let mut idx = close_start;
     while idx > line_start && matches!(bytes[idx - 1], b' ' | b'\t' | b'\r') {
+        if bytes[idx - 1] == b' ' && ends_space_character_literal(bytes, line_start, idx - 1) {
+            return Some(idx - 1);
+        }
         idx -= 1;
     }
 
@@ -465,6 +480,22 @@ fn previous_same_line_code(bytes: &[u8], close_start: usize) -> Option<usize> {
     } else {
         Some(idx - 1)
     }
+}
+
+fn ends_space_character_literal(bytes: &[u8], line_start: usize, space_offset: usize) -> bool {
+    if bytes.get(space_offset) != Some(&b' ') || space_offset < line_start + 2 {
+        return false;
+    }
+
+    if bytes[space_offset - 1] != b'\\' || bytes[space_offset - 2] != b'?' {
+        return false;
+    }
+
+    if space_offset > line_start + 2 && is_identifier_tail(bytes[space_offset - 3]) {
+        return false;
+    }
+
+    true
 }
 
 fn is_trailing_backslash(bytes: &[u8], idx: usize, line_end: usize) -> bool {

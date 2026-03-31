@@ -24,3 +24,6 @@ response_body = JSON.generate ( {
   'message' => error_message
 })
 client_final = BSON::Binary.new ( client_final_wo_proof + ",p=#{proof}")
+foo(?\ )
+@curline[0, @caret_x].index(?\ )
+params = { 'stringparam out_dir' => BUILD_DIR }.map{|n,v| "--#{n} '#{v}'"}.join(?\ )
