@@ -7,12 +7,15 @@ use crate::parse::{parse_source, source::SourceFile};
 ///
 /// Prism reports empty percent literals and some other `%q/%Q` shapes as
 /// `StringNode`s, while the Parser gem that RuboCop uses treats empty and
-/// multiline percent literals as `dstr`, so RuboCop never inspects them here.
-/// The original nitrocop implementation also skipped every backslash, which
-/// missed safe `%Q` -> `%q` conversions like `\\n` and LaTeX-heavy strings.
-/// Fix: only inspect static `StringNode` percent literals, skip empty/multiline
-/// cases to match Parser, and reparse the case-swapped literal to compare
-/// `unescaped()` bytes before reporting an offense.
+/// most multiline percent literals as `dstr`, so RuboCop never inspects them.
+///
+/// Parser gem treats multiline `%Q` strings with exactly one trailing newline
+/// (content on the opening line, closing delimiter alone on the next line) as
+/// `str`, so RuboCop _does_ inspect those. Strings spanning 3+ lines or with
+/// newlines mid-content are `dstr` in Parser and should be skipped.
+///
+/// The `swapcase_preserves_string_semantics` helper reparses the case-swapped
+/// literal and compares `unescaped()` bytes before reporting an offense.
 pub struct PercentQLiterals;
 
 impl Cop for PercentQLiterals {
@@ -43,9 +46,17 @@ impl Cop for PercentQLiterals {
         };
         let raw_content = string.content_loc().as_slice();
 
-        // Parser gem reports empty and multiline percent literals as `dstr`,
-        // so RuboCop's `on_str` never sees them.
-        if raw_content.is_empty() || raw_content.contains(&b'\n') {
+        // Parser gem reports empty percent literals as `dstr`, so RuboCop's
+        // `on_str` never sees them. Most multiline `%Q` strings are also
+        // treated as `dstr` by Parser. The exception is when content has
+        // exactly one trailing newline — i.e., all content is on the opening
+        // line and the closing delimiter sits alone on the next line
+        // (e.g., `%Q{text\n}`). Those are `str` in Parser and should be checked.
+        if raw_content.is_empty() {
+            return;
+        }
+        let newline_count = raw_content.iter().filter(|&&b| b == b'\n').count();
+        if newline_count > 1 || (newline_count == 1 && *raw_content.last().unwrap() != b'\n') {
             return;
         }
 
