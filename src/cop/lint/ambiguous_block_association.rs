@@ -7,12 +7,15 @@ use crate::parse::source::SourceFile;
 
 /// ## Corpus investigation (2026-03-15)
 ///
-/// Corpus oracle reported FP=0, FN=1.
+/// FN=1 (fixed): numbered `proc{...}` arguments were being treated like
+/// ordinary lambda/proc block builders and skipped.
 ///
-/// FN=1: numbered `proc{...}` arguments were being treated like ordinary
-/// lambda/proc block builders and skipped, but RuboCop only exempts plain
-/// `block`/`Proc.new` forms. Numbered proc blocks still count as ambiguous
-/// block arguments and must be flagged.
+/// ## Corpus investigation (2026-03-31)
+///
+/// FP=1 (fixed): `Kernel.lambda { ... }` was flagged. RuboCop's
+/// `BlockNode#lambda?` checks only the method name, ignoring the receiver,
+/// so `Kernel.lambda` (and any `<recv>.lambda`) is a block builder.
+/// `proc` is different — only bare `proc { }` is exempt, not `Kernel.proc`.
 pub struct AmbiguousBlockAssociation;
 
 impl Cop for AmbiguousBlockAssociation {
@@ -179,8 +182,14 @@ fn is_lambda_or_proc(node: &ruby_prism::Node<'_>) -> bool {
 
         let name = call.name().as_slice();
 
-        // `lambda { }` or `proc { }` — bare method call, no receiver
-        if call.receiver().is_none() && (name == b"lambda" || name == b"proc") {
+        // `lambda { }` or `Kernel.lambda { }` — any receiver is OK for lambda.
+        // RuboCop's BlockNode#lambda? just checks method name, ignoring receiver.
+        if name == b"lambda" {
+            return true;
+        }
+
+        // `proc { }` — bare method call, no receiver
+        if call.receiver().is_none() && name == b"proc" {
             return true;
         }
 

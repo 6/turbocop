@@ -9,6 +9,8 @@ scope :active, -> { where(status: "active") }
 scope :active, lambda { where(status: "active") }
 scope :active, proc { where(status: "active") }
 scope :active, Proc.new { where(status: "active") }
+# Kernel.lambda is also a block builder (RuboCop's BlockNode#lambda? matches any receiver)
+regproc Kernel.lambda { reverse_url + upcase_url }
 foo = lambda do |diagnostic|; end
 # Inner call with arguments (parens) — block clearly belongs to inner call
 env ENV.fetch("ENV") { "dev" }
