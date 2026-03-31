@@ -13,3 +13,7 @@ command("test") { ; }
 app = Shoes.app { ; }
 session.within_frame { ; }
 let(:opts) { ; { name: "plata" } }
+
+case key
+when ?\ ; toggle_view(:listing)
+end

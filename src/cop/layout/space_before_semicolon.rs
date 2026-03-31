@@ -22,7 +22,29 @@ use crate::parse::source::SourceFile;
 /// `Layout/SpaceInsideBlockBraces` has `EnforcedStyle: space` (the default). This
 /// defers the space to `SpaceInsideBlockBraces`. Fix: skip offense when the
 /// character immediately before the whitespace run is `{`.
+///
+/// Third fix (2026-03-31): FP=1 in metasm at `when ?\ ; toggle_view(:listing)`.
+/// The scanner treated the space inside the escaped-space character literal `?\ `
+/// as separator whitespace before the semicolon. RuboCop accepts `?\ ;` but still
+/// flags `?\  ;`, so we now consume only the token-internal whitespace byte when
+/// the whitespace run starts immediately after `?\`.
 pub struct SpaceBeforeSemicolon;
+
+fn escaped_space_char_literal_prefix_len(
+    bytes: &[u8],
+    whitespace_start: usize,
+    semicolon: usize,
+) -> usize {
+    if whitespace_start < semicolon
+        && whitespace_start >= 2
+        && bytes[whitespace_start - 2] == b'?'
+        && bytes[whitespace_start - 1] == b'\\'
+    {
+        1
+    } else {
+        0
+    }
+}
 
 impl Cop for SpaceBeforeSemicolon {
     fn name(&self) -> &'static str {
@@ -59,6 +81,8 @@ impl Cop for SpaceBeforeSemicolon {
             {
                 whitespace_start -= 1;
             }
+
+            whitespace_start += escaped_space_char_literal_prefix_len(bytes, whitespace_start, i);
 
             // No space before semicolon.
             if whitespace_start == i {
