@@ -3,10 +3,19 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/SpecialGlobalVars: Flags Perl-style global variables and suggests English equivalents.
+///
+/// FN fix: Added `$:` → `$LOAD_PATH`, `$"` → `$LOADED_FEATURES`, and `$=` → `$IGNORECASE`
+/// to the perl_to_english/english_to_perl maps (they were missing entirely).
+/// Also fixed message generation: builtin globals (`$LOAD_PATH`, `$LOADED_FEATURES`,
+/// `$PROGRAM_NAME`) do not need `require 'English'` — they are always available in Ruby.
+/// The "require 'English'" hint is now only appended for non-builtin English names.
 pub struct SpecialGlobalVars;
 
 fn perl_to_english(name: &[u8]) -> Option<&'static str> {
     match name {
+        b"$:" => Some("$LOAD_PATH"),
+        b"$\"" => Some("$LOADED_FEATURES"),
         b"$!" => Some("$ERROR_INFO"),
         b"$@" => Some("$ERROR_POSITION"),
         b"$;" => Some("$FIELD_SEPARATOR"),
@@ -25,13 +34,22 @@ fn perl_to_english(name: &[u8]) -> Option<&'static str> {
         b"$_" => Some("$LAST_READ_LINE"),
         b"$>" => Some("$DEFAULT_OUTPUT"),
         b"$<" => Some("$DEFAULT_INPUT"),
+        b"$=" => Some("$IGNORECASE"),
         b"$*" => Some("$ARGV"),
         _ => None,
     }
 }
 
+/// Returns true if the English name is a Ruby builtin global that does not
+/// require `require 'English'` to be available.
+fn is_builtin_english(english: &str) -> bool {
+    matches!(english, "$LOAD_PATH" | "$LOADED_FEATURES" | "$PROGRAM_NAME")
+}
+
 fn english_to_perl(name: &[u8]) -> Option<&'static str> {
     match name {
+        b"$LOAD_PATH" => Some("$:"),
+        b"$LOADED_FEATURES" => Some("$\""),
         b"$ERROR_INFO" => Some("$!"),
         b"$ERROR_POSITION" => Some("$@"),
         b"$FIELD_SEPARATOR" => Some("$;"),
@@ -50,6 +68,7 @@ fn english_to_perl(name: &[u8]) -> Option<&'static str> {
         b"$LAST_READ_LINE" => Some("$_"),
         b"$DEFAULT_OUTPUT" => Some("$>"),
         b"$DEFAULT_INPUT" => Some("$<"),
+        b"$IGNORECASE" => Some("$="),
         b"$ARGV" => Some("$*"),
         _ => None,
     }
@@ -117,7 +136,7 @@ impl Cop for SpecialGlobalVars {
                 if let Some(english) = perl_to_english(var_name) {
                     let perl_name = std::str::from_utf8(var_name).unwrap_or("$?");
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    let msg = if require_english {
+                    let msg = if require_english && !is_builtin_english(english) {
                         format!(
                             "Prefer `{}` over `{}`. Use `require 'English'` to access it.",
                             english, perl_name
