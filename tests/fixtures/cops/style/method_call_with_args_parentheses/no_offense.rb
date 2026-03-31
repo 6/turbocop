@@ -110,6 +110,18 @@ class MyController
   subject { -> { get :index } }
 end
 
+# Nested DSL blocks at the top level still count as macro scope
+describe "x" do
+  it "y" do
+    create :project
+  end
+end
+
+# Ternary branches in class body still count as macro scope
+class UsersController < ApplicationController
+  respond_to?(:before_action) ? (before_action :authenticate_user!) : (before_filter :authenticate_user!)
+end
+
 # yield with parentheses is fine in require_parentheses mode
 def each_item
   yield(element)

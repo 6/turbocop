@@ -90,3 +90,24 @@ def traverse(tree, &block)
     ^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
   end
 end
+
+# Ordinary method-call blocks do not inherit macro scope when the block
+# expression is nested inside assignment or chaining.
+trip = Trip.new(%i[call]) { require "pry" }
+                            ^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+projects = 3.times.map { create :project, submitted_by: user }
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+expect {
+  raise subject
+  ^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+}.to raise_error(subject.class, message)
+# nitrocop-expect: 84:0 Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+# Ternary branches are macros only when the ternary expression itself is.
+if condition ? (yes_wizard? "yes") : (yes_wizard? "no")
+                ^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+                                      ^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  puts "x"
+end

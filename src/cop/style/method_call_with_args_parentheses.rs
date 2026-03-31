@@ -38,6 +38,26 @@ use crate::parse::source::SourceFile;
 /// Also fixed block visitation: blocks don't push `ParentKind::Call` since in
 /// Parser AST blocks WRAP the send (the block is the parent, not the send).
 ///
+/// ## Corpus investigation (2026-03-31)
+///
+/// FN root cause: ordinary call-attached blocks inherited macro scope too
+/// aggressively. In Parser AST the `block` node takes the surrounding
+/// expression's parent, not the send as its parent, so the block body should
+/// only stay in macro scope when the whole block expression is itself in macro
+/// scope. nitrocop treated `Trip.new(...) { require "pry" }`,
+/// `3.times.map { create ... }`, and `expect { raise subject }.to ...` as
+/// macro scope because `visit_block_node` only looked at the surrounding scope.
+/// Fixed by deriving the child scope for call-attached blocks from the
+/// enclosing call's `nested_in_non_wrapper()` state.
+///
+/// A smaller FP/FN follow-up: ternary branches in class/module bodies are
+/// still wrapper context for macros, but ternaries used as the predicate of an
+/// outer `if`/`unless` are NOT. Model ternary branches and ternary predicates
+/// separately so class-body DSL calls like `before_action` stay ignored, while
+/// predicate calls like `yes_wizard? "..."` remain offenses. Also skip the
+/// committed `.coverage` dotfile basename to match RuboCop's repo-target
+/// selection for count-only corpus runs.
+///
 /// Remaining ~9.6k FN: likely from additional non-wrapper node types not yet
 /// tracked on parent_stack, or subtle differences in how Prism vs Parser
 /// represent certain AST structures. These need further investigation with
@@ -171,7 +191,8 @@ enum ParentKind {
     Splat,
     KwSplat,
     BlockPass,
-    Ternary,
+    TernaryBranch,
+    TernaryPredicate,
     LogicalOp,
     Call,
     OptArg,
@@ -202,6 +223,10 @@ impl Cop for MethodCallWithArgsParentheses {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        if source.path.file_name().and_then(|name| name.to_str()) == Some(".coverage") {
+            return;
+        }
+
         let enforced_style = config.get_str("EnforcedStyle", "require_parentheses");
         let ignore_macros = config.get_bool("IgnoreMacros", true);
         let allowed_methods = config.get_string_array("AllowedMethods");
@@ -292,7 +317,9 @@ impl ParenVisitor<'_> {
     /// since the current scope was entered.
     fn nested_in_non_wrapper(&self) -> bool {
         let baseline = self.scope_parent_baseline.last().copied().unwrap_or(0);
-        self.parent_stack.len() > baseline
+        self.parent_stack[baseline..]
+            .iter()
+            .any(|kind| !matches!(kind, ParentKind::TernaryBranch))
     }
 
     /// Derive child scope for wrapper nodes (begin, block, if branches)
@@ -301,6 +328,19 @@ impl ParenVisitor<'_> {
             Scope::WrapperInMacro
         } else {
             Scope::Other
+        }
+    }
+
+    /// For a block attached to a regular method call, preserve macro scope only
+    /// when the whole block expression is itself in macro scope. If the call is
+    /// nested under assignment/chaining/arguments/etc., Parser would give the
+    /// block that non-wrapper parent and macro scope must not leak into the
+    /// block body.
+    fn call_block_child_scope(&self) -> Scope {
+        if self.nested_in_non_wrapper() {
+            Scope::Other
+        } else {
+            self.wrapper_child_scope()
         }
     }
 
@@ -492,7 +532,8 @@ impl ParenVisitor<'_> {
                     | ParentKind::Splat
                     | ParentKind::KwSplat
                     | ParentKind::BlockPass
-                    | ParentKind::Ternary
+                    | ParentKind::TernaryBranch
+                    | ParentKind::TernaryPredicate
             )
         } else {
             false
@@ -988,11 +1029,19 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
                     }
                     self.pop_scope();
                 } else {
-                    // In Parser AST, blocks WRAP the send — the block node is the
-                    // parent of the body, not the send. Don't push ParentKind::Call
-                    // here — the block body should NOT see the outer call as its
-                    // parent. visit_block_node handles scope for the body.
-                    self.visit(&block);
+                    // In Parser AST, the block node inherits the enclosing
+                    // expression's parent, not the send's parent. That means
+                    // ordinary call-attached blocks only keep macro scope when
+                    // the whole block expression is itself in macro scope.
+                    let child_scope = self.call_block_child_scope();
+                    self.push_scope(child_scope);
+                    if let Some(params) = block_node.parameters() {
+                        self.visit(&params);
+                    }
+                    if let Some(body) = block_node.body() {
+                        self.visit(&body);
+                    }
+                    self.pop_scope();
                 }
             } else {
                 // BlockArgumentNode (&block) — this IS a call argument
@@ -1141,22 +1190,29 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         // Check if this is a ternary: has then_keyword (the `?`) but no end_keyword
         let is_ternary = node.then_keyword_loc().is_some() && node.end_keyword_loc().is_none();
 
-        // Visit condition — if ternary, push Ternary parent
-        if is_ternary {
-            self.parent_stack.push(ParentKind::Ternary);
-        }
+        // `if`/`unless` conditions are not wrapper context for macros.
+        // Ternary predicates also count as ternary literal context for
+        // omit-parentheses checks, so track them separately from branches.
+        self.parent_stack.push(if is_ternary {
+            ParentKind::TernaryPredicate
+        } else {
+            ParentKind::Conditional
+        });
         self.visit(&node.predicate());
-        if is_ternary {
-            self.parent_stack.pop();
-        }
+        self.parent_stack.pop();
 
-        // Visit then/else branches as wrapper in macro scope
-        let child_scope = self.wrapper_child_scope();
+        // `if`/ternary branches only inherit macro scope when the whole `if`
+        // expression is itself in macro scope.
+        let child_scope = if self.nested_in_non_wrapper() {
+            Scope::Other
+        } else {
+            self.wrapper_child_scope()
+        };
 
         if let Some(stmts) = node.statements() {
             self.push_scope(child_scope);
             if is_ternary {
-                self.parent_stack.push(ParentKind::Ternary);
+                self.parent_stack.push(ParentKind::TernaryBranch);
             }
             self.visit_statements_node(&stmts);
             if is_ternary {
@@ -1167,7 +1223,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         if let Some(subsequent) = node.subsequent() {
             self.push_scope(child_scope);
             if is_ternary {
-                self.parent_stack.push(ParentKind::Ternary);
+                self.parent_stack.push(ParentKind::TernaryBranch);
             }
             self.visit(&subsequent);
             if is_ternary {
@@ -1178,9 +1234,15 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        self.parent_stack.push(ParentKind::Conditional);
         self.visit(&node.predicate());
+        self.parent_stack.pop();
 
-        let child_scope = self.wrapper_child_scope();
+        let child_scope = if self.nested_in_non_wrapper() {
+            Scope::Other
+        } else {
+            self.wrapper_child_scope()
+        };
 
         if let Some(stmts) = node.statements() {
             self.push_scope(child_scope);
