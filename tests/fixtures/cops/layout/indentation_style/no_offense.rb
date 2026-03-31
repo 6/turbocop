@@ -33,3 +33,16 @@ items = <<~RUBY
 		y
 	end
 RUBY
+
+# Tabs inside multiline regular string interpolation should not be flagged
+if satisfying_fact
+  trace :result, "#{instance.verbalise} #{
+		satisfying_fact ? 'participates' : 'does not participate'
+	      } in #{step.is_disallowed ? 'disallowed ' : ''}step"
+end
+
+def m(x)
+  puts "This is multi line interpolated string #{
+		x
+	}"
+end
