@@ -486,7 +486,7 @@ jobs:
     needs: [oracle-repo, run-synthetic]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 20
     steps:
       - name: Free disk space
         run: |
@@ -772,11 +772,28 @@ jobs:
               --head "$BRANCH" \
               --base main
 
-      # ── Pre-compute diagnosis (non-blocking) ─────────────────────
-      # Runs AFTER artifact upload and PR creation so those succeed
-      # even if diagnosis is slow or fails.
+  # ── Pre-compute diagnosis (parallel matrix) ─────────────────────
+  # Runs AFTER collect-results so artifact upload and PR succeed even
+  # if diagnosis is slow. Splits diverging cops across 4 shards.
+  diagnose:
+    needs: [collect-results, build-nitrocop]
+    if: ${{ !cancelled() && needs.collect-results.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v6
 
-      - name: Download nitrocop binary for diagnosis
+      - name: Download corpus results
+        uses: actions/download-artifact@v8
+        with:
+          name: corpus-report
+          path: .
+
+      - name: Download nitrocop binary
         uses: actions/download-artifact@v8
         with:
           name: nitrocop-binary
@@ -787,18 +804,55 @@ jobs:
 
       - uses: ruby/setup-ruby@v1
 
-      - name: Install corpus bundle for diagnosis
+      - name: Install corpus bundle
         run: |
           cd bench/corpus
           bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
-      - name: Pre-compute per-cop diagnosis
+      - name: Diagnose shard ${{ matrix.shard }}
         run: |
           python3 bench/corpus/diagnose_corpus.py \
             --input corpus-results.json \
+            --output diagnosis-shard-${{ matrix.shard }}.json \
+            --binary bin/nitrocop \
+            --shard ${{ matrix.shard }}/4
+
+      - name: Upload shard result
+        uses: actions/upload-artifact@v6
+        with:
+          name: diagnosis-shard-${{ matrix.shard }}
+          path: diagnosis-shard-${{ matrix.shard }}.json
+          retention-days: 1
+
+  # ── Merge diagnosis shards into final artifact ──────────────────
+  finalize-diagnosis:
+    needs: [collect-results, diagnose]
+    if: ${{ !cancelled() && needs.collect-results.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download corpus results
+        uses: actions/download-artifact@v8
+        with:
+          name: corpus-report
+          path: .
+
+      - name: Download diagnosis shards
+        uses: actions/download-artifact@v8
+        with:
+          pattern: diagnosis-shard-*
+          path: shards/
+          merge-multiple: true
+
+      - name: Merge diagnosis into corpus results
+        run: |
+          python3 bench/corpus/diagnose_corpus.py merge \
+            --input corpus-results.json \
             --output corpus-results.json \
-            --binary bin/nitrocop
+            --shards 'shards/diagnosis-shard-*.json'
 
       - name: Re-upload report with diagnosis
         uses: actions/upload-artifact@v6

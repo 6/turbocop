@@ -11,16 +11,31 @@ by_cop entry as a "diagnosis" field:
 This allows cop-issue-sync to read cached diagnosis instead of
 re-running the snippet diagnostic at issue-sync time.
 
-Usage (in collect-results job, after diff + merge steps):
+Usage (single-shot, diagnose all diverging cops):
     python3 bench/corpus/diagnose_corpus.py \
         --input corpus-results.json \
         --output corpus-results.json \
         --binary bin/nitrocop
+
+Usage (sharded, for parallel matrix jobs):
+    # Each shard diagnoses a subset and writes partial results
+    python3 bench/corpus/diagnose_corpus.py \
+        --input corpus-results.json \
+        --output diagnosis-shard-0.json \
+        --binary bin/nitrocop \
+        --shard 0/4
+
+    # Merge all shards back into corpus-results.json
+    python3 bench/corpus/diagnose_corpus.py merge \
+        --input corpus-results.json \
+        --output corpus-results.json \
+        --shards diagnosis-shard-*.json
 """
 
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -142,30 +157,27 @@ def diagnose_cop(binary: str, entry: dict) -> tuple[str, int, int]:
     return cop, fn_bugs + fp_bugs, fn_cfg + fp_cfg
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Pre-compute per-cop diagnosis for corpus results",
-    )
-    parser.add_argument("--input", type=Path, required=True,
-                        help="Path to corpus-results.json")
-    parser.add_argument("--output", type=Path, required=True,
-                        help="Output path (can be same as input)")
-    parser.add_argument("--binary", type=str, required=True,
-                        help="Path to nitrocop binary")
-    parser.add_argument("--workers", type=int, default=8,
-                        help="Parallel workers (default: 8)")
-    args = parser.parse_args()
-
+def cmd_diagnose(args: argparse.Namespace) -> int:
     binary = str(Path(args.binary).resolve())
     if not os.path.isfile(binary):
         print(f"Error: binary not found: {args.binary}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     data = json.loads(args.input.read_text())
     by_cop = data.get("by_cop", [])
 
     diverging = [e for e in by_cop if e.get("fp", 0) + e.get("fn", 0) > 0]
-    print(f"Diagnosing {len(diverging)} diverging cops...", file=sys.stderr)
+
+    # Apply sharding if requested
+    if args.shard:
+        shard_idx, shard_total = (int(x) for x in args.shard.split("/"))
+        diverging = [e for i, e in enumerate(diverging) if i % shard_total == shard_idx]
+        print(
+            f"Shard {shard_idx}/{shard_total}: diagnosing {len(diverging)} cops...",
+            file=sys.stderr,
+        )
+    else:
+        print(f"Diagnosing {len(diverging)} diverging cops...", file=sys.stderr)
 
     diagnosis: dict[str, tuple[int, int]] = {}
     total = len(diverging)
@@ -184,31 +196,121 @@ def main():
                 file=sys.stderr,
             )
 
-    # Write diagnosis back into by_cop entries
-    enriched = 0
-    for entry in by_cop:
-        cop = entry["cop"]
-        if cop in diagnosis:
-            code_bugs, cfg_issues = diagnosis[cop]
-            entry["diagnosis"] = {
-                "code_bugs": code_bugs,
-                "config_issues": cfg_issues,
-            }
-            enriched += 1
-
     config_only = sum(
         1 for _, (cb, ci) in diagnosis.items() if cb == 0 and ci > 0
     )
     code_bug_cops = sum(1 for _, (cb, _) in diagnosis.items() if cb > 0)
     print(
-        f"  {enriched} cops diagnosed: {code_bug_cops} with code bugs, "
+        f"  {total} cops diagnosed: {code_bug_cops} with code bugs, "
+        f"{config_only} config-only",
+        file=sys.stderr,
+    )
+
+    if args.shard:
+        # Shard mode: write only the diagnosis map (partial results)
+        shard_data = {
+            cop: {"code_bugs": cb, "config_issues": ci}
+            for cop, (cb, ci) in diagnosis.items()
+        }
+        args.output.write_text(json.dumps(shard_data) + "\n")
+        print(f"Wrote shard to {args.output}", file=sys.stderr)
+    else:
+        # Single-shot mode: write diagnosis back into corpus-results.json
+        enriched = 0
+        for entry in by_cop:
+            cop = entry["cop"]
+            if cop in diagnosis:
+                code_bugs, cfg_issues = diagnosis[cop]
+                entry["diagnosis"] = {
+                    "code_bugs": code_bugs,
+                    "config_issues": cfg_issues,
+                }
+                enriched += 1
+        args.output.write_text(json.dumps(data, indent=None) + "\n")
+        print(f"Wrote {args.output}", file=sys.stderr)
+    return 0
+
+
+def cmd_merge(args: argparse.Namespace) -> int:
+    data = json.loads(args.input.read_text())
+    by_cop = data.get("by_cop", [])
+
+    # Load all shard files
+    shard_paths = []
+    for pattern in args.shards:
+        shard_paths.extend(glob.glob(pattern))
+    if not shard_paths:
+        print("Error: no shard files found", file=sys.stderr)
+        return 1
+
+    merged: dict[str, dict] = {}
+    for path in shard_paths:
+        shard = json.loads(Path(path).read_text())
+        merged.update(shard)
+    print(f"Merged {len(merged)} cops from {len(shard_paths)} shards", file=sys.stderr)
+
+    enriched = 0
+    for entry in by_cop:
+        cop = entry["cop"]
+        if cop in merged:
+            entry["diagnosis"] = merged[cop]
+            enriched += 1
+
+    config_only = sum(
+        1 for d in merged.values() if d["code_bugs"] == 0 and d["config_issues"] > 0
+    )
+    code_bug_cops = sum(1 for d in merged.values() if d["code_bugs"] > 0)
+    print(
+        f"  {enriched} cops enriched: {code_bug_cops} with code bugs, "
         f"{config_only} config-only",
         file=sys.stderr,
     )
 
     args.output.write_text(json.dumps(data, indent=None) + "\n")
     print(f"Wrote {args.output}", file=sys.stderr)
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Pre-compute per-cop diagnosis for corpus results",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Diagnose command (also the default when no subcommand is given)
+    diag_parser = subparsers.add_parser("diagnose", help="Run diagnosis")
+    # Add args to both parser (for no-subcommand backwards compat) and diag_parser
+    for p in [parser, diag_parser]:
+        p.add_argument("--input", type=Path,
+                        help="Path to corpus-results.json")
+        p.add_argument("--output", type=Path,
+                        help="Output path (can be same as input)")
+        p.add_argument("--binary", type=str,
+                        help="Path to nitrocop binary")
+        p.add_argument("--workers", type=int, default=8,
+                        help="Parallel workers (default: 8)")
+        p.add_argument("--shard", type=str, default=None,
+                        help="Shard spec: INDEX/TOTAL (e.g., 0/4)")
+
+    # Merge command
+    merge_parser = subparsers.add_parser("merge", help="Merge shard results")
+    merge_parser.add_argument("--input", type=Path, required=True,
+                              help="Path to corpus-results.json")
+    merge_parser.add_argument("--output", type=Path, required=True,
+                              help="Output path (can be same as input)")
+    merge_parser.add_argument("--shards", nargs="+", required=True,
+                              help="Glob patterns for shard files")
+
+    args = parser.parse_args()
+
+    if args.command == "merge":
+        return cmd_merge(args)
+    else:
+        for field in ("input", "output", "binary"):
+            if not getattr(args, field, None):
+                parser.error(f"--{field} is required for diagnosis")
+        return cmd_diagnose(args)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
