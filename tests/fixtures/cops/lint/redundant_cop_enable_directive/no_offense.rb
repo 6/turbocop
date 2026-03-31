@@ -18,6 +18,13 @@ code = <<~RUBY
 RUBY
 puts code
 
+# Trailing inline enables on non-comment-only lines are ignored
+def inline_enable_help # rubocop:disable MethodLength
+  <<~TEXT
+    body
+  TEXT
+end # rubocop:enable MethodLength
+
 # Doc comment containing embedded rubocop:disable counts as a real disable
 # so the subsequent enable is valid (not redundant)
 #   def f # rubocop:disable Style/For
@@ -69,6 +76,11 @@ end
 #   # rubocop:disable Style/StringLiterals
 # rubocop:enable Lint/RedundantCopDisableDirective
 # rubocop:enable Lint/RedundantCopEnableDirective
+
+# Trailing inline enable after a block disable is also ignored
+# rubocop:disable Style/StringLiterals
+foo('#')
+bar('#') # rubocop:enable Style/StringLiterals
 
 # Disable/enable for custom cop not in registry
 # rubocop:disable Development/NoEvalCop
