@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -37,7 +35,25 @@ use crate::parse::source::SourceFile;
 /// `else\n`, `else\r`, `else `, and bare `else`, but not `else;`. Fixed by using
 /// a general delimiter check: `else` followed by any non-alphanumeric, non-underscore
 /// character (matching the pattern already used for `end` in `is_less_indented`).
+///
+/// ## Follow-up fix: own-line comments after leading interpolation (2026-03-31)
+///
+/// Real FN: `%Q;\\` bodies can contain lines like ` #{2**2}; #=> " 4"`. RuboCop
+/// still checks the trailing `#=>` here because `own_line_comment?` only asks
+/// whether the physical line starts with `#` after indentation; it does not
+/// require that leading `#` to be the actual comment token. Our implementation
+/// incorrectly coupled those two checks, so it skipped any line where the first
+/// visible `#` belonged to interpolation and the real comment started later.
+///
+/// Fix: track Prism's actual comment columns per line, use RuboCop's line-prefix
+/// rule to decide whether the line counts as an "own-line comment", and then
+/// report against the real comment column from Prism.
 pub struct CommentIndentation;
+
+fn first_non_whitespace_column(line: &[u8]) -> Option<usize> {
+    line.iter()
+        .position(|&b| b != b' ' && b != b'\t' && b != b'\r')
+}
 
 /// Check if a line starts with one of the "two alternative" keywords.
 /// When a comment precedes one of these, it can be indented to match either
@@ -92,144 +108,125 @@ impl Cop for CommentIndentation {
         let indent_width = config.get_usize("IndentationWidth", 2);
         let lines: Vec<&[u8]> = source.lines().collect();
 
-        // Build set of byte offsets where real Ruby comments start.
-        // This lets us distinguish actual comments from `#` inside strings/regex/heredocs.
-        let mut comment_starts: HashSet<usize> = HashSet::new();
+        // Track actual comment columns per line from Prism so we can distinguish
+        // real comments from `#` inside strings/regex/heredocs while still
+        // matching RuboCop's line-based own-line comment check.
+        let mut comment_columns_by_line: Vec<Vec<usize>> = vec![Vec::new(); lines.len()];
         for comment in parse_result.comments() {
-            comment_starts.insert(comment.location().start_offset());
-        }
-
-        // Compute line start byte offsets
-        let bytes = source.as_bytes();
-        let mut line_offsets: Vec<usize> = vec![0];
-        for (i, &b) in bytes.iter().enumerate() {
-            if b == b'\n' {
-                line_offsets.push(i + 1);
+            let (line, column) = source.offset_to_line_col(comment.location().start_offset());
+            let line_idx = line - 1;
+            if let Some(columns) = comment_columns_by_line.get_mut(line_idx) {
+                columns.push(column);
             }
         }
 
         for (i, line) in lines.iter().enumerate() {
-            let trimmed = line
-                .iter()
-                .position(|&b| b != b' ' && b != b'\t' && b != b'\r');
+            let trimmed = first_non_whitespace_column(line);
             let trimmed = match trimmed {
                 Some(t) => t,
                 None => continue, // blank line
             };
 
-            // Only check lines starting with #
-            if line[trimmed] != b'#' {
+            // Match RuboCop's `own_line_comment?`: the line must start with `#`
+            // after indentation, and Prism must confirm there is a real comment
+            // somewhere on the line.
+            if line[trimmed] != b'#' || comment_columns_by_line[i].is_empty() {
                 continue;
             }
 
-            // Verify this # is an actual Ruby comment (not inside string/regex/heredoc)
-            let hash_offset = line_offsets[i] + trimmed;
-            if !comment_starts.contains(&hash_offset) {
-                continue;
-            }
-
-            let comment_col = trimmed;
-
-            // Find the next non-blank line (including comments).
-            // This matches RuboCop's `line_after_comment` which finds the first
-            // non-blank line, regardless of whether it's a comment or code.
-            let mut next_line: Option<&[u8]> = None;
-            let mut next_col = None;
-            let mut next_line_idx = 0;
-            for (j, ln) in lines.iter().enumerate().skip(i + 1) {
-                let next_trimmed = ln
-                    .iter()
-                    .position(|&b| b != b' ' && b != b'\t' && b != b'\r');
-                if let Some(nt) = next_trimmed {
-                    next_line = Some(ln);
-                    next_col = Some(nt);
-                    next_line_idx = j;
-                    break;
-                }
-            }
-
-            // When no next line exists, expected indentation is 0
-            // (matches RuboCop: `return 0 unless next_line`)
-            let (expected, next_is_code) = if let Some(nc) = next_col {
-                let nl = next_line.unwrap();
-                // Check if the next non-blank line is a comment
-                let is_comment = if nl[nc] == b'#' {
-                    let next_hash_offset = line_offsets[next_line_idx] + nc;
-                    comment_starts.contains(&next_hash_offset)
-                } else {
-                    false
-                };
-                // is_less_indented only applies to code lines, not comments
-                let exp = if !is_comment && is_less_indented(nl) {
-                    nc + indent_width
-                } else {
-                    nc
-                };
-                (exp, !is_comment)
-            } else {
-                (0, false)
-            };
-
-            if comment_col == expected {
-                continue;
-            }
-
-            // Two-alternative keywords: comment can match keyword indent OR body indent
-            // Only applies when next line is code (not a comment)
-            if next_is_code {
-                if let Some(nl) = next_line {
-                    if is_two_alternative_keyword(nl) {
-                        let nc = next_col.unwrap();
-                        let alt = nc + indent_width;
-                        if comment_col == nc || comment_col == alt {
-                            continue;
-                        }
+            for &comment_col in &comment_columns_by_line[i] {
+                // Find the next non-blank line (including comments).
+                // This matches RuboCop's `line_after_comment` which finds the first
+                // non-blank line, regardless of whether it's a comment or code.
+                let mut next_line: Option<&[u8]> = None;
+                let mut next_col = None;
+                let mut next_line_idx = 0;
+                for (j, ln) in lines.iter().enumerate().skip(i + 1) {
+                    let next_trimmed = first_non_whitespace_column(ln);
+                    if let Some(nt) = next_trimmed {
+                        next_line = Some(ln);
+                        next_col = Some(nt);
+                        next_line_idx = j;
+                        break;
                     }
                 }
-            }
 
-            // AllowForAlignment: if enabled, check if this comment is aligned
-            // with a preceding inline (end-of-line) comment
-            if allow_for_alignment {
-                let mut aligned_with_preceding = false;
-                // Walk backwards through preceding comments looking for an
-                // end-of-line comment at the same column
-                for k in (0..i).rev() {
-                    let prev = lines[k];
-                    let prev_first = prev
-                        .iter()
-                        .position(|&b| b != b' ' && b != b'\t' && b != b'\r');
-                    match prev_first {
-                        Some(pos) if prev[pos] == b'#' => {
-                            // own-line comment — skip
-                            continue;
-                        }
-                        Some(_) => {
-                            // code line — check if it has an inline comment at our column
-                            if let Some(hash_pos) = prev.iter().position(|&b| b == b'#') {
-                                if hash_pos == comment_col {
-                                    aligned_with_preceding = true;
-                                }
-                            }
-                            break;
-                        }
-                        None => break, // blank line
-                    }
-                }
-                if aligned_with_preceding {
+                // When no next line exists, expected indentation is 0
+                // (matches RuboCop: `return 0 unless next_line`)
+                let (expected, next_is_code) = if let Some(nc) = next_col {
+                    let nl = next_line.unwrap();
+                    // Apply the same own-line-comment rule to the next line.
+                    let is_comment =
+                        nl[nc] == b'#' && !comment_columns_by_line[next_line_idx].is_empty();
+                    let exp = if !is_comment && is_less_indented(nl) {
+                        nc + indent_width
+                    } else {
+                        nc
+                    };
+                    (exp, !is_comment)
+                } else {
+                    (0, false)
+                };
+
+                if comment_col == expected {
                     continue;
                 }
-            }
 
-            diagnostics.push(self.diagnostic(
-                source,
-                i + 1,
-                comment_col,
-                format!(
-                    "Incorrect indentation detected (column {} instead of column {}).",
-                    comment_col, expected
-                ),
-            ));
+                // Two-alternative keywords: comment can match keyword indent OR body indent
+                // Only applies when next line is code (not a comment)
+                if next_is_code {
+                    if let Some(nl) = next_line {
+                        if is_two_alternative_keyword(nl) {
+                            let nc = next_col.unwrap();
+                            let alt = nc + indent_width;
+                            if comment_col == nc || comment_col == alt {
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                // AllowForAlignment: if enabled, check if this comment is aligned
+                // with a preceding inline (end-of-line) comment
+                if allow_for_alignment {
+                    let mut aligned_with_preceding = false;
+                    // Walk backwards through preceding comments looking for an
+                    // end-of-line comment at the same column
+                    for k in (0..i).rev() {
+                        let prev = lines[k];
+                        let prev_first = first_non_whitespace_column(prev);
+                        match prev_first {
+                            Some(pos) if prev[pos] == b'#' => {
+                                // own-line comment — skip
+                                continue;
+                            }
+                            Some(_) => {
+                                // code line — check if it has an inline comment at our column
+                                if let Some(hash_pos) = prev.iter().position(|&b| b == b'#') {
+                                    if hash_pos == comment_col {
+                                        aligned_with_preceding = true;
+                                    }
+                                }
+                                break;
+                            }
+                            None => break, // blank line
+                        }
+                    }
+                    if aligned_with_preceding {
+                        continue;
+                    }
+                }
+
+                diagnostics.push(self.diagnostic(
+                    source,
+                    i + 1,
+                    comment_col,
+                    format!(
+                        "Incorrect indentation detected (column {} instead of column {}).",
+                        comment_col, expected
+                    ),
+                ));
+            }
         }
     }
 }
