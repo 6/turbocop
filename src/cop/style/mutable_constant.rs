@@ -284,17 +284,17 @@ impl MutableConstant {
     /// Check if a line starts a `=begin` block comment.
     fn is_begin_block_comment(line: &[u8]) -> bool {
         line.starts_with(b"=begin")
-            && line.get(6).map_or(true, |&b| {
-                b == b' ' || b == b'\t' || b == b'\r' || b == b'\n'
-            })
+            && line
+                .get(6)
+                .is_none_or(|&b| b == b' ' || b == b'\t' || b == b'\r' || b == b'\n')
     }
 
     /// Check if a line ends a `=begin` block comment with `=end`.
     fn is_end_block_comment(line: &[u8]) -> bool {
         line.starts_with(b"=end")
-            && line.get(4).map_or(true, |&b| {
-                b == b' ' || b == b'\t' || b == b'\r' || b == b'\n'
-            })
+            && line
+                .get(4)
+                .is_none_or(|&b| b == b' ' || b == b'\t' || b == b'\r' || b == b'\n')
     }
 
     fn starts_with_frozen_string_literal_key(s: &str) -> bool {
@@ -357,8 +357,7 @@ impl MutableConstant {
     /// Check if the source file has a leading frozen string literal magic comment.
     /// This makes plain string literals frozen, but not interpolated strings.
     fn has_frozen_string_literal_true(source: &SourceFile) -> bool {
-        let lines = source.lines();
-        let mut iter = lines.into_iter().peekable();
+        let mut iter = source.lines();
         while let Some(line) = iter.next() {
             if Self::is_blank_line(line) {
                 continue;
