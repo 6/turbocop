@@ -23,6 +23,12 @@ use crate::parse::source::SourceFile;
 /// blocks where `end` is deeply indented. FN pattern: `private` at wrong column
 /// relative to `end` keyword (e.g., col 4 in a class whose `end` is at col 0,
 /// expecting col 2).
+///
+/// ### Round 3 (2026-03-31): Skip single-statement bodies
+/// Root cause of remaining 2 FPs: RuboCop only checks access modifier indentation
+/// when the body is `begin_type?` (i.e., 2+ statements). A body containing only
+/// an access modifier and no other statements is not flagged. This matches cases
+/// like `class Foo\n  protected\nend` or `module ClassMethods\n  private\nend`.
 pub struct AccessModifierIndentation;
 
 const ACCESS_MODIFIERS: &[&[u8]] = &[b"private", b"protected", b"public", b"module_function"];
@@ -113,7 +119,15 @@ impl Cop for AccessModifierIndentation {
         let (end_line, end_col) = source.offset_to_line_col(end_offset);
         let (container_line, _) = source.offset_to_line_col(container_start_offset);
 
-        for stmt in body_statements(body) {
+        let stmts = body_statements(body);
+
+        // RuboCop only checks when the body is `begin_type?` (2+ statements).
+        // A body with only an access modifier and no other statements is not flagged.
+        if stmts.len() < 2 {
+            return;
+        }
+
+        for stmt in stmts {
             let call = match stmt.as_call_node() {
                 Some(c) => c,
                 None => continue,

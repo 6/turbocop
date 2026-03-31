@@ -57,3 +57,23 @@ describe SomeSpec do
     {}
   end
 end
+
+# access modifier as only statement in body (not begin_type? — RuboCop skips)
+module Chaskiq
+  class ListsController < ApplicationController
+
+  protected
+
+  end
+end
+
+# access modifier as only statement in nested module body
+module Brick
+  module Extensions
+    module ClassMethods
+
+    private
+
+    end
+  end
+end
