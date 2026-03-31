@@ -27,6 +27,12 @@ use crate::parse::source::SourceFile;
 /// 4. Trailing inline enables like `end # rubocop:enable Metrics/MethodLength`
 ///    were treated as real enable directives. RuboCop ignores `enable` comments
 ///    on non-comment-only lines, so those corpus examples were false positives.
+/// 5. An outer specific disable was incorrectly cleared by a nested
+///    `# rubocop:disable all` / `# rubocop:enable all` pair because this cop
+///    tracked `all` as a single token instead of adding one disable layer to
+///    each known cop. That made valid trailing enables like
+///    `#rubocop:enable Metrics/ClassLength` look redundant after an inner
+///    `enable all`.
 ///
 /// Earlier rounds already fixed trailing free-text comments and punctuation on
 /// cop names. Any remaining divergence after this point would be config-aware:
@@ -50,6 +56,14 @@ static SHORT_NAME_TO_QUALIFIED: LazyLock<HashMap<String, Vec<String>>> = LazyLoc
     }
 
     map
+});
+
+static ALL_KNOWN_COPS: LazyLock<Vec<String>> = LazyLock::new(|| {
+    crate::cop::registry::CopRegistry::default_registry()
+        .names()
+        .into_iter()
+        .map(|name| name.to_string())
+        .collect()
 });
 
 impl Cop for RedundantCopEnableDirective {
@@ -106,7 +120,11 @@ impl Cop for RedundantCopEnableDirective {
                     // Inline disables apply only to the current line.
                     if comment_only_line {
                         for cop in cops {
-                            *disabled.entry(cop).or_insert(0) += 1;
+                            if cop.eq_ignore_ascii_case("all") {
+                                increment_all_known_cops(&mut disabled);
+                            } else {
+                                *disabled.entry(cop).or_insert(0) += 1;
+                            }
                         }
                     }
                 }
@@ -248,6 +266,12 @@ fn decrement_matching_disable(disabled: &mut HashMap<String, usize>, cop: &str) 
     }
 
     false
+}
+
+fn increment_all_known_cops(disabled: &mut HashMap<String, usize>) {
+    for cop in ALL_KNOWN_COPS.iter() {
+        *disabled.entry(cop.clone()).or_insert(0) += 1;
+    }
 }
 
 fn decrement_all(disabled: &mut HashMap<String, usize>) -> bool {

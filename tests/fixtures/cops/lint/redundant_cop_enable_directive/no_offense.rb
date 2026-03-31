@@ -90,3 +90,28 @@ class_eval <<-RUBY
   end
 RUBY
 # rubocop:enable Development/NoEvalCop
+
+# An outer specific disable remains active after an inner disable/enable all pair
+module LlmClients
+  module Openai
+    #rubocop:disable Metrics/ClassLength
+    class Client
+      # rubocop:disable all
+      def chat_request(chat_history, &)
+        value = 1
+        value
+      end
+      # rubocop:enable all
+
+      def openai_connection
+        @openai_connection ||= OpenAI::Client.new do |f|
+          f.request :instrumentation, name: "req", instrumenter: self
+        end
+      end
+
+      alias embed_connection openai_connection
+      alias chat_connection openai_connection
+    end
+    #rubocop:enable Metrics/ClassLength
+  end
+end
