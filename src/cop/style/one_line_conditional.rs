@@ -11,6 +11,10 @@ use crate::parse::source::SourceFile;
 ///
 /// Also: RuboCop skips empty else bodies (`if x; y; else; end`) because
 /// `node.else_branch` is nil. Added corresponding check on ElseNode#statements.
+///
+/// Also fixed false positives where Prism represents RuboCop-exempt then-bodies
+/// as either multiple statements (`if x then a; b else c end`) or a single
+/// parenthesized expression (`if x then (a) else b end`).
 pub struct OneLineConditional;
 
 impl Cop for OneLineConditional {
@@ -57,11 +61,15 @@ impl Cop for OneLineConditional {
                 None => return,
                 Some(sub) => {
                     if let Some(else_node) = sub.as_else_node() {
-                        if else_node.statements().is_none() {
+                        if !branch_has_content(else_node.statements()) {
                             return;
                         }
                     }
                 }
+            }
+
+            if exempt_then_branch(if_node.statements()) {
+                return;
             }
 
             // Must be single-line
@@ -93,8 +101,15 @@ impl Cop for OneLineConditional {
                 return;
             }
 
-            // Must have an else branch
-            if unless_node.else_clause().is_none() {
+            // Must have an else branch with content
+            let Some(else_clause) = unless_node.else_clause() else {
+                return;
+            };
+            if !branch_has_content(else_clause.statements()) {
+                return;
+            }
+
+            if exempt_then_branch(unless_node.statements()) {
                 return;
             }
 
@@ -115,6 +130,24 @@ impl Cop for OneLineConditional {
             ));
         }
     }
+}
+
+fn branch_has_content(statements: Option<ruby_prism::StatementsNode<'_>>) -> bool {
+    statements.is_some_and(|statements| !statements.body().is_empty())
+}
+
+fn exempt_then_branch(statements: Option<ruby_prism::StatementsNode<'_>>) -> bool {
+    let Some(statements) = statements else {
+        return false;
+    };
+
+    let body = statements.body();
+    if body.len() > 1 {
+        return true;
+    }
+
+    body.first()
+        .is_some_and(|statement| statement.as_parentheses_node().is_some())
 }
 
 #[cfg(test)]
