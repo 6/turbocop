@@ -24,6 +24,9 @@ use crate::parse::source::SourceFile;
 /// 3. Nested examples inside comments such as `#   # rubocop:enable Foo` were
 ///    treated as real directives, mutating the disabled set in documentation and
 ///    causing false positives in RuboCop's own source and similar files.
+/// 4. Trailing inline enables like `end # rubocop:enable Metrics/MethodLength`
+///    were treated as real enable directives. RuboCop ignores `enable` comments
+///    on non-comment-only lines, so those corpus examples were false positives.
 ///
 /// Earlier rounds already fixed trailing free-text comments and punctuation on
 /// cop names. Any remaining divergence after this point would be config-aware:
@@ -95,20 +98,25 @@ impl Cop for RedundantCopEnableDirective {
                 continue;
             };
 
-            let is_inline = first_comment_hash.is_some_and(|first_hash| {
-                first_hash == hash_pos && !line_str[..hash_pos].trim().is_empty()
-            });
+            let comment_only_line = first_comment_hash
+                .is_some_and(|first_hash| line_str[..first_hash].trim().is_empty());
 
             match action {
                 "disable" | "todo" => {
                     // Inline disables apply only to the current line.
-                    if !is_inline {
+                    if comment_only_line {
                         for cop in cops {
                             *disabled.entry(cop).or_insert(0) += 1;
                         }
                     }
                 }
                 "enable" => {
+                    // RuboCop ignores `enable` comments on lines that also contain code.
+                    if !comment_only_line {
+                        byte_offset += line.len() + 1;
+                        continue;
+                    }
+
                     for cop in cops {
                         if cop == "all" {
                             if !decrement_all(&mut disabled) {

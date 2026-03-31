@@ -24,7 +24,3 @@ def help # rubocop:disable MethodLength
 end
 # rubocop:enable MethodLength
                  ^^^^^^^^^^^^ Lint/RedundantCopEnableDirective: Unnecessary enabling of MethodLength.
-
-foo('#') # rubocop:disable Style/StringLiterals
-bar('#') # rubocop:enable Style/StringLiterals
-                          ^^^^^^^^^^^^^^^^^^^^ Lint/RedundantCopEnableDirective: Unnecessary enabling of Style/StringLiterals.
