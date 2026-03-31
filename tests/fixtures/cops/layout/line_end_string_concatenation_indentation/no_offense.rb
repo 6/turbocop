@@ -190,6 +190,18 @@ rescue StandardError
   "Adjust the maximum size.)</span>"
 end
 
+# Indented dstr inside a multi-statement explicit begin/rescue body
+def price_tooltip(collectable, data = nil)
+  begin
+    price = data || @prices[collectable.item_id]
+
+    "<b>#{t('prices.price')}:</b> #{number_with_delimiter(price['price'])} Gil<br>" \
+      "<b>#{t('prices.world')}:</b> #{price['world']}<br>" \
+      "<b>#{t('prices.updated')}:</b> #{price['last_updated']}"
+  rescue
+  end
+end
+
 # Indented dstr inside else of if (if is always-indented parent)
 # Multi-statement if body with block, single-statement else body
 def update_message(items, version, adapter)

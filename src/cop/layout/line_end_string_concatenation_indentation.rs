@@ -64,6 +64,20 @@ use ruby_prism::Visit;
 /// **Fix:** Only require backslashes when consecutive Prism parts start on
 /// different physical lines, and compute the indented base column from the
 /// first non-whitespace character so tabs match RuboCop's column accounting.
+///
+/// ## Investigation findings (2026-03-31)
+///
+/// **Remaining FP:** Explicit `begin ... rescue` bodies with multiple
+/// statements were still treated like Parser `:kwbegin`, so aligned-style
+/// strings inside the protected body incorrectly required column alignment.
+/// In RuboCop/Parser, that protected body is wrapped in `:begin`, which makes
+/// the string always-indented. Explicit `begin ... end` without `rescue`
+/// remains `:kwbegin` and should still use aligned behavior.
+///
+/// **Fix:** When Prism reports an explicit `BeginNode` with a `rescue_clause()`
+/// and 2+ body statements, treat that body as `ParentType::Begin`. Keep
+/// single-statement `begin ... rescue` bodies and rescue-less `begin ... end`
+/// blocks as `ParentType::ExplicitBegin`.
 pub struct LineEndStringConcatenationIndentation;
 
 impl Cop for LineEndStringConcatenationIndentation {
@@ -127,9 +141,9 @@ enum ParentType {
     /// to Begin (e.g., when, case, rescue in Parser wrap multi-statement
     /// bodies in `:begin`).
     Other,
-    /// Explicit `begin...end` (Parser `:kwbegin`) — NOT always-indented,
-    /// and multi-statement bodies are NOT promoted to Begin (kwbegin holds
-    /// children directly, no `:begin` wrapper).
+    /// Explicit `begin...end` that should stay Parser `:kwbegin` —
+    /// not always-indented. A rescued body with 2+ statements is promoted
+    /// separately to `Begin` in `visit_begin_node`.
     ExplicitBegin,
 }
 
@@ -339,12 +353,20 @@ impl<'pr> Visit<'pr> for ConcatVisitor<'_> {
 
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
         let saved_depth = self.expected_stack_depth;
-        // Explicit `begin...end` is Parser `:kwbegin` — NOT always-indented,
-        // and multi-statement bodies stay non-always-indented.
         // Implicit begin (def body with rescue, no begin keyword) keeps the
-        // enclosing scope's parent type (e.g., Def).
+        // enclosing scope's parent type (e.g., Def). Explicit `begin...end`
+        // is usually Parser `:kwbegin` (not always-indented), except that a
+        // rescued body with 2+ statements is wrapped in Parser `:begin`.
         if node.begin_keyword_loc().is_some() {
-            self.nearest_parent_type = ParentType::ExplicitBegin;
+            let has_multi_statement_rescue_body = node.rescue_clause().is_some()
+                && node
+                    .statements()
+                    .is_some_and(|statements| statements.body().len() > 1);
+            self.nearest_parent_type = if has_multi_statement_rescue_body {
+                ParentType::Begin
+            } else {
+                ParentType::ExplicitBegin
+            };
         }
         self.expected_stack_depth = self.saved_parent_types.len();
         ruby_prism::visit_begin_node(self, node);
