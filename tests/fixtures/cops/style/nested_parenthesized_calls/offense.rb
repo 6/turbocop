@@ -10,12 +10,6 @@ foo(bar baz)
 expect(links.map &:url).to match_array(%w[a b])
        ^ Style/NestedParenthesizedCalls: Add parentheses to nested method call `links.map &:url`.
 
-expect(links.map &:url).to match_array(%w[a b])
-       ^ Style/NestedParenthesizedCalls: Add parentheses to nested method call `links.map &:url`.
-
-expect(links.map &:url).to match_array(%w[a b])
-       ^ Style/NestedParenthesizedCalls: Add parentheses to nested method call `links.map &:url`.
-
 expect(list.select &:odd?).to eq [1, 5, 3]
        ^ Style/NestedParenthesizedCalls: Add parentheses to nested method call `list.select &:odd?`.
 
