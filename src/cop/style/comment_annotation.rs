@@ -19,6 +19,16 @@ use crate::parse::source::SourceFile;
 /// or `after_kw.starts_with(' ')`, since keyword_appearance is already validated
 /// earlier. Additionally fixed the "missing a note" message condition to check
 /// `has_note` instead of `after_kw.is_empty()`, matching RuboCop's behavior.
+///
+/// ## Investigation findings (2026-03-31)
+///
+/// Root cause of 1 FP: CRLF line endings. Prism includes the trailing `\r` in
+/// the comment text for files with `\r\n` line endings. The `\r` is ASCII
+/// whitespace, so for a bare keyword like `# HACK\r`, the `\r` caused
+/// `has_space = true` while `has_note = false`, producing a spurious "missing
+/// a note" offense. RuboCop's parser normalizes line endings so it is unaffected.
+///
+/// Fix: Strip trailing `\r` from comment text before analysis.
 pub struct CommentAnnotation;
 
 const DEFAULT_KEYWORDS: &[&str] = &["TODO", "FIXME", "OPTIMIZE", "HACK", "REVIEW", "NOTE"];
@@ -72,7 +82,7 @@ impl Cop for CommentAnnotation {
             let comment_end_offset = loc.end_offset();
             let comment_text =
                 match std::str::from_utf8(&bytes[comment_start_offset..comment_end_offset]) {
-                    Ok(s) => s,
+                    Ok(s) => s.trim_end_matches('\r'),
                     Err(_) => continue,
                 };
 
@@ -239,4 +249,14 @@ impl Cop for CommentAnnotation {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(CommentAnnotation, "cops/style/comment_annotation");
+
+    #[test]
+    fn crlf_bare_keyword_no_offense() {
+        // CRLF line endings: Prism includes trailing \r in the comment text,
+        // which must not be mistaken for meaningful whitespace after a bare keyword.
+        crate::testutil::assert_cop_no_offenses_full(
+            &CommentAnnotation,
+            b"require 'foo' # HACK\r\n",
+        );
+    }
 }

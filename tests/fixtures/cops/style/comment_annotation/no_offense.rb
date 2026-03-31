@@ -24,6 +24,9 @@
 # Optimize your workflow by using shortcuts
 # Review the documentation for details
 
+# Inline bare keyword — not an annotation per RuboCop
+require 'something' if defined?(::Foo) # HACK
+
 # Bare keyword alone (no colon or space after) — not an annotation per RuboCop
 
 # TODO
