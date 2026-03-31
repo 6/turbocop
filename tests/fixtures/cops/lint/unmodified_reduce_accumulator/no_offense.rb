@@ -67,3 +67,31 @@ end
 registry_set.map { |ext| ext.actions }.flatten.inject({}) do |h, k|
   k[:permitted_attributes] || fallback
 end
+
+# Direct receiver calls on the element are acceptable return values.
+@actions.reduce(nil) do |last_date, action|
+  action.date
+end
+
+# Returning a nested block call rooted in the element is acceptable.
+externals.inject(nil) do |o_flag, app_or_hash|
+  next if app_or_hash.is_a?(String) || app_or_hash.is_a?(Symbol)
+  app_or_hash.inject(nil) do |flag, flag_app_list|
+    flag, app_list = flag_app_list
+    flag if app_list.include?(app_name)
+  end
+end
+
+# Returning a block node is acceptable when the return value is not just the element.
+appends.inject([]) do |arr, paths|
+  Array(paths).each do |path|
+    require_asset(path)
+  end
+end
+
+# A prior call that combines the element with the accumulator makes the bare
+# element return acceptable.
+scanline_positions.inject do |m, n|
+  line_sizes << n - m - 1
+  n
+end
