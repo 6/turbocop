@@ -1,5 +1,6 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 use regex::Regex;
 
@@ -19,9 +20,18 @@ use regex::Regex;
 /// 3. Preserves newlines for `=begin`/`=end` block comment content
 /// 4. Uses `(?m)` so `^` matches line starts (Ruby default behavior)
 ///
-/// Remaining per-repo FP (~3) are file discovery artifacts (hidden dirs
-/// like `.jbundler/` discovered by nitrocop but not by RuboCop's directory
-/// traversal), not detection logic issues.
+/// FP fix: skip detection when the file has parse errors that make
+/// RuboCop's `valid_syntax?` return false (AST is nil, cops skipped).
+///
+/// In CRuby 4.0/Prism, only `retry` (outside rescue) and `return in
+/// class/module body` errors cause `valid_syntax?=false` — other semantic
+/// errors (break, next, redo, yield) still produce a valid AST and cops
+/// run normally. The nitrocop linter classifies all of these as "semantic"
+/// and keeps running cops, so this cop must bail out explicitly for the
+/// specific errors that make RuboCop skip.
+///
+/// Moved from `check_lines` to `check_source` to access
+/// `parse_result.errors()` for this check.
 pub struct Copyright;
 
 impl Cop for Copyright {
@@ -33,13 +43,30 @@ impl Cop for Copyright {
         false // Matches vendor config/default.yml: Enabled: false
     }
 
-    fn check_lines(
+    fn check_source(
         &self,
         source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // RuboCop skips all non-Lint cops when valid_syntax? is false (ast is nil).
+        // In CRuby 4.0/Prism, only `retry` and `return in class/module body` errors
+        // cause this — other semantic errors (break, next, redo, yield) still produce
+        // a valid AST. The linter classifies all of these as "semantic" and keeps
+        // running cops, so we must bail out here for the specific errors that make
+        // RuboCop skip.
+        let has_fatal_semantic_error = parse_result.errors().any(|err| {
+            let msg = err.message();
+            msg.starts_with("Invalid retry")
+                || msg.starts_with("Invalid return in class/module body")
+        });
+        if has_fatal_semantic_error {
+            return;
+        }
+
         let notice_pattern = config.get_str("Notice", r"^Copyright (\(c\) )?2[0-9]{3} .+");
         let autocorrect_notice = config.get_str("AutocorrectNotice", "");
 
@@ -239,6 +266,17 @@ mod tests {
             &Copyright,
             include_bytes!(
                 "../../../tests/fixtures/cops/style/copyright/no_offense_block_comment.rb"
+            ),
+            config_with_autocorrect_notice(),
+        );
+    }
+
+    #[test]
+    fn no_offense_syntax_error() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &Copyright,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/copyright/no_offense_syntax_error.rb"
             ),
             config_with_autocorrect_notice(),
         );
