@@ -121,7 +121,7 @@ def main() -> int:
         sys.executable, "scripts/dispatch_cops.py", "rank",
         "--json",
         "--department", department,
-        "--min-bugs", "1",
+        "--min-bugs", "0",
         "--min-matches", "0",
         "--limit", str(count + len(skip_cops)),
     ]
@@ -139,8 +139,18 @@ def main() -> int:
     cops = [c for c in all_cops if c["cop"] not in skip_cops][:count]
 
     if not cops:
-        print(f"::warning::No dispatchable cops found for {department} "
-              f"(all candidates have open PRs). Nothing to dispatch.")
+        skipped_open = [c["cop"] for c in all_cops if c["cop"] in open_cops]
+        skipped_closed = [c["cop"] for c in all_cops if c["cop"] in closed_issue_cops]
+        reasons = []
+        if skipped_open:
+            reasons.append(f"{len(skipped_open)} have open PRs")
+        if skipped_closed:
+            reasons.append(f"{len(skipped_closed)} have closed issues")
+        if not all_cops:
+            reasons.append("rank returned 0 candidates")
+        detail = f" ({', '.join(reasons)})" if reasons else ""
+        print(f"::warning::No dispatchable cops found for {department}{detail}. "
+              f"Nothing to dispatch.")
         return 0
 
     if len(cops) < count:
