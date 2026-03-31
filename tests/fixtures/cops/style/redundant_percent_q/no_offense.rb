@@ -8,9 +8,11 @@
 
 x = "normal string"
 
-# %Q with double quotes inside is not redundant (would need escaping in "")
+# %Q with both quote kinds is not redundant
+%Q(He said "hello" before it's done)
+
+# %Q with escapes that require double quotes is not redundant
 %Q(<?xml version="1.0" encoding="UTF-8"?>\n)
-%Q(He said "hello" to me)
 
 # %Q with interpolation AND double quotes is not redundant
 %Q("hi#{4}")

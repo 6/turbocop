@@ -4,25 +4,15 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::path::{Component, Path};
 
-/// Checks for usage of %q/%Q when '' or "" would do.
+/// Checks for usage of `%q`/`%Q` when normal quotes would do.
 ///
-/// Handles both `StringNode` (%q and static %Q) and `InterpolatedStringNode`
-/// (dynamic %Q with interpolation). The InterpolatedStringNode path was added
-/// to fix ~754 FN in the corpus where `%Q{#{...}}` patterns were missed.
-///
-/// Remaining FN (~646) are likely from repos where the corpus oracle collected
-/// offenses under project-specific configs that differ from `--force-default-config`.
-/// Remaining FP (63) are from `guillec/json-patch` where `%q` strings contain
-/// both single and double quotes that our content extraction doesn't see (likely
-/// a Prism vs Parser gem content boundary difference).
-///
-/// Corpus investigation (2026-03-30):
-/// - The new `%Q` interpolation handling fixed the intended FN reduction, but it
-///   also surfaced one corpus FP in `ruby-next` from a generated file under a
-///   hidden `.rbnext/` directory.
-/// - RuboCop repo scans skip files under hidden directories, but still lint root
-///   dotfiles and hidden basenames in visible directories.
-/// - Keep the PR's `%Q` behavior and skip only hidden-directory paths here.
+/// The corpus misses were static `%Q` strings that merely contained `"` or
+/// spanned multiple lines. RuboCop still flags those unless the full `%Q`
+/// source either contains both quote kinds, is dynamic and contains `"`, or
+/// is a static literal whose source really requires double quotes (for example
+/// because of a single quote or a non-quote escape). Matching against the full
+/// node source also preserves `%q` behavior for strings whose quote mix is not
+/// visible in Prism's extracted content slice.
 pub struct RedundantPercentQ;
 
 impl Cop for RedundantPercentQ {
@@ -54,19 +44,12 @@ impl Cop for RedundantPercentQ {
             };
 
             let opening = opening_loc.as_slice();
+            let node_source = string_node.location().as_slice();
 
             if opening.starts_with(b"%q") {
-                // %q string — check if it contains both single and double quotes
-                let raw_content = string_node.content_loc().as_slice();
-                let has_single = raw_content.contains(&b'\'');
-                let has_double = raw_content.contains(&b'"');
-                // Check for escape sequences other than \\ — if present, %q is justified
-                let has_escape = has_non_backslash_escape(raw_content);
-                // Check for string interpolation pattern #{...} — user likely chose %q
-                // to avoid interpolation; this matches vendor behavior
-                let has_interpolation_pattern = contains_interpolation_pattern(raw_content);
-
-                if has_escape || has_interpolation_pattern || (has_single && has_double) {
+                if contains_single_and_double_quotes(node_source)
+                    || acceptable_percent_q(node_source)
+                {
                     return;
                 }
 
@@ -84,11 +67,9 @@ impl Cop for RedundantPercentQ {
             }
 
             if opening.starts_with(b"%Q") {
-                // %Q string — acceptable if it contains double quotes (would need escaping in "")
-                let raw_content = string_node.content_loc().as_slice();
-                let has_double = raw_content.contains(&b'"');
-
-                if has_double {
+                if contains_single_and_double_quotes(node_source)
+                    || acceptable_static_percent_capital_q(node_source)
+                {
                     return;
                 }
 
@@ -114,11 +95,10 @@ impl Cop for RedundantPercentQ {
                 return;
             }
 
-            // %Q with interpolation — acceptable if the source contains double quotes,
-            // since those would need escaping in a regular "..." string.
-            // Check both the string parts and the full source for double quotes.
             let node_source = node.location().as_slice();
-            if node_source.contains(&b'"') {
+            if contains_single_and_double_quotes(node_source)
+                || acceptable_dynamic_percent_capital_q(node_source)
+            {
                 return;
             }
 
@@ -135,15 +115,31 @@ impl Cop for RedundantPercentQ {
     }
 }
 
-/// Check if raw content contains escape sequences other than just \\
-fn has_non_backslash_escape(raw: &[u8]) -> bool {
+fn contains_single_and_double_quotes(source: &[u8]) -> bool {
+    source.contains(&b'\'') && source.contains(&b'"')
+}
+
+fn acceptable_percent_q(source: &[u8]) -> bool {
+    contains_interpolation_pattern(source) || has_non_backslash_escape(source)
+}
+
+fn acceptable_static_percent_capital_q(source: &[u8]) -> bool {
+    source.contains(&b'"') && double_quotes_required(source)
+}
+
+fn acceptable_dynamic_percent_capital_q(source: &[u8]) -> bool {
+    source.contains(&b'"') && contains_interpolation_pattern(source)
+}
+
+/// Check if the source contains escape sequences other than just `\\`.
+fn has_non_backslash_escape(source: &[u8]) -> bool {
     let mut i = 0;
-    while i < raw.len() {
-        if raw[i] == b'\\' && i + 1 < raw.len() {
-            if raw[i + 1] != b'\\' {
+    while i < source.len() {
+        if source[i] == b'\\' && i + 1 < source.len() {
+            if source[i + 1] != b'\\' {
                 return true;
             }
-            i += 2; // skip \\
+            i += 2;
         } else {
             i += 1;
         }
@@ -151,9 +147,42 @@ fn has_non_backslash_escape(raw: &[u8]) -> bool {
     false
 }
 
-/// Check if content contains a string interpolation pattern `#{...}`
-fn contains_interpolation_pattern(raw: &[u8]) -> bool {
-    raw.windows(2).any(|w| w == b"#{")
+/// Check if the source contains a string interpolation pattern `#{...}`.
+fn contains_interpolation_pattern(source: &[u8]) -> bool {
+    source.windows(2).enumerate().any(|(idx, window)| {
+        window == b"#{"
+            && source[idx + 2..]
+                .iter()
+                .position(|&b| b == b'}')
+                .is_some_and(|offset| offset > 0)
+    })
+}
+
+/// Match RuboCop's `double_quotes_required?` helper on the full node source.
+fn double_quotes_required(source: &[u8]) -> bool {
+    let mut i = 0;
+
+    while i < source.len() {
+        match source[i] {
+            b'\'' => return true,
+            b'\\' => {
+                let run_start = i;
+                while i < source.len() && source[i] == b'\\' {
+                    i += 1;
+                }
+
+                let run_len = i - run_start;
+                let next = source.get(i).copied();
+
+                if run_len % 2 == 1 && !matches!(next, Some(b'\\' | b'"')) {
+                    return true;
+                }
+            }
+            _ => i += 1,
+        }
+    }
+
+    false
 }
 
 fn path_has_hidden_directory(path: &Path) -> bool {
