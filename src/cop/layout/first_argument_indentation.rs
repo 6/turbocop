@@ -144,6 +144,11 @@ struct ParentCallInfo {
     is_eligible: bool,
 }
 
+struct CallMetadata<'a> {
+    name: &'a str,
+    has_attached_block: bool,
+}
+
 impl FirstArgVisitor<'_> {
     fn check_call(
         &mut self,
@@ -152,8 +157,7 @@ impl FirstArgVisitor<'_> {
         opening_loc: Option<ruby_prism::Location<'_>>,
         call_operator_loc: Option<ruby_prism::Location<'_>>,
         arguments: Option<ruby_prism::ArgumentsNode<'_>>,
-        name: &str,
-        has_attached_block: bool,
+        metadata: CallMetadata<'_>,
     ) {
         // Must have arguments (parenthesized or not)
         let args_node = match arguments {
@@ -193,7 +197,7 @@ impl FirstArgVisitor<'_> {
         }
 
         // Skip bare operators (like `a + b`) and setter methods (like `self.x = 1`)
-        if is_bare_operator(name, has_regular_dot) || is_setter_method(name) {
+        if is_bare_operator(metadata.name, has_regular_dot) || is_setter_method(metadata.name) {
             return;
         }
 
@@ -201,7 +205,7 @@ impl FirstArgVisitor<'_> {
             call_start_offset,
             first_arg_loc.start_offset(),
             arg_line,
-            has_attached_block,
+            metadata.has_attached_block,
         );
 
         if arg_col != expected {
@@ -212,7 +216,7 @@ impl FirstArgVisitor<'_> {
                 self.message(
                     call_start_offset,
                     first_arg_loc.start_offset(),
-                    has_attached_block,
+                    metadata.has_attached_block,
                 ),
             ));
         }
@@ -491,8 +495,10 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
             node.opening_loc(),
             call_operator_loc,
             node.arguments(),
-            name_str,
-            node.block().is_some(),
+            CallMetadata {
+                name: name_str,
+                has_attached_block: node.block().is_some(),
+            },
         );
 
         // Determine if this call is parenthesized and eligible for being a
@@ -533,8 +539,10 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
             node.lparen_loc(),
             None,
             node.arguments(),
-            "super",
-            false,
+            CallMetadata {
+                name: "super",
+                has_attached_block: false,
+            },
         );
 
         // super() is NOT eligible as a parent for special_inner_call checks.
