@@ -168,14 +168,21 @@ def main():
     print(f"Diagnosing {len(diverging)} diverging cops...", file=sys.stderr)
 
     diagnosis: dict[str, tuple[int, int]] = {}
+    total = len(diverging)
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
             pool.submit(diagnose_cop, binary, entry): entry["cop"]
             for entry in diverging
         }
-        for future in as_completed(futures):
+        for i, future in enumerate(as_completed(futures), 1):
             cop_name, code_bugs, cfg_issues = future.result()
             diagnosis[cop_name] = (code_bugs, cfg_issues)
+            label = "bugs" if code_bugs else "config" if cfg_issues else "clean"
+            print(
+                f"  [{i}/{total}] {cop_name}: {label}"
+                f" ({code_bugs} bug, {cfg_issues} config)",
+                file=sys.stderr,
+            )
 
     # Write diagnosis back into by_cop entries
     enriched = 0
