@@ -4,6 +4,7 @@ use crate::cop::node_type::{
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 /// ## Corpus investigation (2026-03-10)
 ///
@@ -30,7 +31,7 @@ use crate::parse::source::SourceFile;
 ///    the node range. For `[]` (read) calls where arguments contain chained
 ///    brackets (e.g. `CONST[ resp[:x][:y] ]`) or the receiver has brackets
 ///    (e.g. `user['k'][ arg['id'] ]`), the outer brackets are never checked.
-///    Added `should_skip_outer_brackets` to match this behavior.
+///    Matched that behavior by skipping outer-bracket checks in those cases.
 ///
 /// ## Corpus investigation (2026-03-14)
 ///
@@ -40,6 +41,22 @@ use crate::parse::source::SourceFile;
 /// the inner `[]` send node (single-line), not the outer op_asgn. Fixed by
 /// restricting the whole-node multiline skip to CallNode only; index write
 /// nodes already have the bracket-span multiline check.
+///
+/// ## Corpus investigation (2026-03-31)
+///
+/// FP=2:
+///
+/// 1. `current_class_accessor[:table].header_description[ key[1..-1] ] = value`
+/// 2. `app.extensions[:blog].find { ... }[ 1 ]`
+///
+/// Root cause: the previous implementation always inspected the current
+/// call's own brackets for `[]`/`[]=`, but RuboCop first selects a
+/// reference-bracket token anywhere in the call's token range. For `[]=`,
+/// it chooses the first reference bracket in the node range. For `[]`, it
+/// chooses the last one unless the token immediately before that `[` is not
+/// `]`, in which case it falls back to the first. Matching that selection
+/// logic fixes both false positives without suppressing the broader
+/// offending patterns that RuboCop still reports.
 pub struct SpaceInsideReferenceBrackets;
 
 impl Cop for SpaceInsideReferenceBrackets {
@@ -74,7 +91,7 @@ impl Cop for SpaceInsideReferenceBrackets {
 
         let bytes = source.as_bytes();
 
-        let (open_start, close_start) = match reference_bracket_offsets(node) {
+        let (open_start, close_start) = match reference_bracket_offsets(node, bytes) {
             Some(offsets) => offsets,
             None => return,
         };
@@ -156,16 +173,6 @@ impl Cop for SpaceInsideReferenceBrackets {
             if node_start_line != node_end_line {
                 return;
             }
-        }
-
-        // RuboCop's token-based bracket selection can skip the outer brackets of
-        // a `[]` read call when the arguments contain nested reference brackets.
-        // Match that behavior: for `[]` calls (not `[]=`), skip if the bytes
-        // between the outer brackets contain `[` AND either (a) the last inner
-        // `[` is preceded by `]` (chained access like `[:x][:y]`), or (b) the
-        // byte before the outer `[` is `]` (receiver has brackets).
-        if should_skip_outer_brackets(node, bytes, open_start, open_end, close_start) {
-            return;
         }
 
         let space_after_open = bytes.get(open_end) == Some(&b' ');
@@ -275,9 +282,9 @@ mod tests {
     );
 }
 
-fn reference_bracket_offsets(node: &ruby_prism::Node<'_>) -> Option<(usize, usize)> {
+fn reference_bracket_offsets(node: &ruby_prism::Node<'_>, bytes: &[u8]) -> Option<(usize, usize)> {
     if let Some(call) = node.as_call_node() {
-        return call_bracket_offsets(&call);
+        return call_bracket_offsets(&call, bytes);
     }
     if let Some(index) = node.as_index_and_write_node() {
         return index_write_bracket_offsets(
@@ -303,26 +310,30 @@ fn reference_bracket_offsets(node: &ruby_prism::Node<'_>) -> Option<(usize, usiz
     None
 }
 
-fn call_bracket_offsets(call: &ruby_prism::CallNode<'_>) -> Option<(usize, usize)> {
+fn call_bracket_offsets(call: &ruby_prism::CallNode<'_>, bytes: &[u8]) -> Option<(usize, usize)> {
     let method_name = call.name().as_slice();
     if method_name != b"[]" && method_name != b"[]=" {
         return None;
     }
+    call_reference_bracket_offsets(call)?;
 
-    let receiver = call.receiver()?;
+    let mut collector = ReferenceBracketCollector { pairs: Vec::new() };
+    collector.visit(&call.as_node());
+    collector
+        .pairs
+        .sort_unstable_by_key(|(open_start, _)| *open_start);
+
+    let first = collector.pairs.first().copied()?;
     if method_name == b"[]=" {
-        if let Some(offsets) = nested_reference_brackets(&receiver) {
-            return Some(offsets);
-        }
+        return Some(first);
     }
 
-    let opening_loc = call.opening_loc()?;
-    let closing_loc = call.closing_loc()?;
-    if opening_loc.as_slice() != b"[" || closing_loc.as_slice() != b"]" {
-        return None;
+    let last = collector.pairs.last().copied()?;
+    if previous_non_whitespace_byte(bytes, last.0) == Some(b']') {
+        Some(last)
+    } else {
+        Some(first)
     }
-
-    Some((opening_loc.start_offset(), closing_loc.start_offset()))
 }
 
 fn index_write_bracket_offsets(
@@ -334,100 +345,66 @@ fn index_write_bracket_offsets(
     Some((open_start, close_start))
 }
 
-/// Returns true if the outer brackets of a `[]` read call should be skipped
-/// because RuboCop's token-based bracket selection would not check them.
-///
-/// This matches RuboCop's `left_ref_bracket` method behavior: for a `[]` call,
-/// it picks the last or first reference bracket token within the node range.
-/// When arguments contain nested `[` brackets, the outer brackets can be
-/// skipped if either:
-/// (a) the last `[` in the bracket content is preceded by `]` (chained access), or
-/// (b) the byte before the outer `[` is `]` (receiver has brackets).
-fn should_skip_outer_brackets(
-    node: &ruby_prism::Node<'_>,
-    bytes: &[u8],
-    open_start: usize,
-    open_end: usize,
-    close_start: usize,
-) -> bool {
-    // Only applies to `[]` read calls, not `[]=` or index write nodes.
-    let call = match node.as_call_node() {
-        Some(c) => c,
-        None => return false,
-    };
-    if call.name().as_slice() != b"[]" {
-        return false;
-    }
-
-    let inner = &bytes[open_end..close_start];
-
-    // Check if arguments contain any `[` (nested reference brackets).
-    let last_bracket_pos = match inner.iter().rposition(|&b| b == b'[') {
-        Some(pos) => pos,
-        None => return false, // no inner brackets
-    };
-
-    // (a) Is the last inner `[` preceded by `]` (ignoring whitespace)?
-    // This indicates chained access like `response[:x][:y]`.
-    let before_last = &inner[..last_bracket_pos];
-    let last_non_ws = before_last
+fn previous_non_whitespace_byte(bytes: &[u8], offset: usize) -> Option<u8> {
+    bytes[..offset]
         .iter()
         .rev()
-        .find(|&&b| !matches!(b, b' ' | b'\t'));
-    if last_non_ws == Some(&b']') {
-        return true;
-    }
-
-    // (b) Is the byte before the outer `[` a `]` (ignoring whitespace)?
-    // This indicates the receiver has brackets like `user['key'][...]`.
-    if open_start > 0 {
-        let before_open = &bytes[..open_start];
-        let prev_non_ws = before_open
-            .iter()
-            .rev()
-            .find(|&&b| !matches!(b, b' ' | b'\t'));
-        if prev_non_ws == Some(&b']') {
-            return true;
-        }
-    }
-
-    false
+        .find(|&&b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'))
+        .copied()
 }
 
-fn nested_reference_brackets(receiver: &ruby_prism::Node<'_>) -> Option<(usize, usize)> {
-    if let Some(call) = receiver.as_call_node() {
-        let method_name = call.name().as_slice();
-        if method_name != b"[]" && method_name != b"[]=" {
-            return None;
+fn call_reference_bracket_offsets(call: &ruby_prism::CallNode<'_>) -> Option<(usize, usize)> {
+    let method_name = call.name().as_slice();
+    if method_name != b"[]" && method_name != b"[]=" {
+        return None;
+    }
+
+    let opening_loc = call.opening_loc()?;
+    let closing_loc = call.closing_loc()?;
+    if opening_loc.as_slice() != b"[" || closing_loc.as_slice() != b"]" {
+        return None;
+    }
+
+    Some((opening_loc.start_offset(), closing_loc.start_offset()))
+}
+
+struct ReferenceBracketCollector {
+    pairs: Vec<(usize, usize)>,
+}
+
+impl<'pr> Visit<'pr> for ReferenceBracketCollector {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if let Some(offsets) = call_reference_bracket_offsets(node) {
+            self.pairs.push(offsets);
         }
 
-        let opening_loc = call.opening_loc()?;
-        let closing_loc = call.closing_loc()?;
-        if opening_loc.as_slice() != b"[" || closing_loc.as_slice() != b"]" {
-            return None;
-        }
-
-        return Some((opening_loc.start_offset(), closing_loc.start_offset()));
+        ruby_prism::visit_call_node(self, node);
     }
 
-    if let Some(index) = receiver.as_index_and_write_node() {
-        return Some((
-            index.opening_loc().start_offset(),
-            index.closing_loc().start_offset(),
+    fn visit_index_and_write_node(&mut self, node: &ruby_prism::IndexAndWriteNode<'pr>) {
+        self.pairs.push((
+            node.opening_loc().start_offset(),
+            node.closing_loc().start_offset(),
         ));
-    }
-    if let Some(index) = receiver.as_index_operator_write_node() {
-        return Some((
-            index.opening_loc().start_offset(),
-            index.closing_loc().start_offset(),
-        ));
-    }
-    if let Some(index) = receiver.as_index_or_write_node() {
-        return Some((
-            index.opening_loc().start_offset(),
-            index.closing_loc().start_offset(),
-        ));
+
+        ruby_prism::visit_index_and_write_node(self, node);
     }
 
-    None
+    fn visit_index_operator_write_node(&mut self, node: &ruby_prism::IndexOperatorWriteNode<'pr>) {
+        self.pairs.push((
+            node.opening_loc().start_offset(),
+            node.closing_loc().start_offset(),
+        ));
+
+        ruby_prism::visit_index_operator_write_node(self, node);
+    }
+
+    fn visit_index_or_write_node(&mut self, node: &ruby_prism::IndexOrWriteNode<'pr>) {
+        self.pairs.push((
+            node.opening_loc().start_offset(),
+            node.closing_loc().start_offset(),
+        ));
+
+        ruby_prism::visit_index_or_write_node(self, node);
+    }
 }
