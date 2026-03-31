@@ -31,11 +31,6 @@ it "reports dotted string hash keys" do
 end
 
 before do
-  allow(controller).to receive_message_chain "forum.moderator?" => false
-                       ^^^^^^^^^^^^^^^^^^^^^ RSpec/SingleArgumentMessageChain: Use `receive` instead of calling `receive_message_chain` with a single argument.
-end
-
-before do
   controller.stub_chain("admin?" => true)
              ^^^^^^^^^^ RSpec/SingleArgumentMessageChain: Use `stub` instead of calling `stub_chain` with a single argument.
 end

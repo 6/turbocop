@@ -24,9 +24,23 @@ fn is_single_chain_argument(arg: &ruby_prism::Node<'_>) -> bool {
     }
 }
 
-/// RuboCop treats single-key hash and keyword-hash arguments as single message
-/// chains, even when the key is a dotted string or the call is split across
-/// lines. Detect those hash forms without broadening to multi-key hashes.
+fn is_bare_single_hash_argument_call(
+    call: &ruby_prism::CallNode<'_>,
+    arg_list: &[ruby_prism::Node<'_>],
+) -> bool {
+    call.opening_loc().is_none()
+        && matches!(
+            arg_list,
+            [arg] if arg.as_hash_node().is_some() || arg.as_keyword_hash_node().is_some()
+        )
+}
+
+/// RuboCop still flags parenthesized single-key hash arguments like
+/// `receive_message_chain("foo" => 1)`, but bare command-call hashes like
+/// `receive_message_chain "foo" => 1` and `stub_chain "foo" => 1` crash in
+/// RuboCop's autocorrect path and produce no offense in the corpus baseline.
+/// Skip only that no-parens single-hash form while preserving the existing
+/// single-argument detections.
 pub struct SingleArgumentMessageChain;
 
 impl Cop for SingleArgumentMessageChain {
@@ -75,6 +89,10 @@ impl Cop for SingleArgumentMessageChain {
         };
 
         let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
+
+        if is_bare_single_hash_argument_call(&call, &arg_list) {
+            return;
+        }
 
         let is_single_arg = matches!(arg_list.as_slice(), [arg] if is_single_chain_argument(arg));
 
