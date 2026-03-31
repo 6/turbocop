@@ -11,3 +11,7 @@ expect {
     nil
   end
 }.to receive(:stop)
+
+expect(foo).to have_received(:bar) do
+  allow(baz).to receive(:qux)
+end

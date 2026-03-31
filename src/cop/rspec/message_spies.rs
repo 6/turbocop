@@ -23,6 +23,23 @@ use crate::parse::source::SourceFile;
 /// - searching the full expectation subtree for `receive`/`have_received`
 /// - extracting the sole argument to `expect(...)` for the dynamic message text
 /// - skipping block-form `expect { ... }`
+///
+/// Block-body FP fix (2026-03-31):
+///
+/// - FP=18 came from `do...end` blocks attached to the expectation chain, for example
+///   `expect(foo).to have_received(:bar) do ... allow(baz).to receive(:qux) end`.
+///   RuboCop still flags the outer `expect(foo).to receive(:bar) do ... end`
+///   form, but it does not descend into those `do...end` bodies and does not
+///   treat inner `allow(...).to receive(...)` setup calls as offenses for the
+///   outer expectation.
+/// - Brace blocks are different: `expect(foo).to receive(:bar) { allow(baz).to
+///   receive(:qux) }` keeps the block inside the matcher argument subtree, and
+///   RuboCop flags both `receive` selectors.
+/// - nitrocop searched every attached `call.block()` recursively, which made
+///   `do...end` implementation blocks part of the matcher subtree and produced
+///   false positives on those inner setup calls.
+/// - Fixed by keeping the receiver/argument recursion and only descending into
+///   attached brace blocks while searching for matcher calls.
 pub struct MessageSpies;
 
 impl Cop for MessageSpies {
@@ -95,7 +112,7 @@ impl Cop for MessageSpies {
         };
 
         let mut found = Vec::new();
-        find_matcher_calls(node, target_name, &mut found);
+        find_matcher_calls(source, node, target_name, &mut found);
         if found.is_empty() {
             return;
         }
@@ -119,7 +136,12 @@ impl Cop for MessageSpies {
 /// the second `receive` is an argument to `.and`/`.or`, and nested cases like
 /// `expect(allow(foo).to receive(:bar)).to matcher(...)` where the `receive`
 /// call lives inside the argument passed to `expect(...)`.
-fn find_matcher_calls(node: &ruby_prism::Node<'_>, target_name: &[u8], out: &mut Vec<usize>) {
+fn find_matcher_calls(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    target_name: &[u8],
+    out: &mut Vec<usize>,
+) {
     if let Some(call) = node.as_call_node() {
         // Check if this is a bare `receive(...)` or `have_received(...)` call
         if call.name().as_slice() == target_name && call.receiver().is_none() {
@@ -128,25 +150,37 @@ fn find_matcher_calls(node: &ruby_prism::Node<'_>, target_name: &[u8], out: &mut
         }
         // Recurse into receiver
         if let Some(recv) = call.receiver() {
-            find_matcher_calls(&recv, target_name, out);
+            find_matcher_calls(source, &recv, target_name, out);
         }
         // Recurse into arguments
         if let Some(args) = call.arguments() {
             for arg in args.arguments().iter() {
-                find_matcher_calls(&arg, target_name, out);
+                find_matcher_calls(source, &arg, target_name, out);
             }
         }
-        // Recurse into block body if present
-        if let Some(block) = call.block() {
-            if let Some(body) = block.as_block_node().and_then(|b| b.body()) {
-                find_matcher_calls(&body, target_name, out);
+        // Brace blocks remain in RuboCop's matcher subtree for this cop, but
+        // do/end blocks attached to the expectation chain do not.
+        if let Some(block) = call.block().and_then(|b| b.as_block_node()) {
+            if attached_block_uses_braces(source, &block) {
+                if let Some(body) = block.body() {
+                    find_matcher_calls(source, &body, target_name, out);
+                }
             }
         }
     } else if let Some(stmts) = node.as_statements_node() {
         for child in stmts.body().iter() {
-            find_matcher_calls(&child, target_name, out);
+            find_matcher_calls(source, &child, target_name, out);
         }
     }
+}
+
+fn attached_block_uses_braces(source: &SourceFile, block: &ruby_prism::BlockNode<'_>) -> bool {
+    let open = block.opening_loc();
+    source
+        .as_bytes()
+        .get(open.start_offset())
+        .copied()
+        .is_some_and(|byte| byte == b'{')
 }
 
 fn sole_expect_argument_range(call: ruby_prism::CallNode<'_>) -> Option<(usize, usize)> {
@@ -230,5 +264,35 @@ mod tests {
         let source = b"expect { subject }.to receive(:stop)\n";
         let diags = crate::testutil::run_cop_full(&MessageSpies, source);
         assert!(diags.is_empty(), "block expectations should not be flagged");
+    }
+
+    #[test]
+    fn receive_with_block_only_flags_outer_receive() {
+        let source = b"expect(foo).to receive(:bar) do\n  allow(baz).to receive(:qux)\nend\n";
+        let diags = crate::testutil::run_cop_full(&MessageSpies, source);
+        assert_eq!(diags.len(), 1, "only the outer receive should be flagged");
+        assert_eq!(diags[0].location.column, 15);
+        assert_eq!(
+            diags[0].message,
+            "Prefer `have_received` for setting message expectations. Setup `foo` as a spy using `allow` or `instance_spy`."
+        );
+    }
+
+    #[test]
+    fn receive_with_brace_block_flags_outer_and_inner_receive() {
+        let source = b"expect(foo).to receive(:bar) { allow(baz).to receive(:qux) { quux } }\n";
+        let diags = crate::testutil::run_cop_full(&MessageSpies, source);
+        assert_eq!(
+            diags.len(),
+            2,
+            "brace blocks in matcher arguments should keep inner receives searchable"
+        );
+        assert_eq!(diags[0].location.column, 15);
+        assert_eq!(diags[1].location.column, 45);
+        assert_eq!(
+            diags[0].message,
+            "Prefer `have_received` for setting message expectations. Setup `foo` as a spy using `allow` or `instance_spy`."
+        );
+        assert_eq!(diags[1].message, diags[0].message);
     }
 }
