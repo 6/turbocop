@@ -18,3 +18,7 @@ Constants::ATOM_UNSAFE === str
 Constants::PHRASE_UNSAFE === str
 URI::HTTPS === @uri
 Foo::Bar::ALL_CAPS === value
+
+# Explicit .=== call with forwarded args and block — RuboCop's matcher requires
+# exactly one argument child, so multi-argument calls are not matched
+native.===(*args, &bl)

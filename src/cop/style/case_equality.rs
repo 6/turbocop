@@ -19,6 +19,12 @@ use crate::parse::source::SourceFile;
 /// Fixed to extract the actual last-segment name via `cp.name()`. This resolves
 /// 21 FPs on patterns like `Constants::ATOM_UNSAFE === str` and `URI::HTTPS === @uri`
 /// where the last segment is ALL_CAPS (not a module name).
+///
+/// Third fix: RuboCop's node matcher `(send $_ :=== $_)` expects exactly one argument
+/// child after `:===` (in the parser gem, `&bl` block_pass counts as a separate child).
+/// Calls like `native.===(*args, &bl)` have 2 children and don't match. In Prism,
+/// block_pass is in `call_node.block()`, so we reconstruct the total argument count
+/// and skip when it's not exactly 1. Fixes 1 FP in `enspirit/finitio-rb`.
 pub struct CaseEquality;
 
 impl CaseEquality {
@@ -87,6 +93,19 @@ impl Cop for CaseEquality {
             Some(r) => r,
             None => return,
         };
+
+        // RuboCop's matcher `(send $_ :=== $_)` expects exactly one argument child
+        // (in the parser gem, block_pass counts as a separate child of `send`).
+        // In Prism, block_pass is in `call_node.block()`, so we reconstruct the total.
+        // This skips patterns like `native.===(*args, &bl)` which have 2 "children".
+        let arg_count = call_node.arguments().map_or(0, |a| a.arguments().len());
+        let has_block_arg = call_node
+            .block()
+            .is_some_and(|b| b.as_block_argument_node().is_some());
+        let total_args = arg_count + usize::from(has_block_arg);
+        if total_args != 1 {
+            return;
+        }
 
         // Skip regexp receivers (Performance/RegexpMatch handles those)
         if receiver.as_regular_expression_node().is_some()
