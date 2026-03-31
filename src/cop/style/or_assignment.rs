@@ -1,12 +1,19 @@
 use crate::cop::node_type::{
-    CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, GLOBAL_VARIABLE_READ_NODE,
-    GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE,
-    LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, OR_NODE,
+    CLASS_VARIABLE_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE,
+    LOCAL_VARIABLE_WRITE_NODE, UNLESS_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Detects patterns that can be replaced with `||=`.
+///
+/// Handles three patterns matching RuboCop's Style/OrAssignment:
+/// - Ternary: `x = x ? x : y` / `x = if x; x; else y; end` (skips elsif)
+/// - Modifier unless: `x = y unless x`
+/// - Block unless: `unless x; x = y; end` (skips unless-else)
+///
+/// Deliberately does NOT flag `x = x || y` — RuboCop's cop doesn't either.
 pub struct OrAssignment;
 
 impl OrAssignment {
@@ -68,25 +75,15 @@ impl OrAssignment {
             return Vec::new();
         };
 
-        // Check if the value is `x || y` where x is the same variable
-        if let Some(or_node) = value.as_or_node() {
-            let left = or_node.left();
-            if let Some(read_name) = Self::get_read_name(&left) {
-                if read_name == write_name {
-                    let loc = node.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![cop.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Use the double pipe equals operator `||=` instead.".to_string(),
-                    )];
+        // Check for ternary: `x = x ? x : y` or `x = if x; x; else y; end`
+        if let Some(if_node) = value.as_if_node() {
+            // Skip if there's an elsif (subsequent is another IfNode, not ElseNode)
+            if let Some(ref subsequent) = if_node.subsequent() {
+                if subsequent.as_if_node().is_some() {
+                    return Vec::new();
                 }
             }
-        }
 
-        // Check for ternary: `x = x ? x : y`
-        if let Some(if_node) = value.as_if_node() {
             let predicate = if_node.predicate();
             if let Some(pred_name) = Self::get_read_name(&predicate) {
                 if pred_name == write_name {
@@ -118,6 +115,124 @@ impl OrAssignment {
 
         Vec::new()
     }
+
+    /// Check for `unless x; x = y; end` and `x = y unless x` patterns
+    fn check_unless_assign(
+        cop: &OrAssignment,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+    ) -> Vec<Diagnostic> {
+        let unless_node = match node.as_unless_node() {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        // Skip unless with else clause — not equivalent to ||=
+        if unless_node.else_clause().is_some() {
+            return Vec::new();
+        }
+
+        // Get the predicate variable name
+        let predicate = unless_node.predicate();
+        let pred_name = match Self::get_read_name(&predicate) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        // Get the statements body — must have exactly one statement
+        let statements = match unless_node.statements() {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        let body: Vec<_> = statements.body().into_iter().collect();
+        if body.len() != 1 {
+            return Vec::new();
+        }
+
+        // The single statement must be a variable write with the same name
+        let write_name = match Self::get_write_name(&body[0]) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+        if write_name != pred_name {
+            return Vec::new();
+        }
+
+        let loc = node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![cop.diagnostic(
+            source,
+            line,
+            column,
+            "Use the double pipe equals operator `||=` instead.".to_string(),
+        )]
+    }
+
+    /// Check for `if x; else; x = y; end` pattern (empty then-branch)
+    fn check_if_unless_assign(
+        cop: &OrAssignment,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+    ) -> Vec<Diagnostic> {
+        let if_node = match node.as_if_node() {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        // Must have empty then-branch (statements is None)
+        if if_node.statements().is_some() {
+            return Vec::new();
+        }
+
+        // Get the predicate variable name
+        let predicate = if_node.predicate();
+        let pred_name = match Self::get_read_name(&predicate) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        // Get the else clause
+        let subsequent = match if_node.subsequent() {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        // The subsequent must be an ElseNode (not elsif)
+        let else_node = match subsequent.as_else_node() {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        // Get the else body — must have exactly one statement
+        let statements = match else_node.statements() {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        let body: Vec<_> = statements.body().into_iter().collect();
+        if body.len() != 1 {
+            return Vec::new();
+        }
+
+        // The single statement must be a variable write with the same name
+        let write_name = match Self::get_write_name(&body[0]) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+        if write_name != pred_name {
+            return Vec::new();
+        }
+
+        let loc = node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![cop.diagnostic(
+            source,
+            line,
+            column,
+            "Use the double pipe equals operator `||=` instead.".to_string(),
+        )]
+    }
 }
 
 impl Cop for OrAssignment {
@@ -127,16 +242,12 @@ impl Cop for OrAssignment {
 
     fn interested_node_types(&self) -> &'static [u8] {
         &[
-            CLASS_VARIABLE_READ_NODE,
             CLASS_VARIABLE_WRITE_NODE,
-            GLOBAL_VARIABLE_READ_NODE,
             GLOBAL_VARIABLE_WRITE_NODE,
             IF_NODE,
-            INSTANCE_VARIABLE_READ_NODE,
             INSTANCE_VARIABLE_WRITE_NODE,
-            LOCAL_VARIABLE_READ_NODE,
             LOCAL_VARIABLE_WRITE_NODE,
-            OR_NODE,
+            UNLESS_NODE,
         ]
     }
 
@@ -150,6 +261,8 @@ impl Cop for OrAssignment {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         diagnostics.extend(Self::check_or_assign(self, source, node));
+        diagnostics.extend(Self::check_unless_assign(self, source, node));
+        diagnostics.extend(Self::check_if_unless_assign(self, source, node));
     }
 }
 
