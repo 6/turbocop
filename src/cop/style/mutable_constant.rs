@@ -20,6 +20,16 @@ use crate::parse::source::SourceFile;
 /// - Fix: scan the full leading comment block for both frozen-string-literal
 ///   spellings, and recurse through nested interpolated-string parts before
 ///   treating a continued string as already frozen.
+///
+/// ## 2026-03-31 investigation
+///
+/// - FP: `has_frozen_string_literal_true` did not handle `=begin`/`=end` block
+///   comments in the leading section. Files with a `=begin` license block before
+///   `# frozen_string_literal: true` (e.g. `grosser/maxitest`) caused the
+///   scanner to hit `=begin` as a non-comment, non-blank line and `break`,
+///   missing the magic comment entirely. Plain string constants were then
+///   falsely flagged.
+/// - Fix: skip `=begin`/`=end` block comments during the leading-section scan.
 pub struct MutableConstant;
 
 impl MutableConstant {
@@ -271,6 +281,22 @@ impl MutableConstant {
         matches!(trimmed.clone().next(), Some(b'#'))
     }
 
+    /// Check if a line starts a `=begin` block comment.
+    fn is_begin_block_comment(line: &[u8]) -> bool {
+        line.starts_with(b"=begin")
+            && line.get(6).map_or(true, |&b| {
+                b == b' ' || b == b'\t' || b == b'\r' || b == b'\n'
+            })
+    }
+
+    /// Check if a line ends a `=begin` block comment with `=end`.
+    fn is_end_block_comment(line: &[u8]) -> bool {
+        line.starts_with(b"=end")
+            && line.get(4).map_or(true, |&b| {
+                b == b' ' || b == b'\t' || b == b'\r' || b == b'\n'
+            })
+    }
+
     fn starts_with_frozen_string_literal_key(s: &str) -> bool {
         let lower = s.to_ascii_lowercase();
         let bytes = lower.as_bytes();
@@ -331,8 +357,19 @@ impl MutableConstant {
     /// Check if the source file has a leading frozen string literal magic comment.
     /// This makes plain string literals frozen, but not interpolated strings.
     fn has_frozen_string_literal_true(source: &SourceFile) -> bool {
-        for line in source.lines() {
+        let lines = source.lines();
+        let mut iter = lines.into_iter().peekable();
+        while let Some(line) = iter.next() {
             if Self::is_blank_line(line) {
+                continue;
+            }
+            // Skip =begin ... =end block comments in the leading section
+            if Self::is_begin_block_comment(line) {
+                for inner in iter.by_ref() {
+                    if Self::is_end_block_comment(inner) {
+                        break;
+                    }
+                }
                 continue;
             }
             if Self::is_comment_line(line) {

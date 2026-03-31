@@ -1,4 +1,6 @@
-# Copyright 2026 Nitrocop
+=begin
+Copyright 2026 Nitrocop
+=end
 #
 # frozen-string-literal: true
 
