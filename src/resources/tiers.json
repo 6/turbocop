@@ -434,6 +434,7 @@
     "Rails/BulkChangeTable": "stable",
     "Rails/CompactBlank": "stable",
     "Rails/ContentTag": "stable",
+    "Rails/DangerousColumnNames": "stable",
     "Rails/Date": "stable",
     "Rails/DefaultScope": "stable",
     "Rails/DelegateAllowBlank": "stable",
