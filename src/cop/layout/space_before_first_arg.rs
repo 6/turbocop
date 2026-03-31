@@ -41,6 +41,18 @@ use crate::parse::source::SourceFile;
 /// prefix at the same column but are not aligned by RuboCop's
 /// `aligned_words?` check. Fixed by comparing the full first-argument source,
 /// matching RuboCop's `range.source` behavior.
+///
+/// ## Investigation findings (2026-03-31)
+///
+/// FP=3 from corpus. Two remaining RuboCop mismatches were found:
+/// 1. Alignment probing was using a byte column, so lines aligned by character
+///    columns but containing multibyte characters like `ü` or `ø` were falsely
+///    flagged.
+/// 2. For extra-space cases, RuboCop's `same_line?(first_arg, node)` checks the
+///    whole send node, not just the selector. Chained calls continued from a
+///    previous line like `...).\n  should  eql ...` are therefore exempt, even
+///    when the selector and first argument share a line. Fixed by matching both
+///    behaviors.
 pub struct SpaceBeforeFirstArg;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
@@ -57,7 +69,30 @@ fn is_setter_method(name: &[u8]) -> bool {
     name.len() >= 2 && name.last() == Some(&b'=') && !is_operator_method(name)
 }
 
-/// Check if the argument at `arg_col` (0-indexed byte column) is aligned with
+/// Convert a 0-indexed character column within a line to a byte offset.
+fn char_col_to_byte_offset(line: &[u8], col: usize) -> Option<usize> {
+    if col == 0 {
+        return Some(0);
+    }
+
+    let mut chars_seen = 0;
+    for (idx, &byte) in line.iter().enumerate() {
+        if (byte & 0xC0) != 0x80 {
+            if chars_seen == col {
+                return Some(idx);
+            }
+            chars_seen += 1;
+        }
+    }
+
+    if chars_seen == col {
+        Some(line.len())
+    } else {
+        None
+    }
+}
+
+/// Check if the argument at `arg_col` (0-indexed character column) is aligned with
 /// a token boundary on an adjacent line. Mirrors RuboCop's `aligned_with_something?`
 /// from `PrecedingFollowingAlignment`.
 ///
@@ -164,23 +199,27 @@ fn line_indentation(line: &[u8]) -> usize {
 /// Check if there's a token boundary at `col` on the given line,
 /// mirroring RuboCop's `aligned_words?`.
 fn check_alignment_at(adj_line: &[u8], col: usize, current_arg: &[u8]) -> bool {
-    if col >= adj_line.len() {
+    let Some(byte_col) = char_col_to_byte_offset(adj_line, col) else {
+        return false;
+    };
+
+    if byte_col >= adj_line.len() {
         return false;
     }
 
     // Mode 1: space + non-space at the same column (token boundary)
-    if adj_line[col] != b' '
-        && adj_line[col] != b'\t'
-        && col > 0
-        && (adj_line[col - 1] == b' ' || adj_line[col - 1] == b'\t')
+    if adj_line[byte_col] != b' '
+        && adj_line[byte_col] != b'\t'
+        && byte_col > 0
+        && (adj_line[byte_col - 1] == b' ' || adj_line[byte_col - 1] == b'\t')
     {
         return true;
     }
 
     // Mode 2: exact first-argument source match at the same position
     if !current_arg.is_empty()
-        && col + current_arg.len() <= adj_line.len()
-        && &adj_line[col..col + current_arg.len()] == current_arg
+        && byte_col + current_arg.len() <= adj_line.len()
+        && &adj_line[byte_col..byte_col + current_arg.len()] == current_arg
     {
         return true;
     }
@@ -263,7 +302,7 @@ impl Cop for SpaceBeforeFirstArg {
 
         // Must be on the same line
         let (method_line, _) = source.offset_to_line_col(method_end);
-        let (arg_line, _) = source.offset_to_line_col(arg_start);
+        let (arg_line, arg_col) = source.offset_to_line_col(arg_start);
         if method_line != arg_line {
             return;
         }
@@ -282,6 +321,14 @@ impl Cop for SpaceBeforeFirstArg {
         }
 
         if gap > 1 {
+            // RuboCop's extra-space path checks `same_line?(first_arg, node)`,
+            // where `node` is the whole send expression. Continued chained calls
+            // like `...).\n  should  eql ...` therefore do not register offenses.
+            let (node_line, _) = source.offset_to_line_col(call.location().start_offset());
+            if node_line != arg_line {
+                return;
+            }
+
             // More than one space/tab between method name and first arg
             let bytes = source.as_bytes();
             let between = &bytes[method_end..arg_start];
@@ -290,10 +337,7 @@ impl Cop for SpaceBeforeFirstArg {
                 // is actually aligned with a token on an adjacent line.
                 if allow_for_alignment {
                     let current_arg = &bytes[arg_start..arg_end];
-                    // Compute the byte column of the first argument on its line
-                    let line_start = source.line_start_offset(method_line);
-                    let arg_byte_col = arg_start - line_start;
-                    if is_aligned_with_adjacent(source, method_line, arg_byte_col, current_arg) {
+                    if is_aligned_with_adjacent(source, method_line, arg_col, current_arg) {
                         return;
                     }
                 }

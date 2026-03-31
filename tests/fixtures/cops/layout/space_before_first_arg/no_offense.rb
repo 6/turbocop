@@ -40,3 +40,19 @@ has_many    :foo, -> { where(active: true) },
                   class_name: 'Address'
 has_one     :bar, as: :addressable,
                   class_name: 'Address'
+
+# Continuation-line sends are not checked for extra spacing when the send
+# itself starts on a previous line.
+Treat::Entities::Entity.call_worker(
+'$'.to_entity, :tag, :lingua,
+Treat::Workers::Lexicalizers::Taggers, {}).
+should  eql '$'.tag(:lingua)
+
+# Alignment should use character columns, not byte columns.
+expect(JsRegex.new(/a/, options: 'f').options).to      eq('')
+expect(JsRegex.new(/a/, options: 'fLüYz').options).to  eq('')
+expect(JsRegex.new(/a/, options: '').options).to       eq('')
+
+expect(RomanChord.new('iiio7', key: key).quality.name).to   eq 'dim7'
+expect(RomanChord.new('ivø', key: key).quality.name).to     eq 'm7b5'
+expect(RomanChord.new('VIIm7b5', key: key).quality.name).to eq 'm7b5'
