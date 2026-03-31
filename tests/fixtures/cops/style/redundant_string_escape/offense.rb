@@ -55,3 +55,10 @@ HEREDOC
 
 %Q!foo\'bar!
       ^^ Style/RedundantStringEscape: Redundant escape of `'` in string.
+
+%W[\" ']
+   ^^ Style/RedundantStringEscape: Redundant escape of `"` in string.
+
+"\“#{locale}\”"
+ ^^ Style/RedundantStringEscape: Redundant escape of `“` in string.
+            ^^ Style/RedundantStringEscape: Redundant escape of `”` in string.

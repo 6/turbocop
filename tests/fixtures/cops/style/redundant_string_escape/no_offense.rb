@@ -22,3 +22,8 @@ SQUOTE
 <<~HEREDOC
   \ text
 HEREDOC
+"\ê"
+%W[foo\ bar]
+msg = <<~TXT
+  foo\ bar
+TXT
