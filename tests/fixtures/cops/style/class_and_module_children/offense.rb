@@ -29,3 +29,30 @@ module Foo::Bar
   module Baz
   end
 end
+
+# Compact-style class inside multi-statement module body
+module Outer
+  CONSTANT = 1
+  class Inner::Name
+        ^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+  end
+end
+
+# Compact-style module inside multi-statement module body
+module Container
+  require 'something'
+  module Nested::Path
+         ^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+  end
+end
+
+# Multiple compact-style inside same module body
+module Multi
+  CONST = true
+  class Alpha::Beta
+        ^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+  end
+  module Gamma::Delta
+         ^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+  end
+end
