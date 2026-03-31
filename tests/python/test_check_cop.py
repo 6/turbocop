@@ -387,3 +387,74 @@ def test_summary_shows_improvement_correctly():
     assert g["total_local_fp"] == 2
     assert g["resolved_fp"] == 3
     assert g["new_fp"] == 0
+
+
+# ── sampling tests for relevant_repos_for_cop ──
+
+
+def test_sample_caps_when_fewer_diverging_than_sample():
+    """When diverging < sample, fill remaining slots by offense count."""
+    data = {
+        "cop_activity_repos": {
+            "Style/Foo": [f"repo-{i}" for i in range(20)],
+        },
+        "by_repo_cop": {
+            "repo-0": {"Style/Foo": {"matches": 5, "fp": 2, "fn": 0}},
+            "repo-1": {"Style/Foo": {"matches": 10, "fp": 0, "fn": 3}},
+            # repo-2..19 have activity but no divergence
+            **{
+                f"repo-{i}": {"Style/Foo": {"matches": 100 - i, "fp": 0, "fn": 0}}
+                for i in range(2, 20)
+            },
+        },
+    }
+    result = check_cop.relevant_repos_for_cop("Style/Foo", data, sample=5)
+    assert len(result) == 5
+    # Both diverging repos must be included
+    assert "repo-0" in result
+    assert "repo-1" in result
+
+
+def test_sample_caps_diverging_repos_when_exceeding_sample():
+    """When diverging repos exceed sample, pick top N by FP+FN."""
+    # 30 repos, all diverging with different FP+FN counts
+    activity = [f"repo-{i}" for i in range(30)]
+    by_repo_cop = {
+        f"repo-{i}": {"Style/Foo": {"matches": 10, "fp": i, "fn": i}}
+        for i in range(30)
+    }
+    data = {
+        "cop_activity_repos": {"Style/Foo": activity},
+        "by_repo_cop": by_repo_cop,
+    }
+    result = check_cop.relevant_repos_for_cop("Style/Foo", data, sample=5)
+    # Must be exactly 5, not 30
+    assert len(result) == 5
+    # The top 5 by FP+FN are repo-29..repo-25
+    for i in range(25, 30):
+        assert f"repo-{i}" in result
+
+
+def test_sample_none_returns_all_relevant():
+    """Without sample, all relevant repos are returned."""
+    data = {
+        "cop_activity_repos": {
+            "Style/Foo": [f"repo-{i}" for i in range(50)],
+        },
+        "by_repo_cop": {
+            f"repo-{i}": {"Style/Foo": {"matches": 10, "fp": 1, "fn": 1}}
+            for i in range(50)
+        },
+    }
+    result = check_cop.relevant_repos_for_cop("Style/Foo", data, sample=None)
+    assert len(result) == 50
+
+
+def test_sample_equal_to_relevant_returns_all():
+    """When sample >= relevant count, return all."""
+    data = {
+        "cop_activity_repos": {"Style/Foo": ["repo-a", "repo-b"]},
+        "by_repo_cop": {},
+    }
+    result = check_cop.relevant_repos_for_cop("Style/Foo", data, sample=10)
+    assert result == {"repo-a", "repo-b"}

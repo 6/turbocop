@@ -328,20 +328,36 @@ def relevant_repos_for_cop(
                 diverging.add(repo_id)
             offense_counts[repo_id] = entry.get("matches", 0) + fp + fn
 
-        # Start with all diverging repos, then fill by offense count
-        sampled = set(diverging)
-        remaining = sorted(
-            relevant - sampled,
-            key=lambda r: offense_counts.get(r, 0),
-            reverse=True,
-        )
-        for repo_id in remaining:
-            if len(sampled) >= sample:
-                break
-            sampled.add(repo_id)
-        print(f"  --sample: {len(sampled)}/{len(relevant)} repos "
-              f"({len(diverging)} diverging + {len(sampled) - len(diverging)} by offense count)",
-              file=sys.stderr)
+        # Start with diverging repos (capped to sample size by highest
+        # divergence), then fill remaining slots by offense count.
+        if len(diverging) > sample:
+            # Too many diverging repos — pick the ones with highest FP+FN
+            diverging_ranked = sorted(
+                diverging,
+                key=lambda r: (
+                    by_repo_cop.get(r, {}).get(cop_name, {}).get("fp", 0)
+                    + by_repo_cop.get(r, {}).get(cop_name, {}).get("fn", 0)
+                ),
+                reverse=True,
+            )
+            sampled = set(diverging_ranked[:sample])
+            print(f"  --sample: {len(sampled)}/{len(relevant)} repos "
+                  f"({len(sampled)} of {len(diverging)} diverging, by highest FP+FN)",
+                  file=sys.stderr)
+        else:
+            sampled = set(diverging)
+            remaining = sorted(
+                relevant - sampled,
+                key=lambda r: offense_counts.get(r, 0),
+                reverse=True,
+            )
+            for repo_id in remaining:
+                if len(sampled) >= sample:
+                    break
+                sampled.add(repo_id)
+            print(f"  --sample: {len(sampled)}/{len(relevant)} repos "
+                  f"({len(diverging)} diverging + {len(sampled) - len(diverging)} by offense count)",
+                  file=sys.stderr)
         return sampled
 
     return relevant
