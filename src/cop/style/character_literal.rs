@@ -84,7 +84,6 @@ impl Cop for CharacterLiteral {
             return;
         }
 
-        let loc = string_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         let mut diag = self.diagnostic(
             source,
