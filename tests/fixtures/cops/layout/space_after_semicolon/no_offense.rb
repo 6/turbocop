@@ -19,3 +19,8 @@ end
 begin ;\
   replace_output = @output_stream.equal?($stdout) ;\
 end
+
+# Semicolons followed by closing delimiters (RuboCop skips these)
+value.each {|v| (x = v; break;) if v}
+(class << self; self; end;).class_eval do
+end
