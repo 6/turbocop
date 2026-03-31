@@ -75,3 +75,14 @@ RSpec.describe 'parent' do
     expect(group).not_to be_nil
   end
 end
+
+# Example group followed by __END__ — RuboCop treats __END__ as end-of-file
+describe 'before __END__' do
+  describe 'inner' do
+    it 'works' do
+    end
+  end
+end
+__END__
+
+This is data after __END__, not Ruby code.
