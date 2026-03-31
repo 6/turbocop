@@ -41,14 +41,14 @@ describe Connection do
   it { expect(connection).to be_valid }
 end
 
-# RuboCop 1.84.2 + rubocop-rspec 3.9.0 drops a scattered block_pass let
+# RuboCop 1.84.2 + rubocop-rspec 3.9.0 drops a scattered bare block_pass let
 describe HookedConnection do
   let(:connection) { described_class.new }
   before { setup }
   let :fresh_connection, &NEW_PG_CONNECTION
 end
 
-# Corpus FP: nested example group inside an iterator with a scattered block_pass let
+# Corpus FP: nested example group inside an iterator with a scattered bare block_pass let
 describe Que::Connection do
   QUE_POOLS.each do |name, pool|
     describe "with a #{name} connection pool" do
@@ -72,7 +72,7 @@ describe Que::Connection do
   end
 end
 
-# Once RuboCop hits the scattered block_pass let, it stops reporting later lets in the group
+# Once RuboCop hits the scattered bare block_pass let, it stops reporting later lets in the group
 describe LaterRegularLet do
   let(:connection) { described_class.new }
   before { setup }

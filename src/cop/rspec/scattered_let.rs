@@ -32,14 +32,16 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Corpus investigation (2026-03-31) — FP=1
 ///
-/// FP=1: a scattered `let :name, &PROC` is a corpus mismatch even under the oracle's
-/// baseline bundle. RuboCop 1.84.2 + rubocop-rspec 3.9.0 crashes while building the
-/// autocorrection for that node shape, so the observable result is "no offense" for the
-/// block-pass let and anything later in that group.
+/// FP=1: a scattered bare `let :name, &PROC` is a corpus mismatch even under the
+/// oracle's baseline bundle. RuboCop 1.84.2 + rubocop-rspec 3.9.0 crashes while
+/// building the autocorrection for that node shape, so the observable result is
+/// "no offense" for that bare block-pass let and anything later in that group.
 ///
-/// Match RuboCop's current behavior by treating a block-pass let in the initial let group
-/// as a normal let, but stop scanning the rest of the group once a block-pass let appears
-/// after a non-let sibling. Earlier regular offenses in the same group must still be kept.
+/// Match RuboCop's current behavior by treating block-pass lets in the initial let
+/// group as normal lets, but stop scanning the rest of the group once a bare
+/// block-pass let appears after a non-let sibling. Parenthesized
+/// `let(:name, &PROC)` still reports normally. Earlier regular offenses in the
+/// same group must still be kept.
 pub struct ScatteredLet;
 
 impl Cop for ScatteredLet {
@@ -127,15 +129,16 @@ impl Cop for ScatteredLet {
                 let has_block_pass = c
                     .block()
                     .is_some_and(|b| b.as_block_argument_node().is_some());
+                let is_bare_call = c.opening_loc().is_none();
                 if c.receiver().is_none()
                     && is_rspec_let(name)
                     && (has_block_node || has_block_pass)
                 {
                     if seen_non_let {
-                        if has_block_pass {
+                        if has_block_pass && is_bare_call {
                             // RuboCop's current implementation crashes when a scattered
-                            // `let ... &PROC` needs autocorrection, so no offense from this
-                            // node or any later sibling is reported for the group.
+                            // bare `let :name, &PROC` needs autocorrection, so no offense
+                            // from this node or any later sibling is reported for the group.
                             break;
                         }
 
