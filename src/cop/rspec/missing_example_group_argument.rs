@@ -57,9 +57,9 @@ impl Cop for MissingExampleGroupArgument {
         // (`do...end`, `{ ... }`) should count here. Prism also stores `&block`
         // forwarding in `call.block()` as `BlockArgumentNode`, which must not
         // be treated as an example-group block.
-        if !call
+        if call
             .block()
-            .is_some_and(|block| block.as_block_node().is_some())
+            .is_none_or(|block| block.as_block_node().is_none())
         {
             return;
         }
