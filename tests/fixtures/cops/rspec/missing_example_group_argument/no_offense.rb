@@ -11,3 +11,7 @@ RSpec.describe FooClass do
     end
   end
 end
+
+def capture_reported_execution_result_for_example(reporter, &block)
+  RSpec.describe(&block).run(reporter)
+end

@@ -4,6 +4,14 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Flags example groups whose first argument is missing.
+///
+/// ## Corpus investigation (2026-03-31)
+/// FP=1 fixed. `RSpec.describe(&block).run(reporter)` was incorrectly flagged
+/// because Prism exposes `&block` forwarding via `call.block()` as a
+/// `BlockArgumentNode`, while RuboCop only checks real block wrappers in
+/// `on_block`. Fix: require `call.block()` to be an actual `BlockNode`
+/// before checking for a missing example-group argument.
 pub struct MissingExampleGroupArgument;
 
 const EXAMPLE_GROUP_METHODS: &[&[u8]] = &[b"describe", b"context", b"feature", b"example_group"];
@@ -45,8 +53,14 @@ impl Cop for MissingExampleGroupArgument {
             return;
         }
 
-        // Must have a block
-        if call.block().is_none() {
+        // RuboCop runs this cop from `on_block`, so only real block wrappers
+        // (`do...end`, `{ ... }`) should count here. Prism also stores `&block`
+        // forwarding in `call.block()` as `BlockArgumentNode`, which must not
+        // be treated as an example-group block.
+        if !call
+            .block()
+            .is_some_and(|block| block.as_block_node().is_some())
+        {
             return;
         }
 
