@@ -35,6 +35,12 @@ def foo
   end
 end
 
+# Embedded assignment used as a bare method argument is not a chained assignment
+def bar
+  body = wrap_file_body path =
+                          File.expand_path('../../files/image.jpg', File.dirname(__FILE__))
+end
+
 # Properly indented operator assignments
 x +=
   1
