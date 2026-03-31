@@ -41,3 +41,15 @@ end
 
 module ::Baz::Qux
 end
+
+# Compact-style as sole body of outer module — not flagged
+# (in RuboCop, node.parent is the module, so it's skipped)
+module Wrapper
+  class Inner::Name
+  end
+end
+
+module Outer
+  module Inner::Nested
+  end
+end

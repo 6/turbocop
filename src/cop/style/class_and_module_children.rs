@@ -4,6 +4,20 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// FN fix: The `inside_class_or_module` boolean was too broad — it suppressed
+/// detection of ALL compact-style definitions nested inside any class/module.
+/// RuboCop's `node.parent&.type?(:class, :module)` only skips when the compact
+/// definition is the sole body statement (parser gem doesn't wrap single-child
+/// bodies in a `begin` node). Changed to `parent_is_class_or_module` which is
+/// true only when body has exactly 1 statement, matching RuboCop's behavior.
+/// This resolved ~636 FN (compact defs inside multi-statement module bodies).
+///
+/// Remaining FP (8): RuboCop crashes on `x = module Foo::Bar` and
+/// `@var = class Foo::Bar < Base` patterns (expression-based class/module defs),
+/// reporting 0 offenses due to internal error. Not a real detection difference.
+///
+/// Remaining FN (~217): likely config/context issues or patterns inside
+/// non-class/module containers (method defs, blocks) where the flag leaks.
 pub struct ClassAndModuleChildren;
 
 impl Cop for ClassAndModuleChildren {
@@ -29,7 +43,7 @@ impl Cop for ClassAndModuleChildren {
             enforced_style,
             enforced_for_classes,
             enforced_for_modules,
-            inside_class_or_module: false,
+            parent_is_class_or_module: false,
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -59,7 +73,12 @@ struct ChildrenVisitor<'a> {
     enforced_style: String,
     enforced_for_classes: String,
     enforced_for_modules: String,
-    inside_class_or_module: bool,
+    /// Mirrors RuboCop's `node.parent&.type?(:class, :module)`.
+    /// True when the current node is the sole body statement of a class/module,
+    /// meaning its AST parent (in parser gem terms) IS the class/module itself.
+    /// When a class/module body has multiple statements, parser gem wraps them
+    /// in a `begin` node, so children's parent is `begin`, not the class/module.
+    parent_is_class_or_module: bool,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -112,12 +131,13 @@ impl<'a> ChildrenVisitor<'a> {
     }
 
     fn check_nested_style(&mut self, is_compact: bool, name_offset: usize) {
-        // For nested style: flag compact-style definitions (with ::) at top level
+        // For nested style: flag compact-style definitions (with ::)
         if !is_compact {
             return;
         }
-        // Skip if inside another class/module (RuboCop: return if node.parent&.type?(:class, :module))
-        if self.inside_class_or_module {
+        // RuboCop: return if node.parent&.type?(:class, :module)
+        // Only skip when this node is the sole body statement of a parent class/module.
+        if self.parent_is_class_or_module {
             return;
         }
         self.add_diagnostic(
@@ -128,8 +148,8 @@ impl<'a> ChildrenVisitor<'a> {
 
     fn check_compact_style(&mut self, body: &Option<ruby_prism::Node<'a>>, name_offset: usize) {
         // For compact style: flag outer nodes whose body is a single class/module
-        // Skip if inside another class/module (RuboCop: return if parent&.type?(:class, :module))
-        if self.inside_class_or_module {
+        // RuboCop: return if parent&.type?(:class, :module)
+        if self.parent_is_class_or_module {
             return;
         }
         if !self.body_is_single_class_or_module(body) {
@@ -139,6 +159,20 @@ impl<'a> ChildrenVisitor<'a> {
             name_offset,
             "Use compact module/class definition instead of nested style.".to_string(),
         );
+    }
+}
+
+/// Count the number of statements in a class/module body.
+/// In RuboCop's parser gem, single-statement bodies make the child's parent
+/// the class/module itself, while multi-statement bodies wrap in a `begin` node.
+fn body_statement_count(body: &Option<ruby_prism::Node<'_>>) -> usize {
+    let Some(body_node) = body else {
+        return 0;
+    };
+    if let Some(stmts) = body_node.as_statements_node() {
+        stmts.body().iter().count()
+    } else {
+        1
     }
 }
 
@@ -175,10 +209,10 @@ impl<'a> Visit<'a> for ChildrenVisitor<'a> {
         // RuboCop: return if node.identifier.namespace&.cbase_type?
         // Skip absolute constant paths (e.g., ::Foo::Bar)
         if has_cbase(&constant_path) {
-            let prev = self.inside_class_or_module;
-            self.inside_class_or_module = true;
+            let prev = self.parent_is_class_or_module;
+            self.parent_is_class_or_module = body_statement_count(&node.body()) == 1;
             ruby_prism::visit_class_node(self, node);
-            self.inside_class_or_module = prev;
+            self.parent_is_class_or_module = prev;
             return;
         }
 
@@ -187,10 +221,10 @@ impl<'a> Visit<'a> for ChildrenVisitor<'a> {
         let has_superclass = node.superclass().is_some();
         if has_superclass && style != "nested" {
             // Still visit children
-            let prev = self.inside_class_or_module;
-            self.inside_class_or_module = true;
+            let prev = self.parent_is_class_or_module;
+            self.parent_is_class_or_module = body_statement_count(&node.body()) == 1;
             ruby_prism::visit_class_node(self, node);
-            self.inside_class_or_module = prev;
+            self.parent_is_class_or_module = prev;
             return;
         }
 
@@ -201,11 +235,11 @@ impl<'a> Visit<'a> for ChildrenVisitor<'a> {
             self.check_compact_style(&body, name_offset);
         }
 
-        // Visit children inside class/module context
-        let prev = self.inside_class_or_module;
-        self.inside_class_or_module = true;
+        // Visit children: set parent_is_class_or_module based on body count
+        let prev = self.parent_is_class_or_module;
+        self.parent_is_class_or_module = body_statement_count(&node.body()) == 1;
         ruby_prism::visit_class_node(self, node);
-        self.inside_class_or_module = prev;
+        self.parent_is_class_or_module = prev;
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'a>) {
@@ -216,10 +250,10 @@ impl<'a> Visit<'a> for ChildrenVisitor<'a> {
 
         // RuboCop: return if node.identifier.namespace&.cbase_type?
         if has_cbase(&constant_path) {
-            let prev = self.inside_class_or_module;
-            self.inside_class_or_module = true;
+            let prev = self.parent_is_class_or_module;
+            self.parent_is_class_or_module = body_statement_count(&node.body()) == 1;
             ruby_prism::visit_module_node(self, node);
-            self.inside_class_or_module = prev;
+            self.parent_is_class_or_module = prev;
             return;
         }
 
@@ -230,11 +264,11 @@ impl<'a> Visit<'a> for ChildrenVisitor<'a> {
             self.check_compact_style(&body, name_offset);
         }
 
-        // Visit children inside class/module context
-        let prev = self.inside_class_or_module;
-        self.inside_class_or_module = true;
+        // Visit children: set parent_is_class_or_module based on body count
+        let prev = self.parent_is_class_or_module;
+        self.parent_is_class_or_module = body_statement_count(&node.body()) == 1;
         ruby_prism::visit_module_node(self, node);
-        self.inside_class_or_module = prev;
+        self.parent_is_class_or_module = prev;
     }
 }
 
