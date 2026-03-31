@@ -78,8 +78,3 @@ parse_err 'node after a sig must be a method definition', def_node \
   unless [:attr_reader, :attr_writer, :attr_accessor].include?(method_name) \
                                                                             ^ Style/RedundantLineContinuation: Redundant line continuation.
     || target != nil
-
-parse_err 'node after a sig must be a method definition', def_node \
-  unless [:attr_reader, :attr_writer, :attr_accessor].include?(method_name) \
-                                                                            ^ Style/RedundantLineContinuation: Redundant line continuation.
-    || target != nil
