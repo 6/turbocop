@@ -1,3 +1,5 @@
+use ruby_prism::Visit;
+
 use crate::cop::node_type::STRING_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -7,14 +9,21 @@ use crate::parse::source::SourceFile;
 ///
 /// Corpus oracle reported FP=2, FN=33.
 ///
-/// Root cause: the source length check used byte length (`[u8]::len()`) instead of
+/// Root cause (FN=33): the source length check used byte length (`[u8]::len()`) instead of
 /// Unicode character count. RuboCop uses `node.source.size.between?(2, 3)` which
 /// counts characters, not bytes. Multi-byte character literals like `?中` (4 bytes
 /// but 2 chars) were incorrectly skipped as meta/control characters because their
 /// byte length exceeded 3. Fixed by using `str::chars().count()` instead.
 ///
-/// This fix should address most of the FN=33 (multi-byte Unicode character literals)
-/// and possibly FP=2 (if related to the same boundary mismatch).
+/// ## Corpus investigation (2026-03-31)
+///
+/// Corpus oracle reported FP=2, FN=0.
+///
+/// Root cause (FP=2): RuboCop's `StringHelp` mixin calls `ignore_node` on regexp
+/// nodes (`on_regexp`), so character literals inside regexp interpolations like
+/// `/#{foo.join(?,)}/` or `%r{#{bar.join(?|)}}` are skipped. Nitrocop was missing
+/// this check. Fixed by detecting if the string node is inside an
+/// `InterpolatedRegularExpressionNode` and skipping it.
 pub struct CharacterLiteral;
 
 impl Cop for CharacterLiteral {
@@ -67,6 +76,14 @@ impl Cop for CharacterLiteral {
             return;
         }
 
+        // RuboCop's StringHelp mixin ignores string nodes inside regexp nodes
+        // (on_regexp calls ignore_node, then on_str checks part_of_ignored_node?).
+        // Skip character literals inside regexp interpolation like /#{foo(?,)}/.
+        let loc = string_node.location();
+        if is_inside_regexp(_parse_result, loc.start_offset(), loc.end_offset()) {
+            return;
+        }
+
         let loc = string_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         let mut diag = self.diagnostic(
@@ -100,6 +117,34 @@ impl Cop for CharacterLiteral {
         }
         diagnostics.push(diag);
     }
+}
+
+/// Check if the given byte range falls inside an `InterpolatedRegularExpressionNode`.
+/// RuboCop's `StringHelp` mixin skips all string nodes inside regexp nodes.
+fn is_inside_regexp(parse_result: &ruby_prism::ParseResult<'_>, start: usize, end: usize) -> bool {
+    struct RegexpFinder {
+        start: usize,
+        end: usize,
+        found: bool,
+    }
+    impl<'pr> Visit<'pr> for RegexpFinder {
+        fn visit_interpolated_regular_expression_node(
+            &mut self,
+            node: &ruby_prism::InterpolatedRegularExpressionNode<'pr>,
+        ) {
+            let loc = node.location();
+            if self.start >= loc.start_offset() && self.end <= loc.end_offset() {
+                self.found = true;
+            }
+        }
+    }
+    let mut finder = RegexpFinder {
+        start,
+        end,
+        found: false,
+    };
+    finder.visit(&parse_result.node());
+    finder.found
 }
 
 #[cfg(test)]
