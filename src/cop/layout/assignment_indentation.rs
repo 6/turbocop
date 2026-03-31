@@ -217,7 +217,6 @@ impl AssignmentIndentation {
     fn check_write(
         &self,
         source: &SourceFile,
-        _node: &ruby_prism::Node<'_>,
         name_offset: usize,
         operator_offset: usize,
         value: &ruby_prism::Node<'_>,
@@ -323,7 +322,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_local_variable_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -334,7 +332,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_instance_variable_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -345,7 +342,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_class_variable_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -356,7 +352,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_global_variable_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -367,7 +362,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_constant_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -379,7 +373,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_local_variable_operator_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.binary_operator_loc().start_offset(),
                 &n.value(),
@@ -390,7 +383,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_instance_variable_operator_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.binary_operator_loc().start_offset(),
                 &n.value(),
@@ -401,7 +393,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_class_variable_operator_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.binary_operator_loc().start_offset(),
                 &n.value(),
@@ -412,7 +403,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_global_variable_operator_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.binary_operator_loc().start_offset(),
                 &n.value(),
@@ -423,7 +413,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_constant_operator_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.binary_operator_loc().start_offset(),
                 &n.value(),
@@ -435,7 +424,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_local_variable_or_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -446,7 +434,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_instance_variable_or_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -457,7 +444,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_class_variable_or_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -468,7 +454,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_global_variable_or_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -479,7 +464,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_constant_or_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -491,7 +475,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_local_variable_and_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -502,7 +485,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_instance_variable_and_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -513,7 +495,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_class_variable_and_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -524,7 +505,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_global_variable_and_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -535,7 +515,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_constant_and_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.name_loc().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -548,7 +527,6 @@ impl Cop for AssignmentIndentation {
             // Use the start of the whole multi-write node (first target) as the base
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.location().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -560,7 +538,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_constant_path_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.target().location().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -571,7 +548,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_constant_path_operator_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.target().location().start_offset(),
                 n.binary_operator_loc().start_offset(),
                 &n.value(),
@@ -582,7 +558,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_constant_path_or_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.target().location().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -593,7 +568,6 @@ impl Cop for AssignmentIndentation {
         if let Some(n) = node.as_constant_path_and_write_node() {
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 n.target().location().start_offset(),
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -622,7 +596,6 @@ impl Cop for AssignmentIndentation {
                             .unwrap_or(base_offset);
                         diagnostics.extend(self.check_write(
                             source,
-                            node,
                             base_offset,
                             op_offset,
                             last_arg,
@@ -642,7 +615,6 @@ impl Cop for AssignmentIndentation {
             };
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 base_offset,
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -658,7 +630,6 @@ impl Cop for AssignmentIndentation {
             };
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 base_offset,
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -674,7 +645,6 @@ impl Cop for AssignmentIndentation {
             };
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 base_offset,
                 n.binary_operator_loc().start_offset(),
                 &n.value(),
@@ -691,7 +661,6 @@ impl Cop for AssignmentIndentation {
             };
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 base_offset,
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -707,7 +676,6 @@ impl Cop for AssignmentIndentation {
             };
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 base_offset,
                 n.operator_loc().start_offset(),
                 &n.value(),
@@ -723,7 +691,6 @@ impl Cop for AssignmentIndentation {
             };
             diagnostics.extend(self.check_write(
                 source,
-                node,
                 base_offset,
                 n.binary_operator_loc().start_offset(),
                 &n.value(),
