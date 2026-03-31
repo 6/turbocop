@@ -472,3 +472,38 @@ describe "with real interaction" do
     )
   end
 end if ENV["S3_REAL"]
+
+# FP fix (round 9): RuboCop ignores !! inside string interpolation
+def log_state(part, results, cond)
+  results << "part = #{!!part}" unless cond
+  finalize(results)
+end
+
+# FP fix (round 9): receiverful define_method blocks are treated like method bodies
+def install_predicate(builder, flag)
+  builder.define_method(:active?) do
+    value = !!flag
+    consume(value)
+  end
+end
+
+# FP fix (round 9): receiverless define_method also allows !! outside the final statement
+def define_boolean_writer(attr)
+  define_method("#{attr}=") do |arg|
+    value = case arg
+            when nil then nil
+            else !!arg
+            end
+    instance_variable_set("@#{attr}", value)
+  end
+end
+
+# FP fix (round 9): single-statement case bodies dig into the last branch expression
+def present?(data)
+  case data
+  when String
+    !(data.empty? || /\A[[:space:]]*\z/.match(data))
+  else
+    data.respond_to?(:empty?) ? !data.empty? : !!data
+  end
+end

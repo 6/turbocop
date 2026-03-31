@@ -159,6 +159,25 @@ use crate::parse::source::SourceFile;
 /// when a def is entered later. (3) Added `visit_and_node` and `visit_or_node`
 /// to clear `parenthesized_last_line`, preventing the lenient parens check from
 /// leaking through `and`/`or` nodes.
+///
+/// Corpus investigation (round 9): remaining FPs were two narrow Parser-vs-Prism
+/// mismatches. First, RuboCop treats `define_method`/`define_singleton_method`
+/// blocks as method definitions by using the send node itself as the "def"
+/// ancestor, so `child_nodes.last` points at the method-name argument instead of
+/// the block body. nitrocop used the block body directly, incorrectly flagging
+/// `!!` inside non-final statements of those blocks. Second, Parser AST models
+/// interpolation as a `begin` node and `case` as a node whose `child_nodes.last`
+/// is the last branch body expression. Prism uses `EmbeddedStatementsNode` for
+/// interpolation and keeps `CaseNode` opaque, so nitrocop missed RuboCop's
+/// begin-like same-line allowance inside conditional interpolation and failed to
+/// dig into single-statement `case` bodies.
+///
+/// Fix (round 9): (1) Treat both receiverless and receiverful
+/// `define_method`/`define_singleton_method` calls as RuboCop does by deriving
+/// def-body info from the send node's last argument instead of the block body.
+/// (2) Treat `EmbeddedStatementsNode` like Parser's `begin` node for the
+/// conditional same-line check. (3) Add `CaseNode` dig-in to `parser_last_child`
+/// so single-statement case bodies use their last branch expression.
 pub struct DoubleNegation;
 
 impl Cop for DoubleNegation {
@@ -185,7 +204,7 @@ impl Cop for DoubleNegation {
             conditional_last_line_stack: Vec::new(),
             statements_last_line_stack: Vec::new(),
             parent_is_statements: false,
-            parenthesized_last_line: None,
+            begin_like_last_line: None,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -222,12 +241,12 @@ struct DoubleNegationVisitor<'a> {
     /// stmts_last_line check apply — matching RuboCop's
     /// `find_parent_not_enumerable` + `begin_type?` check.
     parent_is_statements: bool,
-    /// Last line of the immediately enclosing `ParenthesesNode`, if any.
-    /// In Parser AST, parenthesized expressions create `begin` nodes, and
-    /// `find_parent_not_enumerable` returns them as `begin_type?`. When this
-    /// is `Some`, the lenient same-line check applies instead of the strict
+    /// Last line of the immediately enclosing Parser-`begin` equivalent, if any.
+    /// In Parser AST, both parenthesized expressions and interpolation bodies
+    /// create `begin` nodes. When this is `Some`, RuboCop uses the lenient
+    /// same-line check instead of the strict
     /// `last_child_last_line <= cond_last_line` check.
-    parenthesized_last_line: Option<usize>,
+    begin_like_last_line: Option<usize>,
 }
 
 impl DoubleNegationVisitor<'_> {
@@ -343,8 +362,8 @@ impl DoubleNegationVisitor<'_> {
             // In Prism, parenthesized expressions create `ParenthesesNode`.
             // When `parenthesized_last_line` is set, apply the same lenient
             // check: `!!` is allowed if on the same line as the parens.
-            if let Some(paren_last_line) = self.parenthesized_last_line {
-                return node_line == paren_last_line;
+            if let Some(begin_last_line) = self.begin_like_last_line {
+                return node_line == begin_last_line;
             }
 
             // Only apply the statements line check when the !! node's
@@ -506,6 +525,23 @@ impl DoubleNegationVisitor<'_> {
             return if_node.statements().map(|s| s.as_node());
         }
 
+        // CaseNode: child_nodes.last in Parser = else body if present, otherwise
+        // the last when-branch body.
+        if let Some(case_node) = node.as_case_node() {
+            if let Some(else_node) = case_node.else_clause() {
+                if let Some(stmts) = else_node.statements() {
+                    return Some(stmts.as_node());
+                }
+            }
+
+            if let Some(last_when) = case_node.conditions().iter().last() {
+                if let Some(when_node) = last_when.as_when_node() {
+                    return when_node.statements().map(|s| s.as_node());
+                }
+                return Some(last_when);
+            }
+        }
+
         // OrNode: child_nodes.last = right side
         if let Some(or_node) = node.as_or_node() {
             return Some(or_node.right());
@@ -653,16 +689,14 @@ impl DoubleNegationVisitor<'_> {
     }
 
     /// Enter a method body: compute last-child info, push to stack, visit body, pop.
-    fn with_def_body<F>(&mut self, body: Option<ruby_prism::Node<'_>>, visit_fn: F)
+    fn with_def_info<F>(&mut self, info: Option<DefBodyInfo>, visit_fn: F)
     where
         F: FnOnce(&mut Self),
     {
         let prev_def_len = self.def_info_stack.len();
 
-        if let Some(ref body_node) = body {
-            if let Some(info) = self.find_last_child_info(body_node) {
-                self.def_info_stack.push(info);
-            }
+        if let Some(info) = info {
+            self.def_info_stack.push(info);
         }
 
         // Save and clear statements stack and flags — these don't cross def boundaries.
@@ -674,16 +708,37 @@ impl DoubleNegationVisitor<'_> {
         // true, allowing `!!` inside the def.
         let saved_stmts = std::mem::take(&mut self.statements_last_line_stack);
         let saved_parent_is_statements = self.parent_is_statements;
-        let saved_parenthesized = self.parenthesized_last_line;
+        let saved_begin_like = self.begin_like_last_line;
         self.parent_is_statements = false;
-        self.parenthesized_last_line = None;
+        self.begin_like_last_line = None;
 
         visit_fn(self);
 
         self.def_info_stack.truncate(prev_def_len);
         self.statements_last_line_stack = saved_stmts;
         self.parent_is_statements = saved_parent_is_statements;
-        self.parenthesized_last_line = saved_parenthesized;
+        self.begin_like_last_line = saved_begin_like;
+    }
+
+    fn with_def_body<F>(&mut self, body: Option<ruby_prism::Node<'_>>, visit_fn: F)
+    where
+        F: FnOnce(&mut Self),
+    {
+        let info = body
+            .as_ref()
+            .and_then(|body_node| self.find_last_child_info(body_node));
+        self.with_def_info(info, visit_fn);
+    }
+
+    fn define_method_call_info(&self, node: &ruby_prism::CallNode<'_>) -> Option<DefBodyInfo> {
+        if let Some(args) = node.arguments() {
+            if let Some(last_arg) = args.arguments().iter().last() {
+                return Some(self.node_to_def_body_info(&last_arg));
+            }
+        }
+
+        node.receiver()
+            .map(|receiver| self.node_to_def_body_info(&receiver))
     }
 }
 
@@ -694,25 +749,23 @@ impl<'pr> Visit<'pr> for DoubleNegationVisitor<'_> {
         // After checking this node, clear parent_is_statements for children.
         // Children of a call node are not direct children of the StatementsNode.
         let saved_parent = self.parent_is_statements;
-        // Clear parenthesized_last_line for children: `!!` inside a deeper
-        // call is no longer directly parenthesized.
-        let saved_parenthesized = self.parenthesized_last_line;
+        // Clear begin-like context for children: `!!` inside a deeper
+        // call is no longer directly wrapped by Parser's `begin` equivalent.
+        let saved_begin_like = self.begin_like_last_line;
         self.parent_is_statements = false;
-        self.parenthesized_last_line = None;
+        self.begin_like_last_line = None;
 
         // Check if this is a define_method or define_singleton_method call with a block
         if let Some(block) = node.block() {
-            if let Some(block_node) = block.as_block_node() {
+            if block.as_block_node().is_some() {
                 let method_name = node.name().as_slice();
-                if (method_name == b"define_method" || method_name == b"define_singleton_method")
-                    && node.receiver().is_none()
-                {
-                    let body = block_node.body();
-                    self.with_def_body(body, |this| {
+                if method_name == b"define_method" || method_name == b"define_singleton_method" {
+                    let info = self.define_method_call_info(node);
+                    self.with_def_info(info, |this| {
                         ruby_prism::visit_call_node(this, node);
                     });
                     self.parent_is_statements = saved_parent;
-                    self.parenthesized_last_line = saved_parenthesized;
+                    self.begin_like_last_line = saved_begin_like;
                     return;
                 }
             }
@@ -720,7 +773,7 @@ impl<'pr> Visit<'pr> for DoubleNegationVisitor<'_> {
 
         ruby_prism::visit_call_node(self, node);
         self.parent_is_statements = saved_parent;
-        self.parenthesized_last_line = saved_parenthesized;
+        self.begin_like_last_line = saved_begin_like;
     }
 
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
@@ -737,16 +790,34 @@ impl<'pr> Visit<'pr> for DoubleNegationVisitor<'_> {
         // `double_negative_condition_return_value?`. Track the parentheses
         // last line so `is_end_of_method_definition` can apply the same logic.
         if !self.def_info_stack.is_empty() && !self.conditional_last_line_stack.is_empty() {
-            let saved = self.parenthesized_last_line;
-            self.parenthesized_last_line =
+            let saved = self.begin_like_last_line;
+            self.begin_like_last_line =
                 Some(self.last_line_of_node(
                     node.location().start_offset(),
                     node.location().end_offset(),
                 ));
             ruby_prism::visit_parentheses_node(self, node);
-            self.parenthesized_last_line = saved;
+            self.begin_like_last_line = saved;
         } else {
             ruby_prism::visit_parentheses_node(self, node);
+        }
+    }
+
+    fn visit_embedded_statements_node(&mut self, node: &ruby_prism::EmbeddedStatementsNode<'pr>) {
+        // Parser wraps interpolation bodies (`"#{expr}"`) in a `begin` node.
+        // Under a conditional ancestor, RuboCop uses the same lenient same-line
+        // check as it does for parenthesized expressions.
+        if !self.def_info_stack.is_empty() && !self.conditional_last_line_stack.is_empty() {
+            let saved = self.begin_like_last_line;
+            self.begin_like_last_line =
+                Some(self.last_line_of_node(
+                    node.location().start_offset(),
+                    node.location().end_offset(),
+                ));
+            ruby_prism::visit_embedded_statements_node(self, node);
+            self.begin_like_last_line = saved;
+        } else {
+            ruby_prism::visit_embedded_statements_node(self, node);
         }
     }
 
@@ -814,18 +885,18 @@ impl<'pr> Visit<'pr> for DoubleNegationVisitor<'_> {
         // non-enumerable parent. `and.begin_type?` is false, so the lenient
         // same-line check does NOT apply. Clear `parenthesized_last_line` so
         // that `!!` inside `(expr && !!other)` uses the strict check.
-        let saved = self.parenthesized_last_line;
-        self.parenthesized_last_line = None;
+        let saved = self.begin_like_last_line;
+        self.begin_like_last_line = None;
         ruby_prism::visit_and_node(self, node);
-        self.parenthesized_last_line = saved;
+        self.begin_like_last_line = saved;
     }
 
     fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'pr>) {
         // Same as visit_and_node: `or` is non-enumerable, not begin_type?.
-        let saved = self.parenthesized_last_line;
-        self.parenthesized_last_line = None;
+        let saved = self.begin_like_last_line;
+        self.begin_like_last_line = None;
         ruby_prism::visit_or_node(self, node);
-        self.parenthesized_last_line = saved;
+        self.begin_like_last_line = saved;
     }
 
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
