@@ -26,6 +26,20 @@ const MSG: &str =
 ///   a short trailing group (for example `10_000_00` or `123_456_789_00`).
 /// - That missed Rails schema timestamps like `2021_12_12_143544` and cent-style literals
 ///   like `1099_99`, both of which contain a 4+ digit group and should still register.
+///
+/// ## Investigation findings (2026-03-31)
+///
+/// ### FN root cause fixed:
+/// - RuboCop applies `MinDigits` to the raw integer-part text, not digits-only text.
+///   That means misgrouped literals like `2_3_4` and `4_3_5_7` still qualify for checking
+///   because the underscores count toward the threshold. Nitrocop stripped underscores first,
+///   so both patterns fell below `MinDigits: 5` and were missed.
+///
+/// ### FP root cause fixed:
+/// - Prism visits `IntegerNode`/`FloatNode` children inside imaginary and rational wrappers
+///   (for example `1000000000000000000000000000000i` and `12345.6i`). RuboCop's `on_int` and
+///   `on_float` callbacks only run for standalone numeric nodes, so these suffixed literals
+///   must be skipped when the next source byte is `i` or `r`.
 pub struct NumericLiterals;
 
 /// Check if a numeric string has underscores at every 3-digit grouping from the right.
@@ -68,6 +82,20 @@ fn has_bad_grouping(text: &str, strict: bool) -> bool {
 }
 
 impl NumericLiterals {
+    fn has_complex_or_rational_suffix(
+        &self,
+        source: &SourceFile,
+        loc: &ruby_prism::Location<'_>,
+    ) -> bool {
+        let src = loc.as_slice();
+        let source_bytes = source.as_bytes();
+        let end = loc.start_offset() + src.len();
+
+        source_bytes
+            .get(end)
+            .is_some_and(|byte| matches!(byte, b'i' | b'r'))
+    }
+
     fn check_integer_part(
         &self,
         source: &SourceFile,
@@ -112,10 +140,9 @@ impl NumericLiterals {
             }
         }
 
-        let digit_count = int_str.len();
         let has_underscores = int_part.contains('_');
 
-        if digit_count < min_digits {
+        if int_part.len() < min_digits {
             return;
         }
 
@@ -158,6 +185,10 @@ impl Cop for NumericLiterals {
         } else {
             return;
         };
+
+        if self.has_complex_or_rational_suffix(source, &loc) {
+            return;
+        }
 
         let source_text = loc.as_slice();
         let text = std::str::from_utf8(source_text).unwrap_or("");

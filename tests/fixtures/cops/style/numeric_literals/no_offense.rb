@@ -20,3 +20,7 @@ h = 1.0e10
 i = 10_000_00
 j = 123_456_789_00
 k = 819_2
+# Imaginary/rational literals wrap numeric children in Prism and are not checked by RuboCop
+1000000000000000000000000000000i
+10000r
+12345.6i
