@@ -39,3 +39,9 @@ ActiveRecord::Schema[7.0].define(version: 2022_08_28_121634) do
 
 money = 1099_99
         ^^^^^^^ Style/NumericLiterals: Use underscores(_) as thousands separator and separate every 3 digits with them.
+
+please do check [2, 3, 4.0, -3, 99e99, 1e-99, 2_3_4, 4E8]
+                                              ^^^^^ Style/NumericLiterals: Use underscores(_) as thousands separator and separate every 3 digits with them.
+
+4_3_5_7.should == 4357
+^ Style/NumericLiterals: Use underscores(_) as thousands separator and separate every 3 digits with them.
