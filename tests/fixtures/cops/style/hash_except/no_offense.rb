@@ -9,3 +9,4 @@ hash.select { |k, v| [:foo, :bar].include?(k) }
 hash.reject { |k, v| ![1, 2].include?(v) }
 hash.reject { |k, v| k.include?('oo') }
 hash.reject { |k, v| (1..5).include?(k) }
+filtered_obj = obj.values.reject { |key, _| excluded_columns[table_name.to_sym]&.include?(key) }
