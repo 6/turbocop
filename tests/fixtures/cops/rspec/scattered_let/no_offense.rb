@@ -40,3 +40,42 @@ describe Connection do
   let :fresh_connection, &NEW_PG_CONNECTION
   it { expect(connection).to be_valid }
 end
+
+# RuboCop 1.84.2 + rubocop-rspec 3.9.0 drops a scattered block_pass let
+describe HookedConnection do
+  let(:connection) { described_class.new }
+  before { setup }
+  let :fresh_connection, &NEW_PG_CONNECTION
+end
+
+# Corpus FP: nested example group inside an iterator with a scattered block_pass let
+describe Que::Connection do
+  QUE_POOLS.each do |name, pool|
+    describe "with a #{name} connection pool" do
+      let(:connection) { @connection }
+
+      around do |&block|
+        super() do
+          pool.checkout do |conn|
+            @connection = conn
+            block.call
+          end
+        end
+      end
+
+      let :fresh_connection, &NEW_PG_CONNECTION
+
+      describe ".wrap()" do
+        it { expect(connection).to be_a(Object) }
+      end
+    end
+  end
+end
+
+# Once RuboCop hits the scattered block_pass let, it stops reporting later lets in the group
+describe LaterRegularLet do
+  let(:connection) { described_class.new }
+  before { setup }
+  let :fresh_connection, &NEW_PG_CONNECTION
+  let(:other) { create(:other) }
+end

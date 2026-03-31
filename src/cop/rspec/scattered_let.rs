@@ -30,19 +30,16 @@ use crate::parse::source::SourceFile;
 /// Restored block_pass recognition (2026-03-20) to fix FN=2 on rubocop-rspec's
 /// `weird_rspec_spec.rb` where `let(:foo, &bar)` was not counted as a let declaration.
 ///
-/// ## Corpus investigation (2026-03-24) — FP=1
+/// ## Corpus investigation (2026-03-31) — FP=1
 ///
-/// FP=1: Infrastructure issue (plugin detection). que-rb uses minitest, not RSpec.
-/// No cop logic fix needed.
+/// FP=1: a scattered `let :name, &PROC` is a corpus mismatch even under the oracle's
+/// baseline bundle. RuboCop 1.84.2 + rubocop-rspec 3.9.0 crashes while building the
+/// autocorrection for that node shape, so the observable result is "no offense" for the
+/// block-pass let and anything later in that group.
 ///
-/// que-rb/que `spec/que/connection_spec.rb:19`: `let :fresh_connection, &NEW_PG_CONNECTION`
-/// flagged as scattered let. The que repo uses minitest (not RSpec) but has
-/// `describe`/`let`/`around` DSL from minitest-hooks that looks like RSpec.
-/// The repo does NOT have rubocop-rspec in its Gemfile, so RuboCop cannot load
-/// rubocop-rspec and skips all RSpec cops. nitrocop has them compiled in and
-/// runs them regardless, causing the asymmetry. This is an infrastructure-level
-/// issue (plugin detection), not a cop logic bug. nitrocop's detection is correct
-/// for actual RSpec files.
+/// Match RuboCop's current behavior by treating a block-pass let in the initial let group
+/// as a normal let, but stop scanning the rest of the group once a block-pass let appears
+/// after a non-let sibling. Earlier regular offenses in the same group must still be kept.
 pub struct ScatteredLet;
 
 impl Cop for ScatteredLet {
@@ -135,7 +132,13 @@ impl Cop for ScatteredLet {
                     && (has_block_node || has_block_pass)
                 {
                     if seen_non_let {
-                        // This let is after a non-let statement
+                        if has_block_pass {
+                            // RuboCop's current implementation crashes when a scattered
+                            // `let ... &PROC` needs autocorrection, so no offense from this
+                            // node or any later sibling is reported for the group.
+                            break;
+                        }
+
                         let loc = stmt.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
                         diagnostics.push(self.diagnostic(
