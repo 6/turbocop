@@ -195,12 +195,13 @@ fn last_token_can_take_argument(before_backslash: &[u8]) -> bool {
 
 fn trailing_identifier(bytes: &[u8]) -> Option<&[u8]> {
     let end = bytes.len();
-    while end > 0 {
+    if end > 0 {
         let b = bytes[end - 1];
         if b.is_ascii_alphanumeric() || matches!(b, b'_' | b'?' | b'!') {
-            break;
+            // Continue below to collect the full trailing identifier token.
+        } else {
+            return None;
         }
-        return None;
     }
 
     let mut start = end;
