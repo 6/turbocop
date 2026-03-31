@@ -48,3 +48,8 @@ y = foo&.equal?(baz)
 if @commentable.is_a?(Tag) || (@comment&.parent&.is_a?(Tag))
   do_something
 end
+
+# Numbered parameter block with &.to_h || {} — RuboCop's pattern only matches
+# `block`, not `numblock` (numbered params), so this is NOT flagged.
+foo&.to_h { [_1.a, _1.b] } || {}
+foo&.bar&.baz&.to_h { [_1.a, _1.b] } || {}

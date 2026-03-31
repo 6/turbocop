@@ -128,6 +128,17 @@ use ruby_prism::Visit;
 /// predicate-time blocks were skipped entirely. Fixed by descending into
 /// `call.block()` / `BlockNode` bodies in non-direct context so inner
 /// conditionals still apply RuboCop's immediate-parent rules.
+///
+/// ## Corpus fix (2026-03-31) — numbered parameter blocks in conversion_with_default
+///
+/// FP=1 (discourse): `mail[:cc]&.element&.addresses&.to_h { [_1.address, _1.name] } || {}`
+/// was incorrectly flagged. RuboCop's `conversion_with_default?` node matcher
+/// uses `(or (block $(csend _ :to_h) ...) (hash))` which only matches `block`
+/// nodes, not `numblock` nodes (Ruby 2.7+ numbered parameters `_1`, `_2`, etc.).
+/// In Prism, both regular and numbered-parameter blocks are `BlockNode`, differing
+/// only in the `parameters()` field (`BlockParametersNode` vs
+/// `NumberedParametersNode`). Fixed by skipping the conversion-with-default check
+/// when the block has `NumberedParametersNode` parameters.
 pub struct RedundantSafeNavigation;
 
 /// Methods guaranteed to exist on every instance (their receivers can't be nil)
@@ -333,6 +344,18 @@ impl RedundantSafeNavigation {
         // Conversion methods with arguments (e.g., to_i(16)) are NOT redundant.
         // nil.to_i returns 0, but nil.to_i(16) raises ArgumentError.
         if csend.arguments().is_some() {
+            return;
+        }
+
+        // Blocks with numbered parameters (_1, _2, etc.) are not matched by
+        // RuboCop's `conversion_with_default?` pattern, which only matches
+        // `(block ...)` but not `(numblock ...)` in the parser gem AST.
+        if csend
+            .block()
+            .and_then(|b| b.as_block_node())
+            .and_then(|b| b.parameters())
+            .is_some_and(|p| p.as_numbered_parameters_node().is_some())
+        {
             return;
         }
 
