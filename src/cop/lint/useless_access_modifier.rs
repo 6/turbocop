@@ -69,6 +69,12 @@ use ruby_prism::Visit;
 ///   `included do ... end` bodies entirely, producing false negatives for useless
 ///   `private` before singleton defs. Fixed by checking configured context-creating
 ///   blocks as separate scopes in `visit_call_node` too.
+/// - `private_class_method` with arguments incorrectly reset `cur_vis` to `Public`.
+///   In RuboCop, `check_send_node` returns `nil` for this case, setting `cur_vis` to
+///   `nil` (unknown). This meant a later `public` after `private` + instance methods +
+///   `private_class_method :foo` was treated as `Public == Public` (repeated/useless)
+///   instead of a new visibility change. Fixed by using `Option<AccessKind>` for
+///   `cur_vis` and setting it to `None` after `private_class_method` with args.
 pub struct UselessAccessModifier;
 
 impl Cop for UselessAccessModifier {
@@ -289,12 +295,12 @@ fn check_child_nodes<'pr>(
     source: &SourceFile,
     diagnostics: &mut Vec<Diagnostic>,
     node: &ruby_prism::Node<'pr>,
-    mut cur_vis: AccessKind,
+    mut cur_vis: Option<AccessKind>,
     mut unused_modifier: Option<(usize, AccessKind)>,
     method_creating_methods: &[String],
     context_creating_methods: &[String],
     in_call_children: bool,
-) -> (AccessKind, Option<(usize, AccessKind)>) {
+) -> (Option<AccessKind>, Option<(usize, AccessKind)>) {
     // If the node itself is a CallNode, handle its children directly.
     // collect_child_nodes returns empty for CallNode, so we must process
     // receiver/args/block here before falling through to the loop.
@@ -371,20 +377,23 @@ fn check_child_nodes<'pr>(
                     if call.arguments().is_some()
                         && call.name().as_slice() == b"private_class_method"
                     {
-                        cur_vis = AccessKind::Public;
+                        // In RuboCop, check_send_node returns nil for private_class_method
+                        // with args, setting cur_vis to nil (unknown state). This means a
+                        // subsequent access modifier is always treated as a new change.
+                        cur_vis = None;
                         unused_modifier = None;
                         continue;
                     }
 
                     if let Some(modifier_kind) = get_access_modifier(&call) {
-                        if modifier_kind == cur_vis {
+                        if Some(modifier_kind) == cur_vis {
                             let loc = call.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
                             diagnostics.push(cop.diagnostic(
                                 source,
                                 line,
                                 column,
-                                format!("Useless `{}` access modifier.", cur_vis.as_str()),
+                                format!("Useless `{}` access modifier.", modifier_kind.as_str()),
                             ));
                         } else {
                             if let Some((offset, old_vis)) = unused_modifier {
@@ -396,7 +405,7 @@ fn check_child_nodes<'pr>(
                                     format!("Useless `{}` access modifier.", old_vis.as_str()),
                                 ));
                             }
-                            cur_vis = modifier_kind;
+                            cur_vis = Some(modifier_kind);
                             unused_modifier = Some((call.location().start_offset(), modifier_kind));
                         }
                         continue;
@@ -583,7 +592,7 @@ fn check_scope(
         source,
         diagnostics,
         &stmts_node,
-        AccessKind::Public,
+        Some(AccessKind::Public),
         None,
         method_creating_methods,
         context_creating_methods,

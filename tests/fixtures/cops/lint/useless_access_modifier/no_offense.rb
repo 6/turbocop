@@ -250,6 +250,35 @@ class WithMemoizeDef
   end
 end
 
+# FP fix: public after private_class_method with args resets visibility tracking
+# In RuboCop, private_class_method with args returns nil from check_send_node,
+# setting cur_vis to nil (unknown). A subsequent public is a new change, not a repeat.
+class WithPublicAfterPrivateClassMethodArgs
+  def self.build_section(all_sections, name)
+    all_sections
+  end
+
+  private
+
+  def section_header_text(model)
+    model
+  end
+
+  private_class_method :build_section
+
+  def prepare_master_list
+    @master_list = []
+  end
+
+  public
+
+  IVS_TO_REMOVE = [:@records]
+
+  def marshal_dump
+    instance_variables
+  end
+end
+
 # Inline access modifier with private def
 class WithInlinePrivateDef
   protected
