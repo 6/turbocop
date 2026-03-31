@@ -18,6 +18,12 @@ use crate::parse::source::SourceFile;
 /// exclude calls with blocks — it flags mutable arguments regardless. Removed
 /// the block early-return; `Hash.new { ... }` with no mutable argument still
 /// passes because `call.arguments()` is None.
+///
+/// Corpus FP=1 fix: `Hash.new(Hash.new(0))` was flagged because `is_mutable_value`
+/// treated any `Array.new(...)` or `Hash.new(...)` call as mutable regardless of
+/// arguments. RuboCop's pattern only matches the no-argument form (`Array.new` /
+/// `Hash.new`), since passing an argument (e.g., `Hash.new(0)`) produces a hash
+/// with an immutable default. Added `call.arguments().is_none()` guard.
 pub struct SharedMutableDefault;
 
 impl Cop for SharedMutableDefault {
@@ -120,9 +126,10 @@ fn is_mutable_value(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(kh) = node.as_keyword_hash_node() {
         return !is_capacity_keyword_argument(&kh);
     }
-    // Array.new or Hash.new (only bare or root-qualified, not Concurrent::Array.new)
+    // Array.new or Hash.new with no arguments (only bare or root-qualified, not Concurrent::Array.new)
+    // Hash.new(0) or Array.new(5) are not mutable defaults — RuboCop only flags the no-arg form.
     if let Some(call) = node.as_call_node() {
-        if call.name().as_slice() == b"new" {
+        if call.name().as_slice() == b"new" && call.arguments().is_none() {
             if let Some(recv) = call.receiver() {
                 let is_plain_array_or_hash = if let Some(cr) = recv.as_constant_read_node() {
                     let name = cr.name().as_slice();
