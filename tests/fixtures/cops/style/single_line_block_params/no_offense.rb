@@ -23,3 +23,6 @@ test.reduce(x) { |acc| foo(acc) }
 
 # Block with no arguments should be allowed
 test.reduce { true }
+
+# Keyword params in block should not be flagged (not all args are arg_type?)
+Array(replace).inject(source) { |src, from:, to:| src.gsub(from, to) }

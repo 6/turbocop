@@ -13,6 +13,8 @@ use crate::parse::source::SourceFile;
 /// - Partial param lists (e.g. `|acc|` alone) were not handled per RuboCop logic
 /// - `Methods` config was read but ignored; method names and expected params were hardcoded
 /// - Message did not preserve underscore prefix from actual params
+/// - Blocks with keyword params (e.g. `|src, from:, to:|`) were not excluded;
+///   RuboCop's `eligible_arguments?` requires all params to be `arg_type?`
 pub struct SingleLineBlockParams;
 
 /// Default methods config: reduce/inject with params [acc, elem]
@@ -142,6 +144,19 @@ impl Cop for SingleLineBlockParams {
             Some(p) => p,
             None => return,
         };
+
+        // RuboCop: eligible_arguments? checks node.arguments.to_a.all?(&:arg_type?)
+        // If there are any non-required params (keywords, optionals, rest, etc.),
+        // the block is not eligible.
+        if !param_node.optionals().is_empty()
+            || param_node.rest().is_some()
+            || !param_node.posts().is_empty()
+            || !param_node.keywords().is_empty()
+            || param_node.keyword_rest().is_some()
+            || param_node.block().is_some()
+        {
+            return;
+        }
 
         let requireds: Vec<_> = param_node.requireds().iter().collect();
 
