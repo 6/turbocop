@@ -16,3 +16,6 @@ r = /[A-Aa-z0-9]+/
 /^([[#{Regexp.escape(exclude_item)}(?:,.*?)?]])\s*$/,           # [[id]] or [[id,ref...]]
                                          ^ Lint/DuplicateRegexpCharacterClassElement: Duplicate element inside regexp character class
                                            ^ Lint/DuplicateRegexpCharacterClassElement: Duplicate element inside regexp character class
+
+r = /[[a][a]]/
+         ^ Lint/DuplicateRegexpCharacterClassElement: Duplicate element inside regexp character class

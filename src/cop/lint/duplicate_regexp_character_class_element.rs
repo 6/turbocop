@@ -37,11 +37,20 @@ use crate::parse::source::SourceFile;
 ///
 /// The final FN was an interpolated character class from `riscv-unified-db`:
 /// `/^([[#{Regexp.escape(exclude_item)}(?:,.*?)?]])\s*$/`.
-/// The scanner treated the literal `[` inside the class as a nested class and
-/// bailed out on interpolation placeholders, so it missed repeated literal `?`
-/// elements around the interpolation. Fixed by treating bare `[` as a literal
-/// class element here unless it begins a POSIX class, and by skipping
-/// interpolation placeholders instead of abandoning the whole class.
+/// The scanner bailed out when interpolation placeholders appeared inside the
+/// class, so it missed repeated literal `?` elements around the interpolation.
+/// Fixed by skipping interpolation placeholders instead of abandoning the whole
+/// class.
+///
+/// ## Corpus investigation update (2026-03-31)
+///
+/// The remaining FP cluster came from nested character classes such as
+/// `[[a-c][x-z][0-2]]` and `[[[:alpha:]][[:blank:]]]`. The scanner flattened
+/// nested `[` and `]` into ordinary characters, so it reported duplicate
+/// brackets instead of treating nested sets as grouped elements. Fixed by
+/// recognizing nested `[...]` groups inside a class, tracking the whole nested
+/// set as one element for duplicate detection, and recursively scanning the
+/// nested set body so real duplicates like `[[a][a]]` still report.
 pub struct DuplicateRegexpCharacterClassElement;
 
 impl Cop for DuplicateRegexpCharacterClassElement {
@@ -264,21 +273,52 @@ fn check_class_for_duplicates(
             k += 1;
             continue;
         }
-        // Skip POSIX character classes like [:digit:], [:alpha:], etc.
-        if class_content[k] == '[' && k + 1 < class_content.len() && class_content[k + 1] == ':' {
-            let mut p = k + 2;
-            while p + 1 < class_content.len() {
-                if class_content[p] == ':' && class_content[p + 1] == ']' {
-                    p += 2;
-                    break;
+        if class_content[k] == '[' {
+            // POSIX character classes like [:digit:] and [:alpha:] are
+            // single grouped elements within a character class.
+            if k + 1 < class_content.len() && class_content[k + 1] == ':' {
+                let mut p = k + 2;
+                while p + 1 < class_content.len() {
+                    if class_content[p] == ':' && class_content[p + 1] == ']' {
+                        p += 2;
+                        break;
+                    }
+                    p += 1;
                 }
-                p += 1;
+                let posix_class: String = class_content[k..p].iter().collect();
+                if !seen.insert(posix_class) {
+                    emit_duplicate(cop, source, class_offsets, k, diagnostics);
+                }
+                k = p;
+                continue;
             }
-            let posix_class: String = class_content[k..p].iter().collect();
-            if !seen.insert(posix_class) {
+
+            if let Some(nested_end) = find_char_class_end(class_content, k) {
+                let nested_set: String = class_content[k..=nested_end].iter().collect();
+                if !seen.insert(nested_set) {
+                    emit_duplicate(cop, source, class_offsets, k, diagnostics);
+                }
+
+                if nested_end > k + 1 {
+                    check_class_for_duplicates(
+                        cop,
+                        source,
+                        &class_content[k + 1..nested_end],
+                        &class_offsets[k + 1..nested_end],
+                        diagnostics,
+                    );
+                }
+
+                k = nested_end + 1;
+                continue;
+            }
+
+            // Unmatched `[` in the slice: keep the existing literal fallback.
+            let ch = class_content[k].to_string();
+            if !seen.insert(ch) {
                 emit_duplicate(cop, source, class_offsets, k, diagnostics);
             }
-            k = p;
+            k += 1;
         } else if class_content[k] == '\\' && k + 1 < class_content.len() {
             let esc_len = escape_sequence_len(class_content, k);
             let entity: String = class_content[k..k + esc_len].iter().collect();

@@ -42,3 +42,12 @@ r = /
   (\w+)          # word chars
   (["']).+?\1    # quoted string with ["'] chars
 /x
+# Nested character classes should be treated as grouped elements, not duplicate brackets
+r = /[[a-c][x-z][0-2]]+/
+r = /[^a-c[x-z][0-2]]+/
+r = /[a-c[x-z[^0-2]]]+/
+# Nested POSIX classes inside larger sets should not trigger false positives
+BAD_SHIFT_REGEX = /\[\[([[[:alpha:]][[:blank:]]|,\(\)\-[[:digit:]]]+)\}\}/
+r = /\A([[[:upper:]][[:punct:]]] )+[[[:upper:]][[:punct:]]]?$\z/
+r = /(\\|^)[[:upper:]][[[:upper:]][[:digit:]]_]+$/
+r = /^@{0,2}(?:_|_?[[[:lower:]]][\d[[:lower:]][[:upper:]]]*)[!?=]?$/
