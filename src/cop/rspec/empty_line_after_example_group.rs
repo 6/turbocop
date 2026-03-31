@@ -32,6 +32,14 @@ use crate::parse::source::SourceFile;
 /// RuboCop skips such cases.
 /// Fix: after finding end_line, check if the end line has a postfix `if`/`unless`
 /// after the `end` keyword; if so, skip.
+///
+/// ### Round 3 (FP=1, FN=0)
+/// FP root cause: `__END__` marker (which terminates Ruby source) was treated as
+/// a regular code line, causing nitrocop to flag the preceding example group's `end`
+/// for lacking a blank line separator. RuboCop's AST-based approach naturally ignores
+/// `__END__` since nothing after it is part of the parse tree.
+/// Fix: treat `__END__` on a line by itself as end-of-file when scanning lines after
+/// the example group end.
 pub struct EmptyLineAfterExampleGroup;
 
 impl Cop for EmptyLineAfterExampleGroup {
@@ -146,6 +154,10 @@ impl Cop for EmptyLineAfterExampleGroup {
                         // `}` is also a closing delimiter (e.g., `.each { |x| ... }`)
                         if rest[0] == b'}' {
                             return; // Next meaningful line is `}` — OK (last child)
+                        }
+                        // `__END__` terminates Ruby source; treat as end-of-file
+                        if rest == b"__END__" || rest.starts_with(b"__END__\r") {
+                            return;
                         }
                         // Control flow keywords that are part of the enclosing
                         // construct (if/unless/case/begin) — not a new statement
