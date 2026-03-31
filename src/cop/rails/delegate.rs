@@ -266,6 +266,10 @@ use crate::parse::source::SourceFile;
 ///   visibility to sibling defs in the same scope, so nested bodies now get an
 ///   AST-aware override unless they declare visibility inline or within that same
 ///   nested body.
+/// - FP: heredoc help text containing prose like `do not` was scanned as Ruby by
+///   the nested-body override, so private methods after a heredoc were treated as
+///   public. Heredoc line ranges are now ignored while scanning for enclosing
+///   block/conditional openers.
 pub struct Delegate;
 
 impl Cop for Delegate {
@@ -297,7 +301,7 @@ impl Cop for Delegate {
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
@@ -493,10 +497,16 @@ impl Cop for Delegate {
         // Skip private/protected methods — RuboCop only flags public methods.
         // Outer visibility does not flow into defs nested inside block/if/etc. bodies;
         // only inline visibility or visibility declared in that same nested body applies.
-        if crate::cop::util::is_private_or_protected(source, node.location().start_offset())
-            && !outer_visibility_does_not_apply(source, node)
-        {
-            return;
+        if crate::cop::util::is_private_or_protected(source, node.location().start_offset()) {
+            let heredoc_ranges = if source.as_bytes().windows(2).any(|window| window == b"<<") {
+                crate::cop::util::collect_heredoc_ranges(source, &parse_result.node())
+            } else {
+                Vec::new()
+            };
+
+            if !outer_visibility_does_not_apply(source, node, &heredoc_ranges) {
+                return;
+            }
         }
 
         // Skip methods marked private via `private :method_name` after the def
@@ -524,7 +534,11 @@ impl Cop for Delegate {
 /// the same class/module/sclass body. If a def is nested inside an `if`, `block`, etc., the
 /// outer visibility should be ignored unless the nested body itself sets visibility (or the
 /// def uses an inline modifier like `private def foo`).
-fn outer_visibility_does_not_apply(source: &SourceFile, def_node: &ruby_prism::Node<'_>) -> bool {
+fn outer_visibility_does_not_apply(
+    source: &SourceFile,
+    def_node: &ruby_prism::Node<'_>,
+    heredoc_ranges: &[(usize, usize)],
+) -> bool {
     let def_offset = def_node.location().start_offset();
     if has_inline_visibility_modifier(source, def_offset) {
         return false;
@@ -534,7 +548,12 @@ fn outer_visibility_does_not_apply(source: &SourceFile, def_node: &ruby_prism::N
     let lines: Vec<&[u8]> = source.lines().collect();
     let mut nested_body_visibility_private = false;
 
-    for line in lines[..def_line.saturating_sub(1)].iter().rev() {
+    for (line_no, line) in lines[..def_line.saturating_sub(1)].iter().enumerate().rev() {
+        let line_no = line_no + 1;
+        if line_in_ranges(line_no, heredoc_ranges) {
+            continue;
+        }
+
         let indent = line
             .iter()
             .take_while(|&&b| b == b' ' || b == b'\t')
@@ -593,6 +612,12 @@ fn outer_visibility_does_not_apply(source: &SourceFile, def_node: &ruby_prism::N
     }
 
     false
+}
+
+fn line_in_ranges(line_no: usize, ranges: &[(usize, usize)]) -> bool {
+    ranges
+        .iter()
+        .any(|(start, end)| (*start..=*end).contains(&line_no))
 }
 
 fn has_inline_visibility_modifier(source: &SourceFile, def_offset: usize) -> bool {

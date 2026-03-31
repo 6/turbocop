@@ -284,3 +284,32 @@ class ChargeProcessor
       PaypalChargeProcessor.paypal_api
     end
 end
+
+# Heredoc text containing `do not` should not look like a Ruby `do` block opener
+# and cancel the enclosing private section for later methods.
+class InteractiveIgnorer
+  private
+
+  def show_help
+    say <<-HELP
+q - Quit, do not update ignored warnings
+    HELP
+  end
+
+  def warning_action(action, warning)
+    case action
+    when "i"
+      ignore warning
+    when "u"
+      unignore warning
+    end
+  end
+
+  def ignore(warning)
+    @ignore_config.ignore warning
+  end
+
+  def unignore(warning)
+    @ignore_config.unignore warning
+  end
+end
