@@ -21,3 +21,22 @@ module Storages
     subject(:Authentication) { described_class }
   end
 end
+
+RSpec.describe "admin/api/v1/images" do
+  path "/images" do
+    post("Image create") do
+      response(200, "successful") do
+        let(:"") do
+          {
+            galleryId: 1,
+            galleryType: "Model"
+          }
+        end
+      end
+
+      response(401, "unauthorized") do
+        let(:"") { nil }
+      end
+    end
+  end
+end
