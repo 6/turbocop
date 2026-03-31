@@ -33,3 +33,15 @@ expect(provider).to receive(:dpkgquery).with('-W', '--showformat', %Q{'${Status}
 
 expect(provider).to receive(:dpkgquery).with('-W', '--showformat', %Q{'${Status} ${Package} ${Version}\\n'}, resource_name).and_return("#{dpkg_query_result} #{resource_name}")
                                                                    ^ Style/PercentQLiterals: Do not use `%Q` unless interpolation is needed. Use `%q`.
+
+%Q{Does anyone have some programs to share?
+}
+# nitrocop-expect: 25:0 Style/PercentQLiterals: Do not use `%Q` unless interpolation is needed. Use `%q`.
+
+%Q{I've done all the Lessons! What should I check out next?
+}
+# nitrocop-expect: 28:0 Style/PercentQLiterals: Do not use `%Q` unless interpolation is needed. Use `%q`.
+
+%Q{What is 'ruby on rails?' I've seen stuff about it when I google for Ruby.
+}
+# nitrocop-expect: 31:0 Style/PercentQLiterals: Do not use `%Q` unless interpolation is needed. Use `%q`.
