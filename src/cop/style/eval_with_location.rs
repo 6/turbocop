@@ -6,6 +6,20 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/EvalWithLocation
+///
+/// Checks that `eval`, `class_eval`, `module_eval`, and `instance_eval` are called
+/// with `__FILE__` and `__LINE__` arguments for proper error backtraces.
+///
+/// Also validates that the `__LINE__` offset is correct: heredoc arguments should
+/// use `__LINE__ + 1` (since the heredoc body starts on the next line), while
+/// inline string arguments should use `__LINE__`.
+///
+/// Fixed issues:
+/// - FP: `eval()` with no arguments (no string literal) was incorrectly flagged.
+/// - FN: Calls with correct argument count but incorrect `__LINE__` offset
+///   (e.g., `__LINE__` instead of `__LINE__ + 1` for heredocs, or literal integers
+///   instead of `__LINE__`) were not detected.
 pub struct EvalWithLocation;
 
 const EVAL_METHODS: &[&[u8]] = &[b"eval", b"class_eval", b"module_eval", b"instance_eval"];
@@ -24,6 +38,114 @@ impl EvalWithLocation {
             || node.as_interpolated_string_node().is_some()
             || node.as_x_string_node().is_some()
             || node.as_interpolated_x_string_node().is_some()
+    }
+
+    /// Check if a string node is a heredoc (opening starts with `<<`).
+    fn is_heredoc(node: &ruby_prism::Node<'_>) -> bool {
+        if let Some(s) = node.as_string_node() {
+            return s
+                .opening_loc()
+                .is_some_and(|o| o.as_slice().starts_with(b"<<"));
+        }
+        if let Some(s) = node.as_interpolated_string_node() {
+            return s
+                .opening_loc()
+                .is_some_and(|o| o.as_slice().starts_with(b"<<"));
+        }
+        false
+    }
+
+    /// Determine whether the line argument should be validated.
+    /// Returns false for variables and non-arithmetic method calls (matching RuboCop behavior).
+    fn should_check_line_arg(node: &ruby_prism::Node<'_>) -> bool {
+        // __LINE__ keyword
+        if node.as_source_line_node().is_some() {
+            return true;
+        }
+        // Integer literal (e.g., 123)
+        if node.as_integer_node().is_some() {
+            return true;
+        }
+        // String literal (e.g., 'bar')
+        if node.as_string_node().is_some() {
+            return true;
+        }
+        // Call node: only check +/- (arithmetic on __LINE__)
+        if let Some(call) = node.as_call_node() {
+            let method = call.name().as_slice();
+            if method == b"+" || method == b"-" {
+                return true;
+            }
+        }
+        // Variables, other method calls → skip
+        false
+    }
+
+    /// Extract the __LINE__ offset from a line argument node.
+    /// Returns Some(offset) for __LINE__-based expressions, None for literals/unknowns.
+    fn get_line_offset(node: &ruby_prism::Node<'_>) -> Option<i64> {
+        // __LINE__ → offset 0
+        if node.as_source_line_node().is_some() {
+            return Some(0);
+        }
+        // __LINE__ + N or __LINE__ - N
+        if let Some(call) = node.as_call_node() {
+            let method = call.name().as_slice();
+            let is_plus = method == b"+";
+            let is_minus = method == b"-";
+            if !is_plus && !is_minus {
+                return None;
+            }
+            if let Some(recv) = call.receiver() {
+                if let Some(args) = call.arguments() {
+                    let arg_list: Vec<_> = args.arguments().iter().collect();
+                    if arg_list.len() == 1 {
+                        // Pattern: __LINE__ + N or __LINE__ - N
+                        if recv.as_source_line_node().is_some() {
+                            if let Some(int_node) = arg_list[0].as_integer_node() {
+                                let src = int_node.location().as_slice();
+                                if let Ok(s) = std::str::from_utf8(src) {
+                                    if let Ok(n) = s.parse::<i64>() {
+                                        return Some(if is_plus { n } else { -n });
+                                    }
+                                }
+                            }
+                        }
+                        // Pattern: N + __LINE__
+                        if is_plus && arg_list[0].as_source_line_node().is_some() {
+                            if let Some(int_node) = recv.as_integer_node() {
+                                let src = int_node.location().as_slice();
+                                if let Ok(s) = std::str::from_utf8(src) {
+                                    if let Ok(n) = s.parse::<i64>() {
+                                        return Some(n);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Literal integer, string, or unknown → not __LINE__ based
+        None
+    }
+
+    /// Format the expected line expression for the error message.
+    fn format_expected_line(offset: i64) -> String {
+        if offset == 0 {
+            "`__LINE__`".to_string()
+        } else if offset > 0 {
+            format!("`__LINE__ + {}`", offset)
+        } else {
+            format!("`__LINE__ - {}`", -offset)
+        }
+    }
+
+    /// Get the source text of a node, wrapped in backticks for the error message.
+    fn get_source_text(node: &ruby_prism::Node<'_>) -> String {
+        let loc = node.location();
+        let src = std::str::from_utf8(loc.as_slice()).unwrap_or("?");
+        format!("`{}`", src)
     }
 }
 
@@ -90,20 +212,8 @@ impl Cop for EvalWithLocation {
         let args = match call.arguments() {
             Some(a) => a,
             None => {
-                // No arguments at all - register offense
-                let loc = call.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                let needs_binding = Self::requires_binding(method_bytes);
-                let method_str = std::str::from_utf8(method_bytes).unwrap_or("eval");
-                let msg = if needs_binding {
-                    format!(
-                        "Pass a binding, `__FILE__`, and `__LINE__` to `{}`.",
-                        method_str
-                    )
-                } else {
-                    format!("Pass `__FILE__` and `__LINE__` to `{}`.", method_str)
-                };
-                diagnostics.push(self.diagnostic(source, line, column, msg));
+                // No arguments at all — only flag if this is not bare eval()
+                // RuboCop requires a string literal first arg to flag.
                 return;
             }
         };
@@ -130,6 +240,7 @@ impl Cop for EvalWithLocation {
         let expected_count = if needs_binding { 4 } else { 3 };
 
         if arg_list.len() < expected_count {
+            // Not enough args — report missing location info
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             let msg = if needs_binding {
@@ -141,6 +252,49 @@ impl Cop for EvalWithLocation {
                 format!("Pass `__FILE__` and `__LINE__` to `{}`.", method_str)
             };
             diagnostics.push(self.diagnostic(source, line, column, msg));
+        } else {
+            // Have enough args — validate that the line argument is correct
+            let line_arg_idx = expected_count - 1;
+            let line_arg = &arg_list[line_arg_idx];
+
+            // Skip validation for variables and non-arithmetic method calls
+            if !Self::should_check_line_arg(line_arg) {
+                return;
+            }
+
+            // Compute expected line offset:
+            // For heredocs, the code body starts on the next line → offset = 1
+            // For inline strings, the code is on the same line → offset = 0
+            let is_heredoc = Self::is_heredoc(first_arg);
+            let first_content_line = if is_heredoc {
+                source
+                    .offset_to_line_col(first_arg.location().start_offset())
+                    .0
+                    + 1
+            } else {
+                source
+                    .offset_to_line_col(first_arg.location().start_offset())
+                    .0
+            };
+            let line_arg_line = source
+                .offset_to_line_col(line_arg.location().start_offset())
+                .0;
+            let expected_offset: i64 = first_content_line as i64 - line_arg_line as i64;
+
+            // Get actual offset from the line argument
+            let actual_offset = Self::get_line_offset(line_arg);
+
+            if actual_offset != Some(expected_offset) {
+                let loc = call.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                let expected_str = Self::format_expected_line(expected_offset);
+                let actual_str = Self::get_source_text(line_arg);
+                let msg = format!(
+                    "Incorrect line number for `{}`; use {} instead of {}.",
+                    method_str, expected_str, actual_str
+                );
+                diagnostics.push(self.diagnostic(source, line, column, msg));
+            }
         }
     }
 }
