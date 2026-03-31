@@ -1,11 +1,19 @@
 use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, NIL_NODE};
-use crate::cop::util::constant_name;
+use crate::cop::util::is_simple_constant;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 /// Checks for `IO.select` that is incompatible with Fiber Scheduler.
 /// Suggests using `io.wait_readable` or `io.wait_writable` instead.
+///
+/// ## Investigation findings
+///
+/// FP fix (2026-03-31): the old receiver check used `constant_name()`, which only
+/// compares the final constant segment. That incorrectly treated namespaced
+/// receivers like `LightIO::Library::IO.select(...)` and `LightIO::IO.select(...)`
+/// as top-level `IO.select(...)`. RuboCop only matches bare `IO` / `::IO`, so this
+/// cop now requires a simple constant receiver via `is_simple_constant(..., b"IO")`.
 pub struct IncompatibleIoSelectWithFiberScheduler;
 
 impl Cop for IncompatibleIoSelectWithFiberScheduler {
@@ -44,12 +52,7 @@ impl Cop for IncompatibleIoSelectWithFiberScheduler {
             None => return,
         };
 
-        let recv_name = match constant_name(&receiver) {
-            Some(n) => n,
-            None => return,
-        };
-
-        if recv_name != b"IO" {
+        if !is_simple_constant(&receiver, b"IO") {
             return;
         }
 
