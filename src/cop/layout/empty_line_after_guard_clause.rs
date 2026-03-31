@@ -625,7 +625,7 @@ impl Cop for EmptyLineAfterGuardClause {
                             let has_code_after_semi = after_semi
                                 .iter()
                                 .position(|&b| b != b' ' && b != b'\t')
-                                .map_or(false, |i| after_semi[i] != b'#');
+                                .is_some_and(|i| after_semi[i] != b'#');
                             if has_code_after_semi && if_start_line != if_end_line {
                                 has_code_after_multiline_guard = true;
                             }
