@@ -29,6 +29,12 @@ use crate::parse::source::SourceFile;
 ///    That caused missed brace-spacing offenses like `super {|x| ... }` and
 ///    `super {['a', 'b']}`. Fixed by also listening on `FORWARDING_SUPER_NODE`
 ///    and reusing the attached block's brace and parameter locations.
+/// 6. Single-line blocks ending with a tab before `}` (for example
+///    `it { expect(foo).to eq(bar)\t}`) were falsely flagged because the
+///    right-brace check only treated a literal space byte as valid inner
+///    whitespace. RuboCop accepts tabs here, so the trailing-whitespace scan
+///    now recognizes any ASCII whitespace before `}` and removes the full run
+///    when `EnforcedStyle: no_space`.
 pub struct SpaceInsideBlockBraces;
 
 impl Cop for SpaceInsideBlockBraces {
@@ -295,11 +301,15 @@ impl Cop for SpaceInsideBlockBraces {
         // Check right brace (only for single-line blocks)
         if !is_multiline {
             let enforced = config.get_str("EnforcedStyle", "space");
-            let space_before_close = close_start > 0 && bytes.get(close_start - 1) == Some(&b' ');
+            let trailing_whitespace_len = bytes[..close_start]
+                .iter()
+                .rev()
+                .take_while(|b| b.is_ascii_whitespace())
+                .count();
 
             match enforced {
                 "space" => {
-                    if !space_before_close {
+                    if trailing_whitespace_len == 0 {
                         let (line, column) = source.offset_to_line_col(closing.start_offset());
                         let mut diag = self.diagnostic(
                             source,
@@ -321,8 +331,9 @@ impl Cop for SpaceInsideBlockBraces {
                     }
                 }
                 "no_space" => {
-                    if space_before_close {
-                        let (line, column) = source.offset_to_line_col(close_start - 1);
+                    if trailing_whitespace_len > 0 {
+                        let whitespace_start = close_start - trailing_whitespace_len;
+                        let (line, column) = source.offset_to_line_col(whitespace_start);
                         let mut diag = self.diagnostic(
                             source,
                             line,
@@ -331,7 +342,7 @@ impl Cop for SpaceInsideBlockBraces {
                         );
                         if let Some(ref mut corr) = corrections {
                             corr.push(crate::correction::Correction {
-                                start: close_start - 1,
+                                start: whitespace_start,
                                 end: close_start,
                                 replacement: String::new(),
                                 cop_name: self.name(),

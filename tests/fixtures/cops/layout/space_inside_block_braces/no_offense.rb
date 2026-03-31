@@ -14,6 +14,7 @@ items.map {
 escape_html = ->(str) { str.gsub("&", "&amp;") }
 has_many :versions, -> { order("id ASC") }, class_name: "Foo"
 action = -> { puts "hello" }
+it { expect(subject).to be_a_kind_of TDiary::Configuration	}
 f = ->(x) { x + 1 }
 empty_lambda = ->(x) {}
 empty_proc = proc {|x|
