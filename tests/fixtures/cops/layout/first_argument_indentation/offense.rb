@@ -71,3 +71,24 @@ foo.filter(Sequel.|(
       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/FirstArgumentIndentation: Indent the first argument one step more than `Sequel.|(`.
       Sequel.~(:agent_family_id => nil)
 ))
+
+      expect(WashOut::Dispatcher.deep_select(
+        {
+        ^ Layout/FirstArgumentIndentation: Indent the first argument one step more than `WashOut::Dispatcher.deep_select(`.
+          k: {:@id => 5, x: :y},
+          k2: {:@id => 6, n: :m}
+        }, &blk)).to eq [{:@id => 5, x: :y}, {:@id => 6, n: :m}]
+
+      expect(WashOut::Dispatcher.deep_select(
+        {
+        ^ Layout/FirstArgumentIndentation: Indent the first argument one step more than `WashOut::Dispatcher.deep_select(`.
+          k: [{:@id => 5, x: :y}],
+          k2: {:@id => 6, n: :m}
+        }, &blk)).to contain_exactly({:@id => 5, x: :y}, {:@id => 6, n: :m})
+
+      expect(WashOut::Dispatcher.deep_select(
+        {
+        ^ Layout/FirstArgumentIndentation: Indent the first argument one step more than `WashOut::Dispatcher.deep_select(`.
+          k: [{:@id => 5, x: :y}],
+          k2: [{:@id => 6, n: :m}]
+        }, &blk)).to eq [{:@id => 5, x: :y}, {:@id => 6, n: :m}]

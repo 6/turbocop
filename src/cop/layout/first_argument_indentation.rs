@@ -87,6 +87,13 @@ use crate::parse::source::SourceFile;
 /// `CallNode`, so the previous stack-based parent check misclassified this
 /// shape. Fixed by excluding calls with attached blocks from the special
 /// inner-call path while keeping plain parenthesized inner calls unchanged.
+///
+/// **FN fix (3 FNs):** `expect(Foo.bar(..., &blk))` was still being skipped as
+/// a special inner call because Prism also stores block-pass arguments in
+/// `call.block()`, but RuboCop only excludes real attached blocks from this
+/// path. Fixed by treating only `BlockNode` values as attached blocks and
+/// keeping `BlockArgumentNode` (`&blk`) eligible for special inner-call
+/// indentation and the quoted base-range message.
 pub struct FirstArgumentIndentation;
 
 impl Cop for FirstArgumentIndentation {
@@ -497,7 +504,7 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
             node.arguments(),
             CallMetadata {
                 name: name_str,
-                has_attached_block: node.block().is_some(),
+                has_attached_block: node.block().and_then(|b| b.as_block_node()).is_some(),
             },
         );
 
@@ -653,6 +660,21 @@ mod tests {
             diags.len(),
             1,
             "plain inner call without block should still be flagged"
+        );
+    }
+
+    #[test]
+    fn inner_call_with_block_argument_still_uses_special_indent() {
+        let source = b"      expect(foo.bar(\n        {\n          a: 1\n        }, &blk))\n";
+        let diags = run_cop_full(&FirstArgumentIndentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "inner call with a block argument should still use special inner-call indentation"
+        );
+        assert_eq!(
+            diags[0].message,
+            "Indent the first argument one step more than `foo.bar(`."
         );
     }
 }
