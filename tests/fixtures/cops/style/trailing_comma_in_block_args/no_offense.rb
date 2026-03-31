@@ -26,3 +26,14 @@ end
 groups.sort_by do |day| day end.reverse_each do |day, entries|
   display(day, entries)
 end
+
+# When an earlier block in the receiver chain has piped params (even without
+# trailing comma), RuboCop's token-based approach picks those pipes first,
+# so a later single-param trailing-comma block is masked — not an offense.
+symbols
+  .to_h { |sym| [sym, nil] }.merge(symbols_with_args)
+  .map { |sym, args| [sym, args] }
+  .each { |name,|
+    puts name
+  }
+  .map { |name, args| [name, args] }
