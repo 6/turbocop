@@ -5,35 +5,23 @@ use crate::parse::source::SourceFile;
 
 /// Style/ClassMethodsDefinitions cop.
 ///
-/// ## Investigation findings (round 1)
-/// FP root cause: The cop did not recognize `private :method_name` or
-/// `protected :method_name` calls (symbol arguments) as making methods
-/// non-public. It only handled standalone modifiers (`private` with no args)
-/// and inline `private def foo` forms. Fixed by treating `private`/`protected`
-/// calls with non-def arguments (symbol args) as marking at least one method
-/// non-public, so the block is not flagged.
+/// ## Investigation findings (2026-03-31)
 ///
-/// ## Investigation findings (round 2)
-/// FP root causes:
-/// 1. Single-line `class << self; def meth; end; end` — RuboCop does not flag
-///    these. The criterion is: if any plain `def` node starts on the same line
-///    as the `class << self` keyword, no offense is reported.
-/// 2. `def self.x` and `def Receiver.method` inside `class << self` were
-///    counted as plain defs. RuboCop's `each_child_node(:def)` only collects
-///    `def` nodes (no receiver), not `defs` nodes (with receiver). Fixed by
-///    checking `def_node.receiver().is_none()`.
+/// RuboCop only inspects direct child plain `def` nodes inside `class << self`.
+/// Visibility-wrapped forms like `private def helper`, `protected def helper`,
+/// and `public def helper` are wrapped in a call node, so they do not count as
+/// candidate methods for this cop at all.
 ///
-/// FN root causes:
-/// 1. `private :symbol_name` with arguments caused an immediate `return false`,
-///    but RuboCop only considers a method private if: (a) standalone `private`
-///    (block style) precedes it, (b) `private def foo` wraps it, or (c)
-///    `private :foo` appears as a RIGHT sibling (after the def). `private :foo`
-///    BEFORE `def foo` does NOT make the subsequent `def foo` private — the new
-///    definition is public. Fixed by tracking per-method-name visibility from
-///    post-hoc `private :name` calls (right siblings only).
-/// 2. `include`/`extend`/`attr_reader` etc. alongside `def` nodes — these were
-///    already handled correctly but the FN was masked by the `private :symbol`
-///    early return bug above.
+/// nitrocop previously walked all statements in the singleton class body and
+/// treated inline visibility-wrapped defs as blockers (or additional public
+/// defs). That caused false negatives when a `class << self` block mixed inline
+/// helpers with direct public defs.
+///
+/// Fix: mirror RuboCop's `def_nodes` + `node_visibility` behavior more closely.
+/// Only direct child plain `def` nodes are counted, compact same-line forms are
+/// still skipped, bare left-sibling visibility sections (`private`, `protected`,
+/// `public`) still apply, and right-sibling `private/protected/public :name`
+/// overrides are resolved per method name.
 pub struct ClassMethodsDefinitions;
 
 impl Cop for ClassMethodsDefinitions {
@@ -114,113 +102,106 @@ fn all_defs_public(source: &SourceFile, body: &ruby_prism::Node<'_>, sclass_line
     };
 
     let stmts_vec: Vec<_> = stmts.body().iter().collect();
-    let mut found_def = false;
-    let mut in_private = false;
+    let mut found_direct_plain_def = false;
 
-    for stmt in &stmts_vec {
-        // Check for access modifier calls (private, protected, public)
-        if let Some(call) = stmt.as_call_node() {
-            let name = call.name().as_slice();
-            if call.receiver().is_none() {
-                if call.arguments().is_none() {
-                    // Standalone modifier: `private` / `protected` / `public`
-                    if name == b"private" || name == b"protected" {
-                        in_private = true;
-                        continue;
-                    }
-                    if name == b"public" {
-                        in_private = false;
-                        continue;
-                    }
-                } else if name == b"private" || name == b"protected" {
-                    if let Some(args) = call.arguments() {
-                        // Check if this is `private def foo` (inline modifier)
-                        for arg in args.arguments().iter() {
-                            if arg.as_def_node().is_some() {
-                                // Inline `private def foo` — the def is non-public
-                                return false;
-                            }
-                        }
-                    }
-                    // `private :name` — handled per-def via right-sibling check below
-                    continue;
-                } else if name == b"public" {
-                    // `public def foo` — the def is explicitly public.
-                    if let Some(args) = call.arguments() {
-                        for arg in args.arguments().iter() {
-                            if let Some(def_node) = arg.as_def_node() {
-                                if def_node.receiver().is_none() {
-                                    let def_line = source
-                                        .offset_to_line_col(def_node.location().start_offset())
-                                        .0;
-                                    if def_line == sclass_line {
-                                        return false; // Same line as class << self
-                                    }
-                                    found_def = true;
-                                }
-                            }
-                        }
-                    }
-                    continue;
-                }
-            }
+    for (idx, stmt) in stmts_vec.iter().enumerate() {
+        let Some(def_node) = stmt.as_def_node() else {
+            continue;
+        };
+
+        // Only consider plain defs (no receiver like `def self.x`)
+        if def_node.receiver().is_some() {
+            continue;
         }
 
-        if let Some(def_node) = stmt.as_def_node() {
-            // Only consider plain defs (no receiver like `def self.x`)
-            if def_node.receiver().is_some() {
-                continue;
-            }
+        let def_line = source
+            .offset_to_line_col(def_node.location().start_offset())
+            .0;
+        if def_line == sclass_line {
+            return false; // Single-line form — RuboCop does not flag
+        }
 
-            // Check if def is on the same line as class << self
-            let def_line = source
-                .offset_to_line_col(def_node.location().start_offset())
-                .0;
-            if def_line == sclass_line {
-                return false; // Single-line form — RuboCop does not flag
-            }
+        found_direct_plain_def = true;
 
-            if in_private {
-                return false; // Non-public def found (block-style private)
-            }
-
-            // Check if this method name was made private/protected by a post-hoc
-            // `private :name` call (right sibling). Only RIGHT siblings count —
-            // `private :name` BEFORE `def name` does NOT make the new def private.
-            let method_name = def_node.name().as_slice();
-            let mut made_private_by_right_sibling = false;
-            // Find this stmt's position and check only right siblings
-            let stmt_offset = def_node.location().start_offset();
-            for later_stmt in &stmts_vec {
-                if let Some(later_call) = later_stmt.as_call_node() {
-                    if later_call.location().start_offset() <= stmt_offset {
-                        continue; // Skip left siblings and self
-                    }
-                    let later_name = later_call.name().as_slice();
-                    if later_call.receiver().is_none()
-                        && (later_name == b"private" || later_name == b"protected")
-                    {
-                        if let Some(args) = later_call.arguments() {
-                            for arg in args.arguments().iter() {
-                                if let Some(sym) = arg.as_symbol_node() {
-                                    if sym.unescaped() == method_name {
-                                        made_private_by_right_sibling = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if made_private_by_right_sibling {
-                return false; // Non-public by post-hoc `private :name`
-            }
-
-            found_def = true;
+        if direct_def_visibility(&stmts_vec, idx, def_node.name().as_slice())
+            != MethodVisibility::Public
+        {
+            return false;
         }
     }
-    found_def
+
+    found_direct_plain_def
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MethodVisibility {
+    Public,
+    Protected,
+    Private,
+}
+
+fn direct_def_visibility(
+    stmts: &[ruby_prism::Node<'_>],
+    idx: usize,
+    method_name: &[u8],
+) -> MethodVisibility {
+    inline_method_visibility(stmts, idx, method_name)
+        .or_else(|| enclosing_visibility(stmts, idx))
+        .unwrap_or(MethodVisibility::Public)
+}
+
+fn inline_method_visibility(
+    stmts: &[ruby_prism::Node<'_>],
+    idx: usize,
+    method_name: &[u8],
+) -> Option<MethodVisibility> {
+    for stmt in stmts[idx + 1..].iter().rev() {
+        let Some(call) = stmt.as_call_node() else {
+            continue;
+        };
+        if call.receiver().is_some() {
+            continue;
+        }
+
+        let visibility = visibility_name(call.name().as_slice())?;
+        let Some(args) = call.arguments() else {
+            continue;
+        };
+
+        if args.arguments().iter().any(|arg| {
+            arg.as_symbol_node()
+                .is_some_and(|symbol| symbol.unescaped() == method_name)
+        }) {
+            return Some(visibility);
+        }
+    }
+
+    None
+}
+
+fn enclosing_visibility(stmts: &[ruby_prism::Node<'_>], idx: usize) -> Option<MethodVisibility> {
+    for stmt in stmts[..idx].iter().rev() {
+        let Some(call) = stmt.as_call_node() else {
+            continue;
+        };
+
+        if call.receiver().is_none() && call.arguments().is_none() {
+            if let Some(visibility) = visibility_name(call.name().as_slice()) {
+                return Some(visibility);
+            }
+        }
+    }
+
+    None
+}
+
+fn visibility_name(name: &[u8]) -> Option<MethodVisibility> {
+    match name {
+        b"public" => Some(MethodVisibility::Public),
+        b"protected" => Some(MethodVisibility::Protected),
+        b"private" => Some(MethodVisibility::Private),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
