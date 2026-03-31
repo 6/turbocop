@@ -53,3 +53,17 @@ Agent runs have a hard timeout. Plan your work to finish well within it — a pa
 
 - If the only plausible resolution is a full revert of the PR, stop and say so clearly instead of doing the revert.
 - If required context is missing, explain the blocker in the final message rather than improvising a broad change.
+
+## Reporting Findings When You Cannot Fix
+
+Your final message is posted to the tracker issue so future agents (and humans) can learn from your attempt. Vague summaries like "tried a fix but it regressed" waste that opportunity. Write findings that prevent the next agent from repeating your work.
+
+**Always include in your final message:**
+
+1. **What you changed** — name the file, function, and logic change (e.g., "added an early return in `check_spacing()` when the operator is inside a string interpolation node")
+2. **What happened** — exact regression numbers from `check_cop.py` (e.g., "+70 FP, +149 FN") and which repos/patterns regressed
+3. **Why it failed** — root cause of the regression (e.g., "the early return also skipped legitimate `+=` spacing checks because InterpolatedStringNode wraps the entire heredoc body")
+4. **What a correct fix needs** — concrete guidance for the next attempt (e.g., "need to check the immediate parent node type, not ancestors, to distinguish interpolation from heredoc context")
+5. **Key corpus examples** — specific repo:file:line references that demonstrate the problem
+
+**Even if you made zero code changes**, document what you investigated and why no approach was viable. "I found no fix" with no detail is not acceptable — explain what patterns you examined and why they were not addressable.

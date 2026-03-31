@@ -499,6 +499,10 @@ def build_prompt(
         "- If a fix is blocked by missing context, explain that clearly in the final message.",
         "- Do not build a second binary from `origin/main` — use the pre-computed diagnosis packet for baseline data.",
         "- Do not run `check_cop.py --rerun --clone` as your final verification step — it takes 20+ min and will likely time out. Use targeted spot-checks on specific repos instead. The workflow runs the full gate after you exit.",
+        "- If you cannot fix the issue, your final message is posted to the PR/issue for future agents. "
+        "Include: (1) what you changed and why it didn't work, (2) exact error messages or regression numbers, "
+        "(3) why the approach failed, (4) what a correct fix would need. Be specific enough that the next "
+        "agent won't repeat your work.",
         "",
     ])
     return "\n".join(lines)

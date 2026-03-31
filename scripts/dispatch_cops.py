@@ -1402,6 +1402,14 @@ condition that matches the SPECIFIC differentiating context.
 - Do NOT touch unrelated files
 - Do NOT use `git stash`
 - Do NOT push — you do not have push permission; the workflow handles pushing after you exit
+
+### If You Cannot Fix It
+If you exit without changes, your final message is posted to the tracker issue for future
+agents. Include: (1) what you changed and why it didn't work, with exact `check_cop.py`
+regression numbers, (2) which corpus repos/patterns regressed, (3) why the approach failed,
+(4) what a correct fix would need to handle differently. Vague findings like "tried a fix
+but it regressed" are not acceptable — be specific enough that the next agent won't repeat
+your work.
 """)
 
     # Prism pitfall notes
