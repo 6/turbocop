@@ -15,6 +15,11 @@ def test
   work if something
 end
 
+# Single-line block if with `then`/`end`
+def test
+  if something then work end
+end
+
 # If-else at end of method (allowed)
 def test
   if something
@@ -68,5 +73,33 @@ def test
   if (var, obj = simple_comparison_lhs(node)) || (obj, var = simple_comparison_rhs(node))
     return if var.call_type?
     [var, obj]
+  end
+end
+
+# Assignment parent suppresses branch-style guard-clause suggestions
+def test
+  result = if something
+    raise "error"
+  else
+    work
+  end
+end
+
+# Multiline assignment parent suppresses branch-style guard-clause suggestions
+def test
+  result =
+    if something
+      raise "error"
+    else
+      work
+    end
+end
+
+# Assignment in condition used in the non-guard branch
+def test
+  if (foo = bar)
+    return foo
+  else
+    baz
   end
 end
