@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -763,21 +764,20 @@ def run_diagnostic(
                 continue
 
             # Write temp file in its own directory (nitrocop needs a project root).
-            # Use the original filename from the corpus example so that cops
-            # with Include patterns (e.g., RSpec cops matching **/*_spec.rb)
-            # can match the file during snippet testing.
+            # Preserve the original repo-relative path so that cops with
+            # Include patterns (e.g., Rails cops matching **/test/**/*.rb or
+            # RSpec cops matching **/*_spec.rb) can match the file.
             tmp_dir = tempfile.mkdtemp(prefix="nitrocop_diag_")
             parsed_loc = _parse_example_loc(loc)
-            snippet_filename = (
-                os.path.basename(parsed_loc[1]) if parsed_loc else "test.rb"
-            )
-            tmp_path = os.path.join(tmp_dir, snippet_filename)
+            snippet_rel_path = parsed_loc[1] if parsed_loc else "test.rb"
+            tmp_path = os.path.join(tmp_dir, snippet_rel_path)
+            os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
             with open(tmp_path, "w") as f:
                 f.write("\n".join(source_lines) + "\n")
 
             try:
                 offenses = _run_nitrocop(
-                    binary_path, tmp_dir, cop, snippet_filename,
+                    binary_path, tmp_dir, cop, snippet_rel_path,
                 )
 
                 # If no offenses with full context (may have parse errors from
@@ -786,7 +786,7 @@ def run_diagnostic(
                     with open(tmp_path, "w") as f:
                         f.write(offense_line + "\n")
                     offenses = _run_nitrocop(
-                        binary_path, tmp_dir, cop, snippet_filename,
+                        binary_path, tmp_dir, cop, snippet_rel_path,
                     )
 
                 detected = len(offenses) > 0
@@ -902,11 +902,7 @@ def run_diagnostic(
                     "diagnosed": False, "reason": str(e),
                 })
             finally:
-                try:
-                    os.unlink(tmp_path)
-                    os.rmdir(tmp_dir)
-                except OSError:
-                    pass
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
     return results
 
@@ -1748,20 +1744,23 @@ def diagnose_examples(binary: Path, cop: str, examples: list, kind: str) -> tupl
         lines, offense = extract_diagnostic_lines(example["src"])
         if not lines:
             continue
-        # Use original filename for Include pattern matching (e.g., *_spec.rb)
+        # Preserve the original repo-relative path so that cops with
+        # Include patterns (e.g., Rails cops matching **/test/**/*.rb or
+        # RSpec cops matching **/*_spec.rb) can match the file.
         loc = example.get("loc", "")
         parsed = _parse_example_loc(loc)
-        filename = os.path.basename(parsed[1]) if parsed else "test.rb"
+        rel_path = parsed[1] if parsed else "test.rb"
         tmp = tempfile.mkdtemp()
-        filepath = os.path.join(tmp, filename)
+        filepath = os.path.join(tmp, rel_path)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         try:
             with open(filepath, "w") as file_handle:
                 file_handle.write("\n".join(lines) + "\n")
-            offenses = run_nitrocop(binary, tmp, cop, filename)
+            offenses = run_nitrocop(binary, tmp, cop, rel_path)
             if not offenses and offense:
                 with open(filepath, "w") as file_handle:
                     file_handle.write(offense + "\n")
-                offenses = run_nitrocop(binary, tmp, cop, filename)
+                offenses = run_nitrocop(binary, tmp, cop, rel_path)
             detected = len(offenses) > 0
             if (kind == "fn" and not detected) or (kind == "fp" and detected):
                 bugs += 1
@@ -1770,11 +1769,7 @@ def diagnose_examples(binary: Path, cop: str, examples: list, kind: str) -> tupl
         except Exception:
             pass
         finally:
-            try:
-                os.unlink(filepath)
-                os.rmdir(tmp)
-            except OSError:
-                pass
+            shutil.rmtree(tmp, ignore_errors=True)
     return bugs, config_issues
 
 

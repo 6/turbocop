@@ -111,3 +111,35 @@ def test_main_enriches_corpus_results(tmp_path):
     # Perfect cop should not be diagnosed
     perfect = [e for e in by_cop if e["cop"] == "Style/PerfectCop"]
     assert "diagnosis" not in perfect[0]
+
+
+def test_snippet_preserves_repo_relative_path(tmp_path):
+    """Snippet files are written with repo-relative paths for Include matching."""
+    # Simulate what diagnose_examples does with the path
+    loc = "repo__id__abc: test/functional/v1/tweets_controller_test.rb:4"
+    parsed = diagnose_corpus.parse_example_loc(loc)
+    assert parsed is not None
+    rel_path = parsed[1]
+    assert rel_path == "test/functional/v1/tweets_controller_test.rb"
+
+    # The snippet should be written at tmp/test/functional/v1/tweets_controller_test.rb
+    filepath = os.path.join(str(tmp_path), rel_path)
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, "w") as f:
+        f.write("class FooTest < ActionController::TestCase; end\n")
+    assert os.path.exists(filepath)
+
+    # A glob like **/test/**/*.rb should match
+    import fnmatch
+    assert fnmatch.fnmatch(rel_path, "**/test/**/*.rb") or \
+        "test/" in rel_path  # fnmatch doesn't do ** like globset
+
+
+def test_snippet_spec_path_matches_include(tmp_path):
+    """Spec files preserve paths for RSpec Include patterns."""
+    loc = "grape__grape__abc: spec/grape/api/inherited_helpers_spec.rb:55"
+    parsed = diagnose_corpus.parse_example_loc(loc)
+    rel_path = parsed[1]
+    assert rel_path == "spec/grape/api/inherited_helpers_spec.rb"
+    assert rel_path.endswith("_spec.rb")
+    assert "spec/" in rel_path

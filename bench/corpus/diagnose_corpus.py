@@ -24,6 +24,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -102,17 +103,21 @@ def diagnose_examples(
             continue
         loc = example.get("loc", "")
         parsed = parse_example_loc(loc)
-        filename = os.path.basename(parsed[1]) if parsed else "test.rb"
+        # Preserve the original repo-relative path so that cops with
+        # Include patterns (e.g., Rails cops matching **/test/**/*.rb or
+        # spec/**/*.rb) can match the file during snippet testing.
+        rel_path = parsed[1] if parsed else "test.rb"
         tmp = tempfile.mkdtemp(prefix="nitrocop_diag_")
-        filepath = os.path.join(tmp, filename)
+        filepath = os.path.join(tmp, rel_path)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         try:
             with open(filepath, "w") as f:
                 f.write("\n".join(lines) + "\n")
-            offenses = run_nitrocop(binary, tmp, cop, filename)
+            offenses = run_nitrocop(binary, tmp, cop, rel_path)
             if not offenses and offense:
                 with open(filepath, "w") as f:
                     f.write(offense + "\n")
-                offenses = run_nitrocop(binary, tmp, cop, filename)
+                offenses = run_nitrocop(binary, tmp, cop, rel_path)
             detected = len(offenses) > 0
             if (kind == "fn" and not detected) or (kind == "fp" and detected):
                 bugs += 1
@@ -121,11 +126,7 @@ def diagnose_examples(
         except Exception:
             pass
         finally:
-            try:
-                os.unlink(filepath)
-                os.rmdir(tmp)
-            except OSError:
-                pass
+            shutil.rmtree(tmp, ignore_errors=True)
     return bugs, config_issues
 
 
