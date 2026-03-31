@@ -112,3 +112,35 @@ rescue
   return safe_value
   ^^^^^^^^^^^^^^^^^ Style/RedundantReturn: Redundant `return` detected.
 end
+
+# return in block body of define_singleton_method
+define_singleton_method(:foo) do
+  return 42
+  ^^^^^^^^^ Style/RedundantReturn: Redundant `return` detected.
+end
+
+# return in lambda body
+lambda do
+  return true
+  ^^^^^^^^^^^ Style/RedundantReturn: Redundant `return` detected.
+end
+
+# return in brace block of define_singleton_method
+define_singleton_method(:bar) { return true }
+                                ^^^^^^^^^^^ Style/RedundantReturn: Redundant `return` detected.
+
+# return in define_method block
+define_method(:baz) do
+  return :result
+  ^^^^^^^^^^^^^^ Style/RedundantReturn: Redundant `return` detected.
+end
+
+# return in stabby lambda
+-> { return 42 }
+     ^^^^^^^^^ Style/RedundantReturn: Redundant `return` detected.
+
+# return with rescue modifier in terminal position
+def rescue_modifier_return
+  return bar rescue nil
+  ^^^^^^^^^^ Style/RedundantReturn: Redundant `return` detected.
+end

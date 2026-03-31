@@ -1,8 +1,19 @@
-use crate::cop::node_type::DEF_NODE;
+use crate::cop::node_type::{CALL_NODE, DEF_NODE, LAMBDA_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Checks for redundant `return` in terminal position of `def`, `defs`,
+/// `define_method`/`define_singleton_method` blocks, `lambda` blocks,
+/// and stabby lambda (`->`).
+///
+/// Handles branching (if/unless/case), begin/rescue, nested control flow,
+/// and rescue modifier (`return expr rescue fallback`).
+///
+/// Skips ternary expressions (`a ? return : raise`) since RuboCop does not
+/// flag `return` inside ternary branches. Also skips checking the main body
+/// of `begin/rescue/else` when an else clause is present, since the else
+/// clause determines the return value (not the main body).
 pub struct RedundantReturn;
 
 impl Cop for RedundantReturn {
@@ -11,7 +22,7 @@ impl Cop for RedundantReturn {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[DEF_NODE]
+        &[DEF_NODE, CALL_NODE, LAMBDA_NODE]
     }
 
     fn check_node(
@@ -24,17 +35,40 @@ impl Cop for RedundantReturn {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_multiple = config.get_bool("AllowMultipleReturnValues", false);
-        let def_node = match node.as_def_node() {
-            Some(d) => d,
-            None => return,
-        };
 
-        let body = match def_node.body() {
-            Some(b) => b,
-            None => return,
-        };
+        // DefNode: check the method body
+        if let Some(def_node) = node.as_def_node() {
+            if let Some(body) = def_node.body() {
+                check_terminal(self, source, &body, allow_multiple, diagnostics);
+            }
+            return;
+        }
 
-        check_terminal(self, source, &body, allow_multiple, diagnostics);
+        // CallNode: check blocks on define_method, define_singleton_method, lambda
+        if let Some(call_node) = node.as_call_node() {
+            let name = call_node.name();
+            let name_str = std::str::from_utf8(name.as_slice()).unwrap_or("");
+            match name_str {
+                "define_method" | "define_singleton_method" | "lambda" => {
+                    if let Some(block) = call_node.block() {
+                        if let Some(block_node) = block.as_block_node() {
+                            if let Some(body) = block_node.body() {
+                                check_terminal(self, source, &body, allow_multiple, diagnostics);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        // LambdaNode: check stabby lambda body (-> { ... })
+        if let Some(lambda_node) = node.as_lambda_node() {
+            if let Some(body) = lambda_node.body() {
+                check_terminal(self, source, &body, allow_multiple, diagnostics);
+            }
+        }
     }
 }
 
@@ -74,8 +108,24 @@ fn check_terminal(
         return;
     }
 
-    // IfNode: check terminal position in each branch
+    // RescueModifierNode: `return expr rescue fallback` — check the inner expression
+    if let Some(rescue_mod) = node.as_rescue_modifier_node() {
+        check_terminal(
+            cop,
+            source,
+            &rescue_mod.expression(),
+            allow_multiple,
+            diagnostics,
+        );
+        return;
+    }
+
+    // IfNode: check terminal position in each branch (skip ternary expressions)
     if let Some(if_node) = node.as_if_node() {
+        // Ternary expressions (a ? b : c) have no if_keyword_loc
+        if if_node.if_keyword_loc().is_none() {
+            return;
+        }
         if let Some(stmts) = if_node.statements() {
             check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
         }
@@ -123,9 +173,17 @@ fn check_terminal(
 
     // BeginNode: check statements body and rescue clauses
     if let Some(begin_node) = node.as_begin_node() {
-        // Check main body statements
-        if let Some(stmts) = begin_node.statements() {
-            check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+        let has_rescue = begin_node.rescue_clause().is_some();
+        let has_else = begin_node.else_clause().is_some();
+
+        // Only check main body if there's no rescue+else combination.
+        // When rescue has an else clause, the else clause's value is the
+        // return value (not the main body), so returns in the main body
+        // are early exits, not redundant.
+        if !has_rescue || !has_else {
+            if let Some(stmts) = begin_node.statements() {
+                check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+            }
         }
         // Check rescue clauses
         if let Some(rescue) = begin_node.rescue_clause() {
