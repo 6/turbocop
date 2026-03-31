@@ -16,3 +16,5 @@ records[ key.downcase.to_sym ] = if condition
 memo[ type['name'] ] = {
   'description' => type['text'],
 }
+current_class_accessor[:table].header_description[ key[1..-1] ] = value
+app.extensions[:blog].find { |_key, instance| instance.options[:name] == options[:blog] }[ 1 ]
