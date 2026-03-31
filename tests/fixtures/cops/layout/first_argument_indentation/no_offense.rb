@@ -14,6 +14,14 @@ Conversation.create!(conversation_params.merge(
                        contact_inbox_id: id
                      ))
 
+# Inner call with its own attached block is not a special inner send in RuboCop's AST
+include(CommandKit::Commands::AutoLoad.new(
+  dir:       File.expand_path('../fixtures/test_auto_load/cli/commands', __FILE__),
+  namespace: "#{self}::Commands"
+) { |autoload|
+  autoload.command "test-1", "Test1", "test1.rb", aliases: %w[test_1]
+})
+
 expect(helper.generate_category_link(
          portal_slug: 'portal_slug',
          category_locale: 'en'
