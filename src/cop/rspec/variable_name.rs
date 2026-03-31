@@ -9,6 +9,8 @@ use std::sync::OnceLock;
 /// Checks memoized helper names against RuboCop's RSpec variable-name styles.
 /// Fixed a false negative where operator-only names like `subject(:==)` were
 /// treated as valid `snake_case` because the shared helper allows `=` suffixes.
+/// Fixed false positives for blank helper names such as `let(:"")`, which
+/// RuboCop accepts and which appear in rswag request-spec parameter helpers.
 pub struct VariableName;
 
 impl Cop for VariableName {
@@ -133,6 +135,10 @@ impl<'pr> Visit<'pr> for VariableNameVisitor<'_> {
                     };
 
                     if let Some(name) = name_owned {
+                        if name.is_empty() {
+                            break;
+                        }
+
                         if !self.matches_allowed_pattern(&name) && !self.check_style(&name) {
                             let loc = arg.location();
                             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
