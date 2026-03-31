@@ -156,7 +156,8 @@ def main():
                         help="Parallel workers (default: 8)")
     args = parser.parse_args()
 
-    if not os.path.isfile(args.binary):
+    binary = str(Path(args.binary).resolve())
+    if not os.path.isfile(binary):
         print(f"Error: binary not found: {args.binary}", file=sys.stderr)
         sys.exit(1)
 
@@ -169,7 +170,7 @@ def main():
     diagnosis: dict[str, tuple[int, int]] = {}
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(diagnose_cop, args.binary, entry): entry["cop"]
+            pool.submit(diagnose_cop, binary, entry): entry["cop"]
             for entry in diverging
         }
         for future in as_completed(futures):
