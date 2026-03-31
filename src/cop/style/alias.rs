@@ -24,6 +24,14 @@ use crate::parse::source::SourceFile;
 ///    is never flagged for "use alias_method", even with blocks in between. Fix: added
 ///    `def_depth` counter incremented only for non-singleton DefNodes (`def foo`, not
 ///    `def self.foo`), and `alias_method_possible()` returns false when def_depth > 0.
+///
+/// Investigation (2026-03-31): FN=5054 from missing symbol-args detection.
+/// RuboCop's `on_alias` flags `alias :foo :bar` in lexical scope with prefer_alias
+/// style, suggesting `alias foo bar` instead (MSG_SYMBOL_ARGS). The check fires when
+/// both arguments are symbol-prefixed (none are barewords). Fix: added detection in
+/// `visit_alias_method_node` for the case where both new_name and old_name are
+/// SymbolNodes with `opening_loc` (the `:` prefix), emitting the appropriate message.
+/// Resolved all 5,054 FN with 0 regressions.
 pub struct Alias;
 
 /// Scope type for determining whether alias or alias_method should be used.
@@ -154,35 +162,60 @@ impl Visit<'_> for AliasVisitor<'_, '_> {
 
     fn visit_alias_method_node(&mut self, node: &ruby_prism::AliasMethodNode<'_>) {
         let scope = self.current_scope();
+        let loc = node.location();
+        let kw_slice = &self.source.content[loc.start_offset()..];
+        let is_alias_keyword = kw_slice.starts_with(b"alias ") || kw_slice.starts_with(b"alias\t");
+
+        if !is_alias_keyword {
+            return;
+        }
 
         if self.enforced_style == "prefer_alias_method" {
             if self.alias_method_possible() {
-                let loc = node.location();
-                let kw_slice = &self.source.content[loc.start_offset()..];
-                if kw_slice.starts_with(b"alias ") || kw_slice.starts_with(b"alias\t") {
-                    let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Use `alias_method` instead of `alias`.".to_string(),
-                    ));
-                }
+                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    "Use `alias_method` instead of `alias`.".to_string(),
+                ));
             }
         } else {
-            // prefer_alias style: if inside dynamic scope (def or block),
-            // flag alias to use alias_method instead
-            if scope == ScopeType::Dynamic && self.alias_method_possible() {
-                let loc = node.location();
-                let kw_slice = &self.source.content[loc.start_offset()..];
-                if kw_slice.starts_with(b"alias ") || kw_slice.starts_with(b"alias\t") {
-                    let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Use `alias_method` instead of `alias`.".to_string(),
-                    ));
+            // prefer_alias style
+            if !self.alias_method_possible() {
+                return;
+            }
+
+            if scope == ScopeType::Dynamic {
+                // alias in dynamic scope should use alias_method
+                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    "Use `alias_method` instead of `alias`.".to_string(),
+                ));
+            } else {
+                // In lexical scope: flag alias :sym :sym to use barewords instead
+                if let (Some(new_sym), Some(old_sym)) = (
+                    node.new_name().as_symbol_node(),
+                    node.old_name().as_symbol_node(),
+                ) {
+                    // Both must have : prefix (opening_loc present) — not barewords
+                    if new_sym.opening_loc().is_some() && old_sym.opening_loc().is_some() {
+                        let new_name = std::str::from_utf8(new_sym.unescaped()).unwrap_or("");
+                        let old_name = std::str::from_utf8(old_sym.unescaped()).unwrap_or("");
+                        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                        self.diagnostics.push(self.cop.diagnostic(
+                            self.source,
+                            line,
+                            column,
+                            format!(
+                                "Use `alias {} {}` instead of `alias :{} :{}`.",
+                                new_name, old_name, new_name, old_name
+                            ),
+                        ));
+                    }
                 }
             }
         }

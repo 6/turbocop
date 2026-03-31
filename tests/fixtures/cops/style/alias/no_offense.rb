@@ -6,8 +6,6 @@ alias greet hello
 
 alias to_s inspect
 
-alias :[] :fetch
-
 # alias_method inside a block is OK (dynamic scope, can't use alias keyword)
 Struct.new(:name) do
   alias_method :first_name, :name
