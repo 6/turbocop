@@ -474,3 +474,99 @@ def nested_same_keyword_guard
   return false if empty? if respond_to?(:empty?)
   true
 end
+
+# FN fix: guard clause with trailing semicolon
+def guard_with_trailing_semicolon
+  return unless driver =~ /mysql/i;
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  migrate! if tests.include?(:create)
+end
+
+# FN fix: guard clause with trailing semicolon then comment
+def guard_with_semicolon_and_comment
+  return "" if ex_obj == nil; # canceled
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  ex_obj.cb_call
+end
+
+# FN fix: break guard with trailing semicolon in a block
+def guard_break_with_semicolon
+  loop do
+    break if file.eof?;
+    ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+    readed << file.read(100)
+  end
+end
+
+# FN fix: guard followed by multi-line next sibling with `return...do...end`
+# RuboCop's `single_line?` returns false for `return x.map do |c| ... end`
+def guard_then_if_with_return_do_block
+  unless attributes_class.is_a?(Class)
+    raise "Unable to set default_attributes"
+  end
+  ^^^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  if attributes_class.table_exists?
+    return attributes_class.columns.map do |c|
+      OpenStruct.new({ name: c.name.to_sym })
+    end
+  end
+end
+
+# FN fix: guard followed by next guard with `\` between raise args
+# The next guard's raise args span multiple lines, so it's NOT single_line?
+def guard_then_multiline_raise_args_continuation
+  raise ArgumentError, "Parameters must be provided in a Hash." unless opts.is_a?(Hash)
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  raise ArgumentError, "The name parameter is not allowed, use id instead in format:"\
+    "1e0b427a-aaaa-bbbb-1111-ee558463ebbf" if opts.key?(:name)
+
+  work
+end
+
+# FN fix: guard followed by if block with operator guard + modifier (NOT a guard)
+# RuboCop's `guard_clause?` checks `if_branch.guard_clause?`. The if-branch
+# is `unless cond; do_thing and return; end`. The `unless` wrapper with
+# `and return` inside is a guard clause — but RuboCop doesn't suppress
+# the offense when the next sibling is a non-guard block-form `if` whose
+# body is a modifier-form guard.
+def guard_then_if_with_operator_guard_modifier
+  errors.add(:base, "Not found") and return if c.nil?
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  if c.closed?
+    errors.add(:base, "Not open") and return unless c.user_is_maintainer?(current_user)
+  end
+  add_to_collection(c)
+end
+
+# FN fix: guard with heredoc in CONDITION (not body)
+# RuboCop's `last_heredoc_argument` only finds heredocs in the guard's
+# body/arguments, not in the `if` condition. The blank line should be
+# right after the `return if ...` line, not after the heredoc end marker.
+def guard_with_heredoc_in_condition
+  return if previous_version_prompt && !yes?(<<~MSG, :red)
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+    The default preferences update process is only supported.
+    Are you sure you want to continue? (y/N)
+  MSG
+  from = options[:from]
+end
+
+# FN fix: break guard in nested block without semicolon
+def guard_break_in_nested_if
+  if count >= 2
+    break unless byte = scanner.get_byte
+    ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+    # comment
+    if byte == ?>
+      break
+    end
+  end
+end
+
+# Guard followed by multiline guard with `\` between args — not single_line? so not suppressed
+def consecutive_guards_backslash_between_args
+  raise ArgumentError, "param1 required" unless opts.is_a?(Hash)
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  raise ArgumentError, "The name is"\
+    " not allowed" if opts.key?(:name)
+end

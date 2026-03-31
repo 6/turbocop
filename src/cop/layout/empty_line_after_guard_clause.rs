@@ -298,6 +298,38 @@ use crate::parse::source::SourceFile;
 ///    body line of the next `if` block is multiline and fails RuboCop's
 ///    `single_line?` check. Fix: treat top-level ternaries without a same-line
 ///    `:` as multiline in `is_bare_guard_in_block`.
+///
+/// ## Corpus investigation (2026-03-31: FN batch — semicolons, do-keyword,
+/// backslash args, operator guard modifier, heredoc in condition)
+///
+/// 1. **Trailing semicolons on guards**: `return if cond;` was treated as
+///    embedded expression. Fix: semicolons are statement terminators; check
+///    for code after the semicolon — only flag multiline guards with code
+///    after the semicolon (e.g., `}; do_something`).
+///
+/// 2. **`do` keyword in next-sibling blocks**: `return...do |x|` blocks were
+///    not recognized as guard-suppressing blocks. Fix: detect `do` keyword
+///    (with optional block params) via `ends_with_do_keyword()`.
+///
+/// 3. **Backslash between raise args**: `raise "str1"\ "str2" if cond` was
+///    incorrectly seen as single-line guard. Fix: track backslash continuations
+///    in `is_multiline_modifier_guard` and mark args as multi-line when the
+///    continuation joins arguments (not modifier keywords).
+///
+/// 4. **Operator guard with modifier not suppressing**: `do_thing and return
+///    if cond` followed by a block-form if should not suppress. Fix: reject
+///    operator guards with modifier keywords in `is_bare_guard_in_block`.
+///
+/// 5. **Heredoc in condition**: `return if cond && <<~MSG` — the heredoc
+///    extends the guard's effective end line but offense location should be
+///    at the guard line (not heredoc marker). Fix: search body first for
+///    heredoc, then full node; only use heredoc end marker for offense
+///    location when heredoc is in the body.
+///
+/// 6. **Semicolons in next-sibling guard detection**: lines like
+///    `return if a; return if b` have two `if` keywords, failing the
+///    `modifier_count == 1` check. Fix: truncate at the first top-level
+///    semicolon before counting modifiers in `is_guard_line`.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -496,10 +528,28 @@ impl Cop for EmptyLineAfterGuardClause {
 
         // Check for heredoc arguments — if present, the "end line" is after the
         // heredoc closing delimiter, not after the if node's source range.
-        let heredoc_end_line = if is_modifier {
-            find_heredoc_end_line(source, node)
+        //
+        // RuboCop's `last_heredoc_argument` traverses method-call chains
+        // (receiver/arguments) but NOT `and`/`or` nodes. This means:
+        // - `return true if <<~TEXT.length > bar` → heredoc found (in condition's
+        //   method-call chain) → effective end after TEXT
+        // - `return if cond && !yes?(<<~MSG)` → heredoc NOT found (behind `&&`
+        //   node) → effective end at `return if ...` line
+        // - `raise "msg", <<~MSG unless cond` → heredoc found (in body args) →
+        //   effective end after MSG
+        //
+        // First search the guard body (first_stmt) for heredoc. If none found,
+        // fall back to searching the full node (which includes the condition).
+        // Track whether the heredoc is in the body (for offense location purposes).
+        let (heredoc_end_line, heredoc_in_body) = if is_modifier {
+            let body_heredoc = find_heredoc_end_line(source, first_stmt);
+            if body_heredoc.is_some() {
+                (body_heredoc, true)
+            } else {
+                (find_heredoc_end_line(source, node), false)
+            }
         } else {
-            None
+            (None, false)
         };
         let effective_end_line = heredoc_end_line.unwrap_or(if_end_line);
 
@@ -507,16 +557,20 @@ impl Cop for EmptyLineAfterGuardClause {
         // - Heredoc: start of heredoc end marker content (first non-whitespace on that line)
         // - Block form: start of `end` keyword
         // - Modifier form: start of the if expression
-        let offense_offset = if let Some(h_line) = heredoc_end_line {
-            // Find the first non-whitespace char on the heredoc end marker line
-            let heredoc_line_content = lines[h_line.saturating_sub(1)];
-            let indent = heredoc_line_content
-                .iter()
-                .position(|&b| b != b' ' && b != b'\t')
-                .unwrap_or(0);
-            source
-                .line_col_to_offset(h_line, indent)
-                .unwrap_or(loc.start_offset())
+        let offense_offset = if heredoc_in_body {
+            if let Some(h_line) = heredoc_end_line {
+                // Heredoc in body: offense at the heredoc end marker
+                let heredoc_line_content = lines[h_line.saturating_sub(1)];
+                let indent = heredoc_line_content
+                    .iter()
+                    .position(|&b| b != b' ' && b != b'\t')
+                    .unwrap_or(0);
+                source
+                    .line_col_to_offset(h_line, indent)
+                    .unwrap_or(loc.start_offset())
+            } else {
+                loc.start_offset()
+            }
         } else if let Some(ref end_kw) = end_keyword_loc {
             end_kw.start_offset()
         } else {
@@ -562,6 +616,19 @@ impl Cop for EmptyLineAfterGuardClause {
                             || starts_with_keyword(trailing, b"unless")
                         {
                             has_attached_modifier_suffix = true;
+                        } else if trailing[0] == b';' {
+                            // Semicolon: check if there's code after it.
+                            // `return if cond;` or `break if eof?; # comment` — standalone.
+                            // But `}; do_something` on a multiline guard's end line is
+                            // a next statement sharing the line → offense.
+                            let after_semi = &trailing[1..];
+                            let has_code_after_semi = after_semi
+                                .iter()
+                                .position(|&b| b != b' ' && b != b'\t')
+                                .map_or(false, |i| after_semi[i] != b'#');
+                            if has_code_after_semi && if_start_line != if_end_line {
+                                has_code_after_multiline_guard = true;
+                            }
                         } else if trailing[0] != b'#' {
                             if if_start_line == if_end_line {
                                 // Single-line guard with code after it on same line:
@@ -965,6 +1032,14 @@ fn starts_with_keyword(content: &[u8], keyword: &[u8]) -> bool {
 
 fn is_guard_line(content: &[u8]) -> bool {
     let content = strip_inline_comment(content);
+    // Semicolons separate statements on the same line. Only check the first
+    // statement for guard-ness (e.g., `return if a; return if b` — we only
+    // need the first `return if a` to determine this is a guard line).
+    let content = if let Some(semi_pos) = find_top_level_semicolon(content) {
+        &content[..semi_pos]
+    } else {
+        content
+    };
     let if_modifier_count = count_top_level_word_occurrences(content, b"if");
     let unless_modifier_count = count_top_level_word_occurrences(content, b"unless");
     let modifier_count = if_modifier_count + unless_modifier_count;
@@ -1042,6 +1117,7 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
     let mut depth: i32 = 0; // track paren/brace nesting
     let mut is_first = true;
     let mut guard_args_multiline = false;
+    let mut had_backslash_continuation = false;
     for line in &lines[line_idx..] {
         let trimmed_bytes = line
             .iter()
@@ -1060,6 +1136,22 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
         {
             // If the guard's arguments span multiple lines (comma/plus/open-paren
             // continuation), the guard fails RuboCop's `single_line?` check.
+            //
+            // For `\` continuations: if the modifier keyword is NOT the first
+            // token on this line, then the `\` joined guard arguments (e.g.,
+            // `raise "str1"\ "str2" if cond`), making the guard multi-line.
+            if had_backslash_continuation {
+                let trimmed_code = code
+                    .iter()
+                    .position(|&b| b != b' ' && b != b'\t')
+                    .map(|s| &code[s..])
+                    .unwrap_or(code);
+                if !starts_with_keyword(trimmed_code, b"if")
+                    && !starts_with_keyword(trimmed_code, b"unless")
+                {
+                    guard_args_multiline = true;
+                }
+            }
             return !guard_args_multiline;
         }
         is_first = false;
@@ -1078,6 +1170,7 @@ fn is_multiline_modifier_guard(lines: &[&[u8]], line_idx: usize) -> bool {
 
         let arg_continuation = stripped.ends_with(b",") || stripped.ends_with(b"+") || depth > 0;
         let line_continuation = stripped.ends_with(b"\\");
+        had_backslash_continuation = line_continuation;
 
         if arg_continuation {
             guard_args_multiline = true;
@@ -1196,6 +1289,28 @@ fn ends_with_continuation(stripped: &[u8]) -> bool {
             (len >= 4 && &stripped[len - 4..] == b" and")
                 || (len >= 3 && &stripped[len - 3..] == b" or")
         }
+}
+
+/// Check if a line ends with the `do` keyword (with optional block parameters).
+/// Matches: `... do`, `... do |x|`, `... do |x, y|`.
+/// This indicates a multi-line block that makes the statement multi-line.
+fn ends_with_do_keyword(stripped: &[u8]) -> bool {
+    // Check for `do |...|` pattern: line ends with `|`
+    if stripped.ends_with(b"|") {
+        // Find the matching `|` and then check for `do` before it
+        if let Some(open_pipe) = stripped[..stripped.len() - 1]
+            .iter()
+            .rposition(|&b| b == b'|')
+        {
+            // Check for `do` keyword before the open pipe, with word boundary
+            let before_pipe = trim_trailing_whitespace(&stripped[..open_pipe]);
+            return before_pipe.ends_with(b"do")
+                && (before_pipe.len() == 2 || !is_ident_char(before_pipe[before_pipe.len() - 3]));
+        }
+    }
+    // Check for bare `do` at end
+    stripped.ends_with(b"do")
+        && (stripped.len() == 2 || !is_ident_char(stripped[stripped.len() - 3]))
 }
 
 /// Trim trailing whitespace, newlines, and carriage returns from a byte slice.
@@ -1343,6 +1458,32 @@ fn strip_inline_comment(line: &[u8]) -> &[u8] {
     }
 
     trim_trailing_whitespace(line)
+}
+
+/// Find the first top-level semicolon (not inside strings/regex/percent literals).
+/// Returns the byte position if found.
+fn find_top_level_semicolon(line: &[u8]) -> Option<usize> {
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_regex = false;
+    let mut i = 0;
+
+    while i < line.len() {
+        let b = line[i];
+        match b {
+            b'\\' if in_double_quote || in_single_quote || in_regex => {
+                i += 2;
+                continue;
+            }
+            b'\'' if !in_double_quote && !in_regex => in_single_quote = !in_single_quote,
+            b'"' if !in_single_quote && !in_regex => in_double_quote = !in_double_quote,
+            b'/' if !in_single_quote && !in_double_quote => in_regex = !in_regex,
+            b';' if !in_single_quote && !in_double_quote && !in_regex => return Some(i),
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 fn has_top_level_rescue_modifier(line: &[u8]) -> bool {
@@ -1500,6 +1641,19 @@ fn is_bare_guard_in_block(trimmed: &[u8], lines: &[&[u8]], line_idx: usize) -> b
         return false;
     }
 
+    // Operator guards with a modifier `if`/`unless` wrapper are NOT bare guard
+    // statements (e.g., `do_thing and return unless cond`). The `unless` modifier
+    // wraps the whole expression, and RuboCop's `guard_clause?` on the `unless`
+    // node checks the unless body's guard — but the containing `if` block's
+    // `if_branch.guard_clause?` would evaluate the `unless` node, not the bare
+    // operator guard directly. This matters for suppression logic.
+    if has_operator_guard
+        && (contains_word_outside_strings(trimmed, b"if")
+            || contains_word_outside_strings(trimmed, b"unless"))
+    {
+        return false;
+    }
+
     // Guard statement must be single-line: not continuing to the next line.
     let stripped = trimmed
         .iter()
@@ -1513,6 +1667,7 @@ fn is_bare_guard_in_block(trimmed: &[u8], lines: &[&[u8]], line_idx: usize) -> b
         || stripped.ends_with(b".")
         || has_unclosed_literal(stripped)
         || has_open_top_level_ternary(stripped)
+        || ends_with_do_keyword(stripped)
     {
         return false;
     }

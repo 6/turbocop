@@ -878,3 +878,35 @@ def nested_modifier_not_guard(path, replace)
   return if File.exist?(path) unless replace
   work
 end
+
+# Guard with trailing semicolon followed by blank line
+def guard_semicolon_with_blank
+  return unless driver =~ /mysql/i;
+
+  migrate!
+end
+
+# Guard with semicolon + comment followed by blank line
+def guard_semicolon_comment_blank
+  return "" if ex_obj == nil; # canceled
+
+  ex_obj.cb_call
+end
+
+
+# Guard then if-block with bare `and return` (no modifier) — IS a guard, no offense
+def guard_then_if_with_bare_and_return
+  return if c.nil?
+  if c.closed?
+    do_thing and return
+  end
+end
+
+# Guard with heredoc in condition followed by blank line after heredoc
+def guard_heredoc_condition_blank
+  return if cond && !yes?(<<~MSG, :red)
+    Some message here.
+  MSG
+
+  work
+end
