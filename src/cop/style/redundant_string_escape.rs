@@ -6,23 +6,25 @@ use ruby_prism::Visit;
 
 /// Checks for redundant escape sequences in string literals.
 ///
-/// Handles double-quoted strings (`"..."`), interpolating heredocs,
+/// Handles double-quoted strings (`”...”`), interpolating heredocs,
 /// interpolating percent literals (`%(...)`, `%Q(...)`), and `%W[...]`
 /// array elements that Prism represents as child string nodes without their
 /// own delimiter metadata.
 ///
-/// The current fix set closes the real Prism FNs we could reproduce against
-/// RuboCop:
-/// - `%W[\" ...]` child strings now inherit `%W` delimiter rules from the
+/// Key Prism/RuboCop alignment fixes:
+/// - `%W[\” ...]` child strings now inherit `%W` delimiter rules from the
 ///   parent array, so escaped quotes are checked instead of skipped.
-/// - Escaped Unicode punctuation like `\“` and `\”` is now flagged while
+/// - Escaped Unicode punctuation like `\”` and `\”` is now flagged while
 ///   escaped Unicode letters like `\ê` remain allowed, matching RuboCop's
 ///   Unicode-aware alnum exemption.
-///
-/// We re-checked the corpus-reported heredoc `\ ` examples against RuboCop
-/// 1.84.2 with `PARSER_ENGINE=parser_prism`, and they did not reproduce, so
-/// the heredoc/`%W` escaped-space exemption stays narrow to avoid regressing
-/// existing matches.
+/// - `\ ` (backslash-space) in multi-line heredocs is now flagged as
+///   redundant. RuboCop (with Ruby 4.0/Prism) translates multi-line
+///   heredocs into dstr nodes with str children where `heredoc?` is false,
+///   so the escaped-space exemption does not apply. Prism represents
+///   `<<~` multi-line heredocs as `InterpolatedStringNode` and `<<-`/`<<`
+///   multi-line heredocs as `StringNode`; both paths now disable the
+///   exemption when the heredoc body spans more than one line. Single-line
+///   heredocs retain the exemption, matching RuboCop.
 pub struct RedundantStringEscape;
 
 /// Escape sequences that are always meaningful in double-quoted-style strings.
@@ -310,8 +312,24 @@ impl Cop for RedundantStringEscape {
     ) {
         if let Some(s) = node.as_string_node() {
             let context = if let Some(opening_loc) = s.opening_loc() {
-                match analyze_opening(opening_loc.as_slice()) {
-                    Some(ctx) => ctx,
+                let open = opening_loc.as_slice();
+                match analyze_opening(open) {
+                    Some(mut ctx) => {
+                        // Prism keeps <<- multi-line heredocs as StringNode, but
+                        // RuboCop (via its AST adapter) splits them into dstr with
+                        // str children where heredoc? is false. That means `\ ` is
+                        // NOT exempt in multi-line heredocs. Detect multi-line by
+                        // counting newlines in the raw content (>1 means multi-line,
+                        // since heredoc bodies always end with one trailing newline).
+                        if open.starts_with(b"<<") {
+                            let content = s.content_loc().as_slice();
+                            let newline_count = content.iter().filter(|&&b| b == b'\n').count();
+                            if newline_count > 1 {
+                                ctx.allow_escaped_space = false;
+                            }
+                        }
+                        ctx
+                    }
                     None => return,
                 }
             } else {
@@ -337,8 +355,20 @@ impl Cop for RedundantStringEscape {
             );
         } else if let Some(s) = node.as_interpolated_string_node() {
             let context = if let Some(opening_loc) = s.opening_loc() {
-                match analyze_opening(opening_loc.as_slice()) {
-                    Some(ctx) => ctx,
+                let open = opening_loc.as_slice();
+                match analyze_opening(open) {
+                    Some(mut ctx) => {
+                        // Prism parses multi-line heredocs with escape sequences as
+                        // InterpolatedStringNode even without #{} interpolation.
+                        // RuboCop only exempts `\ ` when the node itself has heredoc?
+                        // true, which is false for str children of dstr nodes. Match
+                        // that behavior by disabling the escaped-space exemption for
+                        // interpolated-string heredocs.
+                        if open.starts_with(b"<<") {
+                            ctx.allow_escaped_space = false;
+                        }
+                        ctx
+                    }
                     None => return,
                 }
             } else {

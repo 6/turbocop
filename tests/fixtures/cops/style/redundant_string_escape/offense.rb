@@ -62,3 +62,16 @@ HEREDOC
 "\“#{locale}\”"
  ^^ Style/RedundantStringEscape: Redundant escape of `“` in string.
             ^^ Style/RedundantStringEscape: Redundant escape of `”` in string.
+
+<<~STR
+  line1
+  hello\ world
+       ^^ Style/RedundantStringEscape: Redundant escape of ` ` in string.
+STR
+
+<<-HEREDOC
+  line1
+  hello\ world
+       ^^ Style/RedundantStringEscape: Redundant escape of ` ` in string.
+  line3
+HEREDOC
