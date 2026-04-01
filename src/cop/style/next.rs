@@ -13,9 +13,11 @@ use crate::parse::source::SourceFile;
 ///   top-level statements. This fixes multiline single-statement and two-statement
 ///   bodies such as builder blocks, nested `do ... end` bodies, and multiline
 ///   hash literals.
-/// - Skip outer conditionals whose top-level body contains a nested
-///   `if/unless ... else`; RuboCop treats those as control-flow branches rather
-///   than simple "guard the rest of the iteration" wrappers.
+/// - Match RuboCop's direct-child `if_else_children?` check instead of skipping
+///   every outer guard whose body happens to contain a nested `if/unless ...
+///   else`. In Prism, that means only skipping bodies whose sole statement is a
+///   nested conditional with `else`; broader scanning caused real FN such as the
+///   COSMOS-style trailing guard with an inner `if/else` among other statements.
 /// - Added `while`/`until` loop support (RuboCop's `on_while`/`on_until`).
 /// - Added `loop` and other missing enumerator methods (`inject`, `reduce`,
 ///   `find_index`, `map!`, `select!`, `reject!`).
@@ -23,10 +25,6 @@ use crate::parse::source::SourceFile;
 /// - Removed `any?`/`none?` (not in RuboCop's ENUMERATOR_METHODS, caused FP).
 /// - Removed `filter` (not in RuboCop's ENUMERATOR_METHODS, caused FP in
 ///   bluepotion `filter do` blocks).
-///
-/// Remaining FN sources: `AllowConsecutiveConditionals` handling, deeper
-/// `if_else_children?` parity beyond top-level body statements, and some
-/// config/context differences.
 pub struct Next;
 
 /// Iterator methods whose blocks should use `next` instead of wrapping conditionals.
@@ -141,7 +139,7 @@ impl NextVisitor<'_> {
             && (first_stmt.as_break_node().is_some() || first_stmt.as_return_node().is_some())
     }
 
-    fn has_nested_conditional_with_else(
+    fn has_single_nested_conditional_with_else(
         &self,
         statements: Option<ruby_prism::StatementsNode<'_>>,
     ) -> bool {
@@ -149,13 +147,24 @@ impl NextVisitor<'_> {
             return false;
         };
 
-        statements.body().iter().any(|stmt| {
-            stmt.as_if_node()
-                .is_some_and(|nested_if| nested_if.subsequent().is_some())
-                || stmt
-                    .as_unless_node()
-                    .is_some_and(|nested_unless| nested_unless.else_clause().is_some())
-        })
+        let mut body = statements.body().iter();
+        let Some(first_stmt) = body.next() else {
+            return false;
+        };
+
+        if body.next().is_some() {
+            return false;
+        }
+
+        // RuboCop checks only direct child `if` nodes here. Prism always wraps
+        // multi-statement branches in `StatementsNode`, so the equivalent shape
+        // is a body whose sole statement is a nested conditional with `else`.
+        first_stmt
+            .as_if_node()
+            .is_some_and(|nested_if| nested_if.subsequent().is_some())
+            || first_stmt
+                .as_unless_node()
+                .is_some_and(|nested_unless| nested_unless.else_clause().is_some())
     }
 
     fn check_block_body(&mut self, body: &ruby_prism::Node<'_>) {
@@ -193,7 +202,7 @@ impl NextVisitor<'_> {
                 return;
             }
 
-            if self.has_nested_conditional_with_else(if_node.statements()) {
+            if self.has_single_nested_conditional_with_else(if_node.statements()) {
                 return;
             }
 
@@ -228,7 +237,7 @@ impl NextVisitor<'_> {
                 return;
             }
 
-            if self.has_nested_conditional_with_else(unless_node.statements()) {
+            if self.has_single_nested_conditional_with_else(unless_node.statements()) {
                 return;
             }
 
