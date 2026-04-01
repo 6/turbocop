@@ -37,3 +37,18 @@ Then /^I should have cucumber\-chef on my path$/ do
 
 Then /^I can get help about the cucumber\-chef binary on the command line$/ do
                                         ^^ Style/RedundantRegexpEscape: Redundant escape of `-` in regexp.
+
+scheme = /https/
+pattern = %r{
+  #{scheme}
+  (https?:\/\/)?
+          ^^ Style/RedundantRegexpEscape: Redundant escape of `/` in regexp.
+            ^^ Style/RedundantRegexpEscape: Redundant escape of `/` in regexp.
+}x
+
+chars = /a/
+path_pattern = /(?:
+  #{chars}
+  [\.,]#{chars}
+   ^^ Style/RedundantRegexpEscape: Redundant escape of `.` in regexp.
+)/x
