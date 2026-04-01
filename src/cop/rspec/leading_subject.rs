@@ -116,6 +116,22 @@ use crate::parse::source::SourceFile;
 /// `DefNode` bodies for nested `subject` calls and reporting them against the
 /// enclosing block body's first direct offending declaration, while still
 /// recursing into nested block scopes normally.
+///
+/// ## Investigation (2026-04-01)
+///
+/// **Root cause of 3 FPs:** Two issues:
+///
+/// 1. Hooks with block_pass (e.g. `around(&rspec_around)`) were treated as
+///    offending. Prism's `CallNode::block()` returns both `BlockNode` (real
+///    do/end or {}) and `BlockArgumentNode` (&proc). RuboCop's `hook?` and
+///    `example?` only match real block nodes, so `around(&proc)` is NOT
+///    offending. Fixed by checking `b.as_block_node().is_some()` instead of
+///    just `c.block().is_some()` for hooks and examples.
+///
+/// 2. `describe [attr]` (call without a block) was treated as offending.
+///    RuboCop's `spec_group?` requires a block node, so bare example group
+///    calls without blocks are NOT offending. Fixed by adding block check
+///    before setting `first_relevant_name` for example group calls.
 pub struct LeadingSubject;
 
 impl Cop for LeadingSubject {
@@ -229,8 +245,11 @@ impl LeadingSubject {
                     if is_rspec_group {
                         // Recurse into RSpec.describe / RSpec.shared_examples_for / etc.
                         self.check_block_body(source, &stmt, diagnostics);
-                        // Also treat as offending (spec_group in RuboCop)
-                        if first_relevant_name.is_none() {
+                        // Also treat as offending (spec_group in RuboCop), but only
+                        // when there's a real block — matching spec_group? behavior.
+                        if c.block().is_some_and(|b| b.as_block_node().is_some())
+                            && first_relevant_name.is_none()
+                        {
                             first_relevant_name = Some(name);
                         }
                     } else if c.block().is_some() {
@@ -249,9 +268,13 @@ impl LeadingSubject {
                         self.add_subject_offense(source, &stmt, prev_name, diagnostics);
                     }
                 } else if is_rspec_example_group(name) {
-                    // Recurse into nested context/describe/shared_examples blocks
+                    // Recurse into nested context/describe/shared_examples blocks.
+                    // RuboCop's spec_group? requires a real block node, so only
+                    // treat as offending when the call has a block.
                     self.check_block_body(source, &stmt, diagnostics);
-                    if first_relevant_name.is_none() {
+                    if c.block().is_some_and(|b| b.as_block_node().is_some())
+                        && first_relevant_name.is_none()
+                    {
                         first_relevant_name = Some(name);
                     }
                 } else if is_example_include(name) {
@@ -277,8 +300,11 @@ impl LeadingSubject {
                         first_relevant_name = Some(name);
                     }
                 } else if is_rspec_hook(name) || is_rspec_example(name) {
-                    // RuboCop's hook? and example? require a block
-                    if c.block().is_some() {
+                    // RuboCop's hook? and example? require a real block (do/end or {}),
+                    // not a block_pass (&proc). Prism's block() returns both BlockNode
+                    // and BlockArgumentNode, so we must check for BlockNode specifically.
+                    let has_real_block = c.block().is_some_and(|b| b.as_block_node().is_some());
+                    if has_real_block {
                         self.check_block_body(source, &stmt, diagnostics);
                         if first_relevant_name.is_none() {
                             first_relevant_name = Some(name);
@@ -447,11 +473,19 @@ fn direct_offending_name<'pr>(node: &ruby_prism::Node<'pr>) -> Option<&'pr [u8]>
 
     if let Some(recv) = call.receiver() {
         let is_rspec_group = util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
-            && is_rspec_example_group(name);
+            && is_rspec_example_group(name)
+            && call.block().is_some_and(|b| b.as_block_node().is_some());
         return is_rspec_group.then_some(name);
     }
 
-    if is_rspec_example_group(name) || is_example_include(name) {
+    if is_rspec_example_group(name) {
+        return call
+            .block()
+            .is_some_and(|b| b.as_block_node().is_some())
+            .then_some(name);
+    }
+
+    if is_example_include(name) {
         return Some(name);
     }
 
@@ -466,7 +500,10 @@ fn direct_offending_name<'pr>(node: &ruby_prism::Node<'pr>) -> Option<&'pr [u8]>
     }
 
     if is_rspec_hook(name) || is_rspec_example(name) {
-        return call.block().is_some().then_some(name);
+        return call
+            .block()
+            .is_some_and(|b| b.as_block_node().is_some())
+            .then_some(name);
     }
 
     None

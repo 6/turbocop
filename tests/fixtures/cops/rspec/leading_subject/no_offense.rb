@@ -178,3 +178,24 @@ RSpec.describe Grape::API::Helpers do
     end
   end
 end
+
+# Hook with block_pass (not a real block) is NOT offending
+RSpec.describe User do
+  shared_examples "the default form builder" do |method_name, rspec_around: lambda(&:run)|
+    around(&rspec_around)
+    subject { described_class.new }
+  end
+end
+
+# describe without a block is NOT a spec_group (not offending)
+RSpec.describe User do
+  describe 'available attributes' do
+    {name: 'rspec'}.each do |attr, value|
+      context attr do
+        describe [attr]
+        subject { super()[attr] }
+        let(:attributes) { { attr => value } }
+      end
+    end
+  end
+end
