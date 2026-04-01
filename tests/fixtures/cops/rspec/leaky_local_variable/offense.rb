@@ -564,3 +564,103 @@ module SamlIdp
     end
   end
 end
+
+# Variable used in string concatenation with backslash line continuation
+RSpec.describe 'query builder' do
+  join_table_name = 'object_query_5'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  join_table_column = 'oo_id'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  it 'builds the join query' do
+    query = "SELECT * FROM #{join_table_name}" \
+            " WHERE #{join_table_column} = ?"
+    expect(query).to include('object_query_5')
+  end
+end
+
+# Variable used in string concatenation in shared_examples
+RSpec.shared_examples 'table queries' do
+  join_table_name = 'object_query_5'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  join_table_column = 'oo_id'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  it 'builds the update query' do
+    sql = "UPDATE #{join_table_name}" \
+          " SET #{join_table_column} = 1"
+    expect(sql).to be_a(String)
+  end
+end
+
+# Variable assigned from OR chain
+RSpec.describe 'description builder' do
+  description = klass || token || type || 'Expression'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  it 'uses the description' do
+    expect(description).to eq('Expression')
+  end
+end
+
+# Variables assigned from global variables
+RSpec.describe 'debug level management' do
+  previous_debug_level = $DEBUG
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  previous_verbose_level = $VERBOSE
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  it 'restores debug level' do
+    expect(previous_debug_level).to eq($DEBUG)
+    expect(previous_verbose_level).to eq($VERBOSE)
+  end
+end
+
+# Variable assigned from global variable with extra whitespace
+RSpec.describe 'debug level with spacing' do
+  previous_debug_level   = $DEBUG
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  it 'checks debug level' do
+    expect(previous_debug_level).to eq($DEBUG)
+  end
+end
+
+# For loop variable leaking into example scope
+describe 'grouping' do
+  for grouping in [:hour, :day, :week, :month] do
+      ^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+    describe "for grouping #{grouping.to_s}" do
+      it "should return correct grouping" do
+        Grouping.new(grouping).to_sql.should_not be_nil
+      end
+    end
+  end
+end
+
+# Variable referenced via global variable write ($VERBOSE = var)
+shared_context 'logging_helper' do
+  previous_debug_level = $DEBUG
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  previous_verbose_level = $VERBOSE
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  after do
+    $VERBOSE = previous_verbose_level
+    $DEBUG = previous_debug_level
+  end
+end
+
+# Variable referenced via block argument (&var)
+RSpec.describe 'Concurrent' do
+  describe 'ErlangActor' do
+    identity = -> v { v }
+    ^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+    it 'receives values' do
+      result = receive(on(ANY, &identity))
+      expect(result).to eq(:v)
+    end
+  end
+end
