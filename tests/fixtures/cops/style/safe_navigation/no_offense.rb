@@ -12,6 +12,10 @@ options && options[:codecs].include?(codec)
 foo && foo[0].bar
 foo && foo + bar
 
+def min(rows, summary_column)
+  rows && (rows.collect { |r| r[summary_column] }).min
+end
+
 # Ternary with [] operator — not idiomatic with safe nav
 foo ? foo[index] : nil
 foo ? foo[idx] = v : nil
@@ -44,6 +48,8 @@ foo.bar = baz && baz.qux
 # (RuboCop skips when ancestor send is dotless, e.g. scope, puts)
 scope :accessible_to_user, ->(user) { user && user.name }
 puts(foo && foo.bar)
+(foo && foo.bar).to_s
+foo && (foo.bar).to_s
 
 # Negated wrappers make safe navigation unsafe
 !!(foo && foo.bar)
@@ -61,3 +67,17 @@ end
 # && inside send/public_send arguments — RuboCop skips dynamic dispatch context
 obj.send(:x, foo && foo.map { |h| h })
 obj.public_send(:x, foo && foo.downcase)
+
+# Modifier if/unless inside call arguments or `private def` are skipped
+install_win(if parent then parent.path end, widgetname)
+
+private def foo(bar)
+  bar.baz if bar
+end
+
+# Ternary inside dynamic send arguments is skipped
+send "#{options[:foreign_key]}=", new_value ? new_value.send(options[:primary_key]) : nil
+
+# If/ternary used as the receiver of another call are skipped
+{ debug: (writer_opts[:debug].join("\n") if writer_opts[:debug]) }.to_json
+"#{(model ? model.serial : nil).inspect}"

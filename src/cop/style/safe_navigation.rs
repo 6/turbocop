@@ -128,12 +128,12 @@ impl SafeNavigation {
         node.as_nil_node().is_some()
     }
 
-    fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
+    fn unwrap_outer_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
         if let Some(parentheses) = node.as_parentheses_node() {
             if let Some(body) = parentheses.body() {
                 if let Some(stmts) = body.as_statements_node() {
                     if let Some(inner) = Self::single_stmt_from_stmts(&stmts) {
-                        return Self::unwrap_parentheses(inner);
+                        return Self::unwrap_outer_parentheses(inner);
                     }
                 }
             }
@@ -147,13 +147,17 @@ impl SafeNavigation {
         checked_src: &[u8],
         bytes: &[u8],
     ) -> Option<Vec<ruby_prism::CallNode<'a>>> {
-        let node = Self::unwrap_parentheses(node);
+        let node = Self::unwrap_outer_parentheses(node);
         let call = node.as_call_node()?;
-        let receiver = Self::unwrap_parentheses(call.receiver()?);
+        let receiver = call.receiver()?;
         let receiver_loc = receiver.location();
 
         if &bytes[receiver_loc.start_offset()..receiver_loc.end_offset()] == checked_src {
             return Some(vec![call]);
+        }
+
+        if receiver.as_parentheses_node().is_some() {
+            return None;
         }
 
         let mut chain = Self::call_chain_from_checked_receiver(receiver, checked_src, bytes)?;
@@ -225,6 +229,8 @@ impl Cop for SafeNavigation {
             allowed_methods,
             in_unsafe_parent: 0,
             in_assignment_or_operator_parent: 0,
+            in_call_arguments: 0,
+            in_call_receiver: 0,
             in_dynamic_send_args: 0,
         };
         visitor.visit(&parse_result.node());
@@ -232,10 +238,9 @@ impl Cop for SafeNavigation {
     }
 }
 
-/// Visitor that tracks whether we're inside a call node whose method is
-/// an assignment method (e.g. `[]=`, `foo=`) or dotless operator (e.g. `+`, `>`).
-/// RuboCop walks ancestors from the method call to detect this context;
-/// we simulate it by tracking depth while visiting.
+/// Visitor that tracks ancestor call context that makes a safe-navigation rewrite unsafe
+/// or non-idiomatic: assignment/operator parents, dynamic send arguments, and cases where
+/// a candidate expression is used as another call's receiver or argument subtree.
 struct SafeNavVisitor<'a> {
     cop: &'a SafeNavigation,
     source: &'a SourceFile,
@@ -244,6 +249,8 @@ struct SafeNavVisitor<'a> {
     allowed_methods: Option<Vec<String>>,
     in_unsafe_parent: usize,
     in_assignment_or_operator_parent: usize,
+    in_call_arguments: usize,
+    in_call_receiver: usize,
     in_dynamic_send_args: usize,
 }
 
@@ -351,10 +358,13 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             self.in_assignment_or_operator_parent += 1;
         }
         if let Some(receiver) = node.receiver() {
+            self.in_call_receiver += 1;
             self.visit(&receiver);
+            self.in_call_receiver -= 1;
         }
 
         if let Some(arguments) = node.arguments() {
+            self.in_call_arguments += 1;
             let is_dynamic_send = Self::is_dynamic_send_call(node);
             if is_dynamic_send {
                 self.in_dynamic_send_args += 1;
@@ -363,6 +373,7 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             if is_dynamic_send {
                 self.in_dynamic_send_args -= 1;
             }
+            self.in_call_arguments -= 1;
         }
 
         if let Some(block) = node.block() {
@@ -382,13 +393,13 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         // RuboCop skips `&&` patterns when any ancestor send node is "unsafe" (dotless,
         // assignment, or operator method). For example, `scope :bar, ->(user) { user && user.name }`
         // is not flagged because `scope` is a dotless method call.
-        if self.in_unsafe_parent > 0 || self.in_dynamic_send_args > 0 {
+        if self.in_call_receiver > 0 || self.in_unsafe_parent > 0 || self.in_dynamic_send_args > 0 {
             ruby_prism::visit_and_node(self, node);
             return;
         }
 
-        let lhs = SafeNavigation::unwrap_parentheses(node.left());
-        let rhs = SafeNavigation::unwrap_parentheses(node.right());
+        let lhs = SafeNavigation::unwrap_outer_parentheses(node.left());
+        let rhs = SafeNavigation::unwrap_outer_parentheses(node.right());
         let bytes = self.source.as_bytes();
         let checked_src = {
             let loc = lhs.location();
@@ -452,6 +463,11 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
 
         // Check if it's a ternary (no `if` keyword location in Prism)
         if if_node.if_keyword_loc().is_none() {
+            if self.in_call_receiver > 0 || self.in_dynamic_send_args > 0 {
+                ruby_prism::visit_if_node(self, node);
+                return;
+            }
+
             let diags = self.cop.check_ternary(
                 self.source,
                 &node_loc,
@@ -485,6 +501,12 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             return;
         }
 
+        if self.in_call_receiver > 0 || self.in_call_arguments > 0 || self.in_dynamic_send_args > 0
+        {
+            ruby_prism::visit_if_node(self, node);
+            return;
+        }
+
         let diags = self.cop.check_modifier_if(
             self.source,
             &node_loc,
@@ -506,6 +528,12 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         }
 
         if self.in_assignment_or_operator_parent > 0 {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
+
+        if self.in_call_receiver > 0 || self.in_call_arguments > 0 || self.in_dynamic_send_args > 0
+        {
             ruby_prism::visit_unless_node(self, node);
             return;
         }
