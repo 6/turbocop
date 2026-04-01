@@ -17,6 +17,12 @@ msg = "count: #{items.size}"
 z = %q{hello # world}
 w = %Q{value #{name}}
 
+# Comment immediately after interpolation opening is not trailing
+sql = "SELECT ...
+  #{# These will get filled in with real values
+    is_postgres ? 'A' : 'B'}
+"
+
 # Hash inside heredoc is not a comment
 text = <<~HEREDOC
   some # text
