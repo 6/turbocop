@@ -20,6 +20,19 @@ use crate::parse::source::SourceFile;
 /// - FN: Calls with correct argument count but incorrect `__LINE__` offset
 ///   (e.g., `__LINE__` instead of `__LINE__ + 1` for heredocs, or literal integers
 ///   instead of `__LINE__`) were not detected.
+/// - FN: String-literal eval calls with attached blocks (for example
+///   `eval "code" do ... end`) were skipped entirely by an unconditional
+///   block check, even though RuboCop still requires location arguments there.
+///   Block-only forms like `class_eval do ... end` remain ignored because the
+///   first argument is not a string literal.
+/// - FN: Once a call had enough positional arguments, the cop only validated
+///   the line argument and never checked that the file argument was actually
+///   `__FILE__`, so cases like `module_eval(..., loc[:file], loc[:line])`
+///   were missed.
+/// - FP: Backtick and `%x[...]` command strings were treated like regular
+///   string literals, but RuboCop only checks plain/interpolated strings for
+///   this cop. Excluding `xstr` avoids flagging `eval \`...\`` forms that
+///   RuboCop accepts.
 pub struct EvalWithLocation;
 
 const EVAL_METHODS: &[&[u8]] = &[b"eval", b"class_eval", b"module_eval", b"instance_eval"];
@@ -34,10 +47,7 @@ impl EvalWithLocation {
     }
 
     fn is_string_arg(node: &ruby_prism::Node<'_>) -> bool {
-        node.as_string_node().is_some()
-            || node.as_interpolated_string_node().is_some()
-            || node.as_x_string_node().is_some()
-            || node.as_interpolated_x_string_node().is_some()
+        node.as_string_node().is_some() || node.as_interpolated_string_node().is_some()
     }
 
     /// Check if a string node is a heredoc (opening starts with `<<`).
@@ -53,6 +63,10 @@ impl EvalWithLocation {
                 .is_some_and(|o| o.as_slice().starts_with(b"<<"));
         }
         false
+    }
+
+    fn is_file_arg(node: &ruby_prism::Node<'_>) -> bool {
+        node.as_source_file_node().is_some() || node.location().as_slice() == b"__FILE__"
     }
 
     /// Determine whether the line argument should be validated.
@@ -187,11 +201,6 @@ impl Cop for EvalWithLocation {
             return;
         }
 
-        // Check if it has a block - if so, skip (block form doesn't need file/line)
-        if call.block().is_some() {
-            return;
-        }
-
         let receiver = call.receiver();
 
         // For `eval`, only allow no receiver, Kernel, or ::Kernel
@@ -253,6 +262,20 @@ impl Cop for EvalWithLocation {
             };
             diagnostics.push(self.diagnostic(source, line, column, msg));
         } else {
+            let file_arg_idx = if needs_binding { 2 } else { 1 };
+            let file_arg = &arg_list[file_arg_idx];
+
+            if !Self::is_file_arg(file_arg) {
+                let loc = call.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                let actual_str = Self::get_source_text(file_arg);
+                let msg = format!(
+                    "Incorrect file for `{}`; use `__FILE__` instead of {}.",
+                    method_str, actual_str
+                );
+                diagnostics.push(self.diagnostic(source, line, column, msg));
+            }
+
             // Have enough args — validate that the line argument is correct
             let line_arg_idx = expected_count - 1;
             let line_arg = &arg_list[line_arg_idx];
