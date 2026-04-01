@@ -426,10 +426,14 @@ fn is_array_converter_method(name: &[u8]) -> bool {
 }
 
 fn is_handleable_root(node: &ruby_prism::Node<'_>) -> bool {
-    !is_literal(node) || node.as_hash_node().is_some()
+    !is_literal(node) || node.as_hash_node().is_some() || node.as_keyword_hash_node().is_some()
 }
 
 fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
+    if node.as_keyword_hash_node().is_some() {
+        return true;
+    }
+
     matches!(
         node,
         ruby_prism::Node::TrueNode { .. }
