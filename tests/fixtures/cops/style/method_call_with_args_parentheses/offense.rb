@@ -199,3 +199,26 @@ describe "x" do
   count += process_item arg
            ^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
 end
+
+# Pure begin only preserves macro scope when the whole expression is.
+value = begin
+  require 'rubygems/specification'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+logger ||= begin
+  require 'active_support/tagged_logging' unless defined?(ActiveSupport::TaggedLogging)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# `or begin` is also a non-wrapper parent for the begin body.
+ready || begin
+  warn "Automatic creation of the sandbox app failed"
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  exit 1
+  ^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Interpolated x-strings are not macro wrappers.
+%x{#{raise TypeError, "x"}}
+     ^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.

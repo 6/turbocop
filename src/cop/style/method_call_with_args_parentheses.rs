@@ -131,6 +131,24 @@ use crate::parse::source::SourceFile;
 /// plus `Call*WriteNode` and `Index*WriteNode`.
 ///
 /// Combined: 289 FN resolved across 15 sampled repos, 0 regressions.
+///
+/// ## Corpus investigation (2026-04-01, attempt 5)
+///
+/// FN root cause 1: pure `BeginNode`s (`x = begin ... end`, `lhs || begin ... end`)
+/// preserved macro scope unconditionally. RuboCop only treats `kwbegin` as a
+/// wrapper when the whole begin expression is already in macro scope; an outer
+/// assignment/logical-op parent still breaks it. Fixed by deriving pure-begin
+/// child scope from `nested_in_non_wrapper()`, matching `if`/`unless`.
+///
+/// FN root cause 2: `InterpolatedXStringNode` (`%x{#{...}}`, common in Opal)
+/// was not tracked as an interpolation parent. Receiverless calls inside the
+/// embedded `#{...}` were therefore treated like top-level/class-body macros.
+/// Added interpolation-parent tracking for interpolated x-strings and
+/// interpolated regular expressions.
+///
+/// Validation: `python3 scripts/check_cop.py Style/MethodCallWithArgsParentheses
+/// --rerun --clone --sample 15` reported `0` new FP, `0` new FN, and all `41`
+/// sampled oracle FN resolved.
 pub struct MethodCallWithArgsParentheses;
 
 fn is_operator(name: &[u8]) -> bool {
@@ -1270,8 +1288,13 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             self.pop_scope();
         } else {
             // Pure `begin...end` (no rescue/ensure) — `kwbegin` is a wrapper
-            // in RuboCop's `in_macro_scope?`, so propagate macro scope.
-            let child_scope = self.wrapper_child_scope();
+            // in RuboCop's `in_macro_scope?`, but only when the whole begin
+            // expression is itself in macro scope.
+            let child_scope = if self.nested_in_non_wrapper() {
+                Scope::Other
+            } else {
+                self.wrapper_child_scope()
+            };
             self.push_scope(child_scope);
             ruby_prism::visit_begin_node(self, node);
             self.pop_scope();
@@ -1514,6 +1537,28 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         }
         self.parent_stack.pop();
         self.in_interpolation = prev;
+    }
+
+    fn visit_interpolated_regular_expression_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedRegularExpressionNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Interpolation);
+        for part in node.parts().iter() {
+            self.visit(&part);
+        }
+        self.parent_stack.pop();
+    }
+
+    fn visit_interpolated_x_string_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedXStringNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Interpolation);
+        for part in node.parts().iter() {
+            self.visit(&part);
+        }
+        self.parent_stack.pop();
     }
 
     // Track assignment context
