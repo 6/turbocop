@@ -19,7 +19,8 @@ use ruby_prism::Visit;
 ///   `until`, etc.) at the end of a line before `\` were incorrectly treated as
 ///   method names that could take arguments on the next line. This caused FNs for
 ///   patterns like `expr or \`, `expr if \`, `expr unless \`. Fixed by excluding
-///   Ruby keywords from `last_token_can_take_argument`.
+///   Ruby keywords from `last_token_can_take_argument` via `is_keyword_not_method`,
+///   which also avoids false-triggering on method calls like `.and` and `.or`.
 ///
 /// - **Ternary branch detection**: Lines starting with `? ` (ternary "then"
 ///   branch, e.g. `? self.refs \`) were incorrectly treated as method-with-argument
@@ -35,6 +36,21 @@ use ruby_prism::Visit;
 ///   is exactly `\\\n`. `code_map.is_code()` treated those offsets as non-code,
 ///   causing FNs for patterns like `"#{a}\` + `#{b}"`. Fixed by collecting only
 ///   those exact Prism string-part offsets and allowing the line scan there.
+///
+/// - **Union/pipe operator**: `continues_union_rhs` matched `||` (logical OR)
+///   and block parameter delimiters (`do |x|`, `{ |x|`), causing FNs when `\`
+///   appeared after `||` or at the end of a block-param line. Fixed by excluding
+///   `||` patterns and detecting block parameter context.
+///
+/// - **Regex vs division**: `starts_with_arithmetic_operator` treated `/` as
+///   division, causing FNs when `\` preceded a regex literal on the next line.
+///   At line start, `/` is almost always a regex. Removed `/` from the check;
+///   the reparse fallback correctly handles actual division.
+///
+/// - **Assignment to operator chain**: `assignment_to_simple_operator_chain`
+///   protects `var = \` when the RHS is a multi-line operator chain with simple
+///   (non-parenthesized) operands, matching RuboCop's `argument_newline?` AST
+///   check. Chains with parenthesized method calls are not protected.
 ///
 /// ## Remaining gaps
 ///
@@ -144,8 +160,56 @@ fn continuation_is_required(before_backslash: &[u8], line_idx: usize, lines: &[&
     let next_trimmed = trim_start(next_line);
 
     assignment_to_multiline_rhs(trimmed, next_trimmed)
+        || assignment_to_simple_operator_chain(trimmed, line_idx, lines)
         || starts_with_arithmetic_operator(next_trimmed)
         || method_with_argument(trimmed, next_trimmed)
+}
+
+/// Check if `var = \` is followed by a simple multi-line operator chain
+/// (e.g., `a.value - \ a.value - \ a.value`). RuboCop's `argument_newline?`
+/// considers this non-redundant when the chain's final operand is a simple
+/// expression (no parenthesized method calls), but redundant when the final
+/// operand has parenthesized arguments.
+fn assignment_to_simple_operator_chain(
+    before_backslash: &[u8],
+    line_idx: usize,
+    lines: &[&[u8]],
+) -> bool {
+    if !ends_with_assignment_operator(before_backslash) {
+        return false;
+    }
+
+    // Check if the next line ends with `operator \`
+    let Some(next_line) = lines.get(line_idx + 1) else {
+        return false;
+    };
+    let next_end = trim_end(trim_start(next_line));
+    if !next_end.ends_with(b"\\") {
+        return false;
+    }
+    let before_cont = trim_end(&next_end[..next_end.len() - 1]);
+    if !matches!(before_cont.last(), Some(b'+' | b'-' | b'*' | b'/' | b'%')) {
+        return false;
+    }
+
+    // Find the last line of the operator chain (first line without `\`)
+    let mut idx = line_idx + 2;
+    while let Some(line) = lines.get(idx) {
+        let t = trim_end(line);
+        if !t.ends_with(b"\\") {
+            break;
+        }
+        idx += 1;
+    }
+
+    // Check if the final line has parenthesized method calls.
+    // If it does, the continuation IS redundant (RuboCop flags it).
+    // If it doesn't, the chain is simple and the continuation is required.
+    let Some(last_line) = lines.get(idx) else {
+        return true;
+    };
+    let last_trimmed = trim_start(last_line);
+    !last_trimmed.contains(&b'(')
 }
 
 fn is_redundant_continuation(source: &[u8], backslash_offset: usize) -> bool {
@@ -175,7 +239,28 @@ fn ends_with_assignment_operator(trimmed: &[u8]) -> bool {
 }
 
 fn continues_union_rhs(line: &[u8]) -> bool {
-    trim_end(line).ends_with(b"|")
+    let trimmed = trim_end(line);
+    if !trimmed.ends_with(b"|") || trimmed.ends_with(b"||") {
+        return false;
+    }
+    // Exclude block parameter patterns like "do |param|" or "{ |param|"
+    // These end with | but are not pipe/union operators
+    if trimmed.len() >= 2 {
+        let before_pipe = trimmed[trimmed.len() - 2];
+        if before_pipe.is_ascii_alphanumeric() || before_pipe == b'_' {
+            // Looks like |identifier| — check for a matching | after a block opener
+            if let Some(pos) = trimmed[..trimmed.len() - 1]
+                .iter()
+                .rposition(|&b| b == b'|')
+            {
+                let before_first_pipe = trim_end(&trimmed[..pos]);
+                if before_first_pipe.ends_with(b"do") || before_first_pipe.ends_with(b"{") {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 fn continues_string_concat_rhs(line: &[u8]) -> bool {
@@ -204,7 +289,7 @@ fn leading_dot_method_chain_with_blank_line(
 
 fn starts_with_arithmetic_operator(next_trimmed: &[u8]) -> bool {
     next_trimmed.starts_with(b"**")
-        || matches!(next_trimmed.first(), Some(b'*' | b'/' | b'%' | b'+' | b'-'))
+        || matches!(next_trimmed.first(), Some(b'*' | b'%' | b'+' | b'-'))
 }
 
 fn starts_with_boolean_operator(next_trimmed: &[u8]) -> bool {
@@ -230,7 +315,18 @@ fn last_token_can_take_argument(before_backslash: &[u8]) -> bool {
         || (token
             .first()
             .is_some_and(|b| b.is_ascii_lowercase() || *b == b'_')
-            && !is_ruby_keyword(token))
+            && !is_keyword_not_method(before_backslash, token))
+}
+
+/// Check if a trailing token is a Ruby keyword used as a keyword (not a method call).
+/// Keywords preceded by `.` or `&.` are method names (e.g., `.and`, `.or`).
+fn is_keyword_not_method(before_backslash: &[u8], token: &[u8]) -> bool {
+    if !is_ruby_keyword(token) {
+        return false;
+    }
+    // If preceded by `.` or `&.`, it's a method call, not a keyword
+    let prefix = trim_end(&before_backslash[..before_backslash.len() - token.len()]);
+    !prefix.ends_with(b".") && !prefix.ends_with(b"&.")
 }
 
 fn is_ruby_keyword(token: &[u8]) -> bool {
