@@ -53,6 +53,16 @@ use crate::parse::source::SourceFile;
 ///    with `baseline_rubocop.yml`. Root cause of the oracle miss is unknown —
 ///    possibly rubocop 1.84.2 vs 1.85.1 difference, or a transient CI issue.
 ///    No cop logic fix needed; nitrocop is correct here.
+///    FP=4: alaveteli corpus oracle artifact (2026-04-01). All 4 are from
+///    `spec/models/project_spec.rb` where a parent scope defines `subject(:project)`
+///    and child scopes redefine with unnamed `subject { project.classification_progress }`.
+///    `allow(project).to receive(...)` in the child scope is correctly flagged because
+///    the parent's named subject `:project` persists through anonymous child redefinitions.
+///    RuboCop's own spec explicitly tests this pattern ("flags nested stubs when nested
+///    subject is anonymous" at subject_stub_spec.rb:192) and expects it to be an offense.
+///    RuboCop's `find_subject_expectations` accumulates `[*parent_names, *child_names]`
+///    and always adds `:subject` — an unnamed child `subject` does NOT clear parent names.
+///    No cop logic fix needed; nitrocop is correct here.
 ///
 /// Round 4 FN fix (1→0):
 /// 7. Subject stubs inside blocks on intermediate calls in a receiver chain: when
