@@ -41,6 +41,17 @@ use std::collections::HashMap;
 ///
 /// Fix: changed diagnostic location from `unless_node.keyword_loc()` to
 /// `node.location()` (the full UnlessNode range start).
+///
+/// Corpus investigation (2026-04-01):
+///
+/// FN=53 clustered around calls like `any?(&:positive?)`, `none?(&:empty?)`,
+/// and Rails/plugin-backed compounds like `present? && values.any?(&:positive?)`.
+/// Prism stores `&:symbol` as a `BlockArgumentNode` in `CallNode.block()`, but
+/// RuboCop still treats that as a regular send argument. The cop was rejecting
+/// all `call.block()` forms as non-invertible and also dropped block-pass source
+/// when building the preferred condition string, so both detection and messages
+/// missed these patterns. Fix: only reject real `BlockNode` bodies (`do/end`, `{}`)
+/// and treat `BlockArgumentNode` as an argument-like suffix in preferred messages.
 pub struct InvertibleUnlessCondition;
 
 impl InvertibleUnlessCondition {
@@ -78,6 +89,30 @@ impl InvertibleUnlessCondition {
         map
     }
 
+    /// Prism stores `&:sym` / `&block` separately from positional arguments.
+    /// RuboCop's Parser AST includes block-pass nodes in the send's arguments,
+    /// so treat them as argument-like when formatting the preferred condition.
+    fn call_argument_sources(call: &ruby_prism::CallNode<'_>) -> Vec<String> {
+        let mut arg_sources: Vec<String> = call
+            .arguments()
+            .map(|args| {
+                args.arguments()
+                    .iter()
+                    .map(|arg| String::from_utf8_lossy(arg.location().as_slice()).to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if let Some(block_arg) = call
+            .block()
+            .and_then(|block| block.as_block_argument_node())
+        {
+            arg_sources.push(String::from_utf8_lossy(block_arg.location().as_slice()).to_string());
+        }
+
+        arg_sources
+    }
+
     /// Check if every method call in a condition tree is invertible.
     /// Returns true only if the entire condition can be inverted.
     fn is_fully_invertible(
@@ -99,10 +134,15 @@ impl InvertibleUnlessCondition {
                 return false;
             }
 
-            // Calls with blocks (e.g., `any? { |x| ... }`) are not invertible —
-            // in RuboCop's AST, block calls are `:block` nodes, not `:send` nodes.
-            if call.block().is_some() {
-                return false;
+            // Calls with real block bodies (e.g., `any? { |x| ... }`) are not
+            // invertible — RuboCop sees those as `:block` nodes, not `:send`.
+            // But a block pass (`&:positive?`, `&block`) is still a `:send` in
+            // RuboCop, and Prism exposes it via `CallNode.block()` as a
+            // `BlockArgumentNode`, so allow that form to continue.
+            if let Some(block) = call.block() {
+                if block.as_block_node().is_some() {
+                    return false;
+                }
             }
 
             // Check if the method has an inverse in our map
@@ -221,17 +261,11 @@ impl InvertibleUnlessCondition {
                 .map(|r| String::from_utf8_lossy(r.location().as_slice()).to_string());
 
             if let Some(inv) = inverse_map.get(name_bytes) {
-                // Check if the method has arguments
-                let has_args = call.arguments().is_some_and(|a| !a.arguments().is_empty());
+                let arg_sources = Self::call_argument_sources(&call);
+                let has_args = !arg_sources.is_empty();
 
                 if has_args {
-                    let args = call.arguments().unwrap();
-                    let arg_source: Vec<String> = args
-                        .arguments()
-                        .iter()
-                        .map(|a| String::from_utf8_lossy(a.location().as_slice()).to_string())
-                        .collect();
-                    let arg_list = arg_source.join(", ");
+                    let arg_list = arg_sources.join(", ");
 
                     // Check if it's an operator method (has receiver and no message_loc dot)
                     let is_operator = Self::is_operator_method(name_bytes);
@@ -356,8 +390,61 @@ impl Cop for InvertibleUnlessCondition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(
-        InvertibleUnlessCondition,
-        "cops/style/invertible_unless_condition"
-    );
+    use serde_yml::{Mapping, Value};
+
+    fn offense_fixture_config() -> CopConfig {
+        let mut config = CopConfig::default();
+        let mut inverse_methods = Mapping::new();
+
+        for (key, value) in [
+            (":!=", ":=="),
+            (":>", ":<="),
+            (":<=", ":>"),
+            (":<", ":>="),
+            (":>=", ":<"),
+            (":!~", ":=~"),
+            (":zero?", ":nonzero?"),
+            (":nonzero?", ":zero?"),
+            (":any?", ":none?"),
+            (":none?", ":any?"),
+            (":even?", ":odd?"),
+            (":odd?", ":even?"),
+            (":present?", ":blank?"),
+            (":blank?", ":present?"),
+            (":include?", ":exclude?"),
+            (":exclude?", ":include?"),
+        ] {
+            inverse_methods.insert(
+                Value::String(key.to_string()),
+                Value::String(value.to_string()),
+            );
+        }
+
+        config.options.insert(
+            "InverseMethods".to_string(),
+            Value::Mapping(inverse_methods),
+        );
+        config
+    }
+
+    #[test]
+    fn offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &InvertibleUnlessCondition,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/invertible_unless_condition/offense.rb"
+            ),
+            offense_fixture_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full(
+            &InvertibleUnlessCondition,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/invertible_unless_condition/no_offense.rb"
+            ),
+        );
+    }
 }
