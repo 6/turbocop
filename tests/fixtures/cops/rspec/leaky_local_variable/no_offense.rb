@@ -475,3 +475,39 @@ describe SomeClass do
     expect(true).to eq(true)
   end
 end
+
+# Dead assignment: variable immediately reassigned at group scope — first
+# assignment's value never reaches any example. The second assignment IS an
+# offense (handled separately), but the first is dead and must not be flagged.
+# (puppetlabs-docker line 43 pattern)
+describe SomeClass do
+  storage_driver = 'devicemapper'
+  storage_driver = 'overlay2'
+end
+
+# Dead assignment inside .each block: first assignment to textile_name is
+# overwritten by the second before any example scope reads it.
+# (org-ruby pattern: name = join(...); name = expand(name))
+describe SomeClass do
+  files.each do |file|
+    basename = File.basename(file, ".org")
+    textile_name = File.join(data_directory, basename + ".textile")
+    textile_name = File.expand_path(textile_name)
+  end
+end
+
+# Dead assignment: operator-write (-=) at group scope kills previous value.
+# After x = initial; x -= subset, the initial value is consumed and replaced.
+# Only the final value before examples matters. (leftovers pattern)
+context 'when merged' do
+  merged_config_methods = ::Leftovers.config.public_methods
+  merged_config_methods -= ::Class.new.new.public_methods
+end
+
+# Dead assignment: operator-write (+=) at group scope replaces value.
+# (SlideHub pattern: keys = [...]; keys += [...])
+describe SomeClass do
+  list_json_keys = %w[id user_id name]
+  list_json_keys += %w[num_of_pages created_at]
+end
+

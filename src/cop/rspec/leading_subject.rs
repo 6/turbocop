@@ -82,6 +82,17 @@ use crate::parse::source::SourceFile;
 /// shows all 72 patterns are handled. The "29 remain" was a conservative estimate;
 /// the CI oracle simply hasn't re-run to confirm.
 ///
+/// ## Corpus investigation (2026-04-01)
+///
+/// Corpus oracle reported FP=50, FN=0.
+///
+/// FP=50: All from bare `subject` method calls inside `def` bodies (e.g.,
+/// `def app; subject; end` in grape specs). These are method references, not
+/// subject declarations. RuboCop's `on_block` only fires on blocks, so bare
+/// `subject` calls are never checked. Fixed by requiring `c.block().is_some()`
+/// on subject calls in both `check_block_body` and
+/// `scan_non_block_container_statements`.
+///
 /// ## Investigation (2026-03-20)
 ///
 /// **Root cause of 3 FNs:** `if`/`unless` control flow nodes wrapping spec groups
@@ -231,8 +242,9 @@ impl LeadingSubject {
                     continue;
                 }
 
-                if is_rspec_subject(name) {
-                    // Subject found -- check if something relevant came before it
+                if is_rspec_subject(name) && c.block().is_some() {
+                    // Subject declaration (with block) -- check if something relevant came before it.
+                    // Bare `subject` calls without a block are method references, not declarations.
                     if let Some(prev_name) = first_relevant_name {
                         self.add_subject_offense(source, &stmt, prev_name, diagnostics);
                     }
@@ -389,7 +401,7 @@ impl LeadingSubject {
             }
 
             if let Some(c) = stmt.as_call_node() {
-                if is_rspec_subject(c.name().as_slice()) {
+                if is_rspec_subject(c.name().as_slice()) && c.block().is_some() {
                     if let Some(prev_name) = parent_first_relevant_name {
                         self.add_subject_offense(source, &stmt, prev_name, diagnostics);
                     }

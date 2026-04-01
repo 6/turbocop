@@ -10,6 +10,12 @@ use crate::parse::source::SourceFile;
 /// starting with `#` as standalone comments. Prism exposes those as
 /// `EmbDocComment`, not `InlineComment`, so this cop must not apply the
 /// standalone-`#` shortcut to them.
+///
+/// RuboCop only exempts valid directives matching `# rubocop:(enable|disable)` —
+/// no space between the colon and `enable`/`disable`. Comments like
+/// `# rubocop: disable Foo` (with a space) are NOT valid directives and must be
+/// flagged as inline comments. The previous `starts_with("rubocop:")` check was
+/// too broad and caused ~550 FN by suppressing these invalid directive comments.
 pub struct InlineComment;
 
 impl Cop for InlineComment {
@@ -64,7 +70,10 @@ impl Cop for InlineComment {
                     Err(_) => continue,
                 };
                 let after_hash = comment_text.trim_start_matches('#').trim_start();
-                if after_hash.starts_with("rubocop:") || after_hash.starts_with("nitrocop-") {
+                if after_hash.starts_with("rubocop:enable")
+                    || after_hash.starts_with("rubocop:disable")
+                    || after_hash.starts_with("nitrocop-")
+                {
                     continue;
                 }
             }

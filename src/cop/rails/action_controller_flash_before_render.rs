@@ -13,6 +13,12 @@
 /// - Root cause 22 (FP): `case ... else` branches with `flash` followed by an
 ///   outer `redirect_to` were treated like `when` branches. RuboCop only allows
 ///   that suppression for the `else` branch shape seen in the corpus.
+/// - Root cause 23 (FP=2): `check_begin_body_with_rescue` passed rescue_context_nodes
+///   (the rescue clause nodes containing render) as outer_siblings to nested if/unless.
+///   In RuboCop, `each_ancestor(:if, :rescue)` finds the if/unless ancestor BEFORE
+///   the rescue ancestor. The if/unless node's right_siblings are the remaining begin
+///   body stmts, not the rescue clause content. Fixed by passing inner_remaining
+///   (remaining begin body stmts) to nested if/unless instead of rescue_context_nodes.
 ///
 /// Investigation findings (2026-03-18):
 /// - Root cause 1: `default_include` was set to `["app/controllers/**/*.rb"]` but the vendor
@@ -520,13 +526,34 @@ impl FlashVisitor<'_> {
         begin_stmts: &[ruby_prism::Node<'_>],
         rescue_context_nodes: &[ruby_prism::Node<'_>],
     ) {
-        for stmt in begin_stmts {
+        // In Parser AST, when the begin body has a single statement, that statement
+        // is a direct child of the rescue node (no begin wrapper). Its right_siblings
+        // include the resbody nodes. When the body has multiple statements, they're
+        // wrapped in a begin node, and each statement's right_siblings are the other
+        // statements within the begin (not the resbody nodes).
+        let single_stmt_body = begin_stmts.len() == 1;
+
+        for (i, stmt) in begin_stmts.iter().enumerate() {
+            let inner_remaining = &begin_stmts[i + 1..];
+
+            // For if/unless: in single-stmt bodies, the node is a direct child of
+            // rescue, so its right_siblings include resbody (use rescue_context_nodes).
+            // In multi-stmt bodies, it's inside a begin wrapper, so right_siblings
+            // are the remaining begin body stmts (use inner_remaining).
+            let if_unless_outer = if single_stmt_body {
+                rescue_context_nodes
+            } else {
+                inner_remaining
+            };
+
             if let Some(nested_if) = stmt.as_if_node() {
-                self.check_if_node_with_outer(&nested_if, rescue_context_nodes);
+                self.check_if_node_with_outer(&nested_if, if_unless_outer);
             }
             if let Some(nested_unless) = stmt.as_unless_node() {
-                self.check_unless_node_with_outer(&nested_unless, rescue_context_nodes);
+                self.check_unless_node_with_outer(&nested_unless, if_unless_outer);
             }
+            // begin/case/embedded: not :if or :rescue in Parser AST, so rescue
+            // ancestor is found — keep using rescue_context_nodes.
             if let Some(nested_begin) = stmt.as_begin_node() {
                 self.check_begin_node_with_outer(&nested_begin, rescue_context_nodes);
             }

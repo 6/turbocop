@@ -166,3 +166,15 @@ RSpec.describe User do
     end
   end
 end
+
+# Subject referenced inside def method body (not a declaration)
+RSpec.describe Grape::API::Helpers do
+  subject { Class.new }
+  def app
+    subject
+  end
+  context 'with lack of expected params' do
+    it 'returns missing error' do
+    end
+  end
+end

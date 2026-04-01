@@ -7,8 +7,11 @@ use crate::parse::source::SourceFile;
 /// `define_method`/`define_singleton_method` blocks, `lambda` blocks,
 /// and stabby lambda (`->`).
 ///
-/// Handles branching (if/unless/case), begin/rescue, nested control flow,
+/// Handles branching (if/unless/case/case-in), begin/rescue, nested control flow,
 /// and rescue modifier (`return expr rescue fallback`).
+///
+/// Supports both `case/when` (CaseNode) and `case/in` pattern matching
+/// (CaseMatchNode) for detecting redundant returns in branch terminal positions.
 ///
 /// Skips ternary expressions (`a ? return : raise`) since RuboCop does not
 /// flag `return` inside ternary branches. Also skips checking the main body
@@ -164,6 +167,23 @@ fn check_terminal(
             }
         }
         if let Some(else_clause) = case_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+            }
+        }
+        return;
+    }
+
+    // CaseMatchNode: check terminal position in each in/else branch (pattern matching)
+    if let Some(case_match_node) = node.as_case_match_node() {
+        for condition in case_match_node.conditions().iter() {
+            if let Some(in_node) = condition.as_in_node() {
+                if let Some(stmts) = in_node.statements() {
+                    check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+                }
+            }
+        }
+        if let Some(else_clause) = case_match_node.else_clause() {
             if let Some(stmts) = else_clause.statements() {
                 check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
             }

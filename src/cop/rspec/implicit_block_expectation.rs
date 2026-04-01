@@ -1,4 +1,6 @@
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
+use crate::cop::util::{
+    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -42,6 +44,20 @@ use ruby_prism::Visit;
 /// `RSpec.describe` (with explicit `RSpec` receiver) was missed, falling
 /// through to default recursion without lambda-subject tracking. Fixed by
 /// also recognizing `RSpec.describe` as an example group entry point.
+///
+/// ## Corpus investigation (2026-04-01)
+///
+/// Corpus oracle reported FP=4, FN=0.
+///
+/// FP=4: All from lambda subjects defined inside `shared_examples` blocks
+/// (ecko/mastodon fork). RuboCop's `multi_statement_example_group?` uses
+/// `example_group_with_body?` which only matches regular example groups
+/// (describe/context/feature), NOT shared groups (shared_examples,
+/// shared_context). So `nearest_subject` skips shared group blocks when
+/// walking up the ancestor chain, making subjects defined inside them
+/// invisible. Fixed by passing `is_shared_group` flag to
+/// `process_example_group` and skipping subject detection for shared groups.
+/// Parent lambda subjects still propagate correctly through shared groups.
 pub struct ImplicitBlockExpectation;
 
 impl Cop for ImplicitBlockExpectation {
@@ -98,7 +114,8 @@ impl<'pr> Visit<'pr> for ImplicitBlockVisitor<'_> {
         };
         if is_example_group {
             if let Some(block) = node.block().and_then(|b| b.as_block_node()) {
-                self.process_example_group(&block, false);
+                let is_shared = node.receiver().is_none() && is_rspec_shared_group(name);
+                self.process_example_group(&block, false, is_shared);
                 return; // Don't recurse further — we handle children manually
             }
         }
@@ -115,6 +132,7 @@ impl ImplicitBlockVisitor<'_> {
         &mut self,
         block: &ruby_prism::BlockNode<'_>,
         parent_has_lambda_subject: bool,
+        is_shared_group: bool,
     ) {
         let body = match block.body() {
             Some(b) => b,
@@ -136,7 +154,11 @@ impl ImplicitBlockVisitor<'_> {
         // Find subject definition in direct children (only if multi-statement)
         let mut has_lambda_subject = parent_has_lambda_subject;
 
-        if is_multi_statement {
+        // RuboCop's multi_statement_example_group? uses example_group_with_body?
+        // which excludes shared groups (shared_examples, shared_context). So
+        // subjects defined inside shared groups are invisible to nearest_subject.
+        // Skip subject detection for shared groups, but inherit from parent.
+        if is_multi_statement && !is_shared_group {
             for stmt in &stmts_vec {
                 if let Some(call) = stmt.as_call_node() {
                     let name = call.name().as_slice();
@@ -159,7 +181,8 @@ impl ImplicitBlockVisitor<'_> {
                     // Nested example group (context/describe) — recurse
                     if is_rspec_example_group(name) {
                         if let Some(bn) = call.block().and_then(|b| b.as_block_node()) {
-                            self.process_example_group(&bn, has_lambda_subject);
+                            let nested_shared = is_rspec_shared_group(name);
+                            self.process_example_group(&bn, has_lambda_subject, nested_shared);
                         }
                     } else if has_lambda_subject {
                         // Any block within a lambda-subject group: check for
