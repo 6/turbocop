@@ -22,6 +22,17 @@ use crate::parse::source::SourceFile;
 /// **Fix:** (1) Added `SingletonClassNode` recursion in `is_include_statement_only`.
 /// (2) Restricted `is_include_extend_prepend` to require a single constant argument
 /// (ConstantReadNode or ConstantPathNode), matching RuboCop's pattern.
+///
+/// ## Investigation findings (2026-04-01)
+///
+/// **FN root cause:** nitrocop treated `# Note: ...` as documentation because its annotation
+/// keyword matching was case-sensitive, and it missed RuboCop's special handling for a lone
+/// top-of-file Emacs-style magic comment like `# -*- encoding : utf-8 -*-` immediately above a
+/// non-empty class or module.
+///
+/// **Fix:** reuse RuboCop-like case-insensitive annotation keyword matching and special-case the
+/// line-2 top-of-file Emacs-style magic-comment pattern without suppressing files where that
+/// comment is followed by another preceding comment line.
 pub struct Documentation;
 
 /// Extract the short (unqualified) name from a constant node.
@@ -177,6 +188,21 @@ pub(crate) fn has_documentation_comment(source: &SourceFile, keyword_offset: usi
     }
     let lines: Vec<&[u8]> = source.lines().collect();
 
+    // RuboCop still requires documentation for a non-empty class/module on line 2 when the only
+    // preceding line is an Emacs-style magic comment like `# -*- encoding : utf-8 -*-`.
+    if node_line == 2 {
+        if let Some(line) = lines.first() {
+            let trimmed = trim_bytes(line);
+            if trimmed.starts_with(b"#") {
+                let comment_text = std::str::from_utf8(trimmed).unwrap_or("");
+                let text = comment_text.trim_start_matches('#').trim();
+                if is_emacs_style_magic_comment(text) {
+                    return false;
+                }
+            }
+        }
+    }
+
     // Walk backward from the line before the keyword.
     // RuboCop associates all preceding comments (even across blank lines) with the
     // node via `ast_with_comments`, then checks if ANY is real documentation. To
@@ -245,24 +271,115 @@ pub(crate) fn is_annotation_or_directive(comment: &str) -> bool {
     {
         return true;
     }
-
     // RuboCop directives
     if text.starts_with("rubocop:") {
         return true;
     }
 
-    // Annotation keywords (only if the WHOLE comment starts with one)
-    let annotation_keywords = ["TODO", "FIXME", "OPTIMIZE", "HACK", "REVIEW", "NOTE"];
-    for kw in &annotation_keywords {
-        if let Some(rest) = text.strip_prefix(kw) {
-            // Must be followed by : or whitespace or end of string
-            if rest.is_empty() || rest.starts_with(':') || rest.starts_with(' ') {
-                return true;
-            }
-        }
+    if is_annotation_comment(text) {
+        return true;
     }
 
     false
+}
+
+fn is_annotation_comment(text: &str) -> bool {
+    const DEFAULT_ANNOTATION_KEYWORDS: &[&str] =
+        &["TODO", "FIXME", "OPTIMIZE", "HACK", "REVIEW", "NOTE"];
+
+    for keyword in DEFAULT_ANNOTATION_KEYWORDS {
+        if !text
+            .get(..keyword.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(keyword))
+        {
+            continue;
+        }
+
+        let keyword_text = &text[..keyword.len()];
+        let mut rest = &text[keyword.len()..];
+
+        if let Some(next_byte) = rest.as_bytes().first() {
+            if next_byte.is_ascii_alphanumeric() || *next_byte == b'_' {
+                continue;
+            }
+        }
+
+        let has_colon = {
+            let trimmed = rest.trim_start();
+            if let Some(after_colon) = trimmed.strip_prefix(':') {
+                rest = after_colon;
+                true
+            } else {
+                false
+            }
+        };
+
+        let has_space = if !rest.is_empty() && rest.as_bytes()[0].is_ascii_whitespace() {
+            rest = rest.trim_start();
+            true
+        } else {
+            false
+        };
+
+        let has_note = !rest.is_empty();
+
+        if !has_colon && !has_space {
+            continue;
+        }
+
+        if just_keyword_of_sentence(keyword_text, has_colon, has_space, has_note) {
+            continue;
+        }
+
+        return true;
+    }
+
+    false
+}
+
+fn just_keyword_of_sentence(
+    keyword_text: &str,
+    has_colon: bool,
+    has_space: bool,
+    has_note: bool,
+) -> bool {
+    if has_colon || !has_space || !has_note {
+        return false;
+    }
+
+    let mut chars = keyword_text.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_uppercase() => {}
+        _ => return false,
+    }
+
+    chars.all(|c| c.is_ascii_lowercase())
+}
+
+fn is_emacs_style_magic_comment(text: &str) -> bool {
+    let text = text.trim();
+    if !(text.starts_with("-*-") && text.ends_with("-*-")) {
+        return false;
+    }
+
+    let inner = text
+        .trim_start_matches("-*-")
+        .trim_end_matches("-*-")
+        .trim();
+
+    inner.split(';').any(|part| {
+        let part = part.trim();
+        has_magic_comment_key(part, "frozen_string_literal")
+            || has_magic_comment_key(part, "shareable_constant_value")
+            || has_magic_comment_key(part, "warn_indent")
+            || has_magic_comment_key(part, "coding")
+            || has_magic_comment_key(part, "encoding")
+    })
+}
+
+fn has_magic_comment_key(text: &str, key: &str) -> bool {
+    text.strip_prefix(key)
+        .is_some_and(|rest| rest.trim_start().starts_with(':'))
 }
 
 pub(crate) fn trim_bytes(line: &[u8]) -> &[u8] {
@@ -591,6 +708,51 @@ mod tests {
         let source = b"# rubocop:disable Style/For\nclass Foo\n  def method\n  end\nend\n";
         let diags = run_cop_full(&Documentation, source);
         assert_eq!(diags.len(), 1, "rubocop directive is not documentation");
+    }
+
+    #[test]
+    fn emacs_style_encoding_comment_not_documentation() {
+        let source = b"# -*- encoding : utf-8 -*-\nclass Foo\n  def method\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Emacs-style encoding magic comment is not documentation"
+        );
+    }
+
+    #[test]
+    fn emacs_style_encoding_comment_not_documentation_for_module() {
+        let source = b"# -*- encoding : utf-8 -*-\nmodule Foo\n  def method\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Emacs-style encoding magic comment is not documentation for modules either"
+        );
+    }
+
+    #[test]
+    fn emacs_style_comment_followed_by_other_comment_counts_as_documentation() {
+        let source =
+            b"# -*- encoding : utf-8 -*-\n#coding: utf-8\nclass Foo\n  def method\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert!(
+            diags.is_empty(),
+            "Emacs-style magic comments should still count as documentation when another comment line follows"
+        );
+    }
+
+    #[test]
+    fn note_comment_not_documentation() {
+        let source =
+            b"# Note: named Address2 to avoid conflicting with other samples if loaded together\nclass Foo\n  def method\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Note comments should not count as documentation"
+        );
     }
 
     #[test]
