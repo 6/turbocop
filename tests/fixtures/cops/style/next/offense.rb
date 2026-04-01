@@ -86,3 +86,61 @@ loop do
     something
   end
 end
+
+# multiline single-statement body still counts toward MinBodyLength
+for post in @posts
+  unless post.user.is_spammer?
+  ^^^^^^ Style/Next: Use `next` to skip iteration.
+    xml.item do
+      xml.title post.title
+      xml.description markdown(post.text)
+      xml.pubDate post.created_at.to_s(:rfc822)
+      xml.link post_url(post)
+      xml.comments post_url(post)
+      xml.guid post_url(post)
+    end
+  end
+end
+
+# multiline nested block body with only one top-level statement
+items.each do |item|
+  if condition
+  ^^ Style/Next: Use `next` to skip iteration.
+    do_work do
+      step_one(item)
+      step_two(item)
+      step_three(item)
+    end
+  end
+end
+
+# body line span matters even when there are only two top-level statements
+response.each do |k, v|
+  next unless v.is_a?(Hash) && k != :suggested_template_model
+
+  response[k] = HashHelper.to_ruby(v)
+
+  if response[k].has_key?(:validation_errors)
+  ^^ Style/Next: Use `next` to skip iteration.
+    ruby_hashes = response[k][:validation_errors].map do |err|
+      HashHelper.to_ruby(err)
+    end
+    response[k][:validation_errors] = ruby_hashes
+  end
+end
+
+# multiline hash literal body should not be measured by statement count
+@blocks.each_with_index.map do |row_blocks, row_index|
+  column_block_with_column_index = row_blocks.each_with_index.to_a.reverse.detect do |column_block, column_index|
+    !column_block.clear?
+  end
+  if column_block_with_column_index
+  ^^ Style/Next: Use `next` to skip iteration.
+    right_most_block = column_block_with_column_index[0]
+    {
+      block: right_most_block,
+      row_index: row_index,
+      column_index: column_block_with_column_index[1]
+    }
+  end
+end
