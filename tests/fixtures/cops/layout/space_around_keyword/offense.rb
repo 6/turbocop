@@ -73,3 +73,8 @@ when:new_ring
 ^^^^ Layout/SpaceAroundKeyword: Space after keyword `when` is missing.
   nil
 end
+
+(m..n).inject(0) do|sum, j|
+                 ^^ Layout/SpaceAroundKeyword: Space after keyword `do` is missing.
+  sum + j
+end

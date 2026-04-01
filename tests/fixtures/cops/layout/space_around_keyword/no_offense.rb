@@ -220,7 +220,7 @@ result = Arel::Nodes::Case.new.
   when(transition_table[:id].eq(most_recent_id)).
   then(db_true)
 
-# Post-condition begin/end loops and paren call blocks are accepted
+# Post-condition begin/end loops and missing space before `do` after paren calls are accepted
 begin
   ancestors.push(mark)
   mark = mark.parent

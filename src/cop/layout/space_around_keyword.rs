@@ -93,7 +93,9 @@ use crate::parse::source::SourceFile;
 ///   loops, and `foo(1)do ... end` blocks where `do` follows a call's closing
 ///   parenthesis.
 /// - Fixed by broadening AST collection from just hash labels/`when then`/`end`
-///   to a single skip-position set covering those exact Prism locations.
+///   to exact Prism-backed skip sets. Most positions skip keyword checks
+///   entirely, while `call(...) do` only skips the missing-space-before check
+///   so RuboCop-compatible `do|args|` offenses still report.
 pub struct SpaceAroundKeyword;
 
 /// Keywords that accept `(` immediately after them (no space required).
@@ -244,9 +246,11 @@ impl Cop for SpaceAroundKeyword {
         // raw keyword text scanning.
         let mut collector = KeywordSkipCollector {
             skip_keyword_positions: HashSet::new(),
+            skip_before_positions: HashSet::new(),
         };
         collector.visit(&parse_result.node());
         let skip_keyword_positions = collector.skip_keyword_positions;
+        let skip_before_positions = collector.skip_before_positions;
 
         let bytes = source.as_bytes();
         let len = bytes.len();
@@ -341,7 +345,7 @@ impl Cop for SpaceAroundKeyword {
                 let kw_str = std::str::from_utf8(kw).unwrap_or("");
 
                 // --- Check "space before missing" ---
-                if i > 0 && !accepted_before(bytes, i) {
+                if i > 0 && !accepted_before(bytes, i) && !skip_before_positions.contains(&i) {
                     let (line, column) = source.offset_to_line_col(i);
                     let mut diag = self.diagnostic(
                         source,
@@ -473,6 +477,7 @@ fn is_accept_left_bracket(kw: &[u8]) -> bool {
 /// It does NOT check `end` for: def, class, module, singleton class.
 struct KeywordSkipCollector {
     skip_keyword_positions: HashSet<usize>,
+    skip_before_positions: HashSet<usize>,
 }
 
 impl<'pr> Visit<'pr> for KeywordSkipCollector {
@@ -532,7 +537,7 @@ impl<'pr> Visit<'pr> for KeywordSkipCollector {
         if node.closing_loc().is_some() {
             if let Some(block_node) = node.block().and_then(|block| block.as_block_node()) {
                 if block_node.opening_loc().as_slice() == b"do" {
-                    self.skip_keyword_positions
+                    self.skip_before_positions
                         .insert(block_node.opening_loc().start_offset());
                 }
             }
