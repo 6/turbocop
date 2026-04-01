@@ -25,3 +25,11 @@ end
 # Safe navigation &. with incompatible methods — can't invert
 !foo&.any?
 !foo&.none?
+
+def empty?
+  !any?
+end
+
+def without_platforms
+  select { |k, v| !v.has_platforms? }
+end

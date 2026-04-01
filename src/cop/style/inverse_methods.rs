@@ -4,85 +4,82 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
 
-/// Corpus investigation (FP=159, FN=125):
-/// - **FP root cause 1 (132 FPs)**: Double negation `!!` patterns like `!!(x =~ /pattern/)`
-///   were flagged as "use `!~`". RuboCop's `negated?` check detects when the `!` node's parent
-///   is also a `!` (double negation for boolean coercion) and skips. Fixed by scanning source
-///   bytes before the `!` operator's message_loc to detect a preceding `!`.
-/// - **FP root cause 2**: Safe navigation `!foo&.any?` was flagged. RuboCop skips when the
-///   inner method uses `&.` with incompatible methods (any?, none?, comparison operators)
-///   because `nil.none?` etc. don't exist. Fixed by checking `call_operator_loc()` for `&.`.
-/// - **FN root cause (847 FNs in corpus)**: The cop was not in tiers.json, so it defaulted
-///   to "preview" tier and was disabled at runtime. Fixed by adding to stable tier.
-///   After enabling, verify-cop-locations shows 0 FP and 0 FN.
+/// Corpus investigation (2026-04-01):
+///
+/// FN root cause: repo config files that declared only a partial `InverseMethods`
+/// or `InverseBlocks` hash caused nitrocop to treat that hash as a full replacement.
+/// RuboCop always starts from its default pairs, applies project overrides, then
+/// adds the inverted direction. That mismatch suppressed the default `any?`/`none?`,
+/// comparison, and `select`/`reject` pairs in many real repos.
+///
+/// FP guard kept alongside the FN fix: RuboCop's matcher only targets calls with
+/// an explicit receiver. Without that guard, implicit-self definitions like
+/// `def empty?; !any?; end` or `def without_platforms; select { ... }; end`
+/// were flagged even though RuboCop accepts them.
 pub struct InverseMethods;
 
 impl InverseMethods {
-    /// Build the inverse methods map from config or defaults.
     fn build_inverse_map(config: &CopConfig) -> HashMap<Vec<u8>, String> {
-        let mut map = HashMap::new();
+        const DEFAULTS: &[(&str, &str)] = &[
+            ("any?", "none?"),
+            ("even?", "odd?"),
+            ("==", "!="),
+            ("=~", "!~"),
+            ("<", ">="),
+            (">", "<="),
+        ];
 
-        if let Some(configured) = config.get_string_hash("InverseMethods") {
-            for (key, val) in &configured {
-                let k = key.trim_start_matches(':');
-                let v = val.trim_start_matches(':');
-                map.insert(k.as_bytes().to_vec(), v.to_string());
-            }
-        } else {
-            // RuboCop defaults — note: relationship only defined one direction
-            // but we need both directions for lookup
-            let defaults: &[(&[u8], &str)] = &[
-                (b"any?", "none?"),
-                (b"none?", "any?"),
-                (b"even?", "odd?"),
-                (b"odd?", "even?"),
-                (b"==", "!="),
-                (b"!=", "=="),
-                (b"=~", "!~"),
-                (b"!~", "=~"),
-                (b"<", ">="),
-                (b">=", "<"),
-                (b">", "<="),
-                (b"<=", ">"),
-            ];
-            for &(k, v) in defaults {
-                map.insert(k.to_vec(), v.to_string());
-            }
-        }
-        map
+        Self::build_symmetric_inverse_map(config, "InverseMethods", DEFAULTS)
     }
 
     fn build_inverse_blocks(config: &CopConfig) -> HashMap<Vec<u8>, String> {
-        let mut map = HashMap::new();
+        const DEFAULTS: &[(&str, &str)] = &[("select", "reject"), ("select!", "reject!")];
 
-        if let Some(configured) = config.get_string_hash("InverseBlocks") {
-            for (key, val) in &configured {
-                let k = key.trim_start_matches(':');
-                let v = val.trim_start_matches(':');
-                map.insert(k.as_bytes().to_vec(), v.to_string());
-            }
-        } else {
-            // RuboCop defaults
-            let defaults: &[(&[u8], &str)] = &[(b"select", "reject"), (b"reject", "select")];
-            for &(k, v) in defaults {
-                map.insert(k.to_vec(), v.to_string());
-            }
-        }
-        map
+        Self::build_symmetric_inverse_map(config, "InverseBlocks", DEFAULTS)
     }
 
-    /// Build the inverse blocks map including bang variants.
-    fn build_inverse_blocks_with_bang(config: &CopConfig) -> HashMap<Vec<u8>, String> {
-        let base = Self::build_inverse_blocks(config);
-        let mut map = base.clone();
-        // Add bang variants (select! -> reject!, reject! -> select!)
-        for (k, v) in &base {
-            let mut bang_k = k.clone();
-            bang_k.push(b'!');
-            let bang_v = format!("{v}!");
-            map.insert(bang_k, bang_v);
+    fn build_symmetric_inverse_map(
+        config: &CopConfig,
+        key: &str,
+        defaults: &[(&str, &str)],
+    ) -> HashMap<Vec<u8>, String> {
+        let mut one_way = HashMap::new();
+        for &(method, inverse) in defaults {
+            one_way.insert(method.as_bytes().to_vec(), inverse.to_string());
         }
-        map
+
+        if let Some(configured) = config.options.get(key).and_then(|value| value.as_mapping()) {
+            for (configured_key, configured_value) in configured {
+                let Some(configured_key) = configured_key.as_str() else {
+                    continue;
+                };
+
+                let trimmed_key = configured_key.trim_start_matches(':');
+                let key_bytes = trimmed_key.as_bytes().to_vec();
+
+                if configured_value.is_null() {
+                    one_way.remove(&key_bytes);
+                    continue;
+                }
+
+                let Some(configured_value) = configured_value.as_str() else {
+                    continue;
+                };
+
+                let trimmed_value = configured_value.trim_start_matches(':');
+                one_way.insert(key_bytes, trimmed_value.to_string());
+            }
+        }
+
+        let mut symmetric = one_way.clone();
+        for (method, inverse) in one_way {
+            symmetric.insert(
+                inverse.as_bytes().to_vec(),
+                String::from_utf8_lossy(&method).into(),
+            );
+        }
+
+        symmetric
     }
 
     /// Check if this `!` call is the inner part of a double negation `!!`.
@@ -185,6 +182,24 @@ impl InverseMethods {
         ruby_prism::Visit::visit(&mut finder, &body);
         finder.found
     }
+
+    /// RuboCop suppresses nested `!any?` / `!(x =~ y)` offenses when they sit
+    /// inside the block of a larger `select`/`reject` inverse-block offense.
+    fn nested_inside_inverse_block(
+        target: &ruby_prism::CallNode<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        config: &CopConfig,
+    ) -> bool {
+        let inverse_blocks = Self::build_inverse_blocks(config);
+        let mut finder = NestedInverseBlockFinder {
+            target_start: target.location().start_offset(),
+            target_end: target.location().end_offset(),
+            inverse_blocks: &inverse_blocks,
+            found: false,
+        };
+        ruby_prism::Visit::visit(&mut finder, &parse_result.node());
+        finder.found
+    }
 }
 
 impl Cop for InverseMethods {
@@ -200,7 +215,7 @@ impl Cop for InverseMethods {
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
@@ -216,6 +231,10 @@ impl Cop for InverseMethods {
         if method_bytes == b"!" {
             // Skip double negation `!!expr` — used for boolean coercion, not inversion
             if Self::is_double_negation(&call, source) {
+                return;
+            }
+
+            if Self::nested_inside_inverse_block(&call, parse_result, config) {
                 return;
             }
 
@@ -252,6 +271,11 @@ impl Cop for InverseMethods {
 
             // Skip safe navigation with incompatible methods (e.g., !foo&.any?)
             if Self::is_safe_navigation_incompatible(&inner_call, source) {
+                return;
+            }
+
+            // RuboCop only matches explicit receivers for inverse method checks.
+            if inner_call.receiver().is_none() {
                 return;
             }
 
@@ -295,7 +319,11 @@ impl Cop for InverseMethods {
 
         // Pattern 2: foo.select { |f| !f.even? } or foo.reject { |k, v| v != :a }
         // Block where the method is in InverseBlocks and the last expression is negated
-        let inverse_blocks = InverseMethods::build_inverse_blocks_with_bang(config);
+        if call.receiver().is_none() {
+            return;
+        }
+
+        let inverse_blocks = InverseMethods::build_inverse_blocks(config);
         if let Some(inv) = inverse_blocks.get(method_bytes) {
             if let Some(block) = call.block() {
                 if let Some(block_node) = block.as_block_node() {
@@ -333,6 +361,38 @@ impl<'pr> ruby_prism::Visit<'pr> for NextFinder {
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
 }
 
+struct NestedInverseBlockFinder<'a> {
+    target_start: usize,
+    target_end: usize,
+    inverse_blocks: &'a HashMap<Vec<u8>, String>,
+    found: bool,
+}
+
+impl<'pr> ruby_prism::Visit<'pr> for NestedInverseBlockFinder<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if self.found {
+            return;
+        }
+
+        if node.receiver().is_some() {
+            if let Some(block) = node.block().and_then(|block| block.as_block_node()) {
+                let block_loc = block.location();
+                if block_loc.start_offset() <= self.target_start
+                    && self.target_end <= block_loc.end_offset()
+                    && self.inverse_blocks.contains_key(node.name().as_slice())
+                    && InverseMethods::last_expr_is_negated(&block)
+                    && !InverseMethods::has_next_statements(&block)
+                {
+                    self.found = true;
+                    return;
+                }
+            }
+        }
+
+        ruby_prism::visit_call_node(self, node);
+    }
+}
+
 /// Returns true if the method name is a comparison operator.
 fn is_comparison_operator(method: &[u8]) -> bool {
     matches!(method, b"<" | b">" | b"<=" | b">=")
@@ -361,4 +421,44 @@ fn has_constant_operand(call: &ruby_prism::CallNode<'_>) -> bool {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(InverseMethods, "cops/style/inverse_methods");
+
+    #[test]
+    fn merges_partial_inverse_methods_config_with_defaults() {
+        use crate::testutil::assert_cop_offenses_full_with_config;
+
+        let fixture = br#"!items.none?
+^ Style/InverseMethods: Use `any?` instead of inverting `none?`.
+!(a <= b)
+^ Style/InverseMethods: Use `>` instead of inverting `<=`.
+"#;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "InverseMethods".into(),
+                serde_yml::from_str("present?: blank?\ninclude?: exclude?\n").unwrap(),
+            )]),
+            ..CopConfig::default()
+        };
+
+        assert_cop_offenses_full_with_config(&InverseMethods, fixture, config);
+    }
+
+    #[test]
+    fn merges_partial_inverse_blocks_config_with_defaults() {
+        use crate::testutil::assert_cop_offenses_full_with_config;
+
+        let fixture = br#"items.reject { |x| !x.valid? }
+^ Style/InverseMethods: Use `select` instead of inverting `reject`.
+"#;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "InverseBlocks".into(),
+                serde_yml::from_str("filter_map: compact_map\n").unwrap(),
+            )]),
+            ..CopConfig::default()
+        };
+
+        assert_cop_offenses_full_with_config(&InverseMethods, fixture, config);
+    }
 }
