@@ -2310,14 +2310,11 @@ fn stmt_reassigns_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
     if let Some(lw) = node.as_local_variable_write_node() {
         return lw.name().as_slice() == var_name;
     }
-    // Operator-writes (`x += ...`, `x -= ...`) always produce a new value,
-    // consuming the old one at group scope. The old assignment's value is
-    // replaced and doesn't reach example scopes. This matches RuboCop's
-    // VariableForce per-assignment tracking: the operator-write's read of the
-    // old value counts as a group-scope reference, not an example-scope one.
-    if let Some(ow) = node.as_local_variable_operator_write_node() {
-        return ow.name().as_slice() == var_name;
-    }
+    // Note: operator-writes (`x += ...`, `x -= ...`) are NOT kills because
+    // they READ the old value first (`x = x + ...`). The previous assignment's
+    // value is referenced by the operator-write, so it IS a leaky variable.
+    // RuboCop's VariableForce tracks this correctly — both the original
+    // assignment and the operator-write are separate offenses.
     if let Some(mw) = node.as_multi_write_node() {
         for target in mw.lefts().iter() {
             if let Some(lt) = target.as_local_variable_target_node() {
@@ -4768,10 +4765,11 @@ end
     #[test]
     fn test_fp_operator_write_kills_group_scope_value() {
         // leftovers pattern: `merged_config_methods = X; merged_config_methods -= Y`
-        // then used in it block. Lines 21 and 22 should NOT be flagged because
-        // the operator-write at group scope kills the earlier assignment's value.
-        // Only the final value (after all group-scope operator-writes) should be
-        // flagged if it leaks into examples.
+        // then used in it block. RuboCop flags ALL three lines because:
+        // - Line 2 (`=`): value read by line 3's `-=`
+        // - Line 3 (`-=`): value read by line 4's `-=`
+        // - Line 4 (`-=`): value reaches `it` block
+        // `-=` reads the old value, so earlier assignments are NOT dead.
         let source = br#"context 'when merged' do
   merged_config_methods = ::Leftovers.config.public_methods
   merged_config_methods -= ::Class.new.new.public_methods
@@ -4783,26 +4781,29 @@ end
 end
 "#;
         let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
-        // Only the last assignment (line 4: -= %i{<<}) should be flagged,
-        // because the earlier assignments' values are consumed by later
-        // operator-writes at group scope.
+        // All three assignments should be flagged — `-=` reads the old value.
         assert_eq!(
             diags.len(),
-            1,
-            "Expected 1 offense (last operator-write only), got {}: {:?}",
+            3,
+            "Expected 3 offenses (all assignments), got {}: {:?}",
             diags.len(),
             diags
                 .iter()
                 .map(|d| format!("{}:{}", d.location.line, d.location.column))
                 .collect::<Vec<_>>()
         );
-        assert_eq!(diags[0].location.line, 4, "Offense should be on line 4");
+        assert_eq!(diags[0].location.line, 2, "First offense on line 2");
+        assert_eq!(diags[1].location.line, 3, "Second offense on line 3");
+        assert_eq!(diags[2].location.line, 4, "Third offense on line 4");
     }
 
     #[test]
     fn test_fp_plus_equals_kills_group_scope_value() {
         // SlideHub pattern: `list_json_keys = %w[...]; list_json_keys += %w[...]`
-        // then used in it block. The first assignment should NOT be flagged.
+        // then used in it block. RuboCop flags BOTH assignments because:
+        // - Line 2 (`=`): leaky — value is read by line 3's `+=` at group scope
+        // - Line 3 (`+=`): leaky — result reaches the `it` block
+        // `+=` reads the old value, so the first assignment is NOT dead.
         let source = br#"RSpec.describe SomeClass do
   list_json_keys = %w[id user_id name]
   list_json_keys += %w[num_of_pages created_at]
@@ -4818,18 +4819,25 @@ end
 end
 "#;
         let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
-        // Only the second assignment (line 3: += ...) should be flagged.
+        // Both assignments should be flagged — `+=` reads the old value.
         assert_eq!(
             diags.len(),
-            1,
-            "Expected 1 offense (second assignment only), got {}: {:?}",
+            2,
+            "Expected 2 offenses (both assignments), got {}: {:?}",
             diags.len(),
             diags
                 .iter()
                 .map(|d| format!("{}:{}", d.location.line, d.location.column))
                 .collect::<Vec<_>>()
         );
-        assert_eq!(diags[0].location.line, 3, "Offense should be on line 3");
+        assert_eq!(
+            diags[0].location.line, 2,
+            "First offense should be on line 2"
+        );
+        assert_eq!(
+            diags[1].location.line, 3,
+            "Second offense should be on line 3"
+        );
     }
 
     #[test]
