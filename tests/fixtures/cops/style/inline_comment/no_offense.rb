@@ -27,3 +27,7 @@ sql = "SELECT ...
 text = <<~HEREDOC
   some # text
 HEREDOC
+
+# Line starts with # from interpolation — RuboCop comment_line? returns true
+%Q;\
+ #{2**2}; #=> " 4"
