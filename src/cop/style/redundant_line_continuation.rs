@@ -1,6 +1,9 @@
+use std::collections::HashSet;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 /// Detects redundant line continuations (`\` at end of line).
 ///
@@ -27,12 +30,13 @@ use crate::parse::source::SourceFile;
 ///   FPs for `method \` + `<<-heredoc` patterns. Fixed by adding `<<` to the
 ///   multi-char prefix check.
 ///
-/// ## Remaining gaps
+/// - **Interpolated string continuations**: Prism stores a bare `\` + newline
+///   between interpolated string segments as a `StringNode` part whose content
+///   is exactly `\\\n`. `code_map.is_code()` treated those offsets as non-code,
+///   causing FNs for patterns like `"#{a}\` + `#{b}"`. Fixed by collecting only
+///   those exact Prism string-part offsets and allowing the line scan there.
 ///
-/// - **String-internal `\`**: RuboCop flags `\` at end of line inside interpolated
-///   strings (e.g. `"#{a}\` + `#{b}"`), but our code_map correctly identifies
-///   these as non-code regions and skips them. Matching RuboCop here would require
-///   processing `\` inside string contexts.
+/// ## Remaining gaps
 ///
 /// - **Reparse limitations**: `is_redundant_continuation` checks for zero parse
 ///   errors after removing `\`. Files with pre-existing Prism parse errors will
@@ -47,7 +51,7 @@ impl Cop for RedundantLineContinuation {
     fn check_source(
         &self,
         source: &SourceFile,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
@@ -55,6 +59,8 @@ impl Cop for RedundantLineContinuation {
     ) {
         let lines: Vec<&[u8]> = source.lines().collect();
         let source_bytes = source.as_bytes();
+        let interpolated_string_continuations =
+            interpolated_string_continuation_offsets(parse_result, source_bytes);
 
         for (i, line) in lines.iter().enumerate() {
             let trimmed = trim_end(line);
@@ -73,7 +79,9 @@ impl Cop for RedundantLineContinuation {
 
             // Use code_map to verify the backslash is in a code region
             // (not inside a string, heredoc, or comment)
-            if !code_map.is_code(backslash_offset) {
+            if !code_map.is_code(backslash_offset)
+                && !interpolated_string_continuations.contains(&backslash_offset)
+            {
                 continue;
             }
 
@@ -324,6 +332,65 @@ fn next_line_starts_with_argument(next_trimmed: &[u8]) -> bool {
             | b'_'
             | b'a'..=b'z'
     )
+}
+
+fn interpolated_string_continuation_offsets(
+    parse_result: &ruby_prism::ParseResult<'_>,
+    source: &[u8],
+) -> HashSet<usize> {
+    let mut collector = InterpolatedStringContinuationCollector {
+        source,
+        offsets: HashSet::new(),
+        interpolated_string_depth: 0,
+        embedded_depth: 0,
+    };
+    collector.visit(&parse_result.node());
+    collector.offsets
+}
+
+struct InterpolatedStringContinuationCollector<'a> {
+    source: &'a [u8],
+    offsets: HashSet<usize>,
+    interpolated_string_depth: usize,
+    embedded_depth: usize,
+}
+
+impl InterpolatedStringContinuationCollector<'_> {
+    fn collect_string_part_offsets(&mut self, node: &ruby_prism::StringNode<'_>) {
+        let loc = node.content_loc();
+        let bytes = &self.source[loc.start_offset()..loc.end_offset()];
+        if bytes == b"\\\n" {
+            self.offsets.insert(loc.start_offset());
+        }
+    }
+}
+
+impl<'pr> Visit<'pr> for InterpolatedStringContinuationCollector<'_> {
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        let was = self.interpolated_string_depth;
+        let is_heredoc = node
+            .opening_loc()
+            .is_some_and(|opening| opening.as_slice().starts_with(b"<<"));
+        if !is_heredoc {
+            self.interpolated_string_depth += 1;
+        }
+        ruby_prism::visit_interpolated_string_node(self, node);
+        self.interpolated_string_depth = was;
+    }
+
+    fn visit_embedded_statements_node(&mut self, node: &ruby_prism::EmbeddedStatementsNode<'pr>) {
+        let was = self.embedded_depth;
+        self.embedded_depth += 1;
+        ruby_prism::visit_embedded_statements_node(self, node);
+        self.embedded_depth = was;
+    }
+
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        if self.interpolated_string_depth > 0 && self.embedded_depth == 0 {
+            self.collect_string_part_offsets(node);
+        }
+        ruby_prism::visit_string_node(self, node);
+    }
 }
 
 #[cfg(test)]

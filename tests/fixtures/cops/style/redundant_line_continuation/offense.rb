@@ -107,3 +107,13 @@ refs = (cond \
 @table = \
          ^ Style/RedundantLineContinuation: Redundant line continuation.
   find_table || default_table
+
+@mti_table = \
+             ^ Style/RedundantLineContinuation: Redundant line continuation.
+  find_table || default_table
+
+data = "#{params['tid']}\
+                        ^ Style/RedundantLineContinuation: Redundant line continuation.
+#{params['name']}\
+                 ^ Style/RedundantLineContinuation: Redundant line continuation.
+#{params['comment']}"
