@@ -221,7 +221,7 @@ fn last_token_can_take_argument(before_backslash: &[u8]) -> bool {
     matches!(token, b"break" | b"next" | b"return" | b"super" | b"yield")
         || (token
             .first()
-            .is_some_and(|b| (b.is_ascii_lowercase() || *b == b'_'))
+            .is_some_and(|b| b.is_ascii_lowercase() || *b == b'_')
             && !is_ruby_keyword(token))
 }
 
