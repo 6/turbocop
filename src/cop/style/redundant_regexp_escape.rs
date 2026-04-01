@@ -5,19 +5,18 @@ use crate::parse::source::SourceFile;
 
 /// ## Investigation (2026-04-01)
 ///
-/// The main corpus FN pattern was `\-` outside character classes, e.g.
-/// `/\w{8}\-\w{4}/`, which this cop mistakenly treated as meaningful.
-/// The main FP pattern was backslash-newline regexp line continuation in multiline
-/// regexps, which RuboCop accepts. Interpolated regexps like
-/// `/^\[\<assembly: #{attr_name}(.+)/` were also skipped entirely because only
-/// `RegularExpressionNode` was visited. This fix preserves the byte-based scanner
-/// but removes the outside-char-class `\-` exemption, allows backslash-newline,
-/// and scans interpolated regexp string fragments with byte-accurate offsets.
-/// It also matches RuboCop quirks seen in corpus validation:
-/// `\-` immediately after `[^` is treated as meaningful, `/x` comments are
-/// ignored, `#\$`/`#\@` are preserved to avoid interpolation, `/e` and `/s`
-/// suppress this cop entirely, and multiline extended interpolated regexps only
-/// report escapes from the literal prefix before the first interpolation.
+/// Earlier fixes aligned the cop with RuboCop for escaped `\-` outside character
+/// classes, backslash-newline line continuations, and interpolated regexp nodes.
+/// The remaining FN cluster came from multiline `/x` interpolated regexps like
+/// `%r{ #{url} (https?:\/\/)? }x` and `/#{chars}[\.,]#{chars}/x`: this scanner
+/// was still stopping at the first interpolation whenever the regexp contained a
+/// newline, so redundant escapes after `#{...}` were never visited.
+///
+/// The correct narrow behavior is to keep scanning through interpolations for
+/// normal regexp literals, but preserve RuboCop's block-call quirk where
+/// `rule %r{(#{complex_id})(#{ws}*)([\{\(])}mx do` only reports the literal
+/// prefix before the first interpolation. The byte-based scanner and offset
+/// mapping stay unchanged otherwise.
 pub struct RedundantRegexpEscape;
 
 /// Characters that need escaping OUTSIDE a character class in regexp
@@ -101,8 +100,7 @@ impl Cop for RedundantRegexpEscape {
         let mut offsets = Vec::new();
 
         let scan_full_interpolated =
-            !(followed_by_block_opener(source.as_bytes(), node_loc.end_offset())
-                || flags.extended && full_bytes.contains(&b'\n'));
+            !followed_by_block_opener(source.as_bytes(), node_loc.end_offset());
 
         for part in re.parts().iter() {
             if let Some(string) = part.as_string_node() {

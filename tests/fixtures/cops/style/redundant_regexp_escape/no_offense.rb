@@ -38,14 +38,3 @@ x =~ /\-/s
 # RuboCop only reports interpolated block-call regexps up to the first interpolation
 rule %r{(#{complex_id})(#{ws}*)([\{\(])}mx do |m|
 end
-# Multiline extended interpolated regexps only report the prefix before interpolation
-scheme = /https/
-pattern = %r{
-  #{scheme}
-  (https?:\/\/)?
-}x
-chars = /a/
-path_pattern = /(?:
-  #{chars}
-  [\.,]#{chars}
-)/x
