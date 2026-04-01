@@ -3,50 +3,30 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Corpus investigation (FP=119→96→0, FN=454→0):
+/// Matches RuboCop's `str_type?` and `line_end_concatenation?` behavior closely enough for
+/// Prism-backed parsing.
 ///
-/// FP fix 1 (FP=119): Heredoc concatenation (e.g., `<<EOM + code`) — originally skipped all
-/// heredoc concatenation, but RuboCop DOES fire on these (only skips autocorrect). Removed
-/// the blanket heredoc skip. Heredocs are now treated as str_type? matching Parser behavior.
-///
-/// FP fix 2 (REVERTED): The prior percent literal exclusion was incorrect. RuboCop DOES flag
-/// `config + %[...]`, `header + %{...}`, `%(str) + %(str)`, etc. All percent literal forms
-/// (`%q`, `%Q`, `%()`, `%[]`, `%{}`) without interpolation are `str` in Parser, not `dstr`.
-/// The blanket `%` exclusion caused ~145 FNs (percent literals not recognized as str_type?)
-/// and ~9 FPs (line-end concatenation with percent literal arguments not properly detected,
-/// since is_line_end_concatenation requires both sides to be str_type?). Removed the exclusion.
-///
-/// FP fix 3 (FP=20): Multi-line string literal concatenation. In Parser, a string literal that
-/// spans multiple source lines (e.g., `'line1\nline2'` where `\n` is a real newline, not an
-/// escape) is parsed as `dstr`, not `str`. So `str_type?` returns false and
-/// `string_concatenation?` doesn't match. In Prism, these are still `StringNode`. Fixed by
-/// checking if the StringNode source spans multiple lines and excluding those.
-///
-/// FN fix (FN=454): Two root causes:
-/// 1. Multiline skip was too broad — skipped all multiline `str + str` regardless of where `+`
-///    appeared. RuboCop only skips "line-end concatenation" where `+\s*\n` pattern exists (the `+`
-///    is at the end of the line). With backslash continuation (`"str" \` + newline + `"str"`), the
-///    `+` is at the start of the next line, so RuboCop flags it. Fixed by checking for `+\s*\n`.
-/// 2. Dedup was inverted — skipped outer nodes when receiver was a concat chain, meaning only the
-///    innermost was flagged. But inner nodes often get skipped by line-end-concat check while the
-///    middle/outer nodes (with CallNode receivers, not str_type?) should still fire. Changed to
-///    skip inner nodes when they're part of a larger chain (argument-side dedup).
-///
-/// FN/FP fix (dedup rewrite + heredoc + multiline):
-/// Dedup: walk the full receiver chain to find if any inner `+` call would fire. Fire only from
-/// the innermost qualifying node. Conservative mode checks leftmost part of entire chain.
-/// Heredoc: removed blanket skip, heredocs now included in str_type check (matching Parser).
-/// Multiline: exclude multi-line non-heredoc StringNode from str_type (they're dstr in Parser).
+/// Recent corpus misses fell into two narrow buckets:
+/// - `__FILE__ + ...` and `... + __FILE__`: Parser treats `__FILE__` as a string literal, while
+///   Prism exposes it as `SourceFileNode`.
+/// - Backslash-continued concatenation like `"a" + \` newline `"b"`: RuboCop still flags these,
+///   because only a literal `+\s*\n` line-end continuation is delegated to
+///   `Style/LineEndConcatenation`.
 pub struct StringConcatenation;
 
 impl StringConcatenation {
     /// Matches Parser's `str_type?` for a Prism node. Returns true if the node is a
     /// StringNode that would be `str` (not `dstr`) in the Parser gem.
     ///
-    /// Includes: single-line quoted strings, heredocs with single-line content.
-    /// Excludes: InterpolatedStringNode, percent literals, multi-line non-heredoc
-    /// strings, heredocs with multi-line content (all dstr in Parser).
+    /// Includes: single-line quoted strings, percent literals without interpolation,
+    /// heredocs with single-line content, and `__FILE__`.
+    /// Excludes: InterpolatedStringNode, multi-line non-heredoc strings, and heredocs
+    /// with multi-line content (all dstr in Parser).
     fn is_str_type(node: &ruby_prism::Node<'_>) -> bool {
+        if node.as_source_file_node().is_some() {
+            return true;
+        }
+
         if let Some(s) = node.as_string_node() {
             if let Some(opening) = s.opening_loc() {
                 let slice = opening.as_slice();
@@ -132,6 +112,8 @@ impl StringConcatenation {
         }
 
         // The `+` must be at the end of a line (followed by optional whitespace and newline).
+        // This intentionally does NOT treat backslash continuations as line-end concatenation;
+        // RuboCop still flags `"a" + \` newline `"b"`.
         let msg_loc = match call.message_loc() {
             Some(loc) => loc,
             None => return false,
@@ -139,10 +121,19 @@ impl StringConcatenation {
         let plus_offset = msg_loc.start_offset();
         let arg_start = arg_list[0].location().start_offset();
         let src = source.as_bytes();
-        if plus_offset < arg_start.min(src.len()) {
-            let between = &src[plus_offset + 1..arg_start.min(src.len())];
-            return between.contains(&b'\n');
+        if plus_offset + 1 >= src.len() || plus_offset >= arg_start.min(src.len()) {
+            return false;
         }
+
+        for &byte in &src[plus_offset + 1..arg_start.min(src.len())] {
+            if byte == b'\n' {
+                return true;
+            }
+            if !byte.is_ascii_whitespace() {
+                return false;
+            }
+        }
+
         false
     }
 

@@ -56,3 +56,10 @@ config + %{some value}
 # Percent literal %[] with no interpolation — str_type? in Parser — flagged
 header + %[some value]
 ^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+raise 'Cannot specify both a hash/array/struct and a ' + \
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+  'proc for method #insert!'
+
+__FILE__ + ":#{__LINE__}:in `bar`"
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
