@@ -245,6 +245,7 @@ enum ParentKind {
     MatchPattern,
     Assignment,
     Conditional,
+    ClassConstructor,
     ConstantPath,
     FlowControl,
 }
@@ -361,9 +362,12 @@ impl ParenVisitor<'_> {
     /// since the current scope was entered.
     fn nested_in_non_wrapper(&self) -> bool {
         let baseline = self.scope_parent_baseline.last().copied().unwrap_or(0);
-        self.parent_stack[baseline..]
-            .iter()
-            .any(|kind| !matches!(kind, ParentKind::TernaryBranch))
+        self.parent_stack[baseline..].iter().any(|kind| {
+            !matches!(
+                kind,
+                ParentKind::TernaryBranch | ParentKind::ClassConstructor
+            )
+        })
     }
 
     /// Derive child scope for wrapper nodes (begin, block, if branches)
@@ -1049,15 +1053,26 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         self.visit_call_common(node);
 
+        let is_class_constructor = is_class_constructor(node);
+        let child_parent = if is_class_constructor {
+            ParentKind::ClassConstructor
+        } else {
+            ParentKind::Call
+        };
+
+        if is_class_constructor {
+            self.push_scope(Scope::ClassLike);
+        }
+
         // Visit children — push Call as parent for receiver, args, and block arg
         // because in RuboCop, all these children have the call as parent node
         if let Some(recv) = node.receiver() {
-            self.parent_stack.push(ParentKind::Call);
+            self.parent_stack.push(child_parent);
             self.visit(&recv);
             self.parent_stack.pop();
         }
         if let Some(args) = node.arguments() {
-            self.parent_stack.push(ParentKind::Call);
+            self.parent_stack.push(child_parent);
             for arg in args.arguments().iter() {
                 self.visit(&arg);
             }
@@ -1065,16 +1080,8 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         }
         if let Some(block) = node.block() {
             if let Some(block_node) = block.as_block_node() {
-                if is_class_constructor(node) {
-                    // Class.new/Module.new/Struct.new/Data.define blocks are class-like scope
-                    self.push_scope(Scope::ClassLike);
-                    if let Some(params) = block_node.parameters() {
-                        self.visit(&params);
-                    }
-                    if let Some(body) = block_node.body() {
-                        self.visit(&body);
-                    }
-                    self.pop_scope();
+                if is_class_constructor {
+                    self.visit_block_node(&block_node);
                 } else {
                     // In Parser AST, the block node inherits the enclosing
                     // expression's parent, not the send's parent. That means
@@ -1092,10 +1099,14 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
                 }
             } else {
                 // BlockArgumentNode (&block) — this IS a call argument
-                self.parent_stack.push(ParentKind::Call);
+                self.parent_stack.push(child_parent);
                 self.visit(&block);
                 self.parent_stack.pop();
             }
+        }
+
+        if is_class_constructor {
+            self.pop_scope();
         }
     }
 
