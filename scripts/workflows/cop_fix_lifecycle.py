@@ -1338,6 +1338,15 @@ def cmd_cleanup_failure(args: list[str]) -> int:
                 f"- Run: {opts.run_url}\n\n"
                 f"Review the failed workflow run for details.\n"
             )
+        # Include agent findings so future retry runs see what was tried.
+        findings = _read_agent_findings()
+        if findings:
+            body += (
+                "\n<details>\n"
+                "<summary>Agent findings (what was tried)</summary>\n\n"
+                f"```\n{findings}\n```\n"
+                "</details>\n"
+            )
         write_and_read(claim_body, body)
         _warn_best_effort_failure(
             f"Comment on issue #{opts.issue_number}",

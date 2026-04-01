@@ -52,6 +52,36 @@ use crate::parse::source::SourceFile;
 ///   with keyword expressions and block chains.
 /// - Some complex patterns involving operation RHS (`a + b\n    .c`) may not
 ///   be fully handled.
+///
+/// ## Corpus investigation (2026-04-01, run 23848128960, timed out)
+///
+/// Baseline: 32,658 matches, 3,962 FP, 7,992 FN (73.2% match rate).
+///
+/// Attempted fix with three major changes:
+/// 1. **Aligned style fallback** — introduced `AlignedExpectation::Base` vs
+///    `Fallback`. When no semantic alignment base exists (no dot above, no
+///    block chain, no syntactic anchor), fall back to normal indentation
+///    (`lhs_indent + width`) instead of accepting any column.
+/// 2. **Receiver-chain continuation dot tightening** — added
+///    `continuation_anchor_is_valid()` to only reuse an earlier continuation
+///    dot when the chain's first continuation call is itself correctly anchored.
+/// 3. **Assignment RHS across lines** — added `starts_rhs_after_assignment_line()`
+///    to handle `resources =\n  Constant\n    .new(...)` where `=` is on a
+///    previous line.
+///
+/// Also added ancestor tracking (`Vec<Node>`) to ChainVisitor for
+/// `find_dot_right_above()` and `find_logical_operator_alignment()`.
+///
+/// Result: last corpus check showed +623 FP (worse), -437 FP (better),
+/// -4 FN (better). Net +186 FP regression. The fallback indentation was
+/// firing too aggressively — patterns like standalone method calls at column 0
+/// (e.g., `.where(...)` after a long expression) were being flagged. The
+/// `continuation_anchor_is_valid()` check was also too strict, rejecting
+/// valid continuation dot alignments in some cases.
+///
+/// An earlier intermediate state showed +154 worse / -321 better (net -167,
+/// close to positive), suggesting the approach can work with narrower
+/// fallback scoping.
 pub struct MultilineMethodCallIndentation;
 
 impl Cop for MultilineMethodCallIndentation {

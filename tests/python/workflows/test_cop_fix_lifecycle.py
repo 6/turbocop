@@ -312,7 +312,10 @@ def test_cleanup_failure_closes_pr_then_deletes_branch_and_requeues_issue(tmp_pa
     claim_body = tmp_path / "context" / "claim-body.md"
     claim_body.parent.mkdir(parents=True, exist_ok=True)
 
-    env_patch = {"CLAIM_BODY_FILE": str(claim_body)}
+    env_patch = {
+        "CLAIM_BODY_FILE": str(claim_body),
+        "AGENT_RESULT_FILE": str(tmp_path / "agent" / "agent-result.json"),
+    }
     calls = []
 
     def fake_run_ok(cmd, **kwargs):
@@ -358,11 +361,57 @@ def test_cleanup_failure_closes_pr_then_deletes_branch_and_requeues_issue(tmp_pa
     assert "The draft PR was closed automatically." in claim_body.read_text()
 
 
+def test_cleanup_failure_includes_agent_findings_when_result_file_exists(tmp_path):
+    claim_body = tmp_path / "context" / "claim-body.md"
+    claim_body.parent.mkdir(parents=True, exist_ok=True)
+    result_file = tmp_path / "agent" / "agent-result.json"
+    result_file.parent.mkdir(parents=True, exist_ok=True)
+    result_file.write_text(json.dumps({"result": "Tried collecting assignment offsets from Prism.\nNet -5 FP but 16 new FPs in ruby__tk."}))
+
+    env_patch = {
+        "CLAIM_BODY_FILE": str(claim_body),
+        "AGENT_RESULT_FILE": str(result_file),
+    }
+    calls = []
+
+    def fake_run_ok(cmd, **kwargs):
+        del kwargs
+        calls.append(cmd)
+        if cmd[:4] == ["gh", "pr", "view", "https://github.com/6/nitrocop/pull/715"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout='{"headRefName":"fix/style-if_unless_modifier-23699434606"}', stderr="",
+            )
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with (
+        patch.dict(os.environ, env_patch),
+        patch.object(cop_fix_lifecycle, "_run_ok", side_effect=fake_run_ok),
+    ):
+        result = cop_fix_lifecycle.cmd_cleanup_failure([
+            "--cop", "Style/IfUnlessModifier",
+            "--pr-url", "https://github.com/6/nitrocop/pull/715",
+            "--issue-number", "376",
+            "--repo", "6/nitrocop",
+            "--backend-label", "claude-oauth / hard",
+            "--model-label", "Claude Opus 4.6 (OAuth, high)",
+            "--mode", "fix",
+            "--run-url", "https://github.com/6/nitrocop/actions/runs/23699434606",
+        ])
+
+    assert result == 0
+    body_text = claim_body.read_text()
+    assert "Agent findings (what was tried)" in body_text
+    assert "assignment offsets from Prism" in body_text
+
+
 def test_cleanup_failure_warns_and_keeps_issue_state_when_pr_close_fails(tmp_path):
     claim_body = tmp_path / "context" / "claim-body.md"
     claim_body.parent.mkdir(parents=True, exist_ok=True)
 
-    env_patch = {"CLAIM_BODY_FILE": str(claim_body)}
+    env_patch = {
+        "CLAIM_BODY_FILE": str(claim_body),
+        "AGENT_RESULT_FILE": str(tmp_path / "agent" / "agent-result.json"),
+    }
     calls = []
     warnings = []
 
