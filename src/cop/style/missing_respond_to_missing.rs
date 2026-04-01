@@ -11,13 +11,15 @@ use ruby_prism::Visit;
 /// from ancestor shape, while still allowing descendant `respond_to_missing?` methods in
 /// nested classes/modules to satisfy outer `method_missing` definitions when RuboCop does.
 ///
-/// FN fix: `method_missing` inside blocks (`Class.new do`, `instance_eval`, etc.) or at
-/// top-level program scope was missed because `current_root_key` returned `None` when
-/// traversal reached `ProgramNode`. Fixed by returning the nearest enclosing block
-/// (Other) or the Program node itself as the root scope. `current_ancestor_scopes` now
-/// includes non-boundary (block) ancestors so block-level `respond_to_missing?` can
-/// match. For Program roots, `finish()` uses root equality instead of ancestor
-/// containment to avoid false matches with class-level `respond_to_missing?`.
+/// FN fix: `method_missing` inside blocks (`Class.new do`, `instance_eval`, etc.) was
+/// missed because `current_root_key` returned `None` when traversal reached
+/// `ProgramNode`. Fixed by returning the nearest enclosing block (Other) as the root
+/// scope. `current_ancestor_scopes` now includes non-boundary (block) ancestors so
+/// block-level `respond_to_missing?` can match.
+///
+/// Top-level (Program-root) `method_missing` is intentionally skipped: RuboCop's
+/// `node.parent.parent` returns nil at program scope, so it never runs the
+/// `respond_to_missing?` search. We match that behavior in `finish()`.
 ///
 /// Remaining FP (1): RuboCop's whitequark AST collapses single-statement class bodies,
 /// causing `node.parent.parent` to go past the class. When a file reopens the same class
@@ -252,16 +254,17 @@ impl MethodMissingVisitor<'_> {
                 None => continue,
             };
 
+            // RuboCop skips top-level method_missing: its grandparent lookup
+            // (`node.parent.parent`) returns nil at program scope, so it never
+            // searches for respond_to_missing?. Match that behavior.
+            if root.kind == AncestorKind::Program {
+                continue;
+            }
+
             let has_match = self.defs.iter().any(|respond| {
                 respond.role == MethodRole::RespondToMissing
                     && respond.is_class_method == method_missing.is_class_method
-                    && if root.kind == AncestorKind::Program {
-                        // For top-level method_missing, require respond_to_missing?
-                        // to also be at top level (same program root).
-                        respond.root == Some(root)
-                    } else {
-                        respond.ancestor_scopes.contains(&root)
-                    }
+                    && respond.ancestor_scopes.contains(&root)
             });
 
             if !has_match {
