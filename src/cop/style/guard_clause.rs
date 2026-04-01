@@ -188,6 +188,11 @@ impl GuardClauseVisitor<'_, '_> {
             None => return,
         };
 
+        // Skip if else branch has no actual statements (comment-only else)
+        if !Self::else_has_statements(&else_node) {
+            return;
+        }
+
         if self.keyword_has_code_before(if_keyword_loc.start_offset())
             || self.keyword_has_multiline_assignment_before(if_keyword_loc.start_offset())
         {
@@ -319,6 +324,11 @@ impl GuardClauseVisitor<'_, '_> {
             None => return,
         };
 
+        // Skip if else branch has no actual statements (comment-only else)
+        if !Self::else_has_statements(&else_node) {
+            return;
+        }
+
         if self.keyword_has_code_before(keyword_loc.start_offset())
             || self.keyword_has_multiline_assignment_before(keyword_loc.start_offset())
         {
@@ -358,6 +368,15 @@ impl GuardClauseVisitor<'_, '_> {
                 node.statements(),
             );
         }
+    }
+
+    /// Check if an else node has actual code statements (not just comments).
+    /// Prism emits an ElseNode even for comment-only else branches, but RuboCop's
+    /// Parser gem treats those as no-else. We must match that behavior.
+    fn else_has_statements(else_node: &ruby_prism::ElseNode<'_>) -> bool {
+        else_node
+            .statements()
+            .is_some_and(|s| s.body().iter().next().is_some())
     }
 
     /// Check if a node spans multiple lines.
