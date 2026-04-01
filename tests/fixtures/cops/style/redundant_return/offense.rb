@@ -144,3 +144,18 @@ def rescue_modifier_return
   return bar rescue nil
   ^^^^^^^^^^ Style/RedundantReturn: Redundant `return` detected.
 end
+
+# return in terminal position of case/in (pattern matching)
+def with_case_in(x)
+  case x
+  in :a
+    return 1
+    ^^^^^^^^ Style/RedundantReturn: Redundant `return` detected.
+  in :b
+    return 2
+    ^^^^^^^^ Style/RedundantReturn: Redundant `return` detected.
+  else
+    return 3
+    ^^^^^^^^ Style/RedundantReturn: Redundant `return` detected.
+  end
+end
