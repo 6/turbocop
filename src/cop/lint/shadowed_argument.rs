@@ -410,7 +410,7 @@ impl<'pr> Visit<'pr> for RefCollector {
             && node.name().as_slice() == b"binding"
             && node
                 .arguments()
-                .map_or(true, |args| args.arguments().is_empty())
+                .is_none_or(|args| args.arguments().is_empty())
         {
             self.offsets.push(node.location().start_offset());
         }
