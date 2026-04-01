@@ -144,3 +144,27 @@ end
     }
   end
 end
+
+if component[0] == EXCLUDE
+^ Style/Next: Use `next` to skip iteration.
+
+if bytes_written > size && !warned
+^ Style/Next: Use `next` to skip iteration.
+
+if line_count > @stdout_max_lines
+^ Style/Next: Use `next` to skip iteration.
+
+if item['name'] == item_name
+^ Style/Next: Use `next` to skip iteration.
+
+if item['name'] == item_name
+^ Style/Next: Use `next` to skip iteration.
+
+if handshake_packet.identify?(packet.buffer(false))
+^ Style/Next: Use `next` to skip iteration.
+
+if time_difference <= 0 && @share.snooze_base.not_queued?(reaction: reaction)
+^ Style/Next: Use `next` to skip iteration.
+
+if cmd_array
+^ Style/Next: Use `next` to skip iteration.
