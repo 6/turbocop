@@ -74,3 +74,12 @@ def nested_begin_scoping
   end
   puts data
 end
+
+# Keyword param modified inside loop, referenced after — scoping exemption
+def kwarg_scoping(offset: 0)
+  while true
+    offset += 1
+    break if done?
+  end
+  offset
+end

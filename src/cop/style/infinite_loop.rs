@@ -8,6 +8,8 @@ use ruby_prism::Visit;
 ///
 /// ## Investigation findings
 ///
+/// ### Round 1
+///
 /// FP=317 root cause: RuboCop uses VariableForce to track local variable
 /// assignments and references. It skips the offense when a local variable is
 /// first assigned inside the `while true`/`until false` loop body and then
@@ -31,6 +33,32 @@ use ruby_prism::Visit;
 /// through `StatementsNode`, so this cop now checks each `StatementsNode`
 /// exactly once and evaluates the scoping exemption against the enclosing
 /// lexical scope instead of only immediate sibling statements.
+///
+/// ### Round 2 (FP=2, FN=37)
+///
+/// Three root causes found and fixed:
+///
+/// 1. **FN from block-local variable collisions (17 cases)**: `LvarWriteCollector`
+///    entered block bodies (`do..end`), collecting block-local variables. When
+///    a same-named variable appeared elsewhere in the method, `has_lvar_read_after`
+///    falsely triggered the scoping exemption. Fix: stop `LvarWriteCollector`
+///    and `ScopedLvarWriteChecker` at `BlockNode` boundaries.
+///
+/// 2. **FN from while-as-expression (20 natalie cases)**: `check_statements`
+///    only looked at direct `StatementsNode` children, missing `while true`
+///    nested inside assignments (`a = while true; break; end`). Fix: switched
+///    to `visit_while_node`/`visit_until_node` visitor methods.
+///
+/// 3. **FP from missing operator write support (2 cases)**: Compound assignments
+///    like `offset += 1` (`LocalVariableOperatorWriteNode`) were not tracked
+///    by any variable collector. This caused the scoping exemption to miss
+///    parameter modifications inside loops. Fix: added support for
+///    `LocalVariableOperatorWriteNode`, `LocalVariableAndWriteNode`, and
+///    `LocalVariableOrWriteNode` in all variable collectors.
+///
+/// Additionally, `BlockNode` now pushes onto `scope_stack` so variable scoping
+/// is evaluated against the enclosing block scope (not the entire method body),
+/// preventing false matches with same-named variables in sibling blocks.
 pub struct InfiniteLoop;
 
 impl Cop for InfiniteLoop {
@@ -81,16 +109,24 @@ fn is_falsey_literal(node: &ruby_prism::Node<'_>) -> bool {
 }
 
 /// Visitor to collect local variable write names from a node tree.
+/// Stops at block boundaries because variables first assigned inside a block
+/// are block-local and don't affect the while→loop scoping analysis.
 struct LvarWriteCollector {
     names: Vec<Vec<u8>>,
 }
 
+impl LvarWriteCollector {
+    fn add_name(&mut self, name: &[u8]) {
+        let v = name.to_vec();
+        if !self.names.contains(&v) {
+            self.names.push(v);
+        }
+    }
+}
+
 impl<'pr> Visit<'pr> for LvarWriteCollector {
     fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
-        let name = node.name().as_slice().to_vec();
-        if !self.names.contains(&name) {
-            self.names.push(name);
-        }
+        self.add_name(node.name().as_slice());
         ruby_prism::visit_local_variable_write_node(self, node);
     }
 
@@ -98,11 +134,34 @@ impl<'pr> Visit<'pr> for LvarWriteCollector {
         &mut self,
         node: &ruby_prism::LocalVariableTargetNode<'pr>,
     ) {
-        let name = node.name().as_slice().to_vec();
-        if !self.names.contains(&name) {
-            self.names.push(name);
-        }
+        self.add_name(node.name().as_slice());
     }
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.add_name(node.name().as_slice());
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        self.add_name(node.name().as_slice());
+        ruby_prism::visit_local_variable_and_write_node(self, node);
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        self.add_name(node.name().as_slice());
+        ruby_prism::visit_local_variable_or_write_node(self, node);
+    }
+
+    fn visit_block_node(&mut self, _node: &ruby_prism::BlockNode<'pr>) {}
 
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
 
@@ -122,12 +181,42 @@ struct ScopedLvarReadChecker<'a> {
     found: bool,
 }
 
-impl<'pr> Visit<'pr> for ScopedLvarReadChecker<'_> {
-    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
-        if node.name().as_slice() == self.name && node.location().start_offset() > self.after_offset
-        {
+impl ScopedLvarReadChecker<'_> {
+    fn check_read(&mut self, name: &[u8], start_offset: usize) {
+        if name == self.name && start_offset > self.after_offset {
             self.found = true;
         }
+    }
+}
+
+impl<'pr> Visit<'pr> for ScopedLvarReadChecker<'_> {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+        self.check_read(node.name().as_slice(), node.location().start_offset());
+    }
+
+    // Operator writes (x += 1) also read the variable
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.check_read(node.name().as_slice(), node.location().start_offset());
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        self.check_read(node.name().as_slice(), node.location().start_offset());
+        ruby_prism::visit_local_variable_and_write_node(self, node);
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        self.check_read(node.name().as_slice(), node.location().start_offset());
+        ruby_prism::visit_local_variable_or_write_node(self, node);
     }
 
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
@@ -142,18 +231,24 @@ impl<'pr> Visit<'pr> for ScopedLvarReadChecker<'_> {
 }
 
 /// Visitor to check if a variable is written before a given offset within the current scope.
+/// Stops at block boundaries because block-local assignments don't create outer-scope variables.
 struct ScopedLvarWriteChecker<'a> {
     name: &'a [u8],
     before_offset: usize,
     found: bool,
 }
 
-impl<'pr> Visit<'pr> for ScopedLvarWriteChecker<'_> {
-    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
-        if node.name().as_slice() == self.name && node.location().end_offset() < self.before_offset
-        {
+impl ScopedLvarWriteChecker<'_> {
+    fn check_name_and_offset(&mut self, name: &[u8], end_offset: usize) {
+        if name == self.name && end_offset < self.before_offset {
             self.found = true;
         }
+    }
+}
+
+impl<'pr> Visit<'pr> for ScopedLvarWriteChecker<'_> {
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        self.check_name_and_offset(node.name().as_slice(), node.location().end_offset());
         ruby_prism::visit_local_variable_write_node(self, node);
     }
 
@@ -161,11 +256,34 @@ impl<'pr> Visit<'pr> for ScopedLvarWriteChecker<'_> {
         &mut self,
         node: &ruby_prism::LocalVariableTargetNode<'pr>,
     ) {
-        if node.name().as_slice() == self.name && node.location().end_offset() < self.before_offset
-        {
-            self.found = true;
-        }
+        self.check_name_and_offset(node.name().as_slice(), node.location().end_offset());
     }
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.check_name_and_offset(node.name().as_slice(), node.location().end_offset());
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        self.check_name_and_offset(node.name().as_slice(), node.location().end_offset());
+        ruby_prism::visit_local_variable_and_write_node(self, node);
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        self.check_name_and_offset(node.name().as_slice(), node.location().end_offset());
+        ruby_prism::visit_local_variable_or_write_node(self, node);
+    }
+
+    fn visit_block_node(&mut self, _node: &ruby_prism::BlockNode<'pr>) {}
 
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
 
@@ -237,40 +355,14 @@ fn would_break_scoping(
 }
 
 impl InfiniteLoopVisitor<'_, '_> {
-    fn check_statements(&mut self, stmts: &[ruby_prism::Node<'_>]) {
-        let Some(scope) = self.scope_stack.last() else {
-            return;
-        };
-
-        for stmt in stmts {
-            if let Some(while_node) = stmt.as_while_node() {
-                if is_truthy_literal(&while_node.predicate())
-                    && !would_break_scoping(scope, while_node.location(), while_node.statements())
-                {
-                    let kw_loc = while_node.keyword_loc();
-                    let (line, column) = self.source.offset_to_line_col(kw_loc.start_offset());
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Use `Kernel#loop` for infinite loops.".to_string(),
-                    ));
-                }
-            } else if let Some(until_node) = stmt.as_until_node() {
-                if is_falsey_literal(&until_node.predicate())
-                    && !would_break_scoping(scope, until_node.location(), until_node.statements())
-                {
-                    let kw_loc = until_node.keyword_loc();
-                    let (line, column) = self.source.offset_to_line_col(kw_loc.start_offset());
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Use `Kernel#loop` for infinite loops.".to_string(),
-                    ));
-                }
-            }
-        }
+    fn report_offense(&mut self, kw_loc: ruby_prism::Location<'_>) {
+        let (line, column) = self.source.offset_to_line_col(kw_loc.start_offset());
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Use `Kernel#loop` for infinite loops.".to_string(),
+        ));
     }
 }
 
@@ -331,10 +423,40 @@ impl<'pr> Visit<'pr> for InfiniteLoopVisitor<'_, 'pr> {
         }
     }
 
-    fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
-        let children: Vec<_> = node.body().iter().collect();
-        self.check_statements(&children);
-        ruby_prism::visit_statements_node(self, node);
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        if let Some(body) = node.body() {
+            self.scope_stack.push(body);
+            ruby_prism::visit_block_node(self, node);
+            self.scope_stack.pop();
+        } else {
+            ruby_prism::visit_block_node(self, node);
+        }
+    }
+
+    fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        let should_report = if let Some(scope) = self.scope_stack.last() {
+            is_truthy_literal(&node.predicate())
+                && !would_break_scoping(scope, node.location(), node.statements())
+        } else {
+            false
+        };
+        if should_report {
+            self.report_offense(node.keyword_loc());
+        }
+        ruby_prism::visit_while_node(self, node);
+    }
+
+    fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        let should_report = if let Some(scope) = self.scope_stack.last() {
+            is_falsey_literal(&node.predicate())
+                && !would_break_scoping(scope, node.location(), node.statements())
+        } else {
+            false
+        };
+        if should_report {
+            self.report_offense(node.keyword_loc());
+        }
+        ruby_prism::visit_until_node(self, node);
     }
 }
 
