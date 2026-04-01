@@ -15,12 +15,23 @@ use crate::parse::source::SourceFile;
 ///
 /// Root cause of FP (53): All 53 FPs were bare `to_datetime(args)` calls
 /// without a receiver (e.g., `to_datetime(row["created_at"])` where
-/// `to_datetime` is a locally-defined helper method). RuboCop only flags
-/// `receiver.to_datetime`, not bare function calls. Fixed by checking
+/// `to_datetime` is a locally-defined helper method). Fixed by checking
 /// `call.receiver().is_some()` before flagging.
 ///
 /// Fix applied: Replaced the `args.len() >= 2` check with proper `is_historic_date`
 /// detection that only skips when the last arg is `Date::XXX` or `::Date::XXX`.
+///
+/// ## Investigation findings (2026-04-01)
+///
+/// Root cause of FN (4) and remaining FP cluster (11): RuboCop's `to_datetime?`
+/// matcher only targets zero-argument `to_datetime` sends, including implicit
+/// receiver calls like `to_datetime <=> other`. Our implementation had drifted in
+/// both directions: it skipped all bare calls, which missed those implicit-receiver
+/// offenses, and it flagged `to_datetime(...)` calls with arguments, which produced
+/// false positives for query/helper methods like `scope.to_datetime(value)`.
+///
+/// Fix applied: flag `to_datetime` only when the call has no arguments, regardless
+/// of whether the receiver is explicit or implicit.
 pub struct DateTime;
 
 impl Cop for DateTime {
@@ -54,14 +65,15 @@ impl Cop for DateTime {
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
 
-        // Check for receiver.to_datetime calls (not bare to_datetime calls)
+        // RuboCop only matches zero-argument `to_datetime` sends.
         if method_name == "to_datetime" {
-            // Only flag when there's a receiver (e.g., string.to_datetime).
-            // Bare to_datetime(args) is a local/inherited method call, not a coercion.
-            if call.receiver().is_none() {
+            if allow_coercion {
                 return;
             }
-            if allow_coercion {
+            if !call
+                .arguments()
+                .is_none_or(|arguments| arguments.arguments().is_empty())
+            {
                 return;
             }
             let loc = node.location();
