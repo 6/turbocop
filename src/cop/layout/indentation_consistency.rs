@@ -1,6 +1,7 @@
 use crate::cop::node_type::{
     BEGIN_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, ELSE_NODE, FOR_NODE, IF_NODE, IN_NODE,
-    MODULE_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE,
+    MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHEN_NODE,
+    WHILE_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -11,6 +12,20 @@ use crate::parse::source::SourceFile;
 /// uses consistent indentation. All statements within a body must start at
 /// the same column. The `indented_internal_methods` style only applies to
 /// class/module/block bodies, not to if/while/etc.
+///
+/// ## Corpus investigation (2026-04-01)
+///
+/// High-volume divergence came from four gaps:
+/// 1. Bodies whose first child shares the opener line (`do line = __LINE__`) were
+///    skipped entirely, missing later misaligned lines.
+/// 2. Prism wraps `def`/`block` bodies with `rescue` in an implicit `BeginNode`.
+///    The cop only handled direct `StatementsNode`, so both the main body and
+///    rescue/ensure bodies were missed.
+/// 3. `class << self` (`SingletonClassNode`) bodies were not checked at all.
+/// 4. Normal-style access modifiers were treated like ordinary body children.
+///    RuboCop ignores `private`/`protected`/`public` for alignment and only uses
+///    a leading modifier as the base column when it is indented deeper than the
+///    enclosing body.
 pub struct IndentationConsistency;
 
 /// Check if a node is a bare access modifier call (private, protected, public with no args).
@@ -30,6 +45,41 @@ fn is_bare_access_modifier(node: &ruby_prism::Node<'_>) -> bool {
 }
 
 impl IndentationConsistency {
+    fn end_line_for(&self, source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {
+        let loc = node.location();
+        let end_offset = loc.end_offset().saturating_sub(1);
+        source.offset_to_line_col(end_offset).0
+    }
+
+    fn statements_from_body<'pr>(
+        &self,
+        body: ruby_prism::Node<'pr>,
+    ) -> Option<ruby_prism::StatementsNode<'pr>> {
+        if let Some(stmts) = body.as_statements_node() {
+            return Some(stmts);
+        }
+
+        body.as_begin_node()
+            .and_then(|begin_node| begin_node.statements())
+    }
+
+    fn base_column_for_normal_style(
+        &self,
+        source: &SourceFile,
+        children: &[ruby_prism::Node<'_>],
+        parent_column: usize,
+    ) -> Option<usize> {
+        let first_child = children.first()?;
+        if !is_bare_access_modifier(first_child) {
+            return None;
+        }
+
+        let (_, access_modifier_column) =
+            source.offset_to_line_col(first_child.location().start_offset());
+
+        (access_modifier_column > parent_column).then_some(access_modifier_column)
+    }
+
     fn check_body_consistency(
         &self,
         source: &SourceFile,
@@ -42,7 +92,7 @@ impl IndentationConsistency {
             None => return Vec::new(),
         };
 
-        let stmts = match body.as_statements_node() {
+        let stmts = match self.statements_from_body(body) {
             Some(s) => s,
             None => return Vec::new(),
         };
@@ -53,18 +103,18 @@ impl IndentationConsistency {
         }
 
         let (kw_line, _) = source.offset_to_line_col(keyword_offset);
-
-        // Check if first statement is on the same line as keyword
-        let first_loc = children[0].location();
-        let (first_line, _) = source.offset_to_line_col(first_loc.start_offset());
-        if first_line == kw_line {
-            return Vec::new();
-        }
+        let (_, parent_column) = source.offset_to_line_col(keyword_offset);
 
         if indented_internal_methods {
             self.check_sections(source, &children)
         } else {
-            self.check_flat(source, &children, kw_line)
+            let base_column = self.base_column_for_normal_style(source, &children, parent_column);
+            let filtered_children: Vec<_> = children
+                .into_iter()
+                .filter(|child| !is_bare_access_modifier(child))
+                .collect();
+
+            self.check_flat(source, &filtered_children, kw_line, base_column)
         }
     }
 
@@ -88,14 +138,7 @@ impl IndentationConsistency {
 
         let (kw_line, _) = source.offset_to_line_col(keyword_offset);
 
-        // Check if first statement is on the same line as keyword
-        let first_loc = children[0].location();
-        let (first_line, _) = source.offset_to_line_col(first_loc.start_offset());
-        if first_line == kw_line {
-            return Vec::new();
-        }
-
-        self.check_flat(source, &children, kw_line)
+        self.check_flat(source, &children, kw_line, None)
     }
 
     /// Normal style: all children must have the same indentation.
@@ -104,25 +147,40 @@ impl IndentationConsistency {
         source: &SourceFile,
         children: &[ruby_prism::Node<'_>],
         kw_line: usize,
+        base_column: Option<usize>,
     ) -> Vec<Diagnostic> {
+        if children.is_empty() || (children.len() < 2 && base_column.is_none()) {
+            return Vec::new();
+        }
+
         let first_loc = children[0].location();
         let (first_line, first_col) = source.offset_to_line_col(first_loc.start_offset());
+        let expected_column = base_column.unwrap_or(first_col);
 
         let mut diagnostics = Vec::new();
-        let mut prev_line = first_line;
+        let mut prev_end_line = self.end_line_for(source, &children[0]);
+
+        if first_line != kw_line && first_col != expected_column {
+            diagnostics.push(self.diagnostic(
+                source,
+                first_line,
+                first_col,
+                "Inconsistent indentation detected.".to_string(),
+            ));
+        }
 
         for child in &children[1..] {
             let loc = child.location();
             let (child_line, child_col) = source.offset_to_line_col(loc.start_offset());
 
             // Skip semicolon-separated statements on the same line as previous sibling
-            if child_line == prev_line || child_line == kw_line {
-                prev_line = child_line;
+            if child_line == prev_end_line || child_line == kw_line {
+                prev_end_line = self.end_line_for(source, child);
                 continue;
             }
-            prev_line = child_line;
+            prev_end_line = self.end_line_for(source, child);
 
-            if child_col != first_col {
+            if child_col != expected_column {
                 diagnostics.push(self.diagnostic(
                     source,
                     child_line,
@@ -164,19 +222,19 @@ impl IndentationConsistency {
             }
 
             let first_loc = section[0].location();
-            let (first_line, first_col) = source.offset_to_line_col(first_loc.start_offset());
-            let mut prev_line = first_line;
+            let (_, first_col) = source.offset_to_line_col(first_loc.start_offset());
+            let mut prev_end_line = self.end_line_for(source, section[0]);
 
             for child in &section[1..] {
                 let loc = child.location();
                 let (child_line, child_col) = source.offset_to_line_col(loc.start_offset());
 
                 // Skip semicolon-separated statements on same line as previous sibling
-                if child_line == prev_line {
-                    prev_line = child_line;
+                if child_line == prev_end_line {
+                    prev_end_line = self.end_line_for(source, child);
                     continue;
                 }
-                prev_line = child_line;
+                prev_end_line = self.end_line_for(source, child);
 
                 if child_col != first_col {
                     diagnostics.push(self.diagnostic(
@@ -210,6 +268,7 @@ impl Cop for IndentationConsistency {
             IF_NODE,
             IN_NODE,
             MODULE_NODE,
+            SINGLETON_CLASS_NODE,
             STATEMENTS_NODE,
             UNLESS_NODE,
             UNTIL_NODE,
@@ -245,6 +304,16 @@ impl Cop for IndentationConsistency {
                 source,
                 module_node.module_keyword_loc().start_offset(),
                 module_node.body(),
+                indented,
+            ));
+            return;
+        }
+
+        if let Some(singleton_class_node) = node.as_singleton_class_node() {
+            diagnostics.extend(self.check_body_consistency(
+                source,
+                singleton_class_node.class_keyword_loc().start_offset(),
+                singleton_class_node.body(),
                 indented,
             ));
             return;
@@ -359,6 +428,24 @@ impl Cop for IndentationConsistency {
                     source,
                     kw_loc.start_offset(),
                     begin_node.statements(),
+                ));
+            }
+
+            let mut rescue_opt = begin_node.rescue_clause();
+            while let Some(rescue_node) = rescue_opt {
+                diagnostics.extend(self.check_statements_consistency(
+                    source,
+                    rescue_node.keyword_loc().start_offset(),
+                    rescue_node.statements(),
+                ));
+                rescue_opt = rescue_node.subsequent();
+            }
+
+            if let Some(ensure_node) = begin_node.ensure_clause() {
+                diagnostics.extend(self.check_statements_consistency(
+                    source,
+                    ensure_node.ensure_keyword_loc().start_offset(),
+                    ensure_node.statements(),
                 ));
             }
         }
