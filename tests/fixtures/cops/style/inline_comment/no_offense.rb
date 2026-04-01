@@ -16,8 +16,6 @@ msg = "count: #{items.size}"
 # Hash inside percent literals is not a comment
 z = %q{hello # world}
 w = %Q{value #{name}}
-%Q;\
- #{2**2}; #=> " 4"
 
 # Comment immediately after interpolation opening is not trailing
 sql = "SELECT ...
