@@ -40,6 +40,19 @@ use ruby_prism::Visit;
 /// - Extend `is_literal()` to treat `InterpolatedSymbolNode` and `RangeNode` as literals,
 ///   matching RuboCop's `all_literals?` behavior for this cop while still excluding
 ///   interpolated string/xstring (`dstr`/`xstr`).
+///
+/// ## Corpus investigation (2026-04-01)
+///
+/// Corpus oracle reported FP=1, FN=0.
+///
+/// FP:
+/// - `gr = '\A[\n    ]'` (a single-quoted string spanning two physical lines) was flagged
+///   because Prism represents it as a `StringNode`, but CRuby's parser gem represents
+///   multi-line strings as `:dstr`, which RuboCop's `all_literals?` explicitly excludes.
+///
+/// Fix:
+/// - In `is_literal()`, treat `StringNode`s whose source contains a newline as non-literal,
+///   matching the parser gem's `:dstr` representation for multi-line strings.
 pub struct LiteralAssignmentInCondition;
 
 impl Cop for LiteralAssignmentInCondition {
@@ -111,7 +124,9 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
 
     node.as_integer_node().is_some()
         || node.as_float_node().is_some()
-        || node.as_string_node().is_some()
+        || node
+            .as_string_node()
+            .is_some_and(|_| !node.location().as_slice().contains(&b'\n'))
         || node.as_symbol_node().is_some()
         || node.as_interpolated_symbol_node().is_some()
         || node.as_nil_node().is_some()
