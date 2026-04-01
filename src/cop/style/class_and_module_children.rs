@@ -15,6 +15,11 @@ use crate::parse::source::SourceFile;
 /// namespace is cbase — i.e., `::Foo` but NOT `::Foo::Bar`. Changed to
 /// `is_namespace_cbase` which only checks the direct parent, resolving ~217 FN.
 ///
+/// FN fix #3: A compact-style class inside an `if` nested under a single-statement
+/// class/module body (for example `module A; if cond; class B::C; end; end; end`)
+/// was missed because `parent_is_class_or_module` leaked through the conditional.
+/// Reset that state for `if`/`unless`, matching RuboCop's direct-parent check.
+///
 /// FP fix: RuboCop crashes on expression-based class/module defs
 /// (`x = module Foo::Bar`, `@var = class Foo::Bar < Base`), producing
 /// 0 offenses. Skip class/module nodes that are direct values of variable
@@ -236,7 +241,8 @@ impl<'a> Visit<'a> for ChildrenVisitor<'a> {
         ruby_prism::visit_global_variable_write_node(self, node);
     }
 
-    // Reset parent_is_class_or_module inside blocks and method defs.
+    // Reset parent_is_class_or_module inside wrappers whose children do not have
+    // the enclosing class/module as their direct AST parent in RuboCop.
     // In RuboCop, node.parent is the direct AST parent. A class inside a block
     // (e.g., `before do; class Foo::Bar; end; end`) has a block/begin parent,
     // not a class/module parent. Without this reset, the flag from an enclosing
@@ -252,6 +258,20 @@ impl<'a> Visit<'a> for ChildrenVisitor<'a> {
         let prev = self.parent_is_class_or_module;
         self.parent_is_class_or_module = false;
         ruby_prism::visit_def_node(self, node);
+        self.parent_is_class_or_module = prev;
+    }
+
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'a>) {
+        let prev = self.parent_is_class_or_module;
+        self.parent_is_class_or_module = false;
+        ruby_prism::visit_if_node(self, node);
+        self.parent_is_class_or_module = prev;
+    }
+
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'a>) {
+        let prev = self.parent_is_class_or_module;
+        self.parent_is_class_or_module = false;
+        ruby_prism::visit_unless_node(self, node);
         self.parent_is_class_or_module = prev;
     }
 

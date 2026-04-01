@@ -96,3 +96,15 @@ module PuppetSpec
     end
   end
 end
+
+# Compact-style class inside an if within a single-statement module body
+module Underscore
+  module Rails
+    if defined?(::Rails) and Gem::Requirement.new('>= 3.1').satisfied_by?(Gem::Version.new(::Rails.version))
+      class Rails::Engine < ::Rails::Engine
+            ^^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+        # this class enables the asset pipeline
+      end
+    end
+  end
+end
