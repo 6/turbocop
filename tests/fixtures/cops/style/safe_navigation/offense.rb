@@ -58,3 +58,21 @@ end
 
 (other.class == Path) && geometry.equals(other && other.respond_to?(:geometry) && other.geometry)
                                          ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+proof && dom_body && dom_body.include?( proof )
+^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+proof && response && response.include?( proof )
+^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+uri.port = port ? port.to_i : nil
+^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+uri.port = port ? port.to_i : nil
+^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+user_is_current_user && record.campaign && record.campaign.users_can_join?
+^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+user_is_current_user && record.campaign && record.campaign.dms_can_join?
+^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.

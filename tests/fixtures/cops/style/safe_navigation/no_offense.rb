@@ -33,6 +33,8 @@ foo ? nil : foo.bar
 foo && foo.owner.is_a?(SomeClass)
 foo && foo.value.respond_to?(:call)
 foo && foo.name.kind_of?(String)
+foo && foo.split.to_json
+env["NODE_LABELS"] && env["NODE_LABELS"].split.to_json
 
 # AllowedMethods (present?, blank?) in the chain
 config && config.value.present?
