@@ -390,7 +390,7 @@ impl GuardClauseVisitor<'_, '_> {
         condition: &ruby_prism::Node<'_>,
         guard_stmt: &ruby_prism::Node<'_>,
         conditional_keyword: &str,
-        remaining_branch: Option<ruby_prism::StatementsNode<'_>>,
+        _remaining_branch: Option<ruby_prism::StatementsNode<'_>>,
     ) {
         if !self.guard_stmt_is_single_line(guard_stmt) {
             return;
