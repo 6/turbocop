@@ -43,28 +43,25 @@ use crate::parse::source::SourceFile;
 ///    Example: travis-ci/dpl `spec/dpl/ctx/bash_spec.rb` — `def self.cmds(cmds)` contains
 ///    `before { allow(bash).to receive(...)  }`.
 ///    FP=2: Corpus oracle artifact. Nitrocop is correct. No code fix needed.
-///    Remaining 2 FPs (ubicloud host_nexus_spec.rb:173,196): confirmed corpus oracle
-///    artifact as of 2026-03-24. `nx` is defined as `subject(:nx)` (line 6), so both
-///    tools should flag `expect(nx).to receive(:bud) do...end.at_least(:once)`.
-///    Verified empirically: RuboCop 1.85.1 + rubocop-rspec 3.9.0 flags both lines
-///    correctly (tested with `--config baseline.yml` and `--only RSpec/SubjectStub`).
-///    The project's own `.rubocop.yml` disables SubjectStub
-///    (`RSpec/SubjectStub: Enabled: false`), but the corpus oracle overrides this
-///    with `baseline_rubocop.yml`. Root cause of the oracle miss is unknown —
-///    possibly rubocop 1.84.2 vs 1.85.1 difference, or a transient CI issue.
-///    No cop logic fix needed; nitrocop is correct here.
-///    FP=4: alaveteli corpus oracle artifact (2026-04-01). All 4 are from
-///    `spec/models/project_spec.rb` where a parent scope defines `subject(:project)`
-///    and child scopes redefine with unnamed `subject { project.classification_progress }`.
-///    `allow(project).to receive(...)` in the child scope is correctly flagged because
-///    the parent's named subject `:project` persists through anonymous child redefinitions.
-///    RuboCop's own spec explicitly tests this pattern ("flags nested stubs when nested
-///    subject is anonymous" at subject_stub_spec.rb:192) and expects it to be an offense.
-///    RuboCop's `find_subject_expectations` accumulates `[*parent_names, *child_names]`
-///    and always adds `:subject` — an unnamed child `subject` does NOT clear parent names.
-///    No cop logic fix needed; nitrocop is correct here.
+///    Remaining 2 FPs (ubicloud host_nexus_spec.rb:173,196): corpus oracle artifact
+///    caused by the oracle's RuboCop running with TargetRubyVersion 2.7 (default),
+///    which fails to parse the file (uses Ruby 3.x `it` syntax). With Ruby 3.3 target,
+///    RuboCop correctly flags both lines. No cop logic fix needed; nitrocop is correct.
 ///
-/// Round 4 FN fix (1→0):
+/// Round 4 FP fix (4→0):
+/// 6b. `let(:name)` inside shared groups (`shared_context`, `shared_examples`)
+///     shadows parent subject names. RuboCop's `example_group?` matcher excludes
+///     shared groups, so `find_all_explicit` associates `let` definitions inside
+///     shared groups with the nearest ancestor example group (the parent), not the
+///     shared group itself. In nitrocop, `is_rspec_example_group` includes shared
+///     groups, so `let` names were scoped only to the shared group — not bubbling
+///     up to shadow the parent's subject name. Fixed by collecting `let` names from
+///     shared_group children during the first pass and applying them at the parent
+///     scope level. All 4 alaveteli FPs were this pattern: `subject(:project)` at
+///     parent level, `let(:project)` inside `shared_context 'project with resources'`,
+///     and `allow(project).to receive(...)` in a sibling `describe` block.
+///
+/// Round 4 FN fix (1→0) [original round 4]:
 /// 7. Subject stubs inside blocks on intermediate calls in a receiver chain: when
 ///    `expect(Thread).to receive(:new) do |&block| expect(subject).to receive(:method)
 ///    end.and_return(...)`, the `do...end` block is attached to `.to` but `.and_return`
@@ -283,6 +280,18 @@ fn collect_subject_stub_offenses(
                             if let Some(sym) = arg_list[0].as_symbol_node() {
                                 let_names.push(sym.unescaped().to_vec());
                             }
+                        }
+                    }
+                }
+                // RuboCop's example_group? excludes shared groups (shared_context,
+                // shared_examples, shared_examples_for). So let() definitions inside
+                // shared groups are associated with the nearest ancestor example group,
+                // not the shared group. Collect let names from shared group children
+                // to apply them at this scope level.
+                if is_rspec_shared_group(name) && call.receiver().is_none() {
+                    if let Some(block_arg) = call.block() {
+                        if let Some(bn) = block_arg.as_block_node() {
+                            collect_let_names_from_shared_group(&bn, &mut let_names);
                         }
                     }
                 }
@@ -612,6 +621,49 @@ fn contains_have_received_call(node: &ruby_prism::Node<'_>) -> bool {
         }
     }
     false
+}
+
+/// Collect let(:name) definitions from inside a shared group block.
+/// RuboCop's `example_group?` excludes shared groups, so `find_all_explicit`
+/// associates `let` definitions inside shared groups with the parent example
+/// group (the nearest ancestor that IS an example_group?). This function
+/// recursively collects let names from a shared group's body and any nested
+/// shared groups within it, so they can be applied at the parent scope level.
+fn collect_let_names_from_shared_group(
+    block: &ruby_prism::BlockNode<'_>,
+    let_names: &mut Vec<Vec<u8>>,
+) {
+    let body = match block.body() {
+        Some(b) => b,
+        None => return,
+    };
+    let stmts = match body.as_statements_node() {
+        Some(s) => s,
+        None => return,
+    };
+    for stmt in stmts.body().iter() {
+        if let Some(call) = stmt.as_call_node() {
+            let name = call.name().as_slice();
+            if (name == b"let" || name == b"let!") && call.receiver().is_none() {
+                if let Some(args) = call.arguments() {
+                    let arg_list: Vec<_> = args.arguments().iter().collect();
+                    if !arg_list.is_empty() {
+                        if let Some(sym) = arg_list[0].as_symbol_node() {
+                            let_names.push(sym.unescaped().to_vec());
+                        }
+                    }
+                }
+            }
+            // Recurse into nested shared groups (they also don't count as example_group?)
+            if is_rspec_shared_group(name) && call.receiver().is_none() {
+                if let Some(block_arg) = call.block() {
+                    if let Some(bn) = block_arg.as_block_node() {
+                        collect_let_names_from_shared_group(&bn, let_names);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Extract the name of a receiverless method call. Only matches `CallNode` with

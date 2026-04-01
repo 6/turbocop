@@ -117,3 +117,35 @@ RSpec.describe Project do
     )
   end
 end
+
+# let(:name) inside a shared_context shadows subject(:name) from the parent
+# example group. RuboCop's example_group? excludes shared groups, so
+# find_all_explicit associates the let with the parent RSpec.describe, not the
+# shared_context. This removes :project from subject_names at the parent level.
+RSpec.describe Project do
+  subject(:project) { described_class.new }
+
+  shared_context 'project with resources' do
+    let(:project) { described_class.new }
+  end
+
+  describe '#classification_progress' do
+    subject { project.classification_progress }
+
+    before do
+      allow(project).to receive(:info_requests).and_return(
+        double(count: 3, classified: double(count: 2))
+      )
+    end
+
+    it { is_expected.to eq(66) }
+
+    context 'when there are no requests' do
+      before do
+        allow(project).to receive(:info_requests).and_return(double(count: 0))
+      end
+
+      it { is_expected.to eq(0) }
+    end
+  end
+end
