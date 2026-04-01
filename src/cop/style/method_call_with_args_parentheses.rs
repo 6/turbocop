@@ -72,6 +72,22 @@ use crate::parse::source::SourceFile;
 /// lambdas inside wrapper blocks (`subject { -> { get :idx } }`) still
 /// inherit it.  Resolved ~1k FN with 0 regressions.
 ///
+/// ## Corpus investigation (2026-04-01, attempt 2)
+///
+/// FN root cause 1: block-argument-only calls (`foo &block`) were missed
+/// because Prism stores `&block` in the CallNode's `block` field, not in
+/// `arguments`. The check `call.arguments().is_none()` returned early.
+/// Fixed by also checking for `BlockArgumentNode` in the block field.
+/// Resolved ~30% of sampled FN.
+///
+/// FN root cause 2: `RescueModifierNode` (`foo rescue bar`) did not break
+/// macro scope. In Parser AST, inline rescue wraps the call in a `rescue`
+/// node, which is NOT a wrapper in RuboCop's `in_macro_scope?`. Added
+/// `visit_rescue_modifier_node` that pushes `Scope::Other` so receiverless
+/// calls inside rescue modifiers are no longer treated as macros.
+///
+/// Combined: 106 FN resolved across 15 sampled repos, 0 regressions.
+///
 /// Remaining FN: likely from additional non-wrapper node types not yet
 /// tracked on parent_stack, or subtle differences in how Prism vs Parser
 /// represent certain AST structures.
@@ -370,8 +386,11 @@ impl ParenVisitor<'_> {
             return;
         }
 
-        // Must have arguments
-        if call.arguments().is_none() {
+        // Must have arguments (regular args or block pass like &block)
+        let has_block_arg = call
+            .block()
+            .is_some_and(|b| b.as_block_argument_node().is_some());
+        if call.arguments().is_none() && !has_block_arg {
             return;
         }
 
@@ -1487,6 +1506,16 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     fn visit_for_node(&mut self, node: &ruby_prism::ForNode<'pr>) {
         self.push_scope(Scope::Other);
         ruby_prism::visit_for_node(self, node);
+        self.pop_scope();
+    }
+
+    fn visit_rescue_modifier_node(&mut self, node: &ruby_prism::RescueModifierNode<'pr>) {
+        // In Parser AST, `foo rescue bar` wraps `foo` in a rescue node.
+        // RuboCop's `in_macro_scope?` does NOT list `rescue` as a wrapper,
+        // so calls inside a rescue modifier are NOT in macro scope.
+        self.push_scope(Scope::Other);
+        self.visit(&node.expression());
+        self.visit(&node.rescue_expression());
         self.pop_scope();
     }
 }
