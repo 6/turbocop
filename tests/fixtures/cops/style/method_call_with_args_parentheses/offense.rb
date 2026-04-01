@@ -111,3 +111,27 @@ if condition ? (yes_wizard? "yes") : (yes_wizard? "no")
                                       ^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
   puts "x"
 end
+
+scope :alive,       -> { where alive: true }
+                         ^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+scope :unreachable, -> { where alive: false }
+                         ^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+scope :global,      -> { where global: true }
+                         ^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+scope :fixed, -> { where fixed: true }
+                   ^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+scope :by_severity, -> { order order_by_severity }
+                         ^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+scope :read,   -> { where read: true }
+                    ^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+scope :unread, -> { where read: false }
+                    ^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+scope :global, -> { where global: true }
+                    ^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
