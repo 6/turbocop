@@ -918,19 +918,15 @@ impl SafeNavigation {
                                     &bytes[ir.location().start_offset()..ir.location().end_offset()]
                                 })
                             }
-                        } else {
-                            if is_unless {
-                                Some(&bytes[r.location().start_offset()..r.location().end_offset()])
-                            } else {
-                                None
-                            }
-                        }
-                    } else {
-                        if is_unless {
+                        } else if is_unless {
                             Some(&bytes[r.location().start_offset()..r.location().end_offset()])
                         } else {
                             None
                         }
+                    } else if is_unless {
+                        Some(&bytes[r.location().start_offset()..r.location().end_offset()])
+                    } else {
+                        None
                     }
                 })
             } else {

@@ -37,6 +37,18 @@ use crate::parse::source::SourceFile;
 ///   RuboCop explicitly skips tab-indented lines in Layout/IndentationWidth — tab
 ///   indentation is handled by Layout/IndentationStyle instead. Added
 ///   `line_uses_tab_indentation()` check to all three indentation check methods.
+///
+/// 2026-04-01:
+/// - Fixed FP from `private :method_name` in class member walk by using
+///   `is_access_modifier_any()` (matches both bare and arg-bearing forms),
+///   matching RuboCop's `check_members_for_normal_style` which skips any
+///   `access_modifier?` node.
+/// - PR #1101 attempted to fix def body base column (end→def keyword) and
+///   make tab-skip conditional on IndentationStyle. The tab change resolved
+///   ~62k FN but introduced ~832 FP. The def body change caused massive FN
+///   regression because `end` column is a better proxy for line-start indent
+///   than `def` keyword column (which is wrong for `private def`). Both
+///   changes need more investigation before landing.
 pub struct IndentationWidth;
 
 /// Access modifier method names that RuboCop treats as bare access modifiers.
@@ -55,6 +67,22 @@ fn is_access_modifier_call(node: &ruby_prism::Node<'_>) -> bool {
             if args.arguments().iter().next().is_some() {
                 return false;
             }
+        }
+        let name = call.name().as_slice();
+        ACCESS_MODIFIERS.contains(&name)
+    } else {
+        false
+    }
+}
+
+/// Check if a node is ANY access modifier call (with or without arguments).
+/// Matches RuboCop's `access_modifier?` which includes both `private` and
+/// `private :method_name`. Used in the member walk to skip access modifier
+/// indentation (handled by Layout/AccessModifierIndentation instead).
+fn is_access_modifier_any(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        if call.receiver().is_some() || call.block().is_some() {
+            return false;
         }
         let name = call.name().as_slice();
         ACCESS_MODIFIERS.contains(&name)
@@ -280,7 +308,10 @@ impl IndentationWidth {
         }
 
         for member in &members {
-            if is_access_modifier_call(member) {
+            // Skip all access modifier calls (bare and with args), matching
+            // RuboCop's check_members_for_normal_style which skips any
+            // access_modifier? node. Layout/AccessModifierIndentation handles these.
+            if is_access_modifier_any(member) {
                 continue;
             }
 
