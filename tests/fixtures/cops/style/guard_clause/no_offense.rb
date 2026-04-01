@@ -143,3 +143,12 @@ def test
     # just a comment
   end
 end
+
+# Setter assignment parent suppresses branch-style guard-clause suggestions
+def test(obj)
+  obj.value = if something
+    raise "error"
+  else
+    work
+  end
+end

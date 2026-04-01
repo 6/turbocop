@@ -238,3 +238,50 @@ def test_multiline_guard_nested
   end
   subspec.do_something
 end
+
+def find_template_for(path)
+  template or if block_given? then yield
+              ^^ Style/GuardClause: Use a guard clause (`raise "No template found for resource #{path}" unless block_given?`) instead of wrapping the code inside a conditional expression.
+              else raise "No template found for resource #{path}"
+              end
+end
+
+def check_record(key, account)
+  unless zip.exists?("data/active_storage_blobs/#{key}.json") || ActiveStorage::Blob.exists?(key: key, account: account)
+  ^^^^^^ Style/GuardClause: Use a guard clause (`if zip.exists?("data/active_storage_blobs/#{key}.json") || ActiveStorage::Blob.exists?(key: key, account: account); return; end`) instead of wrapping the code inside a conditional expression.
+    # File exists without corresponding blob record - could be orphaned or blob not yet imported
+    # We allow this since blob metadata is imported before files
+  end
+end
+
+def render v,*a,&b;if t=lookup(v);r=@_r;@_r=o=Hash===a[-1]?a.pop: {};s=(t==true)?mab{
+                   ^^ Style/GuardClause: Use a guard clause (`raise "no template: #{v}" unless t=lookup(v)`) instead of wrapping the code inside a conditional expression.
+  send v,*a,&b}: t.render(self,o[:locals]||{},&b);s=render(L,o.merge(L=>false)){s
+} if o[L] or o[L].nil?&&lookup(L)&&!r&&v.to_s[0]!=?_;s else raise "no template: #{v}"
+end end
+
+(1...key).inject(self.first) { |fun| if fun then self.next(fun) else break end }
+                                     ^^ Style/GuardClause: Use a guard clause (`break unless fun`) instead of wrapping the code inside a conditional expression.
+
+(1...key).inject(self.first) { |global| if global then self.next(global) else break end }
+                                        ^^ Style/GuardClause: Use a guard clause (`break unless global`) instead of wrapping the code inside a conditional expression.
+
+def call_with_error_handler
+  yield(if f.empty? || f.find{ |ff| ff.kind_of?(Exception) } || !h
+        ^^ Style/GuardClause: Use a guard clause (`fail(res, h.call(res)) unless f.empty? || f.find{ |ff| ff.kind_of?(Exception) } || !h`) instead of wrapping the code inside a conditional expression.
+          res
+        else
+          fail(res, h.call(res))
+        end)
+end
+
+def initialize(markup)
+  if /(?<fiddle>\w+\/?\d?)(?:\s+(?<sequence>[\w,]+))?(?:\s+(?<skin>\w+))?(?:\s+(?<height>\w+))?(?:\s+(?<width>\w+))?/ =~ markup
+  ^^ Style/GuardClause: Use a guard clause (`unless /(?<fiddle>\w+\/?\d?)(?:\s+(?<sequence>[\w,]+))?(?:\s+(?<skin>\w+))?(?:\s+(?<height>\w+))?(?:\s+(?<width>\w+))?/ =~ markup; return; end`) instead of wrapping the code inside a conditional expression.
+    @fiddle   = fiddle
+    @sequence = (sequence unless sequence == 'default') || 'js,resources,html,css,result'
+    @skin     = (skin unless skin == 'default') || 'light'
+    @width    = width || '100%'
+    @height   = height || '300px'
+  end
+end

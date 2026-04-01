@@ -39,6 +39,21 @@ use ruby_prism::Visit;
 ///    in the else-branch still is. Previously nitrocop early-returned after
 ///    finding a guard in the if-branch without checking if it was single-line,
 ///    missing the valid single-line guard in the else-branch.
+/// 7. Replaced line-text suppression for inline `if`/`unless` expressions with
+///    an AST parent check that matches RuboCop's `node.parent&.assignment?`.
+///    The old heuristic skipped real offenses inside `or`, `yield(...)`,
+///    iterator blocks, and inline method bodies simply because code appeared
+///    before the keyword on the same line.
+/// 8. Stopped treating comment-only bodies as "trivial" when the rewritten
+///    guard would exceed `MaxLineLength`. Prism reports those bodies as
+///    `statements: None`, but RuboCop's `trivial?` returns false without a real
+///    branch body, so long comment-only `if`/`unless` nodes must still be
+///    flagged.
+/// 9. Stopped counting generic `LocalVariableTargetNode` descendants as local
+///    assignments for condition-usage suppression. Prism reuses those targets
+///    for regexp named captures (`MatchWriteNode`), but RuboCop only checks
+///    `:lvasgn` descendants, so named-capture conditions like
+///    `/...(?<name>...)/ =~ value` remain offenses.
 pub struct GuardClause;
 
 const GUARD_METHODS: &[&[u8]] = &[b"raise", b"fail"];
@@ -66,21 +81,23 @@ impl Cop for GuardClause {
             diagnostics: Vec::new(),
             min_body_length,
             max_line_length,
+            ancestors: Vec::new(),
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
     }
 }
 
-struct GuardClauseVisitor<'a, 'src> {
+struct GuardClauseVisitor<'a, 'src, 'pr> {
     cop: &'a GuardClause,
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
     min_body_length: usize,
     max_line_length: usize,
+    ancestors: Vec<ruby_prism::Node<'pr>>,
 }
 
-impl GuardClauseVisitor<'_, '_> {
+impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
     /// Check if the ending of a method body is an if/unless that could be a guard clause.
     fn check_ending_body(&mut self, body: &ruby_prism::Node<'_>) {
         if let Some(if_node) = body.as_if_node() {
@@ -147,20 +164,24 @@ impl GuardClauseVisitor<'_, '_> {
         }
 
         let condition_src = self.node_source(&predicate);
-        let example = format!("return unless {}", condition_src);
+        let inline_example = format!("return unless {}", condition_src);
         let (line, column) = self
             .source
             .offset_to_line_col(if_keyword_loc.start_offset());
 
-        // Skip if guard clause would be too long and body is trivial
-        if self.too_long_and_trivial(
-            column,
-            &example,
-            node.statements(),
-            node.subsequent().is_some(),
-        ) {
-            return;
-        }
+        let example = if self.too_long_for_single_line(column, &inline_example) {
+            if self.too_long_and_trivial(
+                column,
+                &inline_example,
+                node.statements(),
+                node.subsequent().is_some(),
+            ) {
+                return;
+            }
+            format!("unless {}; return; end", condition_src)
+        } else {
+            inline_example
+        };
 
         self.diagnostics.push(self.cop.diagnostic(
             self.source,
@@ -209,9 +230,7 @@ impl GuardClauseVisitor<'_, '_> {
             return;
         }
 
-        if self.keyword_has_code_before(if_keyword_loc.start_offset())
-            || self.keyword_has_multiline_assignment_before(if_keyword_loc.start_offset())
-        {
+        if self.immediate_parent_is_assignment() {
             return;
         }
 
@@ -295,18 +314,22 @@ impl GuardClauseVisitor<'_, '_> {
         }
 
         let condition_src = self.node_source(&predicate);
-        let example = format!("return if {}", condition_src);
+        let inline_example = format!("return if {}", condition_src);
         let (line, column) = self.source.offset_to_line_col(keyword_loc.start_offset());
 
-        // Skip if guard clause would be too long and body is trivial
-        if self.too_long_and_trivial(
-            column,
-            &example,
-            node.statements(),
-            node.else_clause().is_some(),
-        ) {
-            return;
-        }
+        let example = if self.too_long_for_single_line(column, &inline_example) {
+            if self.too_long_and_trivial(
+                column,
+                &inline_example,
+                node.statements(),
+                node.else_clause().is_some(),
+            ) {
+                return;
+            }
+            format!("if {}; return; end", condition_src)
+        } else {
+            inline_example
+        };
 
         self.diagnostics.push(self.cop.diagnostic(
             self.source,
@@ -347,9 +370,7 @@ impl GuardClauseVisitor<'_, '_> {
             return;
         }
 
-        if self.keyword_has_code_before(keyword_loc.start_offset())
-            || self.keyword_has_multiline_assignment_before(keyword_loc.start_offset())
-        {
+        if self.immediate_parent_is_assignment() {
             return;
         }
 
@@ -484,7 +505,7 @@ impl GuardClauseVisitor<'_, '_> {
         }
         let stmts = match statements {
             Some(s) => s,
-            None => return true, // empty body is trivial
+            None => return false,
         };
         let body_nodes: Vec<_> = stmts.body().iter().collect();
         if body_nodes.len() != 1 {
@@ -505,10 +526,10 @@ impl GuardClauseVisitor<'_, '_> {
         self.max_line_length > 0 && column + example.len() > self.max_line_length
     }
 
-    fn single_guard_statement<'pr>(
+    fn single_guard_statement<'node>(
         &self,
-        statements: Option<ruby_prism::StatementsNode<'pr>>,
-    ) -> Option<ruby_prism::Node<'pr>> {
+        statements: Option<ruby_prism::StatementsNode<'node>>,
+    ) -> Option<ruby_prism::Node<'node>> {
         let stmts = statements?;
         let mut body = stmts.body().iter();
         let stmt = body.next()?;
@@ -530,33 +551,16 @@ impl GuardClauseVisitor<'_, '_> {
         start_line == end_line
     }
 
-    fn keyword_has_code_before(&self, keyword_offset: usize) -> bool {
-        let (line, _) = self.source.offset_to_line_col(keyword_offset);
-        let line_start_offset = self.source.line_col_to_offset(line, 0).unwrap_or(0);
-        self.source.as_bytes()[line_start_offset..keyword_offset]
-            .iter()
-            .any(|&b| b != b' ' && b != b'\t')
+    fn immediate_parent(&self) -> Option<&ruby_prism::Node<'pr>> {
+        self.ancestors
+            .len()
+            .checked_sub(2)
+            .and_then(|idx| self.ancestors.get(idx))
     }
 
-    fn keyword_has_multiline_assignment_before(&self, keyword_offset: usize) -> bool {
-        let (line, _) = self.source.offset_to_line_col(keyword_offset);
-        if line <= 1 {
-            return false;
-        }
-
-        let lines: Vec<&[u8]> = self.source.lines().collect();
-        let mut idx = line - 2;
-        loop {
-            let prev = trim_ascii_whitespace(lines[idx]);
-            if prev.is_empty() || prev.starts_with(b"#") {
-                if idx == 0 {
-                    return false;
-                }
-                idx -= 1;
-                continue;
-            }
-            return line_ends_with_assignment(prev);
-        }
+    fn immediate_parent_is_assignment(&self) -> bool {
+        self.immediate_parent()
+            .is_some_and(is_assignment_parent_node)
     }
 
     fn node_is_single_line(&self, node: &ruby_prism::Node<'_>) -> bool {
@@ -622,12 +626,17 @@ impl<'pr> Visit<'pr> for LvarWriteCollector {
         ruby_prism::visit_local_variable_or_write_node(self, node);
     }
 
-    fn visit_local_variable_target_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableTargetNode<'pr>,
-    ) {
-        // Multi-assignment targets: (var, obj = ...)
-        self.names.push(node.name().as_slice().to_vec());
+    fn visit_multi_write_node(&mut self, node: &ruby_prism::MultiWriteNode<'pr>) {
+        for target in node.lefts().iter() {
+            collect_lvar_target_names(&target, &mut self.names);
+        }
+        if let Some(rest) = node.rest() {
+            collect_lvar_target_names(&rest, &mut self.names);
+        }
+        for target in node.rights().iter() {
+            collect_lvar_target_names(&target, &mut self.names);
+        }
+        ruby_prism::visit_multi_write_node(self, node);
     }
 }
 
@@ -666,6 +675,32 @@ fn remove_first_name(names: &mut Vec<Vec<u8>>, name: &[u8]) {
         .position(|candidate| candidate.as_slice() == name)
     {
         names.remove(index);
+    }
+}
+
+fn collect_lvar_target_names(node: &ruby_prism::Node<'_>, names: &mut Vec<Vec<u8>>) {
+    if let Some(target) = node.as_local_variable_target_node() {
+        names.push(target.name().as_slice().to_vec());
+        return;
+    }
+
+    if let Some(splat) = node.as_splat_node() {
+        if let Some(expr) = splat.expression() {
+            collect_lvar_target_names(&expr, names);
+        }
+        return;
+    }
+
+    if let Some(multi_target) = node.as_multi_target_node() {
+        for target in multi_target.lefts().iter() {
+            collect_lvar_target_names(&target, names);
+        }
+        if let Some(rest) = multi_target.rest() {
+            collect_lvar_target_names(&rest, names);
+        }
+        for target in multi_target.rights().iter() {
+            collect_lvar_target_names(&target, names);
+        }
     }
 }
 
@@ -721,33 +756,59 @@ fn guard_clause_check_location<'a>(node: &'a ruby_prism::Node<'a>) -> (usize, us
     (node.location().start_offset(), node.location().end_offset())
 }
 
-fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
-    let start = bytes
-        .iter()
-        .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
-        .unwrap_or(bytes.len());
-    let end = bytes
-        .iter()
-        .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
-        .map(|idx| idx + 1)
-        .unwrap_or(start);
-    &bytes[start..end]
+fn is_assignment_parent_node(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_local_variable_write_node().is_some()
+        || node.as_instance_variable_write_node().is_some()
+        || node.as_class_variable_write_node().is_some()
+        || node.as_global_variable_write_node().is_some()
+        || node.as_constant_write_node().is_some()
+        || node.as_constant_path_write_node().is_some()
+        || node.as_local_variable_or_write_node().is_some()
+        || node.as_instance_variable_or_write_node().is_some()
+        || node.as_class_variable_or_write_node().is_some()
+        || node.as_global_variable_or_write_node().is_some()
+        || node.as_constant_or_write_node().is_some()
+        || node.as_constant_path_or_write_node().is_some()
+        || node.as_local_variable_and_write_node().is_some()
+        || node.as_instance_variable_and_write_node().is_some()
+        || node.as_class_variable_and_write_node().is_some()
+        || node.as_global_variable_and_write_node().is_some()
+        || node.as_constant_and_write_node().is_some()
+        || node.as_constant_path_and_write_node().is_some()
+        || node.as_local_variable_operator_write_node().is_some()
+        || node.as_instance_variable_operator_write_node().is_some()
+        || node.as_class_variable_operator_write_node().is_some()
+        || node.as_global_variable_operator_write_node().is_some()
+        || node.as_constant_operator_write_node().is_some()
+        || node.as_constant_path_operator_write_node().is_some()
+        || node.as_call_or_write_node().is_some()
+        || node.as_call_and_write_node().is_some()
+        || node.as_call_operator_write_node().is_some()
+        || node.as_index_or_write_node().is_some()
+        || node.as_index_and_write_node().is_some()
+        || node.as_index_operator_write_node().is_some()
+        || node.as_multi_write_node().is_some()
+        || is_setter_call(node)
 }
 
-fn line_ends_with_assignment(bytes: &[u8]) -> bool {
-    if bytes.len() < 2 || !bytes.ends_with(b"=") {
-        return false;
+fn is_setter_call(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_call_node().is_some_and(|call| {
+        let name = call.name().as_slice();
+        name.ends_with(b"=") && !matches!(name, b"==" | b"!=" | b"===" | b"<=" | b">=" | b"<=>")
+    })
+}
+
+impl<'a, 'src, 'pr> Visit<'pr> for GuardClauseVisitor<'a, 'src, 'pr> {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.ancestors.push(node);
     }
 
-    !bytes.ends_with(b"==")
-        && !bytes.ends_with(b"!=")
-        && !bytes.ends_with(b">=")
-        && !bytes.ends_with(b"<=")
-        && !bytes.ends_with(b"=>")
-        && !bytes.ends_with(b"=~")
-}
+    fn visit_branch_node_leave(&mut self) {
+        self.ancestors.pop();
+    }
 
-impl<'pr> Visit<'pr> for GuardClauseVisitor<'_, '_> {
+    fn visit_leaf_node_enter(&mut self, _node: ruby_prism::Node<'pr>) {}
+
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         if let Some(body) = node.body() {
             self.check_ending_body(&body);
