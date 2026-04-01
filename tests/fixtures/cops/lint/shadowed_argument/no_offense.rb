@@ -131,3 +131,11 @@ def add_index_options(table_name, column_name, name: nil, enabled: false, **opti
   result, status, enabled = super
   [result, status, enabled]
 end
+
+# FP fix: binding before reassignment implicitly references all local variables
+def self.new_with_attributes(id:, preset_name:, **other)
+  arguments = Hash[binding.local_variables.map{ [_1, binding.local_variable_get(_1)]}]
+  arguments.delete(:arguments)
+  other = arguments.delete(:other)
+  new(other.merge(arguments))
+end
