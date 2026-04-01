@@ -207,3 +207,13 @@ end
 # Redundant begin in splat inside array indexing with ||= operator
 h[*begin [:k] end] ||= 20
    ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+
+# Redundant begin used as a chained call receiver in ||= assignment
+@current_website ||= begin
+                     ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+  if current_event
+    current_event.website
+  else
+    latest_domain_website
+  end
+end&.decorate

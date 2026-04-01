@@ -51,9 +51,18 @@ use crate::parse::source::SourceFile;
 ///    expressions (e.g. `h[*begin [:k] end] ||= 20`) was unreachable. Fixed
 ///    by visiting receiver and arguments before checking the value.
 ///
-/// The 1 remaining FN is a config/context issue (cop detected in isolation
-/// but the target repo's `.rubocop.yml` likely excludes the file or disables
-/// the cop).
+/// ## Investigation (2026-04-01, third pass)
+///
+/// The last remaining FN was not a config issue. The corpus file was truncated
+/// in the prompt: the real pattern is `@ivar ||= begin ... end&.decorate`.
+/// Prism parses this as an assignment whose value is a `CallNode` with the
+/// explicit `BeginNode` as its receiver. RuboCop still flags that receiver
+/// `begin`, but this visitor treated both call receivers and direct call
+/// arguments as "allowed direct begin children", which skipped the offense.
+///
+/// Fix: inspect `CallNode` receivers normally so chained-call receiver begins
+/// still flow through generic `begin` detection, while keeping the direct
+/// method-argument allowance for `do_something begin ... end`.
 pub struct RedundantBegin;
 
 impl Cop for RedundantBegin {
@@ -492,7 +501,7 @@ impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         if let Some(receiver) = node.receiver() {
-            self.visit_allowed_direct_begin_child(&receiver);
+            self.visit(&receiver);
         }
         if let Some(arguments) = node.arguments() {
             for argument in arguments.arguments().iter() {
