@@ -32,6 +32,18 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix applied: flag `to_datetime` only when the call has no arguments, regardless
 /// of whether the receiver is explicit or implicit.
+///
+/// ## Investigation findings (2026-04-01, historic-date follow-up)
+///
+/// Root cause of FN (6): our historic-date check drifted from RuboCop's
+/// `historic_date?` matcher and skipped any `DateTime` call whose last argument
+/// was `Date::XXX`. RuboCop only exempts the two-argument form
+/// `DateTime.method(modern_date, Date::CALENDAR)`. Multi-argument calls like
+/// `DateTime.new(..., Date::GREGORIAN)` and
+/// `DateTime.strptime(..., ..., Date::ITALY)` are still offenses.
+///
+/// Fix applied: require exactly two arguments before treating a trailing
+/// `Date::XXX` / `::Date::XXX` constant as a historic-date exemption.
 pub struct DateTime;
 
 impl Cop for DateTime {
@@ -131,6 +143,7 @@ fn is_datetime_const(node: &ruby_prism::Node<'_>) -> bool {
 
 /// Check if a call has a historic date argument: last arg is Date::XXX or ::Date::XXX.
 /// Matches vendor pattern: (send _ _ _ (const (const {nil? (cbase)} :Date) _))
+/// which is an exact two-argument send, not any arity with a trailing Date:: constant.
 fn is_historic_date(call: &ruby_prism::CallNode<'_>) -> bool {
     let args = match call.arguments() {
         Some(a) => a,
@@ -138,7 +151,7 @@ fn is_historic_date(call: &ruby_prism::CallNode<'_>) -> bool {
     };
 
     let arg_list: Vec<_> = args.arguments().iter().collect();
-    if arg_list.len() < 2 {
+    if arg_list.len() != 2 {
         return false;
     }
 
