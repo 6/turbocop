@@ -373,7 +373,8 @@ class EnumerationsController < ApplicationController
   end
 end
 
-# FP guard: render inside an unless branch in a begin body should stay ignored
+# FP guard: flash in unless inside begin body — rescue has render but
+# RuboCop finds the unless ancestor first, not rescue (root cause 23)
 class TarUploadsController < ApplicationController
   def create_from_tar
     begin
@@ -382,26 +383,36 @@ class TarUploadsController < ApplicationController
         flash[:html_safe] = true
         render(action: "new") && return
       end
+      tar_extract.close
     rescue SyntaxError => e
       flash[:error] = e.message
+      render(action: "new") && return
+    rescue StandardError => e
+      flash[:error] = "Read error"
+      render(action: "new") && return
     end
   end
 end
 
-# FP guard: nested respond_to inside an if branch should not see sibling format render
+# FP guard: flash in if inside multi-stmt begin body — rescue has render but
+# RuboCop finds the if ancestor first, not rescue (root cause 23).
+# Multi-stmt begin body wraps stmts in Parser's begin node, so if.right_siblings
+# are the remaining begin body stmts (empty here), not the resbody nodes.
 class SpentTimeController < ApplicationController
-  def create
-    if save_result
-      flash[:notice] = l("time_entry_added_notice")
-      logger.info("Everything went fine rendering report result")
-      respond_to do |format|
-        if current_date > to_date
-          to_date
-        elsif current_date < from_date
-          from_date
+  def create_entry
+    begin
+      setup_user
+      if save_result
+        flash[:notice] = l("time_entry_added_notice")
+        respond_to do |format|
+          format.js
+          return
         end
-        format.html { redirect_to report_path }
-        format.json { render json: time_entry, status: :created }
+      end
+    rescue Exception => exception
+      respond_to do |format|
+        flash[:error] = exception.message
+        format.js { render 'create_entry_error' }
       end
     end
   end
