@@ -135,3 +135,22 @@ scope :unread, -> { where read: false }
 
 scope :global, -> { where global: true }
                     ^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+# Block argument only (no regular args) in method body — NOT a macro
+def run_test(&block)
+  instance_eval &block
+  ^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Block argument with receiver — flagged
+obj.instance_eval &block
+^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+# Rescue modifier breaks macro scope — receiverless calls are NOT macros
+require "objspace" rescue nil
+^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+class MyClass
+  allow_ip! "::1/128" rescue nil
+  ^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
