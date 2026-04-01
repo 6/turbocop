@@ -50,3 +50,15 @@ RSpec.describe 'receiver non-lambda' do
   subject { User.new }
   it { is_expected.to be_valid }
 end
+
+# Lambda subject inside shared_examples — RuboCop's multi_statement_example_group?
+# excludes shared groups, so nearest_subject skips them and doesn't find the subject.
+RSpec.describe 'shared examples with lambda subject' do
+  shared_examples 'common behavior' do
+    subject do
+      -> { described_class.new.call(account) }
+    end
+    it { is_expected.to change { something } }
+    it { should change { something } }
+  end
+end
