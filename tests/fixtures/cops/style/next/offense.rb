@@ -144,3 +144,18 @@ end
     }
   end
 end
+
+# nested if/else among other statements should still be an offense
+string.each_line do |out_line|
+  line_count += 1
+  if line_count > @stdout_max_lines
+  ^^ Style/Next: Use `next` to skip iteration.
+    out_line = "ERROR"
+    if filename
+      line_to_write = 1
+    else
+      line_to_write = 2
+    end
+    lines_to_write << line_to_write
+  end
+end
