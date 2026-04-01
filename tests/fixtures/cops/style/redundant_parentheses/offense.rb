@@ -108,3 +108,21 @@ x.y((1..42))
 
 (expression => pattern)
 ^^^^^^^^^^^^^^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a one-line pattern matching.
+
+(foo.bar).to_s
+^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+(foo.bar(1)).to_json
+^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+(foo.bar).qux
+^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+(x.y).z(arg)
+^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+!(@groups.include?(g))
+ ^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+foo.include?((port = get_port))
+             ^ Style/RedundantParentheses: Don't use parentheses around a method argument.
