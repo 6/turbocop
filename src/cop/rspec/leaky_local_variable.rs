@@ -410,6 +410,47 @@ use crate::parse::source::SourceFile;
 /// - puppetlabs-docker run_spec (1): `facts = x; facts = facts.merge(y)` inside
 ///   an `if` branch within `.each`. Needs linear flow analysis within control flow
 ///   branches inside non-RSpec blocks (VariableForce territory).
+///
+/// ## Fix (FN: multiple reference walker gaps, 2026-04-01)
+///
+/// **FN fix: nested `InterpolatedStringNode` from `\` line continuation**
+/// Prism parses `"a #{x}" \ "b #{x}"` as an outer `InterpolatedStringNode`
+/// containing nested `InterpolatedStringNode` parts. The `node_references_var`
+/// handler only checked `EmbeddedStatementsNode` parts, missing nested
+/// interpolated string nodes. Fix: recurse with `node_references_var` on each
+/// part instead of only matching `as_embedded_statements_node()`. Applied to
+/// all four interpolated node handlers (string, symbol, regex, xstring).
+/// Resolves 5 FN (DivanteLtd join_table patterns, openproject db_field).
+///
+/// **FN fix: `for` loop variables**
+/// Ruby `for x in collection` doesn't create a new scope — the loop variable
+/// leaks into the enclosing scope. `collect_assignments_in_scope` recursed
+/// into the for body but didn't collect the index `LocalVariableTargetNode`
+/// as an assignment. `stmt_example_scope_var_interaction` and
+/// `check_var_used_in_example_scopes` also lacked `ForNode` handlers.
+/// Fix: collect for-loop index as assignment; add ForNode handlers to all
+/// three analysis functions. Resolves 5 FN (saulabs `for grouping in [...]`).
+///
+/// **FN fix: `GlobalVariableWriteNode` in `node_references_var`**
+/// `$DEBUG = previous_debug_level` was invisible because `node_references_var`
+/// didn't handle `GlobalVariableWriteNode`. Also added `ClassVariableWriteNode`,
+/// `ConstantWriteNode`, and `ConstantPathWriteNode`. Resolves 6 FN
+/// (cloudfoundry/inspec/shakacode global var patterns).
+///
+/// **FN fix: `BlockArgumentNode` in `node_references_var`**
+/// `method(&var)` passes `var` as a block via `BlockArgumentNode` on the call's
+/// `block()` field. The CallNode handler only checked `BlockNode`, missing
+/// `BlockArgumentNode`. Resolves 2 FN (openproject lambda, ruby-concurrency
+/// `&identity`).
+///
+/// **FN fix: `case/when` in `check_var_used_in_describe_blocks`**
+/// File-level variables used in `describe` blocks nested inside `case/when`
+/// clauses were missed. Also added `unless` and `for` handlers. Resolves 2 FN
+/// (inspec `ver` patterns in case/when).
+///
+/// Remaining FN (~32): VariableForce scope-tracking gaps, conditional
+/// write/kill analysis, lambda capture semantics, and `def` body edge cases
+/// that require full dataflow analysis.
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
@@ -1043,6 +1084,64 @@ fn check_var_used_in_describe_blocks(node: &ruby_prism::Node<'_>, var_name: &[u8
 
     if let Some(begin_node) = node.as_begin_node() {
         if let Some(stmts) = begin_node.statements() {
+            for s in stmts.body().iter() {
+                if check_var_used_in_describe_blocks(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // Case/When
+    if let Some(case_node) = node.as_case_node() {
+        for cond in case_node.conditions().iter() {
+            if let Some(when_node) = cond.as_when_node() {
+                if let Some(stmts) = when_node.statements() {
+                    for s in stmts.body().iter() {
+                        if check_var_used_in_describe_blocks(&s, var_name) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(else_clause) = case_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                for s in stmts.body().iter() {
+                    if check_var_used_in_describe_blocks(&s, var_name) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Unless
+    if let Some(unless_node) = node.as_unless_node() {
+        if let Some(stmts) = unless_node.statements() {
+            for s in stmts.body().iter() {
+                if check_var_used_in_describe_blocks(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+        if let Some(else_clause) = unless_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                for s in stmts.body().iter() {
+                    if check_var_used_in_describe_blocks(&s, var_name) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // For loop
+    if let Some(for_node) = node.as_for_node() {
+        if let Some(stmts) = for_node.statements() {
             for s in stmts.body().iter() {
                 if check_var_used_in_describe_blocks(&s, var_name) {
                     return true;
@@ -1750,6 +1849,18 @@ fn stmt_example_scope_var_interaction(
         if let Some(body) = paren.body() {
             return stmt_example_scope_var_interaction(&body, var_name, assign_offset);
         }
+    }
+
+    // For loop: Ruby `for` doesn't create a new scope, so recurse into body.
+    if let Some(for_node) = node.as_for_node() {
+        let mut result = VarInteraction::None;
+        if let Some(stmts) = for_node.statements() {
+            for s in stmts.body().iter() {
+                let inner = stmt_example_scope_var_interaction(&s, var_name, assign_offset);
+                result = combine_var_interactions(result, inner);
+            }
+        }
+        return result;
     }
 
     // Local variable write: the RHS may contain example scopes
@@ -2481,8 +2592,18 @@ fn collect_assignments_in_scope(
         return;
     }
 
-    // For loop
+    // For loop: the index variable leaks into the enclosing scope in Ruby
+    // (unlike block variables), so collect it as an assignment.
     if let Some(for_node) = node.as_for_node() {
+        let index = for_node.index();
+        if let Some(lt) = index.as_local_variable_target_node() {
+            assigns.push(VarAssign {
+                name: lt.name().as_slice().to_vec(),
+                offset: lt.location().start_offset(),
+                is_unconditional: true,
+                inside_block,
+            });
+        }
         if let Some(stmts) = for_node.statements() {
             for s in stmts.body().iter() {
                 collect_assignments_in_scope(&s, assigns, inside_block);
@@ -2758,6 +2879,18 @@ fn check_var_used_in_example_scopes(node: &ruby_prism::Node<'_>, var_name: &[u8]
         if let Some(body) = paren.body() {
             if check_var_used_in_example_scopes(&body, var_name) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    // For loop: recurse into body (Ruby `for` doesn't create a new scope)
+    if let Some(for_node) = node.as_for_node() {
+        if let Some(stmts) = for_node.statements() {
+            for s in stmts.body().iter() {
+                if check_var_used_in_example_scopes(&s, var_name) {
+                    return true;
+                }
             }
         }
         return false;
@@ -3256,6 +3389,14 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
                     }
                 }
             }
+            // BlockArgumentNode: `method(&var)` passes var as block
+            if let Some(ba) = block.as_block_argument_node() {
+                if let Some(expr) = ba.expression() {
+                    if node_references_var(&expr, var_name) {
+                        return true;
+                    }
+                }
+            }
         }
         return false;
     }
@@ -3263,6 +3404,24 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
     // Instance variable write: check RHS
     if let Some(iw) = node.as_instance_variable_write_node() {
         return node_references_var(&iw.value(), var_name);
+    }
+
+    // Global variable write: check RHS (e.g., `$DEBUG = previous_debug_level`)
+    if let Some(gw) = node.as_global_variable_write_node() {
+        return node_references_var(&gw.value(), var_name);
+    }
+
+    // Class variable write: check RHS
+    if let Some(cw) = node.as_class_variable_write_node() {
+        return node_references_var(&cw.value(), var_name);
+    }
+
+    // Constant write / constant path write: check RHS
+    if let Some(cw) = node.as_constant_write_node() {
+        return node_references_var(&cw.value(), var_name);
+    }
+    if let Some(cpw) = node.as_constant_path_write_node() {
+        return node_references_var(&cpw.value(), var_name);
     }
 
     // Local variable or-write / and-write
@@ -3374,30 +3533,20 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
     }
 
     // Interpolated strings/symbols
+    // Note: `\` line continuation creates nested InterpolatedStringNode parts,
+    // so we recurse on each part rather than only checking EmbeddedStatementsNode.
     if let Some(interp) = node.as_interpolated_string_node() {
         for part in interp.parts().iter() {
-            if let Some(embedded) = part.as_embedded_statements_node() {
-                if let Some(stmts) = embedded.statements() {
-                    for s in stmts.body().iter() {
-                        if node_references_var(&s, var_name) {
-                            return true;
-                        }
-                    }
-                }
+            if node_references_var(&part, var_name) {
+                return true;
             }
         }
         return false;
     }
     if let Some(interp) = node.as_interpolated_symbol_node() {
         for part in interp.parts().iter() {
-            if let Some(embedded) = part.as_embedded_statements_node() {
-                if let Some(stmts) = embedded.statements() {
-                    for s in stmts.body().iter() {
-                        if node_references_var(&s, var_name) {
-                            return true;
-                        }
-                    }
-                }
+            if node_references_var(&part, var_name) {
+                return true;
             }
         }
         return false;
@@ -3406,14 +3555,8 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
     // Interpolated regular expressions: /#{x}/
     if let Some(interp) = node.as_interpolated_regular_expression_node() {
         for part in interp.parts().iter() {
-            if let Some(embedded) = part.as_embedded_statements_node() {
-                if let Some(stmts) = embedded.statements() {
-                    for s in stmts.body().iter() {
-                        if node_references_var(&s, var_name) {
-                            return true;
-                        }
-                    }
-                }
+            if node_references_var(&part, var_name) {
+                return true;
             }
         }
         return false;
@@ -3422,14 +3565,8 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
     // Interpolated backtick commands: `cmd #{var}`
     if let Some(interp) = node.as_interpolated_x_string_node() {
         for part in interp.parts().iter() {
-            if let Some(embedded) = part.as_embedded_statements_node() {
-                if let Some(stmts) = embedded.statements() {
-                    for s in stmts.body().iter() {
-                        if node_references_var(&s, var_name) {
-                            return true;
-                        }
-                    }
-                }
+            if node_references_var(&part, var_name) {
+                return true;
             }
         }
         return false;
