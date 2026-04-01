@@ -403,7 +403,14 @@ if the prompt/examples require local corpus source context.
    Do not stop here. Exact-match per-cop reruns can still leave the target
    department/gem below 100% once the corpus reports are regenerated.
 
-5. **Handle regressions**: if a fix increases FP count (even if unit tests pass), revert
+5. **Handle regressions**: When CI reports a regression, check CI logs first:
+   ```bash
+   gh run view <run-id> --job <job-id> --log 2>&1 | grep -A 3 "FAIL:"
+   ```
+   This immediately names the regressed repo(s) — do NOT re-run `check_cop.py
+   --rerun --clone` locally to find a regression that CI already identified.
+
+   If a fix increases FP count (even if unit tests pass), revert
    the code change but **add a detailed investigation comment** to the cop source file
    documenting what was tried, exactly where code changed, acceptance-gate numbers
    before/after, why it regressed, and what a correct fix would need. Use:

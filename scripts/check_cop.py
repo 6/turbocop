@@ -1120,14 +1120,25 @@ def main():
             fn_gate = new_fn
         if fp_gate > args.threshold:
             label = f"net +{new_fp - resolved_fp:,}" if args.allow_net_improvement else f"+{new_fp:,}"
-            print(f"FAIL: FP regression detected ({label})")
-            for repo_id, local, bl_nc, bl_rc, diff in sorted(fp_repos, key=lambda x: -x[4])[:10]:
+            sorted_fp = sorted(fp_repos, key=lambda x: -x[4])[:10]
+            # Include repo names directly in FAIL line for small regressions
+            if len(sorted_fp) <= 3:
+                repo_names = ", ".join(r[0] for r in sorted_fp)
+                print(f"FAIL: FP regression ({label}) in: {repo_names}")
+            else:
+                print(f"FAIL: FP regression detected ({label})")
+            for repo_id, local, bl_nc, bl_rc, diff in sorted_fp:
                 print(f"  +{diff:>4}  {repo_id}  (local={local}, baseline_nc={bl_nc}, rubocop={bl_rc})")
             failed = True
         if fn_gate > args.threshold:
             label = f"net +{new_fn - resolved_fn:,}" if args.allow_net_improvement else f"+{new_fn:,}"
-            print(f"FAIL: FN regression detected ({label})")
-            for repo_id, local, bl_nc, bl_rc, diff in sorted(fn_repos, key=lambda x: -x[4])[:10]:
+            sorted_fn = sorted(fn_repos, key=lambda x: -x[4])[:10]
+            if len(sorted_fn) <= 3:
+                repo_names = ", ".join(r[0] for r in sorted_fn)
+                print(f"FAIL: FN regression ({label}) in: {repo_names}")
+            else:
+                print(f"FAIL: FN regression detected ({label})")
+            for repo_id, local, bl_nc, bl_rc, diff in sorted_fn:
                 print(f"  +{diff:>4}  {repo_id}  (local={local}, baseline_nc={bl_nc}, rubocop={bl_rc})")
             failed = True
 

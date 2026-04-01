@@ -214,6 +214,13 @@ Read reduced repros from `/tmp/nitrocop-reduce/` and capture root-cause hypothes
    department/gem below 100% once the corpus reports are regenerated.
 
 6. Handle regressions:
+   - When CI reports a regression, check CI logs first:
+     ```bash
+     gh run view <run-id> --job <job-id> --log 2>&1 | grep -A 3 "FAIL:"
+     ```
+     This immediately names the regressed repo(s) — do NOT re-run
+     `check_cop.py --rerun --clone` locally to find a regression that CI
+     already identified.
    - If FP increases (even with passing tests), revert the code change.
    - Add a detailed investigation comment to the cop source:
    ```rust
