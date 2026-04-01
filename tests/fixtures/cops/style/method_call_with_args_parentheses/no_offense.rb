@@ -96,6 +96,12 @@ Class.new(Base) do
   end
 end
 
+# Class constructors act like class-like parents for receiverless arguments
+module MyFormatters
+  Widget = Class.new(remove_const :Widget) do
+  end
+end
+
 # Class.new with block in if inside class (wrapper chain)
 module MyMod
   if condition

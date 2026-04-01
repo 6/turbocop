@@ -154,3 +154,24 @@ class MyClass
   allow_ip! "::1/128" rescue nil
   ^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
 end
+
+# Flow-control nodes are not wrappers; their argument calls are NOT macros
+class Server
+  get "/x" do
+    next send_file static_file if static_file
+         ^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  end
+end
+
+# Parallel assignment breaks macro scope for ordinary block bodies
+describe "x" do
+  planned, running = plan.sub_plans.partition { |sub| planned? sub }
+                                                      ^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+describe "x" do
+  _out, err = capture_subprocess_io do
+    call_event "hello", event, globals: { firestore_client: firestore_client }
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  end
+end
