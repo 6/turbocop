@@ -105,6 +105,32 @@ use crate::parse::source::SourceFile;
 /// `parent_stack`. In Parser AST, `next send_file static_file` gives the call
 /// a direct non-wrapper parent, so macro scope must break there. Fixed by
 /// tracking `return`/`break`/`next` arguments as `ParentKind::FlowControl`.
+///
+/// ## Corpus investigation (2026-04-01, attempt 4)
+///
+/// FN root cause 1 (~130 FN): `InterpolatedStringNode` / `InterpolatedSymbolNode`
+/// (Parser's `dstr`/`dsym`) are NOT wrappers in `in_macro_scope?`, but
+/// nitrocop did not track them as non-wrapper parents. Calls inside `#{}`
+/// string interpolation in macro scope were incorrectly treated as macros.
+/// Fixed by pushing `ParentKind::Interpolation` when visiting interpolated
+/// string/symbol nodes. This resolved tdiary (67 FN), aruba (9 FN), and
+/// many others.
+///
+/// FN root cause 2 (~19 FN): `PreExecutionNode` (`BEGIN { }`) was not
+/// handled. In Parser AST, `preexe` is NOT a wrapper in `in_macro_scope?`.
+/// Added `visit_pre_execution_node` pushing `Scope::Other`. Also added
+/// `visit_post_execution_node` for `END { }` symmetry.
+///
+/// FN root cause 3 (~4 FN): `CaseMatchNode` (`case...in` pattern matching)
+/// was not handled, unlike `CaseNode` (`case...when`). Neither is a wrapper
+/// in `in_macro_scope?`. Added `visit_case_match_node` pushing `Scope::Other`.
+///
+/// FN root cause 4 (~30+ FN): Operator assignment nodes (`+=`, `-=`, `||=`,
+/// `&&=`, etc.) were not tracked as `ParentKind::Assignment`. Added visitors
+/// for all `*OperatorWriteNode`, `*OrWriteNode`, `*AndWriteNode` variants
+/// plus `Call*WriteNode` and `Index*WriteNode`.
+///
+/// Combined: 289 FN resolved across 15 sampled repos, 0 regressions.
 pub struct MethodCallWithArgsParentheses;
 
 fn is_operator(name: &[u8]) -> bool {
@@ -248,6 +274,7 @@ enum ParentKind {
     ClassConstructor,
     ConstantPath,
     FlowControl,
+    Interpolation,
 }
 
 impl Cop for MethodCallWithArgsParentheses {
@@ -1423,6 +1450,27 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         self.pop_scope();
     }
 
+    fn visit_case_match_node(&mut self, node: &ruby_prism::CaseMatchNode<'pr>) {
+        // `case`/`in` (pattern matching) is NOT a wrapper in in_macro_scope?.
+        self.push_scope(Scope::Other);
+        ruby_prism::visit_case_match_node(self, node);
+        self.pop_scope();
+    }
+
+    fn visit_pre_execution_node(&mut self, node: &ruby_prism::PreExecutionNode<'pr>) {
+        // `BEGIN { }` (`preexe`) is NOT a wrapper in in_macro_scope?.
+        self.push_scope(Scope::Other);
+        ruby_prism::visit_pre_execution_node(self, node);
+        self.pop_scope();
+    }
+
+    fn visit_post_execution_node(&mut self, node: &ruby_prism::PostExecutionNode<'pr>) {
+        // `END { }` (`postexe`) is NOT a wrapper in in_macro_scope?.
+        self.push_scope(Scope::Other);
+        ruby_prism::visit_post_execution_node(self, node);
+        self.pop_scope();
+    }
+
     fn visit_when_node(&mut self, node: &ruby_prism::WhenNode<'pr>) {
         self.parent_stack.push(ParentKind::When);
         for cond in node.conditions().iter() {
@@ -1445,20 +1493,26 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        // In Parser AST, `dstr` is NOT a wrapper in `in_macro_scope?`.
+        // Push Interpolation parent so nested calls break macro scope.
         let prev = self.in_interpolation;
         self.in_interpolation = true;
+        self.parent_stack.push(ParentKind::Interpolation);
         for part in node.parts().iter() {
             self.visit(&part);
         }
+        self.parent_stack.pop();
         self.in_interpolation = prev;
     }
 
     fn visit_interpolated_symbol_node(&mut self, node: &ruby_prism::InterpolatedSymbolNode<'pr>) {
         let prev = self.in_interpolation;
         self.in_interpolation = true;
+        self.parent_stack.push(ParentKind::Interpolation);
         for part in node.parts().iter() {
             self.visit(&part);
         }
+        self.parent_stack.pop();
         self.in_interpolation = prev;
     }
 
@@ -1518,6 +1572,254 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         for right in node.rights().iter() {
             self.visit(&right);
         }
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    // Operator assignment nodes (+=, -=, etc.) — RHS is Assignment context
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_instance_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOperatorWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_class_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOperatorWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_global_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantOperatorWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_path_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOperatorWriteNode<'pr>,
+    ) {
+        self.visit_constant_path_node(&node.target());
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_call_operator_write_node(&mut self, node: &ruby_prism::CallOperatorWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_index_operator_write_node(&mut self, node: &ruby_prism::IndexOperatorWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        if let Some(args) = node.arguments() {
+            self.parent_stack.push(ParentKind::Call);
+            for arg in args.arguments().iter() {
+                self.visit(&arg);
+            }
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    // ||= and &&= nodes — RHS is Assignment context
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_instance_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_instance_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableAndWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_class_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOrWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_class_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableAndWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_global_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOrWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_global_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableAndWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_or_write_node(&mut self, node: &ruby_prism::ConstantOrWriteNode<'pr>) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_and_write_node(&mut self, node: &ruby_prism::ConstantAndWriteNode<'pr>) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_path_or_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOrWriteNode<'pr>,
+    ) {
+        self.visit_constant_path_node(&node.target());
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_path_and_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathAndWriteNode<'pr>,
+    ) {
+        self.visit_constant_path_node(&node.target());
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_call_or_write_node(&mut self, node: &ruby_prism::CallOrWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_call_and_write_node(&mut self, node: &ruby_prism::CallAndWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_index_or_write_node(&mut self, node: &ruby_prism::IndexOrWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        if let Some(args) = node.arguments() {
+            self.parent_stack.push(ParentKind::Call);
+            for arg in args.arguments().iter() {
+                self.visit(&arg);
+            }
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_index_and_write_node(&mut self, node: &ruby_prism::IndexAndWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        if let Some(args) = node.arguments() {
+            self.parent_stack.push(ParentKind::Call);
+            for arg in args.arguments().iter() {
+                self.visit(&arg);
+            }
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
         self.visit(&node.value());
         self.parent_stack.pop();
     }

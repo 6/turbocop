@@ -175,3 +175,27 @@ describe "x" do
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
   end
 end
+
+# Receiverless calls inside string interpolation are NOT macros
+# (interpolated string is not a wrapper in RuboCop's in_macro_scope?)
+"text #{bar :baz}"
+        ^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+# BEGIN {} is not a wrapper — receiverless calls inside are NOT macros
+BEGIN {
+  require 'ostruct'
+  ^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+}
+
+# case/in (pattern matching) is not a wrapper — calls inside are NOT macros
+case foo
+in { a: 1 }
+  puts "a"
+  ^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Operator assignment (+=) breaks macro scope for receiverless calls
+describe "x" do
+  count += process_item arg
+           ^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
