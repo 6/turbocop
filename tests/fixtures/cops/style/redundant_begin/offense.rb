@@ -165,3 +165,45 @@ def require_debugger(debugger_library)
     end
   end
 end
+
+# Redundant begin inside else clause of begin..rescue..else (traversal test)
+def test_else_clause
+  begin
+  ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+    setup
+  rescue => e
+    handle(e)
+  else
+    begin
+    ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+      cleanup
+    end
+  end
+end
+
+# Redundant begin inside do..end block nested in else clause of begin..rescue..else
+def test_nested_else
+  begin
+  ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+    try_connect
+  rescue => e
+    skip_test
+  else
+    items.each do |link|
+      begin
+      ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+        check(link)
+      rescue => e
+        handle(e)
+      end
+    end
+  end
+end
+
+# Redundant begin in splat inside array indexing with += operator
+(h[*begin [:k] end] += 10).should == 20
+    ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+
+# Redundant begin in splat inside array indexing with ||= operator
+h[*begin [:k] end] ||= 20
+   ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
