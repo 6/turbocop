@@ -1,7 +1,21 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Follow-up (2026-04-01): FN=2549/FP=20 was dominated by two mismatches with
+/// RuboCop's token-based cop:
+///
+/// 1. The old line scanner only accepted a very narrow successor shape, so it
+///    missed valid offenses when the continued string was followed by commas,
+///    closing brackets, or appeared in chained `+`/`<<` expressions.
+/// 2. It scanned raw string content and therefore flagged JavaScript-like
+///    concatenation inside `%()` string literals, which RuboCop ignores.
+///
+/// Fix: inspect Prism `CallNode`s for `+`/`<<` directly, require the operator to
+/// break across lines without an intervening comment, require the right-hand side
+/// to be a quoted string node, and allow the left-hand side to be either a quoted
+/// string or a concat chain that textually ends with one.
 pub struct LineEndConcatenation;
 
 impl Cop for LineEndConcatenation {
@@ -9,176 +23,127 @@ impl Cop for LineEndConcatenation {
         "Style/LineEndConcatenation"
     }
 
-    fn check_source(
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE]
+    }
+
+    fn check_node(
         &self,
         source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let lines: Vec<&str> = source
-            .lines()
-            .filter_map(|l| std::str::from_utf8(l).ok())
-            .collect();
+        let Some(call) = node.as_call_node() else {
+            return;
+        };
 
-        // Compute byte offsets where each line starts
-        let mut line_offsets = Vec::with_capacity(lines.len());
-        let mut offset = 0usize;
-        for line in &lines {
-            line_offsets.push(offset);
-            offset += line.len() + 1; // +1 for the newline
+        let operator = call.name().as_slice();
+        if operator != b"+" && operator != b"<<" {
+            return;
         }
 
-        for (i, line) in lines.iter().enumerate() {
-            if i + 1 >= lines.len() {
-                continue;
-            }
-
-            // Skip lines that are inside a heredoc body
-            if code_map.is_heredoc(line_offsets[i]) {
-                continue;
-            }
-
-            let trimmed = line.trim_end();
-
-            // Check for string concatenation at end of line: "str" + or "str" <<
-            let (op, op_len) = if trimmed.ends_with(" +") || trimmed.ends_with("\t+") {
-                ("+", 1)
-            } else if trimmed.ends_with(" <<") || trimmed.ends_with("\t<<") {
-                ("<<", 2)
-            } else {
-                continue;
-            };
-
-            // Check that the operator is preceded by a string
-            let before_op = &trimmed[..trimmed.len() - op_len].trim_end();
-
-            // Skip if there's a comment after the operator
-            if before_op.contains('#') && !before_op.ends_with('"') && !before_op.ends_with('\'') {
-                continue;
-            }
-
-            // The part before the operator should end with a string literal
-            let ends_with_string = before_op.ends_with('"') || before_op.ends_with('\'');
-
-            if !ends_with_string {
-                continue;
-            }
-
-            // Check that the next line starts with a string literal and is purely
-            // a string (not a string followed by a method call like `" " * 3`
-            // or `'gniht'.reverse`).
-            let next_line = lines[i + 1].trim_start();
-            let next_starts_with_string = next_line.starts_with('"') || next_line.starts_with('\'');
-
-            if !next_starts_with_string {
-                continue;
-            }
-
-            // Find the end of the string on the next line and check what follows
-            let next_trimmed = next_line.trim_end();
-            if let Some(after_string) = Self::after_string_literal(next_trimmed) {
-                let rest = after_string.trim();
-                // OK if rest is empty, or starts with `+` (continued concat) or `\` or `<<`
-                if !rest.is_empty()
-                    && !rest.starts_with('+')
-                    && !rest.starts_with("<<")
-                    && !rest.starts_with('\\')
-                    && !rest.starts_with('#')
-                // inline comment
-                {
-                    continue;
-                }
-            }
-
-            // If the next line is a comment line, skip
-            if i + 2 <= lines.len() {
-                let next_trimmed_check = lines[i + 1].trim_start();
-                if next_trimmed_check.starts_with('#') {
-                    continue;
-                }
-            }
-
-            // Check there's no comment on the line
-            let has_comment = Self::has_inline_comment(trimmed);
-            if has_comment {
-                continue;
-            }
-
-            // Check it's not a % literal
-            if before_op.contains("%(") || before_op.contains("%q(") || before_op.contains("%Q(") {
-                continue;
-            }
-
-            let col = trimmed.len() - op_len;
-            let line_num = i + 1;
-
-            diagnostics.push(self.diagnostic(
-                source,
-                line_num,
-                col,
-                format!(
-                    "Use `\\` instead of `{}` to concatenate multiline strings.",
-                    op
-                ),
-            ));
+        let Some(receiver) = call.receiver() else {
+            return;
+        };
+        if !Self::ends_with_standard_string_literal(&receiver) {
+            return;
         }
+
+        let Some(arguments) = call.arguments() else {
+            return;
+        };
+        let arg_list: Vec<_> = arguments.arguments().iter().collect();
+        if arg_list.len() != 1 || !Self::is_standard_string_literal(&arg_list[0]) {
+            return;
+        }
+
+        let Some(message_loc) = call.message_loc() else {
+            return;
+        };
+        let argument = &arg_list[0];
+        let operator_end = message_loc.end_offset();
+        let argument_start = argument.location().start_offset();
+
+        let (operator_line, _) = source.offset_to_line_col(message_loc.start_offset());
+        let (argument_line, _) = source.offset_to_line_col(argument_start);
+        if operator_line == argument_line {
+            return;
+        }
+
+        if !Self::has_line_break_without_comment(source.as_bytes(), operator_end, argument_start) {
+            return;
+        }
+
+        let (line, column) = source.offset_to_line_col(message_loc.start_offset());
+        let operator = std::str::from_utf8(operator).unwrap_or("+");
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!(
+                "Use `\\` instead of `{}` to concatenate multiline strings.",
+                operator
+            ),
+        ));
     }
 }
 
 impl LineEndConcatenation {
-    /// Given a line starting with a string literal, return the rest of the line after the string.
-    fn after_string_literal(line: &str) -> Option<&str> {
-        let bytes = line.as_bytes();
-        if bytes.is_empty() {
-            return None;
+    fn is_standard_string_literal(node: &ruby_prism::Node<'_>) -> bool {
+        if let Some(string) = node.as_string_node() {
+            return string.opening_loc().is_some_and(|loc| {
+                let opening = loc.as_slice();
+                opening == b"'" || opening == b"\""
+            });
         }
-        let quote = bytes[0];
-        if quote != b'\'' && quote != b'"' {
-            return None;
+
+        if let Some(string) = node.as_interpolated_string_node() {
+            return string.opening_loc().is_some_and(|loc| {
+                let opening = loc.as_slice();
+                opening == b"'" || opening == b"\""
+            });
         }
-        let mut i = 1;
-        while i < bytes.len() {
-            if bytes[i] == b'\\' {
-                i += 2; // skip escaped character
-                continue;
-            }
-            if bytes[i] == quote {
-                return Some(&line[i + 1..]);
-            }
-            i += 1;
-        }
-        None // unterminated string
+
+        false
     }
 
-    fn has_inline_comment(line: &str) -> bool {
-        let bytes = line.as_bytes();
-        let mut in_single = false;
-        let mut in_double = false;
-        let mut i = 0;
-
-        while i < bytes.len() {
-            match bytes[i] {
-                b'\\' if in_double || in_single => {
-                    i += 2;
-                    continue;
-                }
-                b'\'' if !in_double => {
-                    in_single = !in_single;
-                }
-                b'"' if !in_single => {
-                    in_double = !in_double;
-                }
-                b'#' if !in_single && !in_double => {
-                    return true;
-                }
-                _ => {}
-            }
-            i += 1;
+    fn ends_with_standard_string_literal(node: &ruby_prism::Node<'_>) -> bool {
+        if Self::is_standard_string_literal(node) {
+            return true;
         }
-        false
+
+        let Some(call) = node.as_call_node() else {
+            return false;
+        };
+        let operator = call.name().as_slice();
+        if operator != b"+" && operator != b"<<" {
+            return false;
+        }
+
+        let Some(arguments) = call.arguments() else {
+            return false;
+        };
+        let mut arg_iter = arguments.arguments().iter();
+        let Some(last_arg) = arg_iter.next() else {
+            return false;
+        };
+        if arg_iter.next().is_some() {
+            return false;
+        }
+
+        Self::ends_with_standard_string_literal(&last_arg)
+    }
+
+    fn has_line_break_without_comment(source: &[u8], start: usize, end: usize) -> bool {
+        if start >= end || start >= source.len() {
+            return false;
+        }
+
+        let between = &source[start..end.min(source.len())];
+        between.contains(&b'\n') && !between.contains(&b'#')
     }
 }
 
