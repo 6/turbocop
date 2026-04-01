@@ -81,3 +81,40 @@ obj.instance_eval do
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
   end
 end
+
+def method_missing(method, *args)
+^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+  super
+end
+
+def method_missing(sym, *args, &block)
+^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+  super
+end
+
+def method_missing(m, *args, &block)
+^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+  super
+end
+
+def method_missing(mhd, *x)
+^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+  super
+end
+
+def method_missing(s, * args, & b)
+^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+  super
+end
+
+object = Object.new
+
+def object.method_missing(selector)
+^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+  super
+end
+
+def method_missing(method, *args, **kwargs, &block)
+^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+  super
+end
