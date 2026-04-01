@@ -7,18 +7,13 @@ use crate::parse::source::SourceFile;
 
 /// Checks duplicate conditions across an `if`/`elsif` chain.
 ///
-/// Investigation notes (2026-03):
-/// - FP: comparing raw `predicate().location().as_slice()` bytes treated
-///   heredoc-backed calls like `try_run(<<EOF)` as identical even when the
-///   heredoc bodies differed, because Prism's predicate location only covers the
-///   call opening and excludes the heredoc content.
-/// - FN: Prism keeps `else` followed by a single nested `if` as an `ElseNode`
-///   containing one `IfNode`, while Parser/RuboCop effectively continues the
-///   conditional chain through that nested `if`.
-///
-/// Fix: compare conditions with a small AST-aware fingerprint that includes
-/// call arguments and string contents, and unwrap `else { single if }` as the
-/// next conditional branch when walking the chain.
+/// Investigation notes (2026-04):
+/// - Prism represents `?:` ternaries as `IfNode`s with no `if_keyword_loc()`.
+/// - This cop intentionally follows `else { single if }` to match RuboCop, but
+///   walking any single nested `IfNode` was too broad and treated ternaries as
+///   extra `elsif` branches.
+/// - Keep following nested keyword and modifier `if` nodes, but stop the chain
+///   when the lone `else` expression is a ternary.
 pub struct DuplicateElsifCondition;
 
 impl Cop for DuplicateElsifCondition {
@@ -101,7 +96,9 @@ fn next_branch_in_chain<'pr>(if_node: &ruby_prism::IfNode<'pr>) -> Option<ruby_p
         return None;
     }
 
-    nested.as_if_node()
+    let nested_if = nested.as_if_node()?;
+    nested_if.if_keyword_loc()?;
+    Some(nested_if)
 }
 
 fn condition_fingerprint(bytes: &[u8], node: &ruby_prism::Node<'_>) -> Vec<u8> {
