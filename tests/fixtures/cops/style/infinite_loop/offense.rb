@@ -68,27 +68,3 @@ def nested_if_branch
     end
   end
 end
-
-while true
-^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
-
-while true
-^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
-
-while true
-^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
-
-while true
-^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
-
-while true
-^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
-
-while true
-^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
-
-while true
-^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
-
-while true
-^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
