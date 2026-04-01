@@ -14,8 +14,15 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: inspect Prism `CallNode`s for `+`/`<<` directly, require the operator to
 /// break across lines without an intervening comment, require the right-hand side
-/// to be a quoted string node, and allow the left-hand side to be either a quoted
-/// string or a concat chain that textually ends with one.
+/// to be a quoted string node, and allow the left-hand side to be any expression
+/// that textually ends with one.
+///
+/// Follow-up (2026-04-01): Prism represents adjacent quoted literals like
+/// `"foo" "bar"` and `"foo#{bar}" "baz"` as an outer `InterpolatedStringNode`
+/// with no `opening_loc()`. RuboCop still treats those token sequences as quoted
+/// string literals for this cop, so the previous `opening_loc` gate missed long
+/// multiline `+` chains such as the `net-ssh` hex constant. Fix: accept those
+/// wrapper nodes when every part is itself a standard quoted string literal.
 pub struct LineEndConcatenation;
 
 impl Cop for LineEndConcatenation {
@@ -94,20 +101,29 @@ impl Cop for LineEndConcatenation {
 impl LineEndConcatenation {
     fn is_standard_string_literal(node: &ruby_prism::Node<'_>) -> bool {
         if let Some(string) = node.as_string_node() {
-            return string.opening_loc().is_some_and(|loc| {
-                let opening = loc.as_slice();
-                opening == b"'" || opening == b"\""
-            });
+            return string
+                .opening_loc()
+                .is_some_and(|loc| Self::is_standard_quote(loc.as_slice()));
         }
 
-        if let Some(string) = node.as_interpolated_string_node() {
-            return string.opening_loc().is_some_and(|loc| {
-                let opening = loc.as_slice();
-                opening == b"'" || opening == b"\""
-            });
+        let Some(string) = node.as_interpolated_string_node() else {
+            return false;
+        };
+        if string
+            .opening_loc()
+            .is_some_and(|loc| Self::is_standard_quote(loc.as_slice()))
+        {
+            return true;
+        }
+        if string.opening_loc().is_some() {
+            return false;
         }
 
-        false
+        !string.parts().is_empty()
+            && string
+                .parts()
+                .iter()
+                .all(|part| Self::is_adjacent_standard_string_part(&part))
     }
 
     fn ends_with_standard_string_literal(node: &ruby_prism::Node<'_>) -> bool {
@@ -118,23 +134,18 @@ impl LineEndConcatenation {
         let Some(call) = node.as_call_node() else {
             return false;
         };
-        let operator = call.name().as_slice();
-        if operator != b"+" && operator != b"<<" {
-            return false;
-        }
 
         let Some(arguments) = call.arguments() else {
-            return false;
+            return call.receiver().is_some_and(|receiver| {
+                call.location().end_offset() == receiver.location().end_offset()
+                    && Self::ends_with_standard_string_literal(&receiver)
+            });
         };
-        let mut arg_iter = arguments.arguments().iter();
-        let Some(last_arg) = arg_iter.next() else {
-            return false;
-        };
-        if arg_iter.next().is_some() {
-            return false;
-        }
 
-        Self::ends_with_standard_string_literal(&last_arg)
+        arguments.arguments().iter().last().is_some_and(|last_arg| {
+            call.location().end_offset() == last_arg.location().end_offset()
+                && Self::ends_with_standard_string_literal(&last_arg)
+        })
     }
 
     fn has_line_break_without_comment(source: &[u8], start: usize, end: usize) -> bool {
@@ -144,6 +155,21 @@ impl LineEndConcatenation {
 
         let between = &source[start..end.min(source.len())];
         between.contains(&b'\n') && !between.contains(&b'#')
+    }
+
+    fn is_adjacent_standard_string_part(node: &ruby_prism::Node<'_>) -> bool {
+        if let Some(string) = node.as_string_node() {
+            return string
+                .opening_loc()
+                .is_some_and(|loc| Self::is_standard_quote(loc.as_slice()));
+        }
+
+        node.as_interpolated_string_node()
+            .is_some_and(|_| Self::is_standard_string_literal(node))
+    }
+
+    fn is_standard_quote(opening: &[u8]) -> bool {
+        opening == b"'" || opening == b"\""
     }
 }
 
