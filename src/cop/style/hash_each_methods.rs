@@ -24,6 +24,20 @@ const ARRAY_CONVERTER_METHODS: &[&[u8]] = &[
 /// parameter shapes: destructured `MultiTargetNode`s such as
 /// `|(_root_id, _instance_id), value|`, optional parameters like `options={}`,
 /// and mixed destructured/value pairs such as `|line_num, (range, _last_col, meta)|`.
+///
+/// Fixed 12 FN and 5 FP:
+/// - FN: Optional params (`options={}`, `key = name`) are always considered unused,
+///   matching RuboCop's `source.delete_prefix('*')` check against lvar sources.
+/// - FN: Block params (`&block`) are always considered unused and now included in
+///   the positional params list via `ParametersNode.block()`.
+/// - FN: Anonymous rest (`*`) is always considered unused.
+/// - FN: Bare `keys.each` (variable, not `foo.keys.each`) no longer skipped by the
+///   keys/values receiver guard in `check_each_block`.
+/// - FP: `ImplicitRestNode` (trailing comma `|_m,|`) is excluded from the params
+///   list, matching RuboCop's parser which doesn't count it as a separate arg.
+/// - FP: Single bare-lvar body (`{ |k, v| k }`) now matches RuboCop's
+///   `each_descendant(:lvar)` quirk where the body node itself is excluded from
+///   lvar search, making both args "unused" and skipping the offense.
 pub struct HashEachMethods;
 
 impl Cop for HashEachMethods {
@@ -171,11 +185,18 @@ impl HashEachMethods {
             return;
         }
 
-        // Must NOT be `keys.each` or `values.each` (handled above). Also skip
+        // Must NOT be `foo.keys.each` or `foo.values.each` (handled above). Also skip
         // array-converter receivers like `to_a.each` / `sort.each`.
+        // Only skip when the keys/values call has its own receiver (e.g., `foo.keys`),
+        // not bare `keys.each` where `keys` is a variable or method.
         if let Some(recv_call) = receiver.as_call_node() {
             let name = recv_call.name().as_slice();
-            if name == b"keys" || name == b"values" || is_array_converter_method(name) {
+            if recv_call.receiver().is_some()
+                && (name == b"keys" || name == b"values" || is_array_converter_method(name))
+            {
+                return;
+            }
+            if recv_call.receiver().is_none() && is_array_converter_method(name) {
                 return;
             }
         }
@@ -259,13 +280,47 @@ impl HashEachMethods {
 
 /// Check if a block body references a local variable by name.
 /// Used to determine actual usage vs. just `_` prefix convention.
+///
+/// Matches RuboCop's `each_descendant(:lvar)` behavior: in RuboCop (Parser gem),
+/// a single-expression body IS the expression node itself, and `each_descendant`
+/// does not include the node — so a bare lvar body like `{ |k, v| k }` finds no
+/// lvar descendants and both args are considered unused (→ skip). In Prism, bodies
+/// are always wrapped in StatementsNode, so we must explicitly exclude a lone
+/// top-level bare lvar that matches the target name.
 fn body_references_lvar(body: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
+    if let Some(stmts) = body.as_statements_node() {
+        let children: Vec<_> = stmts.body().iter().collect();
+        if children.len() == 1 {
+            if let Some(lvar) = children[0].as_local_variable_read_node() {
+                if lvar.name().as_slice() == name {
+                    return false;
+                }
+            }
+        }
+    }
+
     let mut finder = LvarReferenceFinder { found: false, name };
     finder.visit(body);
     finder.found
 }
 
 fn parameter_unused(body: &ruby_prism::Node<'_>, param: &ruby_prism::Node<'_>) -> bool {
+    // RuboCop checks `block_arg.source.delete_prefix('*')` against lvar sources.
+    // Optional params (source "key = val"), block params (source "&block"), and
+    // anonymous rest (source "*" → empty after delete_prefix) never match an lvar,
+    // so RuboCop always considers them unused regardless of body content.
+    if param.as_optional_parameter_node().is_some() {
+        return true;
+    }
+    if param.as_block_parameter_node().is_some() {
+        return true;
+    }
+    if let Some(rest) = param.as_rest_parameter_node() {
+        if rest.name().is_none() {
+            return true;
+        }
+    }
+
     let names = parameter_names(param);
     !names.is_empty()
         && names
@@ -329,7 +384,7 @@ fn parameter_display(param: &ruby_prism::Node<'_>) -> String {
 fn positional_block_params<'pr>(
     params_node: &ruby_prism::ParametersNode<'pr>,
 ) -> Vec<ruby_prism::Node<'pr>> {
-    if params_node.keyword_rest().is_some() || params_node.block().is_some() {
+    if params_node.keyword_rest().is_some() {
         return Vec::new();
     }
     if params_node.keywords().iter().next().is_some() {
@@ -340,9 +395,18 @@ fn positional_block_params<'pr>(
     params.extend(params_node.requireds().iter());
     params.extend(params_node.optionals().iter());
     if let Some(rest) = params_node.rest() {
-        params.push(rest);
+        // Skip ImplicitRestNode (trailing comma like |_m,|) — RuboCop's parser
+        // does not create a separate parameter for it.
+        if rest.as_implicit_rest_node().is_none() {
+            params.push(rest);
+        }
     }
     params.extend(params_node.posts().iter());
+    // Include block parameter (&block) — RuboCop's `each_arguments` matcher
+    // captures any two args regardless of type, including blockarg.
+    if let Some(block) = params_node.block() {
+        params.push(block.as_node());
+    }
     params
 }
 

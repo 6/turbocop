@@ -40,3 +40,8 @@ end
 # keys.each / values.each only trigger when the block is attached to `each` itself
 gc_stat.keys.each.with_index { |k, i| puts k, i }
 return vertices.values.each unless block_given?
+# Bare expression body where the only "use" is as return value (RuboCop quirk: each_descendant)
+foo.each { |k, v| k }
+splaytree.each { |k, v| k }
+# Trailing comma block param (creates implicit rest, 1 effective param)
+text.to_enum(:scan, /test/).each { |_m,| p "hello" }
