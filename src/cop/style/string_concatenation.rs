@@ -9,10 +9,12 @@ use crate::parse::source::SourceFile;
 /// heredoc concatenation, but RuboCop DOES fire on these (only skips autocorrect). Removed
 /// the blanket heredoc skip. Heredocs are now treated as str_type? matching Parser behavior.
 ///
-/// FP fix 2 (FP=96): Percent literal concatenation (e.g., `config + %[...]`, `header + %{...}`).
-/// In Prism, percent literals without interpolation parse as StringNode, but in Parser they're
-/// dstr (not str_type?). RuboCop's `str_type?` matcher excludes dstr, so it doesn't flag these.
-/// Fixed by checking if the StringNode's opening starts with `%`.
+/// FP fix 2 (REVERTED): The prior percent literal exclusion was incorrect. RuboCop DOES flag
+/// `config + %[...]`, `header + %{...}`, `%(str) + %(str)`, etc. All percent literal forms
+/// (`%q`, `%Q`, `%()`, `%[]`, `%{}`) without interpolation are `str` in Parser, not `dstr`.
+/// The blanket `%` exclusion caused ~145 FNs (percent literals not recognized as str_type?)
+/// and ~9 FPs (line-end concatenation with percent literal arguments not properly detected,
+/// since is_line_end_concatenation requires both sides to be str_type?). Removed the exclusion.
 ///
 /// FP fix 3 (FP=20): Multi-line string literal concatenation. In Parser, a string literal that
 /// spans multiple source lines (e.g., `'line1\nline2'` where `\n` is a real newline, not an
@@ -48,10 +50,6 @@ impl StringConcatenation {
         if let Some(s) = node.as_string_node() {
             if let Some(opening) = s.opening_loc() {
                 let slice = opening.as_slice();
-                // Exclude percent literals (opening starts with %)
-                if slice.starts_with(b"%") {
-                    return false;
-                }
                 // Heredocs (opening starts with <<):
                 // In Parser, heredocs are str if content is single-line, dstr if multi-line.
                 // Check the content for newlines: if content has more than one line
