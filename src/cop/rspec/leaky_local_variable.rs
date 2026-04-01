@@ -2069,17 +2069,11 @@ fn stmt_is_unconditional_assign_to(node: &ruby_prism::Node<'_>, var_name: &[u8])
 /// replaced). This is used for linear flow analysis inside non-RSpec blocks and
 /// at group scope.
 fn stmt_reassigns_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
+    // Only unconditional writes (`x = ...`) kill the tracked value.
+    // Operator-writes (`x += ...`, `x ||= ...`, `x &&= ...`) READ the old
+    // value first, so the previous assignment is NOT dead.
     if let Some(lw) = node.as_local_variable_write_node() {
         return lw.name().as_slice() == var_name;
-    }
-    if let Some(ow) = node.as_local_variable_operator_write_node() {
-        return ow.name().as_slice() == var_name;
-    }
-    if let Some(ow) = node.as_local_variable_or_write_node() {
-        return ow.name().as_slice() == var_name;
-    }
-    if let Some(aw) = node.as_local_variable_and_write_node() {
-        return aw.name().as_slice() == var_name;
     }
     if let Some(mw) = node.as_multi_write_node() {
         for target in mw.lefts().iter() {
