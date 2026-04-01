@@ -63,6 +63,19 @@ use crate::parse::source::SourceFile;
 /// parser-style argument list that already includes `BlockArgumentNode`, then
 /// apply RuboCop's flattening rules to that list instead of special-casing the
 /// block pass afterward.
+///
+/// ## Investigation findings (2026-04-01)
+///
+/// **FP root cause — display width vs. codepoint count in interpolated strings:**
+/// RuboCop uses `Unicode::DisplayWidth` for the base column in
+/// `with_first_argument` mode. Our previous implementation used
+/// `offset_to_line_col()`, which counts UTF-8 codepoints, so a wide character
+/// such as `🌊`, `🌌`, or fullwidth text before `#{...}` made the first
+/// argument's expected column too small. The continued argument line contained
+/// only spaces, so its visual column matched RuboCop but nitrocop still
+/// reported a false positive. Fix: compute the first-argument base column from
+/// the display width of the line prefix, while keeping the rest of the
+/// alignment logic unchanged.
 pub struct ArgumentAlignment;
 
 impl Cop for ArgumentAlignment {
@@ -174,8 +187,8 @@ impl Cop for ArgumentAlignment {
         }
 
         let first_arg = &effective_args[0];
-        let (first_line, first_col) =
-            source.offset_to_line_col(first_arg.location().start_offset());
+        let first_start = first_arg.location().start_offset();
+        let (first_line, first_col) = source.offset_to_line_col(first_start);
 
         let mut checked_lines = std::collections::HashSet::new();
         checked_lines.insert(first_line);
@@ -201,7 +214,7 @@ impl Cop for ArgumentAlignment {
                 let base_line_bytes = source.lines().nth(base_line - 1).unwrap_or(b"");
                 crate::cop::util::indentation_of(base_line_bytes) + indent_width
             }
-            _ => first_col, // "with_first_argument" (default)
+            _ => display_column(source, first_start).unwrap_or(first_col),
         };
 
         for arg in effective_args.iter().skip(1) {
@@ -229,6 +242,109 @@ impl Cop for ArgumentAlignment {
             }
         }
     }
+}
+
+fn display_column(source: &SourceFile, byte_offset: usize) -> Option<usize> {
+    let (line, fallback_col) = source.offset_to_line_col(byte_offset);
+    let line_start = source.line_start_offset(line);
+    let prefix = source.try_byte_slice(line_start, byte_offset)?;
+    Some(display_width(prefix).max(fallback_col))
+}
+
+fn display_width(text: &str) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let mut width = 0;
+    let mut i = 0;
+
+    while i < chars.len() {
+        let ch = chars[i];
+        if is_zero_width(ch) {
+            i += 1;
+            continue;
+        }
+
+        if is_regional_indicator(ch)
+            && chars
+                .get(i + 1)
+                .is_some_and(|next| is_regional_indicator(*next))
+        {
+            width += 2;
+            i += 2;
+            continue;
+        }
+
+        let base_width =
+            if is_wide(ch) || (is_emoji_symbol(ch) && chars.get(i + 1) == Some(&'\u{FE0F}')) {
+                2
+            } else {
+                1
+            };
+        width += base_width;
+        i += 1;
+
+        while chars
+            .get(i)
+            .is_some_and(|next| is_combining_or_variation(*next))
+        {
+            i += 1;
+        }
+
+        // Treat emoji ZWJ sequences as a single grapheme cluster of the base width.
+        while chars.get(i) == Some(&'\u{200D}') && chars.get(i + 1).is_some() {
+            i += 2;
+            while chars
+                .get(i)
+                .is_some_and(|next| is_combining_or_variation(*next))
+            {
+                i += 1;
+            }
+        }
+    }
+
+    width
+}
+
+fn is_zero_width(ch: char) -> bool {
+    ch == '\u{200C}' || ch == '\u{200D}' || is_combining_or_variation(ch)
+}
+
+fn is_combining_or_variation(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x0300..=0x036F
+            | 0x1AB0..=0x1AFF
+            | 0x1DC0..=0x1DFF
+            | 0x20D0..=0x20FF
+            | 0xFE00..=0xFE0F
+            | 0xFE20..=0xFE2F
+            | 0x1F3FB..=0x1F3FF
+            | 0xE0100..=0xE01EF
+    )
+}
+
+fn is_regional_indicator(ch: char) -> bool {
+    matches!(ch as u32, 0x1F1E6..=0x1F1FF)
+}
+
+fn is_emoji_symbol(ch: char) -> bool {
+    matches!(ch as u32, 0x2600..=0x27BF)
+}
+
+fn is_wide(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x1100..=0x115F
+            | 0x2329..=0x232A
+            | 0x2E80..=0xA4CF
+            | 0xAC00..=0xD7A3
+            | 0xF900..=0xFAFF
+            | 0xFE10..=0xFE19
+            | 0xFE30..=0xFE6F
+            | 0xFF01..=0xFF60
+            | 0xFFE0..=0xFFE6
+            | 0x1F300..=0x1FAFF
+            | 0x20000..=0x3FFFD
+    )
 }
 
 #[cfg(test)]
