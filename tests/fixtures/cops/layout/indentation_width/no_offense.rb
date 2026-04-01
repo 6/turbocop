@@ -250,28 +250,3 @@ end
 # Body not at first char on line — skip (RuboCop skip_check?)
 if cond then result = value
 end
-
-# Tab-indented code — Layout/IndentationWidth skips tab indentation
-# (handled by Layout/IndentationStyle instead)
-class TabIndented
-	def foo
-		bar
-	end
-
-	private def plain(value)
-		value
-		raw(value)
-	end
-end
-
-def tab_method
-	x = 1
-end
-
-if tab_cond
-	do_something
-end
-
-module TabModule
-	CONST = 1
-end
