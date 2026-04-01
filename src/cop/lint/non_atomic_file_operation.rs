@@ -61,6 +61,16 @@ use crate::parse::source::SourceFile;
 ///
 /// Important: we still skip top-level unparenthesized `&&`/`||` conditions to match
 /// RuboCop's no-offense cases such as `if File.exist?(path) && other`.
+///
+/// ## Fix: space before paren causes argument mismatch (1 FP)
+///
+/// `Dir.exist? (path)` (space before paren) causes Prism to wrap the argument in a
+/// `ParenthesesNode`, while `FileUtils.rm_rf(path)` has a bare argument. RuboCop
+/// compares `first_argument` AST nodes directly — `(begin (lvar :path))` ≠
+/// `(lvar :path)` — so no offense is emitted. Our `canonical_arg` was stripping
+/// `ParenthesesNode` wrappers, making the arguments match incorrectly. Removed the
+/// unwrapping from `canonical_arg` (condition-level paren handling remains in
+/// `find_exist_info`).
 pub struct NonAtomicFileOperation;
 
 const MAKE_METHODS: &[&[u8]] = &[b"mkdir"];
@@ -139,20 +149,12 @@ fn is_exist_call(call: &ruby_prism::CallNode<'_>) -> bool {
 /// For call nodes, builds a structural fingerprint so `results_path()` == `results_path`.
 /// For everything else, uses the raw source bytes.
 fn canonical_arg(node: &ruby_prism::Node<'_>) -> Vec<u8> {
-    if let Some(parens) = node.as_parentheses_node() {
-        if let Some(body) = parens.body() {
-            return canonical_arg(&body);
-        }
-    }
-
-    if let Some(stmts) = node.as_statements_node() {
-        let mut iter = stmts.body().iter();
-        if let Some(first) = iter.next() {
-            if iter.next().is_none() {
-                return canonical_arg(&first);
-            }
-        }
-    }
+    // NOTE: Do NOT unwrap ParenthesesNode here. In Ruby, `method (arg)` (space
+    // before paren) wraps the argument in a parentheses/begin node, while
+    // `method(arg)` does not. RuboCop compares first_argument AST nodes directly,
+    // so these don't match and no offense is emitted. We must preserve this
+    // distinction. ParenthesesNode unwrapping for *conditions* is handled
+    // separately in find_exist_info.
 
     if let Some(s) = node.as_string_node() {
         s.unescaped().to_vec()
