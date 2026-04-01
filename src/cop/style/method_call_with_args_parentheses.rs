@@ -58,10 +58,23 @@ use crate::parse::source::SourceFile;
 /// committed `.coverage` dotfile basename to match RuboCop's repo-target
 /// selection for count-only corpus runs.
 ///
-/// Remaining ~9.6k FN: likely from additional non-wrapper node types not yet
+/// ## Corpus investigation (2026-04-01)
+///
+/// FN root cause: `visit_lambda_node` used `wrapper_child_scope()`, which
+/// preserves macro scope through lambdas unconditionally.  But in Parser
+/// AST, `-> { ... }` is `(block (send nil :lambda) ...)`, and RuboCop's
+/// `in_macro_scope?` does NOT treat non-class-constructor blocks as
+/// wrappers.  This meant receiverless calls inside lambdas passed as
+/// arguments (e.g. `scope :x, -> { where active: true }`) were
+/// incorrectly treated as macros and skipped.  Fixed by switching to
+/// `call_block_child_scope()`, which checks `nested_in_non_wrapper()`
+/// so that lambdas under call-argument parents break macro scope, while
+/// lambdas inside wrapper blocks (`subject { -> { get :idx } }`) still
+/// inherit it.  Resolved ~1k FN with 0 regressions.
+///
+/// Remaining FN: likely from additional non-wrapper node types not yet
 /// tracked on parent_stack, or subtle differences in how Prism vs Parser
-/// represent certain AST structures. These need further investigation with
-/// concrete corpus examples.
+/// represent certain AST structures.
 pub struct MethodCallWithArgsParentheses;
 
 fn is_operator(name: &[u8]) -> bool {
@@ -1125,10 +1138,17 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
-        // RuboCop's macro? returns true for calls inside lambdas when the
-        // lambda is ultimately in a macro scope (class/module body, top level).
-        // Use wrapper_child_scope() to preserve the parent's macro scope.
-        let child_scope = self.wrapper_child_scope();
+        // In Parser AST, `-> { ... }` is `(block (send nil :lambda) ...)`.
+        // RuboCop's `in_macro_scope?` does NOT list `block` as a wrapper —
+        // only `class_constructor?` blocks propagate macro scope.  Since a
+        // lambda literal is never a class constructor, its body only inherits
+        // macro scope when the lambda expression itself is in macro scope
+        // (i.e. not nested under a non-wrapper parent such as a call's
+        // arguments).  Use `call_block_child_scope()` so that lambdas passed
+        // as arguments (`scope :x, -> { where ... }`) break macro scope,
+        // while lambdas inside wrapper blocks (`subject { -> { get :idx } }`)
+        // preserve it.
+        let child_scope = self.call_block_child_scope();
         self.push_scope(child_scope);
         if let Some(body) = node.body() {
             self.visit(&body);
