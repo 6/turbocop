@@ -29,7 +29,8 @@ use ruby_prism::Visit;
 /// missed because the visitor only called `check_statements` from a small
 /// whitelist of parent node types. Prism already visits every statement list
 /// through `StatementsNode`, so this cop now checks each `StatementsNode`
-/// exactly once and keeps the existing scoping exemption logic unchanged.
+/// exactly once and evaluates the scoping exemption against the enclosing
+/// lexical scope instead of only immediate sibling statements.
 pub struct InfiniteLoop;
 
 impl Cop for InfiniteLoop {
@@ -50,16 +51,18 @@ impl Cop for InfiniteLoop {
             cop: self,
             source,
             diagnostics: Vec::new(),
+            scope_stack: Vec::new(),
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
     }
 }
 
-struct InfiniteLoopVisitor<'a> {
+struct InfiniteLoopVisitor<'a, 'pr> {
     cop: &'a InfiniteLoop,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
+    scope_stack: Vec<ruby_prism::Node<'pr>>,
 }
 
 /// Returns true if the node is a truthy literal (true, integer, float, array, hash).
@@ -100,31 +103,55 @@ impl<'pr> Visit<'pr> for LvarWriteCollector {
             self.names.push(name);
         }
     }
+
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
+
+    fn visit_lambda_node(&mut self, _node: &ruby_prism::LambdaNode<'pr>) {}
+
+    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
+
+    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+
+    fn visit_singleton_class_node(&mut self, _node: &ruby_prism::SingletonClassNode<'pr>) {}
 }
 
-/// Visitor to check if any of the given variable names are read.
-struct LvarReadChecker<'a> {
-    names: &'a [Vec<u8>],
+/// Visitor to check if a variable is read after a given offset within the current scope.
+struct ScopedLvarReadChecker<'a> {
+    name: &'a [u8],
+    after_offset: usize,
     found: bool,
 }
 
-impl<'pr> Visit<'pr> for LvarReadChecker<'_> {
+impl<'pr> Visit<'pr> for ScopedLvarReadChecker<'_> {
     fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
-        if self.names.contains(&node.name().as_slice().to_vec()) {
+        if node.name().as_slice() == self.name && node.location().start_offset() > self.after_offset
+        {
             self.found = true;
         }
     }
+
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
+
+    fn visit_lambda_node(&mut self, _node: &ruby_prism::LambdaNode<'pr>) {}
+
+    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
+
+    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+
+    fn visit_singleton_class_node(&mut self, _node: &ruby_prism::SingletonClassNode<'pr>) {}
 }
 
-/// Visitor to check if a specific variable name is written.
-struct LvarWriteChecker<'a> {
+/// Visitor to check if a variable is written before a given offset within the current scope.
+struct ScopedLvarWriteChecker<'a> {
     name: &'a [u8],
+    before_offset: usize,
     found: bool,
 }
 
-impl<'pr> Visit<'pr> for LvarWriteChecker<'_> {
+impl<'pr> Visit<'pr> for ScopedLvarWriteChecker<'_> {
     fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
-        if node.name().as_slice() == self.name {
+        if node.name().as_slice() == self.name && node.location().end_offset() < self.before_offset
+        {
             self.found = true;
         }
         ruby_prism::visit_local_variable_write_node(self, node);
@@ -134,10 +161,21 @@ impl<'pr> Visit<'pr> for LvarWriteChecker<'_> {
         &mut self,
         node: &ruby_prism::LocalVariableTargetNode<'pr>,
     ) {
-        if node.name().as_slice() == self.name {
+        if node.name().as_slice() == self.name && node.location().end_offset() < self.before_offset
+        {
             self.found = true;
         }
     }
+
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
+
+    fn visit_lambda_node(&mut self, _node: &ruby_prism::LambdaNode<'pr>) {}
+
+    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
+
+    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+
+    fn visit_singleton_class_node(&mut self, _node: &ruby_prism::SingletonClassNode<'pr>) {}
 }
 
 fn collect_lvar_writes(node: &ruby_prism::Node<'_>) -> Vec<Vec<u8>> {
@@ -146,17 +184,22 @@ fn collect_lvar_writes(node: &ruby_prism::Node<'_>) -> Vec<Vec<u8>> {
     collector.names
 }
 
-fn has_lvar_read(node: &ruby_prism::Node<'_>, names: &[Vec<u8>]) -> bool {
-    let mut checker = LvarReadChecker {
-        names,
+fn has_lvar_read_after(node: &ruby_prism::Node<'_>, name: &[u8], after_offset: usize) -> bool {
+    let mut checker = ScopedLvarReadChecker {
+        name,
+        after_offset,
         found: false,
     };
     checker.visit(node);
     checker.found
 }
 
-fn has_lvar_write(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
-    let mut checker = LvarWriteChecker { name, found: false };
+fn has_lvar_write_before(node: &ruby_prism::Node<'_>, name: &[u8], before_offset: usize) -> bool {
+    let mut checker = ScopedLvarWriteChecker {
+        name,
+        before_offset,
+        found: false,
+    };
     checker.visit(node);
     checker.found
 }
@@ -164,8 +207,8 @@ fn has_lvar_write(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
 /// Check if converting a while/until loop to `loop do` would break variable scoping.
 /// Returns true if the offense should be suppressed.
 fn would_break_scoping(
-    siblings: &[ruby_prism::Node<'_>],
-    loop_index: usize,
+    scope: &ruby_prism::Node<'_>,
+    loop_range: ruby_prism::Location<'_>,
     loop_stmts: Option<ruby_prism::StatementsNode<'_>>,
 ) -> bool {
     let stmts_node = match loop_stmts {
@@ -179,18 +222,12 @@ fn would_break_scoping(
     }
 
     for var_name in &vars_written_inside {
-        // Check if variable is assigned before the loop
-        let assigned_before = siblings[..loop_index]
-            .iter()
-            .any(|s| has_lvar_write(s, var_name));
+        let assigned_before = has_lvar_write_before(scope, var_name, loop_range.start_offset());
         if assigned_before {
             continue;
         }
 
-        // Check if variable is referenced after the loop
-        let referenced_after = siblings[loop_index + 1..]
-            .iter()
-            .any(|s| has_lvar_read(s, std::slice::from_ref(var_name)));
+        let referenced_after = has_lvar_read_after(scope, var_name, loop_range.end_offset());
         if referenced_after {
             return true;
         }
@@ -199,12 +236,16 @@ fn would_break_scoping(
     false
 }
 
-impl InfiniteLoopVisitor<'_> {
+impl InfiniteLoopVisitor<'_, '_> {
     fn check_statements(&mut self, stmts: &[ruby_prism::Node<'_>]) {
-        for (i, stmt) in stmts.iter().enumerate() {
+        let Some(scope) = self.scope_stack.last() else {
+            return;
+        };
+
+        for stmt in stmts {
             if let Some(while_node) = stmt.as_while_node() {
                 if is_truthy_literal(&while_node.predicate())
-                    && !would_break_scoping(stmts, i, while_node.statements())
+                    && !would_break_scoping(scope, while_node.location(), while_node.statements())
                 {
                     let kw_loc = while_node.keyword_loc();
                     let (line, column) = self.source.offset_to_line_col(kw_loc.start_offset());
@@ -217,7 +258,7 @@ impl InfiniteLoopVisitor<'_> {
                 }
             } else if let Some(until_node) = stmt.as_until_node() {
                 if is_falsey_literal(&until_node.predicate())
-                    && !would_break_scoping(stmts, i, until_node.statements())
+                    && !would_break_scoping(scope, until_node.location(), until_node.statements())
                 {
                     let kw_loc = until_node.keyword_loc();
                     let (line, column) = self.source.offset_to_line_col(kw_loc.start_offset());
@@ -233,7 +274,63 @@ impl InfiniteLoopVisitor<'_> {
     }
 }
 
-impl<'pr> Visit<'pr> for InfiniteLoopVisitor<'_> {
+impl<'pr> Visit<'pr> for InfiniteLoopVisitor<'_, 'pr> {
+    fn visit_program_node(&mut self, node: &ruby_prism::ProgramNode<'pr>) {
+        self.scope_stack.push(node.statements().as_node());
+        ruby_prism::visit_program_node(self, node);
+        self.scope_stack.pop();
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        if let Some(body) = node.body() {
+            self.scope_stack.push(body);
+            ruby_prism::visit_def_node(self, node);
+            self.scope_stack.pop();
+        } else {
+            ruby_prism::visit_def_node(self, node);
+        }
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        if let Some(body) = node.body() {
+            self.scope_stack.push(body);
+            ruby_prism::visit_lambda_node(self, node);
+            self.scope_stack.pop();
+        } else {
+            ruby_prism::visit_lambda_node(self, node);
+        }
+    }
+
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        if let Some(body) = node.body() {
+            self.scope_stack.push(body);
+            ruby_prism::visit_class_node(self, node);
+            self.scope_stack.pop();
+        } else {
+            ruby_prism::visit_class_node(self, node);
+        }
+    }
+
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+        if let Some(body) = node.body() {
+            self.scope_stack.push(body);
+            ruby_prism::visit_module_node(self, node);
+            self.scope_stack.pop();
+        } else {
+            ruby_prism::visit_module_node(self, node);
+        }
+    }
+
+    fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
+        if let Some(body) = node.body() {
+            self.scope_stack.push(body);
+            ruby_prism::visit_singleton_class_node(self, node);
+            self.scope_stack.pop();
+        } else {
+            ruby_prism::visit_singleton_class_node(self, node);
+        }
+    }
+
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
         let children: Vec<_> = node.body().iter().collect();
         self.check_statements(&children);
