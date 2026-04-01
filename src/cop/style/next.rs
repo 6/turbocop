@@ -9,15 +9,22 @@ use crate::parse::source::SourceFile;
 /// Key fixes applied:
 /// - Check the LAST statement in block body, not just single-statement bodies
 ///   (RuboCop's `ends_with_condition?` logic). This was the main source of FN.
+/// - Match RuboCop's line-based `MinBodyLength` check instead of counting
+///   top-level statements. This fixes multiline single-statement and two-statement
+///   bodies such as builder blocks, nested `do ... end` bodies, and multiline
+///   hash literals.
+/// - Skip outer conditionals whose top-level body contains a nested
+///   `if/unless ... else`; RuboCop treats those as control-flow branches rather
+///   than simple "guard the rest of the iteration" wrappers.
 /// - Added `while`/`until` loop support (RuboCop's `on_while`/`on_until`).
 /// - Added `loop` and other missing enumerator methods (`inject`, `reduce`,
 ///   `find_index`, `map!`, `select!`, `reject!`).
 /// - Added `each_*` prefix matching for dynamic enumerator methods.
 /// - Removed `any?`/`none?` (not in RuboCop's ENUMERATOR_METHODS, caused FP).
 ///
-/// Remaining FN sources: `AllowConsecutiveConditionals` handling, `if_else_children?`
-/// check (skip when nested if-else in body), `exit_body_type?` (skip when body is
-/// break/return), and some config/context differences.
+/// Remaining FN sources: `AllowConsecutiveConditionals` handling, deeper
+/// `if_else_children?` parity beyond top-level body statements, and some
+/// config/context differences.
 pub struct Next;
 
 /// Iterator methods whose blocks should use `next` instead of wrapping conditionals.
@@ -93,6 +100,63 @@ struct NextVisitor<'a> {
 }
 
 impl NextVisitor<'_> {
+    fn is_modifier_form(
+        &self,
+        keyword_loc: &ruby_prism::Location<'_>,
+        statements: Option<ruby_prism::StatementsNode<'_>>,
+    ) -> bool {
+        statements.is_some_and(|stmts| stmts.location().start_offset() < keyword_loc.start_offset())
+    }
+
+    fn meets_min_body_length(
+        &self,
+        keyword_loc: &ruby_prism::Location<'_>,
+        end_keyword_loc: Option<ruby_prism::Location<'_>>,
+    ) -> bool {
+        let Some(end_keyword_loc) = end_keyword_loc else {
+            // Modifier forms do not have an `end`; RuboCop does not apply
+            // MinBodyLength to them.
+            return true;
+        };
+
+        let (keyword_line, _) = self.source.offset_to_line_col(keyword_loc.start_offset());
+        let (end_line, _) = self
+            .source
+            .offset_to_line_col(end_keyword_loc.start_offset());
+        end_line.saturating_sub(keyword_line) > self.min_body_length
+    }
+
+    fn is_exit_body(&self, statements: Option<ruby_prism::StatementsNode<'_>>) -> bool {
+        let Some(statements) = statements else {
+            return false;
+        };
+
+        let mut body = statements.body().iter();
+        let Some(first_stmt) = body.next() else {
+            return false;
+        };
+
+        body.next().is_none()
+            && (first_stmt.as_break_node().is_some() || first_stmt.as_return_node().is_some())
+    }
+
+    fn has_nested_conditional_with_else(
+        &self,
+        statements: Option<ruby_prism::StatementsNode<'_>>,
+    ) -> bool {
+        let Some(statements) = statements else {
+            return false;
+        };
+
+        statements.body().iter().any(|stmt| {
+            stmt.as_if_node()
+                .is_some_and(|nested_if| nested_if.subsequent().is_some())
+                || stmt
+                    .as_unless_node()
+                    .is_some_and(|nested_unless| nested_unless.else_clause().is_some())
+        })
+    }
+
     fn check_block_body(&mut self, body: &ruby_prism::Node<'_>) {
         let stmts = match body.as_statements_node() {
             Some(s) => s,
@@ -115,40 +179,34 @@ impl NextVisitor<'_> {
             }
 
             // Skip modifier ifs if style is skip_modifier_ifs
-            if self.style == "skip_modifier_ifs" {
-                if let Some(kw_loc) = if_node.if_keyword_loc() {
-                    // Modifier if: the keyword comes after the body
-                    let kw = kw_loc.as_slice();
-                    if kw == b"if" || kw == b"unless" {
-                        if let Some(body_stmts) = if_node.statements() {
-                            let body_loc = body_stmts.location();
-                            if body_loc.start_offset() < kw_loc.start_offset() {
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
+            let Some(kw_loc) = if_node.if_keyword_loc() else {
+                return;
+            };
+            let if_statements = if_node.statements();
 
-            // Check body length
-            if let Some(if_body) = if_node.statements() {
-                let if_body_stmts: Vec<_> = if_body.body().iter().collect();
-                if if_body_stmts.len() < self.min_body_length {
-                    return;
-                }
-            } else {
+            if self.style == "skip_modifier_ifs" && self.is_modifier_form(&kw_loc, if_statements) {
                 return;
             }
 
-            if let Some(kw_loc) = if_node.if_keyword_loc() {
-                let (line, column) = self.source.offset_to_line_col(kw_loc.start_offset());
-                self.diagnostics.push(self.cop.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    "Use `next` to skip iteration.".to_string(),
-                ));
+            if self.is_exit_body(if_node.statements()) {
+                return;
             }
+
+            if self.has_nested_conditional_with_else(if_node.statements()) {
+                return;
+            }
+
+            if !self.meets_min_body_length(&kw_loc, if_node.end_keyword_loc()) {
+                return;
+            }
+
+            let (line, column) = self.source.offset_to_line_col(kw_loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Use `next` to skip iteration.".to_string(),
+            ));
         } else if let Some(unless_node) = stmt.as_unless_node() {
             // Skip if it has an else branch
             if unless_node.else_clause().is_some() {
@@ -156,27 +214,27 @@ impl NextVisitor<'_> {
             }
 
             // Skip modifier unless if style is skip_modifier_ifs
-            if self.style == "skip_modifier_ifs" {
-                let kw_loc = unless_node.keyword_loc();
-                if let Some(body_stmts) = unless_node.statements() {
-                    let body_loc = body_stmts.location();
-                    if body_loc.start_offset() < kw_loc.start_offset() {
-                        return;
-                    }
-                }
-            }
+            let kw_loc = unless_node.keyword_loc();
+            let unless_statements = unless_node.statements();
 
-            // Check body length
-            if let Some(unless_body) = unless_node.statements() {
-                let unless_body_stmts: Vec<_> = unless_body.body().iter().collect();
-                if unless_body_stmts.len() < self.min_body_length {
-                    return;
-                }
-            } else {
+            if self.style == "skip_modifier_ifs"
+                && self.is_modifier_form(&kw_loc, unless_statements)
+            {
                 return;
             }
 
-            let kw_loc = unless_node.keyword_loc();
+            if self.is_exit_body(unless_node.statements()) {
+                return;
+            }
+
+            if self.has_nested_conditional_with_else(unless_node.statements()) {
+                return;
+            }
+
+            if !self.meets_min_body_length(&kw_loc, unless_node.end_keyword_loc()) {
+                return;
+            }
+
             let (line, column) = self.source.offset_to_line_col(kw_loc.start_offset());
             self.diagnostics.push(self.cop.diagnostic(
                 self.source,
