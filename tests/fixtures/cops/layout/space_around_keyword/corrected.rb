@@ -52,3 +52,7 @@ case conf[:mode]
 when :new_ring
   nil
 end
+
+(m..n).inject(0) do |sum, j|
+  sum + j
+end

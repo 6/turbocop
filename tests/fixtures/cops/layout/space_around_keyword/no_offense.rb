@@ -43,6 +43,15 @@ result = Arel::Nodes::Case.new.
 # `&.when(...)` safe-navigation method call
 obj&.when(condition)
 
+# Keyword-named method calls remain method calls in more complex formatting
+scope.where(subject_type: Group.sti_name, subject_id: groups.select(:id)).
+  # ... or to a person in one of the groups
+  or(scope.where(subject_type: Person.sti_name, subject_id: person_ids))
+
+message = <<~SQL
+  AND #{arel_table(:start_on).lteq(Time.zone.today).or(arel_table(:start_on).eq(nil)).to_sql}
+SQL
+
 # Instance variables with keyword names
 @case = 1
 @in = 2
@@ -162,6 +171,13 @@ yield[1]
 { ensure: 1, elsif: 2, unless: 3 }
 { until: 1, while: 2, when: 3 }
 
+# Keyword parameters in method definitions are labels, not executable keywords
+def configure(if: nil, unless: nil, in: nil, return: nil, do: nil, &block)
+  [binding.local_variable_get(:if), binding.local_variable_get(:unless),
+   binding.local_variable_get(:in), binding.local_variable_get(:return),
+   binding.local_variable_get(:do), block]
+end
+
 # RuboCop does not check "space before end" for def/class/module — only for
 # begin..end, do..end blocks, if/unless/case, and while/until/for with do.
 # Minified code (e.g. camping) packs end right after string/paren/brace.
@@ -203,3 +219,13 @@ end
 result = Arel::Nodes::Case.new.
   when(transition_table[:id].eq(most_recent_id)).
   then(db_true)
+
+# Post-condition begin/end loops and missing space before `do` after paren calls are accepted
+begin
+  ancestors.push(mark)
+  mark = mark.parent
+end while(mark=mark.parent)
+
+source2evt.inject(0)do |memo, evts|
+  memo + evts[1].inject(0) { |sum, h| sum + h[1].size }
+end
