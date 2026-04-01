@@ -101,8 +101,8 @@ impl Cop for RedundantRegexpEscape {
         let mut offsets = Vec::new();
 
         let scan_full_interpolated =
-            !followed_by_block_opener(source.as_bytes(), node_loc.end_offset())
-                && !(flags.extended && full_bytes.contains(&b'\n'));
+            !(followed_by_block_opener(source.as_bytes(), node_loc.end_offset())
+                || flags.extended && full_bytes.contains(&b'\n'));
 
         for part in re.parts().iter() {
             if let Some(string) = part.as_string_node() {
