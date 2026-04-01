@@ -96,3 +96,24 @@ names = %w[
   beta
   gamma
 ]
+
+PWN::Plugins::BlackDuckBinaryAnalysis.abort_product_scan(
+^ Layout/RedundantLineBreak: Redundant line break detected.
+
+extract_uris(
+^ Layout/RedundantLineBreak: Redundant line break detected.
+
+cmd(
+^ Layout/RedundantLineBreak: Redundant line break detected.
+
+spec.add_development_dependency(
+^ Layout/RedundantLineBreak: Redundant line break detected.
+
+spec.add_dependency(
+^ Layout/RedundantLineBreak: Redundant line break detected.
+
+Trip::InternalError.new(
+^ Layout/RedundantLineBreak: Redundant line break detected.
+
+Trip::PauseError.new(
+^ Layout/RedundantLineBreak: Redundant line break detected.
