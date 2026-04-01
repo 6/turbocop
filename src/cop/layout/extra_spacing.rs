@@ -136,6 +136,14 @@ use std::ops::Range;
 ///     helper-browser examples undetected. Fixed by scanning heredoc
 ///     interpolation offsets while still excluding nested string/regex/symbol
 ///     literals within those interpolations.
+///
+/// 15. **Numeric literal alignment FNs (fixed 2026-04-01)**: `extract_token_at`
+///     treated numeric literals like `0.4725` and `-1.0710` as single-character
+///     tokens (`0` or `-`). That made unrelated floats in aligned matrix data
+///     look like exact token matches, so extra spaces before later values were
+///     incorrectly allowed. Extract full numeric literals, including signs,
+///     decimal parts, exponents, and common Ruby suffixes, before comparing
+///     exact-token alignment.
 pub struct ExtraSpacing;
 
 impl Cop for ExtraSpacing {
@@ -596,6 +604,7 @@ fn check_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> bool {
 /// This mirrors RuboCop's `range.source` for token comparison in `aligned_words?`.
 ///
 /// - Alphanumeric/underscore: returns the full identifier.
+/// - Numeric literals: returns the full numeric token, including sign/decimal/exponent.
 /// - `@`, `@@`, `$` followed by identifier: returns the full variable name.
 /// - `.` followed by a letter/underscore: returns `.method_name` (method call).
 /// - `"` or `'`: returns the full quoted string to avoid coincidental single-char matches.
@@ -606,7 +615,10 @@ fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
         return &[];
     }
     let ch = line[col];
-    if ch.is_ascii_alphanumeric() || ch == b'_' {
+    if is_numeric_literal_start(line, col) {
+        let end = numeric_literal_end(line, col);
+        &line[col..end]
+    } else if ch.is_ascii_alphanumeric() || ch == b'_' {
         // Identifier: take consecutive word characters
         let end = line[col..]
             .iter()
@@ -672,6 +684,78 @@ fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
         // Other operator/punctuation: just the single character
         &line[col..col + 1]
     }
+}
+
+fn is_numeric_literal_start(line: &[u8], col: usize) -> bool {
+    if col >= line.len() {
+        return false;
+    }
+
+    let ch = line[col];
+    if ch.is_ascii_digit() {
+        return true;
+    }
+
+    (ch == b'+' || ch == b'-') && col + 1 < line.len() && line[col + 1].is_ascii_digit()
+}
+
+fn numeric_literal_end(line: &[u8], col: usize) -> usize {
+    let mut i = col;
+
+    if line[i] == b'+' || line[i] == b'-' {
+        i += 1;
+    }
+
+    if i + 1 < line.len()
+        && line[i] == b'0'
+        && matches!(
+            line[i + 1],
+            b'b' | b'B' | b'd' | b'D' | b'o' | b'O' | b'x' | b'X'
+        )
+    {
+        i += 2;
+        while i < line.len() && is_base_prefixed_numeric_char(line[i]) {
+            i += 1;
+        }
+    } else {
+        while i < line.len() && (line[i].is_ascii_digit() || line[i] == b'_') {
+            i += 1;
+        }
+
+        if i + 1 < line.len() && line[i] == b'.' && line[i + 1].is_ascii_digit() {
+            i += 1;
+            while i < line.len() && (line[i].is_ascii_digit() || line[i] == b'_') {
+                i += 1;
+            }
+        }
+
+        if i < line.len() && (line[i] == b'e' || line[i] == b'E') {
+            let exp_start = i;
+            i += 1;
+            if i < line.len() && (line[i] == b'+' || line[i] == b'-') {
+                i += 1;
+            }
+
+            let digits_start = i;
+            while i < line.len() && (line[i].is_ascii_digit() || line[i] == b'_') {
+                i += 1;
+            }
+
+            if digits_start == i {
+                i = exp_start;
+            }
+        }
+    }
+
+    while i < line.len() && matches!(line[i], b'i' | b'r') {
+        i += 1;
+    }
+
+    i
+}
+
+fn is_base_prefixed_numeric_char(ch: u8) -> bool {
+    ch.is_ascii_alphanumeric() || ch == b'_'
 }
 
 /// Check if there's equals-sign alignment between the current line and

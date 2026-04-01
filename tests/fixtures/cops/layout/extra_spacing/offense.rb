@@ -81,13 +81,16 @@ assert { case1("@gptあ")   == "あ" }
 text str: 'The Title',   layout: :title # from custom-layout.yml
                       ^^ Layout/ExtraSpacing: Unnecessary spacing detected.
 
-[[ 0.7493,  0.4482, -2.1426,  0.5586,  0.5540, -0.1676],
+expected_out = Torch.tensor([
+  [[ 0.7493,  0.4482, -2.1426,  0.5586,  0.5540, -0.1676],
+                              ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+   [-1.7787,  1.3332, -0.3269, -0.2184,  0.9501,  0.0408]],
 
-[[ 0.0258, -0.3633,  0.4725, -0.5102,  1.8175, -1.4423],
-                   ^ Layout/ExtraSpacing: Unnecessary spacing detected.
-
-[-1.0710,  1.1253, -1.0413, -0.5237,  1.4925,  0.0183]],
-                                    ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+  [[ 0.0258, -0.3633,  0.4725, -0.5102,  1.8175, -1.4423],
+                     ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+   [-0.8428,  0.8163, -1.7820,  0.9993,  0.1579,  0.6513]],
+                              ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+])
 
 html = <<-EOF
 #{foo(1,  2)}
