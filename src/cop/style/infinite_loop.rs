@@ -23,6 +23,13 @@ use ruby_prism::Visit;
 /// collects local variable writes inside loop bodies and reads after the loop,
 /// implementing the variable scoping exemption. Also added truthy/falsey
 /// literal detection for integers, floats, arrays, hashes, and nil.
+///
+/// Additional FN reduction: nested `while true` / `until false` loops under
+/// Prism statement-bearing nodes like `if`, `else`, and `begin` were still
+/// missed because the visitor only called `check_statements` from a small
+/// whitelist of parent node types. Prism already visits every statement list
+/// through `StatementsNode`, so this cop now checks each `StatementsNode`
+/// exactly once and keeps the existing scoping exemption logic unchanged.
 pub struct InfiniteLoop;
 
 impl Cop for InfiniteLoop {
@@ -227,78 +234,10 @@ impl InfiniteLoopVisitor<'_> {
 }
 
 impl<'pr> Visit<'pr> for InfiniteLoopVisitor<'_> {
-    fn visit_program_node(&mut self, node: &ruby_prism::ProgramNode<'pr>) {
-        let stmts: Vec<_> = node.statements().body().iter().collect();
-        self.check_statements(&stmts);
-        ruby_prism::visit_program_node(self, node);
-    }
-
-    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        if let Some(body) = node.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                let children: Vec<_> = stmts.body().iter().collect();
-                self.check_statements(&children);
-            }
-        }
-        ruby_prism::visit_def_node(self, node);
-    }
-
-    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
-        if let Some(body) = node.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                let children: Vec<_> = stmts.body().iter().collect();
-                self.check_statements(&children);
-            }
-        }
-        ruby_prism::visit_block_node(self, node);
-    }
-
-    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
-        if let Some(body) = node.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                let children: Vec<_> = stmts.body().iter().collect();
-                self.check_statements(&children);
-            }
-        }
-        ruby_prism::visit_lambda_node(self, node);
-    }
-
-    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
-        if let Some(body) = node.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                let children: Vec<_> = stmts.body().iter().collect();
-                self.check_statements(&children);
-            }
-        }
-        ruby_prism::visit_class_node(self, node);
-    }
-
-    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        if let Some(body) = node.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                let children: Vec<_> = stmts.body().iter().collect();
-                self.check_statements(&children);
-            }
-        }
-        ruby_prism::visit_module_node(self, node);
-    }
-
-    fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
-        if let Some(body) = node.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                let children: Vec<_> = stmts.body().iter().collect();
-                self.check_statements(&children);
-            }
-        }
-        ruby_prism::visit_singleton_class_node(self, node);
-    }
-
-    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
-        if let Some(stmts) = node.statements() {
-            let children: Vec<_> = stmts.body().iter().collect();
-            self.check_statements(&children);
-        }
-        ruby_prism::visit_begin_node(self, node);
+    fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
+        let children: Vec<_> = node.body().iter().collect();
+        self.check_statements(&children);
+        ruby_prism::visit_statements_node(self, node);
     }
 }
 

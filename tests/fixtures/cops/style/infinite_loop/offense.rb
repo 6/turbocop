@@ -57,3 +57,38 @@ def ivar_assign
   end
   puts @a
 end
+
+# Nested inside an if branch — still an offense
+def nested_if_branch
+  if ready?
+    while true
+    ^^^^^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+      work
+      break if done?
+    end
+  end
+end
+
+while true
+^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+
+while true
+^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+
+while true
+^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+
+while true
+^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+
+while true
+^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+
+while true
+^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+
+while true
+^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+
+while true
+^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
