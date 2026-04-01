@@ -489,6 +489,67 @@ use crate::parse::source::SourceFile;
 ///   requires VariableForce-level per-assignment reference tracking.
 /// - FN=20: VariableForce scope-tracking gaps, conditional write/kill analysis,
 ///   lambda capture semantics, and `def` body edge cases.
+///
+/// ## Fix (FP/FN: inline assignments, ||=, operator-write kills, 2026-04-01)
+///
+/// **FN fix: `||=`/`&&=` in `node_references_var`**
+/// `LocalVariableOrWriteNode` and `LocalVariableAndWriteNode` were not matching
+/// by variable name — only recursed into value. `||=` reads the variable first,
+/// so it IS a reference. Added name check. Resolves capybara-envjs (2 FN).
+///
+/// **FN fix: inline assignments in call arguments**
+/// `collect_assignments_in_scope` stopped at example group/scope calls without
+/// extracting assignments from their arguments. `context path = '...' do` and
+/// `under(user = Obj.new) do` embed `LocalVariableWriteNode` in call args.
+/// Now collects assignments from args before returning.
+/// Linear flow analysis in non-RSpec blocks also handles the case where the
+/// assignment is in call args (not block body) by treating all block body
+/// statements as "past assignment".
+/// Resolves rack-server-pages (1 FN), zendesk (1 FN), puppet-ssh (1 FN).
+///
+/// **FP fix: `&var` in example method args**
+/// `BlockArgumentNode` for `it`/`xit`/`specify` calls was incorrectly treated
+/// as an example-scope read. `&execute_deferred` in `xit("...", &execute_deferred)`
+/// reads the variable at the call site (group scope), not inside the example.
+/// Resolves celluloid (1 FP).
+///
+/// **Behavior change: operator-writes no longer kill in `stmt_reassigns_var`**
+/// `x += y` reads `x` first (`x = x + y`), so the previous assignment's value
+/// IS referenced by the operator-write at group scope. Both the original
+/// assignment and the operator-write are separate offenses. This matches
+/// RuboCop's VariableForce per-assignment tracking. Net effect: some repos
+/// gain new true positive offenses that offset remaining FN.
+///
+/// **FN fix: `example_group_args_reference_var` fallback in shared groups**
+/// Inside `it_behaves_like` blocks, nested `describe package(var)` calls have
+/// variable references in their arguments. Added a fallback check that recurses
+/// into the shared group block body looking for describe/context args that
+/// reference the variable.
+///
+/// ## Remaining gaps (FP=2, FN=13 as of 2026-04-01)
+///
+/// **2 FP — puppetlabs-docker:**
+/// Dead assignments within conditional branches inside `.each` blocks. Requires
+/// VariableForce-level per-assignment reference tracking.
+///
+/// **13 FN — categorized:**
+/// - Conditional before hook writes (fastlane 2, nginx_omniauth 1): `unless initialized;
+///   var = ...; end` in before hook incorrectly kills file-level value.
+/// - Lambda/closure captures (excon 1): assignments inside lambda bodies not collected.
+/// - begin/rescue scoping (elasticsearch 1): assignments inside begin blocks in .each.
+/// - Inline assignment in case predicate (stupidedi 1): `case path = path.to_s`.
+/// - def method not in describe block (cocoapods-generate 1, volt 2): methods in
+///   module mixins or class methods that contain RSpec blocks.
+/// - Group-scope variables in iterator logic (sensu-puppet 2): variables referenced
+///   at iterator level, not directly in example scopes.
+/// - Repos with 0 local offenses (pleaserun 1): unless modifier on let in
+///   it_behaves_like block.
+/// - Corpus artifact (pry 1): `_version = 1` has no real variable reference in
+///   example scopes (only regex literal `/_version/`). RuboCop flags it
+///   incorrectly or via an implicit binding reference we don't track.
+///
+/// All remaining FN require VariableForce-level dataflow analysis or are corpus
+/// artifacts. Net missing is only 2 offenses (5519 vs 5521).
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
