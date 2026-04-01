@@ -78,3 +78,32 @@ parse_err 'node after a sig must be a method definition', def_node \
   unless [:attr_reader, :attr_writer, :attr_accessor].include?(method_name) \
                                                                             ^ Style/RedundantLineContinuation: Redundant line continuation.
     || target != nil
+
+(! items.empty?) or \
+                    ^ Style/RedundantLineContinuation: Redundant line continuation.
+  raise("error")
+
+(arity == req_arity) or \
+                        ^ Style/RedundantLineContinuation: Redundant line continuation.
+  raise ArgumentError, "invalid"
+
+valid && other and \
+                   ^ Style/RedundantLineContinuation: Redundant line continuation.
+  do_something
+
+errors << "required" if \
+                        ^ Style/RedundantLineContinuation: Redundant line continuation.
+  config.nil?
+
+raise "error" unless \
+                     ^ Style/RedundantLineContinuation: Redundant line continuation.
+  valid?
+
+refs = (cond \
+  ? self.refs \
+              ^ Style/RedundantLineContinuation: Redundant line continuation.
+  : other_attrs)
+
+@table = \
+         ^ Style/RedundantLineContinuation: Redundant line continuation.
+  find_table || default_table

@@ -4,14 +4,39 @@ use crate::parse::source::SourceFile;
 
 /// Detects redundant line continuations (`\` at end of line).
 ///
-/// This cop now mirrors RuboCop's Ruby 4.0 baseline behavior more closely by
-/// removing each trailing `\` and reparsing the file instead of relying on a
-/// fixed operator allowlist. That fixes the large FN cluster where boolean and
-/// modifier continuations such as `value \` + `&& other` or `unless foo \` +
-/// `|| bar` are redundant under the corpus baseline. We still preserve the
-/// narrow cases where RuboCop requires `\`, chiefly string concatenation,
+/// This cop mirrors RuboCop's baseline behavior by removing each trailing `\`
+/// and reparsing the file instead of relying on a fixed operator allowlist.
+/// We preserve narrow cases where RuboCop requires `\`: string concatenation,
 /// arithmetic-leading next lines, unparenthesized method arguments, and
 /// leading-dot chains separated by a blank line.
+///
+/// ## Fixes applied
+///
+/// - **Keyword exclusion**: Ruby keywords (`or`, `and`, `if`, `unless`, `while`,
+///   `until`, etc.) at the end of a line before `\` were incorrectly treated as
+///   method names that could take arguments on the next line. This caused FNs for
+///   patterns like `expr or \`, `expr if \`, `expr unless \`. Fixed by excluding
+///   Ruby keywords from `last_token_can_take_argument`.
+///
+/// - **Ternary branch detection**: Lines starting with `? ` (ternary "then"
+///   branch, e.g. `? self.refs \`) were incorrectly treated as method-with-argument
+///   by `method_with_argument`. Fixed by detecting ternary branch context.
+///
+/// - **Heredoc argument recognition**: `next_line_starts_with_argument` did not
+///   recognize heredoc delimiters (`<<-file`, `<<~RUBY`) as arguments, causing
+///   FPs for `method \` + `<<-heredoc` patterns. Fixed by adding `<<` to the
+///   multi-char prefix check.
+///
+/// ## Remaining gaps
+///
+/// - **String-internal `\`**: RuboCop flags `\` at end of line inside interpolated
+///   strings (e.g. `"#{a}\` + `#{b}"`), but our code_map correctly identifies
+///   these as non-code regions and skips them. Matching RuboCop here would require
+///   processing `\` inside string contexts.
+///
+/// - **Reparse limitations**: `is_redundant_continuation` checks for zero parse
+///   errors after removing `\`. Files with pre-existing Prism parse errors will
+///   always fail this check. A future improvement could compare error counts.
 pub struct RedundantLineContinuation;
 
 impl Cop for RedundantLineContinuation {
@@ -179,6 +204,12 @@ fn starts_with_boolean_operator(next_trimmed: &[u8]) -> bool {
 }
 
 fn method_with_argument(before_backslash: &[u8], next_trimmed: &[u8]) -> bool {
+    // A ternary "then" branch (line starts with `? `) is not a method call
+    let trimmed = trim_start(before_backslash);
+    if trimmed.len() >= 2 && trimmed[0] == b'?' && (trimmed[1] == b' ' || trimmed[1] == b'\t') {
+        return false;
+    }
+
     last_token_can_take_argument(before_backslash) && next_line_starts_with_argument(next_trimmed)
 }
 
@@ -188,9 +219,40 @@ fn last_token_can_take_argument(before_backslash: &[u8]) -> bool {
     };
 
     matches!(token, b"break" | b"next" | b"return" | b"super" | b"yield")
-        || token
+        || (token
             .first()
-            .is_some_and(|b| (b.is_ascii_lowercase() || *b == b'_') && token != b"do")
+            .is_some_and(|b| (b.is_ascii_lowercase() || *b == b'_'))
+            && !is_ruby_keyword(token))
+}
+
+fn is_ruby_keyword(token: &[u8]) -> bool {
+    matches!(
+        token,
+        b"and"
+            | b"begin"
+            | b"case"
+            | b"class"
+            | b"def"
+            | b"do"
+            | b"else"
+            | b"elsif"
+            | b"end"
+            | b"ensure"
+            | b"for"
+            | b"if"
+            | b"in"
+            | b"module"
+            | b"not"
+            | b"or"
+            | b"redo"
+            | b"rescue"
+            | b"retry"
+            | b"then"
+            | b"unless"
+            | b"until"
+            | b"when"
+            | b"while"
+    )
 }
 
 fn trailing_identifier(bytes: &[u8]) -> Option<&[u8]> {
@@ -231,6 +293,7 @@ fn next_line_starts_with_argument(next_trimmed: &[u8]) -> bool {
         || next_trimmed.starts_with(b"->")
         || next_trimmed.starts_with(b"**")
         || next_trimmed.starts_with(b"::")
+        || next_trimmed.starts_with(b"<<")
     {
         return true;
     }

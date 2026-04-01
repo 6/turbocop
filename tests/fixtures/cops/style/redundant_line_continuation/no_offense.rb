@@ -34,3 +34,10 @@ obj
  .foo(42) \
 
  .bar
+
+output = Whenever.cron \
+<<-file
+  every "weekday" do
+    command "blah"
+  end
+file
