@@ -5,10 +5,10 @@ use ruby_prism::Visit;
 
 /// Matches the guarded receiver the same way RuboCop does for regular `if`/`unless`
 /// bodies, parenthesized `&&` RHS calls, direct nil-safe or `AllowedMethods`
-/// calls like `foo && foo.nil?`, skips `&&` nested inside `send`/`public_send`
-/// argument lists, and avoids false positives for negated wrappers like
-/// `!!(foo && foo.bar)` or negative checks in the wrong direction like
-/// `obj.do_something if !obj`.
+/// calls like `foo && foo.nil?`, skips `&&` nested inside `::` call argument
+/// lists, avoids ternary false positives inside unsafe dotless-call parents,
+/// and avoids false positives for negated wrappers like `!!(foo && foo.bar)`
+/// or negative checks in the wrong direction like `obj.do_something if !obj`.
 pub struct SafeNavigation;
 
 /// Methods that `nil` responds to in vanilla Ruby.
@@ -199,6 +199,16 @@ impl SafeNavigation {
     fn chain_has_dotless_operator(chain: &[ruby_prism::CallNode<'_>]) -> bool {
         chain.iter().any(Self::is_dotless_operator)
     }
+
+    fn is_safe_navigation_call(call: &ruby_prism::CallNode<'_>) -> bool {
+        call.call_operator_loc()
+            .is_some_and(|operator| operator.as_slice() == b"&.")
+    }
+
+    fn is_double_colon_call(call: &ruby_prism::CallNode<'_>) -> bool {
+        call.call_operator_loc()
+            .is_some_and(|operator| operator.as_slice() == b"::")
+    }
 }
 
 impl Cop for SafeNavigation {
@@ -232,6 +242,7 @@ impl Cop for SafeNavigation {
             in_call_arguments: 0,
             in_call_receiver: 0,
             in_dynamic_send_args: 0,
+            in_double_colon_call_arguments: 0,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -252,6 +263,7 @@ struct SafeNavVisitor<'a> {
     in_call_arguments: usize,
     in_call_receiver: usize,
     in_dynamic_send_args: usize,
+    in_double_colon_call_arguments: usize,
 }
 
 impl<'a> SafeNavVisitor<'a> {
@@ -366,12 +378,19 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         if let Some(arguments) = node.arguments() {
             self.in_call_arguments += 1;
             let is_dynamic_send = Self::is_dynamic_send_call(node);
+            let is_double_colon = SafeNavigation::is_double_colon_call(node);
             if is_dynamic_send {
                 self.in_dynamic_send_args += 1;
+            }
+            if is_double_colon {
+                self.in_double_colon_call_arguments += 1;
             }
             self.visit_arguments_node(&arguments);
             if is_dynamic_send {
                 self.in_dynamic_send_args -= 1;
+            }
+            if is_double_colon {
+                self.in_double_colon_call_arguments -= 1;
             }
             self.in_call_arguments -= 1;
         }
@@ -393,7 +412,11 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         // RuboCop skips `&&` patterns when any ancestor send node is "unsafe" (dotless,
         // assignment, or operator method). For example, `scope :bar, ->(user) { user && user.name }`
         // is not flagged because `scope` is a dotless method call.
-        if self.in_call_receiver > 0 || self.in_unsafe_parent > 0 || self.in_dynamic_send_args > 0 {
+        if self.in_call_receiver > 0
+            || self.in_unsafe_parent > 0
+            || self.in_dynamic_send_args > 0
+            || self.in_double_colon_call_arguments > 0
+        {
             ruby_prism::visit_and_node(self, node);
             return;
         }
@@ -463,7 +486,10 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
 
         // Check if it's a ternary (no `if` keyword location in Prism)
         if if_node.if_keyword_loc().is_none() {
-            if self.in_call_receiver > 0 || self.in_dynamic_send_args > 0 {
+            if self.in_call_receiver > 0
+                || self.in_dynamic_send_args > 0
+                || self.in_unsafe_parent > 0
+            {
                 ruby_prism::visit_if_node(self, node);
                 return;
             }
@@ -563,6 +589,10 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         let checked_src: Option<&[u8]> = if let Some(call) = condition.as_call_node() {
             let name = call.name().as_slice();
             if name == b"nil?" {
+                if SafeNavigation::is_safe_navigation_call(&call) {
+                    ruby_prism::visit_unless_node(self, node);
+                    return;
+                }
                 call.receiver()
                     .map(|r| &bytes[r.location().start_offset()..r.location().end_offset()])
             } else {
@@ -652,6 +682,9 @@ impl SafeNavigation {
         let (checked_var_range, body_is_else) = if let Some(call) = condition.as_call_node() {
             let name = call.name().as_slice();
             if name == b"nil?" {
+                if Self::is_safe_navigation_call(&call) {
+                    return Vec::new();
+                }
                 // foo.nil? ? nil : foo.bar
                 if let Some(recv) = call.receiver() {
                     let range = (recv.location().start_offset(), recv.location().end_offset());
@@ -672,6 +705,9 @@ impl SafeNavigation {
                 if let Some(recv) = call.receiver() {
                     if let Some(inner_call) = recv.as_call_node() {
                         if inner_call.name().as_slice() == b"nil?" {
+                            if Self::is_safe_navigation_call(&inner_call) {
+                                return Vec::new();
+                            }
                             // !foo.nil? ? foo.bar : nil
                             if let Some(inner_recv) = inner_call.receiver() {
                                 let range = (
@@ -857,6 +893,9 @@ impl SafeNavigation {
         let checked_src: Option<&[u8]> = if let Some(call) = condition.as_call_node() {
             let name = call.name().as_slice();
             if name == b"nil?" {
+                if Self::is_safe_navigation_call(&call) {
+                    return Vec::new();
+                }
                 // unless foo.nil? => check foo
                 if is_unless {
                     call.receiver()
@@ -869,6 +908,9 @@ impl SafeNavigation {
                 call.receiver().and_then(|r| {
                     if let Some(inner) = r.as_call_node() {
                         if inner.name().as_slice() == b"nil?" {
+                            if Self::is_safe_navigation_call(&inner) {
+                                return None;
+                            }
                             if is_unless {
                                 None
                             } else {

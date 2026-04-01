@@ -68,6 +68,12 @@ end
 obj.send(:x, foo && foo.map { |h| h })
 obj.public_send(:x, foo && foo.downcase)
 
+# && inside `::` call arguments is skipped like RuboCop
+BTC::Invariant(output && output.verified?, "message")
+
+# Ternaries inside unsafe dotless call arguments are skipped
+instance_variable_set("@foo", foo.nil? ? nil : foo.to_s)
+
 # Modifier if/unless inside call arguments or `private def` are skipped
 install_win(if parent then parent.path end, widgetname)
 
@@ -77,6 +83,9 @@ end
 
 # Ternary inside dynamic send arguments is skipped
 send "#{options[:foreign_key]}=", new_value ? new_value.send(options[:primary_key]) : nil
+
+# Conditions already using `&.` are left alone
+callback.call unless callback&.nil?
 
 # If/ternary used as the receiver of another call are skipped
 { debug: (writer_opts[:debug].join("\n") if writer_opts[:debug]) }.to_json
