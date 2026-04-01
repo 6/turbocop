@@ -526,30 +526,32 @@ use crate::parse::source::SourceFile;
 /// into the shared group block body looking for describe/context args that
 /// reference the variable.
 ///
-/// ## Remaining gaps (FP=2, FN=13 as of 2026-04-01)
+/// ## Remaining gaps (FP=2, FN=11 as of 2026-04-01)
 ///
 /// **2 FP — puppetlabs-docker:**
 /// Dead assignments within conditional branches inside `.each` blocks. Requires
 /// VariableForce-level per-assignment reference tracking.
 ///
-/// **13 FN — categorized:**
+/// **11 FN — categorized:**
 /// - Conditional before hook writes (fastlane 2, nginx_omniauth 1): `unless initialized;
 ///   var = ...; end` in before hook incorrectly kills file-level value.
-/// - Lambda/closure captures (excon 1): assignments inside lambda bodies not collected.
+/// - Lambda/closure captures (excon 1): lambda body assignment to outer var not tracked
+///   as leaking through closure. Requires closure-aware dataflow analysis.
 /// - begin/rescue scoping (elasticsearch 1): assignments inside begin blocks in .each.
-/// - Inline assignment in case predicate (stupidedi 1): `case path = path.to_s`.
 /// - def method not in describe block (cocoapods-generate 1, volt 2): methods in
 ///   module mixins or class methods that contain RSpec blocks.
 /// - Group-scope variables in iterator logic (sensu-puppet 2): variables referenced
 ///   at iterator level, not directly in example scopes.
-/// - Repos with 0 local offenses (pleaserun 1): unless modifier on let in
-///   it_behaves_like block.
 /// - Corpus artifact (pry 1): `_version = 1` has no real variable reference in
 ///   example scopes (only regex literal `/_version/`). RuboCop flags it
 ///   incorrectly or via an implicit binding reference we don't track.
 ///
-/// All remaining FN require VariableForce-level dataflow analysis or are corpus
-/// artifacts. Net missing is only 2 offenses (5519 vs 5521).
+/// **Fixed in this batch:**
+/// - Case predicate assignments (`case path = path.to_s`) now collected (stupidedi).
+/// - Unless/if modifier predicates in includes blocks now detected (pleaserun).
+/// - LambdaNode handling added to collect_assignments_in_scope,
+///   check_var_used_in_example_scopes, stmt_example_scope_var_interaction,
+///   and node_writes_var_deep.
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
@@ -1762,6 +1764,24 @@ fn stmt_example_scope_var_interaction(
                                         assign_offset,
                                     );
                                     result = combine_var_interactions(result, inner);
+                                    // Inside includes block bodies, if/unless
+                                    // predicates run at example scope context.
+                                    if let Some(if_node) = s.as_if_node() {
+                                        if node_references_var(&if_node.predicate(), var_name) {
+                                            result = combine_var_interactions(
+                                                result,
+                                                VarInteraction::ReadOnly,
+                                            );
+                                        }
+                                    }
+                                    if let Some(unless_node) = s.as_unless_node() {
+                                        if node_references_var(&unless_node.predicate(), var_name) {
+                                            result = combine_var_interactions(
+                                                result,
+                                                VarInteraction::ReadOnly,
+                                            );
+                                        }
+                                    }
                                 }
                                 if !matches!(result, VarInteraction::None) {
                                     return result;
@@ -1933,6 +1953,20 @@ fn stmt_example_scope_var_interaction(
             }
         }
         return VarInteraction::None;
+    }
+
+    // Lambda: recurse into body like a non-RSpec block
+    if let Some(lambda) = node.as_lambda_node() {
+        let mut result = VarInteraction::None;
+        if let Some(body) = lambda.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                for s in stmts.body().iter() {
+                    let inner = stmt_example_scope_var_interaction(&s, var_name, assign_offset);
+                    result = combine_var_interactions(result, inner);
+                }
+            }
+        }
+        return result;
     }
 
     // Recurse through control flow
@@ -2540,6 +2574,19 @@ fn collect_assignments_in_scope(
         return;
     }
 
+    // Lambda: `lambda do |args| body end` or `-> (args) { body }`
+    // Treat like a non-RSpec block — assignments inside are block-local.
+    if let Some(lambda) = node.as_lambda_node() {
+        if let Some(body) = lambda.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                for s in stmts.body().iter() {
+                    collect_assignments_in_scope(&s, assigns, true);
+                }
+            }
+        }
+        return;
+    }
+
     if let Some(hash) = node.as_hash_node() {
         for elem in hash.elements().iter() {
             collect_assignments_in_scope(&elem, assigns, inside_block);
@@ -2687,6 +2734,10 @@ fn collect_assignments_in_scope(
 
     // Case/When/In
     if let Some(case_node) = node.as_case_node() {
+        // Check predicate for embedded assignments (e.g., `case path = path.to_s`)
+        if let Some(predicate) = case_node.predicate() {
+            collect_assignments_in_scope(&predicate, assigns, inside_block);
+        }
         for cond in case_node.conditions().iter() {
             if let Some(when_node) = cond.as_when_node() {
                 if let Some(stmts) = when_node.statements() {
@@ -2929,6 +2980,21 @@ fn check_var_used_in_example_scopes(node: &ruby_prism::Node<'_>, var_name: &[u8]
                                     if check_var_used_in_example_scopes(&s, var_name) {
                                         return true;
                                     }
+                                    // Inside includes block bodies, the predicate
+                                    // of if/unless modifiers on example scope calls
+                                    // (e.g., `let(:skip) { ... } unless var`) runs
+                                    // at the includes body level, which is an example
+                                    // scope context. Check the predicate for references.
+                                    if let Some(if_node) = s.as_if_node() {
+                                        if node_references_var(&if_node.predicate(), var_name) {
+                                            return true;
+                                        }
+                                    }
+                                    if let Some(unless_node) = s.as_unless_node() {
+                                        if node_references_var(&unless_node.predicate(), var_name) {
+                                            return true;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2973,6 +3039,20 @@ fn check_var_used_in_example_scopes(node: &ruby_prism::Node<'_>, var_name: &[u8]
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Lambda: recurse into body like a non-RSpec block
+    if let Some(lambda) = node.as_lambda_node() {
+        if let Some(body) = lambda.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                for s in stmts.body().iter() {
+                    if check_var_used_in_example_scopes(&s, var_name) {
+                        return true;
                     }
                 }
             }
@@ -3207,6 +3287,18 @@ fn node_writes_var_deep(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
                         }
                     }
                 }
+            }
+        }
+        return false;
+    }
+    // Lambda: recurse into body
+    if let Some(lambda) = node.as_lambda_node() {
+        if let Some(body) = lambda.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                return stmts
+                    .body()
+                    .iter()
+                    .any(|s| node_writes_var_deep(&s, var_name));
             }
         }
         return false;
