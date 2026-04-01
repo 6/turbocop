@@ -651,24 +651,33 @@ fn is_directive_redundant(
         // directives for renamed cops as redundant since the old name no
         // longer exists.
         if let Some(new_name) = RENAMED_COPS.get(cop_name) {
-            // The cop was renamed. In --only mode the new-name cop may not
-            // have run, so check its config: if it's enabled, the old-name
-            // directive might be suppressing its offenses — skip.
-            // In normal mode or run_all_for_redundant mode,
-            // check_and_mark_used already filtered out directives that
-            // suppressed offenses, so flagging is safe.
-            if has_only_filter && !all_cops_ran {
-                let new_entry = registry
-                    .cops()
-                    .iter()
-                    .enumerate()
-                    .find(|(_, c)| c.name() == new_name.as_str());
-                if let Some((new_idx, _)) = new_entry {
+            // The cop was renamed. Look up the new-name cop's state to mirror
+            // the logic applied to registered cops above.
+            let new_entry = registry
+                .cops()
+                .iter()
+                .enumerate()
+                .find(|(_, c)| c.name() == new_name.as_str());
+            if let Some((new_idx, _)) = new_entry {
+                // In --only mode the new-name cop may not have run, so check
+                // its config: if it's enabled, the old-name directive might be
+                // suppressing its offenses — skip.
+                if has_only_filter && !all_cops_ran {
                     if cop_filters.cop_filter(new_idx).is_enabled()
                         && !cop_filters.is_cop_excluded(new_idx, path)
                     {
                         return None;
                     }
+                }
+                // In run_all_for_redundant mode, the new-name cop ran. If it
+                // has known detection gaps (in REDUNDANT_DISABLE_SKIP_COPS),
+                // the old-name directive might legitimately suppress an offense
+                // that nitrocop missed — don't flag it.
+                if all_cops_ran
+                    && cop_filters.is_cop_match(new_idx, path)
+                    && REDUNDANT_DISABLE_SKIP_COPS.contains(&new_name.as_str())
+                {
+                    return None;
                 }
             }
             return Some("");
