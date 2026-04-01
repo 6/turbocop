@@ -1,6 +1,6 @@
 foo&.bar
 foo&.bar&.baz
-foo && foo.nil?
+foo && foo.owner.nil?
 foo && foo.empty?
 foo && bar.baz
 foo && foo < bar
@@ -44,3 +44,20 @@ foo.bar = baz && baz.qux
 # (RuboCop skips when ancestor send is dotless, e.g. scope, puts)
 scope :accessible_to_user, ->(user) { user && user.name }
 puts(foo && foo.bar)
+
+# Negated wrappers make safe navigation unsafe
+!!(foo && foo.bar)
+obj.do_something if !obj
+
+# Outer operator/assignment parents make modifier `if` unsafe
+value - begin
+  foo.bar if foo
+end - used
+
+hash[:categories] = begin
+  foo.bar if foo
+end
+
+# && inside send/public_send arguments — RuboCop skips dynamic dispatch context
+obj.send(:x, foo && foo.map { |h| h })
+obj.public_send(:x, foo && foo.downcase)

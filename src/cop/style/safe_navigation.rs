@@ -3,6 +3,12 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Matches the guarded receiver the same way RuboCop does for regular `if`/`unless`
+/// bodies, parenthesized `&&` RHS calls, direct nil-safe or `AllowedMethods`
+/// calls like `foo && foo.nil?`, skips `&&` nested inside `send`/`public_send`
+/// argument lists, and avoids false positives for negated wrappers like
+/// `!!(foo && foo.bar)` or negative checks in the wrong direction like
+/// `obj.do_something if !obj`.
 pub struct SafeNavigation;
 
 /// Methods that `nil` responds to in vanilla Ruby.
@@ -54,108 +60,6 @@ const NIL_METHODS: &[&[u8]] = &[
 ];
 
 impl SafeNavigation {
-    /// Check if two nodes represent the same identifier, including:
-    /// - local variable reads
-    /// - instance/class/global variable reads
-    /// - bare method calls (no receiver, no args) which look like variable reads
-    fn same_identifier(a: &ruby_prism::Node<'_>, b: &ruby_prism::Node<'_>) -> bool {
-        if let (Some(la), Some(lb)) = (
-            a.as_local_variable_read_node(),
-            b.as_local_variable_read_node(),
-        ) {
-            return la.name().as_slice() == lb.name().as_slice();
-        }
-        if let (Some(ia), Some(ib)) = (
-            a.as_instance_variable_read_node(),
-            b.as_instance_variable_read_node(),
-        ) {
-            return ia.name().as_slice() == ib.name().as_slice();
-        }
-        if let (Some(ca), Some(cb)) = (
-            a.as_class_variable_read_node(),
-            b.as_class_variable_read_node(),
-        ) {
-            return ca.name().as_slice() == cb.name().as_slice();
-        }
-        if let (Some(ga), Some(gb)) = (
-            a.as_global_variable_read_node(),
-            b.as_global_variable_read_node(),
-        ) {
-            return ga.name().as_slice() == gb.name().as_slice();
-        }
-        // Both are bare method calls (no receiver, no args) with the same name
-        if let (Some(ca), Some(cb)) = (a.as_call_node(), b.as_call_node()) {
-            if ca.receiver().is_none()
-                && cb.receiver().is_none()
-                && ca.arguments().is_none()
-                && cb.arguments().is_none()
-                && ca.block().is_none()
-                && cb.block().is_none()
-            {
-                return ca.name().as_slice() == cb.name().as_slice();
-            }
-        }
-        // One is a local variable read and the other is a bare method call with same name
-        if let Some(lv) = a.as_local_variable_read_node() {
-            if let Some(call) = b.as_call_node() {
-                if call.receiver().is_none() && call.arguments().is_none() && call.block().is_none()
-                {
-                    return lv.name().as_slice() == call.name().as_slice();
-                }
-            }
-        }
-        if let Some(lv) = b.as_local_variable_read_node() {
-            if let Some(call) = a.as_call_node() {
-                if call.receiver().is_none() && call.arguments().is_none() && call.block().is_none()
-                {
-                    return lv.name().as_slice() == call.name().as_slice();
-                }
-            }
-        }
-        false
-    }
-
-    fn is_simple_identifier(node: &ruby_prism::Node<'_>) -> bool {
-        if node.as_local_variable_read_node().is_some()
-            || node.as_instance_variable_read_node().is_some()
-            || node.as_class_variable_read_node().is_some()
-            || node.as_global_variable_read_node().is_some()
-        {
-            return true;
-        }
-        // Bare method call (no receiver, no args) acts like a variable read
-        if let Some(call) = node.as_call_node() {
-            if call.receiver().is_none()
-                && call.arguments().is_none()
-                && call.block().is_none()
-                && call.call_operator_loc().is_none()
-            {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Check if the innermost receiver of a call chain matches a variable.
-    /// Returns the chain depth if matched.
-    fn matches_receiver_chain(
-        node: &ruby_prism::Node<'_>,
-        lhs: &ruby_prism::Node<'_>,
-    ) -> Option<usize> {
-        if let Some(call) = node.as_call_node() {
-            if let Some(recv) = call.receiver() {
-                if Self::same_identifier(&recv, lhs) {
-                    return Some(1);
-                }
-                // Recurse into the receiver chain
-                if let Some(depth) = Self::matches_receiver_chain(&recv, lhs) {
-                    return Some(depth + 1);
-                }
-            }
-        }
-        None
-    }
-
     /// Check if a call node is a dotless operator method ([], []=, +, -, etc.)
     fn is_dotless_operator(call: &ruby_prism::CallNode<'_>) -> bool {
         // If there's a dot/call operator, it's not a dotless operator call
@@ -194,28 +98,6 @@ impl SafeNavigation {
         )
     }
 
-    /// Check if any call in the chain from innermost to outermost is a dotless operator
-    fn has_dotless_operator_in_chain(node: &ruby_prism::Node<'_>) -> bool {
-        if let Some(call) = node.as_call_node() {
-            if Self::is_dotless_operator(&call) {
-                return true;
-            }
-            // Walk up: check receiver chain
-            if let Some(recv) = call.receiver() {
-                if let Some(recv_call) = recv.as_call_node() {
-                    if Self::is_dotless_operator(&recv_call) {
-                        return true;
-                    }
-                    // Continue recursing into the receiver chain
-                    if Self::has_dotless_operator_in_chain(&recv) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-
     /// Check if a single method name is inherently unsafe for safe navigation.
     fn is_unsafe_single_method(name_bytes: &[u8]) -> bool {
         // empty? — nil&.empty? returns nil, not false, changing behavior
@@ -225,47 +107,6 @@ impl SafeNavigation {
         // Assignment methods
         if name_bytes.ends_with(b"=") && !name_bytes.ends_with(b"==") {
             return true;
-        }
-        false
-    }
-
-    /// Check if any method in the call chain is unsafe for safe navigation conversion.
-    /// This checks:
-    /// 1. Methods that nil responds to (is_a?, respond_to?, etc.)
-    /// 2. Methods in the AllowedMethods config
-    /// 3. Inherently unsafe methods (empty?, assignment methods)
-    fn has_unsafe_method_in_chain(
-        node: &ruby_prism::Node<'_>,
-        allowed_methods: &Option<Vec<String>>,
-    ) -> bool {
-        if let Some(call) = node.as_call_node() {
-            let name_bytes = call.name().as_slice();
-
-            // Check if this method is inherently unsafe
-            if Self::is_unsafe_single_method(name_bytes) {
-                return true;
-            }
-
-            // Check if this method is one that nil responds to
-            if NIL_METHODS.contains(&name_bytes) {
-                return true;
-            }
-
-            // Check if this method is in the AllowedMethods config
-            if let Some(allowed) = allowed_methods {
-                if let Ok(name_str) = std::str::from_utf8(name_bytes) {
-                    if allowed.iter().any(|m| m == name_str) {
-                        return true;
-                    }
-                }
-            }
-
-            // Recurse into the receiver chain
-            if let Some(recv) = call.receiver() {
-                if Self::has_unsafe_method_in_chain(&recv, allowed_methods) {
-                    return true;
-                }
-            }
         }
         false
     }
@@ -285,6 +126,74 @@ impl SafeNavigation {
     /// Check if a node is a nil literal.
     fn is_nil(node: &ruby_prism::Node<'_>) -> bool {
         node.as_nil_node().is_some()
+    }
+
+    fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
+        if let Some(parentheses) = node.as_parentheses_node() {
+            if let Some(body) = parentheses.body() {
+                if let Some(stmts) = body.as_statements_node() {
+                    if let Some(inner) = Self::single_stmt_from_stmts(&stmts) {
+                        return Self::unwrap_parentheses(inner);
+                    }
+                }
+            }
+        }
+
+        node
+    }
+
+    fn call_chain_from_checked_receiver<'a>(
+        node: ruby_prism::Node<'a>,
+        checked_src: &[u8],
+        bytes: &[u8],
+    ) -> Option<Vec<ruby_prism::CallNode<'a>>> {
+        let node = Self::unwrap_parentheses(node);
+        let call = node.as_call_node()?;
+        let receiver = Self::unwrap_parentheses(call.receiver()?);
+        let receiver_loc = receiver.location();
+
+        if &bytes[receiver_loc.start_offset()..receiver_loc.end_offset()] == checked_src {
+            return Some(vec![call]);
+        }
+
+        let mut chain = Self::call_chain_from_checked_receiver(receiver, checked_src, bytes)?;
+        chain.push(call);
+        Some(chain)
+    }
+
+    fn has_unsafe_method_after_checked_receiver(
+        chain: &[ruby_prism::CallNode<'_>],
+        allowed_methods: &Option<Vec<String>>,
+    ) -> bool {
+        for (index, call) in chain.iter().enumerate() {
+            let name_bytes = call.name().as_slice();
+
+            if Self::is_unsafe_single_method(name_bytes) {
+                return true;
+            }
+
+            if index == 0 {
+                continue;
+            }
+
+            if NIL_METHODS.contains(&name_bytes) {
+                return true;
+            }
+
+            if let Some(allowed) = allowed_methods {
+                if let Ok(name_str) = std::str::from_utf8(name_bytes) {
+                    if allowed.iter().any(|method| method == name_str) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    fn chain_has_dotless_operator(chain: &[ruby_prism::CallNode<'_>]) -> bool {
+        chain.iter().any(Self::is_dotless_operator)
     }
 }
 
@@ -315,6 +224,8 @@ impl Cop for SafeNavigation {
             max_chain_length,
             allowed_methods,
             in_unsafe_parent: 0,
+            in_assignment_or_operator_parent: 0,
+            in_dynamic_send_args: 0,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -332,14 +243,57 @@ struct SafeNavVisitor<'a> {
     max_chain_length: usize,
     allowed_methods: Option<Vec<String>>,
     in_unsafe_parent: usize,
+    in_assignment_or_operator_parent: usize,
+    in_dynamic_send_args: usize,
 }
 
 impl<'a> SafeNavVisitor<'a> {
+    fn is_assignment_or_operator_parent_call(call: &ruby_prism::CallNode<'_>) -> bool {
+        let name = call.name().as_slice();
+
+        if name.ends_with(b"=") && name != b"==" && name != b"!=" {
+            return true;
+        }
+
+        call.call_operator_loc().is_none()
+            && matches!(
+                name,
+                b"[]"
+                    | b"+"
+                    | b"-"
+                    | b"*"
+                    | b"/"
+                    | b"%"
+                    | b"**"
+                    | b"=="
+                    | b"!="
+                    | b"<"
+                    | b">"
+                    | b"<="
+                    | b">="
+                    | b"<=>"
+                    | b"<<"
+                    | b">>"
+                    | b"&"
+                    | b"|"
+                    | b"^"
+                    | b"~"
+                    | b"!"
+                    | b"+@"
+                    | b"-@"
+            )
+    }
+
     /// Check if a call node is an unsafe parent context for safe navigation.
     /// This means the call is an assignment method (name ends with `=`) or
     /// a dotless operator call.
     fn is_unsafe_parent_call(call: &ruby_prism::CallNode<'_>) -> bool {
         let name = call.name().as_slice();
+        // Negation wrappers like `!(foo && foo.bar)` or `!!(...)` are unsafe
+        // because converting the inner guard to `&.` changes the boolean result.
+        if name == b"!" {
+            return true;
+        }
         // Assignment methods: []=, foo=, etc. (but not == or !=)
         if name.ends_with(b"=") && name != b"==" && name != b"!=" {
             return true;
@@ -377,6 +331,13 @@ impl<'a> SafeNavVisitor<'a> {
         }
         false
     }
+
+    fn is_dynamic_send_call(call: &ruby_prism::CallNode<'_>) -> bool {
+        matches!(
+            call.name().as_slice(),
+            b"send" | b"__send__" | b"public_send"
+        )
+    }
 }
 
 impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
@@ -385,7 +346,32 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         if is_unsafe {
             self.in_unsafe_parent += 1;
         }
-        ruby_prism::visit_call_node(self, node);
+        let is_assignment_or_operator_parent = Self::is_assignment_or_operator_parent_call(node);
+        if is_assignment_or_operator_parent {
+            self.in_assignment_or_operator_parent += 1;
+        }
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+        }
+
+        if let Some(arguments) = node.arguments() {
+            let is_dynamic_send = Self::is_dynamic_send_call(node);
+            if is_dynamic_send {
+                self.in_dynamic_send_args += 1;
+            }
+            self.visit_arguments_node(&arguments);
+            if is_dynamic_send {
+                self.in_dynamic_send_args -= 1;
+            }
+        }
+
+        if let Some(block) = node.block() {
+            self.visit(&block);
+        }
+
+        if is_assignment_or_operator_parent {
+            self.in_assignment_or_operator_parent -= 1;
+        }
         if is_unsafe {
             self.in_unsafe_parent -= 1;
         }
@@ -396,19 +382,18 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         // RuboCop skips `&&` patterns when any ancestor send node is "unsafe" (dotless,
         // assignment, or operator method). For example, `scope :bar, ->(user) { user && user.name }`
         // is not flagged because `scope` is a dotless method call.
-        if self.in_unsafe_parent > 0 {
+        if self.in_unsafe_parent > 0 || self.in_dynamic_send_args > 0 {
             ruby_prism::visit_and_node(self, node);
             return;
         }
 
-        let lhs = node.left();
-        let rhs = node.right();
-
-        // LHS must be a simple variable or bare method
-        if !SafeNavigation::is_simple_identifier(&lhs) {
-            ruby_prism::visit_and_node(self, node);
-            return;
-        }
+        let lhs = SafeNavigation::unwrap_parentheses(node.left());
+        let rhs = SafeNavigation::unwrap_parentheses(node.right());
+        let bytes = self.source.as_bytes();
+        let checked_src = {
+            let loc = lhs.location();
+            &bytes[loc.start_offset()..loc.end_offset()]
+        };
 
         // RHS must be a method call chain
         let rhs_call = match rhs.as_call_node() {
@@ -425,28 +410,26 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             return;
         }
 
-        // Check if the innermost receiver matches the LHS variable
-        let chain_len = match SafeNavigation::matches_receiver_chain(&rhs, &lhs) {
-            Some(d) => d,
+        let chain = match SafeNavigation::call_chain_from_checked_receiver(rhs, checked_src, bytes)
+        {
+            Some(chain) => chain,
             None => {
                 ruby_prism::visit_and_node(self, node);
                 return;
             }
         };
 
-        if chain_len > self.max_chain_length {
+        if chain.len() > self.max_chain_length {
             ruby_prism::visit_and_node(self, node);
             return;
         }
 
-        // Skip if any call in the chain uses a dotless operator
-        if SafeNavigation::has_dotless_operator_in_chain(&rhs) {
+        if SafeNavigation::chain_has_dotless_operator(&chain) {
             ruby_prism::visit_and_node(self, node);
             return;
         }
 
-        // Skip if any method in the chain is unsafe for safe navigation
-        if SafeNavigation::has_unsafe_method_in_chain(&rhs, &self.allowed_methods) {
+        if SafeNavigation::has_unsafe_method_after_checked_receiver(&chain, &self.allowed_methods) {
             ruby_prism::visit_and_node(self, node);
             return;
         }
@@ -464,12 +447,6 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
     }
 
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
-        // Skip if inside an assignment method or operator call
-        if self.in_unsafe_parent > 0 {
-            ruby_prism::visit_if_node(self, node);
-            return;
-        }
-
         let if_node = node;
         let node_loc = if_node.location();
 
@@ -497,14 +474,13 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             return;
         }
 
-        // Must be modifier form (no end keyword)
-        if if_node.end_keyword_loc().is_some() {
+        // Must not have else/elsif
+        if if_node.subsequent().is_some() {
             ruby_prism::visit_if_node(self, node);
             return;
         }
 
-        // Must not have else/elsif
-        if if_node.subsequent().is_some() {
+        if self.in_assignment_or_operator_parent > 0 {
             ruby_prism::visit_if_node(self, node);
             return;
         }
@@ -523,19 +499,13 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
     }
 
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
-        if self.in_unsafe_parent > 0 {
-            ruby_prism::visit_unless_node(self, node);
-            return;
-        }
-
-        // Must be modifier form (no end keyword)
-        if node.end_keyword_loc().is_some() {
-            ruby_prism::visit_unless_node(self, node);
-            return;
-        }
-
         // Must not have else
         if node.else_clause().is_some() {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
+
+        if self.in_assignment_or_operator_parent > 0 {
             ruby_prism::visit_unless_node(self, node);
             return;
         }
@@ -596,23 +566,26 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             return;
         }
 
-        if !SafeNavigation::find_receiver_by_bytes(&body, checked_src, bytes) {
+        let chain = match SafeNavigation::call_chain_from_checked_receiver(body, checked_src, bytes)
+        {
+            Some(chain) => chain,
+            None => {
+                ruby_prism::visit_unless_node(self, node);
+                return;
+            }
+        };
+
+        if chain.len() > self.max_chain_length {
             ruby_prism::visit_unless_node(self, node);
             return;
         }
 
-        let chain_len = SafeNavigation::chain_length_by_bytes(&body, checked_src, bytes);
-        if chain_len > self.max_chain_length {
+        if SafeNavigation::chain_has_dotless_operator(&chain) {
             ruby_prism::visit_unless_node(self, node);
             return;
         }
 
-        if SafeNavigation::has_dotless_operator_in_chain(&body) {
-            ruby_prism::visit_unless_node(self, node);
-            return;
-        }
-
-        if SafeNavigation::has_unsafe_method_in_chain(&body, &self.allowed_methods) {
+        if SafeNavigation::has_unsafe_method_after_checked_receiver(&chain, &self.allowed_methods) {
             ruby_prism::visit_unless_node(self, node);
             return;
         }
@@ -781,22 +754,20 @@ impl SafeNavigation {
 
         // Find matching receiver using source byte comparison
         let checked_src = &bytes[checked_var_range.0..checked_var_range.1];
-        if !Self::find_receiver_by_bytes(&body, checked_src, bytes) {
+        let chain = match Self::call_chain_from_checked_receiver(body, checked_src, bytes) {
+            Some(chain) => chain,
+            None => return Vec::new(),
+        };
+
+        if chain.len() > max_chain_length {
             return Vec::new();
         }
 
-        let chain_len = Self::chain_length_by_bytes(&body, checked_src, bytes);
-        if chain_len > max_chain_length {
+        if Self::chain_has_dotless_operator(&chain) {
             return Vec::new();
         }
 
-        // Check if the call directly on the matched receiver is a dotless operator
-        if Self::call_on_receiver_is_dotless_by_bytes(&body, checked_src, bytes) {
-            return Vec::new();
-        }
-
-        // Skip if any method in the chain is unsafe for safe navigation
-        if Self::has_unsafe_method_in_chain(&body, allowed_methods) {
+        if Self::has_unsafe_method_after_checked_receiver(&chain, allowed_methods) {
             return Vec::new();
         }
 
@@ -829,57 +800,6 @@ impl SafeNavigation {
             }
             None => false, // no else branch at all — not the pattern we want
         }
-    }
-
-    fn find_receiver_by_bytes(
-        node: &ruby_prism::Node<'_>,
-        checked_src: &[u8],
-        bytes: &[u8],
-    ) -> bool {
-        if let Some(call) = node.as_call_node() {
-            if let Some(recv) = call.receiver() {
-                let recv_src = &bytes[recv.location().start_offset()..recv.location().end_offset()];
-                if recv_src == checked_src {
-                    return true;
-                }
-                return Self::find_receiver_by_bytes(&recv, checked_src, bytes);
-            }
-        }
-        false
-    }
-
-    fn chain_length_by_bytes(
-        node: &ruby_prism::Node<'_>,
-        checked_src: &[u8],
-        bytes: &[u8],
-    ) -> usize {
-        if let Some(call) = node.as_call_node() {
-            if let Some(recv) = call.receiver() {
-                let recv_src = &bytes[recv.location().start_offset()..recv.location().end_offset()];
-                if recv_src == checked_src {
-                    return 1;
-                }
-                return 1 + Self::chain_length_by_bytes(&recv, checked_src, bytes);
-            }
-        }
-        0
-    }
-
-    fn call_on_receiver_is_dotless_by_bytes(
-        node: &ruby_prism::Node<'_>,
-        checked_src: &[u8],
-        bytes: &[u8],
-    ) -> bool {
-        if let Some(call) = node.as_call_node() {
-            if let Some(recv) = call.receiver() {
-                let recv_src = &bytes[recv.location().start_offset()..recv.location().end_offset()];
-                if recv_src == checked_src {
-                    return Self::is_dotless_operator(&call);
-                }
-                return Self::call_on_receiver_is_dotless_by_bytes(&recv, checked_src, bytes);
-            }
-        }
-        false
     }
 
     fn check_modifier_if(
@@ -921,14 +841,26 @@ impl SafeNavigation {
                 call.receiver().and_then(|r| {
                     if let Some(inner) = r.as_call_node() {
                         if inner.name().as_slice() == b"nil?" {
-                            inner.receiver().map(|ir| {
-                                &bytes[ir.location().start_offset()..ir.location().end_offset()]
-                            })
+                            if is_unless {
+                                None
+                            } else {
+                                inner.receiver().map(|ir| {
+                                    &bytes[ir.location().start_offset()..ir.location().end_offset()]
+                                })
+                            }
                         } else {
-                            Some(&bytes[r.location().start_offset()..r.location().end_offset()])
+                            if is_unless {
+                                Some(&bytes[r.location().start_offset()..r.location().end_offset()])
+                            } else {
+                                None
+                            }
                         }
                     } else {
-                        Some(&bytes[r.location().start_offset()..r.location().end_offset()])
+                        if is_unless {
+                            Some(&bytes[r.location().start_offset()..r.location().end_offset()])
+                        } else {
+                            None
+                        }
                     }
                 })
             } else {
@@ -966,21 +898,20 @@ impl SafeNavigation {
             return Vec::new();
         }
 
-        if !Self::find_receiver_by_bytes(&body, checked_src, bytes) {
+        let chain = match Self::call_chain_from_checked_receiver(body, checked_src, bytes) {
+            Some(chain) => chain,
+            None => return Vec::new(),
+        };
+
+        if chain.len() > max_chain_length {
             return Vec::new();
         }
 
-        let chain_len = Self::chain_length_by_bytes(&body, checked_src, bytes);
-        if chain_len > max_chain_length {
+        if Self::chain_has_dotless_operator(&chain) {
             return Vec::new();
         }
 
-        if Self::has_dotless_operator_in_chain(&body) {
-            return Vec::new();
-        }
-
-        // Skip if any method in the chain is unsafe for safe navigation
-        if Self::has_unsafe_method_in_chain(&body, allowed_methods) {
+        if Self::has_unsafe_method_after_checked_receiver(&chain, allowed_methods) {
             return Vec::new();
         }
 
