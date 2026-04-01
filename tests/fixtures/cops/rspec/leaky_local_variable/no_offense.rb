@@ -511,3 +511,38 @@ describe SomeClass do
   list_json_keys += %w[num_of_pages created_at]
 end
 
+# Variable used only as &block argument to example method (not inside block body).
+# The & reads the variable at the call site (group scope), not inside the example.
+# (celluloid pattern: xit("can be deferred", &execute_deferred))
+describe SomeClass do
+  execute_deferred = proc do
+    a1 = MyBlockActor.new("one", [])
+    expect(a1.deferred_excecution(:pete) { |v| v }).to eq(:pete)
+  end
+  xit("can be deferred", &execute_deferred)
+end
+
+# Dead assignment: immediately overwritten by if-expression (puppetlabs pattern).
+# Only the second assignment's value reaches examples; the first is dead.
+describe SomeClass do
+  on_supported_os.each do |os, os_facts|
+    storage_driver = 'devicemapper'
+    storage_driver = if os[:family] == 'RedHat'
+                       'devicemapper'
+                     else
+                       'overlay2'
+                     end
+  end
+end
+
+# Dead assignment: sequential assignment within conditional (puppetlabs pattern).
+# The first `facts = ...` is immediately overwritten and never reaches examples.
+describe SomeClass do
+  on_supported_os.each do |os, os_facts|
+    if os.include?('windows')
+      facts = windows_facts.merge(os_facts)
+      facts = facts.merge({ puppetversion: Puppet.version })
+    end
+  end
+end
+

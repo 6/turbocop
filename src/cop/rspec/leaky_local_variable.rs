@@ -1653,10 +1653,15 @@ fn stmt_example_scope_var_interaction(
                 }
                 // BlockArgumentNode: `let(:foo, &bar)` — the variable is
                 // passed as a block argument, which is a reference.
-                if let Some(ba) = blk.as_block_argument_node() {
-                    if let Some(expr) = ba.expression() {
-                        if node_references_var(&expr, var_name) {
-                            result = combine_var_interactions(result, VarInteraction::ReadOnly);
+                // But for actual example methods (it/xit/specify), `&var`
+                // reads the variable at the call site (group scope), not
+                // inside the example, so it should not count.
+                if !is_rspec_example(name) {
+                    if let Some(ba) = blk.as_block_argument_node() {
+                        if let Some(expr) = ba.expression() {
+                            if node_references_var(&expr, var_name) {
+                                result = combine_var_interactions(result, VarInteraction::ReadOnly);
+                            }
                         }
                     }
                 }
@@ -1699,6 +1704,17 @@ fn stmt_example_scope_var_interaction(
                                 }
                                 if !matches!(result, VarInteraction::None) {
                                     return result;
+                                }
+                                // Fallback: check if describe/context call arguments
+                                // within the block body reference the variable. Inside
+                                // shared group blocks (it_behaves_like), describe args
+                                // like `describe package(var)` run at shared group scope
+                                // and count as leaky references (unlike top-level describe
+                                // args which are group-scope reads).
+                                for s in stmts.body().iter() {
+                                    if example_group_args_reference_var(&s, var_name) {
+                                        return VarInteraction::ReadOnly;
+                                    }
                                 }
                             }
                         }
@@ -1803,7 +1819,17 @@ fn stmt_example_scope_var_interaction(
                             //     name = File.expand_path(name)  # kills tracked
                             //     it { IO.read(name) }     # reads new value
                             //   end
-                            let mut past_assign = false;
+
+                            // Check if the assignment is in the call arguments
+                            // rather than in the block body (e.g.,
+                            // `under(user = Obj.new) do ... end`). If so, all
+                            // block body statements come after the assignment.
+                            let assign_in_block_body = stmts
+                                .body()
+                                .iter()
+                                .any(|s| stmt_contains_offset(&s, assign_offset));
+
+                            let mut past_assign = !assign_in_block_body;
                             let mut result = VarInteraction::None;
                             for s in stmts.body().iter() {
                                 if !past_assign {
@@ -2414,10 +2440,18 @@ fn collect_assignments_in_scope(
             .receiver()
             .is_some_and(|r| util::constant_name(&r).is_some_and(|n| n == b"RSpec"));
 
-        // Stop at example scopes, nested example groups, includes methods
+        // Stop at example scopes, nested example groups, includes methods.
+        // But still collect assignments embedded in call ARGUMENTS (e.g.,
+        // `context path = '/foo' do` or `under(user = Obj.new) do`).
         if (no_recv && (is_example_scope(name) || is_includes_method(name)))
             || ((no_recv || is_rspec_recv) && is_rspec_example_group(name))
         {
+            // Collect assignments from arguments before returning.
+            if let Some(args) = call.arguments() {
+                for arg in args.arguments().iter() {
+                    collect_assignments_in_scope(&arg, assigns, inside_block);
+                }
+            }
             return;
         }
 
@@ -3191,6 +3225,59 @@ fn node_writes_var_deep(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
 }
 
 /// Check if a node is an interpolated string or symbol.
+/// Check if a node is an example group call (describe/context) whose arguments
+/// reference the given variable. Recurses into nested nodes (if/case/blocks)
+/// to find embedded describe/context calls with variable references in args.
+fn example_group_args_reference_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
+    if let Some(call) = node.as_call_node() {
+        let name = call.name().as_slice();
+        let no_recv = call.receiver().is_none();
+        let is_rspec_recv = call
+            .receiver()
+            .is_some_and(|r| util::constant_name(&r).is_some_and(|n| n == b"RSpec"));
+        if (no_recv || is_rspec_recv) && is_rspec_example_group(name) {
+            if let Some(args) = call.arguments() {
+                for arg in args.arguments().iter() {
+                    if node_references_var(&arg, var_name) {
+                        return true;
+                    }
+                }
+            }
+            // Also recurse into the block body for nested describe/context calls
+            if let Some(blk) = call.block() {
+                if let Some(bn) = blk.as_block_node() {
+                    if let Some(body) = bn.body() {
+                        if let Some(stmts) = body.as_statements_node() {
+                            for s in stmts.body().iter() {
+                                if example_group_args_reference_var(&s, var_name) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+        // For non-example-group calls with blocks, recurse into the block body
+        if let Some(blk) = call.block() {
+            if let Some(bn) = blk.as_block_node() {
+                if let Some(body) = bn.body() {
+                    if let Some(stmts) = body.as_statements_node() {
+                        for s in stmts.body().iter() {
+                            if example_group_args_reference_var(&s, var_name) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    false
+}
+
 fn is_interpolated_string_or_symbol(node: &ruby_prism::Node<'_>) -> bool {
     node.as_interpolated_string_node().is_some() || node.as_interpolated_symbol_node().is_some()
 }
@@ -3566,11 +3653,19 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
         return node_references_var(&cpw.value(), var_name);
     }
 
-    // Local variable or-write / and-write
+    // Local variable or-write / and-write: `x ||= expr`, `x &&= expr`.
+    // These implicitly read the variable first (to check its current value),
+    // then conditionally write. If the variable name matches, it's a reference.
     if let Some(ow) = node.as_local_variable_or_write_node() {
+        if ow.name().as_slice() == var_name {
+            return true;
+        }
         return node_references_var(&ow.value(), var_name);
     }
     if let Some(aw) = node.as_local_variable_and_write_node() {
+        if aw.name().as_slice() == var_name {
+            return true;
+        }
         return node_references_var(&aw.value(), var_name);
     }
 

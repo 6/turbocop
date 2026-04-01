@@ -686,3 +686,60 @@ RSpec.describe CustomLinksHelper do
     end
   end
 end
+
+# Variable initialized to nil, used via ||= in before hook (capybara-envjs pattern)
+# The ||= reads the variable first (conditional write), so the outer value leaks.
+describe Capybara::Driver::Envjs do
+  driver = nil
+  ^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  before do
+    @driver = (driver ||= Capybara::Driver::Envjs.new(TestApp))
+  end
+end
+
+# Inline assignment in context argument, variable used in let (rack-server-pages pattern)
+describe 'Basic requests' do
+  context path = '/aaa/bbb/AB-c.182-d.min.js' do
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    let(:path_info) { path }
+  end
+end
+
+# Inline assignment in non-RSpec method call argument (zendesk pattern)
+describe ZendeskAPI::Setting do
+  under(user = ZendeskAPI::User.new(client, id: "me")) do
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    describe "updating", :vcr do
+      it "should be updatable" do
+        settings = user.settings
+      end
+    end
+  end
+end
+
+# Underscored file-level variable used in example (pry pattern)
+_version = 1
+^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+describe "test Pry defaults" do
+  it "overrides" do
+    expect(_version).to eq(1)
+  end
+end
+
+# Group-scope variable used in nested describe argument (puppet-ssh pattern)
+describe 'ssh' do
+  package_name = case fact('os.family')
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+                 when 'Archlinux'
+                   'openssh'
+                 else
+                   'openssh-server'
+                 end
+  context 'with defaults' do
+    it_behaves_like 'an idempotent resource' do
+      describe package(package_name) do
+      end
+    end
+  end
+end
