@@ -222,7 +222,7 @@ impl IndentationConsistency {
             }
 
             let first_loc = section[0].location();
-            let (first_line, first_col) = source.offset_to_line_col(first_loc.start_offset());
+            let (_, first_col) = source.offset_to_line_col(first_loc.start_offset());
             let mut prev_end_line = self.end_line_for(source, section[0]);
 
             for child in &section[1..] {
