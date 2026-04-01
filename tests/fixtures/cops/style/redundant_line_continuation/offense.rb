@@ -117,3 +117,31 @@ data = "#{params['tid']}\
 #{params['name']}\
                  ^ Style/RedundantLineContinuation: Redundant line continuation.
 #{params['comment']}"
+
+@result = \
+          ^ Style/RedundantLineContinuation: Redundant line continuation.
+  child_tables.find(:name, @table_name) ||
+  parent_tables.find(:name, @table_name)
+
+@_purchase ||= \
+               ^ Style/RedundantLineContinuation: Redundant line continuation.
+  successful_purchases.find { _1.present? } ||
+  purchase_with_tax
+
+value = \
+        ^ Style/RedundantLineContinuation: Redundant line continuation.
+  if condition
+    "hello"
+  else
+    "world"
+  end
+
+@column_widths ||= \
+                   ^ Style/RedundantLineContinuation: Redundant line continuation.
+  all_rows.reject {|row| row.cells == :separator}.map do |row|
+    row.cells.map {|cell| cell.value.length}.flatten
+  end.transpose.map(&:max)
+
+fetch('SQ') =~ \
+               ^ Style/RedundantLineContinuation: Redundant line continuation.
+  /(\d+) BP; (\d+) A; (\d+) C/
