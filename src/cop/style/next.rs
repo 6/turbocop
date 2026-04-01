@@ -21,6 +21,8 @@ use crate::parse::source::SourceFile;
 ///   `find_index`, `map!`, `select!`, `reject!`).
 /// - Added `each_*` prefix matching for dynamic enumerator methods.
 /// - Removed `any?`/`none?` (not in RuboCop's ENUMERATOR_METHODS, caused FP).
+/// - Removed `filter` (not in RuboCop's ENUMERATOR_METHODS, caused FP in
+///   bluepotion `filter do` blocks).
 ///
 /// Remaining FN sources: `AllowConsecutiveConditionals` handling, deeper
 /// `if_else_children?` parity beyond top-level body statements, and some
@@ -35,7 +37,6 @@ const ITERATION_METHODS: &[&[u8]] = &[
     b"detect",
     b"downto",
     b"each",
-    b"filter",
     b"find",
     b"find_all",
     b"find_index",
