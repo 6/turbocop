@@ -68,3 +68,20 @@ class Test8
     end
   end
 end
+
+def method_missing(*args)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+end
+
+fh = Class.new(Object) do
+  def method_missing(*args)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+    raise "failed"
+  end
+end
+
+obj.instance_eval do
+  def method_missing(method, *args)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MissingRespondToMissing: When using `method_missing`, define `respond_to_missing?`.
+  end
+end

@@ -10,6 +10,20 @@ use ruby_prism::Visit;
 /// `class_eval` blocks. The fix tracks the same effective search root RuboCop derives
 /// from ancestor shape, while still allowing descendant `respond_to_missing?` methods in
 /// nested classes/modules to satisfy outer `method_missing` definitions when RuboCop does.
+///
+/// FN fix: `method_missing` inside blocks (`Class.new do`, `instance_eval`, etc.) or at
+/// top-level program scope was missed because `current_root_key` returned `None` when
+/// traversal reached `ProgramNode`. Fixed by returning the nearest enclosing block
+/// (Other) or the Program node itself as the root scope. `current_ancestor_scopes` now
+/// includes non-boundary (block) ancestors so block-level `respond_to_missing?` can
+/// match. For Program roots, `finish()` uses root equality instead of ancestor
+/// containment to avoid false matches with class-level `respond_to_missing?`.
+///
+/// Remaining FP (1): RuboCop's whitequark AST collapses single-statement class bodies,
+/// causing `node.parent.parent` to go past the class. When a file reopens the same class
+/// with `respond_to_missing?`, RuboCop's grandparent search finds it across class
+/// definitions. Prism's StatementsNode wrapper prevents this. Not fixed — it's a RuboCop
+/// parser artifact, not intentional semantics.
 pub struct MissingRespondToMissing;
 
 impl Cop for MissingRespondToMissing {
@@ -162,12 +176,20 @@ impl MethodMissingVisitor<'_> {
     fn current_root_key(&self) -> Option<ScopeKey> {
         let mut index = self.ancestors.len().checked_sub(2)?;
         let mut saw_wrapper = false;
+        let mut nearest_other: Option<ScopeKey> = None;
 
         loop {
             let frame = *self.ancestors.get(index)?;
 
             match frame.kind {
-                AncestorKind::Program => return None,
+                AncestorKind::Program => {
+                    // When we reach program level, use the nearest enclosing block
+                    // as the root scope (matching RuboCop's grandparent lookup for
+                    // defs inside blocks like Class.new/instance_eval). If no block
+                    // was encountered, use the program itself as the root (top-level
+                    // method_missing).
+                    return nearest_other.or(Some(ScopeKey::from_frame(frame)));
+                }
                 AncestorKind::SingletonClass => return Some(ScopeKey::from_frame(frame)),
                 AncestorKind::Class | AncestorKind::Module | AncestorKind::Def => {
                     let has_outer_boundary = self.ancestors[..index]
@@ -181,6 +203,9 @@ impl MethodMissingVisitor<'_> {
                 }
                 AncestorKind::Other => {
                     saw_wrapper = true;
+                    if nearest_other.is_none() {
+                        nearest_other = Some(ScopeKey::from_frame(frame));
+                    }
                 }
             }
 
@@ -192,7 +217,7 @@ impl MethodMissingVisitor<'_> {
         self.ancestors
             .iter()
             .take(self.ancestors.len().saturating_sub(1))
-            .filter(|ancestor| ancestor.kind.is_boundary())
+            .filter(|ancestor| !matches!(ancestor.kind, AncestorKind::Program))
             .copied()
             .map(ScopeKey::from_frame)
             .collect()
@@ -230,7 +255,13 @@ impl MethodMissingVisitor<'_> {
             let has_match = self.defs.iter().any(|respond| {
                 respond.role == MethodRole::RespondToMissing
                     && respond.is_class_method == method_missing.is_class_method
-                    && respond.ancestor_scopes.contains(&root)
+                    && if root.kind == AncestorKind::Program {
+                        // For top-level method_missing, require respond_to_missing?
+                        // to also be at top level (same program root).
+                        respond.root == Some(root)
+                    } else {
+                        respond.ancestor_scopes.contains(&root)
+                    }
             });
 
             if !has_match {
