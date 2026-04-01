@@ -66,6 +66,7 @@ assert !@called
 @data_gathering[pair_hash] ||= {}
 
 let(:output_missing) {      <<-EOT
+                      ^^^^^ Layout/ExtraSpacing: Unnecessary spacing detected.
 EOT
 }
 
@@ -99,3 +100,6 @@ html = <<-EOF
 #{baz(5,  6)}
         ^ Layout/ExtraSpacing: Unnecessary spacing detected.
 EOF
+
+(%w[  id lock_version position version_comment created_at updated_at created_by_id updated_by_id type original_record_id])
+    ^ Layout/ExtraSpacing: Unnecessary spacing detected.

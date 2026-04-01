@@ -144,6 +144,18 @@ use std::ops::Range;
 ///     incorrectly allowed. Extract full numeric literals, including signs,
 ///     decimal parts, exponents, and common Ruby suffixes, before comparing
 ///     exact-token alignment.
+///
+/// 16. **Heredoc opener FNs (fixed 2026-04-01)**: `check_equals_alignment`
+///     treated every `<<` as an append operator, so heredoc openers like
+///     `let(:x) {      <<-EOT` were incorrectly considered aligned with `=` on
+///     adjacent lines. Track actual heredoc opener offsets from Prism and
+///     exclude them from `=`/`<<` cross-alignment.
+///
+/// 17. **Leading-space `%w/%i/%W/%I` FNs (fixed 2026-04-01)**: non-empty
+///     word/symbol arrays previously ignored their entire interior, which hid
+///     extra spaces immediately after the opener in forms like
+///     `%w[  id lock_version]`. Ignore only separator spans between elements
+///     plus the trailing span before the closing delimiter.
 pub struct ExtraSpacing;
 
 impl Cop for ExtraSpacing {
@@ -178,6 +190,10 @@ impl Cop for ExtraSpacing {
         // Collect word/symbol array interior ranges to ignore (%w, %W, %i, %I).
         // Spaces inside these arrays are element separators, not extra spacing.
         ignored_ranges.extend(collect_word_array_ranges(parse_result));
+
+        // Track actual heredoc opener offsets so `<<` heredoc delimiters are
+        // not mistaken for append operators during alignment checks.
+        let heredoc_opener_starts = collect_heredoc_opener_starts(parse_result);
 
         // Build the set of aligned comment lines (1-indexed). Two consecutive
         // comments that start at the same column are both considered "aligned".
@@ -265,6 +281,9 @@ impl Cop for ExtraSpacing {
                                     &lines,
                                     line_idx,
                                     i,
+                                    line_start_offset,
+                                    source,
+                                    &heredoc_opener_starts,
                                     &comment_only_lines,
                                 )
                             {
@@ -361,8 +380,12 @@ fn is_in_ignored_range(ranges: &[Range<usize>], offset: usize) -> bool {
 
 // -- Word/symbol array ignored ranges --
 
-/// Collect byte ranges of word/symbol array interiors (%w, %W, %i, %I).
-/// Spaces inside these arrays are element separators, not extra spacing.
+/// Collect byte ranges inside word/symbol arrays (%w, %W, %i, %I) that should
+/// be ignored by ExtraSpacing.
+///
+/// RuboCop allows separator spaces between elements and trailing spaces before
+/// the closing delimiter, but still flags extra spaces immediately after the
+/// opener in non-empty arrays (for example `%w[  id lock_version]`).
 fn collect_word_array_ranges(parse_result: &ruby_prism::ParseResult<'_>) -> Vec<Range<usize>> {
     let mut collector = WordArrayCollector { ranges: Vec::new() };
     collector.visit(&parse_result.node());
@@ -383,21 +406,64 @@ impl<'pr> Visit<'pr> for WordArrayCollector {
                 || opener.starts_with(b"%i")
                 || opener.starts_with(b"%I")
             {
-                // Only ignore interior of non-empty word/symbol arrays.
-                // Empty arrays like %w(  ) or %i(  ) should still have
-                // their extra spaces flagged, matching RuboCop behavior.
-                if !node.elements().is_empty() {
-                    let start = opening.end_offset();
-                    let end = node
+                let elements: Vec<_> = node.elements().iter().collect();
+                if let Some(first) = elements.first() {
+                    // Ignore separator gaps between elements and the trailing
+                    // span before the closing delimiter, but not the leading
+                    // span after the opener.
+                    let mut prev_end = first.location().end_offset();
+                    for element in elements.iter().skip(1) {
+                        let next_start = element.location().start_offset();
+                        if next_start > prev_end {
+                            self.ranges.push(prev_end..next_start);
+                        }
+                        prev_end = element.location().end_offset();
+                    }
+
+                    let closing_start = node
                         .closing_loc()
                         .map_or(node.location().end_offset(), |c| c.start_offset());
-                    if end > start {
-                        self.ranges.push(start..end);
+                    if closing_start > prev_end {
+                        self.ranges.push(prev_end..closing_start);
                     }
                 }
             }
         }
         ruby_prism::visit_array_node(self, node);
+    }
+}
+
+// -- Heredoc opener tracking --
+
+fn collect_heredoc_opener_starts(parse_result: &ruby_prism::ParseResult<'_>) -> HashSet<usize> {
+    let mut collector = HeredocOpenerCollector {
+        starts: HashSet::new(),
+    };
+    collector.visit(&parse_result.node());
+    collector.starts
+}
+
+struct HeredocOpenerCollector {
+    starts: HashSet<usize>,
+}
+
+impl<'pr> Visit<'pr> for HeredocOpenerCollector {
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        if let Some(opening) = node.opening_loc() {
+            if opening.as_slice().starts_with(b"<<") {
+                self.starts.insert(opening.start_offset());
+            }
+        }
+        ruby_prism::visit_string_node(self, node);
+    }
+
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        if let Some(opening) = node.opening_loc() {
+            if opening.as_slice().starts_with(b"<<") {
+                self.starts.insert(opening.start_offset());
+            }
+        }
+        ruby_prism::visit_interpolated_string_node(self, node);
     }
 }
 
@@ -455,6 +521,9 @@ fn is_aligned_with_adjacent(
     lines: &[&[u8]],
     line_idx: usize,
     col: usize,
+    line_start_offset: usize,
+    source: &SourceFile,
+    heredoc_opener_starts: &HashSet<usize>,
     comment_only_lines: &HashSet<usize>,
 ) -> bool {
     let base_indent = line_indentation(lines[line_idx]);
@@ -464,14 +533,28 @@ fn is_aligned_with_adjacent(
     // Pass 1: nearest non-blank, non-comment-only line
     if let Some(adj) = find_nearest_line(lines, line_idx, true, comment_only_lines, None) {
         if check_alignment(current_line, lines[adj], col)
-            || check_equals_alignment(current_line, lines[adj], col)
+            || check_equals_alignment(
+                current_line,
+                lines[adj],
+                col,
+                line_start_offset,
+                source.line_start_offset(adj + 1),
+                heredoc_opener_starts,
+            )
         {
             return true;
         }
     }
     if let Some(adj) = find_nearest_line(lines, line_idx, false, comment_only_lines, None) {
         if check_alignment(current_line, lines[adj], col)
-            || check_equals_alignment(current_line, lines[adj], col)
+            || check_equals_alignment(
+                current_line,
+                lines[adj],
+                col,
+                line_start_offset,
+                source.line_start_offset(adj + 1),
+                heredoc_opener_starts,
+            )
         {
             return true;
         }
@@ -482,7 +565,14 @@ fn is_aligned_with_adjacent(
         find_nearest_line(lines, line_idx, true, comment_only_lines, Some(base_indent))
     {
         if check_alignment(current_line, lines[adj], col)
-            || check_equals_alignment(current_line, lines[adj], col)
+            || check_equals_alignment(
+                current_line,
+                lines[adj],
+                col,
+                line_start_offset,
+                source.line_start_offset(adj + 1),
+                heredoc_opener_starts,
+            )
         {
             return true;
         }
@@ -495,7 +585,14 @@ fn is_aligned_with_adjacent(
         Some(base_indent),
     ) {
         if check_alignment(current_line, lines[adj], col)
-            || check_equals_alignment(current_line, lines[adj], col)
+            || check_equals_alignment(
+                current_line,
+                lines[adj],
+                col,
+                line_start_offset,
+                source.line_start_offset(adj + 1),
+                heredoc_opener_starts,
+            )
         {
             return true;
         }
@@ -770,7 +867,14 @@ fn is_base_prefixed_numeric_char(ch: u8) -> bool {
 /// Both the current and adjacent line's `=` must look like an assignment
 /// operator (preceded by space or an operator character like `+`, `|`, etc.)
 /// to avoid matching `=` inside strings or other non-assignment contexts.
-fn check_equals_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> bool {
+fn check_equals_alignment(
+    current_line: &[u8],
+    adj_line: &[u8],
+    col: usize,
+    current_line_start_offset: usize,
+    adj_line_start_offset: usize,
+    heredoc_opener_starts: &HashSet<usize>,
+) -> bool {
     // Find the '=' in or near the token starting at col on the current line
     let eq_col = find_equals_col(current_line, col);
     if let Some(eq_col) = eq_col {
@@ -803,7 +907,10 @@ fn check_equals_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> b
                 || adj_line[lshift_start - 1] == b' '
                 || adj_line[lshift_start - 1] == b'\t'
             {
-                return true;
+                let adj_lshift_offset = adj_line_start_offset + lshift_start;
+                if !heredoc_opener_starts.contains(&adj_lshift_offset) {
+                    return true;
+                }
             }
         }
     }
@@ -813,6 +920,11 @@ fn check_equals_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> b
     // range.source == '<<' && token.equal_sign? && last_column matches.
     let lshift_col = find_lshift_col(current_line, col);
     if let Some(lshift_col) = lshift_col {
+        let current_lshift_offset = current_line_start_offset + lshift_col;
+        if heredoc_opener_starts.contains(&current_lshift_offset) {
+            return false;
+        }
+
         // The last `<` of `<<` is at lshift_col + 1
         let last_char_col = byte_to_char_col(current_line, lshift_col + 1);
         let adj_last_col = match char_col_to_byte(adj_line, last_char_col) {

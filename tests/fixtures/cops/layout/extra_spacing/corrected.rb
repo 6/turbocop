@@ -48,7 +48,7 @@ assert !@called
 @signatures[pair_hash] ||= {}
 @data_gathering[pair_hash] ||= {}
 
-let(:output_missing) {      <<-EOT
+let(:output_missing) { <<-EOT
 EOT
 }
 
@@ -73,3 +73,5 @@ html = <<-EOF
 #{bar(3, 4)}
 #{baz(5, 6)}
 EOF
+
+(%w[ id lock_version position version_comment created_at updated_at created_by_id updated_by_id type original_record_id])

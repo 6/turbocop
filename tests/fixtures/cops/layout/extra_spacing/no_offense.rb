@@ -112,6 +112,7 @@ builtins = %w(
   foo  bar  baz
   one  two  three
 )
+trailing = %w(foo bar  )
 
 # Extra spaces inside %i() symbol arrays
 syms = %i(foo  bar  baz)
