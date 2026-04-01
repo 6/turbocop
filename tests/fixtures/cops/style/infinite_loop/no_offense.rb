@@ -83,3 +83,15 @@ def kwarg_scoping(offset: 0)
   end
   offset
 end
+
+# Variable first assigned inside a loop nested in a block is still a scoping exemption
+def block_scoping_exemption
+  mutex.synchronize do
+    while true
+      now = Time.now
+      break if done?
+    end
+
+    puts now
+  end
+end

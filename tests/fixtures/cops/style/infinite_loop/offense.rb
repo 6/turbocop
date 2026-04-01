@@ -123,3 +123,69 @@ def kwarg_no_ref(offset: 0)
     break if done?
   end
 end
+
+# Later block parameters with the same name should not suppress offense
+def shadowed_block_param_after_loop
+  while true
+  ^^^^^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+    event = next_value
+    break if done?
+  end
+
+  handlers.each do |event, funcname|
+    process(event, funcname)
+  end
+end
+
+# Outer local assigned before a block remains visible inside nested loop blocks
+def block_outer_local_assigned_before
+  now = nil
+
+  mutex.synchronize do
+    while true
+    ^^^^^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+      now = Time.now
+      break if done?
+    end
+
+    puts now
+  end
+end
+
+# Outer block locals remain visible inside inner blocks
+def nested_block_outer_local_assigned_before
+  active.each do |zipper|
+    matched = false
+
+    groups.each do |group|
+      while true
+      ^^^^^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+        matched = compute(zipper, group)
+        break if matched
+      end
+
+      break if matched
+    end
+  end
+end
+
+# Outer locals assigned before a parameterized block remain visible inside the loop
+def parametrized_block_outer_local_assigned_before
+  out = 0
+
+  input_length.times do |j|
+    while true
+    ^^^^^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+      out += 1
+      break if j.zero?
+    end
+
+    puts out
+  end
+end
+
+# Backtick commands are truthy literals
+while `isDesc ? #{counter >= limit} : #{counter <= limit}`
+^^^^^ Style/InfiniteLoop: Use `Kernel#loop` for infinite loops.
+  counter += step
+end
