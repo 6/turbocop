@@ -71,6 +71,33 @@ fn is_access_modifier_call(node: &ruby_prism::Node<'_>) -> bool {
     }
 }
 
+/// Check if a node is an access modifier wrapping a def (e.g., `private def foo`).
+/// In Prism, this is a CallNode(private, args=[DefNode]).
+/// RuboCop's `access_modifier?` matches all `private/protected/public/module_function`
+/// calls regardless of args, so it skips `private def foo` in the member walk. But we
+/// must NOT skip `private :method_name` since RuboCop's IndentationWidth checks those.
+fn is_access_modifier_with_def(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        if call.receiver().is_some() || call.block().is_some() {
+            return false;
+        }
+        let name = call.name().as_slice();
+        if !ACCESS_MODIFIERS.contains(&name) {
+            return false;
+        }
+        // Check if the sole argument is a DefNode
+        if let Some(args) = call.arguments() {
+            let mut iter = args.arguments().iter();
+            if let Some(first) = iter.next() {
+                return first.as_def_node().is_some() && iter.next().is_none();
+            }
+        }
+        false
+    } else {
+        false
+    }
+}
+
 fn body_members(body: ruby_prism::Node<'_>) -> Vec<ruby_prism::Node<'_>> {
     if let Some(stmts) = body.as_statements_node() {
         stmts.body().iter().collect()
@@ -296,7 +323,11 @@ impl IndentationWidth {
         }
 
         for member in &members {
-            if is_access_modifier_call(member) {
+            // Skip bare access modifiers (e.g., `private`) and access modifiers
+            // wrapping a def (e.g., `private def foo`). RuboCop's member walk
+            // skips both via `access_modifier?`. We do NOT skip `private :symbol`
+            // since RuboCop's IndentationWidth still checks those.
+            if is_access_modifier_call(member) || is_access_modifier_with_def(member) {
                 continue;
             }
 
