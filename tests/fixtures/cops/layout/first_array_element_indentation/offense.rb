@@ -90,3 +90,11 @@ LatexToPdf.generate_pdf(IO.read(File.expand_path('../test_doc.tex',__FILE__)),{:
   { :command => 'pdflatex', :runs => 2 }
 ]})
 ^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.
+
+# FN fix: explicit `.(` call parens still use paren-relative indentation
+inner = "\x04\b" + array.([
+  m.("0.0.0"), # @rubygems_version
+  ^^ Layout/FirstArrayElementIndentation: Use 2 spaces for indentation in an array, relative to the first position after the preceding left parenthesis.
+  m.(4), # @specification_version
+    ])
+    ^ Layout/FirstArrayElementIndentation: Indent the right bracket the same as the first position after the preceding left parenthesis.

@@ -169,6 +169,28 @@ fn byte_col_to_char_col(line_bytes: &[u8], byte_col: usize) -> usize {
 /// and the hash key as an "intermediate method call", even when that dot was
 /// in a PREVIOUS argument separated by a comma. Fix: only consider dots in the
 /// current top-level argument segment after the most recent comma.
+///
+/// **FP/FN root cause #9 (2026-04-01):** Four sub-causes:
+/// a) Bracketless nested calls inside outer parens, e.g.
+///    `with(expand_paths [ ... ])`, were treated as if the array belonged to
+///    the outer `with(` call. RuboCop keeps these line-relative because the
+///    array is the argument of the inner command-style call. Fix:
+///    `has_command_call_before_array()` suppresses paren-relative indentation
+///    when the current top-level argument segment ends with a command-style
+///    method call before `[`.
+/// b) Complex `=>` hash keys, e.g. `Source.new(...) => [`, were anchored to the
+///    tail of the key expression (`)`), not the pair start. RuboCop uses
+///    `pair.loc.column`. Fix: `find_pair_start_before_rocket()` now scans back
+///    to the start of the whole hash pair expression.
+/// c) Hash-key-relative indentation was still applied when the right sibling
+///    started on the SAME line as the closing bracket, e.g.
+///    `pageids: [ ... ], iilimit: 50`. RuboCop only uses parent-hash-key when
+///    the right sibling begins on a SUBSEQUENT line. Fix: remove the backward
+///    "any right sibling" heuristic and require
+///    `has_right_sibling_on_subsequent_line()` directly.
+/// d) Explicit `.(` call syntax, e.g. `array.([`, was misclassified as a
+///    grouping paren because `(` is preceded by `.`. Fix: treat `.` as a valid
+///    method-call precursor when deciding if `(` is grouping.
 pub struct FirstArrayElementIndentation;
 
 /// Describes what the expected indentation is relative to.
@@ -251,6 +273,7 @@ fn find_left_paren_on_line(line_bytes: &[u8], bracket_col: usize) -> ParenScanRe
                             || prev == b'_'
                             || prev == b'!'
                             || prev == b'?'
+                            || prev == b'.'
                             || prev == b']'
                             || prev == b')')
                     };
@@ -335,6 +358,88 @@ fn is_splat_before_array(line_bytes: &[u8], star_pos: usize) -> bool {
     line_bytes[j] == b'[' || line_bytes[j] == b'%'
 }
 
+/// For `expr => [`, find the start column of the WHOLE hash pair expression on
+/// the same line, matching RuboCop's `pair.loc.column`.
+///
+/// This handles complex keys like `Source.new(...) => [` by scanning backward to
+/// the nearest top-level `{` or `,` (or start of line), instead of anchoring to
+/// the tail of the key expression.
+fn find_pair_start_before_rocket(line_bytes: &[u8], rocket_gt_col: usize) -> Option<usize> {
+    if rocket_gt_col == 0 || rocket_gt_col >= line_bytes.len() {
+        return None;
+    }
+    if line_bytes[rocket_gt_col] != b'>' || line_bytes[rocket_gt_col - 1] != b'=' {
+        return None;
+    }
+
+    let mut end = rocket_gt_col - 1; // index of `=`
+    while end > 0 && (line_bytes[end - 1] == b' ' || line_bytes[end - 1] == b'\t') {
+        end -= 1;
+    }
+
+    let mut paren_depth: i32 = 0;
+    let mut bracket_depth: i32 = 0;
+    let mut brace_depth: i32 = 0;
+    let mut i = end;
+    while i > 0 {
+        i -= 1;
+
+        // Skip simple string literals while scanning backward.
+        if line_bytes[i] == b'\'' || line_bytes[i] == b'"' {
+            let quote = line_bytes[i];
+            if i > 0 {
+                i -= 1;
+                while i > 0 && line_bytes[i] != quote {
+                    i -= 1;
+                }
+                continue;
+            }
+        }
+
+        match line_bytes[i] {
+            b')' => paren_depth += 1,
+            b'(' => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                }
+            }
+            b']' => bracket_depth += 1,
+            b'[' => {
+                if bracket_depth > 0 {
+                    bracket_depth -= 1;
+                }
+            }
+            b'}' => brace_depth += 1,
+            b'{' => {
+                if brace_depth == 0 && paren_depth == 0 && bracket_depth == 0 {
+                    let mut start = i + 1;
+                    while start < rocket_gt_col
+                        && (line_bytes[start] == b' ' || line_bytes[start] == b'\t')
+                    {
+                        start += 1;
+                    }
+                    return Some(start);
+                }
+                if brace_depth > 0 {
+                    brace_depth -= 1;
+                }
+            }
+            b',' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+                let mut start = i + 1;
+                while start < rocket_gt_col
+                    && (line_bytes[start] == b' ' || line_bytes[start] == b'\t')
+                {
+                    start += 1;
+                }
+                return Some(start);
+            }
+            _ => {}
+        }
+    }
+
+    Some(first_non_whitespace_column(line_bytes))
+}
+
 /// Find the column of a hash key that precedes `[` on the same line.
 /// Detects patterns like `key: [`, `key => [`, and `"key" => [`.
 /// Returns the column of the hash key's first character, or `None` if
@@ -355,35 +460,7 @@ fn find_hash_key_column(line_bytes: &[u8], bracket_col: usize) -> Option<usize> 
         }
     }
     if line_bytes[i] == b'>' && i > 0 && line_bytes[i - 1] == b'=' {
-        // `=> [` — scan back past `=>` and whitespace to find key start
-        i -= 1;
-        while i > 0 && (line_bytes[i - 1] == b' ' || line_bytes[i - 1] == b'\t') {
-            i -= 1;
-        }
-        if i == 0 {
-            return None;
-        }
-        let key_end = i;
-        if line_bytes[key_end - 1] == b'"' || line_bytes[key_end - 1] == b'\'' {
-            let quote = line_bytes[key_end - 1];
-            if key_end < 2 {
-                return None;
-            }
-            let mut j = key_end - 2;
-            while j > 0 && line_bytes[j] != quote {
-                j -= 1;
-            }
-            return Some(j);
-        }
-        let mut j = key_end - 1;
-        while j > 0
-            && (line_bytes[j - 1].is_ascii_alphanumeric()
-                || line_bytes[j - 1] == b'_'
-                || line_bytes[j - 1] == b':')
-        {
-            j -= 1;
-        }
-        return Some(j);
+        return find_pair_start_before_rocket(line_bytes, i);
     }
     // Ruby 1.9 hash syntax: `key: [`
     if line_bytes[i] != b':' {
@@ -405,6 +482,123 @@ fn find_hash_key_column(line_bytes: &[u8], bracket_col: usize) -> Option<usize> 
         j -= 1;
     }
     Some(j)
+}
+
+/// Detect a command-style nested call in the current top-level argument segment
+/// before `[`, e.g. `with(expand_paths [ ... ])`.
+///
+/// These arrays belong to the inner call, not the outer `(`. RuboCop therefore
+/// keeps them line-relative instead of using the outer parenthesis column.
+fn has_command_call_before_array(line_bytes: &[u8], start: usize, bracket_col: usize) -> bool {
+    let end = bracket_col.min(line_bytes.len());
+    if start >= end {
+        return false;
+    }
+
+    let mut paren_depth: i32 = 0;
+    let mut bracket_depth: i32 = 0;
+    let mut brace_depth: i32 = 0;
+    let mut arg_start = start;
+    let mut i = start;
+    while i < end {
+        if line_bytes[i] == b'\'' || line_bytes[i] == b'"' {
+            let quote = line_bytes[i];
+            i += 1;
+            while i < end && line_bytes[i] != quote {
+                if line_bytes[i] == b'\\' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            i += 1;
+            continue;
+        }
+
+        match line_bytes[i] {
+            b'(' => paren_depth += 1,
+            b')' => paren_depth -= 1,
+            b'[' => bracket_depth += 1,
+            b']' => bracket_depth -= 1,
+            b'{' => brace_depth += 1,
+            b'}' => brace_depth -= 1,
+            b',' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+                arg_start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let mut seg_start = arg_start;
+    while seg_start < end && (line_bytes[seg_start] == b' ' || line_bytes[seg_start] == b'\t') {
+        seg_start += 1;
+    }
+    if seg_start >= end {
+        return false;
+    }
+
+    let mut seg_end = end;
+    while seg_end > seg_start
+        && (line_bytes[seg_end - 1] == b' ' || line_bytes[seg_end - 1] == b'\t')
+    {
+        seg_end -= 1;
+    }
+
+    // Command-call syntax requires whitespace between the method name and `[`.
+    if seg_end == end {
+        return false;
+    }
+
+    let last = line_bytes[seg_end - 1];
+    if !(last.is_ascii_alphanumeric() || last == b'_' || last == b'!' || last == b'?') {
+        return false;
+    }
+
+    let mut token_start = seg_end - 1;
+    while token_start > seg_start
+        && (line_bytes[token_start - 1].is_ascii_alphanumeric()
+            || line_bytes[token_start - 1] == b'_'
+            || line_bytes[token_start - 1] == b'!'
+            || line_bytes[token_start - 1] == b'?')
+    {
+        token_start -= 1;
+    }
+
+    // Reject hash-key segments like `body:` or `key =>`.
+    let mut j = seg_start;
+    let mut inner_paren_depth: i32 = 0;
+    let mut inner_bracket_depth: i32 = 0;
+    let mut inner_brace_depth: i32 = 0;
+    while j < token_start {
+        match line_bytes[j] {
+            b'(' => inner_paren_depth += 1,
+            b')' => inner_paren_depth -= 1,
+            b'[' => inner_bracket_depth += 1,
+            b']' => inner_bracket_depth -= 1,
+            b'{' => inner_brace_depth += 1,
+            b'}' => inner_brace_depth -= 1,
+            b':' if inner_paren_depth == 0
+                && inner_bracket_depth == 0
+                && inner_brace_depth == 0 =>
+            {
+                if j + 1 >= token_start || line_bytes[j + 1] != b':' {
+                    return false;
+                }
+            }
+            b'=' if inner_paren_depth == 0
+                && inner_bracket_depth == 0
+                && inner_brace_depth == 0
+                && j + 1 < token_start
+                && line_bytes[j + 1] == b'>' =>
+            {
+                return false;
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+
+    true
 }
 
 /// Check if there is a method call (`.`) at depth 0 in the SAME top-level
@@ -578,60 +772,6 @@ fn is_direct_argument(source_bytes: &[u8], closing_end_offset: usize, inside_has
     }
 }
 
-/// Check if the array is a value in a hash literal with multiple key-value pairs,
-/// specifically whether the pair has a RIGHT SIBLING that begins on a SUBSEQUENT LINE.
-///
-/// This matches RuboCop's `right_sibling_begins_on_subsequent_line?` check:
-/// hash-key-relative indentation only applies when there is a next pair in the hash
-/// AND that next pair starts on a line after the current pair ends.
-///
-/// Checks by scanning forward from the array's closing bracket position in the source:
-/// if `]` is followed by `,` and then another hash key pattern on a SUBSEQUENT line,
-/// the right sibling condition is met.
-///
-/// Also checks backward from the array's opening `[` on its line for a preceding pair,
-/// but ONLY to detect the "first pair with right sibling" case. The backward check
-/// requires a forward right-sibling to also exist (checked separately).
-fn is_multi_pair_hash(
-    source_bytes: &[u8],
-    closing_end_offset: usize,
-    open_line_bytes: &[u8],
-    hash_key_col: usize,
-) -> bool {
-    // Primary check: forward from `]` for right sibling on subsequent line
-    if has_right_sibling_on_subsequent_line(source_bytes, closing_end_offset) {
-        return true;
-    }
-
-    // Secondary check: backward for preceding pair, BUT only if there's also
-    // a right sibling (on same or subsequent line). This handles patterns like
-    // `{ x: 1,\n  y: [\n    :a\n  ],\n  z: 3 }` where we need to check y's
-    // right sibling exists at all.
-    if hash_key_col > 0 {
-        let mut j = hash_key_col;
-        while j > 0 && (open_line_bytes[j - 1] == b' ' || open_line_bytes[j - 1] == b'\t') {
-            j -= 1;
-        }
-        if j > 0 && open_line_bytes[j - 1] == b',' {
-            j -= 1;
-            while j > 0 && (open_line_bytes[j - 1] == b' ' || open_line_bytes[j - 1] == b'\t') {
-                j -= 1;
-            }
-            let has_preceding_key = has_hash_key_pattern_before(open_line_bytes, j);
-            if has_preceding_key {
-                // Only count as multi-pair if there's also a right sibling
-                // (on same or subsequent line). Without a right sibling,
-                // RuboCop doesn't use hash-key-relative for the last pair.
-                if has_right_sibling_any_line(source_bytes, closing_end_offset) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
-}
-
 /// Check if there's a right sibling (next hash pair) that begins on a SUBSEQUENT line.
 /// This matches RuboCop's `pair.last_line < pair.right_sibling.first_line`.
 fn has_right_sibling_on_subsequent_line(source_bytes: &[u8], closing_end_offset: usize) -> bool {
@@ -665,58 +805,6 @@ fn has_right_sibling_on_subsequent_line(source_bytes: &[u8], closing_end_offset:
             || source_bytes[i] == b'\'')
     {
         return true;
-    }
-    false
-}
-
-/// Check if there's a right sibling (next hash pair) on ANY line (same or subsequent).
-/// Used to validate backward-detected multi-pair hashes.
-fn has_right_sibling_any_line(source_bytes: &[u8], closing_end_offset: usize) -> bool {
-    let len = source_bytes.len();
-    let mut i = closing_end_offset;
-    while i < len && (source_bytes[i] == b' ' || source_bytes[i] == b'\t') {
-        i += 1;
-    }
-    if i >= len || source_bytes[i] != b',' {
-        return false;
-    }
-    i += 1;
-    while i < len && matches!(source_bytes[i], b' ' | b'\t' | b'\n' | b'\r') {
-        i += 1;
-    }
-    if i < len
-        && (source_bytes[i].is_ascii_alphanumeric()
-            || source_bytes[i] == b'_'
-            || source_bytes[i] == b':'
-            || source_bytes[i] == b'"'
-            || source_bytes[i] == b'\'')
-    {
-        return true;
-    }
-    false
-}
-
-/// Check if there's a hash key pattern (`key:` or `key =>`) somewhere in the
-/// line bytes before position `end`. This is a heuristic to detect whether
-/// content before a comma is part of a hash key-value pair.
-fn has_hash_key_pattern_before(line_bytes: &[u8], end: usize) -> bool {
-    let end = end.min(line_bytes.len());
-    let mut i = end;
-    while i > 0 {
-        i -= 1;
-        if line_bytes[i] == b':'
-            && i > 0
-            && (line_bytes[i - 1].is_ascii_alphanumeric()
-                || line_bytes[i - 1] == b'_'
-                || line_bytes[i - 1] == b'?'
-                || line_bytes[i - 1] == b'!')
-            && (i + 1 >= end || line_bytes[i + 1] != b':')
-        {
-            return true;
-        }
-        if line_bytes[i] == b'>' && i > 0 && line_bytes[i - 1] == b'=' {
-            return true;
-        }
     }
     false
 }
@@ -827,19 +915,7 @@ impl Cop for FirstArrayElementIndentation {
                 // returns nil when first_elem is nil).
                 let use_hash_key = !elements.is_empty()
                     && hash_key_col.is_some()
-                    && hash_key_byte_col.is_some_and(|key_bc| {
-                        has_right_sibling_on_subsequent_line(source.as_bytes(), closing_end_offset)
-                            || {
-                                // Also check if preceding pair exists AND there's a right
-                                // sibling on any line (for first-pair-in-middle case).
-                                is_multi_pair_hash(
-                                    source.as_bytes(),
-                                    closing_end_offset,
-                                    open_line_bytes,
-                                    key_bc,
-                                )
-                            }
-                    });
+                    && has_right_sibling_on_subsequent_line(source.as_bytes(), closing_end_offset);
 
                 if use_hash_key {
                     (hash_key_col.unwrap(), IndentBaseType::ParentHashKey)
@@ -854,11 +930,17 @@ impl Cop for FirstArrayElementIndentation {
                         let intermediate_method_call = hash_key_byte_col.is_some_and(|hk| {
                             has_method_call_between(open_line_bytes, paren_byte_col + 1, hk)
                         });
+                        let nested_command_call = has_command_call_before_array(
+                            open_line_bytes,
+                            paren_byte_col + 1,
+                            open_byte_col,
+                        );
                         let use_paren_relative = !super_call_paren
                             && !is_preceded_by_percent_operator(open_line_bytes, open_byte_col)
                             && !paren_scan.has_binary_operator_at_depth_zero
                             && !paren_scan.is_grouping_paren
                             && !intermediate_method_call
+                            && !nested_command_call
                             && is_direct_argument(
                                 source.as_bytes(),
                                 closing_end_offset,

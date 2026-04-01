@@ -248,6 +248,29 @@ def as_json(options = {})
   ])
 end
 
+# FP fix: bracketless nested call inside outer parens stays line-relative
+      Motion::Project::App.any_instance.expects(:files=).with(expand_paths [
+        MotionBundler::MOTION_BUNDLER_FILE,
+        motion_bundler_file("motion-bundler/simulator/boot.rb"),
+        "/Users/paulengel/bar.rb"
+      ])
+
+# FP fix: complex `=>` hash keys use pair-relative indentation, not the key expression tail
+spec_repos = {
+  Source.new(fixture('spec-repos/trunk')) => [
+    Specification.new,
+  ],
+  OtherSource.new(fixture('spec-repos/trunk')) => [
+    Specification.new,
+  ],
+}
+
+# FP fix: right sibling on same line keeps array line-relative inside a hash value
+bad_query = { prop: 'imageinfo', iiprop: 'url', iiurlheight: 480, pageids: [
+  107709976, 111662244, 109767821,
+  109782180, 109782183
+], iilimit: 50 }
+
 # Empty arrays
 a = []
 
