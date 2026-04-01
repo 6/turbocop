@@ -9,16 +9,15 @@ use ruby_prism::Visit;
 /// so interpolation content is excluded. Fixed by iterating over Prism's `parts()`
 /// and only collecting `StringNode` content for the slash check.
 ///
-/// FN fix (2026-04): the `%r` exemption for bodies starting with a space or `=`
-/// was too broad and used the wrong bytes for interpolated regexps. RuboCop only
-/// allows that exemption for direct call-like arguments, so assignments,
-/// `when %r{=}`, array elements inside `Regexp.new([...])`, and interpolated
-/// forms like `%r{#{part} (#{separator} #{part})*}x` must still be flagged.
-/// Fixed by checking the raw literal body for the prefix and only allowing it
-/// when the regexp is a direct call, `super`, or `yield` argument. Prism's
-/// traversal can expose that parent either directly or via `ArgumentsNode`, so
-/// the cop now tracks ancestors explicitly instead of relying on node-local
-/// parent pointers.
+/// FP fix (2026-04): RuboCop checks the parser-visible regexp `content` for the
+/// leading space/`=` exemption, and that content skips `#{...}` interpolation
+/// nodes. As a result, method arguments like
+/// `assert_match %r(#{attribute}="#{value}")` and
+/// `with(%r{#{Regexp.escape(duration.to_s)} seconds})` are accepted because
+/// their first literal string chunk begins with `=` or a space. Standalone
+/// interpolated `%r` literals must still be flagged, so the exemption remains
+/// limited to direct call-like arguments while switching the prefix check to
+/// the string-part content RuboCop uses.
 pub struct RegexpLiteral;
 
 impl Cop for RegexpLiteral {
@@ -59,61 +58,44 @@ impl<'pr> RegexpLiteralVisitor<'_, 'pr> {
         let enforced_style = self.config.get_str("EnforcedStyle", "slashes");
         let allow_inner_slashes = self.config.get_bool("AllowInnerSlashes", false);
 
-        let (open_bytes, slash_check_bytes, raw_body_bytes, node_start, node_end): (
-            Vec<u8>,
-            Vec<u8>,
-            Vec<u8>,
-            usize,
-            usize,
-        ) = if let Some(re) = node.as_regular_expression_node() {
-            let opening = re.opening_loc();
-            let closing = re.closing_loc();
-            let content = re.content_loc().as_slice();
-            let loc = re.location();
-            (
-                opening.as_slice().to_vec(),
-                content.to_vec(),
-                self.source
-                    .as_bytes()
-                    .get(opening.end_offset()..closing.start_offset())
-                    .unwrap_or(&[])
-                    .to_vec(),
-                loc.start_offset(),
-                loc.end_offset(),
-            )
-        } else if let Some(re) = node.as_interpolated_regular_expression_node() {
-            let opening = re.opening_loc();
-            let closing = re.closing_loc();
-            let loc = re.location();
-            let mut content = Vec::new();
+        let (open_bytes, content_bytes, node_start, node_end): (Vec<u8>, Vec<u8>, usize, usize) =
+            if let Some(re) = node.as_regular_expression_node() {
+                let opening = re.opening_loc();
+                let content = re.content_loc().as_slice();
+                let loc = re.location();
+                (
+                    opening.as_slice().to_vec(),
+                    content.to_vec(),
+                    loc.start_offset(),
+                    loc.end_offset(),
+                )
+            } else if let Some(re) = node.as_interpolated_regular_expression_node() {
+                let opening = re.opening_loc();
+                let loc = re.location();
+                let mut content = Vec::new();
 
-            // Only collect content from string literal parts, skipping interpolation.
-            // RuboCop's `node_body` only examines `:str` children, so slashes
-            // inside `#{}` interpolation are not counted as inner slashes.
-            for part in re.parts().iter() {
-                if let Some(s) = part.as_string_node() {
-                    content.extend_from_slice(s.location().as_slice());
+                // Only collect content from string literal parts, skipping interpolation.
+                // RuboCop's `node_body` only examines `:str` children, so slashes
+                // inside `#{}` interpolation are not counted as inner slashes.
+                for part in re.parts().iter() {
+                    if let Some(s) = part.as_string_node() {
+                        content.extend_from_slice(s.location().as_slice());
+                    }
                 }
-            }
 
-            (
-                opening.as_slice().to_vec(),
-                content,
-                self.source
-                    .as_bytes()
-                    .get(opening.end_offset()..closing.start_offset())
-                    .unwrap_or(&[])
-                    .to_vec(),
-                loc.start_offset(),
-                loc.end_offset(),
-            )
-        } else {
-            return;
-        };
+                (
+                    opening.as_slice().to_vec(),
+                    content,
+                    loc.start_offset(),
+                    loc.end_offset(),
+                )
+            } else {
+                return;
+            };
 
         let is_slash = open_bytes == b"/";
         let is_percent_r = open_bytes.starts_with(b"%r");
-        let has_slash = slash_check_bytes.contains(&b'/');
+        let has_slash = content_bytes.contains(&b'/');
         let is_multiline = {
             let (start_line, _) = self.source.offset_to_line_col(node_start);
             let (end_line, _) = self.source.offset_to_line_col(node_end);
@@ -125,7 +107,7 @@ impl<'pr> RegexpLiteralVisitor<'_, 'pr> {
         //   do_something %r{ regexp}  # valid
         //   do_something / regexp/    # syntax error
         let content_starts_with_space_or_eq =
-            !raw_body_bytes.is_empty() && (raw_body_bytes[0] == b' ' || raw_body_bytes[0] == b'=');
+            !content_bytes.is_empty() && (content_bytes[0] == b' ' || content_bytes[0] == b'=');
         let allowed_percent_r_call_argument =
             content_starts_with_space_or_eq && self.direct_call_like_argument(node_start, node_end);
 
