@@ -6,7 +6,7 @@ z = 5 +
       ^^^ Layout/MultilineOperationIndentation: Use 2 (not 6) spaces for indentation of a continuation line.
 w = a &&
          b
-         ^^^^ Layout/MultilineOperationIndentation: Use 2 (not 9) spaces for indenting an expression spanning multiple lines.
+         ^^^^ Layout/MultilineOperationIndentation: Align the operands of an expression in an assignment spanning multiple lines.
 
 # Chained || with same-indent continuations (most common FN pattern)
 def skip?

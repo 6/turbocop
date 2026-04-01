@@ -232,91 +232,196 @@ fn leading_whitespace_len(line: &[u8]) -> usize {
         .count()
 }
 
-/// Check if a line's trimmed content starts with one of the keyword prefixes.
-fn line_starts_with_keyword(line_bytes: &[u8]) -> bool {
-    let start = line_bytes
+#[derive(Clone, Copy)]
+struct KeywordContext {
+    keyword: &'static str,
+    special_indentation: bool,
+}
+
+#[derive(Clone, Copy)]
+struct AssignmentContext {
+    rhs_begins_line: bool,
+}
+
+fn last_significant_index(line_bytes: &[u8]) -> Option<usize> {
+    line_bytes
         .iter()
-        .position(|&b| b != b' ' && b != b'\t')
-        .unwrap_or(line_bytes.len());
-    let trimmed = &line_bytes[start..];
-    trimmed.starts_with(b"if ")
-        || trimmed.starts_with(b"elsif ")
-        || trimmed.starts_with(b"unless ")
-        || trimmed.starts_with(b"while ")
-        || trimmed.starts_with(b"until ")
-        || trimmed.starts_with(b"return ")
-        || trimmed.starts_with(b"for ")
+        .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
 }
 
-/// Check if the given line (or a preceding line connected by backslash
-/// continuation) starts with a keyword that creates a condition context
-/// (if, elsif, unless, while, until, return, for). RuboCop's
-/// `kw_node_with_special_indentation` walks AST ancestors; we approximate
-/// by also scanning the immediately preceding line when it ends with `\`.
-fn is_in_keyword_condition(source: &SourceFile, line: usize) -> bool {
-    let line_bytes = source.lines().nth(line - 1).unwrap_or(b"");
-    if line_starts_with_keyword(line_bytes) {
-        return true;
+fn is_assignment_operator(bytes: &[u8], idx: usize) -> bool {
+    if bytes.get(idx) != Some(&b'=') {
+        return false;
     }
-    // Check the preceding line if it ends with backslash continuation
-    // (handles `if \<newline> condition` patterns).
-    if line > 1 {
-        let prev_line = source.lines().nth(line - 2).unwrap_or(b"");
-        let trimmed_end = prev_line
-            .iter()
-            .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
-            .map(|i| prev_line[i])
-            .unwrap_or(0);
-        if trimmed_end == b'\\' && line_starts_with_keyword(prev_line) {
-            return true;
-        }
+    if bytes.get(idx + 1) == Some(&b'=') {
+        return false;
     }
-    false
+    !matches!(
+        idx.checked_sub(1).and_then(|i| bytes.get(i)),
+        Some(b'=' | b'!' | b'<' | b'>')
+    )
 }
 
-/// Extract the keyword name from a line (or backslash-connected preceding line).
-fn keyword_on_line(source: &SourceFile, line: usize) -> Option<&'static str> {
-    fn extract_keyword(line_bytes: &[u8]) -> Option<&'static str> {
-        let start = line_bytes
-            .iter()
-            .position(|&b| b != b' ' && b != b'\t')
-            .unwrap_or(line_bytes.len());
-        let trimmed = &line_bytes[start..];
-        if trimmed.starts_with(b"if ") || trimmed.starts_with(b"if(") {
-            Some("if")
-        } else if trimmed.starts_with(b"elsif ") {
-            Some("elsif")
-        } else if trimmed.starts_with(b"unless ") {
-            Some("unless")
-        } else if trimmed.starts_with(b"while ") {
-            Some("while")
-        } else if trimmed.starts_with(b"until ") {
-            Some("until")
-        } else if trimmed.starts_with(b"return ") {
-            Some("return")
-        } else if trimmed.starts_with(b"for ") {
-            Some("for")
-        } else {
-            None
+fn has_assignment_before_col(line_bytes: &[u8], col: usize) -> bool {
+    let end = col.min(line_bytes.len());
+    (0..end)
+        .rev()
+        .find(|&idx| line_bytes[idx] == b'=')
+        .is_some_and(|idx| is_assignment_operator(line_bytes, idx))
+}
+
+fn line_ends_with_assignment_operator(line_bytes: &[u8]) -> bool {
+    last_significant_index(line_bytes).is_some_and(|idx| is_assignment_operator(line_bytes, idx))
+}
+
+fn modifier_keyword(before_expr: &[u8]) -> Option<&'static str> {
+    if before_expr.windows(8).any(|w| w == b" unless ")
+        || before_expr.windows(8).any(|w| w == b" unless(")
+    {
+        Some("unless")
+    } else if before_expr.windows(7).any(|w| w == b" while ")
+        || before_expr.windows(7).any(|w| w == b" while(")
+    {
+        Some("while")
+    } else if before_expr.windows(7).any(|w| w == b" until ")
+        || before_expr.windows(7).any(|w| w == b" until(")
+    {
+        Some("until")
+    } else if before_expr.windows(4).any(|w| w == b" if ")
+        || before_expr.windows(4).any(|w| w == b" if(")
+    {
+        Some("if")
+    } else {
+        None
+    }
+}
+
+fn keyword_context_on_line(
+    source: &SourceFile,
+    line: usize,
+    expr_col: usize,
+) -> Option<KeywordContext> {
+    fn extract(line_bytes: &[u8], expr_col: usize) -> Option<KeywordContext> {
+        let start = leading_whitespace_len(line_bytes);
+        let end = expr_col.min(line_bytes.len());
+        let before_expr = &line_bytes[start..end];
+
+        if before_expr.starts_with(b"elsif ") {
+            return Some(KeywordContext {
+                keyword: "elsif",
+                special_indentation: true,
+            });
         }
+        if before_expr.starts_with(b"if ") || before_expr.starts_with(b"if(") {
+            return Some(KeywordContext {
+                keyword: "if",
+                special_indentation: true,
+            });
+        }
+        if before_expr.starts_with(b"unless ") || before_expr.starts_with(b"unless(") {
+            return Some(KeywordContext {
+                keyword: "unless",
+                special_indentation: true,
+            });
+        }
+        if before_expr.starts_with(b"while ") || before_expr.starts_with(b"while(") {
+            return Some(KeywordContext {
+                keyword: "while",
+                special_indentation: true,
+            });
+        }
+        if before_expr.starts_with(b"until ") || before_expr.starts_with(b"until(") {
+            return Some(KeywordContext {
+                keyword: "until",
+                special_indentation: true,
+            });
+        }
+        if before_expr.starts_with(b"for ") {
+            return Some(KeywordContext {
+                keyword: "for",
+                special_indentation: true,
+            });
+        }
+        if before_expr.starts_with(b"return ") {
+            if let Some(keyword) = modifier_keyword(before_expr) {
+                return Some(KeywordContext {
+                    keyword,
+                    special_indentation: false,
+                });
+            }
+            return Some(KeywordContext {
+                keyword: "return",
+                special_indentation: true,
+            });
+        }
+        modifier_keyword(before_expr).map(|keyword| KeywordContext {
+            keyword,
+            special_indentation: false,
+        })
     }
+
     let line_bytes = source.lines().nth(line - 1).unwrap_or(b"");
-    if let Some(kw) = extract_keyword(line_bytes) {
-        return Some(kw);
+    if let Some(ctx) = extract(line_bytes, expr_col) {
+        return Some(ctx);
     }
-    // Check preceding line if connected by backslash
+
     if line > 1 {
         let prev_line = source.lines().nth(line - 2).unwrap_or(b"");
-        let trimmed_end = prev_line
-            .iter()
-            .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
-            .map(|i| prev_line[i])
-            .unwrap_or(0);
-        if trimmed_end == b'\\' {
-            return extract_keyword(prev_line);
+        if last_significant_index(prev_line).is_some_and(|idx| prev_line[idx] == b'\\') {
+            return extract(prev_line, prev_line.len());
         }
     }
     None
+}
+
+fn is_in_keyword_condition(source: &SourceFile, line: usize) -> bool {
+    keyword_context_on_line(source, line, usize::MAX).is_some()
+}
+
+fn assignment_context(
+    source: &SourceFile,
+    left_line: usize,
+    left_col: usize,
+) -> Option<AssignmentContext> {
+    let left_line_bytes = source.lines().nth(left_line - 1).unwrap_or(b"");
+    if has_assignment_before_col(left_line_bytes, left_col) {
+        return Some(AssignmentContext {
+            rhs_begins_line: false,
+        });
+    }
+
+    if left_line > 1 {
+        let prev_line = source.lines().nth(left_line - 2).unwrap_or(b"");
+        if line_ends_with_assignment_operator(prev_line) {
+            return Some(AssignmentContext {
+                rhs_begins_line: true,
+            });
+        }
+    }
+    None
+}
+
+fn operation_description(
+    keyword_context: Option<KeywordContext>,
+    assignment_context: Option<AssignmentContext>,
+) -> String {
+    if let Some(ctx) = keyword_context {
+        let kind = if ctx.keyword == "for" {
+            "collection"
+        } else {
+            "condition"
+        };
+        let article = if ctx.keyword.starts_with('i') || ctx.keyword.starts_with('u') {
+            "an"
+        } else {
+            "a"
+        };
+        format!("a {kind} in {article} `{}` statement", ctx.keyword)
+    } else if assignment_context.is_some() {
+        "an expression in an assignment".to_string()
+    } else {
+        "an expression".to_string()
+    }
 }
 
 impl MultilineOperationIndentation {
@@ -358,54 +463,35 @@ impl MultilineOperationIndentation {
         // chain). This gives us the correct base indentation.
         let left_line_bytes = source.lines().nth(left_line - 1).unwrap_or(b"");
         let left_indent = indentation_of(left_line_bytes);
-        let expected_indented = left_indent + width;
-
-        // Determine if we're in a keyword condition (if/elsif/unless/while/
-        // until/return/for). RuboCop's `kw_node_with_special_indentation`
-        // doubles the indentation width and in aligned style accepts
-        // alignment with the left operand.
-        let in_kw = is_in_keyword_condition(source, left_line);
-        let kw_expected = if in_kw {
-            Some(left_indent + 2 * width)
-        } else {
-            None
-        };
-
-        // RuboCop's `should_align?` returns true for keyword conditions
-        // (with aligned style), certain assignment contexts, and method
-        // call arguments. We implement the keyword case; the others are
-        // less common and are left for future work.
-        let should_align = in_kw && style == "aligned";
+        let keyword_context = keyword_context_on_line(source, left_line, left_col);
+        let assignment_context = assignment_context(source, left_line, left_col);
+        let should_align = assignment_context.is_some_and(|ctx| ctx.rhs_begins_line)
+            || (style == "aligned" && (keyword_context.is_some() || assignment_context.is_some()));
+        let expected_indent = left_indent
+            + if keyword_context.is_some_and(|ctx| ctx.special_indentation) {
+                2 * width
+            } else {
+                width
+            };
 
         let is_ok = if should_align {
-            // Keyword + aligned: accept alignment with left operand column
-            // or keyword double-width indentation.
-            right_col == left_col || kw_expected.is_some_and(|kw| right_col == kw)
+            right_col == left_col
         } else {
-            // Standard indentation: left_indent + width
-            right_col == expected_indented || kw_expected.is_some_and(|kw| right_col == kw)
+            right_col == expected_indent
         };
 
         if !is_ok {
             let message = if should_align {
-                let keyword = keyword_on_line(source, left_line).unwrap_or("if");
-                let kind = if keyword == "for" {
-                    "collection"
-                } else {
-                    "condition"
-                };
-                let article = if keyword.starts_with('i') || keyword.starts_with('u') {
-                    "an"
-                } else {
-                    "a"
-                };
                 format!(
-                    "Align the operands of a {kind} in {article} `{keyword}` statement spanning multiple lines."
+                    "Align the operands of {} spanning multiple lines.",
+                    operation_description(keyword_context, assignment_context)
                 )
             } else {
                 let used = right_col.saturating_sub(left_indent);
                 format!(
-                    "Use {width} (not {used}) spaces for indenting an expression spanning multiple lines."
+                    "Use {} (not {used}) spaces for indenting {} spanning multiple lines.",
+                    expected_indent.saturating_sub(left_indent),
+                    operation_description(keyword_context, assignment_context)
                 )
             };
             return vec![self.diagnostic(source, right_line, right_col, message)];
@@ -501,21 +587,65 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        // In "aligned" style, RuboCop accepts indented form in non-condition contexts.
-        let src2 = b"x = a &&\n  b\n";
+        // In "aligned" style, ordinary statements still use indentation.
+        let src2 = b"a &&\n  b\n";
         let diags2 = run_cop_full_with_config(&MultilineOperationIndentation, src2, config.clone());
         assert!(
             diags2.is_empty(),
             "aligned style should accept indented continuation in non-condition contexts"
         );
 
-        // But wildly misaligned should still be flagged
-        let src3 = b"x = a &&\n        b\n";
+        // Assignment RHS uses aligned operands in aligned style.
+        let src3 = b"x = a &&\n    b\n";
         let diags3 = run_cop_full_with_config(&MultilineOperationIndentation, src3, config);
+        assert!(
+            diags3.is_empty(),
+            "aligned style should accept operand-aligned continuation in assignments"
+        );
+
+        let src4 = b"x = a &&\n  b\n";
+        let diags4 = run_cop_full_with_config(
+            &MultilineOperationIndentation,
+            src4,
+            CopConfig {
+                options: HashMap::from([(
+                    "EnforcedStyle".into(),
+                    serde_yml::Value::String("aligned".into()),
+                )]),
+                ..CopConfig::default()
+            },
+        );
         assert_eq!(
-            diags3.len(),
+            diags4.len(),
             1,
-            "aligned style should flag incorrectly indented continuation"
+            "aligned style should flag indented assignment continuations"
+        );
+    }
+
+    #[test]
+    fn aligned_style_accepts_modifier_keyword_alignment() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let src = b"def f\n  return if receiver.nil? &&\n            args.empty?\nend\n";
+        let diags = run_cop_full_with_config(
+            &MultilineOperationIndentation,
+            src,
+            CopConfig {
+                options: HashMap::from([(
+                    "EnforcedStyle".into(),
+                    serde_yml::Value::String("aligned".into()),
+                )]),
+                ..CopConfig::default()
+            },
+        );
+        assert!(
+            diags.is_empty(),
+            "modifier keyword conditions should align like RuboCop, got: {:?}",
+            diags
+                .iter()
+                .map(|d| format!("L{}:C{} {}", d.location.line, d.location.column, &d.message))
+                .collect::<Vec<_>>()
         );
     }
 }

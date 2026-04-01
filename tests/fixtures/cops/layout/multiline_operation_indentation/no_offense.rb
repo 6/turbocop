@@ -4,7 +4,7 @@ x = 1 +
 y = 3 + 4
 
 z = a &&
-  b
+    b
 
 # Chained || on continuation line (both on same line = no offense)
 def related_to_local_activity?
@@ -60,7 +60,7 @@ foo.pick(
 # And/Or in keyword condition with double-width indentation
 def find_key
   if (key_id = request.headers.fetch("KEY", "").presence) &&
-      (signature = request.headers.fetch("SIG", "").presence)
+     (signature = request.headers.fetch("SIG", "").presence)
     use_key(key_id, signature)
   end
 end
