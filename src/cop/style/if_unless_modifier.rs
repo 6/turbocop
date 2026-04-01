@@ -2,6 +2,7 @@ use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use regex::Regex;
 use ruby_prism::Visit;
 
 /// Style/IfUnlessModifier: Checks for `if` and `unless` statements that would
@@ -28,10 +29,13 @@ use ruby_prism::Visit;
 ///    have 4+ non-empty lines. RuboCop skips these. Fix: count non-empty lines in
 ///    the entire if/unless node source range.
 ///
-/// FN root causes (8,324 FNs): Not addressed in this change. The high FN count
-/// likely stems from config resolution differences (MaxLineLength defaults, tab
-/// width handling) and cases where nitrocop's length estimation is slightly off
-/// compared to RuboCop's more precise calculation.
+/// FN root causes (2026-04-01): The biggest remaining cluster was long
+/// modifier-form statements like `raise '...' if condition`. The old Rust cop
+/// returned immediately for any modifier-form `if`/`unless`, so it never
+/// reached RuboCop's `too_long_due_to_modifier?` branch. Fixed by checking
+/// modifier-form nodes separately, measuring the rendered line length with the
+/// same `Layout/LineLength` allowances RuboCop uses here, and skipping only the
+/// narrow `foo if bar; baz` same-line sibling case that RuboCop also ignores.
 pub struct IfUnlessModifier;
 
 /// Check if a node (or any descendant) contains a heredoc.
@@ -188,6 +192,221 @@ impl<'pr> Visit<'pr> for NestedConditionalFinder {
     }
 }
 
+fn normalize_ruby_regex(pattern: &str) -> String {
+    let mut s = pattern.trim().to_string();
+
+    if s.starts_with('/') {
+        s.remove(0);
+        if let Some(last_slash) = s.rfind('/') {
+            s.truncate(last_slash);
+        }
+    }
+
+    s.replace("\\A", "^")
+        .replace("\\z", "$")
+        .replace("\\Z", "$")
+}
+
+fn indentation_difference(line: &[u8], indentation_width: usize) -> usize {
+    if indentation_width <= 1 || line.first() != Some(&b'\t') {
+        return 0;
+    }
+
+    let leading_tabs = line.iter().take_while(|&&b| b == b'\t').count();
+    if leading_tabs == line.len() || leading_tabs < 4 {
+        return 0;
+    }
+
+    leading_tabs * (indentation_width - 1)
+}
+
+fn uri_extends_to_end(
+    line: &str,
+    schemes: &[String],
+    max: usize,
+    indentation_width: usize,
+) -> bool {
+    let mut all_starts = Vec::new();
+    for scheme in schemes {
+        for prefix in [format!("{scheme}://"), format!(r"{scheme}:\/\/")] {
+            let mut search_from = 0;
+            while let Some(pos) = line[search_from..].find(&prefix) {
+                let abs_pos = search_from + pos;
+                all_starts.push(abs_pos);
+                search_from = abs_pos + prefix.len();
+            }
+        }
+    }
+
+    if all_starts.is_empty() {
+        return false;
+    }
+
+    let indentation_diff = indentation_difference(line.as_bytes(), indentation_width);
+
+    for start in all_starts {
+        let uri_end = start
+            + line[start..]
+                .find(|c: char| c.is_whitespace())
+                .unwrap_or(line.len() - start);
+
+        let mut end_pos = uri_end;
+        if line.contains('{') && line.ends_with('}') {
+            if let Some(brace_pos) = line[end_pos..].rfind('}') {
+                end_pos += brace_pos + 1;
+            }
+        }
+
+        let rest = &line[end_pos..];
+        let non_ws_len = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
+        end_pos += non_ws_len;
+
+        let start_chars = line[..start].chars().count() + indentation_diff;
+        if start_chars < max && end_pos >= line.len() {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn modifier_form_too_long(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    config: &CopConfig,
+) -> bool {
+    let max_line_length = config.get_usize("MaxLineLength", 120);
+    if max_line_length == 0 || !config.get_bool("LineLengthEnabled", max_line_length > 0) {
+        return false;
+    }
+
+    let node_src = &source.as_bytes()[node.location().start_offset()..node.location().end_offset()];
+    if node_src.contains(&b'\n') {
+        return false;
+    }
+
+    let (line_num, _) = source.offset_to_line_col(node.location().start_offset());
+    let lines: Vec<&[u8]> = source.lines().collect();
+    if line_num == 0 || line_num > lines.len() {
+        return false;
+    }
+
+    let raw_line = lines[line_num - 1];
+    let line = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+    let line_str = match std::str::from_utf8(line) {
+        Ok(s) => s,
+        Err(_) => return line.len() > max_line_length,
+    };
+
+    let indentation_width = config.get_usize("IndentationWidth", 2);
+    let effective_len = line_str.chars().count() + indentation_difference(line, indentation_width);
+    if effective_len <= max_line_length {
+        return false;
+    }
+
+    if config.get_bool("AllowCopDirectives", true) {
+        if let Some(comment_start) = line_str.find("# rubocop:") {
+            let without_directive_chars = line_str[..comment_start].trim_end().chars().count();
+            if without_directive_chars <= max_line_length {
+                return false;
+            }
+        }
+    }
+
+    let allowed_patterns = config
+        .get_string_array("AllowedPatterns")
+        .unwrap_or_default();
+    if !allowed_patterns.is_empty() {
+        let compiled_patterns: Vec<Regex> = allowed_patterns
+            .iter()
+            .filter_map(|pattern| Regex::new(&normalize_ruby_regex(pattern)).ok())
+            .collect();
+        if compiled_patterns
+            .iter()
+            .any(|regex| regex.is_match(line_str))
+        {
+            return false;
+        }
+    }
+
+    if config.get_bool("AllowURI", true) {
+        let uri_schemes = config
+            .get_string_array("URISchemes")
+            .unwrap_or_else(|| vec!["http".into(), "https".into()]);
+        if uri_extends_to_end(line_str, &uri_schemes, max_line_length, indentation_width) {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn has_another_statement_on_same_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
+    let (line_num, _) = source.offset_to_line_col(node.location().end_offset());
+    let lines: Vec<&[u8]> = source.lines().collect();
+    if line_num == 0 || line_num > lines.len() {
+        return false;
+    }
+
+    let line_start = source.line_start_offset(line_num);
+    let line = lines[line_num - 1];
+    let after_start = node.location().end_offset().saturating_sub(line_start);
+    if after_start >= line.len() {
+        return false;
+    }
+
+    let after = &line[after_start..];
+    let trimmed = after
+        .iter()
+        .copied()
+        .skip_while(|&b| b == b' ' || b == b'\t')
+        .collect::<Vec<_>>();
+
+    trimmed.first() == Some(&b';')
+}
+
+fn first_line_comment_len(
+    source: &SourceFile,
+    kw_line: usize,
+    predicate: &ruby_prism::Node<'_>,
+) -> usize {
+    let lines: Vec<&[u8]> = source.lines().collect();
+    if kw_line == 0 || kw_line > lines.len() {
+        return 0;
+    }
+
+    let kw_line_start = source.line_start_offset(kw_line);
+    let predicate_end_in_line = predicate
+        .location()
+        .end_offset()
+        .saturating_sub(kw_line_start);
+    let kw_line_bytes = lines[kw_line - 1];
+    if predicate_end_in_line >= kw_line_bytes.len() {
+        return 0;
+    }
+
+    let after_predicate = &kw_line_bytes[predicate_end_in_line..];
+    let trimmed = after_predicate
+        .iter()
+        .copied()
+        .skip_while(|&b| b == b' ' || b == b'\t')
+        .collect::<Vec<_>>();
+    if !trimmed.starts_with(b"#") {
+        return 0;
+    }
+
+    let comment = match std::str::from_utf8(&trimmed) {
+        Ok(comment) => comment,
+        Err(_) => return 0,
+    };
+
+    if comment.contains("rubocop:disable") || comment.contains("rubocop:todo") {
+        return 0;
+    }
+
+    1 + comment.chars().count()
+}
+
 impl Cop for IfUnlessModifier {
     fn name(&self) -> &'static str {
         "Style/IfUnlessModifier"
@@ -260,14 +479,40 @@ impl Cop for IfUnlessModifier {
             None => return,
         };
 
-        // Check if already modifier form: keyword starts after body
-        if kw_loc.start_offset() > body_node.location().start_offset() {
+        let modifier_form = kw_loc.start_offset() > body_node.location().start_offset();
+
+        // Skip if the body is an endless method definition — conflict with
+        // Style/AmbiguousEndlessMethodDefinition (RuboCop: endless_method?).
+        if body_is_endless_method(&body_node) {
             return;
         }
 
         // Skip if the condition contains `defined?()` — converting to modifier
         // form changes semantics for undefined variables/methods.
         if condition_contains_defined(&predicate) {
+            return;
+        }
+
+        // Skip if the condition contains pattern matching (in/=>) — modifier form
+        // changes variable scoping semantics (RuboCop: pattern_matching_nodes).
+        if condition_contains_pattern_matching(&predicate) {
+            return;
+        }
+
+        if modifier_form {
+            if !modifier_form_too_long(source, node, config)
+                || has_another_statement_on_same_line(source, node)
+            {
+                return;
+            }
+
+            let (line, column) = source.offset_to_line_col(node.location().start_offset());
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                format!("Modifier form of `{keyword}` makes the line too long."),
+            ));
             return;
         }
 
@@ -280,18 +525,6 @@ impl Cop for IfUnlessModifier {
         // Skip if the condition contains a named regexp capture — modifier form
         // changes semantics (RuboCop: named_capture_in_condition?).
         if condition_contains_named_capture(&predicate) {
-            return;
-        }
-
-        // Skip if the condition contains pattern matching (in/=>) — modifier form
-        // changes variable scoping semantics (RuboCop: pattern_matching_nodes).
-        if condition_contains_pattern_matching(&predicate) {
-            return;
-        }
-
-        // Skip if the body is an endless method definition — conflict with
-        // Style/AmbiguousEndlessMethodDefinition (RuboCop: endless_method?).
-        if body_is_endless_method(&body_node) {
             return;
         }
 
@@ -511,8 +744,14 @@ impl Cop for IfUnlessModifier {
             }
             len
         };
-        let modifier_len =
-            kw_col + parens_overhead + body_text.len() + 1 + keyword.len() + 1 + cond_len;
+        let modifier_len = kw_col
+            + parens_overhead
+            + body_text.len()
+            + 1
+            + keyword.len()
+            + 1
+            + cond_len
+            + first_line_comment_len(source, kw_line, &predicate);
 
         if !line_length_enabled || modifier_len <= max_line_length {
             let (line, column) = source.offset_to_line_col(kw_loc.start_offset());

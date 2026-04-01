@@ -2,6 +2,9 @@ do_something if x
 
 do_something unless x
 
+# Another statement on the same line — RuboCop skips long modifier forms here
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa if condition; bar
+
 if x
   do_something
 else
@@ -53,6 +56,11 @@ end
 # Body with EOL comment should not suggest modifier
 unless a
   b # A comment
+end
+
+# Long comment on condition line would make the modifier form too long
+unless @values[item.key] # this is important to not verify if there already is a value there
+  item.verify_block.call(item.default_value)
 end
 
 # Comment before end should not suggest modifier
