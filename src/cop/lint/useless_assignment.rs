@@ -75,6 +75,18 @@ use ruby_prism::Visit;
 /// paths — the begin-body write is live when no exception occurs. Fixed by
 /// selectively protecting write offsets that were added during begin-body
 /// analysis (not pre-existing) before analyzing the rescue chain.
+///
+/// ## FN fix: case/when multi-statement branch tracking (2026-04-01)
+///
+/// The previous `remember_simple_branch_write` mechanism only tracked unread
+/// writes from branches with exactly one statement (via `single_local_write`).
+/// Multi-statement case/when branches (e.g., `menu_msg = 'READ'; track_data =
+/// read_card`) had their per-variable offsets lost during merge, since only one
+/// offset per variable survives. Fixed by directly comparing all branch states
+/// against the merged state after case/when analysis, storing any write that
+/// was (1) not already in the merged state and (2) not a pre-existing write
+/// from before the case. This reduces FN by detecting useless assignments in
+/// every when/else branch, matching RuboCop's per-assignment tracking.
 pub struct UselessAssignment;
 
 impl Cop for UselessAssignment {
@@ -1022,7 +1034,6 @@ impl ScopeAnalyzer {
         let saved_protected = self.protect_live_writes(&before);
         let mut has_else = false;
         let mut branch_states = Vec::new();
-        let mut branch_writes = Vec::new();
 
         for condition in node.conditions().iter() {
             if let Some(when_node) = condition.as_when_node() {
@@ -1032,10 +1043,7 @@ impl ScopeAnalyzer {
                 }
                 if let Some(stmts) = when_node.statements() {
                     let body: Vec<_> = stmts.body().iter().collect();
-                    branch_writes.push(single_local_write(&body));
                     self.analyze_statements(&body, &mut branch_state);
-                } else {
-                    branch_writes.push(None);
                 }
                 branch_states.push(branch_state);
             }
@@ -1046,10 +1054,7 @@ impl ScopeAnalyzer {
             let mut else_state = before.clone();
             if let Some(stmts) = else_clause.statements() {
                 let body: Vec<_> = stmts.body().iter().collect();
-                branch_writes.push(single_local_write(&body));
                 self.analyze_statements(&body, &mut else_state);
-            } else {
-                branch_writes.push(None);
             }
             branch_states.push(else_state);
         }
@@ -1061,14 +1066,31 @@ impl ScopeAnalyzer {
             }
             merged
         } else {
-            let mut merged = before;
+            let mut merged = before.clone();
             for bs in &branch_states {
                 merged = LiveState::merge_optional_branch(&merged, bs);
             }
             merged
         };
-        for branch_write in branch_writes {
-            self.remember_simple_branch_write(branch_write, &merged);
+        // Track unread writes from ALL branches that were lost during merge.
+        // This handles multi-statement branches where single_local_write
+        // would return None, and also multiple branches writing the same
+        // variable where merge keeps only one offset.
+        if self.loop_depth == 0 {
+            for branch_state in &branch_states {
+                for (name, &offset) in &branch_state.live_writes {
+                    // Skip if this write survived in the merged state
+                    if merged.live_writes.get(name) == Some(&offset) {
+                        continue;
+                    }
+                    // Skip if this is a pre-existing write from before the case
+                    // (those are tracked through the normal liveness mechanism)
+                    if before.live_writes.get(name) == Some(&offset) {
+                        continue;
+                    }
+                    self.remember_branch_write(name, offset);
+                }
+            }
         }
         *state = merged;
 
@@ -1083,7 +1105,6 @@ impl ScopeAnalyzer {
         let saved_protected = self.protect_live_writes(&before);
         let mut branch_states = Vec::new();
         let mut has_else = false;
-        let mut branch_writes = Vec::new();
 
         for condition in node.conditions().iter() {
             if let Some(in_node) = condition.as_in_node() {
@@ -1091,10 +1112,7 @@ impl ScopeAnalyzer {
                 self.analyze_node(&in_node.pattern(), &mut branch_state);
                 if let Some(stmts) = in_node.statements() {
                     let body: Vec<_> = stmts.body().iter().collect();
-                    branch_writes.push(single_local_write(&body));
                     self.analyze_statements(&body, &mut branch_state);
-                } else {
-                    branch_writes.push(None);
                 }
                 branch_states.push(branch_state);
             }
@@ -1105,10 +1123,7 @@ impl ScopeAnalyzer {
             let mut else_state = before.clone();
             if let Some(stmts) = else_clause.statements() {
                 let body: Vec<_> = stmts.body().iter().collect();
-                branch_writes.push(single_local_write(&body));
                 self.analyze_statements(&body, &mut else_state);
-            } else {
-                branch_writes.push(None);
             }
             branch_states.push(else_state);
         }
@@ -1120,14 +1135,24 @@ impl ScopeAnalyzer {
             }
             merged
         } else {
-            let mut merged = before;
+            let mut merged = before.clone();
             for bs in &branch_states {
                 merged = LiveState::merge_optional_branch(&merged, bs);
             }
             merged
         };
-        for branch_write in branch_writes {
-            self.remember_simple_branch_write(branch_write, &merged);
+        if self.loop_depth == 0 {
+            for branch_state in &branch_states {
+                for (name, &offset) in &branch_state.live_writes {
+                    if merged.live_writes.get(name) == Some(&offset) {
+                        continue;
+                    }
+                    if before.live_writes.get(name) == Some(&offset) {
+                        continue;
+                    }
+                    self.remember_branch_write(name, offset);
+                }
+            }
         }
         *state = merged;
 

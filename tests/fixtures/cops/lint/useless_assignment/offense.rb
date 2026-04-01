@@ -201,3 +201,26 @@ if api_version == 'v2'
     test[:engagement] == engagement_resource_uri
   end
 end
+
+# Case/when with else and multi-statement branches — each unread
+# variable should be reported for each branch that writes it.
+case menu_option
+when :R
+  menu_msg = 'READ'
+  ^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `menu_msg`.
+  track_data = read_card
+  ^^^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `track_data`.
+when :B
+  menu_msg = 'BACKUP'
+  ^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `menu_msg`.
+  track_data = backup_card
+  ^^^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `track_data`.
+when :W
+  menu_msg = 'RESET'
+  ^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `menu_msg`.
+  exec_resp = reset
+  ^^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `exec_resp`.
+else
+  menu_msg = 'ERROR'
+  ^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `menu_msg`.
+end
