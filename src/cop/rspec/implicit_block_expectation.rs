@@ -42,6 +42,16 @@ use ruby_prism::Visit;
 /// `RSpec.describe` (with explicit `RSpec` receiver) was missed, falling
 /// through to default recursion without lambda-subject tracking. Fixed by
 /// also recognizing `RSpec.describe` as an example group entry point.
+///
+/// ## Corpus investigation (2026-04-01)
+///
+/// Corpus oracle reported FP=4, FN=0.
+///
+/// FP=4: All from stabby lambda (`-> { ... }`) subjects. RuboCop's `lambda?`
+/// node matcher only matches `proc { }`, `lambda { }`, and `Proc.new { }` call
+/// forms — NOT the `-> { }` syntax (which is a distinct `lambda` AST node in
+/// Parser gem, not a `block` wrapping a `send` to `:lambda`). Removed
+/// `LambdaNode` detection from `is_lambda_or_proc` to match RuboCop behavior.
 pub struct ImplicitBlockExpectation;
 
 impl Cop for ImplicitBlockExpectation {
@@ -250,16 +260,14 @@ fn is_lambda_subject_block(call: &ruby_prism::CallNode<'_>) -> bool {
 }
 
 /// Check if a node is a lambda/proc literal:
-/// - `-> { ... }` (LambdaNode)
 /// - `lambda { ... }` (CallNode with name `lambda`, no receiver, with block)
 /// - `proc { ... }` (CallNode with name `proc`, no receiver, with block)
 /// - `Proc.new { ... }` (CallNode with name `new`, receiver is `Proc` constant)
+///
+/// NOTE: Do NOT check for LambdaNode (`-> { ... }`) here. RuboCop's `lambda?`
+/// pattern only matches `proc`/`lambda`/`Proc.new` call forms, not the stabby
+/// lambda (`-> { ... }`) syntax which is a distinct AST node in the Parser gem.
 fn is_lambda_or_proc(node: &ruby_prism::Node<'_>) -> bool {
-    // -> { ... }
-    if node.as_lambda_node().is_some() {
-        return true;
-    }
-
     // lambda { ... }, proc { ... }, Proc.new { ... }
     if let Some(call) = node.as_call_node() {
         let name = call.name().as_slice();

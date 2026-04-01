@@ -50,3 +50,64 @@ RSpec.describe 'receiver non-lambda' do
   subject { User.new }
   it { is_expected.to be_valid }
 end
+
+# Stabby lambda subject — RuboCop does not flag this.
+# RuboCop's lambda? pattern only matches proc/lambda/Proc.new call forms,
+# not the -> {} syntax (which is a distinct lambda AST node, not a block
+# wrapping a send to :lambda).
+describe 'stabby lambda subject' do
+  subject { -> { do_something } }
+  it { is_expected.to change { something } }
+end
+
+# Stabby lambda with subject!
+describe 'stabby lambda eager' do
+  subject! { -> { boom } }
+  it { is_expected.to terminate }
+end
+
+# Stabby lambda with named subject
+describe 'stabby lambda named' do
+  subject(:action) { -> { boom } }
+  it { is_expected.to change { something }.to(new_value) }
+end
+
+# Stabby lambda inherited from outer group
+describe 'stabby outer' do
+  subject { -> { boom } }
+  context 'inner' do
+    it { is_expected.to change { something }.to(new_value) }
+  end
+end
+
+# Stabby lambda with should/should_not
+describe 'stabby should variants' do
+  subject { -> { boom } }
+  it { should change { something }.to(new_value) }
+  it { should_not change { something }.to(new_value) }
+end
+
+# Stabby lambda with custom method
+describe 'stabby custom method' do
+  subject { -> { process(input) } }
+  its_call('value') { is_expected.to ret([result]) }
+end
+
+# Stabby lambda with RSpec.describe
+RSpec.describe 'stabby receiver' do
+  subject { ->(source) { process(source) } }
+  its_call('value') { is_expected.to ret([result]) }
+end
+
+# Stabby lambda with multiple contexts
+describe 'stabby multiple' do
+  subject { -> { described_class.run(args) } }
+  context 'missing file' do
+    let(:file) { 'missing.rb' }
+    it { is_expected.to terminate.with_code(1) }
+  end
+  context 'unchanged file' do
+    let(:file) { 'spec/fixtures/valid' }
+    it { is_expected.to terminate }
+  end
+end
