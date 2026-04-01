@@ -550,7 +550,7 @@ impl DisabledRanges {
         !self.directives.is_empty()
     }
 
-    fn check_ranges(&self, key: &str, line: usize) -> bool {
+    pub(crate) fn check_ranges(&self, key: &str, line: usize) -> bool {
         if let Some(ranges) = self.ranges.get(key) {
             for &(start, end) in ranges {
                 if line >= start && line <= end {

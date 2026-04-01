@@ -3559,6 +3559,88 @@ fn unknown_redundant_disable_does_not_leak_into_unrelated_only_run() {
 }
 
 #[test]
+fn redundant_disable_only_mode_flags_non_skipped_enabled_cop() {
+    let dir = temp_dir("redundant_disable_only_non_skipped");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n# rubocop:disable Style/SymbolProc\nx = 1\n# rubocop:enable Style/SymbolProc\n",
+    );
+    let config = load_config(None, Some(&dir), None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Lint/RedundantCopDisableDirective".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert_eq!(
+        redundant.len(),
+        1,
+        "Expected run-all redundant mode to flag Style/SymbolProc, got: {:?}",
+        redundant
+    );
+    assert!(
+        redundant[0].message.contains("Style/SymbolProc"),
+        "Message should mention the redundant cop: {}",
+        redundant[0].message
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn redundant_disable_only_mode_skips_known_gap_cop() {
+    let dir = temp_dir("redundant_disable_only_known_gap");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\nlistener = Object.new\nif listener # rubocop:disable Style/SafeNavigation\n  listener.to_s\nend\n",
+    );
+    let config = load_config(None, Some(&dir), None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Lint/RedundantCopDisableDirective".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert!(
+        redundant.is_empty(),
+        "Known-gap cop should stay on the denylist in run-all redundant mode, got: {:?}",
+        redundant
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn redundant_disable_disabled_cop() {
     // Disable for a cop that is explicitly disabled in config.
     // Style/Copyright is disabled by default (default_enabled = false).
