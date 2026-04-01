@@ -20,8 +20,10 @@ use ruby_prism::Visit;
 /// - false negatives came from the missing `map/collect ... .to_h` and `to_h { ... }`
 ///   branches;
 /// - false positives came from treating array-like receivers (`each_with_index`,
-///   `with_index`, `zip`) as hashes and from accepting key expressions derived
-///   from the value or memo variable instead of the original key.
+///   `with_index`, `zip`) as hashes, from accepting key expressions derived
+///   from the value or memo variable instead of the original key, and from
+///   accepting destructured rest params like `|(idx, value, *)|` as if they
+///   were exact two-element hash pairs.
 pub struct HashTransformKeys;
 
 impl Cop for HashTransformKeys {
@@ -125,10 +127,16 @@ impl HashTransformKeys {
             return;
         }
         // First param must be destructured (MultiTargetNode) with exactly 2 targets
+        // and no rest element. Prism stores `|(idx, value, *)|` as two `lefts()`
+        // plus an `ImplicitRestNode`, but RuboCop's matcher requires an exact
+        // two-element `mlhs`.
         let multi_target = match reqs[0].as_multi_target_node() {
             Some(mt) => mt,
             None => return,
         };
+        if multi_target.rest().is_some() {
+            return;
+        }
         let targets: Vec<_> = multi_target.lefts().iter().collect();
         if targets.len() != 2 {
             return;

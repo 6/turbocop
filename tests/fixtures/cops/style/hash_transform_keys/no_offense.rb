@@ -26,3 +26,9 @@ ordering = Hash[drilldown.select { |r| (r[0].to_s.length > 1) && (r[0][0] == r[0
 
 # New key derives from the value param, not the original key
 FORMATS.each_with_object({}) { |(_name, format), hsh| hsh[format.media_type] = format }
+
+# Destructured rest means this is not a simple two-element hash pair pattern
+TABLES.each do |table_name, url|
+  lines = URI.open(url).readlines(chomp: true)
+  index = lines.grep_v(/^#|^\s*$/).map(&:split).each_with_object({}) { |(idx, value, *), hash| hash[idx.to_i] = value }
+end
