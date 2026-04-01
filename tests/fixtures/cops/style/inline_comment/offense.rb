@@ -46,3 +46,20 @@ def find_model(options, id:, **) #rubocop:disable Lint/DuplicateMethods
 
 def find_model(options, id:, **) # rubocop: disable Lint/DuplicateMethods
                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/InlineComment: Avoid trailing inline comments.
+
+else # 'windows'
+     ^^^^^^^^^^^^ Style/InlineComment: Avoid trailing inline comments.
+
+else # 'windows'
+     ^^^^^^^^^^^^ Style/InlineComment: Avoid trailing inline comments.
+
+text = <<~HEREDOC
+  some text #{
+    if true
+      "yes"
+    else # inline in heredoc interpolation
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/InlineComment: Avoid trailing inline comments.
+      "no"
+    end
+  }
+HEREDOC

@@ -19,6 +19,15 @@ use crate::parse::source::SourceFile;
 /// interpolation openers (`#{# comment`) as comments. RuboCop does not treat
 /// those as trailing inline comments, so this cop must skip comment offsets that
 /// fall inside string content and comment lines whose only code prefix is `#{`.
+///
+/// Comments inside heredoc interpolation (`<<~H\n  text #{expr # comment}\nH`)
+/// are real code comments even though the CodeMap marks the entire heredoc body
+/// as "string". The cop uses `is_heredoc_interpolation` to detect these.
+///
+/// RuboCop's `comment_line?` uses `/^\s*#/` on the full source line, so lines
+/// starting with `#` from `#{` interpolation syntax are treated as comment
+/// lines. The cop matches this by skipping comments whose line prefix (trimmed)
+/// starts with `#`.
 pub struct InlineComment;
 
 impl Cop for InlineComment {
@@ -49,7 +58,13 @@ impl Cop for InlineComment {
             if !is_embdoc {
                 // Prism still reports `#` inside string literal bodies as comments,
                 // but RuboCop's processed comments exclude those from this cop.
-                if !code_map.is_not_string(start) {
+                // Exception: comments inside heredoc interpolation (`#{...}`) ARE
+                // real code comments — only skip if the position is truly in string
+                // content, not in interpolation code.
+                if !code_map.is_not_string(start)
+                    && (!code_map.is_heredoc_interpolation(start)
+                        || code_map.is_non_code_in_heredoc_interpolation(start))
+                {
                     continue;
                 }
 
@@ -73,9 +88,11 @@ impl Cop for InlineComment {
                     continue;
                 }
 
-                // In multiline interpolation, RuboCop treats `#{# comment` as a
-                // standalone comment line inside the interpolation body.
-                if trimmed_before == b"#{" {
+                // RuboCop's `comment_line?` checks `/^\s*#/` on the full source
+                // line. If the line starts with `#` (after whitespace), RuboCop
+                // treats it as a comment line even when the `#` is from `#{`
+                // interpolation syntax, not an actual comment.
+                if trimmed_before.starts_with(b"#") {
                     continue;
                 }
 
