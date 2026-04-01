@@ -220,12 +220,8 @@ result = Arel::Nodes::Case.new.
   when(transition_table[:id].eq(most_recent_id)).
   then(db_true)
 
-# Post-condition begin/end loops and missing space before `do` after paren calls are accepted
+# Post-condition begin/end loops are accepted
 begin
   ancestors.push(mark)
   mark = mark.parent
 end while(mark=mark.parent)
-
-source2evt.inject(0)do |memo, evts|
-  memo + evts[1].inject(0) { |sum, h| sum + h[1].size }
-end

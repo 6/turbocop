@@ -89,13 +89,21 @@ use crate::parse::source::SourceFile;
 ///   text scanner would hit, even though RuboCop never checks them:
 ///   keyword-named call selectors (`.or(...)`, `.not(...)`) including across
 ///   comments/interpolation, keyword parameters in method definitions
-///   (`if:`, `return:`, `do:`), post-condition `begin ... end while(...)`
-///   loops, and `foo(1)do ... end` blocks where `do` follows a call's closing
-///   parenthesis.
+///   (`if:`, `return:`, `do:`), and post-condition `begin ... end while(...)`
+///   loops.
 /// - Fixed by broadening AST collection from just hash labels/`when then`/`end`
-///   to exact Prism-backed skip sets. Most positions skip keyword checks
-///   entirely, while `call(...) do` only skips the missing-space-before check
-///   so RuboCop-compatible `do|args|` offenses still report.
+///   to exact Prism-backed skip sets for those constructs.
+///
+/// **Round 9 (2026-04-01):**
+/// - FN: `before(:each)do`, `RSpec.describe(SomeObject)do`,
+///   `Squib::Deck.new(...)do`, `CSV.generate(...)do`, and similar
+///   `call(...)do` blocks were being skipped entirely for the missing-space-
+///   before check.
+/// - Root cause: a Prism visitor treated every `CallNode` with parentheses and
+///   a `do` block as a false-positive shape, but RuboCop flags the general
+///   pattern (`foo(1)do`) as an offense.
+/// - Fixed by removing that skip and keeping only the Prism-backed exclusions
+///   RuboCop actually accepts.
 pub struct SpaceAroundKeyword;
 
 /// Keywords that accept `(` immediately after them (no space required).
@@ -246,11 +254,9 @@ impl Cop for SpaceAroundKeyword {
         // raw keyword text scanning.
         let mut collector = KeywordSkipCollector {
             skip_keyword_positions: HashSet::new(),
-            skip_before_positions: HashSet::new(),
         };
         collector.visit(&parse_result.node());
         let skip_keyword_positions = collector.skip_keyword_positions;
-        let skip_before_positions = collector.skip_before_positions;
 
         let bytes = source.as_bytes();
         let len = bytes.len();
@@ -345,7 +351,7 @@ impl Cop for SpaceAroundKeyword {
                 let kw_str = std::str::from_utf8(kw).unwrap_or("");
 
                 // --- Check "space before missing" ---
-                if i > 0 && !accepted_before(bytes, i) && !skip_before_positions.contains(&i) {
+                if i > 0 && !accepted_before(bytes, i) {
                     let (line, column) = source.offset_to_line_col(i);
                     let mut diag = self.diagnostic(
                         source,
@@ -477,7 +483,6 @@ fn is_accept_left_bracket(kw: &[u8]) -> bool {
 /// It does NOT check `end` for: def, class, module, singleton class.
 struct KeywordSkipCollector {
     skip_keyword_positions: HashSet<usize>,
-    skip_before_positions: HashSet<usize>,
 }
 
 impl<'pr> Visit<'pr> for KeywordSkipCollector {
@@ -532,15 +537,6 @@ impl<'pr> Visit<'pr> for KeywordSkipCollector {
         if let Some(message_loc) = node.message_loc() {
             self.skip_keyword_positions
                 .insert(message_loc.start_offset());
-        }
-
-        if node.closing_loc().is_some() {
-            if let Some(block_node) = node.block().and_then(|block| block.as_block_node()) {
-                if block_node.opening_loc().as_slice() == b"do" {
-                    self.skip_before_positions
-                        .insert(block_node.opening_loc().start_offset());
-                }
-            }
         }
 
         ruby_prism::visit_call_node(self, node);

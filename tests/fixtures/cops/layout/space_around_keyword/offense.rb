@@ -78,3 +78,43 @@ end
                  ^^ Layout/SpaceAroundKeyword: Space after keyword `do` is missing.
   sum + j
 end
+
+before(:each)do
+             ^^ Layout/SpaceAroundKeyword: Space before keyword `do` is missing.
+  setup
+end
+
+RSpec.describe(SomeObject)do
+                          ^^ Layout/SpaceAroundKeyword: Space before keyword `do` is missing.
+  nil
+end
+
+Squib::Deck.new(width:'2in', height: '1in')do
+                                           ^^ Layout/SpaceAroundKeyword: Space before keyword `do` is missing.
+  nil
+end
+
+h = c.inject({})do |old, new|
+                ^^ Layout/SpaceAroundKeyword: Space before keyword `do` is missing.
+  old.merge!(new)
+end
+
+assert_raised_with_message("msg", RuntimeError)do
+                                               ^^ Layout/SpaceAroundKeyword: Space before keyword `do` is missing.
+  run
+end
+
+After('~@cli')do |scenario|
+              ^^ Layout/SpaceAroundKeyword: Space before keyword `do` is missing.
+  scenario
+end
+
+output = CSV.generate(:col_sep => "\t", :row_sep => "\r\n")do |csv|
+                                                           ^^ Layout/SpaceAroundKeyword: Space before keyword `do` is missing.
+  csv << ["x"]
+end
+
+source2evt.inject(0)do |memo, evts|
+                    ^^ Layout/SpaceAroundKeyword: Space before keyword `do` is missing.
+  memo + evts[1].inject(0) { |sum, h| sum + h[1].size }
+end
