@@ -4,20 +4,21 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// FN fix: The `inside_class_or_module` boolean was too broad — it suppressed
+/// FN fix #1: The `inside_class_or_module` boolean was too broad — it suppressed
 /// detection of ALL compact-style definitions nested inside any class/module.
-/// RuboCop's `node.parent&.type?(:class, :module)` only skips when the compact
-/// definition is the sole body statement (parser gem doesn't wrap single-child
-/// bodies in a `begin` node). Changed to `parent_is_class_or_module` which is
-/// true only when body has exactly 1 statement, matching RuboCop's behavior.
-/// This resolved ~636 FN (compact defs inside multi-statement module bodies).
+/// Changed to `parent_is_class_or_module` matching RuboCop's single-statement
+/// body semantics. This resolved ~636 FN.
 ///
-/// Remaining FP (8): RuboCop crashes on `x = module Foo::Bar` and
-/// `@var = class Foo::Bar < Base` patterns (expression-based class/module defs),
-/// reporting 0 offenses due to internal error. Not a real detection difference.
+/// FN fix #2: The `has_cbase` function walked the entire constant path chain,
+/// returning true for `::Foo::Bar` (multi-segment cbase). But RuboCop's
+/// `node.identifier.namespace&.cbase_type?` only skips when the immediate
+/// namespace is cbase — i.e., `::Foo` but NOT `::Foo::Bar`. Changed to
+/// `is_namespace_cbase` which only checks the direct parent, resolving ~217 FN.
 ///
-/// Remaining FN (~217): likely config/context issues or patterns inside
-/// non-class/module containers (method defs, blocks) where the flag leaks.
+/// FP fix: RuboCop crashes on expression-based class/module defs
+/// (`x = module Foo::Bar`, `@var = class Foo::Bar < Base`), producing
+/// 0 offenses. Skip class/module nodes that are direct values of variable
+/// assignments to match the observable behavior.
 pub struct ClassAndModuleChildren;
 
 impl Cop for ClassAndModuleChildren {
@@ -44,6 +45,7 @@ impl Cop for ClassAndModuleChildren {
             enforced_for_classes,
             enforced_for_modules,
             parent_is_class_or_module: false,
+            skip_next_class_or_module: false,
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -79,6 +81,10 @@ struct ChildrenVisitor<'a> {
     /// When a class/module body has multiple statements, parser gem wraps them
     /// in a `begin` node, so children's parent is `begin`, not the class/module.
     parent_is_class_or_module: bool,
+    /// True when the next class/module node is a direct value of a variable
+    /// assignment (e.g., `x = class Foo::Bar; end`). RuboCop crashes on these
+    /// patterns, producing 0 offenses. We skip them to match observable behavior.
+    skip_next_class_or_module: bool,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -176,39 +182,99 @@ fn body_statement_count(body: &Option<ruby_prism::Node<'_>>) -> usize {
     }
 }
 
-/// Check if a constant path starts with `::` (cbase).
-/// In Prism, `::Foo::Bar` is a ConstantPathNode chain where the leftmost
-/// ConstantPathNode has `parent().is_none()` (representing the `::` prefix).
-fn has_cbase(node: &ruby_prism::Node<'_>) -> bool {
+/// Check if a constant path's immediate namespace is cbase (the `::` prefix).
+/// Matches RuboCop's `node.identifier.namespace&.cbase_type?`.
+/// Returns true only for `::Foo` (namespace is cbase), NOT for `::Foo::Bar`
+/// (namespace is `::Foo`, which is a const node, not cbase).
+fn is_namespace_cbase(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(cp) = node.as_constant_path_node() {
-        // Walk to the leftmost part of the constant path chain
-        let mut current = cp;
-        loop {
-            match current.parent() {
-                Some(parent) => {
-                    if let Some(parent_cp) = parent.as_constant_path_node() {
-                        current = parent_cp;
-                    } else {
-                        return false;
-                    }
-                }
-                None => return true, // No parent = cbase (::Foo)
-            }
-        }
+        // parent() is None means the namespace is cbase (::)
+        // For ::Foo, parent is None → true
+        // For ::Foo::Bar, parent is ConstantPathNode(::Foo) → false
+        cp.parent().is_none()
+    } else {
+        false
     }
-    false
+}
+
+/// Check if a node is a class or module node (used by write-node visitors).
+fn is_class_or_module_node(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_class_node().is_some() || node.as_module_node().is_some()
 }
 
 impl<'a> Visit<'a> for ChildrenVisitor<'a> {
+    // Skip class/module definitions used as assignment values.
+    // RuboCop crashes on `x = class Foo::Bar; end` patterns, producing 0 offenses.
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'a>) {
+        if is_class_or_module_node(&node.value()) {
+            self.skip_next_class_or_module = true;
+        }
+        ruby_prism::visit_local_variable_write_node(self, node);
+    }
+
+    fn visit_instance_variable_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableWriteNode<'a>,
+    ) {
+        if is_class_or_module_node(&node.value()) {
+            self.skip_next_class_or_module = true;
+        }
+        ruby_prism::visit_instance_variable_write_node(self, node);
+    }
+
+    fn visit_class_variable_write_node(&mut self, node: &ruby_prism::ClassVariableWriteNode<'a>) {
+        if is_class_or_module_node(&node.value()) {
+            self.skip_next_class_or_module = true;
+        }
+        ruby_prism::visit_class_variable_write_node(self, node);
+    }
+
+    fn visit_global_variable_write_node(&mut self, node: &ruby_prism::GlobalVariableWriteNode<'a>) {
+        if is_class_or_module_node(&node.value()) {
+            self.skip_next_class_or_module = true;
+        }
+        ruby_prism::visit_global_variable_write_node(self, node);
+    }
+
+    // Reset parent_is_class_or_module inside blocks and method defs.
+    // In RuboCop, node.parent is the direct AST parent. A class inside a block
+    // (e.g., `before do; class Foo::Bar; end; end`) has a block/begin parent,
+    // not a class/module parent. Without this reset, the flag from an enclosing
+    // single-statement module body would leak through blocks.
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'a>) {
+        let prev = self.parent_is_class_or_module;
+        self.parent_is_class_or_module = false;
+        ruby_prism::visit_block_node(self, node);
+        self.parent_is_class_or_module = prev;
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'a>) {
+        let prev = self.parent_is_class_or_module;
+        self.parent_is_class_or_module = false;
+        ruby_prism::visit_def_node(self, node);
+        self.parent_is_class_or_module = prev;
+    }
+
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'a>) {
+        // Skip expression-based class definitions (RuboCop crashes on these)
+        let skip = self.skip_next_class_or_module;
+        self.skip_next_class_or_module = false;
+        if skip {
+            let prev = self.parent_is_class_or_module;
+            self.parent_is_class_or_module = body_statement_count(&node.body()) == 1;
+            ruby_prism::visit_class_node(self, node);
+            self.parent_is_class_or_module = prev;
+            return;
+        }
+
         let style = self.style_for_class().to_string();
         let constant_path = node.constant_path();
         let is_compact = constant_path.as_constant_path_node().is_some();
         let name_offset = constant_path.location().start_offset();
 
         // RuboCop: return if node.identifier.namespace&.cbase_type?
-        // Skip absolute constant paths (e.g., ::Foo::Bar)
-        if has_cbase(&constant_path) {
+        // Skip single-name cbase paths (e.g., ::Foo) but NOT multi-segment (::Foo::Bar)
+        if is_namespace_cbase(&constant_path) {
             let prev = self.parent_is_class_or_module;
             self.parent_is_class_or_module = body_statement_count(&node.body()) == 1;
             ruby_prism::visit_class_node(self, node);
@@ -243,13 +309,24 @@ impl<'a> Visit<'a> for ChildrenVisitor<'a> {
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'a>) {
+        // Skip expression-based module definitions (RuboCop crashes on these)
+        let skip = self.skip_next_class_or_module;
+        self.skip_next_class_or_module = false;
+        if skip {
+            let prev = self.parent_is_class_or_module;
+            self.parent_is_class_or_module = body_statement_count(&node.body()) == 1;
+            ruby_prism::visit_module_node(self, node);
+            self.parent_is_class_or_module = prev;
+            return;
+        }
+
         let style = self.style_for_module().to_string();
         let constant_path = node.constant_path();
         let is_compact = constant_path.as_constant_path_node().is_some();
         let name_offset = constant_path.location().start_offset();
 
         // RuboCop: return if node.identifier.namespace&.cbase_type?
-        if has_cbase(&constant_path) {
+        if is_namespace_cbase(&constant_path) {
             let prev = self.parent_is_class_or_module;
             self.parent_is_class_or_module = body_statement_count(&node.body()) == 1;
             ruby_prism::visit_module_node(self, node);
