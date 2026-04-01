@@ -11,11 +11,14 @@ use crate::parse::source::SourceFile;
 /// `EmbDocComment`, not `InlineComment`, so this cop must not apply the
 /// standalone-`#` shortcut to them.
 ///
-/// RuboCop only exempts valid directives matching `# rubocop:(enable|disable)` —
-/// no space between the colon and `enable`/`disable`. Comments like
-/// `# rubocop: disable Foo` (with a space) are NOT valid directives and must be
-/// flagged as inline comments. The previous `starts_with("rubocop:")` check was
-/// too broad and caused ~550 FN by suppressing these invalid directive comments.
+/// RuboCop only exempts exact inline directives like `# rubocop:disable Foo`
+/// and `# rubocop:enable Foo`. Variants such as `#rubocop:disable Foo`,
+/// `#  rubocop:disable Foo`, and `# rubocop: disable Foo` are still offenses.
+///
+/// Prism also reports `#` tokens inside string bodies and inside multiline
+/// interpolation openers (`#{# comment`) as comments. RuboCop does not treat
+/// those as trailing inline comments, so this cop must skip comment offsets that
+/// fall inside string content and comment lines whose only code prefix is `#{`.
 pub struct InlineComment;
 
 impl Cop for InlineComment {
@@ -31,7 +34,7 @@ impl Cop for InlineComment {
         &self,
         source: &SourceFile,
         parse_result: &ruby_prism::ParseResult<'_>,
-        _code_map: &CodeMap,
+        code_map: &CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
@@ -44,6 +47,12 @@ impl Cop for InlineComment {
             let start = loc.start_offset();
 
             if !is_embdoc {
+                // Prism still reports `#` inside string literal bodies as comments,
+                // but RuboCop's processed comments exclude those from this cop.
+                if !code_map.is_not_string(start) {
+                    continue;
+                }
+
                 // Skip if this is the first character in the file
                 if start == 0 {
                     continue;
@@ -57,9 +66,16 @@ impl Cop for InlineComment {
 
                 // Get content before the comment on this line
                 let before_on_line = &bytes[line_start..start];
+                let trimmed_before = trim_ascii_whitespace(before_on_line);
 
                 // If only whitespace before the comment, it's a standalone `#` comment
-                if before_on_line.iter().all(|&b| b == b' ' || b == b'\t') {
+                if trimmed_before.is_empty() {
+                    continue;
+                }
+
+                // In multiline interpolation, RuboCop treats `#{# comment` as a
+                // standalone comment line inside the interpolation body.
+                if trimmed_before == b"#{" {
                     continue;
                 }
 
@@ -69,11 +85,7 @@ impl Cop for InlineComment {
                     Ok(s) => s,
                     Err(_) => continue,
                 };
-                let after_hash = comment_text.trim_start_matches('#').trim_start();
-                if after_hash.starts_with("rubocop:enable")
-                    || after_hash.starts_with("rubocop:disable")
-                    || after_hash.starts_with("nitrocop-")
-                {
+                if is_exempt_inline_directive(comment_text) {
                     continue;
                 }
             }
@@ -87,6 +99,27 @@ impl Cop for InlineComment {
             ));
         }
     }
+}
+
+fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
+    let start = bytes
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .rposition(|b| !b.is_ascii_whitespace())
+        .map(|idx| idx + 1)
+        .unwrap_or(start);
+    &bytes[start..end]
+}
+
+fn is_exempt_inline_directive(comment_text: &str) -> bool {
+    comment_text.starts_with("# rubocop:enable")
+        || comment_text.starts_with("# rubocop:disable")
+        || comment_text.starts_with("# nitrocop:enable")
+        || comment_text.starts_with("# nitrocop:disable")
+        || comment_text.starts_with("# nitrocop:todo")
 }
 
 #[cfg(test)]
