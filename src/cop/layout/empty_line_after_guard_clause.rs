@@ -330,6 +330,15 @@ use crate::parse::source::SourceFile;
 ///    `return if a; return if b` have two `if` keywords, failing the
 ///    `modifier_count == 1` check. Fix: truncate at the first top-level
 ///    semicolon before counting modifiers in `is_guard_line`.
+///
+/// ## Corpus investigation (2026-04-01: inline brace-block semicolon sibling)
+///
+/// A remaining FP cluster came from single-line guard clauses inside inline
+/// brace/lambda bodies where another statement follows after a top-level `;`,
+/// e.g. `break if cond; work`. RuboCop treats these as the same-line
+/// multi-statement case and skips the cop, but nitrocop only treated `; code`
+/// as embedded context for multiline guards. Fix: if a single-line guard has
+/// real code after a top-level semicolon, skip the offense.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -619,14 +628,19 @@ impl Cop for EmptyLineAfterGuardClause {
                         } else if trailing[0] == b';' {
                             // Semicolon: check if there's code after it.
                             // `return if cond;` or `break if eof?; # comment` — standalone.
-                            // But `}; do_something` on a multiline guard's end line is
-                            // a next statement sharing the line → offense.
+                            // A single-line guard with `; next_stmt` is RuboCop's
+                            // multiple-statements-on-line case, so skip it.
+                            // `}; do_something` on a multiline guard's end line is
+                            // still a next statement sharing the line → offense.
                             let after_semi = &trailing[1..];
                             let has_code_after_semi = after_semi
                                 .iter()
                                 .position(|&b| b != b' ' && b != b'\t')
                                 .is_some_and(|i| after_semi[i] != b'#');
-                            if has_code_after_semi && if_start_line != if_end_line {
+                            if has_code_after_semi {
+                                if if_start_line == if_end_line {
+                                    return;
+                                }
                                 has_code_after_multiline_guard = true;
                             }
                         } else if trailing[0] != b'#' {

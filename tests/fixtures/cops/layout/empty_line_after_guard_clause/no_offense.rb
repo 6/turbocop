@@ -910,3 +910,10 @@ def guard_heredoc_condition_blank
 
   work
 end
+
+# FP fix: same-line brace-block body with guard followed by `;` sibling
+partially_sorted = (1..5).map{|i|
+  ary = [5, 4, 3, 2, 1]
+  ary.sort_by!{|x,y| break if x==i; x<=>y}
+  ary
+}

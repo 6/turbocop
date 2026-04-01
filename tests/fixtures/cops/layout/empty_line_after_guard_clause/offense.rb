@@ -570,3 +570,6 @@ def consecutive_guards_backslash_between_args
   raise ArgumentError, "The name is"\
     " not allowed" if opts.key?(:name)
 end
+
+break unless byte = scanner.get_byte
+^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
