@@ -93,6 +93,19 @@ def test
   end
 end
 
+# Multiline heredoc guard branch is not a single-line branch guard clause
+def test(database_id)
+  if splitted = database_id.split(":") and splitted.length == 2
+    splitted
+  else
+    fail(
+      <<-TXT
+        Expected database id '#{database_id}'
+      TXT
+    )
+  end
+end
+
 # Assignment parent suppresses branch-style guard-clause suggestions
 def test
   result = if something

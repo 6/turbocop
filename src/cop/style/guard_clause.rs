@@ -503,10 +503,7 @@ impl GuardClauseVisitor<'_, '_> {
         let end_offset = check_end.saturating_sub(1).max(check_start);
         let start_line = self.source.offset_to_line_col(check_start).0;
         let end_line = self.source.offset_to_line_col(end_offset).0;
-        if start_line == end_line {
-            return true;
-        }
-        find_heredoc_end_line(self.source, guard_stmt).is_some()
+        start_line == end_line
     }
 
     fn keyword_has_code_before(&self, keyword_offset: usize) -> bool {
@@ -698,67 +695,6 @@ fn guard_clause_check_location<'a>(node: &'a ruby_prism::Node<'a>) -> (usize, us
         return guard_clause_check_location(&right);
     }
     (node.location().start_offset(), node.location().end_offset())
-}
-
-fn find_heredoc_end_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<usize> {
-    struct HeredocEndFinder<'a> {
-        source: &'a SourceFile,
-        max_end_line: Option<usize>,
-    }
-
-    impl<'pr> Visit<'pr> for HeredocEndFinder<'_> {
-        fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
-            if let Some(opening) = node.opening_loc() {
-                let bytes = &self.source.as_bytes()[opening.start_offset()..opening.end_offset()];
-                if bytes.starts_with(b"<<") {
-                    if let Some(closing) = node.closing_loc() {
-                        let end_offset = closing
-                            .end_offset()
-                            .saturating_sub(1)
-                            .max(closing.start_offset());
-                        let end_line = self.source.offset_to_line_col(end_offset).0;
-                        self.max_end_line = Some(
-                            self.max_end_line
-                                .map_or(end_line, |prev| prev.max(end_line)),
-                        );
-                    }
-                    return;
-                }
-            }
-            ruby_prism::visit_string_node(self, node);
-        }
-
-        fn visit_interpolated_string_node(
-            &mut self,
-            node: &ruby_prism::InterpolatedStringNode<'pr>,
-        ) {
-            if let Some(opening) = node.opening_loc() {
-                let bytes = &self.source.as_bytes()[opening.start_offset()..opening.end_offset()];
-                if bytes.starts_with(b"<<") {
-                    if let Some(closing) = node.closing_loc() {
-                        let end_offset = closing
-                            .end_offset()
-                            .saturating_sub(1)
-                            .max(closing.start_offset());
-                        let end_line = self.source.offset_to_line_col(end_offset).0;
-                        self.max_end_line = Some(
-                            self.max_end_line
-                                .map_or(end_line, |prev| prev.max(end_line)),
-                        );
-                    }
-                    return;
-                }
-            }
-            ruby_prism::visit_interpolated_string_node(self, node);
-        }
-    }
-
-    let mut finder = HeredocEndFinder {
-        source,
-        max_end_line: None,
-    };
-    finder.visit(node);
-    finder.max_end_line
 }
 
 fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
