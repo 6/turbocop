@@ -42,11 +42,12 @@ use crate::parse::source::SourceFile;
 ///    Fixed by skipping DefNode when `receiver().is_some()`.
 ///    Example: travis-ci/dpl `spec/dpl/ctx/bash_spec.rb` — `def self.cmds(cmds)` contains
 ///    `before { allow(bash).to receive(...)  }`.
-///    FP=2: Corpus oracle artifact. Nitrocop is correct. No code fix needed.
-///    Remaining 2 FPs (ubicloud host_nexus_spec.rb:173,196): corpus oracle artifact
-///    caused by the oracle's RuboCop running with TargetRubyVersion 2.7 (default),
-///    which fails to parse the file (uses Ruby 3.x `it` syntax). With Ruby 3.3 target,
-///    RuboCop correctly flags both lines. No cop logic fix needed; nitrocop is correct.
+///    FP=2 fix: ubicloud host_nexus_spec.rb:173,196 used Ruby 3.4 `it` keyword inside
+///    `do...end` blocks on receive chains. RuboCop's parser gem produces `itblock` nodes
+///    for these blocks, and `find_subject_expectations` only recurses into `:send, :def,
+///    :block, :begin` — NOT `:itblock` or `:numblock`. In Prism, these are still
+///    `BlockNode` but with `ItParametersNode`/`NumberedParametersNode` parameters.
+///    Fixed by skipping block body recursion when parameters match these types.
 ///
 /// Round 4 FP fix (4→0):
 /// 6b. `let(:name)` inside shared groups (`shared_context`, `shared_examples`)
@@ -413,18 +414,26 @@ fn recurse_into_call_blocks(
                     cop,
                 );
             } else {
-                // Non-example-group block (before, it, specify, def, etc.)
-                if let Some(body) = bn.body() {
-                    if let Some(stmts) = body.as_statements_node() {
-                        for s in stmts.body().iter() {
-                            check_for_subject_stubs(
-                                source,
-                                &s,
-                                subject_names,
-                                track_named_subjects,
-                                diagnostics,
-                                cop,
-                            );
+                // Skip blocks with ItParametersNode or NumberedParametersNode —
+                // RuboCop's parser gem produces `itblock`/`numblock` node types
+                // for these, and find_subject_expectations doesn't traverse them.
+                let skip_body = bn.parameters().is_some_and(|p| {
+                    p.as_it_parameters_node().is_some() || p.as_numbered_parameters_node().is_some()
+                });
+                if !skip_body {
+                    // Non-example-group block (before, it, specify, def, etc.)
+                    if let Some(body) = bn.body() {
+                        if let Some(stmts) = body.as_statements_node() {
+                            for s in stmts.body().iter() {
+                                check_for_subject_stubs(
+                                    source,
+                                    &s,
+                                    subject_names,
+                                    track_named_subjects,
+                                    diagnostics,
+                                    cop,
+                                );
+                            }
                         }
                     }
                 }
@@ -463,6 +472,12 @@ fn check_stub_expression(
 ) -> bool {
     let method = call.name().as_slice();
     let is_to = method == b"to" || method == b"not_to" || method == b"to_not";
+
+    // Skip .to calls wrapped in itblock/numblock — RuboCop's parser gem produces
+    // opaque itblock/numblock nodes that hide the inner send from traversal.
+    if is_to && has_itblock_or_numblock(call) {
+        return false;
+    }
 
     // If this is not a .to call, check if it's a chain after .to
     if !is_to && !has_to_in_receiver_chain(call) {
@@ -546,9 +561,14 @@ fn extract_subject_from_chain(
 }
 
 /// Check if the receiver chain contains a .to/.not_to/.to_not call.
+/// Skips calls wrapped in itblock/numblock — RuboCop's parser gem makes these
+/// opaque `itblock`/`numblock` nodes that hide the inner send from traversal.
 fn has_to_in_receiver_chain(call: &ruby_prism::CallNode<'_>) -> bool {
     if let Some(recv) = call.receiver() {
         if let Some(recv_call) = recv.as_call_node() {
+            if has_itblock_or_numblock(&recv_call) {
+                return false;
+            }
             let name = recv_call.name().as_slice();
             if name == b"to" || name == b"not_to" || name == b"to_not" {
                 return true;
@@ -677,6 +697,21 @@ fn extract_method_name(node: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
         }
     }
     None
+}
+
+/// Check if a call node has a block with ItParametersNode or NumberedParametersNode.
+/// These correspond to RuboCop's `itblock`/`numblock` AST node types which are
+/// opaque to the cop's `find_subject_expectations` traversal.
+fn has_itblock_or_numblock(call: &ruby_prism::CallNode<'_>) -> bool {
+    if let Some(block) = call.block() {
+        if let Some(bn) = block.as_block_node() {
+            if let Some(params) = bn.parameters() {
+                return params.as_it_parameters_node().is_some()
+                    || params.as_numbered_parameters_node().is_some();
+            }
+        }
+    }
+    false
 }
 
 /// Check if the receiver of a CallNode is `RSpec` (simple constant) or `::RSpec`.

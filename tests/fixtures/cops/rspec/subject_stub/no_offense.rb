@@ -105,6 +105,30 @@ RSpec.describe Service do
   end
 end
 
+# Ruby 3.4 `it` keyword in do...end block on receive chain
+# RuboCop's parser gem produces `itblock` nodes for these, and the cop's
+# find_subject_expectations traversal doesn't enter `itblock` nodes.
+RSpec.describe Foo do
+  subject(:nx) { described_class.new }
+  it "does not flag expect with itblock" do
+    expect(nx).to receive(:bud) do
+      budded << it
+    end.at_least(:once)
+  end
+end
+
+# Numbered parameters (_1) in do...end block on receive chain
+# RuboCop's parser gem produces `numblock` nodes for these, and the cop's
+# find_subject_expectations traversal doesn't enter `numblock` nodes.
+RSpec.describe Bar do
+  subject(:nx) { described_class.new }
+  it "does not flag expect with numblock" do
+    expect(nx).to receive(:bud) do
+      budded << _1
+    end.at_least(:once)
+  end
+end
+
 # Derived subject values can stub the collaborator used to compute the subject.
 RSpec.describe Project do
   subject { project.classification_progress }

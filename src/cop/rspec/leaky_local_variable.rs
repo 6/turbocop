@@ -451,6 +451,44 @@ use crate::parse::source::SourceFile;
 /// Remaining FN (~32): VariableForce scope-tracking gaps, conditional
 /// write/kill analysis, lambda capture semantics, and `def` body edge cases
 /// that require full dataflow analysis.
+///
+/// ## Fix (FP: operator-write kills + deep-write linear flow, 2026-04-01)
+///
+/// **FP fix: `stmt_reassigns_var` extended for `LocalVariableOperatorWriteNode`**
+/// `stmt_reassigns_var` only matched `LocalVariableWriteNode` and `MultiWriteNode`.
+/// Operator-writes (`x += y`, `x -= y`) also kill the previous value but weren't
+/// detected. Fix: added `LocalVariableOperatorWriteNode` check. Resolves leftovers
+/// (2 FP) and SlideHub (1 FP).
+///
+/// **FP fix: cross-statement linear flow in deep-write analysis**
+/// `check_var_used_in_example_scopes` computed `has_outer_read` per-statement
+/// independently: each statement's reads were checked in isolation without
+/// considering that a prior statement's deep write had already killed the outer
+/// value. New `stmts_has_outer_read` function performs cross-statement linear
+/// flow: reads checked before writes within each statement, then writes propagated
+/// to kill reads in subsequent statements. Resolves solargraph-rails (1 FP).
+///
+/// **FN fix: `ElseNode` in `check_var_used_in_describe_blocks`**
+/// File-level variables used in `describe` blocks inside `else` branches of
+/// `if/elsif/else` were missed because only `IfNode` was handled (which covers
+/// `if` and `elsif` but not the terminal `else`). Fix: added `ElseNode` handler.
+/// Resolves molybdenum-99 (2 FN).
+///
+/// **FN fix: `BlockArgumentNode` in example scope handlers**
+/// `let(:foo, &bar)` passes `bar` via `BlockArgumentNode`. Both
+/// `stmt_example_scope_var_interaction` and `check_var_used_in_example_scopes`
+/// only checked `BlockNode` after let/subject calls, missing the `&bar` pattern.
+/// Fix: added `BlockArgumentNode` check. Resolves rubocop-rspec (2 FN) and
+/// rubocop-rspec_rails (1 FN).
+///
+/// Remaining gaps (FP=2, FN=20):
+/// - FP=2: puppetlabs-docker (2 FP) — scope-aware dead assignment filtering
+///   inside conditional branches within `.each` blocks. Attempted `always_writes`
+///   field on VarAssign but it broke `test_fn_file_level_var_in_if_elsif` (conditional
+///   branch assignments incorrectly killed file-level assignments). Correct fix
+///   requires VariableForce-level per-assignment reference tracking.
+/// - FN=20: VariableForce scope-tracking gaps, conditional write/kill analysis,
+///   lambda capture semantics, and `def` body edge cases.
 pub struct LeakyLocalVariable;
 
 impl Cop for LeakyLocalVariable {
@@ -1139,6 +1177,19 @@ fn check_var_used_in_describe_blocks(node: &ruby_prism::Node<'_>, var_name: &[u8
         return false;
     }
 
+    // ElseNode (from if/elsif/else chain — `if_node.subsequent()` returns
+    // ElseNode for else branches, IfNode for elsif branches)
+    if let Some(else_node) = node.as_else_node() {
+        if let Some(stmts) = else_node.statements() {
+            for s in stmts.body().iter() {
+                if check_var_used_in_describe_blocks(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     // For loop
     if let Some(for_node) = node.as_for_node() {
         if let Some(stmts) = for_node.statements() {
@@ -1514,7 +1565,20 @@ fn stmt_example_scope_var_interaction(
                         return result; // shadowed in body, args (if any) already counted
                     }
                     if let Some(body) = bn.body() {
-                        if let Some(stmts) = body.as_statements_node() {
+                        // Extract the main statements from the body. Normally
+                        // the body is a StatementsNode, but when the block has
+                        // rescue/ensure the body is a BeginNode wrapping the
+                        // statements plus rescue/else/ensure clauses.
+                        let (main_stmts, begin_node) =
+                            if let Some(stmts) = body.as_statements_node() {
+                                (Some(stmts), None)
+                            } else if let Some(bn) = body.as_begin_node() {
+                                (bn.statements(), Some(bn))
+                            } else {
+                                (None, None)
+                            };
+
+                        if let Some(stmts) = main_stmts {
                             if var_written_before_read_in_stmts(&stmts, var_name) {
                                 return combine_var_interactions(
                                     result,
@@ -1532,14 +1596,16 @@ fn stmt_example_scope_var_interaction(
                                 .iter()
                                 .any(|s| node_writes_var_deep(&s, var_name));
                             if has_deep_write {
-                                // Check if there are any reads that are NOT
-                                // preceded by a write within the same branch.
-                                // If all reads appear after writes in the same
-                                // conditional, the outer value is dead.
-                                let has_outer_read = stmts
-                                    .body()
-                                    .iter()
-                                    .any(|s| node_reads_var_without_prior_write(&s, var_name));
+                                // Check if there are any reads of the outer
+                                // value that are NOT preceded by a write.
+                                // Uses linear flow across statements: once a
+                                // statement writes the variable (deep or shallow),
+                                // reads in later statements don't count as reads
+                                // of the outer value. Within each statement,
+                                // reads are checked before writes so that
+                                // conditional predicate reads (e.g.,
+                                // `if x.nil?; x = ...; end`) are detected.
+                                let has_outer_read = stmts_has_outer_read(&stmts, var_name);
                                 if !has_outer_read {
                                     return combine_var_interactions(
                                         result,
@@ -1559,6 +1625,38 @@ fn stmt_example_scope_var_interaction(
                             if has_read {
                                 result = combine_var_interactions(result, VarInteraction::ReadOnly);
                             }
+                        }
+
+                        // For BeginNode bodies (rescue/ensure), also check
+                        // rescue, else, and ensure clauses for references.
+                        if let Some(ref bn) = begin_node {
+                            if let Some(rescue_clause) = bn.rescue_clause() {
+                                if node_references_var(&rescue_clause.as_node(), var_name) {
+                                    result =
+                                        combine_var_interactions(result, VarInteraction::ReadOnly);
+                                }
+                            }
+                            if let Some(else_clause) = bn.else_clause() {
+                                if node_references_var(&else_clause.as_node(), var_name) {
+                                    result =
+                                        combine_var_interactions(result, VarInteraction::ReadOnly);
+                                }
+                            }
+                            if let Some(ensure_clause) = bn.ensure_clause() {
+                                if node_references_var(&ensure_clause.as_node(), var_name) {
+                                    result =
+                                        combine_var_interactions(result, VarInteraction::ReadOnly);
+                                }
+                            }
+                        }
+                    }
+                }
+                // BlockArgumentNode: `let(:foo, &bar)` — the variable is
+                // passed as a block argument, which is a reference.
+                if let Some(ba) = blk.as_block_argument_node() {
+                    if let Some(expr) = ba.expression() {
+                        if node_references_var(&expr, var_name) {
+                            result = combine_var_interactions(result, VarInteraction::ReadOnly);
                         }
                     }
                 }
@@ -1994,8 +2092,10 @@ fn filter_dead_file_level_assignments<'a>(
     let mut live: Vec<&VarAssign> = Vec::new();
 
     for (i, assign) in assignments.iter().enumerate() {
-        // Check if there's a later collected unconditional assignment to the
-        // same variable. We use is_unconditional based on the assignment type.
+        // Check if there's a later unconditional assignment to the same
+        // variable. Only unconditional writes (not inside conditional
+        // branches) can kill earlier assignments at file level, because
+        // conditional writes might not execute.
         let has_later_unconditional = assignments[i + 1..].iter().any(|later| {
             later.name == assign.name && later.is_unconditional && later.offset > assign.offset
         });
@@ -2180,11 +2280,17 @@ fn stmt_is_unconditional_assign_to(node: &ruby_prism::Node<'_>, var_name: &[u8])
 /// replaced). This is used for linear flow analysis inside non-RSpec blocks and
 /// at group scope.
 fn stmt_reassigns_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
-    // Only unconditional writes (`x = ...`) kill the tracked value.
-    // Operator-writes (`x += ...`, `x ||= ...`, `x &&= ...`) READ the old
-    // value first, so the previous assignment is NOT dead.
+    // Direct writes (`x = ...`) always kill the tracked value.
     if let Some(lw) = node.as_local_variable_write_node() {
         return lw.name().as_slice() == var_name;
+    }
+    // Operator-writes (`x += ...`, `x -= ...`) always produce a new value,
+    // consuming the old one at group scope. The old assignment's value is
+    // replaced and doesn't reach example scopes. This matches RuboCop's
+    // VariableForce per-assignment tracking: the operator-write's read of the
+    // old value counts as a group-scope reference, not an example-scope one.
+    if let Some(ow) = node.as_local_variable_operator_write_node() {
+        return ow.name().as_slice() == var_name;
     }
     if let Some(mw) = node.as_multi_write_node() {
         for target in mw.lefts().iter() {
@@ -2196,6 +2302,8 @@ fn stmt_reassigns_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
         }
         return false;
     }
+    // Note: `||=` and `&&=` are NOT included because they conditionally
+    // skip the write — the old value may survive and reach example scopes.
     false
 }
 
@@ -2263,6 +2371,7 @@ fn collect_assignments_in_scope(
                     name: lt.name().as_slice().to_vec(),
                     offset: lt.location().start_offset(),
                     is_unconditional: true,
+
                     inside_block,
                 });
             }
@@ -2275,6 +2384,7 @@ fn collect_assignments_in_scope(
                             name: lt.name().as_slice().to_vec(),
                             offset: lt.location().start_offset(),
                             is_unconditional: true,
+
                             inside_block,
                         });
                     }
@@ -2287,6 +2397,7 @@ fn collect_assignments_in_scope(
                     name: lt.name().as_slice().to_vec(),
                     offset: lt.location().start_offset(),
                     is_unconditional: true,
+
                     inside_block,
                 });
             }
@@ -2680,6 +2791,15 @@ fn check_var_used_in_example_scopes(node: &ruby_prism::Node<'_>, var_name: &[u8]
                 if let Some(bn) = blk.as_block_node() {
                     if block_body_references_var(bn, var_name) {
                         return true;
+                    }
+                }
+                // BlockArgumentNode: `let(:foo, &bar)` — the variable is
+                // passed as a block argument, which is a reference.
+                if let Some(ba) = blk.as_block_argument_node() {
+                    if let Some(expr) = ba.expression() {
+                        if node_references_var(&expr, var_name) {
+                            return true;
+                        }
                     }
                 }
             }
@@ -3290,6 +3410,28 @@ fn stmts_read_var_without_prior_write(
         }
         if node_reads_var_without_prior_write(&stmt, var_name) {
             return true; // found a read before any write
+        }
+    }
+    false
+}
+
+/// Check if an example scope's statement list reads the outer variable without
+/// a prior write, using cross-statement linear flow. Unlike
+/// `stmts_read_var_without_prior_write`, this checks READS BEFORE WRITES
+/// within each statement, so that conditional predicate reads like
+/// `if x.nil?; x = ...; end` are correctly detected. Cross-statement,
+/// a write in statement N kills reads in statement N+1.
+fn stmts_has_outer_read(stmts: &ruby_prism::StatementsNode<'_>, var_name: &[u8]) -> bool {
+    for stmt in stmts.body().iter() {
+        // Check reads first within this statement — predicate reads like
+        // `if x.nil?` happen before writes in the same conditional.
+        if node_reads_var_without_prior_write(&stmt, var_name) {
+            return true;
+        }
+        // If this statement writes the variable (shallow or deep), subsequent
+        // statements' reads are covered by this write — stop checking.
+        if is_unconditional_var_write(&stmt, var_name) || node_writes_var_deep(&stmt, var_name) {
+            return false;
         }
     }
     false
@@ -4526,6 +4668,161 @@ end
                 .collect::<Vec<_>>()
         );
         assert_eq!(diags[0].location.line, 5, "Offense should be on line 5");
+    }
+
+    #[test]
+    fn test_fp_operator_write_kills_group_scope_value() {
+        // leftovers pattern: `merged_config_methods = X; merged_config_methods -= Y`
+        // then used in it block. Lines 21 and 22 should NOT be flagged because
+        // the operator-write at group scope kills the earlier assignment's value.
+        // Only the final value (after all group-scope operator-writes) should be
+        // flagged if it leaks into examples.
+        let source = br#"context 'when merged' do
+  merged_config_methods = ::Leftovers.config.public_methods
+  merged_config_methods -= ::Class.new.new.public_methods
+  merged_config_methods -= %i{<<}
+
+  it 'can build the voltron' do
+    merged_config_methods.each { |method| ::Leftovers.config.send(method) }
+  end
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
+        // Only the last assignment (line 4: -= %i{<<}) should be flagged,
+        // because the earlier assignments' values are consumed by later
+        // operator-writes at group scope.
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense (last operator-write only), got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(diags[0].location.line, 4, "Offense should be on line 4");
+    }
+
+    #[test]
+    fn test_fp_plus_equals_kills_group_scope_value() {
+        // SlideHub pattern: `list_json_keys = %w[...]; list_json_keys += %w[...]`
+        // then used in it block. The first assignment should NOT be flagged.
+        let source = br#"RSpec.describe SomeClass do
+  list_json_keys = %w[id user_id name]
+  list_json_keys += %w[num_of_pages created_at]
+
+  describe 'GET #index' do
+    it 'renders index' do
+      json = JSON.parse(response.body)
+      list_json_keys.each do |k|
+        expect(json.key?(k)).to eq(true)
+      end
+    end
+  end
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
+        // Only the second assignment (line 3: += ...) should be flagged.
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense (second assignment only), got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(diags[0].location.line, 3, "Offense should be on line 3");
+    }
+
+    #[test]
+    fn test_fp_deep_write_before_read_in_it_block() {
+        // solargraph-rails pattern: `filename = nil` at group scope,
+        // then `filename = root.write_file(...)` inside nested block in it,
+        // then `expect(completion_at(filename, ...))` in same it block.
+        let source = br#"RSpec.describe 'Rails API completion' do
+  filename = nil
+  it 'provides Rails controller api' do
+    map =
+      rails_workspace do |root|
+        filename = root.write_file 'test.rb', 'content'
+      end
+    expect(completion_at(filename, [1, 4], map)).to include('rescue_from')
+  end
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
+        // filename = nil should NOT be flagged — the it block writes filename
+        // (inside rails_workspace block) before reading it (in expect).
+        assert_eq!(
+            diags.len(),
+            0,
+            "Expected 0 offenses (deep write before read in it block), got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_fn_def_body_var_in_else_branch_describe() {
+        // molybdenum-99/reality pattern: variables assigned in def body,
+        // describe block in else branch of if/else.
+        let source = br#"module EntitiesHelper
+  def entity(name)
+    path = "spec/entities/#{name}.yml"
+    cassette = "entities-#{name}"
+    if !File.exists?(path)
+      File.write path, "data"
+    else
+      context name do
+        let(:template) { File.read(path) }
+        let(:fetched) { VCR.use_cassette(cassette) { get(name) } }
+        it { is_expected.to eq template }
+      end
+    end
+  end
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
+        // Both path and cassette should be flagged (used in let blocks
+        // inside a context block in the else branch).
+        assert!(
+            diags.len() >= 2,
+            "Expected at least 2 offenses for def body vars in else branch, got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_fn_let_block_argument() {
+        // rubocop-rspec pattern: `bar = -> {}; let(:foo, &bar)`
+        // The &bar passes the variable as a block argument to let.
+        let source = br#"RSpec.describe 'Weirdness' do
+  bar = -> {}
+  let(:foo, &bar)
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for let block argument, got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(diags[0].location.line, 2, "Offense should be on line 2");
     }
 
     // Note: def self.method with .each containing context/let (DataDog pattern)

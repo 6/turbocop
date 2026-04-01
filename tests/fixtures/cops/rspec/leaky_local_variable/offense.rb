@@ -664,3 +664,25 @@ RSpec.describe 'Concurrent' do
     end
   end
 end
+
+# Variable used in example scope with ensure clause.
+# When `it` has `ensure`, Prism wraps the body as a BeginNode instead of
+# StatementsNode. The example-scope detection must look inside the BeginNode.
+# Regression: SlideHub custom_links_helper_spec.rb:12
+RSpec.describe CustomLinksHelper do
+  describe 'custom_links' do
+    class DummyController
+      def initialize
+        @controller_name = 'pages'
+      end
+    end
+    controller = DummyController.new
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+    it "returns ''" do
+      expect(helper.custom_links(controller)).to eq ''
+    ensure
+      ApplicationSetting['custom_content.header_menus'] = '[]'
+    end
+  end
+end
