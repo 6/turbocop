@@ -21,9 +21,23 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: add explicit begin handling for those missing contexts while preserving
 /// RuboCop's allowlist for direct method-call arguments/receivers, logical
-/// operator operands, post-condition `while`/`until` loops, and Prism's
-/// `RescueModifierNode` form (`begin foo rescue nil end`), where `begin` is
-/// still required for grouping or syntax.
+/// operator operands, post-condition `while`/`until` loops, and top-level or
+/// assignment `begin foo rescue nil end` forms.
+///
+/// ## Investigation (2026-04-01)
+///
+/// Remaining FN root causes were narrower Prism mismatches:
+/// - generic nested `begin` wrappers were skipped too aggressively whenever the
+///   single child was another explicit `begin`, even when RuboCop would flag
+///   the outer wrapper because the inner `begin` was itself allowable
+///   (`begin begin a; b end end`, or inner `begin` with `rescue`)
+/// - the Prism-only `RescueModifierNode` allowance was applied to `def` and
+///   `do..end` bodies, but RuboCop still flags those bodies because the outer
+///   context can absorb the implicit rescue
+///
+/// Fix: only suppress an outer nested `begin` when the inner subtree contains a
+/// non-root generic offense, and keep the rescue-modifier allowance out of
+/// `def`/`do..end` body checks.
 pub struct RedundantBegin;
 
 impl Cop for RedundantBegin {
@@ -108,6 +122,35 @@ impl RedundantBeginVisitor<'_> {
         expression.as_if_node().is_none() && expression.as_unless_node().is_none()
     }
 
+    fn is_non_root_generic_begin_offense(begin_node: &ruby_prism::BeginNode<'_>) -> bool {
+        if begin_node.begin_keyword_loc().is_none()
+            || begin_node.rescue_clause().is_some()
+            || begin_node.ensure_clause().is_some()
+            || begin_node.else_clause().is_some()
+        {
+            return false;
+        }
+
+        let body_nodes = Self::begin_body_nodes(begin_node);
+        if body_nodes.is_empty() || body_nodes.len() != 1 {
+            return false;
+        }
+
+        !Self::body_is_allowable_rescue_modifier(&body_nodes)
+    }
+
+    fn has_non_root_generic_begin_offense(begin_node: &ruby_prism::BeginNode<'_>) -> bool {
+        if Self::is_non_root_generic_begin_offense(begin_node) {
+            return true;
+        }
+
+        Self::begin_body_nodes(begin_node).into_iter().any(|child| {
+            child
+                .as_begin_node()
+                .is_some_and(|inner| Self::has_non_root_generic_begin_offense(&inner))
+        })
+    }
+
     fn inspect_generic_begin<'pr>(
         &mut self,
         begin_node: &ruby_prism::BeginNode<'pr>,
@@ -133,11 +176,12 @@ impl RedundantBeginVisitor<'_> {
         }
 
         // RuboCop's kwbegin search prefers the deepest offensive begin, so an
-        // outer `begin` that only wraps another explicit `begin` does not fire.
+        // outer `begin` that only wraps another subtree with its own generic
+        // offense does not fire.
         if body_nodes.len() == 1
             && body_nodes[0]
                 .as_begin_node()
-                .is_some_and(|inner| inner.begin_keyword_loc().is_some())
+                .is_some_and(|inner| Self::has_non_root_generic_begin_offense(&inner))
         {
             self.visit_begin_children(begin_node);
             return;
@@ -236,11 +280,6 @@ impl RedundantBeginVisitor<'_> {
         };
 
         if begin_node.begin_keyword_loc().is_none() {
-            self.visit_begin_children(&begin_node);
-            return;
-        }
-
-        if Self::body_is_allowable_rescue_modifier(&Self::begin_body_nodes(&begin_node)) {
             self.visit_begin_children(&begin_node);
             return;
         }
