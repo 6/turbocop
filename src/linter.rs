@@ -662,12 +662,12 @@ fn is_directive_redundant(
                 // In --only mode the new-name cop may not have run, so check
                 // its config: if it's enabled, the old-name directive might be
                 // suppressing its offenses — skip.
-                if has_only_filter && !all_cops_ran {
-                    if cop_filters.cop_filter(new_idx).is_enabled()
-                        && !cop_filters.is_cop_excluded(new_idx, path)
-                    {
-                        return None;
-                    }
+                if has_only_filter
+                    && !all_cops_ran
+                    && cop_filters.cop_filter(new_idx).is_enabled()
+                    && !cop_filters.is_cop_excluded(new_idx, path)
+                {
+                    return None;
                 }
                 // In run_all_for_redundant mode, the new-name cop ran. If it
                 // has known detection gaps (in REDUNDANT_DISABLE_SKIP_COPS),
