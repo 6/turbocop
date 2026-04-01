@@ -3,55 +3,27 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Corpus investigation (FP=119→96→0, FN=454→0):
+/// Matches RuboCop's Parser-based `str_type?` behavior closely enough for string concatenation.
 ///
-/// FP fix 1 (FP=119): Heredoc concatenation (e.g., `<<EOM + code`) — originally skipped all
-/// heredoc concatenation, but RuboCop DOES fire on these (only skips autocorrect). Removed
-/// the blanket heredoc skip. Heredocs are now treated as str_type? matching Parser behavior.
-///
-/// FP fix 2 (FP=96): Percent literal concatenation (e.g., `config + %[...]`, `header + %{...}`).
-/// In Prism, percent literals without interpolation parse as StringNode, but in Parser they're
-/// dstr (not str_type?). RuboCop's `str_type?` matcher excludes dstr, so it doesn't flag these.
-/// Fixed by checking if the StringNode's opening starts with `%`.
-///
-/// FP fix 3 (FP=20): Multi-line string literal concatenation. In Parser, a string literal that
-/// spans multiple source lines (e.g., `'line1\nline2'` where `\n` is a real newline, not an
-/// escape) is parsed as `dstr`, not `str`. So `str_type?` returns false and
-/// `string_concatenation?` doesn't match. In Prism, these are still `StringNode`. Fixed by
-/// checking if the StringNode source spans multiple lines and excluding those.
-///
-/// FN fix (FN=454): Two root causes:
-/// 1. Multiline skip was too broad — skipped all multiline `str + str` regardless of where `+`
-///    appeared. RuboCop only skips "line-end concatenation" where `+\s*\n` pattern exists (the `+`
-///    is at the end of the line). With backslash continuation (`"str" \` + newline + `"str"`), the
-///    `+` is at the start of the next line, so RuboCop flags it. Fixed by checking for `+\s*\n`.
-/// 2. Dedup was inverted — skipped outer nodes when receiver was a concat chain, meaning only the
-///    innermost was flagged. But inner nodes often get skipped by line-end-concat check while the
-///    middle/outer nodes (with CallNode receivers, not str_type?) should still fire. Changed to
-///    skip inner nodes when they're part of a larger chain (argument-side dedup).
-///
-/// FN/FP fix (dedup rewrite + heredoc + multiline):
-/// Dedup: walk the full receiver chain to find if any inner `+` call would fire. Fire only from
-/// the innermost qualifying node. Conservative mode checks leftmost part of entire chain.
-/// Heredoc: removed blanket skip, heredocs now included in str_type check (matching Parser).
-/// Multiline: exclude multi-line non-heredoc StringNode from str_type (they're dstr in Parser).
+/// The corpus mismatches here came from treating every percent literal (`%q[...]`, `%[...]`,
+/// `%{...}`, `%(\n\n)`) as non-`str`. In Parser/RuboCop, non-interpolated percent strings are
+/// plain `str`, so the blanket exclusion caused both false negatives (when the percent literal was
+/// the only string side) and false positives on line-end concatenations (because the
+/// `Style/LineEndConcatenation` exemption requires both sides to be `str_type?`).
 pub struct StringConcatenation;
 
 impl StringConcatenation {
     /// Matches Parser's `str_type?` for a Prism node. Returns true if the node is a
     /// StringNode that would be `str` (not `dstr`) in the Parser gem.
     ///
-    /// Includes: single-line quoted strings, heredocs with single-line content.
-    /// Excludes: InterpolatedStringNode, percent literals, multi-line non-heredoc
-    /// strings, heredocs with multi-line content (all dstr in Parser).
+    /// Includes: single-line quoted strings, non-interpolated percent strings,
+    /// heredocs with single-line content.
+    /// Excludes: InterpolatedStringNode, multi-line non-heredoc strings, and
+    /// heredocs with multi-line content (all dstr in Parser).
     fn is_str_type(node: &ruby_prism::Node<'_>) -> bool {
         if let Some(s) = node.as_string_node() {
             if let Some(opening) = s.opening_loc() {
                 let slice = opening.as_slice();
-                // Exclude percent literals (opening starts with %)
-                if slice.starts_with(b"%") {
-                    return false;
-                }
                 // Heredocs (opening starts with <<):
                 // In Parser, heredocs are str if content is single-line, dstr if multi-line.
                 // Check the content for newlines: if content has more than one line

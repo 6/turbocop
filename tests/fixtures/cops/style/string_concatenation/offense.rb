@@ -36,3 +36,16 @@ EOM
 # Single-line string with escape \n (not multi-line source) — flagged
 "hello\nworld" + name
 ^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+# Percent literals without interpolation are plain strings in Parser/RuboCop.
+%q[a] + %q[b]
+^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+config + %[some value]
+^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+header + %{some value}
+^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+%{foo #{bar}} + %q{baz}
+^^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
