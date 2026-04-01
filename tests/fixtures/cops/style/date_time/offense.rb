@@ -21,3 +21,15 @@ thing.to_datetime
 
 DateTime&.now
 ^^^^^^^^^^^^^ Style/DateTime: Prefer `Time` over `DateTime`.
+
+to_datetime <=> other
+^ Style/DateTime: Do not use `#to_datetime`.
+
+result = to_datetime.since(seconds)
+         ^^^^^^^^^^^ Style/DateTime: Do not use `#to_datetime`.
+
+to_datetime <=> other
+^ Style/DateTime: Do not use `#to_datetime`.
+
+period; utc; time; to_datetime; to_time
+                   ^^^^^^^^^^^ Style/DateTime: Do not use `#to_datetime`.
