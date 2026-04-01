@@ -166,3 +166,75 @@ def test_parenthesized_assignment_plain_read
     foo
   end
 end
+
+# Bare if at end of define_method block body
+define_method(:test_method) do
+  if enable_demos_tf? && !enable_plugins?
+  ^^ Style/GuardClause: Use a guard clause (`return unless enable_demos_tf? && !enable_plugins?`) instead of wrapping the code inside a conditional expression.
+    self.enable_plugins = true
+  end
+end
+
+# Bare if at end of define_method block body with preceding code
+define_method(:test_method) do
+  install_hooks_method.bind(self).()
+  if Pod::is_prebuild_stage
+  ^^ Style/GuardClause: Use a guard clause (`return unless Pod::is_prebuild_stage`) instead of wrapping the code inside a conditional expression.
+    self.prebuild_frameworks!
+  end
+end
+
+# Nested bare ifs at end of define_method block body (3 offenses from recursion)
+define_method(:test_method) do |integration_name|
+  if enabled
+  ^^ Style/GuardClause: Use a guard clause (`return unless enabled`) instead of wrapping the code inside a conditional expression.
+    registered_integration = Registry.lookup(integration_name)
+    if registered_integration
+    ^^ Style/GuardClause: Use a guard clause (`return unless registered_integration`) instead of wrapping the code inside a conditional expression.
+      klass = registered_integration.klass
+      if klass.loaded? && klass.compatible?
+      ^^ Style/GuardClause: Use a guard clause (`return unless klass.loaded? && klass.compatible?`) instead of wrapping the code inside a conditional expression.
+        instance = klass.new
+        instance.patcher.patch unless instance.patcher.patched?
+      end
+    end
+  end
+end
+
+# if-else with multi-line if-branch raise, single-line else-branch raise
+def test_multiline_guard_fallthrough_raise
+  if err.message.include?('not found')
+  ^^ Style/GuardClause: Use a guard clause (`raise err unless err.message.include?('not found')`) instead of wrapping the code inside a conditional expression.
+    raise parser.error(
+      "not found in table"
+    )
+  else
+    raise err
+  end
+end
+
+# if-else with multi-line if-branch raise, single-line else-branch return
+def test_multiline_guard_fallthrough_return
+  if raise_if_missing
+  ^^ Style/GuardClause: Use a guard clause (`return nil unless raise_if_missing`) instead of wrapping the code inside a conditional expression.
+    raise Informative, "Trying to access" \
+      " a specification"
+  else
+    return nil
+  end
+end
+
+# if-else with multi-line guard inside unless (inner if is the offense)
+def test_multiline_guard_nested
+  other_work
+  unless subspec
+    if raise_if_missing
+    ^^ Style/GuardClause: Use a guard clause (`return nil unless raise_if_missing`) instead of wrapping the code inside a conditional expression.
+      raise Informative, "Unable to find" \
+        " a specification"
+    else
+      return nil
+    end
+  end
+  subspec.do_something
+end
