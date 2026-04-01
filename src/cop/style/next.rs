@@ -38,7 +38,6 @@ const ITERATION_METHODS: &[&[u8]] = &[
     b"find",
     b"find_all",
     b"find_index",
-    b"flat_map",
     b"inject",
     b"loop",
     b"map",
