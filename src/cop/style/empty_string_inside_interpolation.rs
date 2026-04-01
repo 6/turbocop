@@ -1,11 +1,13 @@
-use crate::cop::node_type::{
-    ELSE_NODE, EMBEDDED_STATEMENTS_NODE, IF_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, STRING_NODE,
-    UNLESS_NODE,
-};
+use crate::cop::node_type::EMBEDDED_STATEMENTS_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Prism exposes every `#{...}` body as an `EmbeddedStatementsNode`, including
+/// double-quoted strings, backticks, regexps, and symbols. The previous port
+/// only walked `InterpolatedStringNode` parts and reported the `#{` opener,
+/// which missed non-string interpolation forms and produced line-shifted
+/// diagnostics for multiline interpolations.
 pub struct EmptyStringInsideInterpolation;
 
 impl Cop for EmptyStringInsideInterpolation {
@@ -14,15 +16,7 @@ impl Cop for EmptyStringInsideInterpolation {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            ELSE_NODE,
-            EMBEDDED_STATEMENTS_NODE,
-            IF_NODE,
-            INTERPOLATED_STRING_NODE,
-            NIL_NODE,
-            STRING_NODE,
-            UNLESS_NODE,
-        ]
+        &[EMBEDDED_STATEMENTS_NODE]
     }
 
     fn check_node(
@@ -36,105 +30,94 @@ impl Cop for EmptyStringInsideInterpolation {
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "trailing_conditional");
 
-        // Look for interpolated strings containing ternaries with empty string branches
-        let interp_string = if let Some(n) = node.as_interpolated_string_node() {
-            n
+        let embedded = if let Some(node) = node.as_embedded_statements_node() {
+            node
         } else {
             return;
         };
 
-        for part in interp_string.parts().iter() {
-            if let Some(embedded) = part.as_embedded_statements_node() {
-                if let Some(stmts) = embedded.statements() {
-                    let stmt_list: Vec<_> = stmts.body().iter().collect();
-                    if stmt_list.len() != 1 {
-                        continue;
+        let Some(statements) = embedded.statements() else {
+            return;
+        };
+        let stmt_list: Vec<_> = statements.body().iter().collect();
+        if stmt_list.len() != 1 {
+            return;
+        }
+
+        match enforced_style {
+            "trailing_conditional" => {
+                if let Some(if_node) = stmt_list[0].as_if_node() {
+                    if branch_is_empty(if_node.statements())
+                        || else_branch_is_empty(if_node.subsequent())
+                    {
+                        add_diagnostic(self, source, &stmt_list[0], diagnostics, MSG_TERNARY);
                     }
-
-                    match enforced_style {
-                        "trailing_conditional" => {
-                            // Check for ternary with empty string as one branch
-                            if let Some(ternary) = stmt_list[0].as_if_node() {
-                                let has_if_empty = is_empty_value(&ternary.predicate());
-                                let _ = has_if_empty; // We need to check the branches
-
-                                let if_body = ternary.statements();
-                                let else_body = ternary.subsequent();
-
-                                let if_is_empty = if let Some(body) = if_body {
-                                    let stmts: Vec<_> = body.body().iter().collect();
-                                    stmts.len() == 1 && is_empty_string_or_nil(&stmts[0])
-                                } else {
-                                    false
-                                };
-
-                                let else_is_empty = if let Some(else_node) = else_body {
-                                    if let Some(else_actual) = else_node.as_else_node() {
-                                        if let Some(else_stmts) = else_actual.statements() {
-                                            let stmts: Vec<_> = else_stmts.body().iter().collect();
-                                            stmts.len() == 1 && is_empty_string_or_nil(&stmts[0])
-                                        } else {
-                                            false
-                                        }
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    false
-                                };
-
-                                if if_is_empty || else_is_empty {
-                                    let loc = embedded.location();
-                                    let (line, column) =
-                                        source.offset_to_line_col(loc.start_offset());
-                                    diagnostics.push(
-                                        self.diagnostic(
-                                            source,
-                                            line,
-                                            column,
-                                            "Do not return empty strings in string interpolation."
-                                                .to_string(),
-                                        ),
-                                    );
-                                }
-                            }
-                        }
-                        "ternary" => {
-                            // Check for trailing if/unless in interpolation
-                            if let Some(if_mod) = stmt_list[0].as_if_node() {
-                                // Check if this is a modifier if (no else, single branch)
-                                if if_mod.subsequent().is_none() {
-                                    let loc = embedded.location();
-                                    let (line, column) =
-                                        source.offset_to_line_col(loc.start_offset());
-                                    diagnostics.push(self.diagnostic(
-                                        source,
-                                        line,
-                                        column,
-                                        "Do not use trailing conditionals in string interpolation.".to_string(),
-                                    ));
-                                }
-                            }
-                            if let Some(_unless_mod) = stmt_list[0].as_unless_node() {
-                                let loc = embedded.location();
-                                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                diagnostics.push(
-                                    self.diagnostic(
-                                        source,
-                                        line,
-                                        column,
-                                        "Do not use trailing conditionals in string interpolation."
-                                            .to_string(),
-                                    ),
-                                );
-                            }
-                        }
-                        _ => {}
+                } else if let Some(unless_node) = stmt_list[0].as_unless_node() {
+                    if branch_is_empty(unless_node.statements())
+                        || branch_is_empty(
+                            unless_node.else_clause().and_then(|node| node.statements()),
+                        )
+                    {
+                        add_diagnostic(self, source, &stmt_list[0], diagnostics, MSG_TERNARY);
                     }
                 }
             }
+            "ternary" => {
+                if let Some(if_node) = stmt_list[0].as_if_node() {
+                    if is_modifier_if(if_node) {
+                        add_diagnostic(
+                            self,
+                            source,
+                            &stmt_list[0],
+                            diagnostics,
+                            MSG_TRAILING_CONDITIONAL,
+                        );
+                    }
+                } else if let Some(unless_node) = stmt_list[0].as_unless_node() {
+                    if is_modifier_unless(unless_node) {
+                        add_diagnostic(
+                            self,
+                            source,
+                            &stmt_list[0],
+                            diagnostics,
+                            MSG_TRAILING_CONDITIONAL,
+                        );
+                    }
+                }
+            }
+            _ => {}
         }
     }
+}
+
+const MSG_TRAILING_CONDITIONAL: &str = "Do not use trailing conditionals in string interpolation.";
+const MSG_TERNARY: &str = "Do not return empty strings in string interpolation.";
+
+fn add_diagnostic(
+    cop: &EmptyStringInsideInterpolation,
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+    message: &str,
+) {
+    let loc = node.location();
+    let (line, column) = source.offset_to_line_col(loc.start_offset());
+    diagnostics.push(cop.diagnostic(source, line, column, message.to_string()));
+}
+
+fn branch_is_empty(branch: Option<ruby_prism::StatementsNode<'_>>) -> bool {
+    let Some(statements) = branch else {
+        return false;
+    };
+
+    let body: Vec<_> = statements.body().iter().collect();
+    body.len() == 1 && is_empty_string_or_nil(&body[0])
+}
+
+fn else_branch_is_empty(branch: Option<ruby_prism::Node<'_>>) -> bool {
+    branch
+        .and_then(|node| node.as_else_node())
+        .is_some_and(|else_node| branch_is_empty(else_node.statements()))
 }
 
 fn is_empty_string_or_nil(node: &ruby_prism::Node<'_>) -> bool {
@@ -147,8 +130,12 @@ fn is_empty_string_or_nil(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
-fn is_empty_value(_node: &ruby_prism::Node<'_>) -> bool {
-    false
+fn is_modifier_if(node: ruby_prism::IfNode<'_>) -> bool {
+    node.if_keyword_loc().is_some() && node.end_keyword_loc().is_none()
+}
+
+fn is_modifier_unless(node: ruby_prism::UnlessNode<'_>) -> bool {
+    node.end_keyword_loc().is_none()
 }
 
 #[cfg(test)]
