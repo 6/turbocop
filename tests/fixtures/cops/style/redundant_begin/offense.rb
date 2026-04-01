@@ -132,3 +132,36 @@ def join_thread(thr)
   begin thr.join() if thr.alive? rescue nil end
   ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
 end
+
+after(:each) do
+  begin
+  ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+    @db.delete! rescue nil
+  end
+end
+
+def parser_step(stack, top, cs)
+  begin
+  ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+    begin
+      stack[top] = cs
+      top += 1
+      cs = 2449
+    end
+  end
+  top
+end
+
+def require_debugger(debugger_library)
+  library = debugger_library
+  begin
+  ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+    begin
+      require library
+    rescue LoadError
+      false
+    else
+      true
+    end
+  end
+end
