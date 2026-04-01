@@ -176,3 +176,20 @@ else
    success_action
    ^^^ Layout/IndentationWidth: Use 2 (not 3) spaces for indentation.
 end
+
+# Tab-indented code — when IndentationStyle is 'spaces' (default),
+# tabs count as 1 character, triggering "Use 2 (not 1)" offenses.
+def tab_method
+	x = 1
+	^^^ Layout/IndentationWidth: Use 2 (not 1) spaces for indentation.
+end
+
+if tab_cond
+	do_something
+	^^^ Layout/IndentationWidth: Use 2 (not 1) spaces for indentation.
+end
+
+module TabModule
+	CONST = 1
+	^^^ Layout/IndentationWidth: Use 2 (not 1) spaces for indentation.
+end
