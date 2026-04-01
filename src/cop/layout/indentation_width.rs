@@ -37,6 +37,18 @@ use crate::parse::source::SourceFile;
 ///   RuboCop explicitly skips tab-indented lines in Layout/IndentationWidth — tab
 ///   indentation is handled by Layout/IndentationStyle instead. Added
 ///   `line_uses_tab_indentation()` check to all three indentation check methods.
+///
+/// 2026-04-01:
+/// - Tab-indentation skip was unconditional; changed to conditional on
+///   `Layout/IndentationStyle: tabs`. When IndentationStyle is 'spaces' (default),
+///   tabs are flagged as width-1 characters. Config injection reads the sibling cop's
+///   `EnforcedStyle` into `IndentationStyleEnforced`. Resolved ~51,870 FN.
+/// - Fixed def body indentation: was using `end` keyword column as base in
+///   `start_of_line` mode, but RuboCop always uses the `def` keyword column
+///   (`node.loc.keyword`). Misaligned `end` keywords caused 19-23 FP where body
+///   was correctly indented from `def` but not from `end`. Now always uses `def`
+///   keyword column. Also fixed FP from `private :method_name` in class member walk
+///   by using `is_access_modifier_any()` (matches both bare and arg-bearing forms).
 pub struct IndentationWidth;
 
 /// Access modifier method names that RuboCop treats as bare access modifiers.
@@ -55,6 +67,22 @@ fn is_access_modifier_call(node: &ruby_prism::Node<'_>) -> bool {
             if args.arguments().iter().next().is_some() {
                 return false;
             }
+        }
+        let name = call.name().as_slice();
+        ACCESS_MODIFIERS.contains(&name)
+    } else {
+        false
+    }
+}
+
+/// Check if a node is ANY access modifier call (with or without arguments).
+/// Matches RuboCop's `access_modifier?` which includes both `private` and
+/// `private :method_name`. Used in the member walk to skip access modifier
+/// indentation (handled by Layout/AccessModifierIndentation instead).
+fn is_access_modifier_any(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        if call.receiver().is_some() || call.block().is_some() {
+            return false;
         }
         let name = call.name().as_slice();
         ACCESS_MODIFIERS.contains(&name)
@@ -165,6 +193,7 @@ impl IndentationWidth {
         member: &ruby_prism::Node<'_>,
         width: usize,
         style_name: Option<&str>,
+        skip_tabs: bool,
     ) -> Option<Diagnostic> {
         let (base_line, _) = source.offset_to_line_col(base_offset);
         let loc = member.location();
@@ -178,8 +207,11 @@ impl IndentationWidth {
             return None;
         }
 
-        // Skip tab-indented lines (handled by Layout/IndentationStyle)
-        if line_uses_tab_indentation(source, loc.start_offset()) {
+        // Skip tab-indented lines only when Layout/IndentationStyle is 'tabs'
+        // (tab indentation width is handled by Layout/IndentationStyle).
+        // When IndentationStyle is 'spaces' (default), tabs are flagged because
+        // each tab counts as 1 character column, not the configured width.
+        if skip_tabs && line_uses_tab_indentation(source, loc.start_offset()) {
             return None;
         }
 
@@ -205,6 +237,7 @@ impl IndentationWidth {
         body: Option<ruby_prism::Node<'_>>,
         width: usize,
         styles: MemberStyles<'_>,
+        skip_tabs: bool,
     ) -> Vec<Diagnostic> {
         let body = match body {
             Some(body) => body,
@@ -235,13 +268,20 @@ impl IndentationWidth {
                         first,
                         width,
                         None,
+                        skip_tabs,
                     ) {
                         diagnostics.push(diagnostic);
                     }
                 }
-            } else if let Some(diagnostic) =
-                self.check_member_indentation(source, base_offset, base_col, first, width, None)
-            {
+            } else if let Some(diagnostic) = self.check_member_indentation(
+                source,
+                base_offset,
+                base_col,
+                first,
+                width,
+                None,
+                skip_tabs,
+            ) {
                 diagnostics.push(diagnostic);
             }
 
@@ -262,6 +302,7 @@ impl IndentationWidth {
                         member,
                         width,
                         Some("indented_internal_methods"),
+                        skip_tabs,
                     ) {
                         diagnostics.push(diagnostic);
                     }
@@ -272,21 +313,36 @@ impl IndentationWidth {
         }
 
         if is_access_modifier_call(first) && styles.access_modifier != "outdent" {
-            if let Some(diagnostic) =
-                self.check_member_indentation(source, base_offset, base_col, first, width, None)
-            {
+            if let Some(diagnostic) = self.check_member_indentation(
+                source,
+                base_offset,
+                base_col,
+                first,
+                width,
+                None,
+                skip_tabs,
+            ) {
                 diagnostics.push(diagnostic);
             }
         }
 
         for member in &members {
-            if is_access_modifier_call(member) {
+            // Skip all access modifier calls (bare and with args), matching
+            // RuboCop's check_members_for_normal_style which skips any
+            // access_modifier? node. Layout/AccessModifierIndentation handles these.
+            if is_access_modifier_any(member) {
                 continue;
             }
 
-            if let Some(diagnostic) =
-                self.check_member_indentation(source, base_offset, base_col, member, width, None)
-            {
+            if let Some(diagnostic) = self.check_member_indentation(
+                source,
+                base_offset,
+                base_col,
+                member,
+                width,
+                None,
+                skip_tabs,
+            ) {
                 diagnostics.push(diagnostic);
             }
         }
@@ -302,6 +358,7 @@ impl IndentationWidth {
         body: Option<ruby_prism::Node<'_>>,
         width: usize,
         access_modifier_style: &str,
+        skip_tabs: bool,
     ) -> Vec<Diagnostic> {
         let body = match body {
             Some(body) => body,
@@ -315,9 +372,15 @@ impl IndentationWidth {
 
         let mut diagnostics = Vec::new();
         if is_access_modifier_call(&members[0]) && access_modifier_style != "outdent" {
-            if let Some(diagnostic) =
-                self.check_member_indentation(source, end_offset, end_col, &members[0], width, None)
-            {
+            if let Some(diagnostic) = self.check_member_indentation(
+                source,
+                end_offset,
+                end_col,
+                &members[0],
+                width,
+                None,
+                skip_tabs,
+            ) {
                 diagnostics.push(diagnostic);
             }
         }
@@ -339,6 +402,7 @@ impl IndentationWidth {
                     member,
                     width,
                     Some("indented_internal_methods"),
+                    skip_tabs,
                 ) {
                     diagnostics.push(diagnostic);
                 }
@@ -358,6 +422,7 @@ impl IndentationWidth {
         base_col: usize,
         body: Option<ruby_prism::Node<'_>>,
         width: usize,
+        skip_tabs: bool,
     ) -> Vec<Diagnostic> {
         let body = match body {
             Some(b) => b,
@@ -399,8 +464,8 @@ impl IndentationWidth {
             return Vec::new();
         }
 
-        // Skip tab-indented lines (handled by Layout/IndentationStyle)
-        if line_uses_tab_indentation(source, loc.start_offset()) {
+        // Skip tab-indented lines only when IndentationStyle is 'tabs'
+        if skip_tabs && line_uses_tab_indentation(source, loc.start_offset()) {
             return Vec::new();
         }
 
@@ -428,6 +493,7 @@ impl IndentationWidth {
         alt_base_col: Option<usize>,
         stmts: Option<ruby_prism::StatementsNode<'_>>,
         width: usize,
+        skip_tabs: bool,
     ) -> Vec<Diagnostic> {
         let stmts = match stmts {
             Some(s) => s,
@@ -459,8 +525,8 @@ impl IndentationWidth {
             return Vec::new();
         }
 
-        // Skip tab-indented lines (handled by Layout/IndentationStyle)
-        if line_uses_tab_indentation(source, loc.start_offset()) {
+        // Skip tab-indented lines only when IndentationStyle is 'tabs'
+        if skip_tabs && line_uses_tab_indentation(source, loc.start_offset()) {
             return Vec::new();
         }
 
@@ -496,6 +562,7 @@ impl IndentationWidth {
         source: &SourceFile,
         begin_node: &ruby_prism::BeginNode<'_>,
         width: usize,
+        skip_tabs: bool,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         // Check rescue clause(s)
@@ -510,6 +577,7 @@ impl IndentationWidth {
                 None,
                 rescue_node.statements(),
                 width,
+                skip_tabs,
             ));
             rescue_opt = rescue_node.subsequent();
         }
@@ -525,6 +593,7 @@ impl IndentationWidth {
                 None,
                 else_clause.statements(),
                 width,
+                skip_tabs,
             ));
         }
 
@@ -539,6 +608,7 @@ impl IndentationWidth {
                 None,
                 ensure_node.statements(),
                 width,
+                skip_tabs,
             ));
         }
     }
@@ -551,6 +621,7 @@ impl IndentationWidth {
         source: &SourceFile,
         else_node: &ruby_prism::ElseNode<'_>,
         width: usize,
+        skip_tabs: bool,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         let kw_offset = else_node.else_keyword_loc().start_offset();
@@ -562,6 +633,7 @@ impl IndentationWidth {
             None,
             else_node.statements(),
             width,
+            skip_tabs,
         ));
     }
 }
@@ -602,9 +674,10 @@ impl Cop for IndentationWidth {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let width = config.get_usize("Width", 2);
-        let align_style = config.get_str("EnforcedStyleAlignWith", "start_of_line");
         let consistency_style = config.get_str("IndentationConsistencyStyle", "normal");
         let access_modifier_style = config.get_str("AccessModifierIndentationStyle", "indent");
+        let indentation_style = config.get_str("IndentationStyleEnforced", "spaces");
+        let skip_tabs = indentation_style == "tabs";
         let allowed_patterns = config
             .get_string_array("AllowedPatterns")
             .unwrap_or_default();
@@ -653,9 +726,10 @@ impl Cop for IndentationWidth {
                     alt_base,
                     begin_node.statements(),
                     width,
+                    skip_tabs,
                 ));
                 // Check rescue/ensure/else clauses (these bypass the walker)
-                self.check_begin_clauses(source, &begin_node, width, diagnostics);
+                self.check_begin_clauses(source, &begin_node, width, skip_tabs, diagnostics);
             }
             // Implicit BeginNode (e.g., `def...rescue...end`) — clauses are
             // checked by the parent DefNode handler, skip here to avoid dupes.
@@ -675,6 +749,7 @@ impl Cop for IndentationWidth {
                     access_modifier: access_modifier_style,
                     consistency: consistency_style,
                 },
+                skip_tabs,
             ));
             return;
         }
@@ -692,6 +767,7 @@ impl Cop for IndentationWidth {
                     access_modifier: access_modifier_style,
                     consistency: consistency_style,
                 },
+                skip_tabs,
             ));
             return;
         }
@@ -709,36 +785,31 @@ impl Cop for IndentationWidth {
                     access_modifier: access_modifier_style,
                     consistency: consistency_style,
                 },
+                skip_tabs,
             ));
             return;
         }
 
         if let Some(def_node) = node.as_def_node() {
             let kw_offset = def_node.def_keyword_loc().start_offset();
-            let base_col = if align_style == "keyword" {
-                // EnforcedStyleAlignWith: keyword — indent relative to `def` keyword column
-                source.offset_to_line_col(kw_offset).1
-            } else {
-                // EnforcedStyleAlignWith: start_of_line (default) — indent relative to the
-                // start of the line, using `end` keyword column as proxy for line-start indent.
-                if let Some(end_loc) = def_node.end_keyword_loc() {
-                    source.offset_to_line_col(end_loc.start_offset()).1
-                } else {
-                    source.offset_to_line_col(kw_offset).1
-                }
-            };
+            // RuboCop's on_def always checks body indentation from the `def`
+            // keyword column (node.loc.keyword). The end keyword position is
+            // irrelevant — even if `end` is misaligned, body indent is checked
+            // from `def`.
+            let (_, kw_col) = source.offset_to_line_col(kw_offset);
             diagnostics.extend(self.check_body_indentation(
                 source,
                 kw_offset,
-                base_col,
+                kw_col,
                 def_node.body(),
                 width,
+                skip_tabs,
             ));
             // For `def...rescue...end`, the body is an implicit BeginNode.
             // Check its rescue/ensure/else clauses.
             if let Some(body) = def_node.body() {
                 if let Some(begin_node) = body.as_begin_node() {
-                    self.check_begin_clauses(source, &begin_node, width, diagnostics);
+                    self.check_begin_clauses(source, &begin_node, width, skip_tabs, diagnostics);
                 }
             }
             return;
@@ -771,12 +842,13 @@ impl Cop for IndentationWidth {
                     alt_base,
                     if_node.statements(),
                     width,
+                    skip_tabs,
                 ));
                 // Check else body (ElseNode bypasses the walker).
                 // elsif is another IfNode that will be visited directly.
                 if let Some(subsequent) = if_node.subsequent() {
                     if let Some(else_node) = subsequent.as_else_node() {
-                        self.check_else_clause(source, &else_node, width, diagnostics);
+                        self.check_else_clause(source, &else_node, width, skip_tabs, diagnostics);
                     }
                 }
                 return;
@@ -793,10 +865,11 @@ impl Cop for IndentationWidth {
                 None,
                 unless_node.statements(),
                 width,
+                skip_tabs,
             ));
             // Check else clause (ElseNode bypasses the walker)
             if let Some(else_clause) = unless_node.else_clause() {
-                self.check_else_clause(source, &else_clause, width, diagnostics);
+                self.check_else_clause(source, &else_clause, width, skip_tabs, diagnostics);
             }
             return;
         }
@@ -812,6 +885,7 @@ impl Cop for IndentationWidth {
                 None,
                 for_node.statements(),
                 width,
+                skip_tabs,
             ));
             return;
         }
@@ -885,6 +959,7 @@ impl Cop for IndentationWidth {
                         base_col,
                         block.body(),
                         width,
+                        skip_tabs,
                     ));
                     if consistency_style == "indented_internal_methods"
                         && body_contains_access_modifier(block.body())
@@ -896,6 +971,7 @@ impl Cop for IndentationWidth {
                             block.body(),
                             width,
                             access_modifier_style,
+                            skip_tabs,
                         ));
                     }
                     return;
@@ -931,6 +1007,7 @@ impl Cop for IndentationWidth {
                 None,
                 when_node.statements(),
                 width,
+                skip_tabs,
             ));
             return;
         }
@@ -938,7 +1015,7 @@ impl Cop for IndentationWidth {
         // Check else clause on case/when (ElseNode bypasses the walker)
         if let Some(case_node) = node.as_case_node() {
             if let Some(else_clause) = case_node.else_clause() {
-                self.check_else_clause(source, &else_clause, width, diagnostics);
+                self.check_else_clause(source, &else_clause, width, skip_tabs, diagnostics);
             }
             return;
         }
@@ -946,7 +1023,7 @@ impl Cop for IndentationWidth {
         // Check else clause on case/in pattern matching
         if let Some(case_match_node) = node.as_case_match_node() {
             if let Some(else_clause) = case_match_node.else_clause() {
-                self.check_else_clause(source, &else_clause, width, diagnostics);
+                self.check_else_clause(source, &else_clause, width, skip_tabs, diagnostics);
             }
             return;
         }
@@ -973,6 +1050,7 @@ impl Cop for IndentationWidth {
                 alt_base,
                 while_node.statements(),
                 width,
+                skip_tabs,
             ));
             return;
         }
@@ -999,6 +1077,7 @@ impl Cop for IndentationWidth {
                 alt_base,
                 until_node.statements(),
                 width,
+                skip_tabs,
             ));
         }
     }
@@ -1248,5 +1327,41 @@ mod tests {
             diags[0].message,
             "Use 2 (not 0) spaces for indented_internal_methods indentation."
         );
+    }
+
+    #[test]
+    fn tab_indentation_skipped_when_style_tabs() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IndentationStyleEnforced".into(),
+                serde_yml::Value::String("tabs".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        // Tab-indented class body — should be skipped when IndentationStyle is 'tabs'
+        let source = b"class Foo\n\tdef bar\n\t\tbaz\n\tend\nend\n";
+        let diags = run_cop_full_with_config(&IndentationWidth, source, config);
+        assert!(
+            diags.is_empty(),
+            "tab-indented code should not be flagged when IndentationStyle is tabs: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn tab_indentation_flagged_when_style_spaces() {
+        use crate::testutil::run_cop_full;
+        // Tab-indented class body — should be flagged when IndentationStyle is 'spaces' (default)
+        let source = b"class Foo\n\tdef bar\n\tend\nend\n";
+        let diags = run_cop_full(&IndentationWidth, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "tab-indented code should be flagged when IndentationStyle is spaces: {:?}",
+            diags
+        );
+        assert!(diags[0].message.contains("Use 2 (not 1)"));
     }
 }

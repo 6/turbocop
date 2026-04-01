@@ -176,3 +176,34 @@ else
    success_action
    ^^^ Layout/IndentationWidth: Use 2 (not 3) spaces for indentation.
 end
+
+# Tab-indented class body (default IndentationStyle: spaces)
+# Each tab counts as 1 character, so offset is 1 instead of 2
+class TabSender
+	def initialize
+ ^ Layout/IndentationWidth: Use 2 (not 1) spaces for indentation.
+		bar
+  ^ Layout/IndentationWidth: Use 2 (not 1) spaces for indentation.
+	end
+	def desinitialize
+ ^ Layout/IndentationWidth: Use 2 (not 1) spaces for indentation.
+	end
+end
+
+# Tab-indented def body
+def tab_method
+	x = 1
+ ^ Layout/IndentationWidth: Use 2 (not 1) spaces for indentation.
+end
+
+# Tab-indented if body
+if tab_cond
+	do_something
+ ^ Layout/IndentationWidth: Use 2 (not 1) spaces for indentation.
+end
+
+# Tab-indented module body
+module TabModule
+	CONST = 1
+ ^ Layout/IndentationWidth: Use 2 (not 1) spaces for indentation.
+end

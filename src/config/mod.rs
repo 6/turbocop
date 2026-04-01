@@ -2365,6 +2365,16 @@ impl ResolvedConfig {
                 .options
                 .entry("AccessModifierIndentationStyle".to_string())
                 .or_insert_with(|| Value::String(access_modifier_style.to_string()));
+
+            let indentation_style_config = self.cop_configs.get("Layout/IndentationStyle");
+            let indentation_style = indentation_style_config
+                .and_then(|cc| cc.options.get("EnforcedStyle"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("spaces");
+            config
+                .options
+                .entry("IndentationStyleEnforced".to_string())
+                .or_insert_with(|| Value::String(indentation_style.to_string()));
         }
         // Inject Layout/SpaceInsideHashLiteralBraces EnforcedStyle for Layout/SpaceAfterComma
         // (mirrors RuboCop's `space_forbidden_before_rcurly?` which reads the sibling cop's style)
