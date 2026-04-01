@@ -1,5 +1,5 @@
 x ? x : y
-^^ Style/RedundantCondition: Use double pipes `||` instead.
+  ^ Style/RedundantCondition: Use double pipes `||` instead.
 
 if a
 ^^ Style/RedundantCondition: Use double pipes `||` instead.
@@ -16,7 +16,7 @@ else
 end
 
 x.nil? ? true : x
-^^^^^^ Style/RedundantCondition: Use double pipes `||` instead.
+       ^ Style/RedundantCondition: Use double pipes `||` instead.
 
 if a.empty?
 ^^ Style/RedundantCondition: Use double pipes `||` instead.
@@ -65,15 +65,15 @@ end
 
 # ternary with method call condition
 b.x ? b.x : c
-^^^^ Style/RedundantCondition: Use double pipes `||` instead.
+    ^ Style/RedundantCondition: Use double pipes `||` instead.
 
 # ternary with function call condition
 a = b(x) ? b(x) : c
-    ^^^^ Style/RedundantCondition: Use double pipes `||` instead.
+         ^ Style/RedundantCondition: Use double pipes `||` instead.
 
 # ternary predicate+true with number else
 a.zero? ? true : 5
-^^^^^^^ Style/RedundantCondition: Use double pipes `||` instead.
+        ^ Style/RedundantCondition: Use double pipes `||` instead.
 
 # constant path write assignment branches (FN fix)
 if ENV['GIT_ADAPTER']
@@ -97,8 +97,8 @@ end
 
 # multiline ternary with line continuation
 refs = (self.roxml_references \
-        ^^^^^^^^^^^^^^^^^^^^^ Style/RedundantCondition: Use double pipes `||` instead.
   ? self.roxml_references \
+  ^ Style/RedundantCondition: Use double pipes `||` instead.
   : self.class.roxml_attrs.map { |attr| attr.to_ref(self) })
 
 # predicate+true with multiline else call
@@ -169,8 +169,8 @@ end
 
 # multiline ternary with line continuation in a parenthesized assignment
 refs = (self.roxml_references \
-        ^^^^^^^^^^^^^^^^^^^^^ Style/RedundantCondition: Use double pipes `||` instead.
   ? self.roxml_references \
+  ^ Style/RedundantCondition: Use double pipes `||` instead.
   : fallback_refs)
 
 # predicate+true with block-pass predicate

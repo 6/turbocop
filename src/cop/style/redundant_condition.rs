@@ -9,7 +9,7 @@ use crate::parse::source::SourceFile;
 
 /// Style/RedundantCondition — checks for unnecessary conditional expressions.
 ///
-/// ## Investigation notes (2026-03-30)
+/// ## Investigation notes
 ///
 /// RuboCop accepts block-bodied method branches such as
 /// `if timeout; describe timeout do ... end; else; describe timeout do ... end; end`,
@@ -18,14 +18,16 @@ use crate::parse::source::SourceFile;
 /// `call.block()`. Match RuboCop by skipping only real block bodies (`BlockNode`) in the
 /// method-branch matcher.
 ///
-/// The remaining live FN was a predicate+`true` case for block-pass predicates such as
-/// `futures.all?(&:fulfilled?)`. Prism also uses `call.block()` for `&:fulfilled?`, but
-/// there it is a `BlockArgumentNode`, and RuboCop still treats the predicate as a plain
-/// `send`/call node. The fix therefore distinguishes real block bodies from block-pass
-/// arguments instead of treating all `call.block()` values the same way.
+/// Prism also uses `call.block()` for block-pass predicates such as
+/// `futures.all?(&:fulfilled?)`, but RuboCop still treats those as plain predicate calls.
+/// The fix therefore distinguishes real block bodies from block-pass arguments instead of
+/// treating all `call.block()` values the same way.
 ///
-/// Multiline ternaries with line continuations are already handled once parsed as the
-/// nested `IfNode` inside the surrounding parentheses/assignment wrapper.
+/// The 2026-04-01 corpus mismatches were all narrow vendor-alignment issues:
+/// bare modifier `unless` nodes in an `else` branch must be treated like
+/// RuboCop's `use_if_branch?` skip, ternaries whose fallback is another
+/// conditional must also be skipped, and multiline ternary diagnostics should
+/// point at Prism's `then_keyword_loc()` (`?`) instead of the predicate start.
 pub struct RedundantCondition;
 
 impl RedundantCondition {
@@ -53,11 +55,15 @@ impl RedundantCondition {
         self.diagnostic(source, line, column, msg.to_string())
     }
 
-    /// Check if an else branch body is an if/ternary node (vendor: use_if_branch?)
-    fn else_body_is_if(else_stmts: &ruby_prism::StatementsNode<'_>) -> bool {
+    /// Check if an else branch body is a nested conditional (vendor: use_if_branch?).
+    ///
+    /// Prism uses `IfNode` for `if`/ternary and `UnlessNode` for `unless`, while
+    /// RuboCop's parser normalizes these shapes under `if_type?`.
+    fn else_body_is_conditional(else_stmts: &ruby_prism::StatementsNode<'_>) -> bool {
         let body: Vec<_> = else_stmts.body().into_iter().collect();
         if body.len() == 1 {
-            body[0].as_if_node().is_some()
+            let node = &body[0];
+            node.as_if_node().is_some() || node.as_unless_node().is_some()
         } else {
             false
         }
@@ -275,6 +281,7 @@ impl RedundantCondition {
             body_stmts,
             false,
             kw_offset,
+            None,
             config,
             true,
             diagnostics,
@@ -291,10 +298,13 @@ impl RedundantCondition {
         else_stmts: Option<ruby_prism::StatementsNode<'_>>,
         is_ternary: bool,
         kw_offset: usize,
+        ternary_operator_offset: Option<usize>,
         config: &CopConfig,
         require_single_line_else: bool,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
+        let diagnostic_offset = ternary_operator_offset.unwrap_or(kw_offset);
+
         // Get true branch
         let true_stmts = match true_stmts {
             Some(s) => s,
@@ -320,7 +330,9 @@ impl RedundantCondition {
 
         let else_stmts_unwrapped = else_stmts.unwrap();
 
-        // Else branch guards (not for ternary)
+        // Else branch guards. Only the multiline-body restriction stays `if`/`unless`
+        // specific; RuboCop's nested-conditional and hash-key-assignment skips also
+        // apply to ternaries.
         if !is_ternary {
             let skip_for_multiline_else = if require_single_line_else {
                 Self::else_spans_multiple_lines(source, &else_stmts_unwrapped)
@@ -330,19 +342,19 @@ impl RedundantCondition {
             if skip_for_multiline_else {
                 return;
             }
-            if Self::else_body_is_if(&else_stmts_unwrapped) {
-                return;
-            }
-            if Self::else_body_is_hash_key_assignment(&else_stmts_unwrapped) {
-                return;
-            }
+        }
+        if Self::else_body_is_conditional(&else_stmts_unwrapped) {
+            return;
+        }
+        if Self::else_body_is_hash_key_assignment(&else_stmts_unwrapped) {
+            return;
         }
 
         // Pattern 1: condition == true_branch
         if Self::nodes_equal(source, condition, true_value) {
             diagnostics.push(self.make_diagnostic_at(
                 source,
-                kw_offset,
+                diagnostic_offset,
                 "Use double pipes `||` instead.",
             ));
             return;
@@ -367,7 +379,7 @@ impl RedundantCondition {
                         if !else_body.is_empty() && !else_is_true {
                             diagnostics.push(self.make_diagnostic_at(
                                 source,
-                                kw_offset,
+                                diagnostic_offset,
                                 "Use double pipes `||` instead.",
                             ));
                             return;
@@ -383,7 +395,7 @@ impl RedundantCondition {
             if Self::check_assignment_branches(source, condition, true_value, &else_body[0]) {
                 diagnostics.push(self.make_diagnostic_at(
                     source,
-                    kw_offset,
+                    diagnostic_offset,
                     "Use double pipes `||` instead.",
                 ));
                 return;
@@ -461,6 +473,11 @@ impl Cop for RedundantCondition {
             } else {
                 if_node.location().start_offset()
             };
+            let ternary_operator_offset = if is_ternary {
+                if_node.then_keyword_loc().map(|loc| loc.start_offset())
+            } else {
+                None
+            };
 
             // Get else statements
             let else_stmts = if let Some(subsequent) = if_node.subsequent() {
@@ -480,6 +497,7 @@ impl Cop for RedundantCondition {
                 else_stmts,
                 is_ternary,
                 kw_offset,
+                ternary_operator_offset,
                 config,
                 false,
                 diagnostics,

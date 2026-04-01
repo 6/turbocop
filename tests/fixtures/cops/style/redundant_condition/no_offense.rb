@@ -148,6 +148,16 @@ end
 # ternary with different condition and branches
 a.zero? ? a : b
 
+# bare modifier-unless in else branch is skipped like RuboCop's use_if_branch?
+if exists?
+  true
+else
+  raise StandardError.new("#{filepath} key file cannot be found") unless filepath.nil?
+end
+
+# ternary with nested ternary else branch is not redundant
+@vaddr ||= @paddr ? @paddr : @encoded ? xcoff.label_at(@encoded, 0, 's_vaddr') : 0
+
 # FP fix: predicate with block in ternary — not flagged (block changes AST type in RuboCop)
 libs.all? { |lib| load_library(lib) } ? true : nil
 
