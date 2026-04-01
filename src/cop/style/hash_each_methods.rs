@@ -5,25 +5,25 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Style/HashEachMethods: suggest `each_key`/`each_value` instead of `keys.each`/`values.each`
-/// or `each { |k, _v| }` / `each { |_k, v| }`.
+const ARRAY_CONVERTER_METHODS: &[&[u8]] = &[
+    b"assoc", b"chunk", b"flatten", b"rassoc", b"sort", b"sort_by", b"to_a",
+];
+
+/// Style/HashEachMethods mirrors RuboCop's narrow `handleable?` rules.
 ///
-/// FP=125 root cause: nitrocop was flagging `.each` calls that had method arguments
-/// (e.g., `Resque::Failure.each(0, count, queue) { |_, item| }`). RuboCop's NodePattern
-/// `(call _ :each)` only matches when `.each` has no arguments — just a block. Fixed by
-/// checking `call.arguments().is_none()` before entering the unused-block-arg path.
+/// This cop now skips two recurring FP classes from the corpus:
+/// `keys.each` / `values.each` calls where the block belongs to a later chain
+/// (`keys.each.with_index`, `q.seplist hash.keys.each`) and `each { |k, v| }`
+/// calls whose receiver was already converted to an array (`to_a.each`,
+/// `sort.each`, `sort_by { ... }.each`). It also uses the true root receiver
+/// for `[]=` mutation checks so `summary.urls.keys.each { summary.urls[...] = ... }`
+/// still registers like RuboCop, while direct hash mutation on the root receiver
+/// remains exempt.
 ///
-/// Additional FP fixes:
-/// - `keys.each(&block)` / `values.each(&method(:x))`: RuboCop's `kv_each_with_block_pass`
-///   only matches `(block_pass (sym _))` — symbol-to-proc. Non-symbol block_pass args like
-///   `&blk`, `&block`, `&method(:x)` are skipped. Fixed by checking that block_pass expression
-///   is a symbol node before flagging.
-/// - `hash.keys.each { |k| hash[k] = ... }`: RuboCop's `handleable?` skips when the hash
-///   receiver is mutated with `[]=` inside the block. Fixed by walking the block body to detect
-///   `[]=` calls on the root receiver.
-/// - `.each { |k, _v| use(_v) }`: RuboCop checks actual lvar usage in the body, not just `_`
-///   prefix. A `_`-prefixed param that IS referenced in the body is not considered unused.
-///   Fixed by walking the block body for `LocalVariableReadNode` matching the param name.
+/// For the existing FN fixture cases, it now accepts RuboCop's broader block
+/// parameter shapes: destructured `MultiTargetNode`s such as
+/// `|(_root_id, _instance_id), value|`, optional parameters like `options={}`,
+/// and mixed destructured/value pairs such as `|line_num, (range, _last_col, meta)|`.
 pub struct HashEachMethods;
 
 impl Cop for HashEachMethods {
@@ -55,7 +55,9 @@ impl Cop for HashEachMethods {
             return;
         }
 
-        let _allowed_receivers = config.get_string_array("AllowedReceivers");
+        let allowed_receivers = config
+            .get_string_array("AllowedReceivers")
+            .unwrap_or_default();
 
         // Must have a receiver
         let receiver = match call.receiver() {
@@ -70,73 +72,78 @@ impl Cop for HashEachMethods {
                 && recv_call.receiver().is_some()
                 && recv_call.arguments().is_none()
             {
-                // If the .each call has a block_pass (e.g., `keys.each(&blk)`),
-                // RuboCop only flags it when the block_pass wraps a symbol
-                // (`keys.each(&:to_s)`). Skip non-symbol block_pass args like
-                // `&block`, `&blk`, `&method(:x)`.
-                if let Some(block) = call.block() {
-                    if let Some(block_arg) = block.as_block_argument_node() {
-                        let is_symbol = block_arg
-                            .expression()
-                            .is_some_and(|e| e.as_symbol_node().is_some());
-                        if !is_symbol {
-                            return;
-                        }
-                    }
-                }
-
-                // RuboCop's `handleable?` checks for hash mutation (`[]=`) on the
-                // root receiver inside the block body. For patterns like
-                // `hash.keys.each { |k| hash[k] = ... }`, the iteration is done
-                // over keys specifically to allow safe mutation, so skip these.
-                if let Some(root_recv) = recv_call.receiver() {
-                    if block_mutates_receiver(&call, &root_recv) {
-                        return;
-                    }
-                }
-
-                let is_keys = recv_method == b"keys";
-                let replacement = if is_keys { "each_key" } else { "each_value" };
-                let original = if is_keys { "keys.each" } else { "values.each" };
-
-                let has_safe_nav = call
-                    .call_operator_loc()
-                    .is_some_and(|op| op.as_slice() == b"&.");
-                let recv_has_safe_nav = recv_call
-                    .call_operator_loc()
-                    .is_some_and(|op| op.as_slice() == b"&.");
-
-                let display_original = if has_safe_nav || recv_has_safe_nav {
-                    if is_keys {
-                        "keys&.each"
-                    } else {
-                        "values&.each"
-                    }
-                } else {
-                    original
-                };
-
-                let msg_loc = recv_call
-                    .message_loc()
-                    .unwrap_or_else(|| recv_call.location());
-                let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!("Use `{}` instead of `{}`.", replacement, display_original),
-                ));
+                self.check_kv_each(source, &call, &recv_call, &allowed_receivers, diagnostics);
                 return;
             }
         }
 
         // Pattern 2: hash.each { |k, _unused_v| ... } — unused block arg
-        self.check_each_block(source, &call, config, diagnostics);
+        self.check_each_block(source, &call, diagnostics);
     }
 }
 
 impl HashEachMethods {
+    fn check_kv_each(
+        &self,
+        source: &SourceFile,
+        call: &ruby_prism::CallNode<'_>,
+        recv_call: &ruby_prism::CallNode<'_>,
+        allowed_receivers: &[String],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // RuboCop only registers when the block is attached to `each` itself
+        // or when the block-pass is a symbol proc (`&:foo`).
+        if !has_supported_kv_block(call) {
+            return;
+        }
+
+        let Some(parent_receiver) = recv_call.receiver() else {
+            return;
+        };
+        if is_allowed_receiver(&parent_receiver, allowed_receivers) {
+            return;
+        }
+        let Some(root_recv) = root_receiver(parent_receiver) else {
+            return;
+        };
+        if !is_handleable_root(&root_recv) || block_mutates_receiver(call, &root_recv) {
+            return;
+        }
+
+        let is_keys = recv_call.name().as_slice() == b"keys";
+        let replacement = if is_keys { "each_key" } else { "each_value" };
+        let original = if is_keys { "keys.each" } else { "values.each" };
+
+        let has_safe_nav = call
+            .call_operator_loc()
+            .is_some_and(|op| op.as_slice() == b"&.");
+        let recv_has_safe_nav = recv_call
+            .call_operator_loc()
+            .is_some_and(|op| op.as_slice() == b"&.");
+
+        let display_original = if has_safe_nav || recv_has_safe_nav {
+            if is_keys {
+                "keys&.each"
+            } else {
+                "values&.each"
+            }
+        } else {
+            original
+        };
+
+        let msg_loc = recv_call
+            .message_loc()
+            .unwrap_or_else(|| recv_call.location());
+        let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
+
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Use `{}` instead of `{}`.", replacement, display_original),
+        ));
+    }
+
     /// Check `.each { |k, v| ... }` blocks where one argument is unused.
     /// RuboCop checks actual lvar usage in the body, not just `_` prefix.
     ///
@@ -147,17 +154,16 @@ impl HashEachMethods {
         &self,
         source: &SourceFile,
         call: &ruby_prism::CallNode<'_>,
-        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         if call.name().as_slice() != b"each" {
             return;
         }
 
-        // Must have a receiver
-        if call.receiver().is_none() {
-            return;
-        }
+        let receiver = match call.receiver() {
+            Some(receiver) => receiver,
+            None => return,
+        };
 
         // .each must have no arguments (only a block). Calls like
         // `.each(0, count)` are not Hash#each and should be skipped.
@@ -165,21 +171,20 @@ impl HashEachMethods {
             return;
         }
 
-        // Receiver must not be a hash/array literal
-        if let Some(recv) = call.receiver() {
-            if recv.as_array_node().is_some() {
+        // Must NOT be `keys.each` or `values.each` (handled above). Also skip
+        // array-converter receivers like `to_a.each` / `sort.each`.
+        if let Some(recv_call) = receiver.as_call_node() {
+            let name = recv_call.name().as_slice();
+            if name == b"keys" || name == b"values" || is_array_converter_method(name) {
                 return;
             }
         }
 
-        // Must NOT be `keys.each` or `values.each` (handled above)
-        if let Some(recv) = call.receiver() {
-            if let Some(rc) = recv.as_call_node() {
-                let name = rc.name().as_slice();
-                if name == b"keys" || name == b"values" {
-                    return;
-                }
-            }
+        let Some(root_recv) = root_receiver(receiver) else {
+            return;
+        };
+        if !is_handleable_root(&root_recv) || block_mutates_receiver(call, &root_recv) {
+            return;
         }
 
         // Must have a block
@@ -205,22 +210,10 @@ impl HashEachMethods {
             Some(p) => p,
             None => return,
         };
-        let requireds: Vec<_> = params_node.requireds().iter().collect();
-        if requireds.len() != 2 {
+        let params = positional_block_params(&params_node);
+        if params.len() != 2 {
             return;
         }
-
-        let key_param = match requireds[0].as_required_parameter_node() {
-            Some(p) => p,
-            None => return,
-        };
-        let value_param = match requireds[1].as_required_parameter_node() {
-            Some(p) => p,
-            None => return,
-        };
-
-        let key_name = key_param.name().as_slice();
-        let value_name = value_param.name().as_slice();
 
         // RuboCop checks actual lvar usage in the block body, not just `_` prefix.
         // A `_`-prefixed param that IS referenced in the body is not considered unused.
@@ -228,8 +221,8 @@ impl HashEachMethods {
             Some(b) => b,
             None => return, // empty block body — RuboCop skips (nil body)
         };
-        let key_unused = !body_references_lvar(&body, key_name);
-        let value_unused = !body_references_lvar(&body, value_name);
+        let key_unused = parameter_unused(&body, &params[0]);
+        let value_unused = parameter_unused(&body, &params[1]);
 
         // Both unused — skip (RuboCop skips too)
         if key_unused && value_unused {
@@ -241,9 +234,9 @@ impl HashEachMethods {
         }
 
         let unused_code = if value_unused {
-            std::str::from_utf8(value_name).unwrap_or("_")
+            parameter_display(&params[1])
         } else {
-            std::str::from_utf8(key_name).unwrap_or("_")
+            parameter_display(&params[0])
         };
 
         let replacement = if value_unused {
@@ -254,8 +247,6 @@ impl HashEachMethods {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-
-        let _ = config.get_string_array("AllowedReceivers");
 
         diagnostics.push(self.diagnostic(
             source,
@@ -272,6 +263,87 @@ fn body_references_lvar(body: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
     let mut finder = LvarReferenceFinder { found: false, name };
     finder.visit(body);
     finder.found
+}
+
+fn parameter_unused(body: &ruby_prism::Node<'_>, param: &ruby_prism::Node<'_>) -> bool {
+    let names = parameter_names(param);
+    !names.is_empty()
+        && names
+            .iter()
+            .all(|name| !body_references_lvar(body, name.as_slice()))
+}
+
+fn parameter_names(param: &ruby_prism::Node<'_>) -> Vec<Vec<u8>> {
+    let mut names = Vec::new();
+    collect_parameter_names(param, &mut names);
+    names
+}
+
+fn collect_parameter_names(param: &ruby_prism::Node<'_>, names: &mut Vec<Vec<u8>>) {
+    if let Some(required) = param.as_required_parameter_node() {
+        names.push(required.name().as_slice().to_vec());
+        return;
+    }
+    if let Some(optional) = param.as_optional_parameter_node() {
+        names.push(optional.name().as_slice().to_vec());
+        return;
+    }
+    if let Some(rest) = param.as_rest_parameter_node() {
+        if let Some(name) = rest.name() {
+            names.push(name.as_slice().to_vec());
+        }
+        return;
+    }
+    if let Some(multi_target) = param.as_multi_target_node() {
+        for child in multi_target.lefts().iter() {
+            collect_parameter_names(&child, names);
+        }
+        if let Some(rest) = multi_target.rest() {
+            collect_parameter_names(&rest, names);
+        }
+        for child in multi_target.rights().iter() {
+            collect_parameter_names(&child, names);
+        }
+    }
+}
+
+fn parameter_display(param: &ruby_prism::Node<'_>) -> String {
+    if let Some(required) = param.as_required_parameter_node() {
+        return std::str::from_utf8(required.name().as_slice())
+            .unwrap_or("_")
+            .to_string();
+    }
+    if let Some(rest) = param.as_rest_parameter_node() {
+        if let Some(name) = rest.name() {
+            return std::str::from_utf8(name.as_slice())
+                .unwrap_or("_")
+                .to_string();
+        }
+    }
+
+    std::str::from_utf8(param.location().as_slice())
+        .unwrap_or("_")
+        .to_string()
+}
+
+fn positional_block_params<'pr>(
+    params_node: &ruby_prism::ParametersNode<'pr>,
+) -> Vec<ruby_prism::Node<'pr>> {
+    if params_node.keyword_rest().is_some() || params_node.block().is_some() {
+        return Vec::new();
+    }
+    if params_node.keywords().iter().next().is_some() {
+        return Vec::new();
+    }
+
+    let mut params = Vec::new();
+    params.extend(params_node.requireds().iter());
+    params.extend(params_node.optionals().iter());
+    if let Some(rest) = params_node.rest() {
+        params.push(rest);
+    }
+    params.extend(params_node.posts().iter());
+    params
 }
 
 /// Visitor that searches for `LocalVariableReadNode` matching a given name.
@@ -317,6 +389,100 @@ fn block_mutates_receiver(
     };
     finder.visit(&body);
     finder.found
+}
+
+fn has_supported_kv_block(call: &ruby_prism::CallNode<'_>) -> bool {
+    let Some(block) = call.block() else {
+        return false;
+    };
+    if block.as_block_node().is_some() {
+        return true;
+    }
+
+    block
+        .as_block_argument_node()
+        .and_then(|block_arg| block_arg.expression())
+        .is_some_and(|expr| expr.as_symbol_node().is_some())
+}
+
+fn root_receiver(node: ruby_prism::Node<'_>) -> Option<ruby_prism::Node<'_>> {
+    if let Some(call) = node.as_call_node() {
+        if let Some(receiver) = call.receiver() {
+            if receiver
+                .as_call_node()
+                .is_some_and(|receiver_call| receiver_call.receiver().is_some())
+            {
+                return root_receiver(receiver);
+            }
+            return Some(receiver);
+        }
+    }
+
+    Some(node)
+}
+
+fn is_array_converter_method(name: &[u8]) -> bool {
+    ARRAY_CONVERTER_METHODS.contains(&name)
+}
+
+fn is_handleable_root(node: &ruby_prism::Node<'_>) -> bool {
+    !is_literal(node) || node.as_hash_node().is_some()
+}
+
+fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
+    matches!(
+        node,
+        ruby_prism::Node::TrueNode { .. }
+            | ruby_prism::Node::FalseNode { .. }
+            | ruby_prism::Node::NilNode { .. }
+            | ruby_prism::Node::IntegerNode { .. }
+            | ruby_prism::Node::FloatNode { .. }
+            | ruby_prism::Node::RationalNode { .. }
+            | ruby_prism::Node::ImaginaryNode { .. }
+            | ruby_prism::Node::StringNode { .. }
+            | ruby_prism::Node::SymbolNode { .. }
+            | ruby_prism::Node::RegularExpressionNode { .. }
+            | ruby_prism::Node::ArrayNode { .. }
+            | ruby_prism::Node::HashNode { .. }
+            | ruby_prism::Node::RangeNode { .. }
+            | ruby_prism::Node::InterpolatedStringNode { .. }
+            | ruby_prism::Node::InterpolatedSymbolNode { .. }
+            | ruby_prism::Node::InterpolatedRegularExpressionNode { .. }
+            | ruby_prism::Node::XStringNode { .. }
+            | ruby_prism::Node::InterpolatedXStringNode { .. }
+    )
+}
+
+fn is_allowed_receiver(receiver: &ruby_prism::Node<'_>, allowed_receivers: &[String]) -> bool {
+    if allowed_receivers.is_empty() {
+        return false;
+    }
+
+    let recv_name = receiver_name(receiver);
+    allowed_receivers.contains(&recv_name)
+}
+
+fn receiver_name(node: &ruby_prism::Node<'_>) -> String {
+    if let Some(call) = node.as_call_node() {
+        if let Some(receiver) = call.receiver() {
+            if receiver.as_constant_read_node().is_some()
+                || receiver.as_constant_path_node().is_some()
+            {
+                let const_src = std::str::from_utf8(receiver.location().as_slice()).unwrap_or("");
+                let method = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
+                return format!("{const_src}.{method}");
+            }
+            return receiver_name(&receiver);
+        }
+
+        return std::str::from_utf8(call.name().as_slice())
+            .unwrap_or("")
+            .to_string();
+    }
+
+    std::str::from_utf8(node.location().as_slice())
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Visitor that searches for `[]=` calls on a receiver whose source text

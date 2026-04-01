@@ -32,3 +32,11 @@ end
 data.each do |method_name, _apipie_dsl_data|
   description = define(method_name, _apipie_dsl_data)
 end
+# array-converter chains should not trigger
+property_observer_list.to_a.each { |obs, opt| obs.call(self) }
+packets.sort.each do |packet_name, packet_json|
+  result << JSON.parse(packet_json)
+end
+# keys.each / values.each only trigger when the block is attached to `each` itself
+gc_stat.keys.each.with_index { |k, i| puts k, i }
+return vertices.values.each unless block_given?
