@@ -29,6 +29,16 @@ use ruby_prism::Visit;
 ///    branches in `StatementsNode` and uses distinct local write node kinds,
 ///    so nitrocop was missing real offenses while also over-flagging accepted
 ///    parenthesized assignments like multi-statement deprecation helpers.
+/// 5. Added `visit_call_node` to detect guard clause violations inside
+///    `define_method`/`define_singleton_method` block bodies, matching
+///    RuboCop's `on_block` handler that delegates to `on_def` for these.
+/// 6. Fixed if-else guard clause detection to try both branches when the
+///    first branch's guard statement is multi-line. RuboCop's
+///    `match_guard_clause?` requires `single_line?`, so a multi-line raise
+///    in the if-branch is not a guard clause — but a single-line raise/return
+///    in the else-branch still is. Previously nitrocop early-returned after
+///    finding a guard in the if-branch without checking if it was single-line,
+///    missing the valid single-line guard in the else-branch.
 pub struct GuardClause;
 
 const GUARD_METHODS: &[&[u8]] = &[b"raise", b"fail"];
@@ -214,25 +224,35 @@ impl GuardClauseVisitor<'_, '_> {
             return;
         }
 
-        if let Some(guard_stmt) = self.single_guard_statement(node.statements()) {
-            self.register_branch_guard_clause(
-                if_keyword_loc.start_offset(),
-                &predicate,
-                &guard_stmt,
-                "if",
-                else_node.statements(),
-            );
-            return;
+        let if_guard = self.single_guard_statement(node.statements());
+        let else_guard = self.single_guard_statement(else_node.statements());
+
+        // Try single-line guard from if-branch first, then else-branch.
+        // RuboCop's match_guard_clause? requires single_line?, so multi-line
+        // guards are not considered guard clauses.
+        if let Some(ref guard_stmt) = if_guard {
+            if self.guard_stmt_is_single_line(guard_stmt) {
+                self.register_branch_guard_clause(
+                    if_keyword_loc.start_offset(),
+                    &predicate,
+                    guard_stmt,
+                    "if",
+                    else_node.statements(),
+                );
+                return;
+            }
         }
 
-        if let Some(guard_stmt) = self.single_guard_statement(else_node.statements()) {
-            self.register_branch_guard_clause(
-                if_keyword_loc.start_offset(),
-                &predicate,
-                &guard_stmt,
-                "unless",
-                node.statements(),
-            );
+        if let Some(ref guard_stmt) = else_guard {
+            if self.guard_stmt_is_single_line(guard_stmt) {
+                self.register_branch_guard_clause(
+                    if_keyword_loc.start_offset(),
+                    &predicate,
+                    guard_stmt,
+                    "unless",
+                    node.statements(),
+                );
+            }
         }
     }
 
@@ -342,25 +362,33 @@ impl GuardClauseVisitor<'_, '_> {
             return;
         }
 
-        if let Some(guard_stmt) = self.single_guard_statement(node.statements()) {
-            self.register_branch_guard_clause(
-                keyword_loc.start_offset(),
-                &predicate,
-                &guard_stmt,
-                "unless",
-                else_node.statements(),
-            );
-            return;
+        let unless_guard = self.single_guard_statement(node.statements());
+        let else_guard = self.single_guard_statement(else_node.statements());
+
+        // Prefer a single-line guard from either branch first
+        if let Some(ref guard_stmt) = unless_guard {
+            if self.guard_stmt_is_single_line(guard_stmt) {
+                self.register_branch_guard_clause(
+                    keyword_loc.start_offset(),
+                    &predicate,
+                    guard_stmt,
+                    "unless",
+                    else_node.statements(),
+                );
+                return;
+            }
         }
 
-        if let Some(guard_stmt) = self.single_guard_statement(else_node.statements()) {
-            self.register_branch_guard_clause(
-                keyword_loc.start_offset(),
-                &predicate,
-                &guard_stmt,
-                "if",
-                node.statements(),
-            );
+        if let Some(ref guard_stmt) = else_guard {
+            if self.guard_stmt_is_single_line(guard_stmt) {
+                self.register_branch_guard_clause(
+                    keyword_loc.start_offset(),
+                    &predicate,
+                    guard_stmt,
+                    "if",
+                    node.statements(),
+                );
+            }
         }
     }
 
@@ -407,10 +435,6 @@ impl GuardClauseVisitor<'_, '_> {
         conditional_keyword: &str,
         _remaining_branch: Option<ruby_prism::StatementsNode<'_>>,
     ) {
-        if !self.guard_stmt_is_single_line(guard_stmt) {
-            return;
-        }
-
         let guard_src = self.node_source(guard_stmt);
         let condition_src = self.node_source(condition);
         let inline_example = format!("{} {} {}", guard_src, conditional_keyword, condition_src);
@@ -729,6 +753,18 @@ impl<'pr> Visit<'pr> for GuardClauseVisitor<'_, '_> {
             self.check_ending_body(&body);
         }
         ruby_prism::visit_def_node(self, node);
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let name = node.name().as_slice();
+        if name == b"define_method" || name == b"define_singleton_method" {
+            if let Some(block) = node.block().and_then(|b| b.as_block_node()) {
+                if let Some(body) = block.body() {
+                    self.check_ending_body(&body);
+                }
+            }
+        }
+        ruby_prism::visit_call_node(self, node);
     }
 
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
