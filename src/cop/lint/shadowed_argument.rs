@@ -56,6 +56,14 @@
 ///    conditional shadowing followed by later unconditional reassignment), so the
 ///    check now only considers reads before the first non-shorthand assignment that
 ///    writes the arg without reading it on the RHS.
+///
+/// FP fix (1 corpus, 2026-04-01): `Kernel#binding` implicitly references all
+/// local variables in scope. RuboCop's VariableForce calls `variable.reference!`
+/// on every accessible variable when it encounters a bare `binding` call. When
+/// `binding` appears before the first shadowing assignment, RuboCop considers the
+/// arg as referenced and does not flag it. Added detection of `binding` calls
+/// (no receiver, no arguments) in `RefCollector` as implicit references, gated
+/// by the `IgnoreImplicitReferences` config like `ForwardingSuperNode`.
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -391,6 +399,23 @@ impl<'pr> Visit<'pr> for RefCollector {
         if !self.ignore_implicit {
             self.offsets.push(node.location().start_offset());
         }
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        // `binding` (Kernel#binding) implicitly references all local variables
+        // in scope. RuboCop's VariableForce marks all accessible variables as
+        // referenced when it encounters a bare `binding` call.
+        if !self.ignore_implicit
+            && node.receiver().is_none()
+            && node.name().as_slice() == b"binding"
+            && node
+                .arguments()
+                .is_none_or(|args| args.arguments().is_empty())
+        {
+            self.offsets.push(node.location().start_offset());
+        }
+        // Continue visiting children
+        ruby_prism::visit_call_node(self, node);
     }
 
     // Don't cross scope boundaries
