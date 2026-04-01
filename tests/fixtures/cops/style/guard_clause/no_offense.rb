@@ -68,11 +68,28 @@ def test
   end
 end
 
+# Parenthesized assignment used by a later bare expression in a multi-statement branch
+def test
+  if (deprecated_value = deprecated_options.delete(key))
+    warn "deprecated"
+    deprecated_value
+  end
+end
+
 # Multi-assignment in condition used in body
 def test
   if (var, obj = simple_comparison_lhs(node)) || (obj, var = simple_comparison_rhs(node))
     return if var.call_type?
     [var, obj]
+  end
+end
+
+# Parenthesized ||= assignment in condition used in the non-guard branch
+def test
+  if (object ||= fallback) && object.respond_to?(:to_param)
+    @auto_index = object.to_param
+  else
+    raise ArgumentError, object.inspect
   end
 end
 

@@ -150,3 +150,19 @@ def test_nested_ending_unless
     end
   end
 end
+
+# Unparenthesized assignment in condition remains an offense
+def test_unparenthesized_assignment
+  if record = call_recorder.record
+  ^^ Style/GuardClause: Use a guard clause (`return unless record = call_recorder.record`) instead of wrapping the code inside a conditional expression.
+    @collector.handle_record(record)
+  end
+end
+
+# Parenthesized assignment is only accepted when the branch uses the local in a descendant node
+def test_parenthesized_assignment_plain_read
+  if (foo = bar)
+  ^^ Style/GuardClause: Use a guard clause (`return unless (foo = bar)`) instead of wrapping the code inside a conditional expression.
+    foo
+  end
+end

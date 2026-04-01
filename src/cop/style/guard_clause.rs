@@ -19,6 +19,16 @@ use ruby_prism::Visit;
 ///    clause offense, matching RuboCop's `check_ending_body(node.if_branch)`.
 ///    This detects nested bare `if`/`unless` that are the last statement inside
 ///    another if/unless branch at the end of a method body.
+/// 3. Matched RuboCop's descendant-only local-variable check for assignment-in-
+///    condition suppression. nitrocop was counting the root condition/statement
+///    node itself, which incorrectly accepted `if foo = bar` endings and bare
+///    `foo` branches that RuboCop still flags. We now mirror
+///    `each_descendant(:lvasgn)` / `each_descendant(:lvar)` and ignore the root.
+/// 4. Matched RuboCop's parser-shape checks for assignment conditions inside
+///    multi-statement branches and `||=` / `&&=` local writes. Prism wraps
+///    branches in `StatementsNode` and uses distinct local write node kinds,
+///    so nitrocop was missing real offenses while also over-flagging accepted
+///    parenthesized assignments like multi-statement deprecation helpers.
 pub struct GuardClause;
 
 const GUARD_METHODS: &[&[u8]] = &[b"raise", b"fail"];
@@ -113,12 +123,8 @@ impl GuardClauseVisitor<'_, '_> {
         }
 
         // Skip if condition assigns a local variable used in the if body
-        if let Some(body_stmts) = node.statements() {
-            for stmt in body_stmts.body().iter() {
-                if self.assigned_lvar_used_in_branch(&predicate, &stmt) {
-                    return;
-                }
-            }
+        if self.assigned_lvar_used_in_branch(&predicate, node.statements()) {
+            return;
         }
 
         // Check min body length
@@ -204,12 +210,8 @@ impl GuardClauseVisitor<'_, '_> {
             return;
         }
 
-        if let Some(body_stmts) = node.statements() {
-            for stmt in body_stmts.body().iter() {
-                if self.assigned_lvar_used_in_branch(&predicate, &stmt) {
-                    return;
-                }
-            }
+        if self.assigned_lvar_used_in_branch(&predicate, node.statements()) {
+            return;
         }
 
         if let Some(guard_stmt) = self.single_guard_statement(node.statements()) {
@@ -259,12 +261,8 @@ impl GuardClauseVisitor<'_, '_> {
         }
 
         // Skip if condition assigns a local variable used in the body
-        if let Some(body_stmts) = node.statements() {
-            for stmt in body_stmts.body().iter() {
-                if self.assigned_lvar_used_in_branch(&predicate, &stmt) {
-                    return;
-                }
-            }
+        if self.assigned_lvar_used_in_branch(&predicate, node.statements()) {
+            return;
         }
 
         // Check min body length
@@ -340,12 +338,8 @@ impl GuardClauseVisitor<'_, '_> {
             return;
         }
 
-        if let Some(body_stmts) = node.statements() {
-            for stmt in body_stmts.body().iter() {
-                if self.assigned_lvar_used_in_branch(&predicate, &stmt) {
-                    return;
-                }
-            }
+        if self.assigned_lvar_used_in_branch(&predicate, node.statements()) {
+            return;
         }
 
         if let Some(guard_stmt) = self.single_guard_statement(node.statements()) {
@@ -387,19 +381,21 @@ impl GuardClauseVisitor<'_, '_> {
         end_line > start_line
     }
 
-    /// Check if the condition contains local variable assignments that are used
-    /// in the if body. RuboCop skips guard clause suggestions in this case because
-    /// the assignment is meaningful -- the assigned value is used in the body.
+    /// Check if descendant local variable assignments in the condition are used
+    /// by descendant nodes in the branch.
+    ///
+    /// This mirrors RuboCop's `each_descendant(:lvasgn)` / `each_descendant(:lvar)`
+    /// behavior and intentionally ignores the root condition/statement node.
     fn assigned_lvar_used_in_branch(
         &self,
         condition: &ruby_prism::Node<'_>,
-        body: &ruby_prism::Node<'_>,
+        statements: Option<ruby_prism::StatementsNode<'_>>,
     ) -> bool {
-        let assigned_names = collect_lvar_write_names(condition);
+        let assigned_names = collect_descendant_lvar_write_names(condition);
         if assigned_names.is_empty() {
             return false;
         }
-        let used_names = collect_lvar_read_names(body);
+        let used_names = collect_parser_equivalent_lvar_read_names(statements);
         assigned_names.iter().any(|name| used_names.contains(name))
     }
 
@@ -581,6 +577,30 @@ impl<'pr> Visit<'pr> for LvarWriteCollector {
         ruby_prism::visit_local_variable_write_node(self, node);
     }
 
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        self.names.push(node.name().as_slice().to_vec());
+        ruby_prism::visit_local_variable_and_write_node(self, node);
+    }
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.names.push(node.name().as_slice().to_vec());
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        self.names.push(node.name().as_slice().to_vec());
+        ruby_prism::visit_local_variable_or_write_node(self, node);
+    }
+
     fn visit_local_variable_target_node(
         &mut self,
         node: &ruby_prism::LocalVariableTargetNode<'pr>,
@@ -601,16 +621,46 @@ impl<'pr> Visit<'pr> for LvarReadCollector {
     }
 }
 
-fn collect_lvar_write_names(node: &ruby_prism::Node<'_>) -> Vec<Vec<u8>> {
+fn collect_descendant_lvar_write_names(node: &ruby_prism::Node<'_>) -> Vec<Vec<u8>> {
     let mut collector = LvarWriteCollector { names: Vec::new() };
     collector.visit(node);
+    if let Some(write) = node.as_local_variable_write_node() {
+        remove_first_name(&mut collector.names, write.name().as_slice());
+    }
     collector.names
 }
 
-fn collect_lvar_read_names(node: &ruby_prism::Node<'_>) -> Vec<Vec<u8>> {
+fn collect_descendant_lvar_read_names(node: &ruby_prism::Node<'_>) -> Vec<Vec<u8>> {
     let mut collector = LvarReadCollector { names: Vec::new() };
     collector.visit(node);
+    if let Some(read) = node.as_local_variable_read_node() {
+        remove_first_name(&mut collector.names, read.name().as_slice());
+    }
     collector.names
+}
+
+fn remove_first_name(names: &mut Vec<Vec<u8>>, name: &[u8]) {
+    if let Some(index) = names
+        .iter()
+        .position(|candidate| candidate.as_slice() == name)
+    {
+        names.remove(index);
+    }
+}
+
+fn collect_parser_equivalent_lvar_read_names(
+    statements: Option<ruby_prism::StatementsNode<'_>>,
+) -> Vec<Vec<u8>> {
+    let Some(statements) = statements else {
+        return Vec::new();
+    };
+
+    let body_nodes: Vec<_> = statements.body().iter().collect();
+    match body_nodes.as_slice() {
+        [] => Vec::new(),
+        [single] => collect_descendant_lvar_read_names(single),
+        _ => collect_descendant_lvar_read_names(&statements.as_node()),
+    }
 }
 
 fn is_guard_stmt(node: &ruby_prism::Node<'_>) -> bool {
