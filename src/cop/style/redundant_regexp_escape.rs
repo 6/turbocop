@@ -13,10 +13,11 @@ use crate::parse::source::SourceFile;
 /// `RegularExpressionNode` was visited. This fix preserves the byte-based scanner
 /// but removes the outside-char-class `\-` exemption, allows backslash-newline,
 /// and scans interpolated regexp string fragments with byte-accurate offsets.
-/// It also matches two RuboCop quirks seen in corpus validation:
-/// `\-` immediately after `[^` is treated as meaningful, and interpolated
-/// regexps that are direct arguments to block calls only report escapes from the
-/// literal prefix before the first interpolation.
+/// It also matches RuboCop quirks seen in corpus validation:
+/// `\-` immediately after `[^` is treated as meaningful, `/x` comments are
+/// ignored, `#\$`/`#\@` are preserved to avoid interpolation, `/e` and `/s`
+/// suppress this cop entirely, and multiline extended interpolated regexps only
+/// report escapes from the literal prefix before the first interpolation.
 pub struct RedundantRegexpEscape;
 
 /// Characters that need escaping OUTSIDE a character class in regexp
@@ -30,6 +31,20 @@ const MEANINGFUL_ESCAPES: &[u8] = b".|()[]{}*+?\\^$#ntrfaevbBsSdDwWhHAzZGpPRXkg0
 /// handled separately in the check logic below.
 const MEANINGFUL_ESCAPES_IN_CHAR_CLASS: &[u8] = b"\\]^[#ntrfaevbBsSdDwWhHAzZGpPRXkg0123456789xucCM";
 const INTERPOLATION_BOUNDARY: u8 = 0;
+const INTERPOLATION_SIGILS: &[u8] = b"@$";
+
+#[derive(Clone, Copy)]
+struct RegexFlags {
+    extended: bool,
+    euc_jp: bool,
+    windows_31j: bool,
+}
+
+impl RegexFlags {
+    fn suppresses_all_offenses(self) -> bool {
+        self.euc_jp || self.windows_31j
+    }
+}
 
 impl Cop for RedundantRegexpEscape {
     fn name(&self) -> &'static str {
@@ -55,6 +70,11 @@ impl Cop for RedundantRegexpEscape {
         let node_loc = node.location();
         let full_bytes = &source.as_bytes()[node_loc.start_offset()..node_loc.end_offset()];
         let delimiter_chars = delimiter_chars(full_bytes);
+        let flags = regex_flags(full_bytes);
+
+        if flags.suppresses_all_offenses() {
+            return;
+        }
 
         if let Some(re) = node.as_regular_expression_node() {
             let content = re.content_loc().as_slice();
@@ -67,6 +87,7 @@ impl Cop for RedundantRegexpEscape {
                 content,
                 &offsets,
                 &delimiter_chars,
+                flags,
                 diagnostics,
             );
             return;
@@ -80,7 +101,8 @@ impl Cop for RedundantRegexpEscape {
         let mut offsets = Vec::new();
 
         let scan_full_interpolated =
-            !followed_by_block_opener(source.as_bytes(), node_loc.end_offset());
+            !followed_by_block_opener(source.as_bytes(), node_loc.end_offset())
+                && !(flags.extended && full_bytes.contains(&b'\n'));
 
         for part in re.parts().iter() {
             if let Some(string) = part.as_string_node() {
@@ -105,6 +127,7 @@ impl Cop for RedundantRegexpEscape {
             &content,
             &offsets,
             &delimiter_chars,
+            flags,
             diagnostics,
         );
     }
@@ -122,6 +145,27 @@ fn delimiter_chars(full_bytes: &[u8]) -> Vec<u8> {
     } else {
         vec![b'/']
     }
+}
+
+fn regex_flags(full_bytes: &[u8]) -> RegexFlags {
+    let mut flags = RegexFlags {
+        extended: false,
+        euc_jp: false,
+        windows_31j: false,
+    };
+
+    let mut idx = full_bytes.len();
+    while idx > 0 && full_bytes[idx - 1].is_ascii_alphabetic() {
+        idx -= 1;
+        match full_bytes[idx] {
+            b'x' => flags.extended = true,
+            b'e' => flags.euc_jp = true,
+            b's' => flags.windows_31j = true,
+            _ => {}
+        }
+    }
+
+    flags
 }
 
 fn followed_by_block_opener(source: &[u8], mut offset: usize) -> bool {
@@ -163,11 +207,11 @@ fn check_regexp_fragment(
     content: &[u8],
     offsets: &[Option<usize>],
     delimiter_chars: &[u8],
+    flags: RegexFlags,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let mut i = 0;
-    let mut in_char_class = false;
-    let mut char_class_start = 0usize;
+    let mut char_class_depth = 0usize;
 
     while i < content.len() {
         let current = content[i];
@@ -176,18 +220,28 @@ fn check_regexp_fragment(
             continue;
         }
 
-        if current == b'[' && is_unescaped(content, i) {
-            in_char_class = true;
-            char_class_start = i;
+        let in_char_class = char_class_depth > 0;
+
+        if flags.extended && !in_char_class && current == b'#' && is_unescaped(content, i) {
             i += 1;
-            if i < content.len() && content[i] == b'^' {
+            while i < content.len() && content[i] != b'\n' && content[i] != b'\r' {
                 i += 1;
             }
             continue;
         }
 
+        if current == b'[' && is_unescaped(content, i) {
+            if in_char_class && let Some(next_i) = skip_named_character_class(content, i) {
+                i = next_i;
+                continue;
+            }
+            char_class_depth += 1;
+            i += 1;
+            continue;
+        }
+
         if current == b']' && in_char_class && is_unescaped(content, i) {
-            in_char_class = false;
+            char_class_depth -= 1;
             i += 1;
             continue;
         }
@@ -214,18 +268,21 @@ fn check_regexp_fragment(
 
             let is_meaningful = if in_char_class {
                 if escaped == b'-' {
-                    let at_start = i == char_class_start + 1;
+                    let at_start =
+                        i > 0 && content[i - 1] == b'[' && (i < 2 || content[i - 2] != b'\\');
                     let at_end = i + 2 < content.len()
                         && content[i + 2] == b']'
                         && is_unescaped(content, i + 2);
                     !(at_start || at_end)
                 } else {
                     MEANINGFUL_ESCAPES_IN_CHAR_CLASS.contains(&escaped)
+                        || requires_escape_to_avoid_interpolation(content, i, escaped)
                         || escaped.is_ascii_alphabetic()
                         || escaped == b' '
                 }
             } else {
                 MEANINGFUL_ESCAPES.contains(&escaped)
+                    || requires_escape_to_avoid_interpolation(content, i, escaped)
                     || escaped.is_ascii_alphabetic()
                     || escaped == b' '
             };
@@ -250,6 +307,27 @@ fn check_regexp_fragment(
 
         i += 1;
     }
+}
+
+fn skip_named_character_class(content: &[u8], start: usize) -> Option<usize> {
+    let delimiter = *content.get(start + 1)?;
+    if !matches!(delimiter, b':' | b'.' | b'=') {
+        return None;
+    }
+
+    let mut idx = start + 2;
+    while idx + 1 < content.len() {
+        if content[idx] == delimiter && content[idx + 1] == b']' {
+            return Some(idx + 2);
+        }
+        idx += 1;
+    }
+
+    None
+}
+
+fn requires_escape_to_avoid_interpolation(content: &[u8], index: usize, escaped: u8) -> bool {
+    index > 0 && content[index - 1] == b'#' && INTERPOLATION_SIGILS.contains(&escaped)
 }
 
 fn is_unescaped(content: &[u8], idx: usize) -> bool {
