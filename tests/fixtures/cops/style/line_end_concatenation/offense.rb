@@ -65,3 +65,7 @@ em.map { |m| "+" + m.to_s.sub(/.*:/, "") } * "" +
 "F44C42E9" "A637ED6B" "0BFF5CB6" "F406B7ED" +
                                             ^ Style/LineEndConcatenation: Use `\` instead of `+` to concatenate multiline strings.
 "EE386BFB" "5A899FA5" "AE9F2411" "7C4B1FE6"
+
+x = %Q'_TEXT_ "#{text}"' +
+                         ^ Style/LineEndConcatenation: Use `\` instead of `+` to concatenate multiline strings.
+"end"
