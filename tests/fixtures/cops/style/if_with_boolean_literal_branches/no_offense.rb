@@ -61,6 +61,63 @@ else
   false
 end
 
+# Redundant boolean branches nested directly under a single `elsif`
+# should not be flagged because RuboCop skips `if` nodes whose immediate
+# parent is an `elsif`.
+def to_ruby_internal
+  if @payload.nil? or @payload.size == 0
+    nil
+  elsif @payload.size == 1
+    @payload[0] == 1 ? true : false
+  else
+    @payload.map { |v| v == 1 }
+  end
+end
+
+def method_missing(method, *args)
+  if method.to_s =~ /^([a-z]+)_namespace_names$/
+    @@ns_cache ||= {}
+    @@ns_cache[$1] ||= get_namespace_names_for($1)
+  elsif method.to_s =~ /^([a-z]+)_namespace\?$/
+    namespace_type(args.first) == $1.to_sym ? true : false
+  else
+    super(method, *args)
+  end
+end
+
+def exists?
+  found = false
+  lines_count = 0
+  return found = lines_count.positive? if resource[:match].nil?
+
+  match_count = count_matches(new_match_regex)
+  found = if resource[:ensure] == :present
+            if match_count.zero?
+              if lines_count.zero? && resource[:append_on_no_match].to_s == "false"
+                true
+              else
+                !(lines_count.zero? && resource[:append_on_no_match].to_s != "false")
+              end
+            elsif resource[:replace_all_matches_not_matching_line].to_s == "true"
+              false
+            elsif lines_count.zero?
+              resource[:replace].to_s == "false"
+            else
+              true
+            end
+          elsif match_count.zero?
+            if lines_count.zero?
+              false
+            else
+              true
+            end
+          elsif lines_count.zero?
+            resource[:match_for_absence].to_s == "true"
+          else
+            false
+          end
+end
+
 # Multi-elsif chain (2 elsifs) with predicate methods
 if !current_version_array.any?
   false
