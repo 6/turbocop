@@ -539,11 +539,30 @@ const REDUNDANT_DISABLE_COP: &str = "Lint/RedundantCopDisableDirective";
 /// miss certain offense patterns that RuboCop catches, so their unused
 /// directives might actually be needed.
 const REDUNDANT_DISABLE_SKIP_COPS: &[&str] = &[
-    "Layout/SpaceAroundKeyword",        // misses `&super` before keyword
+    "Layout/AlignHash",     // misses some multiline hash alignment patterns
+    "Layout/HashAlignment", // misses some hash alignment variants
+    "Layout/LineLength",    // misses some long-line suppression cases
+    "Layout/MultilineOperationIndentation", // misses some multiline indentation cases
+    "Lint/DuplicateMethods", // misses some reopened-definition patterns
+    "Lint/HandleExceptions", // misses some rescue modifier patterns
+    "Layout/SpaceAroundKeyword", // misses `&super` before keyword
     "Lint/RedundantCopEnableDirective", // misses YARD doc examples
-    "Lint/UselessAssignment",           // misses compound assignment to block params
-    "Style/CaseLikeIf",                 // misses certain case/when patterns
-    "Style/HashLikeCase",               // alias/related to CaseLikeIf
+    "Lint/UselessAssignment", // misses compound assignment to block params
+    "Lint/MissingSuper",    // misses some inherited initialize hooks
+    "Metrics/BlockNesting", // misses some nested control-flow patterns
+    "Metrics/CyclomaticComplexity", // misses some branch counting patterns
+    "Metrics/ParameterLists", // misses some keyword/default arg shapes
+    "Security/YAMLLoad",    // misses some unsafe load entry points
+    "Style/CaseLikeIf",     // misses certain case/when patterns
+    "Style/HashLikeCase",   // alias/related to CaseLikeIf
+    "Style/AndOr",          // misses some boolean-operator rewrites
+    "Style/Alias",          // misses some alias forms
+    "Style/EvalWithLocation", // misses some eval binding/location variants
+    "Style/GuardClause",    // misses some early-return patterns
+    "Style/Next",           // misses some next/if rewrites
+    "Style/RedundantParentheses", // misses rescue/modifier edge cases
+    "Style/RegexpLiteral",  // misses some literal interpolation cases
+    "Style/SafeNavigation", // misses guarded call patterns
 ];
 
 /// Determine if a disable directive should be flagged as redundant.
