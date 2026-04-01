@@ -91,6 +91,20 @@ use crate::parse::source::SourceFile;
 /// Remaining FN: likely from additional non-wrapper node types not yet
 /// tracked on parent_stack, or subtle differences in how Prism vs Parser
 /// represent certain AST structures.
+///
+/// ## Corpus investigation (2026-04-01, attempt 3)
+///
+/// FN root cause 1: `MultiWriteNode` (`a, b = call do ... end`) was not
+/// treated like assignment when deciding whether a call-attached block stays
+/// in macro scope. Prism uses `MultiWriteNode` for parallel assignment, so
+/// `call_block_child_scope()` missed receiverless calls such as
+/// `planned? sub` / `call_event "x", event` inside those blocks. Fixed by
+/// pushing `ParentKind::Assignment` while visiting the RHS of MultiWriteNode.
+///
+/// FN root cause 2: flow-control nodes like `NextNode` were not tracked on
+/// `parent_stack`. In Parser AST, `next send_file static_file` gives the call
+/// a direct non-wrapper parent, so macro scope must break there. Fixed by
+/// tracking `return`/`break`/`next` arguments as `ParentKind::FlowControl`.
 pub struct MethodCallWithArgsParentheses;
 
 fn is_operator(name: &[u8]) -> bool {
@@ -232,6 +246,7 @@ enum ParentKind {
     Assignment,
     Conditional,
     ConstantPath,
+    FlowControl,
 }
 
 impl Cop for MethodCallWithArgsParentheses {
@@ -1480,6 +1495,22 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         self.parent_stack.pop();
     }
 
+    fn visit_multi_write_node(&mut self, node: &ruby_prism::MultiWriteNode<'pr>) {
+        for left in node.lefts().iter() {
+            self.visit(&left);
+        }
+        if let Some(rest) = node.rest() {
+            self.visit(&rest);
+        }
+
+        self.parent_stack.push(ParentKind::Assignment);
+        for right in node.rights().iter() {
+            self.visit(&right);
+        }
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
     fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
         // `while`/`until`/`for` are NOT wrappers in RuboCop's in_macro_scope?.
         self.push_scope(Scope::Other);
@@ -1507,6 +1538,24 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         self.push_scope(Scope::Other);
         ruby_prism::visit_for_node(self, node);
         self.pop_scope();
+    }
+
+    fn visit_return_node(&mut self, node: &ruby_prism::ReturnNode<'pr>) {
+        self.parent_stack.push(ParentKind::FlowControl);
+        ruby_prism::visit_return_node(self, node);
+        self.parent_stack.pop();
+    }
+
+    fn visit_break_node(&mut self, node: &ruby_prism::BreakNode<'pr>) {
+        self.parent_stack.push(ParentKind::FlowControl);
+        ruby_prism::visit_break_node(self, node);
+        self.parent_stack.pop();
+    }
+
+    fn visit_next_node(&mut self, node: &ruby_prism::NextNode<'pr>) {
+        self.parent_stack.push(ParentKind::FlowControl);
+        ruby_prism::visit_next_node(self, node);
+        self.parent_stack.pop();
     }
 
     fn visit_rescue_modifier_node(&mut self, node: &ruby_prism::RescueModifierNode<'pr>) {
