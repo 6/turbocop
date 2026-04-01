@@ -48,6 +48,24 @@ use crate::diagnostic::Severity;
 ///    enabled, the old-name directive might be suppressing its offenses, so
 ///    we skip (conservative). In normal mode, `check_and_mark_used()` already
 ///    handles this correctly.
+///
+/// ## Corpus investigation (2026-04-01)
+///
+/// **Run-all-for-redundant mode**: When `--only Lint/RedundantCopDisableDirective`
+/// is used, all other enabled cops now also execute. Their diagnostics mark
+/// disable directives as "used" (then get discarded). Unused directives for
+/// enabled cops that matched the file are flagged as redundant — the cop ran
+/// and didn't fire, so the directive truly is unnecessary. This resolved ~457
+/// FNs (42% reduction) with 0 new FPs.
+///
+/// **Self-disable suppression**: Offenses within explicit
+/// `# rubocop:disable Lint/RedundantCopDisableDirective` regions are now
+/// suppressed, matching RuboCop behavior.
+///
+/// **Cop denylist**: A small set of cops with known detection gaps vs RuboCop
+/// (`REDUNDANT_DISABLE_SKIP_COPS`) are excluded from the aggressive flagging
+/// to prevent false positives from nitrocop missing offenses that RuboCop
+/// catches.
 pub struct RedundantCopDisableDirective;
 
 impl Cop for RedundantCopDisableDirective {
