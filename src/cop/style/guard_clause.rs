@@ -9,13 +9,16 @@ use ruby_prism::Visit;
 ///   scope-exiting guard (`return`, `raise`, `fail`, `next`, `break`, or
 ///   `and`/`or` with such a RHS)
 ///
-/// The Prism port originally only implemented the terminal no-`else` form, which
-/// missed large FN clusters in rescue bodies and normal method bodies such as
-/// `if cond; work; else; raise e; end`. The fix adds explicit branch analysis
-/// while keeping RuboCop's narrow skips for modifier/ternary/elsif forms,
-/// multiline conditions, embedded value expressions like `result = if ... end`,
-/// and condition assignments whose assigned locals are used in the non-guard
-/// branch.
+/// FN fixes applied:
+/// 1. Removed incorrect `branch_is_trivial` gate from `register_branch_guard_clause`.
+///    For if-else patterns where the inline guard exceeds max line length, we were
+///    skipping when the remaining branch was "trivial" (single simple statement).
+///    RuboCop's `trivial?` returns false for two-branch nodes, so if-else guard
+///    clauses are always flagged regardless of remaining-branch complexity.
+/// 2. Added recursion into the if/unless-branch after registering an ending guard
+///    clause offense, matching RuboCop's `check_ending_body(node.if_branch)`.
+///    This detects nested bare `if`/`unless` that are the last statement inside
+///    another if/unless branch at the end of a method body.
 pub struct GuardClause;
 
 const GUARD_METHODS: &[&[u8]] = &[b"raise", b"fail"];
@@ -152,6 +155,18 @@ impl GuardClauseVisitor<'_, '_> {
                 example
             ),
         ));
+
+        // Recurse into the if-branch to check its ending body (matches RuboCop behavior)
+        if let Some(body_stmts) = node.statements() {
+            let body_nodes: Vec<_> = body_stmts.body().iter().collect();
+            if let Some(last) = body_nodes.last() {
+                if let Some(inner_if) = last.as_if_node() {
+                    self.check_ending_if_node(&inner_if);
+                } else if let Some(inner_unless) = last.as_unless_node() {
+                    self.check_ending_unless_node(&inner_unless);
+                }
+            }
+        }
     }
 
     fn check_if_else_guard_clause(&mut self, node: &ruby_prism::IfNode<'_>) {
@@ -172,6 +187,11 @@ impl GuardClauseVisitor<'_, '_> {
             Some(node) => node,
             None => return,
         };
+
+        // Skip if else branch has no actual statements (comment-only else)
+        if !Self::else_has_statements(&else_node) {
+            return;
+        }
 
         if self.keyword_has_code_before(if_keyword_loc.start_offset())
             || self.keyword_has_multiline_assignment_before(if_keyword_loc.start_offset())
@@ -279,6 +299,18 @@ impl GuardClauseVisitor<'_, '_> {
                 example
             ),
         ));
+
+        // Recurse into the unless-branch to check its ending body (matches RuboCop behavior)
+        if let Some(body_stmts) = node.statements() {
+            let body_nodes: Vec<_> = body_stmts.body().iter().collect();
+            if let Some(last) = body_nodes.last() {
+                if let Some(inner_if) = last.as_if_node() {
+                    self.check_ending_if_node(&inner_if);
+                } else if let Some(inner_unless) = last.as_unless_node() {
+                    self.check_ending_unless_node(&inner_unless);
+                }
+            }
+        }
     }
 
     fn check_unless_else_guard_clause(&mut self, node: &ruby_prism::UnlessNode<'_>) {
@@ -291,6 +323,11 @@ impl GuardClauseVisitor<'_, '_> {
             Some(node) => node,
             None => return,
         };
+
+        // Skip if else branch has no actual statements (comment-only else)
+        if !Self::else_has_statements(&else_node) {
+            return;
+        }
 
         if self.keyword_has_code_before(keyword_loc.start_offset())
             || self.keyword_has_multiline_assignment_before(keyword_loc.start_offset())
@@ -333,6 +370,15 @@ impl GuardClauseVisitor<'_, '_> {
         }
     }
 
+    /// Check if an else node has actual code statements (not just comments).
+    /// Prism emits an ElseNode even for comment-only else branches, but RuboCop's
+    /// Parser gem treats those as no-else. We must match that behavior.
+    fn else_has_statements(else_node: &ruby_prism::ElseNode<'_>) -> bool {
+        else_node
+            .statements()
+            .is_some_and(|s| s.body().iter().next().is_some())
+    }
+
     /// Check if a node spans multiple lines.
     fn is_multiline(&self, node: &ruby_prism::Node<'_>) -> bool {
         let loc = node.location();
@@ -363,7 +409,7 @@ impl GuardClauseVisitor<'_, '_> {
         condition: &ruby_prism::Node<'_>,
         guard_stmt: &ruby_prism::Node<'_>,
         conditional_keyword: &str,
-        remaining_branch: Option<ruby_prism::StatementsNode<'_>>,
+        _remaining_branch: Option<ruby_prism::StatementsNode<'_>>,
     ) {
         if !self.guard_stmt_is_single_line(guard_stmt) {
             return;
@@ -375,9 +421,6 @@ impl GuardClauseVisitor<'_, '_> {
         let (line, column) = self.source.offset_to_line_col(keyword_offset);
 
         let example = if self.too_long_for_single_line(column, &inline_example) {
-            if self.branch_is_trivial(remaining_branch) {
-                return;
-            }
             format!(
                 "{} {}; {}; end",
                 conditional_keyword, condition_src, guard_src
@@ -440,25 +483,6 @@ impl GuardClauseVisitor<'_, '_> {
 
     fn too_long_for_single_line(&self, column: usize, example: &str) -> bool {
         self.max_line_length > 0 && column + example.len() > self.max_line_length
-    }
-
-    fn branch_is_trivial(&self, statements: Option<ruby_prism::StatementsNode<'_>>) -> bool {
-        let stmts = match statements {
-            Some(stmts) => stmts,
-            None => return false,
-        };
-
-        let mut body = stmts.body().iter();
-        let Some(stmt) = body.next() else {
-            return false;
-        };
-        if body.next().is_some() {
-            return false;
-        }
-
-        stmt.as_if_node().is_none()
-            && stmt.as_unless_node().is_none()
-            && stmt.as_begin_node().is_none()
     }
 
     fn single_guard_statement<'pr>(

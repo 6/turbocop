@@ -104,3 +104,49 @@ def handle_response(response)
     raise HttpServerError.build(response.code, response.body)
   end
 end
+
+# if-else at end of method where else branch is guard and inline is too long
+def read_definitions_file
+  if ::File.exist?(definitions_file_path)
+  ^^ Style/GuardClause: Use a guard clause (`unless ::File.exist?(definitions_file_path); raise LoadError, "Could not find definitions.yml file! Please run the install generator"; end`) instead of wrapping the code inside a conditional expression.
+    ::YAML.safe_load_file(definitions_file_path) || []
+  else
+    raise LoadError, "Could not find definitions.yml file! Please run the install generator"
+  end
+end
+
+# if-else at end of method where if branch is guard and inline is too long
+def can_handle_observation_request?(observation_request, super_only: false)
+  observation_request = observation_request.to_s
+  super_result = super(observation_request)
+  if observation_request.start_with?('on_') && !super_result && !super_only
+  ^^ Style/GuardClause: Use a guard clause (`if observation_request.start_with?('on_') && !super_result && !super_only; return menu_item_proxy.can_handle_observation_request?(observation_request); end`) instead of wrapping the code inside a conditional expression.
+    return menu_item_proxy.can_handle_observation_request?(observation_request)
+  else
+    super_result
+  end
+end
+
+# Nested bare if at end of if-branch (recursion into ending body)
+def test_nested_ending_if
+  if outer_condition
+  ^^ Style/GuardClause: Use a guard clause (`return unless outer_condition`) instead of wrapping the code inside a conditional expression.
+    other_work
+    if inner_condition
+    ^^ Style/GuardClause: Use a guard clause (`return unless inner_condition`) instead of wrapping the code inside a conditional expression.
+      nested_work
+    end
+  end
+end
+
+# Nested bare unless at end of unless-branch (recursion into ending body)
+def test_nested_ending_unless
+  unless outer_condition
+  ^^^^^^ Style/GuardClause: Use a guard clause (`return if outer_condition`) instead of wrapping the code inside a conditional expression.
+    other_work
+    unless inner_condition
+    ^^^^^^ Style/GuardClause: Use a guard clause (`return if inner_condition`) instead of wrapping the code inside a conditional expression.
+      nested_work
+    end
+  end
+end
