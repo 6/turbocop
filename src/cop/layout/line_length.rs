@@ -198,6 +198,8 @@ fn check_line_lengths(
                             max,
                             indentation_width,
                             line_length,
+                            source.line_start_offset(i + 1),
+                            code_map,
                         )
                     })
                     .flatten();
@@ -394,16 +396,64 @@ fn uri_range_if_applicable(
     max: usize,
     indentation_width: usize,
     line_length: usize,
+    line_start_offset: usize,
+    code_map: &CodeMap,
 ) -> Option<ExemptionRange> {
     let uri_regex = uri_regex?;
-    let last_match = uri_regex.find_iter(line).last()?;
-    let end_pos = extend_end_position(line, last_match.end());
+    let last_match =
+        merge_query_linked_uri_matches(line, uri_regex, line_start_offset, code_map).pop()?;
+    let end_pos = extend_end_position(line, last_match.end);
     range_if_applicable(
-        display_position(line, last_match.start(), indentation_width),
+        display_position(line, last_match.start, indentation_width),
         display_position(line, end_pos, indentation_width),
         max,
         line_length,
     )
+}
+
+#[derive(Clone, Copy)]
+struct UriMatch {
+    start: usize,
+    end: usize,
+}
+
+fn merge_query_linked_uri_matches(
+    line: &str,
+    uri_regex: &regex::Regex,
+    line_start_offset: usize,
+    code_map: &CodeMap,
+) -> Vec<UriMatch> {
+    let mut matches: Vec<UriMatch> = Vec::new();
+
+    for current in uri_regex.find_iter(line) {
+        let text = &line[current.start()..current.end()];
+        if text
+            .split_once(':')
+            .is_some_and(|(_, tail)| tail.as_bytes().starts_with(br#"\\/\\/"#))
+        {
+            continue;
+        }
+        if text.ends_with(':') && line[current.end()..].starts_with('\\') {
+            continue;
+        }
+        if text.contains(r":\/\/") && !code_map.is_regex(line_start_offset + current.start()) {
+            continue;
+        }
+        if let Some(previous) = matches.last_mut() {
+            let previous_text = &line[previous.start..previous.end];
+            let separator = &line[previous.end..current.start()];
+            if previous_text.contains('?') && !separator.chars().any(char::is_whitespace) {
+                previous.end = current.end();
+                continue;
+            }
+        }
+        matches.push(UriMatch {
+            start: current.start(),
+            end: current.end(),
+        });
+    }
+
+    matches
 }
 
 fn line_overlaps_heredoc(
@@ -500,13 +550,14 @@ fn compile_uri_regex(schemes: &[String]) -> Option<regex::Regex> {
         .iter()
         .flat_map(|scheme| {
             [
-                regex::escape(&format!("{scheme}://")),
                 regex::escape(&format!(r"{scheme}:\/\/")),
+                regex::escape(&format!("{scheme}://")),
+                regex::escape(&format!("{scheme}:")),
             ]
         })
         .collect::<Vec<_>>()
         .join("|");
-    let pattern = format!(r#"(?:{})[^\s"'<>\]]+"#, prefixes);
+    let pattern = format!(r#"(?:{})[^\s"'<>\]]*"#, prefixes);
     regex::Regex::new(&pattern).ok()
 }
 
@@ -903,6 +954,89 @@ x = [
         assert!(
             !diags.is_empty(),
             "AllowURI should flag when URI does not extend to end of line"
+        );
+    }
+
+    #[test]
+    fn allow_uri_matches_bare_http_prefix_before_quotes() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(120.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            br#"uri = "[concat('http://',variables('storageAccountName'),'.blob.core.windows.net/',variables('vmStorageAccountContainerName'),'/',variables('vmName'),'.vhd')]"
+"#,
+            config,
+        );
+        assert!(
+            diags.is_empty(),
+            "AllowURI should match bare http:// before quoted template fragments"
+        );
+    }
+
+    #[test]
+    fn allow_uri_merges_query_markdown_into_one_match() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(120.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            br#"text = "[![Image](https://www.antifainfoblatt.de/sites/default/files/public/styles/front_full/public/jockpalfreeman.png?itok=OPjHKpmt)](https://www.antifainfoblatt.de/artikel/%E2%80%9Eschlie%C3%9Flich-waren-es-zu-viele%E2%80%9C)"
+"#,
+            config,
+        );
+        assert!(
+            diags.is_empty(),
+            "AllowURI should keep query-linked markdown URLs as one match"
+        );
+    }
+
+    #[test]
+    fn allow_uri_matches_scheme_only_before_brace_extension() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(120.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            br#"its('stdout.strip') { should cmp "Header set Content-Security-Policy \"default-src https: wss: data: 'unsafe-inline' 'unsafe-eval'; child-src *; worker-src 'self' blob:\"" }
+"#,
+            config,
+        );
+        assert!(
+            diags.is_empty(),
+            "AllowURI should match scheme-only tokens like https: when brace extension reaches the end"
+        );
+    }
+
+    #[test]
+    fn allow_uri_matches_bare_https_prefix_before_angle_brackets() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(120.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            b"To replace a managers certificate: POST https://<nsx-mgr>/api/v1/node/services/http?action=apply_certificate&certificate_id=e61c7537-3090-4149-b2b6-19915c20504f\n",
+            config,
+        );
+        assert!(
+            diags.is_empty(),
+            "AllowURI should match bare https:// before angle-bracket placeholders"
         );
     }
 }
