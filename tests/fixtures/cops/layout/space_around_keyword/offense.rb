@@ -114,7 +114,7 @@ output = CSV.generate(:col_sep => "\t", :row_sep => "\r\n")do |csv|
   csv << ["x"]
 end
 
-source2evt.inject(0)do |memo, evts|
-                    ^^ Layout/SpaceAroundKeyword: Space before keyword `do` is missing.
-  memo + evts[1].inject(0) { |sum, h| sum + h[1].size }
-end
+foo(1)do|x|
+      ^^ Layout/SpaceAroundKeyword: Space after keyword `do` is missing.
+  x
+end || 0

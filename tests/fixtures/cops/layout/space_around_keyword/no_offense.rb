@@ -225,3 +225,13 @@ begin
   ancestors.push(mark)
   mark = mark.parent
 end while(mark=mark.parent)
+
+# `do` attached to a call is accepted when the whole block expression is used
+# inside an operator expression (`... end || 0` here).
+class Onfire::EventTable
+  def size
+    source2evt.inject(0)do |memo, evts|
+      memo + evts[1].inject(0) { |sum, h| sum + h[1].size }
+    end || 0
+  end
+end
