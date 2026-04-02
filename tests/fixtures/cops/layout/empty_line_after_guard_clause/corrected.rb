@@ -551,14 +551,37 @@ def guard_with_heredoc_in_condition
   from = options[:from]
 end
 
-# FN fix: break guard in nested block without semicolon
-def guard_break_in_nested_if
-  if count >= 2
-    break unless byte = scanner.get_byte
-
-    # comment
-    if byte == ?>
+# FN fix: break guard in nested valid loop/case context
+def scan_comment
+  count = 2
+  buffer = ''
+  loop do
+    unless byte = scanner.get_byte
+      count = 2 if count > 2
+      buffer = buffer.slice(0, buffer.length - count)
       break
+    end
+    buffer << byte
+    case byte
+    when ?-
+      count += 1
+      next
+    when ?>
+      if count >= 2
+        buffer = buffer.slice(0, buffer.length - 3)
+        break
+      end
+    when ?!
+      if count >= 2
+        break unless byte = scanner.get_byte
+
+        # "--!>"
+        if byte == ?>
+          # no need to count ">" as it's not appended to the buffer.
+          buffer = buffer.slice(0, buffer.length - 3)
+          break
+        end
+      end
     end
   end
 end

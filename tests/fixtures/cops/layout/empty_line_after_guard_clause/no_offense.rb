@@ -952,6 +952,22 @@ def block_guard_with_rescue_modifier(x)
   x.to_s
 end
 
+# FP fix: `@if` ivar is not a modifier keyword in the next consecutive guard
+def consecutive_guards_with_if_ivar(store)
+  CALL_GRAPH.dup.each do |base_mod, mixins|
+    base_mod_name = Utils.module_name(base_mod) or next
+    content = store[base_mod_name]
+    mixins.each do |(how, mod)|
+      mod_name = Utils.module_name(mod) or next
+      next if mod_name.start_with?("Orthoses")
+      next unless @if.nil? || @if.call(base_mod, how, mod)
+
+      store[mod_name].header = "module #{mod_name}"
+      content << "#{how} #{mod_name}#{type_params_sig(mod)}"
+    end
+  end
+end
+
 # FP fix: same-line brace-block body with guard followed by `;` sibling
 partially_sorted = (1..5).map{|i|
   ary = [5, 4, 3, 2, 1]
