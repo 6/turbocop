@@ -121,13 +121,6 @@ impl variable_force::VariableForceConsumer for LeakyLocalVariable {
         let eg_ranges = self.example_group_ranges.lock().unwrap();
         let ar_ranges = self.allowed_ref_ranges.lock().unwrap();
 
-        // Skip scopes that aren't even inside an example group — no leaky vars possible
-        if !offset_in_ranges(scope.node_start_offset, &eg_ranges)
-            && !matches!(scope.kind, ScopeKind::TopLevel | ScopeKind::Module)
-        {
-            return;
-        }
-
         for variable in scope.variables.values() {
             for assignment in &variable.assignments {
                 // Skip assignments that are inside example scopes — they're local
@@ -263,21 +256,22 @@ impl RangeCollector {
 
 impl<'pr> Visit<'pr> for RangeCollector {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        // Only handle receiverless calls (nil? receiver check)
-        let has_receiver = node.receiver().is_some();
         let method_name = node.name().as_slice();
 
-        if !has_receiver {
-            if is_example_group_method(method_name) {
-                // describe/context/shared_examples/shared_context — example group
-                if let Some(block_node) = node.block() {
-                    if let Some(block) = block_node.as_block_node() {
-                        let block_loc = block.location();
-                        self.example_group_ranges
-                            .push(block_loc.start_offset()..block_loc.end_offset());
-                    }
+        // Example group methods work with or without receiver (describe, RSpec.describe, etc.)
+        if is_example_group_method(method_name) {
+            if let Some(block_node) = node.block() {
+                if let Some(block) = block_node.as_block_node() {
+                    let block_loc = block.location();
+                    self.example_group_ranges
+                        .push(block_loc.start_offset()..block_loc.end_offset());
                 }
-            } else if is_example_method(method_name) {
+            }
+        }
+
+        // Only handle receiverless calls for example/hook/let/subject/includes
+        if node.receiver().is_none() {
+            if is_example_method(method_name) {
                 // it/specify/example/scenario/its — example scope with allowed args
                 if let Some(block_node) = node.block() {
                     if let Some(block) = block_node.as_block_node() {
@@ -301,26 +295,23 @@ impl<'pr> Visit<'pr> for RangeCollector {
                     }
                 }
             } else if is_let_or_subject(method_name) {
-                // let/let!/subject/subject! — example scope, no allowed args
+                // let/let!/subject/subject! — example scope
+                // Arguments (the let name like `:foo` or `html_options`) are always
+                // registered as example scope, since `let(var)` reads the variable
+                // in example-scope context.
+                if let Some(args) = node.arguments() {
+                    let args_loc = args.location();
+                    self.example_scope_ranges
+                        .push(args_loc.start_offset()..args_loc.end_offset());
+                }
                 if let Some(block_node) = node.block() {
                     if let Some(block) = block_node.as_block_node() {
                         self.register_example_scope(node, &block, false);
-                    }
-                } else {
-                    // Blockless let: `let(:foo, &bar)` — the &bar is an example scope
-                    // The entire args range is an example scope
-                    if let Some(args) = node.arguments() {
-                        let args_loc = args.location();
+                    } else if block_node.as_block_argument_node().is_some() {
+                        // Block-pass: `let(:foo, &bar)` — &bar is example scope
+                        let loc = block_node.location();
                         self.example_scope_ranges
-                            .push(args_loc.start_offset()..args_loc.end_offset());
-                    }
-                    // Also check block argument (block-pass: &bar)
-                    if let Some(block_arg) = node.block() {
-                        if block_arg.as_block_argument_node().is_some() {
-                            let loc = block_arg.location();
-                            self.example_scope_ranges
-                                .push(loc.start_offset()..loc.end_offset());
-                        }
+                            .push(loc.start_offset()..loc.end_offset());
                     }
                 }
             } else if is_includes_method(method_name) {
