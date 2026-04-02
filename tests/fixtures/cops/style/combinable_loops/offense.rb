@@ -143,15 +143,6 @@ def test_inside_else
   end
 end
 
-# Inside begin body
-def test_inside_begin
-  begin
-    items.each { |item| do_something(item) }
-    items.each { |item| do_something_else(item) }
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
-  end
-end
-
 # Inside case/when body
 def test_inside_when
   case x
@@ -159,5 +150,58 @@ def test_inside_when
     items.each { |item| do_something(item) }
     items.each { |item| do_something_else(item) }
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+  else
+    x = 1
   end
+end
+
+# Inside for body
+def test_inside_for
+  for category in categories
+    (1..page_number).each do |current_page|
+      page_paths << current_page
+    end
+
+    (1..page_number).each do |current_page|
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+      category_pages << current_page
+    end
+  end
+end
+
+# Inside case else body
+def test_inside_case_else
+  case framework
+  when "bootstrap"
+    x = 1
+  else
+    stylesheets.each do |file|
+      alpha(file)
+    end
+
+    stylesheets.each do |file|
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+      beta(file)
+    end
+  end
+end
+
+# Consecutive for loops with destructured iterators
+for i, in [[1, 2]]
+  i.should == 1
+end
+
+for i, in [[1, 2]]
+^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+  i.should == 1
+end
+
+for i, j, in [[1, 2]]
+^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+  i.should == 1
+end
+
+for i, j, in [[1, 2]]
+^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+  i.should == 1
 end
