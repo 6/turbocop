@@ -7,7 +7,7 @@ use ruby_prism::Visit;
 
 /// ## Investigation findings
 ///
-/// ### FP root causes (20 FP)
+/// ### FP root causes
 /// 1. `::ENV['X']` (fully qualified via ConstantPathNode) was matched, but RuboCop's
 ///    `env_with_bracket?` pattern `(send (const nil? :ENV) :[] $_)` requires `nil?`
 ///    parent — `::ENV` has `(cbase)` parent, not nil. Fixed: only match
@@ -17,20 +17,36 @@ use ruby_prism::Visit;
 /// 3. Quote-style mismatch in condition-body key matching: `if ENV["KEY"]` then
 ///    `ENV['KEY']` in body failed byte-level comparison because `"KEY"` != `'KEY'`.
 ///    Fixed: normalize keys by stripping surrounding quotes before comparison.
+/// 4. `if var = ENV['X']` (assignment in condition without parens): RuboCop's
+///    `used_in_condition?` finds ENV['X'] as a direct child_node of the lvasgn
+///    condition → suppressed. With parens, a begin/ParenthesesNode wraps the
+///    lvasgn, pushing ENV['X'] to grandchild depth → NOT suppressed → flagged.
+///    Fixed: handle `LocalVariableWriteNode` in `collect_suppressed_in_condition`
+///    and `extract_condition_keys` to match RuboCop's behavior.
 ///
-/// ### FN root causes (359 FN)
+/// ### FN root causes
 /// 1. Over-suppression in conditions: `suppress_env_in_condition` walked the entire
 ///    condition subtree and suppressed ALL `ENV[]` calls found. But RuboCop only
 ///    suppresses `ENV[]` when it IS the condition itself (bare `if ENV['X']`),
 ///    or when the parent is `!` or a comparison method. In `&&` chains like
 ///    `if ENV['A'] && ENV['B']`, the nested ENV nodes should be flagged.
-/// 2. `if (repo = ENV['X'])` — assignment wraps ENV in a local_variable_write_node,
-///    and condition is wrapped in parentheses (embedded_statements). The ENV[] was
-///    incorrectly suppressed as part of the condition. RuboCop flags this.
-/// 3. Body suppression was too broad: collected ALL ENV key ranges from the entire
+/// 2. Body suppression was too broad: collected ALL ENV key ranges from the entire
 ///    condition subtree. RuboCop only suppresses body ENV['X'] when the condition
 ///    directly involves the same key (as direct child_nodes match, comparison, or
 ///    predicate check).
+/// 3. Nested condition key leakage: condition_keys from ancestor if/unless nodes
+///    were visible when visiting inner if conditions, incorrectly suppressing
+///    ENV['X'] in patterns like `if ENV['X'] =~ /-/` inside `if ENV['X']`.
+///    RuboCop's `used_if_condition_in_body?` only checks the nearest if ancestor.
+///    Fixed: temporarily clear condition_keys during predicate visit.
+///
+/// ### Remaining known gap
+/// Body suppression uses a stack of all ancestor condition keys, while RuboCop
+/// only checks the nearest if ancestor. This causes some body-level FNs where
+/// ENV['X'] in a nested body is suppressed by an outer if's condition key.
+/// Example: `if ENV['X'] ... if other ... ENV['X'] end end` — we suppress,
+/// RuboCop flags. Fixing this requires changing from stack-based to nearest-only
+/// body suppression, which is a larger architectural change.
 ///
 /// ### Fix approach
 /// Replaced the broad `suppress_env_in_condition` tree-walk with precise per-node
@@ -333,6 +349,14 @@ impl FetchEnvVar {
         // is a ParenthesesNode wrapping the assignment. We should NOT extract
         // keys from inside assignments — RuboCop doesn't suppress them.
 
+        // Case: `if var = ENV['X']` (no parens) — LocalVariableWriteNode.
+        // RuboCop's `condition.child_nodes.any?(node)` finds ENV['X'] as a direct
+        // child of lvasgn → suppressed. With parens, a begin node wraps the lvasgn
+        // so ENV['X'] is a grandchild → NOT suppressed → flagged.
+        if let Some(write) = condition.as_local_variable_write_node() {
+            return Self::extract_condition_keys(source, &write.value());
+        }
+
         keys
     }
 
@@ -448,6 +472,13 @@ impl FetchEnvVar {
         }
 
         // Parenthesized assignment `if (x = ENV['X'])` — do NOT suppress
+
+        // Bare assignment `if var = ENV['X']` (no parens) — LocalVariableWriteNode.
+        // RuboCop's `condition.child_nodes.any?(node)` finds ENV['X'] as a direct
+        // child of lvasgn → suppressed. Recurse into the value.
+        if let Some(write) = condition.as_local_variable_write_node() {
+            Self::collect_suppressed_in_condition(&write.value(), offsets);
+        }
     }
 
     /// Extract the normalized ENV key from a node if it's a bare `ENV['X']` call.
@@ -544,11 +575,16 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
         let predicate = node.predicate();
 
-        // First visit the predicate WITHOUT condition_keys pushed,
-        // so ENV[] calls IN the condition are not suppressed by key matching.
-        // The suppressed_offsets handle condition-internal suppression.
+        // Visit the predicate with condition_keys temporarily cleared.
+        // RuboCop's `used_if_condition_in_body?` only checks the NEAREST if ancestor,
+        // not all ancestors. Clearing prevents ancestor condition keys from incorrectly
+        // suppressing ENV[] calls in nested conditions (e.g., `if ENV['X'] =~ /-/`
+        // inside `if ENV['X']`). The suppressed_offsets handle condition-internal
+        // suppression independently.
+        let saved_keys = std::mem::take(&mut self.condition_keys);
         FetchEnvVar::collect_suppressed_in_condition(&predicate, &mut self.suppressed_offsets);
         self.visit(&predicate);
+        self.condition_keys = saved_keys;
 
         // Then push condition keys and visit body/else.
         let keys = FetchEnvVar::extract_condition_keys(self.source.as_bytes(), &predicate);
@@ -567,8 +603,11 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
         let predicate = node.predicate();
 
+        // Same as visit_if_node: clear condition_keys during predicate visit.
+        let saved_keys = std::mem::take(&mut self.condition_keys);
         FetchEnvVar::collect_suppressed_in_condition(&predicate, &mut self.suppressed_offsets);
         self.visit(&predicate);
+        self.condition_keys = saved_keys;
 
         let keys = FetchEnvVar::extract_condition_keys(self.source.as_bytes(), &predicate);
         self.condition_keys.push(keys);

@@ -53,3 +53,15 @@ end
 if ENV['A'] && ENV['B'] && ENV['C']
    ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('A', nil)` instead of `ENV['A']`.
                ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('B', nil)` instead of `ENV['B']`.
+# =~ match operator is not a comparison method; ENV should be flagged
+if ENV['VERSION'] =~ /-/
+   ^^^^^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('VERSION', nil)` instead of `ENV['VERSION']`.
+  puts "prerelease"
+end
+# Nested if: inner condition ENV should be flagged even when outer condition has same key
+if ENV['VERSION']
+  if ENV['VERSION'] =~ /-/
+     ^^^^^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('VERSION', nil)` instead of `ENV['VERSION']`.
+    puts "prerelease"
+  end
+end

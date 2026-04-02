@@ -93,3 +93,13 @@ end
 if ENV["X"] != 'test'
   puts ENV["X"]
 end
+# Assignment in condition without parens: RuboCop treats ENV as flag (child_nodes match)
+if var = ENV['X']
+  puts var
+end
+# elsif with assignment
+if true
+  puts "yes"
+elsif var = ENV['X']
+  puts var
+end
