@@ -60,15 +60,29 @@ use ruby_prism::Visit;
 ///   The `is_redundant_continuation` reparse fallback correctly determines whether
 ///   removal is safe (e.g., inside parens it is, at top level it isn't).
 ///
+/// - **`=begin`/`=end` block scanning**: RuboCop scans raw source including
+///   multi-line comment blocks (`=begin`/`=end`), but our `code_map.is_code()`
+///   returns false for content inside these blocks, causing FNs. Fixed by
+///   tracking `=begin`/`=end` regions in the line scan and directly flagging
+///   `\` at end of line inside them (skipping only string concatenation, to
+///   match RuboCop's behavior). The `=begin` and `=end` markers must start at
+///   column 0 per Ruby syntax.
+///
 /// ## Remaining gaps
 ///
 /// - **Reparse limitations**: `is_redundant_continuation` checks for zero parse
 ///   errors after removing `\`. Files with pre-existing Prism parse errors will
 ///   always fail this check. A future improvement could compare error counts.
 ///
-/// - **`=begin`/`=end` blocks**: RuboCop scans raw source including multi-line
-///   comment blocks, but our `code_map.is_code()` returns false for content inside
-///   `=begin`/`=end`, causing FNs there.
+/// - **CRLF line endings**: Files with `\r\n` line endings have ~80+ FNs because
+///   `trim_end` does not strip `\r`, so `\` followed by `\r\n` is not detected.
+///   Adding `\r` to `trim_end` correctly detects these, but introduces ~30 FPs
+///   because RuboCop itself has a CRLF bug: its `LINE_CONTINUATION_PATTERN`
+///   regex `/(\\\n)/` fails to match `\<CR><LF>` patterns, and its reparse
+///   position offsets become misaligned between normalized and raw source.
+///   Confirmed by running RuboCop on LF-converted files, where it finds the
+///   same offenses our cop does. A fix requires the oracle to normalize CRLF
+///   before comparison.
 pub struct RedundantLineContinuation;
 
 impl Cop for RedundantLineContinuation {
@@ -90,7 +104,47 @@ impl Cop for RedundantLineContinuation {
         let interpolated_string_continuations =
             interpolated_string_continuation_offsets(parse_result, source_bytes);
 
+        let mut in_embdoc = false;
         for (i, line) in lines.iter().enumerate() {
+            // Track =begin/=end embedded document blocks.
+            // =begin must start at column 0 (no leading whitespace).
+            if line.starts_with(b"=begin")
+                && line
+                    .get(6)
+                    .is_none_or(|&b| b == b' ' || b == b'\t' || b == b'\r' || b == b'\n')
+            {
+                in_embdoc = true;
+                continue;
+            }
+            if in_embdoc {
+                if line.starts_with(b"=end")
+                    && line
+                        .get(4)
+                        .is_none_or(|&b| b == b' ' || b == b'\t' || b == b'\r' || b == b'\n')
+                {
+                    in_embdoc = false;
+                } else {
+                    // Inside =begin/=end: \ is always redundant (it's in a comment)
+                    // unless it looks like string concatenation (to match RuboCop).
+                    let trimmed = trim_end(line);
+                    if trimmed.ends_with(b"\\")
+                        && !(trimmed.len() >= 2 && trimmed[trimmed.len() - 2] == b'\\')
+                    {
+                        let before_backslash = trim_end(&trimmed[..trimmed.len() - 1]);
+                        if !string_concatenation(before_backslash) {
+                            let col = trimmed.len() - 1;
+                            diagnostics.push(self.diagnostic(
+                                source,
+                                i + 1,
+                                col,
+                                "Redundant line continuation.".to_string(),
+                            ));
+                        }
+                    }
+                }
+                continue;
+            }
+
             let trimmed = trim_end(line);
             if !trimmed.ends_with(b"\\") {
                 continue;

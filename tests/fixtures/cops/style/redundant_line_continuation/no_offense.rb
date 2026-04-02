@@ -47,3 +47,8 @@ change(Commentaire, :count).by(0).and \
 
 contain_exactly(a, b).or \
   contain_exactly(c, d)
+
+=begin
+x = 'hello' \
+  'world'
+=end
