@@ -743,3 +743,65 @@ describe 'ssh' do
     end
   end
 end
+
+# Assignment embedded in case predicate (stupidedi pattern)
+describe 'case predicate assignment' do
+  items.each do |original_path, _, config|
+    case path = original_path.to_s
+         ^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    when %r{/pass/}
+      it "can parse '#{path}'" do
+        expect(path).to be_truthy
+      end
+    end
+  end
+end
+
+# Assignment inside lambda body (excon pattern)
+describe 'lambda capture' do
+  timing = 'ok'
+  ^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  block = lambda do |c, r, t|
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    timing = 'not ok!'
+    ^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  end
+  it 'gets a response' do
+    call_endpoint(block)
+    expect(timing).to eq 'ok'
+  end
+end
+
+# Variable read in unless modifier predicate inside includes block (pleaserun pattern)
+describe SomeClass do
+  writable = File.stat("/etc/init.d").writable? rescue false
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  if !writable
+    it_behaves_like SomeClass do
+      let(:skip) { "Cannot write" } unless writable
+    end
+  end
+end
+
+# Variable assigned inside begin/rescue within .each, used in nested context with rescue
+describe 'REST API' do
+  [1].each do |file|
+    begin
+      test_file = SomeClass.new(file)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    rescue StandardError => e
+      next
+    end
+    context "test" do
+      test_file.tests.each do |test|
+        context test.description do
+          before(:all) do
+            test_file.setup
+          end
+        rescue StandardError => e
+          raise e
+        end
+      end
+    end
+  end
+end

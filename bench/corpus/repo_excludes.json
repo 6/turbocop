@@ -66,5 +66,11 @@
     "exclude": [
       "lib/engineyard/serverside_runner.rb"
     ]
+  },
+  "pry__pry__8446a01": {
+    "comment": "RuboCop VariableForce flags `_version = 1` (line 3) as LeakyLocalVariable but the variable has no actual lvar reference inside any example scope — only a regex literal `/_version/`. Parser AST confirms no lvar node. RuboCop FP that nitrocop correctly avoids.",
+    "exclude": [
+      "spec/pry_defaults_spec.rb"
+    ]
   }
 }
