@@ -1,0 +1,8 @@
+# libFuzzer auto-generated corpus and artifacts (regenerated locally)
+corpus/
+artifacts/
+target/
+target-linux/
+
+# Keep intentional seed inputs checked in under seeds/
+!seeds/
