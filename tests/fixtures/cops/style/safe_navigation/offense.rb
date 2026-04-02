@@ -101,3 +101,9 @@ a && a.b && c && c.d
 
 if e && e.message
    ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+foo && (foo.bar)
+^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+Outer.a(Inner.b(foo ? foo.bar : nil))
+                ^^^^^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.

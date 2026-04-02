@@ -99,3 +99,19 @@ callback.call unless callback&.nil?
 # If/ternary used as the receiver of another call are skipped
 { debug: (writer_opts[:debug].join("\n") if writer_opts[:debug]) }.to_json
 "#{(model ? model.serial : nil).inspect}"
+
+# Parenthesized lhs in `&&` is skipped like RuboCop
+(safe_site['authentication']) && safe_site['authentication'].is_a?(Hash)
+
+# Ternaries used as dotless operator receivers are skipped
+(expected.nil? ? nil : expected.to_date) == actual
+
+# Nested call-argument ternaries with block bodies are skipped
+RbLazyFrame.new_from_parquet(
+  sources,
+  schema,
+  ScanOptions.new(
+    storage_options: storage_options ? storage_options.map { |k, v| [k.to_s, v.to_s] } : nil
+  ),
+  parallel
+)
