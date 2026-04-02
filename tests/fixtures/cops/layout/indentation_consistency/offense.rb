@@ -98,3 +98,12 @@ class A
       end
   end
 end
+
+require 'ostruct'
+
+ module ClinicFinder
+ ^^^^^^^^^^^^^^^^^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
+  module Modules
+    module GestationHelper; end
+  end
+end

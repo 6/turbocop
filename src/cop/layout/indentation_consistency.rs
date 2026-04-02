@@ -1,7 +1,7 @@
 use crate::cop::node_type::{
     BEGIN_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, ELSE_NODE, FOR_NODE, IF_NODE, IN_NODE,
-    MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHEN_NODE,
-    WHILE_NODE,
+    MODULE_NODE, PROGRAM_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE,
+    WHEN_NODE, WHILE_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -13,9 +13,9 @@ use crate::parse::source::SourceFile;
 /// the same column. The `indented_internal_methods` style only applies to
 /// class/module/block bodies, not to if/while/etc.
 ///
-/// ## Corpus investigation (2026-04-01)
+/// ## Corpus investigation (2026-04-02)
 ///
-/// High-volume divergence came from four gaps:
+/// High-volume divergence came from five gaps:
 /// 1. Bodies whose first child shares the opener line (`do line = __LINE__`) were
 ///    skipped entirely, missing later misaligned lines.
 /// 2. Prism wraps `def`/`block` bodies with `rescue` in an implicit `BeginNode`.
@@ -23,12 +23,17 @@ use crate::parse::source::SourceFile;
 ///    rescue/ensure bodies were missed.
 /// 3. `class << self` (`SingletonClassNode`) bodies were not checked at all.
 /// 4. Normal-style access modifiers were treated like ordinary body children.
-///    RuboCop ignores `private`/`protected`/`public` for alignment and only uses
-///    a leading modifier as the base column when it is indented deeper than the
-///    enclosing body.
+///    RuboCop ignores bare `private`/`protected`/`public`/`module_function`
+///    for alignment and only uses a leading modifier as the base column when it
+///    is indented deeper than the enclosing body.
+/// 5. Top-level sibling statements were never checked because Prism dispatches
+///    the file body through `ProgramNode`, not a standalone top-level
+///    `StatementsNode`. This missed scripts where one top-level statement is
+///    indented differently from the next.
 pub struct IndentationConsistency;
 
-/// Check if a node is a bare access modifier call (private, protected, public with no args).
+/// Check if a node is a bare access modifier call
+/// (private, protected, public, module_function with no args).
 fn is_bare_access_modifier(node: &ruby_prism::Node<'_>) -> bool {
     let call = match node.as_call_node() {
         Some(c) => c,
@@ -40,7 +45,7 @@ fn is_bare_access_modifier(node: &ruby_prism::Node<'_>) -> bool {
     }
     matches!(
         call.name().as_slice(),
-        b"private" | b"protected" | b"public"
+        b"private" | b"protected" | b"public" | b"module_function"
     )
 }
 
@@ -67,7 +72,7 @@ impl IndentationConsistency {
         &self,
         source: &SourceFile,
         children: &[ruby_prism::Node<'_>],
-        parent_column: usize,
+        parent_column: Option<usize>,
     ) -> Option<usize> {
         let first_child = children.first()?;
         if !is_bare_access_modifier(first_child) {
@@ -77,7 +82,37 @@ impl IndentationConsistency {
         let (_, access_modifier_column) =
             source.offset_to_line_col(first_child.location().start_offset());
 
-        (access_modifier_column > parent_column).then_some(access_modifier_column)
+        match parent_column {
+            Some(parent_column) => {
+                (access_modifier_column > parent_column).then_some(access_modifier_column)
+            }
+            None => Some(access_modifier_column),
+        }
+    }
+
+    fn check_child_list_consistency(
+        &self,
+        source: &SourceFile,
+        children: Vec<ruby_prism::Node<'_>>,
+        kw_line: usize,
+        parent_column: Option<usize>,
+        indented_internal_methods: bool,
+    ) -> Vec<Diagnostic> {
+        if children.len() < 2 {
+            return Vec::new();
+        }
+
+        if indented_internal_methods {
+            return self.check_sections(source, &children);
+        }
+
+        let base_column = self.base_column_for_normal_style(source, &children, parent_column);
+        let filtered_children: Vec<_> = children
+            .into_iter()
+            .filter(|child| !is_bare_access_modifier(child))
+            .collect();
+
+        self.check_flat(source, &filtered_children, kw_line, base_column)
     }
 
     fn check_body_consistency(
@@ -97,25 +132,16 @@ impl IndentationConsistency {
             None => return Vec::new(),
         };
 
-        let children: Vec<_> = stmts.body().iter().collect();
-        if children.len() < 2 {
-            return Vec::new();
-        }
-
         let (kw_line, _) = source.offset_to_line_col(keyword_offset);
         let (_, parent_column) = source.offset_to_line_col(keyword_offset);
 
-        if indented_internal_methods {
-            self.check_sections(source, &children)
-        } else {
-            let base_column = self.base_column_for_normal_style(source, &children, parent_column);
-            let filtered_children: Vec<_> = children
-                .into_iter()
-                .filter(|child| !is_bare_access_modifier(child))
-                .collect();
-
-            self.check_flat(source, &filtered_children, kw_line, base_column)
-        }
+        self.check_child_list_consistency(
+            source,
+            stmts.body().iter().collect(),
+            kw_line,
+            Some(parent_column),
+            indented_internal_methods,
+        )
     }
 
     /// Check consistency of a StatementsNode body (used for if/unless/when/while/etc
@@ -268,6 +294,7 @@ impl Cop for IndentationConsistency {
             IF_NODE,
             IN_NODE,
             MODULE_NODE,
+            PROGRAM_NODE,
             SINGLETON_CLASS_NODE,
             STATEMENTS_NODE,
             UNLESS_NODE,
@@ -288,6 +315,17 @@ impl Cop for IndentationConsistency {
     ) {
         let style = config.get_str("EnforcedStyle", "normal");
         let indented = style == "indented_internal_methods";
+
+        if let Some(program_node) = node.as_program_node() {
+            diagnostics.extend(self.check_child_list_consistency(
+                source,
+                program_node.statements().body().iter().collect(),
+                0,
+                None,
+                indented,
+            ));
+            return;
+        }
 
         if let Some(class_node) = node.as_class_node() {
             diagnostics.extend(self.check_body_consistency(
@@ -489,6 +527,30 @@ mod tests {
         assert!(
             !diags.is_empty(),
             "indented_internal_methods should still flag inconsistency within a section"
+        );
+    }
+
+    #[test]
+    fn checks_top_level_program_statements() {
+        let source = b" require 'ostruct'\n\nmodule ClinicFinder\n  module Modules\n    module GestationHelper; end\n  end\nend\n";
+        let diags = run_cop_full(&IndentationConsistency, source);
+
+        assert_eq!(diags.len(), 1, "expected one top-level indentation offense");
+        assert_eq!(diags[0].location.line, 3);
+        assert_eq!(diags[0].location.column, 0);
+        assert_eq!(diags[0].message, "Inconsistent indentation detected.");
+    }
+
+    #[test]
+    fn ignores_module_function_when_checking_block_body_consistency() {
+        let source =
+            b"m = Module.new do\n    module_function\n\n  def foo; end\n\n  def bar; end\nend\n";
+        let diags = run_cop_full(&IndentationConsistency, source);
+
+        assert!(
+            diags.is_empty(),
+            "module_function should not affect block body indentation: {:?}",
+            diags
         );
     }
 
