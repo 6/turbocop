@@ -420,7 +420,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(end_block::EndBlock));
     registry.register(Box::new(even_odd::EvenOdd));
     registry.register(Box::new(for_cop::ForCop));
-    registry.register(Box::new(infinite_loop::InfiniteLoop));
+    registry.register(Box::new(infinite_loop::InfiniteLoop::new()));
     registry.register(Box::new(nil_comparison::NilComparison));
     // New cops
     registry.register(Box::new(stderr_puts::StderrPuts));
@@ -557,7 +557,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(
         map_compact_with_conditional_block::MapCompactWithConditionalBlock,
     ));
-    registry.register(Box::new(map_into_array::MapIntoArray));
+    registry.register(Box::new(map_into_array::MapIntoArray::new()));
     registry.register(Box::new(map_to_hash::MapToHash));
     registry.register(Box::new(map_to_set::MapToSet));
     registry.register(Box::new(

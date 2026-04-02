@@ -142,6 +142,20 @@ impl VariableTable {
         self.find_variable(name).is_some()
     }
 
+    /// All scopes accessible from the current scope, walking the stack from
+    /// innermost to outermost and stopping at hard scope boundaries.
+    /// Used by cops that need to check variables across closure chains.
+    pub fn accessible_scopes(&self) -> Vec<&Scope> {
+        let mut result = Vec::new();
+        for scope in self.scope_stack.iter().rev() {
+            result.push(scope);
+            if scope.kind.is_hard() {
+                break;
+            }
+        }
+        result
+    }
+
     /// All variables accessible from the current scope (for `binding()`/`super`
     /// which implicitly reference all accessible variables).
     pub fn accessible_variables_mut(&mut self) -> Vec<&mut Variable> {
