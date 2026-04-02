@@ -1,3 +1,4 @@
+use crate::cop::variable_force::{self, Scope, VariableTable};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -506,6 +507,10 @@ impl Cop for SaveBang {
         Severity::Convention
     }
 
+    fn as_variable_force_consumer(&self) -> Option<&dyn variable_force::VariableForceConsumer> {
+        Some(self)
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -527,12 +532,8 @@ impl Cop for SaveBang {
             allowed_receivers,
             diagnostics: Vec::new(),
             context_stack: Vec::new(),
-            suppress_create_assignment: false,
-            in_local_assignment: false,
             in_compound_boolean: false,
             in_transparent_container: false,
-            suppressed_create_vars: Vec::new(),
-            current_local_var_name: None,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -546,12 +547,6 @@ struct SaveBangVisitor<'a, 'src> {
     allowed_receivers: Vec<String>,
     diagnostics: Vec<Diagnostic>,
     context_stack: Vec<Context>,
-    /// When true, suppress create-in-assignment offenses because a persisted? check follows.
-    suppress_create_assignment: bool,
-    /// When true, the current Assignment context is for a local variable write.
-    /// Only local variable create-in-assignment generates offenses; instance/class/global/constant
-    /// assignments are treated as "return value used" (RuboCop's VariableForce only tracks locals).
-    in_local_assignment: bool,
     /// When true, we are inside an `||` or `&&` (compound boolean) expression.
     /// RuboCop checks `compound_boolean?` for create methods BEFORE `argument?`,
     /// so create inside `||`/`&&` is ALWAYS flagged as conditional regardless of
@@ -563,15 +558,6 @@ struct SaveBangVisitor<'a, 'src> {
     /// not the enclosing assignment/argument. So block-bearing calls inside transparent
     /// containers lose their parent's exemption and are treated as void context.
     in_transparent_container: bool,
-    /// Variable names where create-in-assignment is suppressed because persisted? is checked
-    /// somewhere in the same scope. Pre-computed at scope entry to handle cases where the
-    /// create is nested inside compound expressions (if predicates, and/or nodes) and the
-    /// persisted? check is in a different branch of the same statement.
-    suppressed_create_vars: Vec<Vec<u8>>,
-    /// The name of the local variable currently being assigned (set inside
-    /// visit_local_variable_write_node). Used by process_persist_call to check
-    /// the suppressed_create_vars set.
-    current_local_var_name: Option<Vec<u8>>,
 }
 
 impl SaveBangVisitor<'_, '_> {
@@ -752,133 +738,6 @@ impl SaveBangVisitor<'_, '_> {
                 .zip(const_parts.iter().rev())
                 .all(|(a, c)| a == c)
         }
-    }
-
-    /// Extract the variable name from an assignment node (local, instance, global, class, multi,
-    /// or conditional assignment). Returns the variable name bytes and whether the RHS contains
-    /// a create-type persist call.
-    fn assignment_var_name<'n>(node: &'n ruby_prism::Node<'n>) -> Option<Vec<u8>> {
-        if let Some(lv) = node.as_local_variable_write_node() {
-            return Some(lv.name().as_slice().to_vec());
-        }
-        if let Some(iv) = node.as_instance_variable_write_node() {
-            return Some(iv.name().as_slice().to_vec());
-        }
-        if let Some(gv) = node.as_global_variable_write_node() {
-            return Some(gv.name().as_slice().to_vec());
-        }
-        if let Some(cv) = node.as_class_variable_write_node() {
-            return Some(cv.name().as_slice().to_vec());
-        }
-        // local_variable_or_write (||=)
-        if let Some(lov) = node.as_local_variable_or_write_node() {
-            return Some(lov.name().as_slice().to_vec());
-        }
-        // multi-write: use first target if it's a local variable
-        if let Some(mw) = node.as_multi_write_node() {
-            let lefts: Vec<_> = mw.lefts().iter().collect();
-            if let Some(first) = lefts.first() {
-                if let Some(lt) = first.as_local_variable_target_node() {
-                    return Some(lt.name().as_slice().to_vec());
-                }
-            }
-        }
-        // CallNode wrapping an assignment: `assert version = create(...)`.
-        // In RuboCop, VariableForce tracks the assignment regardless of nesting.
-        // Check the first argument of the call for a nested local variable write.
-        if let Some(call) = node.as_call_node() {
-            if let Some(args) = call.arguments() {
-                for arg in args.arguments().iter() {
-                    if let Some(name) = Self::assignment_var_name(&arg) {
-                        return Some(name);
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Check if a node is a variable read matching the given name.
-    fn node_is_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
-        if let Some(lv) = node.as_local_variable_read_node() {
-            return lv.name().as_slice() == var_name;
-        }
-        if let Some(iv) = node.as_instance_variable_read_node() {
-            return iv.name().as_slice() == var_name;
-        }
-        if let Some(gv) = node.as_global_variable_read_node() {
-            return gv.name().as_slice() == var_name;
-        }
-        if let Some(cv) = node.as_class_variable_read_node() {
-            return cv.name().as_slice() == var_name;
-        }
-        false
-    }
-
-    /// Check if a node's subtree contains a create-type persist call.
-    fn subtree_has_create_call(&self, node: &ruby_prism::Node<'_>) -> bool {
-        if let Some(call) = node.as_call_node() {
-            if self.classify_persist_call(&call) == Some(true) {
-                return true;
-            }
-            // Check arguments recursively
-            if let Some(args) = call.arguments() {
-                for arg in args.arguments().iter() {
-                    if self.subtree_has_create_call(&arg) {
-                        return true;
-                    }
-                }
-            }
-        }
-        // Check assignment value
-        if let Some(lv) = node.as_local_variable_write_node() {
-            return self.subtree_has_create_call(&lv.value());
-        }
-        false
-    }
-
-    /// Check if a statement is a create-type assignment where the next statement
-    /// checks persisted? on the assigned variable.
-    fn should_suppress_create(
-        &self,
-        stmt: &ruby_prism::Node<'_>,
-        body: &[ruby_prism::Node<'_>],
-        idx: usize,
-    ) -> bool {
-        // Extract variable name from assignment (handles nested assignments like `assert x = create`)
-        let var_name = match Self::assignment_var_name(stmt) {
-            Some(name) => name,
-            None => return false,
-        };
-
-        // Check if the statement's subtree contains a create-type call
-        if !self.subtree_has_create_call(stmt) {
-            return false;
-        }
-
-        // Scan ALL subsequent statements for any persisted? check on the variable.
-        // RuboCop uses VariableForce to track all references across the entire scope,
-        // so we need to search beyond just the immediately following statement.
-        for next_stmt in body.iter().skip(idx + 1) {
-            if Self::subtree_checks_persisted(next_stmt, &var_name) {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    /// Recursively search a subtree for any `var.persisted?` call.
-    /// This matches RuboCop's VariableForce approach of checking ALL references
-    /// to the assigned variable anywhere in the scope, including inside nested
-    /// conditionals, method calls, and other expressions.
-    fn subtree_checks_persisted(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
-        let mut finder = PersistedFinder {
-            var_name,
-            found: false,
-        };
-        finder.visit(node);
-        finder.found
     }
 
     fn flag_void_context(&mut self, call: &ruby_prism::CallNode<'_>) {
