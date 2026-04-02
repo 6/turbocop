@@ -238,6 +238,20 @@ use crate::parse::source::SourceFile;
 /// context, duplicating real FN examples already covered earlier in the fixture
 /// and by focused unit tests. The fix is to keep the shared fixture on the
 /// parseable examples rather than the orphaned snippets.
+///
+/// ## Corpus investigation findings (2026-04-02)
+///
+/// Root cause of a remaining FP cluster:
+/// 1. **Line-leading closers before same-line operators** — on lines like
+///    `} || rhs.any? do` or `end.values_at(...) || rhs.each do`,
+///    `find_same_line_operator_lhs` treated the previous expression's closer as
+///    a real same-line LHS wrapper and suppressed the valid RHS block target.
+///    RuboCop instead stops before that outer operator because the left operand
+///    started on a previous line.
+///
+/// Fix applied:
+/// - Ignore `&&`/`||`/`<<` wrapper candidates when the would-be same-line LHS
+///   starts with a line-leading closer (`end`, `}`, `)`, or `]`)
 pub struct BlockAlignment;
 
 impl Cop for BlockAlignment {
@@ -1160,12 +1174,27 @@ fn find_same_line_operator_lhs(bytes: &[u8], opener_offset: usize) -> Option<usi
                 pos += 1;
             }
             if pos < lhs_end {
+                if starts_with_line_leading_closer(bytes, pos, lhs_end) {
+                    return None;
+                }
                 return Some(pos - line_start);
             }
         }
     }
 
     None
+}
+
+fn starts_with_line_leading_closer(bytes: &[u8], start: usize, end: usize) -> bool {
+    if start >= end {
+        return false;
+    }
+
+    match bytes[start] {
+        b')' | b']' | b'}' => true,
+        b'e' => keyword_at(bytes, start, b"end"),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -1831,6 +1860,28 @@ mod tests {
         let source = b"    tp << ThreadPoolJob.new(msg) { |i|\n";
         let opener = std::str::from_utf8(source).unwrap().find("{ |i|").unwrap();
         assert_eq!(find_same_line_operator_lhs(source, opener), Some(4));
+    }
+
+    #[test]
+    fn helper_ignores_same_line_operator_lhs_when_line_starts_with_closer() {
+        let source = b"left_side.find {\n  it\n} || right_side.any? do |item|\n";
+        let opener = std::str::from_utf8(source)
+            .unwrap()
+            .find(" do |item|")
+            .unwrap()
+            + 1;
+        assert_eq!(find_same_line_operator_lhs(source, opener), None);
+    }
+
+    #[test]
+    fn fp_rhs_block_after_line_leading_closer_or() {
+        let source = b"left_side.find {\n  it\n} || right_side.any? do |item|\n  item\n     end\n";
+        let diags = run_cop_full(&BlockAlignment, source);
+        assert!(
+            diags.is_empty(),
+            "FP: a line-leading closer before || should not hide the RHS block target. Got: {:?}",
+            diags
+        );
     }
 
     // FP: do on continuation line of multi-line method call with assignment
