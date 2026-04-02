@@ -316,6 +316,7 @@ impl ArgumentsForwarding {
 impl ArgumentsForwarding {
     /// Check if the def uses all-anonymous forwarding (*, **, &) and can be replaced with `...`.
     /// Returns true if offenses were reported (caller should return early).
+    #[allow(clippy::too_many_arguments)]
     fn try_report_all_anonymous_forwarding(
         &self,
         source: &SourceFile,
