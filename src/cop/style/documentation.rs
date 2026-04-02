@@ -283,7 +283,7 @@ pub(crate) fn is_annotation_or_directive(comment: &str) -> bool {
     false
 }
 
-fn is_annotation_comment(text: &str) -> bool {
+pub fn is_annotation_comment(text: &str) -> bool {
     const DEFAULT_ANNOTATION_KEYWORDS: &[&str] =
         &["TODO", "FIXME", "OPTIMIZE", "HACK", "REVIEW", "NOTE"];
 

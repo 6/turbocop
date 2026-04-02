@@ -1,0 +1,33 @@
+[package]
+name = "nitrocop-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.nitrocop]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "fuzz_annotation_comment"
+path = "fuzz_targets/annotation_comment.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_directive_parsing"
+path = "fuzz_targets/directive_parsing.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_parse_source"
+path = "fuzz_targets/parse_source.rs"
+doc = false

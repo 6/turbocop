@@ -205,7 +205,7 @@ fn inline_non_public_call(call: &ruby_prism::CallNode<'_>, arg: &ruby_prism::Nod
         && arg.as_def_node().is_some()
 }
 
-fn is_annotation_or_directive_case_insensitive(comment: &str) -> bool {
+pub fn is_annotation_or_directive_case_insensitive(comment: &str) -> bool {
     let text = comment.trim_start_matches('#').trim();
 
     if text.starts_with("frozen_string_literal:")

@@ -1,0 +1,51 @@
+name: Fuzz
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "fuzz/**"
+      - ".github/workflows/fuzz.yml"
+      - "src/cop/style/documentation.rs"
+      - "src/cop/style/documentation_method.rs"
+      - "src/parse/directives.rs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - fuzz_annotation_comment
+          - fuzz_directive_parsing
+          - fuzz_parse_source
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz -> target
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Run fuzzer — ${{ matrix.target }}
+        run: |
+          cd fuzz
+          cargo +nightly fuzz run ${{ matrix.target }} -- \
+            -max_total_time=300 \
+            -max_len=4096

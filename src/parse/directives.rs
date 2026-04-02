@@ -21,7 +21,7 @@ static DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// We replicate this by stripping the `::…` suffix and returning just the
 /// department token, so the range is stored under the department key and
 /// `is_disabled` matches via the department check.
-fn normalize_directive_cop_name(name: &str) -> String {
+pub fn normalize_directive_cop_name(name: &str) -> String {
     // Strip trailing `/` — users write `# rubocop:disable Metrics/` to mean
     // the department.  RuboCop treats `Metrics/` identically to `Metrics`.
     let name = name.strip_suffix('/').unwrap_or(name);
