@@ -23,16 +23,17 @@ use crate::parse::source::SourceFile;
 ///    rescue/ensure bodies were missed.
 /// 3. `class << self` (`SingletonClassNode`) bodies were not checked at all.
 /// 4. Normal-style access modifiers were treated like ordinary body children.
-///    RuboCop ignores `private`/`protected`/`public` for alignment and only uses
-///    a leading modifier as the base column when it is indented deeper than the
-///    enclosing body.
+///    RuboCop ignores bare `private`/`protected`/`public`/`module_function`
+///    for alignment and only uses a leading modifier as the base column when it
+///    is indented deeper than the enclosing body.
 /// 5. Top-level sibling statements were never checked because Prism dispatches
 ///    the file body through `ProgramNode`, not a standalone top-level
 ///    `StatementsNode`. This missed scripts where one top-level statement is
 ///    indented differently from the next.
 pub struct IndentationConsistency;
 
-/// Check if a node is a bare access modifier call (private, protected, public with no args).
+/// Check if a node is a bare access modifier call
+/// (private, protected, public, module_function with no args).
 fn is_bare_access_modifier(node: &ruby_prism::Node<'_>) -> bool {
     let call = match node.as_call_node() {
         Some(c) => c,
@@ -44,7 +45,7 @@ fn is_bare_access_modifier(node: &ruby_prism::Node<'_>) -> bool {
     }
     matches!(
         call.name().as_slice(),
-        b"private" | b"protected" | b"public"
+        b"private" | b"protected" | b"public" | b"module_function"
     )
 }
 
@@ -538,6 +539,19 @@ mod tests {
         assert_eq!(diags[0].location.line, 3);
         assert_eq!(diags[0].location.column, 0);
         assert_eq!(diags[0].message, "Inconsistent indentation detected.");
+    }
+
+    #[test]
+    fn ignores_module_function_when_checking_block_body_consistency() {
+        let source =
+            b"m = Module.new do\n    module_function\n\n  def foo; end\n\n  def bar; end\nend\n";
+        let diags = run_cop_full(&IndentationConsistency, source);
+
+        assert!(
+            diags.is_empty(),
+            "module_function should not affect block body indentation: {:?}",
+            diags
+        );
     }
 
     #[test]
