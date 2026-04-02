@@ -95,6 +95,16 @@ use ruby_prism::Visit;
 ///    `element_modified?` matches these mixed-argument calls; the port now does
 ///    the same for multi-argument calls and single-argument receiver calls whose
 ///    argument expression includes both the element and another local variable.
+///
+/// ## Corpus investigation (2026-04-02)
+///
+/// Corpus oracle reported FP=2, FN=0. Both false positives came from calls that
+/// still count as `element_modified?` in RuboCop but were hidden behind a local
+/// assignment, e.g. `scanline = Scanline.new(..., pos, (delimit - pos - 1), at)`
+/// followed by a bare `delimit` return. The Prism port only searched statement
+/// and conditional containers, so it never reached assignment RHS expressions.
+/// Fixed by recursing into local-variable assignment values while still
+/// skipping inner block bodies.
 pub struct UnmodifiedReduceAccumulator;
 
 impl Cop for UnmodifiedReduceAccumulator {
@@ -478,6 +488,7 @@ fn element_modified_recursive(node: &ruby_prism::Node<'_>, el_name: &str) -> boo
         if name == el_name {
             return true;
         }
+        return element_modified_recursive(&write.value(), el_name);
     }
     // el += ...
     if let Some(op_write) = node.as_local_variable_operator_write_node() {
@@ -485,6 +496,7 @@ fn element_modified_recursive(node: &ruby_prism::Node<'_>, el_name: &str) -> boo
         if name == el_name {
             return true;
         }
+        return element_modified_recursive(&op_write.value(), el_name);
     }
     // el ||= ...
     if let Some(or_write) = node.as_local_variable_or_write_node() {
@@ -492,6 +504,7 @@ fn element_modified_recursive(node: &ruby_prism::Node<'_>, el_name: &str) -> boo
         if name == el_name {
             return true;
         }
+        return element_modified_recursive(&or_write.value(), el_name);
     }
     // el &&= ...
     if let Some(and_write) = node.as_local_variable_and_write_node() {
@@ -499,6 +512,7 @@ fn element_modified_recursive(node: &ruby_prism::Node<'_>, el_name: &str) -> boo
         if name == el_name {
             return true;
         }
+        return element_modified_recursive(&and_write.value(), el_name);
     }
 
     // el.method(arg, ...) where args contain any local variable
