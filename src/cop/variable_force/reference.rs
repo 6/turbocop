@@ -10,6 +10,10 @@ pub struct Reference {
     /// implicit one (e.g., bare `super` implicitly references all method
     /// args, `binding()` implicitly captures all accessible variables).
     pub explicit: bool,
+    /// Processing sequence number. References and assignments share a
+    /// single counter per engine run, enabling temporal ordering that
+    /// reflects actual evaluation order (not byte offset order).
+    pub sequence: usize,
 }
 
 impl Reference {
@@ -18,6 +22,7 @@ impl Reference {
             node_offset,
             scope_index,
             explicit: true,
+            sequence: 0,
         }
     }
 
@@ -26,6 +31,7 @@ impl Reference {
             node_offset,
             scope_index,
             explicit: false,
+            sequence: 0,
         }
     }
 }

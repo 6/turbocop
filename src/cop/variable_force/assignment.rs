@@ -16,6 +16,15 @@ pub struct Assignment {
     pub references: Vec<usize>,
     /// What kind of assignment this is.
     pub kind: AssignmentKind,
+    /// Whether the RHS of this assignment references the same variable.
+    /// For `x = x + 1`, this is true because `x` appears on the RHS.
+    /// Set by the engine after processing the RHS but before recording
+    /// the assignment.
+    pub rhs_references_var: bool,
+    /// Processing sequence number. Assignments and references are ordered
+    /// by sequence, not byte offset, to reflect actual evaluation order.
+    /// (RHS of `x = x + 1` is evaluated before the assignment.)
+    pub sequence: usize,
 }
 
 impl Assignment {
@@ -26,6 +35,8 @@ impl Assignment {
             reassigned: false,
             references: Vec::new(),
             kind,
+            rhs_references_var: false,
+            sequence: 0,
         }
     }
 

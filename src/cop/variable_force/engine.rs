@@ -29,6 +29,8 @@ pub struct Engine<'a> {
     source: &'a SourceFile,
     consumers: &'a [RegisteredConsumer<'a>],
     diagnostics: Vec<Diagnostic>,
+    /// Monotonically increasing counter for temporal ordering.
+    sequence: usize,
 }
 
 impl<'a> Engine<'a> {
@@ -38,7 +40,14 @@ impl<'a> Engine<'a> {
             source,
             consumers,
             diagnostics: Vec::new(),
+            sequence: 0,
         }
+    }
+
+    fn next_sequence(&mut self) -> usize {
+        let seq = self.sequence;
+        self.sequence += 1;
+        seq
     }
 
     /// Run the engine on a parsed program node.
@@ -262,17 +271,35 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         if !self.table.variable_exists(&name) {
             self.declare_variable(name.clone(), offset, DeclarationKind::Assignment);
         }
+
+        // Count references before RHS to detect self-references
+        let refs_before = self
+            .table
+            .find_variable(&name)
+            .map_or(0, |v| v.references.len());
+
         self.visit(&node.value());
-        self.table
-            .assign_to_variable(&name, Assignment::new(offset, AssignmentKind::Simple));
+
+        let refs_after = self
+            .table
+            .find_variable(&name)
+            .map_or(0, |v| v.references.len());
+        let rhs_refs_var = refs_after > refs_before;
+
+        let seq = self.next_sequence();
+        let mut assign = Assignment::new(offset, AssignmentKind::Simple);
+        assign.sequence = seq;
+        assign.rhs_references_var = rhs_refs_var;
+        self.table.assign_to_variable(&name, assign);
     }
 
     fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
         let scope_index = self.table.current_scope_index();
-        self.table.reference_variable(
-            node.name().as_slice(),
-            Reference::new(node.location().start_offset(), scope_index),
-        );
+        let seq = self.next_sequence();
+        let mut reference = Reference::new(node.location().start_offset(), scope_index);
+        reference.sequence = seq;
+        self.table
+            .reference_variable(node.name().as_slice(), reference);
     }
 
     fn visit_local_variable_operator_write_node(
@@ -285,11 +312,16 @@ impl<'pr> Visit<'pr> for Engine<'_> {
             self.declare_variable(name.clone(), offset, DeclarationKind::Assignment);
         }
         let si = self.table.current_scope_index();
-        self.table
-            .reference_variable(&name, Reference::new(offset, si));
+        let seq = self.next_sequence();
+        let mut r = Reference::new(offset, si);
+        r.sequence = seq;
+        self.table.reference_variable(&name, r);
         self.visit(&node.value());
-        self.table
-            .assign_to_variable(&name, Assignment::new(offset, AssignmentKind::Operator));
+        let seq = self.next_sequence();
+        let mut a = Assignment::new(offset, AssignmentKind::Operator);
+        a.sequence = seq;
+        a.rhs_references_var = true; // operator-writes always read the var
+        self.table.assign_to_variable(&name, a);
     }
 
     fn visit_local_variable_or_write_node(
@@ -302,11 +334,16 @@ impl<'pr> Visit<'pr> for Engine<'_> {
             self.declare_variable(name.clone(), offset, DeclarationKind::Assignment);
         }
         let si = self.table.current_scope_index();
-        self.table
-            .reference_variable(&name, Reference::new(offset, si));
+        let seq = self.next_sequence();
+        let mut r = Reference::new(offset, si);
+        r.sequence = seq;
+        self.table.reference_variable(&name, r);
         self.visit(&node.value());
-        self.table
-            .assign_to_variable(&name, Assignment::new(offset, AssignmentKind::LogicalOr));
+        let seq = self.next_sequence();
+        let mut a = Assignment::new(offset, AssignmentKind::LogicalOr);
+        a.sequence = seq;
+        a.rhs_references_var = true;
+        self.table.assign_to_variable(&name, a);
     }
 
     fn visit_local_variable_and_write_node(
@@ -319,11 +356,16 @@ impl<'pr> Visit<'pr> for Engine<'_> {
             self.declare_variable(name.clone(), offset, DeclarationKind::Assignment);
         }
         let si = self.table.current_scope_index();
-        self.table
-            .reference_variable(&name, Reference::new(offset, si));
+        let seq = self.next_sequence();
+        let mut r = Reference::new(offset, si);
+        r.sequence = seq;
+        self.table.reference_variable(&name, r);
         self.visit(&node.value());
-        self.table
-            .assign_to_variable(&name, Assignment::new(offset, AssignmentKind::LogicalAnd));
+        let seq = self.next_sequence();
+        let mut a = Assignment::new(offset, AssignmentKind::LogicalAnd);
+        a.sequence = seq;
+        a.rhs_references_var = true;
+        self.table.assign_to_variable(&name, a);
     }
 
     fn visit_multi_write_node(&mut self, node: &ruby_prism::MultiWriteNode<'pr>) {
@@ -564,6 +606,8 @@ mod tests {
         captured_by_block: bool,
         used: bool,
         has_implicit_ref: bool,
+        /// Whether any assignment has rhs_references_var set.
+        has_self_ref_assignment: bool,
     }
 
     impl TestConsumer {
@@ -595,6 +639,10 @@ mod tests {
                         captured_by_block: var.captured_by_block,
                         used: var.used(),
                         has_implicit_ref: var.references.iter().any(|r| !r.explicit),
+                        has_self_ref_assignment: var
+                            .assignments
+                            .iter()
+                            .any(|a| a.rhs_references_var),
                     },
                 );
             }
@@ -681,6 +729,21 @@ mod tests {
         let x = &scopes[0].vars["x"];
         assert_eq!(x.num_assignments, 2);
         assert_eq!(x.num_references, 1); // x on RHS of second assignment
+        assert!(x.has_self_ref_assignment); // second assignment references x on RHS
+    }
+
+    #[test]
+    fn test_non_self_referencing_assignment() {
+        let scopes = run_engine("x = 1\nx = 2\n");
+        let x = &scopes[0].vars["x"];
+        assert!(!x.has_self_ref_assignment); // x = 2 does NOT reference x
+    }
+
+    #[test]
+    fn test_operator_write_always_self_refs() {
+        let scopes = run_engine("x = 1\nx += 2\n");
+        let x = &scopes[0].vars["x"];
+        assert!(x.has_self_ref_assignment); // += always reads x
     }
 
     #[test]
