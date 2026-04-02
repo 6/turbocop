@@ -5,23 +5,20 @@ use ruby_prism::Visit;
 
 /// Checks that access modifiers are declared in the correct style (group or inline).
 ///
-/// ## Investigation (2026-03-31)
+/// ## Investigation (2026-04-02)
 ///
-/// Root cause of the remaining FNs was twofold:
-/// 1. nitrocop only batch-checked class/module/sclass bodies, so it missed inline access
-///    modifiers in top-level code and in multi-statement block bodies such as
-///    `each do |m| private m; public m end`.
-/// 2. nitrocop only treated `private def foo` and symbol forms as "inline", but RuboCop's
-///    group-style logic treats any non-allowed access-modifier send with arguments as
-///    inline, including `private m` and `public target`.
+/// The remaining false negatives were nested block bodies such as `class_eval do ... end`
+/// and `concerning ... do; class_methods do ... end; end`. The previous implementation
+/// tracked a synthetic "macro scope" and stopped checking after the first nested block,
+/// but RuboCop decides group-style offenses from the immediate parent shape instead.
 ///
-/// Fix: process every `StatementsNode` in group style, simulate RuboCop's Parser-parent
-/// behavior for single-child block/if bodies so one-line DSL blocks and one-line
-/// conditionals stay ignored, and classify any non-allowed access modifier with
-/// arguments as inline while preserving RuboCop's right-sibling suppression.
-/// Also stop propagating macro scope through `BeginNode` wrappers that carry
-/// rescue/ensure clauses; RuboCop treats those like `rescue` parents, so
-/// `private def` after a class-level `begin ... rescue/ensure ... end` is allowed.
+/// Fix: check every `StatementsNode` in group style, regardless of block nesting, and
+/// keep the exemptions narrow by only skipping direct single-statement block bodies and
+/// direct single-statement `if`/`unless` bodies. Also keep RuboCop's blind spots for
+/// ordinary method bodies and `proc`/`lambda` literals, while still flagging nested
+/// class-scope DSL blocks such as `class_eval` and `class_methods`. This fixes the
+/// false positive for `private m unless ...` inside a one-line block without suppressing
+/// multi-statement block bodies like `each do |m| private m; public m end`.
 pub struct AccessModifierDeclarations;
 
 const ACCESS_MODIFIERS: &[&str] = &["private", "protected", "public", "module_function"];
@@ -32,6 +29,8 @@ enum StatementsOwnerKind {
     Root,
     Block,
     If,
+    ProcLikeBlock,
+    RescuingBegin,
 }
 
 struct AccessModifierVisitor<'a> {
@@ -44,12 +43,12 @@ struct AccessModifierVisitor<'a> {
     diagnostics: Vec<Diagnostic>,
     /// true when the current scope is a class/module/sclass body (not a nested block)
     in_class_body: bool,
+    /// true when walking inside an ordinary method body, which RuboCop ignores.
+    in_def_body: bool,
     /// Synthetic owner kind for the next statements node we visit.
     statements_owner_kind: StatementsOwnerKind,
-    /// Matches RuboCop's notion of being inside a macro scope.
-    in_macro_scope: bool,
-    /// Number of nested block wrappers under the current macro scope.
-    macro_block_depth: usize,
+    /// Optional owner override for the direct block child of the current call node.
+    next_block_owner_kind: Option<StatementsOwnerKind>,
 }
 
 struct ModifierClassification<'a> {
@@ -145,7 +144,11 @@ fn symbol_splat_arg(arg: &ruby_prism::Node<'_>) -> bool {
         .is_some_and(|array| is_percent_symbol_array(&array))
         || expression.as_constant_read_node().is_some()
         || expression.as_constant_path_node().is_some()
-        || expression.as_call_node().is_some()
+        || expression.as_call_node().is_some_and(|call| {
+            call.block().is_none_or(|block| {
+                block.as_block_node().is_none() && block.as_lambda_node().is_none()
+            })
+        })
 }
 
 fn is_percent_symbol_array(array: &ruby_prism::ArrayNode<'_>) -> bool {
@@ -155,6 +158,24 @@ fn is_percent_symbol_array(array: &ruby_prism::ArrayNode<'_>) -> bool {
 
     let opening = opening_loc.as_slice();
     opening.starts_with(b"%i") || opening.starts_with(b"%I")
+}
+
+fn call_is_proc_like(call: &ruby_prism::CallNode<'_>) -> bool {
+    let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
+    if call.receiver().is_none() {
+        return matches!(method_name, "proc" | "lambda");
+    }
+
+    if method_name != "new" {
+        return false;
+    }
+
+    let Some(receiver) = call.receiver() else {
+        return false;
+    };
+
+    let slice = receiver.location().as_slice();
+    slice == b"Proc" || slice == b"::Proc" || slice.ends_with(b"::Proc")
 }
 
 fn has_corresponding_def_nodes<'pr>(
@@ -197,7 +218,7 @@ struct ModifierInfo<'a> {
 
 impl AccessModifierVisitor<'_> {
     fn check_group_style_statements<'pr>(&mut self, stmts: &[ruby_prism::Node<'pr>]) {
-        if self.enforced_style != "group" || !self.in_macro_scope {
+        if self.enforced_style != "group" || self.in_def_body {
             return;
         }
 
@@ -205,6 +226,14 @@ impl AccessModifierVisitor<'_> {
             matches!(self.statements_owner_kind, StatementsOwnerKind::Block) && stmts.len() == 1;
         let direct_parent_is_if =
             matches!(self.statements_owner_kind, StatementsOwnerKind::If) && stmts.len() == 1;
+        let direct_parent_is_proc_like_block = matches!(
+            self.statements_owner_kind,
+            StatementsOwnerKind::ProcLikeBlock
+        );
+        let direct_parent_is_rescuing_begin = matches!(
+            self.statements_owner_kind,
+            StatementsOwnerKind::RescuingBegin
+        );
         let root_statements = matches!(self.statements_owner_kind, StatementsOwnerKind::Root);
 
         let infos: Vec<Option<ModifierInfo>> = stmts
@@ -218,7 +247,11 @@ impl AccessModifierVisitor<'_> {
                     self.allow_modifiers_on_alias_method,
                 )?;
 
-                if direct_parent_is_block || direct_parent_is_if {
+                if direct_parent_is_block
+                    || direct_parent_is_if
+                    || direct_parent_is_proc_like_block
+                    || direct_parent_is_rescuing_begin
+                {
                     return None;
                 }
 
@@ -282,15 +315,9 @@ impl AccessModifierVisitor<'_> {
 impl<'pr> Visit<'pr> for AccessModifierVisitor<'_> {
     fn visit_program_node(&mut self, node: &ruby_prism::ProgramNode<'pr>) {
         let saved = self.statements_owner_kind;
-        let saved_macro_scope = self.in_macro_scope;
-        let saved_macro_block_depth = self.macro_block_depth;
         self.statements_owner_kind = StatementsOwnerKind::Root;
-        self.in_macro_scope = true;
-        self.macro_block_depth = 0;
         ruby_prism::visit_program_node(self, node);
         self.statements_owner_kind = saved;
-        self.in_macro_scope = saved_macro_scope;
-        self.macro_block_depth = saved_macro_block_depth;
     }
 
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
@@ -306,81 +333,53 @@ impl<'pr> Visit<'pr> for AccessModifierVisitor<'_> {
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
         let saved_in_class_body = self.in_class_body;
         let saved_owner = self.statements_owner_kind;
-        let saved_macro_scope = self.in_macro_scope;
-        let saved_macro_block_depth = self.macro_block_depth;
         self.in_class_body = true;
         self.statements_owner_kind = StatementsOwnerKind::Other;
-        self.in_macro_scope = true;
-        self.macro_block_depth = 0;
         ruby_prism::visit_class_node(self, node);
         self.statements_owner_kind = saved_owner;
         self.in_class_body = saved_in_class_body;
-        self.in_macro_scope = saved_macro_scope;
-        self.macro_block_depth = saved_macro_block_depth;
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
         let saved_in_class_body = self.in_class_body;
         let saved_owner = self.statements_owner_kind;
-        let saved_macro_scope = self.in_macro_scope;
-        let saved_macro_block_depth = self.macro_block_depth;
         self.in_class_body = true;
         self.statements_owner_kind = StatementsOwnerKind::Other;
-        self.in_macro_scope = true;
-        self.macro_block_depth = 0;
         ruby_prism::visit_module_node(self, node);
         self.statements_owner_kind = saved_owner;
         self.in_class_body = saved_in_class_body;
-        self.in_macro_scope = saved_macro_scope;
-        self.macro_block_depth = saved_macro_block_depth;
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
         let saved_in_class_body = self.in_class_body;
         let saved_owner = self.statements_owner_kind;
-        let saved_macro_scope = self.in_macro_scope;
-        let saved_macro_block_depth = self.macro_block_depth;
         self.in_class_body = true;
         self.statements_owner_kind = StatementsOwnerKind::Other;
-        self.in_macro_scope = true;
-        self.macro_block_depth = 0;
         ruby_prism::visit_singleton_class_node(self, node);
         self.statements_owner_kind = saved_owner;
         self.in_class_body = saved_in_class_body;
-        self.in_macro_scope = saved_macro_scope;
-        self.macro_block_depth = saved_macro_block_depth;
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let saved_in_class_body = self.in_class_body;
         let saved_owner = self.statements_owner_kind;
-        let saved_macro_scope = self.in_macro_scope;
-        let saved_macro_block_depth = self.macro_block_depth;
         self.in_class_body = false;
-        self.statements_owner_kind = StatementsOwnerKind::Block;
-        self.in_macro_scope = saved_macro_scope && saved_macro_block_depth == 0;
-        self.macro_block_depth = saved_macro_block_depth + 1;
+        self.statements_owner_kind = self
+            .next_block_owner_kind
+            .unwrap_or(StatementsOwnerKind::Block);
         ruby_prism::visit_block_node(self, node);
         self.statements_owner_kind = saved_owner;
         self.in_class_body = saved_in_class_body;
-        self.in_macro_scope = saved_macro_scope;
-        self.macro_block_depth = saved_macro_block_depth;
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
         let saved_in_class_body = self.in_class_body;
         let saved_owner = self.statements_owner_kind;
-        let saved_macro_scope = self.in_macro_scope;
-        let saved_macro_block_depth = self.macro_block_depth;
         self.in_class_body = false;
-        self.statements_owner_kind = StatementsOwnerKind::Block;
-        self.in_macro_scope = false;
-        self.macro_block_depth = 0;
+        self.statements_owner_kind = StatementsOwnerKind::ProcLikeBlock;
         ruby_prism::visit_lambda_node(self, node);
         self.statements_owner_kind = saved_owner;
         self.in_class_body = saved_in_class_body;
-        self.in_macro_scope = saved_macro_scope;
-        self.macro_block_depth = saved_macro_block_depth;
     }
 
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
@@ -390,34 +389,43 @@ impl<'pr> Visit<'pr> for AccessModifierVisitor<'_> {
         self.statements_owner_kind = saved;
     }
 
-    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
-        let saved_macro_scope = self.in_macro_scope;
-        let saved_macro_block_depth = self.macro_block_depth;
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        let saved = self.statements_owner_kind;
+        self.statements_owner_kind = StatementsOwnerKind::If;
+        ruby_prism::visit_unless_node(self, node);
+        self.statements_owner_kind = saved;
+    }
 
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        let saved = self.statements_owner_kind;
         let is_pure_begin = node.rescue_clause().is_none()
             && node.ensure_clause().is_none()
             && node.else_clause().is_none();
         if !is_pure_begin {
-            self.in_macro_scope = false;
-            self.macro_block_depth = 0;
+            self.statements_owner_kind = StatementsOwnerKind::RescuingBegin;
         }
-
         ruby_prism::visit_begin_node(self, node);
-        self.in_macro_scope = saved_macro_scope;
-        self.macro_block_depth = saved_macro_block_depth;
+        self.statements_owner_kind = saved;
     }
 
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        let saved_macro_scope = self.in_macro_scope;
-        let saved_macro_block_depth = self.macro_block_depth;
-        self.in_macro_scope = false;
-        self.macro_block_depth = 0;
+        let saved = self.in_def_body;
+        self.in_def_body = true;
         ruby_prism::visit_def_node(self, node);
-        self.in_macro_scope = saved_macro_scope;
-        self.macro_block_depth = saved_macro_block_depth;
+        self.in_def_body = saved;
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let saved_next_block_owner_kind = self.next_block_owner_kind;
+        if node
+            .block()
+            .and_then(|block| block.as_block_node())
+            .is_some()
+            && call_is_proc_like(node)
+        {
+            self.next_block_owner_kind = Some(StatementsOwnerKind::ProcLikeBlock);
+        }
+
         // In group mode, direct modifiers are handled in visit_statements_node.
         // Here we keep the existing inline-style handling.
         if self.enforced_style == "inline" && self.in_class_body {
@@ -437,6 +445,7 @@ impl<'pr> Visit<'pr> for AccessModifierVisitor<'_> {
             }
         }
         ruby_prism::visit_call_node(self, node);
+        self.next_block_owner_kind = saved_next_block_owner_kind;
     }
 }
 
@@ -468,9 +477,9 @@ impl Cop for AccessModifierDeclarations {
             allow_modifiers_on_alias_method,
             diagnostics: Vec::new(),
             in_class_body: true,
+            in_def_body: false,
             statements_owner_kind: StatementsOwnerKind::Other,
-            in_macro_scope: false,
-            macro_block_depth: 0,
+            next_block_owner_kind: None,
         };
 
         visitor.visit(&parse_result.node());

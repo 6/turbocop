@@ -45,3 +45,48 @@ module Pakyow
     end
   end
 end
+
+outer do
+  before do
+    FirstClass.class_eval do
+      def a_method_that_calls_private_methods
+        a_scoped_private_method
+      end
+
+      private def a_scoped_private_method
+      ^^^^^^^ Style/AccessModifierDeclarations: `private` should not be inlined in method definitions.
+        :instance_private_stuff
+      end
+
+      private
+
+      def an_inline_private_method
+        :more_instance_private_stuff
+      end
+    end
+  end
+end
+
+class PaymentTransaction::Shopify < PaymentTransaction
+  concerning :WebhookMethods do
+    class_methods do
+      def receive_webhook(request)
+        verify_webhook!(request)
+      end
+
+      private def verify_webhook!(request)
+      ^^^^^^^ Style/AccessModifierDeclarations: `private` should not be inlined in method definitions.
+        request
+      end
+    end
+  end
+end
+
+class Memoizer
+  private *instance_methods(true).select { |m| m.to_s !~ /^__/ }
+  ^^^^^^^ Style/AccessModifierDeclarations: `private` should not be inlined in method definitions.
+
+  def initialize(object)
+    @object = object
+  end
+end
