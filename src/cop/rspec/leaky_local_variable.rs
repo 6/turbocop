@@ -2670,12 +2670,23 @@ fn collect_assignments_in_scope(
         // Assignments inside these blocks are marked `inside_block: true` because
         // Ruby blocks create a local variable scope — variables first assigned
         // inside a block are block-local and don't leak to the enclosing scope.
+        //
+        // Exception: `lambda do...end` and `proc do...end` are closures that
+        // capture the enclosing scope's variables by reference. Reassignments
+        // inside them modify the outer scope's variable, so they should inherit
+        // `inside_block` from the parent (not force `true`).
+        let is_lambda_or_proc = no_recv && (name == b"lambda" || name == b"proc");
         if let Some(blk) = call.block() {
             if let Some(bn) = blk.as_block_node() {
                 if let Some(body) = bn.body() {
                     if let Some(stmts) = body.as_statements_node() {
+                        let child_inside_block = if is_lambda_or_proc {
+                            inside_block
+                        } else {
+                            true
+                        };
                         for s in stmts.body().iter() {
-                            collect_assignments_in_scope(&s, assigns, true);
+                            collect_assignments_in_scope(&s, assigns, child_inside_block);
                         }
                     }
                 }
@@ -2685,12 +2696,15 @@ fn collect_assignments_in_scope(
     }
 
     // Lambda: `lambda do |args| body end` or `-> (args) { body }`
-    // Treat like a non-RSpec block — assignments inside are block-local.
+    // Unlike Ruby blocks (`.each do ... end`), lambdas/procs capture the
+    // enclosing scope's variables by reference. A reassignment inside a lambda
+    // modifies the outer scope's variable — so `inside_block` should inherit
+    // from the parent scope, not be forced to `true`.
     if let Some(lambda) = node.as_lambda_node() {
         if let Some(body) = lambda.body() {
             if let Some(stmts) = body.as_statements_node() {
                 for s in stmts.body().iter() {
-                    collect_assignments_in_scope(&s, assigns, true);
+                    collect_assignments_in_scope(&s, assigns, inside_block);
                 }
             }
         }
@@ -5270,5 +5284,30 @@ end
                 .collect::<Vec<_>>()
         );
         assert_eq!(diags[0].location.line, 4, "Offense should be on line 4");
+    }
+
+    #[test]
+    #[test]
+    fn test_fn_lambda_body_direct_assignment() {
+        // Simpler version: assignment directly in lambda body (no if wrapping)
+        let source = br#"shared_examples_for 'streaming' do
+  timing = 'ok'
+  block = lambda do
+    timing = 'not ok!'
+  end
+  it "gets response" do
+    expect(timing).to eq('not ok!')
+  end
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
+        let lines: Vec<_> = diags.iter().map(|d| d.location.line).collect();
+        eprintln!("DEBUG lambda direct: offenses at {:?}", lines);
+        // timing = 'ok' (line 2), block = lambda... (line 3), timing = 'not ok!' (line 4)
+        assert!(
+            lines.contains(&4),
+            "Expected offense on line 4 (timing = 'not ok!' in lambda), got: {:?}",
+            lines
+        );
     }
 }

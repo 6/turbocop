@@ -764,6 +764,7 @@ describe 'lambda capture' do
   block = lambda do |c, r, t|
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
     timing = 'not ok!'
+    ^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
   end
   it 'gets a response' do
     call_endpoint(block)
