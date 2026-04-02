@@ -69,3 +69,27 @@ class Address2
 ^ Style/Documentation: Missing top-level documentation comment for `class`.
   attr_accessor :text
 end
+
+#!/usr/bin/env ruby
+class SnippetsExample
+^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
+  def say_hello(name)
+    puts "Hello, #{name}"
+  end
+end
+
+#!/bin/env ruby
+# encoding: utf-8
+class CreateWkAccounting < ActiveRecord::Migration[4.2]
+^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
+  def change
+  end
+end
+
+#coding : utf-8
+module NoticesHelper
+^^^^^^ Style/Documentation: Missing top-level documentation comment for `module`.
+  def mobile?(call_number)
+    call_number.present? and call_number.size == 11
+  end
+end

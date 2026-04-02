@@ -33,6 +33,15 @@ use crate::parse::source::SourceFile;
 /// **Fix:** reuse RuboCop-like case-insensitive annotation keyword matching and special-case the
 /// line-2 top-of-file Emacs-style magic-comment pattern without suppressing files where that
 /// comment is followed by another preceding comment line.
+///
+/// ## Investigation findings (2026-04-02)
+///
+/// **FN root cause:** nitrocop treated shebangs and several encoding magic-comment variants as
+/// real documentation. That hid offenses for files like `#!/usr/bin/env ruby` on line 1,
+/// `#coding : utf-8`, and wrapped forms like `# ~*~ encoding: utf-8 ~*~`.
+///
+/// **Fix:** treat shebangs and RuboCop-style interpreter directives as non-documentation comment
+/// lines, including relaxed `coding`/`encoding` spacing and wrapped magic-comment variants.
 pub struct Documentation;
 
 /// Extract the short (unqualified) name from a constant node.
@@ -262,13 +271,12 @@ pub(crate) fn has_documentation_comment(source: &SourceFile, keyword_offset: usi
 pub(crate) fn is_annotation_or_directive(comment: &str) -> bool {
     let text = comment.trim_start_matches('#').trim();
 
-    // Magic comments
-    if text.starts_with("frozen_string_literal:")
-        || text.starts_with("encoding:")
-        || text.starts_with("coding:")
-        || text.starts_with("warn_indent:")
-        || text.starts_with("shareable_constant_value:")
-    {
+    // Shebang / interpreter directive comments do not count as documentation.
+    if text.starts_with('!') {
+        return true;
+    }
+
+    if is_interpreter_directive_comment(text) {
         return true;
     }
     // RuboCop directives
@@ -356,25 +364,35 @@ fn just_keyword_of_sentence(
     chars.all(|c| c.is_ascii_lowercase())
 }
 
+fn is_interpreter_directive_comment(text: &str) -> bool {
+    has_magic_comment_key(text, "frozen_string_literal")
+        || has_magic_comment_key(text, "shareable_constant_value")
+        || has_magic_comment_key(text, "warn_indent")
+        || has_magic_comment_key(text, "coding")
+        || has_magic_comment_key(text, "encoding")
+}
+
 fn is_emacs_style_magic_comment(text: &str) -> bool {
+    wrapped_magic_comment_inner(text).is_some()
+}
+
+fn wrapped_magic_comment_inner(text: &str) -> Option<&str> {
     let text = text.trim();
-    if !(text.starts_with("-*-") && text.ends_with("-*-")) {
-        return false;
+    if text.starts_with("-*-") && text.ends_with("-*-") {
+        return Some(
+            text.trim_start_matches("-*-")
+                .trim_end_matches("-*-")
+                .trim(),
+        );
     }
-
-    let inner = text
-        .trim_start_matches("-*-")
-        .trim_end_matches("-*-")
-        .trim();
-
-    inner.split(';').any(|part| {
-        let part = part.trim();
-        has_magic_comment_key(part, "frozen_string_literal")
-            || has_magic_comment_key(part, "shareable_constant_value")
-            || has_magic_comment_key(part, "warn_indent")
-            || has_magic_comment_key(part, "coding")
-            || has_magic_comment_key(part, "encoding")
-    })
+    if text.starts_with("~*~") && text.ends_with("~*~") {
+        return Some(
+            text.trim_start_matches("~*~")
+                .trim_end_matches("~*~")
+                .trim(),
+        );
+    }
+    None
 }
 
 fn has_magic_comment_key(text: &str, key: &str) -> bool {
@@ -676,6 +694,37 @@ mod tests {
     }
 
     #[test]
+    fn shebang_not_documentation() {
+        let source =
+            b"#!/usr/bin/env ruby\nclass SnippetsExample\n  def say_hello(name)\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(diags.len(), 1, "Shebang should not count as documentation");
+    }
+
+    #[test]
+    fn shebang_then_encoding_not_documentation() {
+        let source = b"#!/bin/env ruby\n# encoding: utf-8\nclass CreateWkAccounting < ActiveRecord::Migration[4.2]\n  def change\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Shebang plus encoding comment should not count as documentation"
+        );
+    }
+
+    #[test]
+    fn coding_comment_with_space_before_colon_not_documentation() {
+        let source =
+            b"#coding : utf-8\nmodule NoticesHelper\n  def mobile?(call_number)\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "`#coding : utf-8` should not count as documentation"
+        );
+    }
+
+    #[test]
     fn annotation_not_documentation() {
         let source = b"# TODO: do something\nclass Foo\n  def method\n  end\nend\n";
         let diags = run_cop_full(&Documentation, source);
@@ -740,6 +789,18 @@ mod tests {
         assert!(
             diags.is_empty(),
             "Emacs-style magic comments should still count as documentation when another comment line follows"
+        );
+    }
+
+    #[test]
+    fn tilde_wrapped_encoding_comment_not_documentation() {
+        let source =
+            b"# ~*~ encoding: utf-8 ~*~\nclass WikiFactory\n  def self.build\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Wrapped encoding magic comment should not count as documentation"
         );
     }
 
