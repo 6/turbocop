@@ -191,6 +191,24 @@ fn byte_col_to_char_col(line_bytes: &[u8], byte_col: usize) -> usize {
 /// d) Explicit `.(` call syntax, e.g. `array.([`, was misclassified as a
 ///    grouping paren because `(` is preceded by `.`. Fix: treat `.` as a valid
 ///    method-call precursor when deciding if `(` is grouping.
+///
+/// **FP root cause #10 (2026-04-02, 16 FP fixed):** Three remaining scanner
+/// edge cases:
+/// a) Arrays chained on a following line, e.g. `eq([ ... ]\n  .map ...)`, were
+///    treated as direct arguments because chaining was only checked on the same
+///    line after `]`. Fix: skip newlines/comments when checking what follows the
+///    array (and enclosing hash) before deciding whether it is chained.
+/// b) Top-level comma handling in `find_left_paren_on_line` was too blunt: it
+///    cleared operators already seen in the CURRENT argument, so
+///    `to_cli_argv(config, CONFLAGS.keys - [ ... ])` lost the `-`, while also
+///    letting predicate keywords in PREVIOUS args like `valid?: true, events: [`
+///    leak into the current scan. Fix: remember when we've crossed the current
+///    argument boundary and ignore only later operators; also ignore `?:` labels.
+/// c) Old-style `=>` pair starts at the first hash pair in method-call parens,
+///    e.g. `setup_settings('gear' => [ ... ])`, were anchored to the method-call
+///    line indent instead of the hash pair start because the backward scan only
+///    stopped at `{` or `,`. Fix: treat an enclosing top-level `(` as a valid
+///    boundary and return the first token after it.
 pub struct FirstArrayElementIndentation;
 
 /// Describes what the expected indentation is relative to.
@@ -239,6 +257,7 @@ fn find_left_paren_on_line(line_bytes: &[u8], bracket_col: usize) -> ParenScanRe
     let mut brace_depth: i32 = 0;
     let mut has_unmatched_brace = false;
     let mut has_binary_op = false;
+    let mut crossed_argument_boundary = false;
     let mut i = end;
     while i > 0 {
         i -= 1;
@@ -301,23 +320,32 @@ fn find_left_paren_on_line(line_bytes: &[u8], bracket_col: usize) -> ParenScanRe
                 }
             }
             // `,` at depth 0 separates arguments. Binary operators before a
-            // comma (i.e., at lower index, since we scan backward) are part of
-            // preceding argument expressions, not grouping operators. Reset
-            // `has_binary_op` so that e.g. `create(x ? y : z, key: [...])`
-            // doesn't misidentify `?` as a grouping operator.
+            // comma belong to a PREVIOUS argument, not the current one. Keep
+            // any operator already seen in the current argument, but ignore
+            // operators encountered later in the backward scan.
             b',' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
-                has_binary_op = false;
+                crossed_argument_boundary = true;
             }
             // Detect binary/ternary operators at depth 0 (not inside nested parens/brackets/braces).
             // These indicate the `(` is a grouping paren, e.g., `(CONST + [...])` or
             // `(flag ? [...] : nil)`.
             b'+' | b'/' | b'|' | b'&' | b'^' | b'?'
-                if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 =>
+                if paren_depth == 0
+                    && bracket_depth == 0
+                    && brace_depth == 0
+                    && !crossed_argument_boundary =>
             {
-                has_binary_op = true;
+                if line_bytes[i] != b'?' || !(i + 1 < line_bytes.len() && line_bytes[i + 1] == b':')
+                {
+                    has_binary_op = true;
+                }
             }
             // `-` at depth 0: only treat as binary operator if NOT part of `->` lambda.
-            b'-' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+            b'-' if paren_depth == 0
+                && bracket_depth == 0
+                && brace_depth == 0
+                && !crossed_argument_boundary =>
+            {
                 if !(i + 1 < end && line_bytes[i + 1] == b'>') {
                     has_binary_op = true;
                 }
@@ -327,7 +355,11 @@ fn find_left_paren_on_line(line_bytes: &[u8], bracket_col: usize) -> ParenScanRe
             // array is still a direct argument, not part of a binary expression.
             // Use full line length (not `end`) since the `[` at bracket_col is the
             // target we need to check against.
-            b'*' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+            b'*' if paren_depth == 0
+                && bracket_depth == 0
+                && brace_depth == 0
+                && !crossed_argument_boundary =>
+            {
                 if !is_splat_before_array(line_bytes, i) {
                     has_binary_op = true;
                 }
@@ -399,6 +431,15 @@ fn find_pair_start_before_rocket(line_bytes: &[u8], rocket_gt_col: usize) -> Opt
         match line_bytes[i] {
             b')' => paren_depth += 1,
             b'(' => {
+                if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+                    let mut start = i + 1;
+                    while start < rocket_gt_col
+                        && (line_bytes[start] == b' ' || line_bytes[start] == b'\t')
+                    {
+                        start += 1;
+                    }
+                    return Some(start);
+                }
                 if paren_depth > 0 {
                     paren_depth -= 1;
                 }
@@ -438,6 +479,28 @@ fn find_pair_start_before_rocket(line_bytes: &[u8], rocket_gt_col: usize) -> Opt
     }
 
     Some(first_non_whitespace_column(line_bytes))
+}
+
+/// Skip whitespace and full-line comments after an expression so follow-up
+/// chaining checks can see operators and leading dots on the next line.
+fn skip_trivia_forward(source_bytes: &[u8], start: usize) -> usize {
+    let len = source_bytes.len();
+    let mut i = start;
+
+    loop {
+        while i < len && matches!(source_bytes[i], b' ' | b'\t' | b'\n' | b'\r') {
+            i += 1;
+        }
+
+        if i < len && source_bytes[i] == b'#' {
+            while i < len && source_bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        return i;
+    }
 }
 
 /// Find the column of a hash key that precedes `[` on the same line.
@@ -667,15 +730,12 @@ fn is_preceded_by_percent_operator(line_bytes: &[u8], bracket_col: usize) -> boo
     false
 }
 
-/// Check what follows a given position in source bytes, skipping whitespace
-/// (but not newlines). Returns `true` if the expression is "chained" or
+/// Check what follows a given position in source bytes, skipping whitespace,
+/// newlines, and comments. Returns `true` if the expression is "chained" or
 /// combined with an operator (`.`, `+`, `-`, `*`, `/`, `%`, `&`, `|`, `^`).
 fn is_chained_after(source_bytes: &[u8], start: usize) -> bool {
     let len = source_bytes.len();
-    let mut i = start;
-    while i < len && (source_bytes[i] == b' ' || source_bytes[i] == b'\t') {
-        i += 1;
-    }
+    let i = skip_trivia_forward(source_bytes, start);
     if i >= len {
         return false;
     }
@@ -750,10 +810,7 @@ fn is_direct_argument(source_bytes: &[u8], closing_end_offset: usize, inside_has
         return !is_chained_after(source_bytes, i);
     }
 
-    // Skip whitespace (but not newlines)
-    while i < len && (source_bytes[i] == b' ' || source_bytes[i] == b'\t') {
-        i += 1;
-    }
+    i = skip_trivia_forward(source_bytes, i);
     if i >= len {
         return true;
     }
