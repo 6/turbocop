@@ -78,6 +78,7 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
 }
 
 impl SpaceInsideArrayLiteralBrackets {
+    #[allow(clippy::too_many_arguments)]
     fn check_brackets(
         &self,
         source: &SourceFile,
