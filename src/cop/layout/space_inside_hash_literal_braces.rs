@@ -5,17 +5,15 @@ use crate::parse::source::SourceFile;
 
 /// Layout/SpaceInsideHashLiteralBraces
 ///
-/// Investigation notes (2026-04-02, FP=2, FN=0):
-/// - RuboCop skips the right-brace check when the token immediately before `}`
-///   is a multiline plain string literal that starts on an earlier line, even if
-///   the closing quote is adjacent to `}`.
-/// - Nitrocop was only looking for a raw newline before `}`, so hashes ending in
-///   line-continued `StringNode` values like `{ error: "...\n..."}` were falsely
-///   flagged.
-/// - Fixed by exempting only the closing-brace check when the last hash value is
-///   a multiline, non-heredoc `StringNode` whose closing quote sits immediately
-///   before the hash's `}`. Multiline calls, arrays, and interpolated strings
-///   still follow the normal spacing rule.
+/// Investigation notes (2026-04-02, FP=0, FN=9):
+/// - RuboCop only skips the right-brace check when the token before `}` is a
+///   single line-continuation string token, such as a double-quoted string with
+///   `\\`-escaped physical newlines.
+/// - Nitrocop had broadened that exemption to any multiline plain `StringNode`
+///   ending immediately before `}`, which incorrectly missed real offenses for
+///   multiline quoted strings, `%{}` strings, and similar closing-token shapes.
+/// - Fixed by limiting the exemption to double-quoted strings whose physical
+///   newlines are all backslash continuations, matching RuboCop's token stream.
 pub struct SpaceInsideHashLiteralBraces;
 
 struct BraceSpan {
@@ -23,7 +21,7 @@ struct BraceSpan {
     open_end: usize,
     close_start: usize,
     has_elements: bool,
-    close_follows_multiline_plain_string: bool,
+    close_follows_line_continued_double_quoted_string: bool,
 }
 
 impl SpaceInsideHashLiteralBraces {
@@ -43,7 +41,7 @@ impl SpaceInsideHashLiteralBraces {
             open_end,
             close_start,
             has_elements,
-            close_follows_multiline_plain_string,
+            close_follows_line_continued_double_quoted_string,
         } = *span;
         let bytes = source.as_bytes();
         let empty_style = config.get_str("EnforcedStyleForEmptyBraces", "no_space");
@@ -125,7 +123,7 @@ impl SpaceInsideHashLiteralBraces {
         };
 
         // Check closing brace: skip if there's a line break between last content and brace
-        let skip_close = close_follows_multiline_plain_string || {
+        let skip_close = close_follows_line_continued_double_quoted_string || {
             // Scan past spaces/tabs before the closing brace
             let mut pos = close_start;
             while pos > open_end && matches!(bytes[pos - 1], b' ' | b'\t') {
@@ -246,7 +244,7 @@ impl SpaceInsideHashLiteralBraces {
         }
     }
 
-    fn close_follows_multiline_plain_string_value(
+    fn close_follows_line_continued_double_quoted_string_value(
         source: &SourceFile,
         element: &ruby_prism::Node<'_>,
         close_start: usize,
@@ -255,10 +253,14 @@ impl SpaceInsideHashLiteralBraces {
             return false;
         };
 
-        Self::is_multiline_plain_string_ending_at_close(source, &assoc.value(), close_start)
+        Self::is_line_continued_double_quoted_string_ending_at_close(
+            source,
+            &assoc.value(),
+            close_start,
+        )
     }
 
-    fn is_multiline_plain_string_ending_at_close(
+    fn is_line_continued_double_quoted_string_ending_at_close(
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         close_start: usize,
@@ -270,15 +272,57 @@ impl SpaceInsideHashLiteralBraces {
             return false;
         };
 
-        if opening.as_slice().starts_with(b"<<") || closing.start_offset() + 1 != close_start {
+        if opening.as_slice() != b"\"" || closing.as_slice() != b"\"" {
             return false;
         }
 
-        let start_line = source.offset_to_line_col(node.location().start_offset()).0;
-        let end_offset = node.location().end_offset().saturating_sub(1);
-        let end_line = source.offset_to_line_col(end_offset).0;
+        if closing.start_offset() + closing.as_slice().len() != close_start {
+            return false;
+        }
 
-        start_line < end_line
+        let content = &source.as_bytes()[opening.end_offset()..closing.start_offset()];
+        Self::contains_only_line_continued_newlines(content)
+    }
+
+    fn contains_only_line_continued_newlines(content: &[u8]) -> bool {
+        let mut saw_newline = false;
+        let mut index = 0;
+
+        while index < content.len() {
+            match content[index] {
+                b'\n' => {
+                    saw_newline = true;
+                    if !Self::is_line_continuation_before(content, index) {
+                        return false;
+                    }
+                }
+                b'\r' => {
+                    saw_newline = true;
+                    if !Self::is_line_continuation_before(content, index) {
+                        return false;
+                    }
+                    if matches!(content.get(index + 1), Some(b'\n')) {
+                        index += 1;
+                    }
+                }
+                _ => {}
+            }
+            index += 1;
+        }
+
+        saw_newline
+    }
+
+    fn is_line_continuation_before(content: &[u8], newline_index: usize) -> bool {
+        let mut backslashes = 0;
+        let mut index = newline_index;
+
+        while index > 0 && content[index - 1] == b'\\' {
+            backslashes += 1;
+            index -= 1;
+        }
+
+        backslashes % 2 == 1
     }
 }
 
@@ -323,13 +367,15 @@ impl Cop for SpaceInsideHashLiteralBraces {
                     open_end: opening.end_offset(),
                     close_start: closing.start_offset(),
                     has_elements: !elements.is_empty(),
-                    close_follows_multiline_plain_string: elements.last().is_some_and(|element| {
-                        Self::close_follows_multiline_plain_string_value(
-                            source,
-                            element,
-                            closing.start_offset(),
-                        )
-                    }),
+                    close_follows_line_continued_double_quoted_string: elements.last().is_some_and(
+                        |element| {
+                            Self::close_follows_line_continued_double_quoted_string_value(
+                                source,
+                                element,
+                                closing.start_offset(),
+                            )
+                        },
+                    ),
                 },
                 config,
                 diagnostics,
@@ -359,13 +405,15 @@ impl Cop for SpaceInsideHashLiteralBraces {
                     open_end: opening.end_offset(),
                     close_start: closing.start_offset(),
                     has_elements: !elements.is_empty(),
-                    close_follows_multiline_plain_string: elements.last().is_some_and(|element| {
-                        Self::close_follows_multiline_plain_string_value(
-                            source,
-                            element,
-                            closing.start_offset(),
-                        )
-                    }),
+                    close_follows_line_continued_double_quoted_string: elements.last().is_some_and(
+                        |element| {
+                            Self::close_follows_line_continued_double_quoted_string_value(
+                                source,
+                                element,
+                                closing.start_offset(),
+                            )
+                        },
+                    ),
                 },
                 config,
                 diagnostics,
@@ -526,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn multiline_plain_string_last_value_does_not_flag_right_brace() {
+    fn line_continued_double_quoted_string_last_value_does_not_flag_right_brace() {
         let source = b"response_body = { error: \"first line \\\nsecond line\"}\n";
         let diags =
             run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, CopConfig::default());
@@ -535,6 +583,19 @@ mod tests {
             0,
             "Multiline plain string values should not flag the closing brace"
         );
+    }
+
+    #[test]
+    fn multiline_double_quoted_string_last_value_still_flags_right_brace() {
+        let source = b"response_body = { error: \"first line\nsecond line\"}\n";
+        let diags =
+            run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, CopConfig::default());
+        assert_eq!(
+            diags.len(),
+            1,
+            "Only line-continued double-quoted strings should skip the closing brace check"
+        );
+        assert!(diags[0].message.contains("Space inside } missing."));
     }
 
     #[test]
