@@ -21,6 +21,14 @@ use std::collections::HashMap;
 ///   hierarchy checks like `!(Foo < Bar)`. The earlier "any constant" guard was
 ///   too broad and hid real offenses such as `!(@file.class <= IO)` and
 ///   `!(RUBY_VERSION >= '2.8.0')`.
+/// - RuboCop does not match parenthesized `!`/`not` around a block-form
+///   predicate call, so `!(items.any? { ... })` and `not (items.any? do ... end)`
+///   are accepted even though the unparenthesized form is still an offense.
+/// - RuboCop's inverse-block matcher ignores safe-navigation negated operators
+///   such as `c.change&.!= :rename`.
+/// - RuboCop also suppresses `select`/`reject` inverse-block offenses when any
+///   earlier block in the receiver chain contains `next`, which covers
+///   `map { ... next ... }.select { |x| !x.nil? }` and longer chained filters.
 pub struct InverseMethods;
 
 impl InverseMethods {
@@ -115,6 +123,14 @@ impl InverseMethods {
     const SAFE_NAVIGATION_INCOMPATIBLE: &'static [&'static [u8]] =
         &[b"any?", b"none?", b"<", b">", b"<=", b">="];
 
+    fn uses_safe_navigation(call: &ruby_prism::CallNode<'_>, source: &SourceFile) -> bool {
+        let Some(op_loc) = call.call_operator_loc() else {
+            return false;
+        };
+
+        source.byte_slice(op_loc.start_offset(), op_loc.end_offset(), "") == "&."
+    }
+
     /// Check if the inner call uses safe navigation (`&.`) with a method that is
     /// incompatible with inversion. E.g., `!foo&.any?` can't become `foo&.none?`
     /// because `nil.none?` doesn't exist.
@@ -122,19 +138,17 @@ impl InverseMethods {
         inner_call: &ruby_prism::CallNode<'_>,
         source: &SourceFile,
     ) -> bool {
-        if let Some(op_loc) = inner_call.call_operator_loc() {
-            let op = source.byte_slice(op_loc.start_offset(), op_loc.end_offset(), "");
-            if op == "&." {
-                let method = inner_call.name().as_slice();
-                return Self::SAFE_NAVIGATION_INCOMPATIBLE.contains(&method);
-            }
+        if Self::uses_safe_navigation(inner_call, source) {
+            let method = inner_call.name().as_slice();
+            return Self::SAFE_NAVIGATION_INCOMPATIBLE.contains(&method);
         }
+
         false
     }
 
     /// Check if the last expression of a block body is a negation.
     /// Returns true for: !expr, expr != ..., expr !~ ...
-    fn last_expr_is_negated(block: &ruby_prism::BlockNode<'_>) -> bool {
+    fn last_expr_is_negated(block: &ruby_prism::BlockNode<'_>, source: &SourceFile) -> bool {
         let body = match block.body() {
             Some(b) => b,
             None => return false,
@@ -148,10 +162,10 @@ impl InverseMethods {
             return false;
         }
         let last = &body_nodes[body_nodes.len() - 1];
-        Self::is_negated_expr(last)
+        Self::is_negated_expr(last, source)
     }
 
-    fn is_negated_expr(node: &ruby_prism::Node<'_>) -> bool {
+    fn is_negated_expr(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
         if let Some(call) = node.as_call_node() {
             let name = call.name().as_slice();
             // !expr
@@ -159,7 +173,7 @@ impl InverseMethods {
                 return true;
             }
             // expr != ...  or  expr !~ ...
-            if name == b"!=" || name == b"!~" {
+            if (name == b"!=" || name == b"!~") && !Self::uses_safe_navigation(&call, source) {
                 return true;
             }
         }
@@ -169,7 +183,7 @@ impl InverseMethods {
                 if let Some(stmts) = body.as_statements_node() {
                     let body_nodes: Vec<_> = stmts.body().iter().collect();
                     if let Some(last) = body_nodes.last() {
-                        return Self::is_negated_expr(last);
+                        return Self::is_negated_expr(last, source);
                     }
                 }
             }
@@ -188,11 +202,47 @@ impl InverseMethods {
         finder.found
     }
 
+    /// Walk the chained receiver calls to find an earlier block with `next`.
+    /// RuboCop suppresses later inverse-block offenses in these chains.
+    fn receiver_chain_has_next(mut receiver: Option<ruby_prism::Node<'_>>) -> bool {
+        while let Some(node) = receiver {
+            if let Some(call) = node.as_call_node() {
+                if let Some(block_node) = call.block().and_then(|block| block.as_block_node()) {
+                    if Self::has_next_statements(&block_node) {
+                        return true;
+                    }
+                }
+                receiver = call.receiver();
+                continue;
+            }
+
+            if let Some(parens) = node.as_parentheses_node() {
+                let Some(body) = parens.body() else {
+                    return false;
+                };
+                let Some(stmts) = body.as_statements_node() else {
+                    return false;
+                };
+                let mut body_nodes = stmts.body().iter();
+                receiver = match (body_nodes.next(), body_nodes.next()) {
+                    (Some(inner), None) => Some(inner),
+                    _ => None,
+                };
+                continue;
+            }
+
+            return false;
+        }
+
+        false
+    }
+
     /// RuboCop suppresses nested `!any?` / `!(x =~ y)` offenses when they sit
     /// inside the block of a larger `select`/`reject` inverse-block offense.
     fn nested_inside_inverse_block(
         target: &ruby_prism::CallNode<'_>,
         parse_result: &ruby_prism::ParseResult<'_>,
+        source: &SourceFile,
         config: &CopConfig,
     ) -> bool {
         let inverse_blocks = Self::build_inverse_blocks(config);
@@ -200,6 +250,7 @@ impl InverseMethods {
             target_start: target.location().start_offset(),
             target_end: target.location().end_offset(),
             inverse_blocks: &inverse_blocks,
+            source,
             found: false,
         };
         ruby_prism::Visit::visit(&mut finder, &parse_result.node());
@@ -256,7 +307,7 @@ impl Cop for InverseMethods {
                 return;
             }
 
-            if Self::nested_inside_inverse_block(&call, parse_result, config) {
+            if Self::nested_inside_inverse_block(&call, parse_result, source, config) {
                 return;
             }
 
@@ -270,8 +321,9 @@ impl Cop for InverseMethods {
             };
 
             // Try to get the inner call - either directly from receiver or by unwrapping parens
-            let inner_call = if let Some(c) = receiver.as_call_node() {
-                c
+            let (inner_call, receiver_was_parenthesized) = if let Some(c) = receiver.as_call_node()
+            {
+                (c, false)
             } else if let Some(parens) = receiver.as_parentheses_node() {
                 let body = match parens.body() {
                     Some(b) => b,
@@ -286,12 +338,16 @@ impl Cop for InverseMethods {
                     return;
                 }
                 match stmts_list[0].as_call_node() {
-                    Some(c) => c,
+                    Some(c) => (c, true),
                     None => return,
                 }
             } else {
                 return;
             };
+
+            if receiver_was_parenthesized && inner_call.block().is_some() {
+                return;
+            }
 
             let inner_method = inner_call.name().as_slice();
 
@@ -361,8 +417,9 @@ impl Cop for InverseMethods {
         if let Some(inv) = inverse_blocks.get(method_bytes) {
             if let Some(block) = call.block() {
                 if let Some(block_node) = block.as_block_node() {
-                    if InverseMethods::last_expr_is_negated(&block_node)
+                    if InverseMethods::last_expr_is_negated(&block_node, source)
                         && !InverseMethods::has_next_statements(&block_node)
+                        && !InverseMethods::receiver_chain_has_next(call.receiver())
                     {
                         let method_name = std::str::from_utf8(method_bytes).unwrap_or("method");
                         let loc = call.location();
@@ -399,6 +456,7 @@ struct NestedInverseBlockFinder<'a> {
     target_start: usize,
     target_end: usize,
     inverse_blocks: &'a HashMap<Vec<u8>, String>,
+    source: &'a SourceFile,
     found: bool,
 }
 
@@ -414,8 +472,9 @@ impl<'pr> ruby_prism::Visit<'pr> for NestedInverseBlockFinder<'_> {
                 if block_loc.start_offset() <= self.target_start
                     && self.target_end <= block_loc.end_offset()
                     && self.inverse_blocks.contains_key(node.name().as_slice())
-                    && InverseMethods::last_expr_is_negated(&block)
+                    && InverseMethods::last_expr_is_negated(&block, self.source)
                     && !InverseMethods::has_next_statements(&block)
+                    && !InverseMethods::receiver_chain_has_next(node.receiver())
                 {
                     self.found = true;
                     return;
