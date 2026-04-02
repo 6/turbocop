@@ -55,3 +55,14 @@ end
 values = items.map do
   it + 1
 end
+
+def decorate(*args)
+  result = super(*args) { |item| item }
+end
+
+def with_context(request)
+  __skip__ =
+    super(request) do |context|
+      context
+    end
+end

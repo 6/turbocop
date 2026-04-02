@@ -91,3 +91,45 @@ left, right = if condition
               else
                 two
               end
+
+def with_context(request)
+  __skip__ = super(request) do |context|
+  ^ Layout/MultilineAssignmentLayout: Right hand side of multi-line assignment is on the same line as the assignment operator `=`.
+    context
+  end
+end
+
+def initialize_type(type)
+  __skip__ = super(type) do
+  ^ Layout/MultilineAssignmentLayout: Right hand side of multi-line assignment is on the same line as the assignment operator `=`.
+    self
+  end
+end
+
+def parse(argv)
+  opts = super( argv ) do |p,o|
+  ^ Layout/MultilineAssignmentLayout: Right hand side of multi-line assignment is on the same line as the assignment operator `=`.
+    p
+  end
+end
+
+def parse_without_args
+  opts = super do |p,o|
+  ^ Layout/MultilineAssignmentLayout: Right hand side of multi-line assignment is on the same line as the assignment operator `=`.
+    p
+  end
+end
+
+def search_results
+  response, _docs = super() do |builder|
+  ^ Layout/MultilineAssignmentLayout: Right hand side of multi-line assignment is on the same line as the assignment operator `=`.
+    builder
+  end
+end
+
+def decorate(*args)
+  result = super(*args) { |item|
+  ^ Layout/MultilineAssignmentLayout: Right hand side of multi-line assignment is on the same line as the assignment operator `=`.
+    item
+  }
+end
