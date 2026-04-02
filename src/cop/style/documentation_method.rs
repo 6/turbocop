@@ -219,7 +219,13 @@ fn is_annotation_or_directive_case_insensitive(comment: &str) -> bool {
     }
 
     for kw in ["TODO", "FIXME", "OPTIMIZE", "HACK", "REVIEW", "NOTE"] {
-        if text.len() < kw.len() || !text[..kw.len()].eq_ignore_ascii_case(kw) {
+        // Use get() to avoid panicking on multi-byte UTF-8 chars at the boundary.
+        // Keywords are ASCII-only, so a non-char-boundary means no match.
+        let prefix = match text.get(..kw.len()) {
+            Some(s) => s,
+            None => continue,
+        };
+        if !prefix.eq_ignore_ascii_case(kw) {
             continue;
         }
 

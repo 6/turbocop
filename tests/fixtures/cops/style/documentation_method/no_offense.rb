@@ -297,3 +297,14 @@ if condition
     42
   end
 end
+
+# Multi-byte UTF-8 in comments must not panic the annotation keyword scanner
+# All ΔE* formulae were designed for JND thresholds
+def method_with_unicode_comment
+  42
+end
+
+# [c, d] ← to ← [to.begin, to.end]
+def method_with_arrow_comment
+  42
+end
