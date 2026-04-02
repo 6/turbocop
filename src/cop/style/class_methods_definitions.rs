@@ -12,16 +12,19 @@ use crate::parse::source::SourceFile;
 /// and `public def helper` are wrapped in a call node, so they do not count as
 /// candidate methods for this cop at all.
 ///
-/// nitrocop previously walked all statements in the singleton class body and
-/// treated inline visibility-wrapped defs as blockers (or additional public
-/// defs). That caused false negatives when a `class << self` block mixed inline
-/// helpers with direct public defs.
+/// ## Fix (2026-04-02): FP from `?` operator, FN from multi-arg visibility
 ///
-/// Fix: mirror RuboCop's `def_nodes` + `node_visibility` behavior more closely.
-/// Only direct child plain `def` nodes are counted, compact same-line forms are
-/// still skipped, bare left-sibling visibility sections (`private`, `protected`,
-/// `public`) still apply, and right-sibling `private/protected/public :name`
-/// overrides are resolved per method name.
+/// **FP bug**: `inline_method_visibility` used `?` on `visibility_name()` which
+/// caused early return from the function when encountering any non-visibility
+/// call node (e.g. `alias_method`, `wx_redefine_method`). This prevented
+/// `private :method_name` from being found when a non-visibility call appeared
+/// after it. Fix: replaced `?` with `let Some(...) else { continue }`.
+///
+/// **FN bug**: RuboCop's `visibility_inline_on_method_name?` node pattern
+/// `(send nil? VISIBILITY_SCOPES (sym %method_name))` only matches single-arg
+/// forms like `private :foo`. Multi-arg forms like `private :foo, :bar` are NOT
+/// recognized, so those methods remain public. Our code previously matched any
+/// number of args. Fix: only match when there is exactly one symbol argument.
 pub struct ClassMethodsDefinitions;
 
 impl Cop for ClassMethodsDefinitions {
@@ -163,16 +166,24 @@ fn inline_method_visibility(
             continue;
         }
 
-        let visibility = visibility_name(call.name().as_slice())?;
+        let Some(visibility) = visibility_name(call.name().as_slice()) else {
+            continue;
+        };
         let Some(args) = call.arguments() else {
             continue;
         };
 
-        if args.arguments().iter().any(|arg| {
-            arg.as_symbol_node()
+        // Only match single-arg forms: `private :method_name`
+        // Multi-arg forms like `private :foo, :bar` are not recognized by
+        // RuboCop's visibility_inline_on_method_name? node pattern.
+        let args_vec: Vec<_> = args.arguments().iter().collect();
+        if args_vec.len() == 1 {
+            if args_vec[0]
+                .as_symbol_node()
                 .is_some_and(|symbol| symbol.unescaped() == method_name)
-        }) {
-            return Some(visibility);
+            {
+                return Some(visibility);
+            }
         }
     }
 
