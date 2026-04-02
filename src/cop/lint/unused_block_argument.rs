@@ -15,13 +15,15 @@ use ruby_prism::Visit;
 ///   "referenced", masking cases where a param was only written but never read.
 ///
 /// FP root causes:
-/// - Bare `binding` calls in the block body should suppress all offenses (RuboCop's
-///   VariableForce treats all args as referenced when `binding` is called without
-///   arguments, since `binding` captures the entire local scope).
+/// - Zero-argument `binding` calls in the block body should suppress all offenses
+///   even when they have a receiver (RuboCop's VariableForce treats all accessible
+///   args as referenced for any `binding` send without arguments, since it may
+///   capture the current local scope).
 ///
 /// Fix: Rewrote to use `check_source` with a visitor that handles both BlockNode
-/// and LambdaNode, collects rest params and block-local variables, detects bare
-/// `binding` calls, and only counts actual reads (not write targets) as references.
+/// and LambdaNode, collects rest params and block-local variables, detects
+/// scope-capturing `binding` calls, and only counts actual reads (not write
+/// targets) as references.
 ///
 /// ## Corpus investigation (2026-03-11)
 ///
@@ -87,6 +89,14 @@ use ruby_prism::Visit;
 /// are children of `OptionalKeywordParameterNode.value()` or
 /// `OptionalParameterNode.value()` under `ParametersNode`. Fixed by
 /// adding `self.visit_parameters_node(&params)` in `visit_def_node`.
+///
+/// ## Corpus investigation (2026-04-02)
+///
+/// FP=1 root cause: `VarRefFinder` only treated bare `binding` as scope-capturing,
+/// but RuboCop's `VariableForce` suppresses unused-argument offenses for any
+/// zero-argument `binding` send, including receiver-qualified calls like
+/// `tp.binding.local_variable_get(name)`. Fixed by matching zero-arg `binding`
+/// calls regardless of receiver, while still leaving `binding(:arg)` as an offense.
 pub struct UnusedBlockArgument;
 
 impl Cop for UnusedBlockArgument {
@@ -358,18 +368,19 @@ impl BlockVisitor<'_, '_> {
             return;
         }
 
-        // Find all local variable reads and check for bare `binding` calls in the body
+        // Find all local variable reads and check for zero-arg `binding` calls in the body
         let mut finder = VarRefFinder {
             names: Vec::new(),
-            has_bare_binding: false,
+            has_zero_arg_binding: false,
             shadowed: Vec::new(),
         };
         if let Some(ref body) = body {
             finder.visit(body);
         }
 
-        // If the block body calls `binding` without arguments, all args are considered used
-        if finder.has_bare_binding {
+        // If the block body calls `binding` without arguments, all args are considered used.
+        // RuboCop applies this even when the call has a receiver (e.g. `tp.binding`).
+        if finder.has_zero_arg_binding {
             return;
         }
 
@@ -490,13 +501,13 @@ fn collect_multi_target_names(mt: &ruby_prism::MultiTargetNode<'_>, names: &mut 
 }
 
 /// Finds local variable reads in a block body. Only counts actual reads,
-/// not write targets (multi-assign LHS). Also detects bare `binding` calls.
+/// not write targets (multi-assign LHS). Also detects zero-arg `binding` calls.
 /// Tracks variable shadowing: when a nested block/lambda redeclares a parameter
 /// with the same name, reads of that name inside the nested scope are not counted
 /// as references to the outer parameter.
 struct VarRefFinder {
     names: Vec<Vec<u8>>,
-    has_bare_binding: bool,
+    has_zero_arg_binding: bool,
     /// Names currently shadowed by nested block parameters — reads of these
     /// names are NOT collected because they refer to the inner scope's param.
     shadowed: Vec<Vec<u8>>,
@@ -549,11 +560,15 @@ impl<'pr> Visit<'pr> for VarRefFinder {
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        // Detect bare `binding` calls (no arguments, no receiver)
-        if node.receiver().is_none() && node.name().as_slice() == b"binding" {
-            // Check if it's called without arguments (bare binding)
-            if node.arguments().is_none() {
-                self.has_bare_binding = true;
+        // RuboCop treats any zero-arg `binding` send as scope-capturing, even
+        // when it has a receiver like `tp.binding`.
+        if node.name().as_slice() == b"binding" {
+            let has_no_args = match node.arguments() {
+                None => true,
+                Some(args) => args.arguments().iter().next().is_none(),
+            };
+            if has_no_args {
+                self.has_zero_arg_binding = true;
             }
         }
         // Continue visiting children
