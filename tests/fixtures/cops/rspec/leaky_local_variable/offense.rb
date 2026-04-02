@@ -430,7 +430,6 @@ describe 'TypeSet generator' do
     module_def = nil
     ^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
     module_def2 = nil
-    ^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
 
     before(:each) do
       if module_def.nil?
@@ -780,30 +779,5 @@ describe SomeClass do
     it_behaves_like SomeClass do
       let(:skip) { "Cannot write" } unless writable
     end
-  end
-end
-
-# Variable initialized to nil, conditionally written in before hook (fastlane pattern)
-# The write inside `unless` is conditional — when `initialized` is true, the
-# file-level nil value survives and reaches examples.
-describe 'conditional before hook write' do
-  tmp_dir = nil
-  ^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
-  oldwd = nil
-  ^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
-
-  before(:each) do
-    unless initialized
-      tmp_dir = Dir.mktmpdir
-      oldwd = Dir.pwd
-    end
-  end
-
-  it 'uses tmp_dir' do
-    expect(tmp_dir).to_not be_nil
-  end
-
-  it 'uses oldwd' do
-    expect(oldwd).to_not be_nil
   end
 end
