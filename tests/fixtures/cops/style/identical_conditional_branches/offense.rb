@@ -148,3 +148,28 @@ else
   x = do_something
   ^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `x = do_something` out of the conditional.
 end
+
+# if/else identical leading lines with different formatting
+if RSpec::Core::Version::STRING >= '3'
+  c.include Ammeter::RSpec::Rails::GeneratorExampleHelpers, :type          => :generator
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `c.include Ammeter::RSpec::Rails::GeneratorExampleHelpers, :type          => :generator` out of the conditional.
+  c.include Ammeter::RSpec::Rails::GeneratorExampleGroup,
+    :type          => :generator
+else
+  c.include Ammeter::RSpec::Rails::GeneratorExampleHelpers, :type => :generator
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `c.include Ammeter::RSpec::Rails::GeneratorExampleHelpers, :type          => :generator` out of the conditional.
+  c.include Ammeter::RSpec::Rails::GeneratorExampleGroup, :type => :generator, :example_group => {
+    :file_path => generator_path_regex
+  }
+end
+
+# if/else identical trailing lines with different formatting
+if @root_object.is_a?(Resource)
+  ao_ids = archive_ids
+  date_query = date_query.filter(:archival_object_id => ao_ids)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `date_query = date_query.filter(:archival_object_id => ao_ids)` out of the conditional.
+else
+  ao_ids = []
+  date_query = date_query.filter(:archival_object_id  => ao_ids)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `date_query = date_query.filter(:archival_object_id => ao_ids)` out of the conditional.
+end
