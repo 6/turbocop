@@ -28,6 +28,19 @@ use ruby_prism::Visit;
 ///    RuboCop's `last_child_of_parent?` returns true, suppressing single-
 ///    child-branch head checks. Fixed `is_last_child_of_parent` to also
 ///    check write nodes (LocalVariableWriteNode, etc.).
+///
+/// 4. **FP: setter-call assignments reusing the condition receiver** —
+///    RuboCop treats `object.foo = value` like an assignment whose compared
+///    child node is the receiver (`object`). nitrocop only handled simple
+///    write nodes and `[]=`. Added setter-call receiver extraction so cases
+///    like `if object.present?; object.attributes = ...; else ... end` are
+///    suppressed.
+///
+/// 5. **FN: deep condition call chains** — RuboCop only checks direct child
+///    nodes of the condition when suppressing duplicated assignments.
+///    nitrocop walked all descendants, which over-suppressed offenses like
+///    `if str.to_s.strip.empty?; @distance_string = str; else ... end`.
+///    Narrowed the condition-variable check to direct child variables only.
 pub struct IdenticalConditionalBranches;
 
 struct StatementInfo {
@@ -71,7 +84,12 @@ fn normalized_source_key(src: &str) -> String {
                 }
 
                 if pending_space && !out.is_empty() {
-                    out.push(' ');
+                    let prev = out.chars().next_back();
+                    if !matches!(ch, ',' | ')' | ']' | '}' | ';')
+                        && !matches!(prev, Some('(' | '[' | '{'))
+                    {
+                        out.push(' ');
+                    }
                 }
                 pending_space = false;
                 out.push(ch);
@@ -196,6 +214,13 @@ fn assignment_child_source(source: &SourceFile, node: &ruby_prism::Node<'_>) -> 
     }
     if let Some(w) = node.as_instance_variable_and_write_node() {
         return Some(String::from_utf8_lossy(w.name().as_slice()).to_string());
+    }
+    if let Some(call) = node.as_call_node() {
+        if call.equal_loc().is_some() {
+            return call
+                .receiver()
+                .map(|receiver| node_source(source, &receiver));
+        }
     }
     None
 }
@@ -477,35 +502,54 @@ fn condition_contains_variable_source(
     condition: &ruby_prism::Node<'_>,
     needle: &str,
 ) -> bool {
-    struct VariableFinder<'a> {
+    struct DirectVariableFinder<'a> {
         source: &'a SourceFile,
         needle: &'a str,
+        branch_depth: usize,
         found: bool,
     }
 
-    impl<'a, 'pr> Visit<'pr> for VariableFinder<'a> {
-        fn visit_instance_variable_read_node(
-            &mut self,
-            node: &ruby_prism::InstanceVariableReadNode<'pr>,
-        ) {
-            if node_source(self.source, &node.as_node()) == self.needle {
-                self.found = true;
-            }
+    impl<'a, 'pr> Visit<'pr> for DirectVariableFinder<'a> {
+        fn visit_branch_node_enter(&mut self, _node: ruby_prism::Node<'pr>) {
+            self.branch_depth += 1;
         }
 
-        fn visit_local_variable_read_node(
-            &mut self,
-            node: &ruby_prism::LocalVariableReadNode<'pr>,
-        ) {
-            if node_source(self.source, &node.as_node()) == self.needle {
+        fn visit_branch_node_leave(&mut self) {
+            self.branch_depth -= 1;
+        }
+
+        fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+            if self.branch_depth != 1 {
+                return;
+            }
+
+            let matches = node
+                .as_local_variable_read_node()
+                .map(|n| node_source(self.source, &n.as_node()) == self.needle)
+                .or_else(|| {
+                    node.as_instance_variable_read_node()
+                        .map(|n| node_source(self.source, &n.as_node()) == self.needle)
+                })
+                .or_else(|| {
+                    node.as_class_variable_read_node()
+                        .map(|n| node_source(self.source, &n.as_node()) == self.needle)
+                })
+                .or_else(|| {
+                    node.as_global_variable_read_node()
+                        .map(|n| node_source(self.source, &n.as_node()) == self.needle)
+                })
+                .unwrap_or(false);
+
+            if matches {
                 self.found = true;
             }
         }
     }
 
-    let mut finder = VariableFinder {
+    let mut finder = DirectVariableFinder {
         source,
         needle,
+        branch_depth: 0,
         found: false,
     };
     finder.visit(condition);

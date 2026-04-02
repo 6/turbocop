@@ -146,6 +146,17 @@ else
   @store[key] = value
 end
 
+# if/else identical trailing setter calls that reuse the condition receiver
+object = nil
+obj_hash = {}
+
+if object.present?
+  object.attributes = obj_hash
+else
+  object = Topic.new
+  object.attributes = obj_hash
+end
+
 # unless without else
 unless condition
   do_x
