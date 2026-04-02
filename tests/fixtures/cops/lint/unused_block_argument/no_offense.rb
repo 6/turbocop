@@ -22,6 +22,13 @@ test do |key, value|
   puts something(binding)
 end
 
+# Receiver-qualified `binding` also marks accessible variables as referenced.
+TracePoint.trace(:call) do |tp|
+  tp.parameters.each do |type, name|
+    tp.binding.local_variable_get(name)
+  end
+end
+
 1.times do |index; x|
   x = 10
   puts index
