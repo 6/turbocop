@@ -276,6 +276,7 @@ impl Cop for SafeNavigation {
             in_assignment_or_operator_parent: 0,
             dotted_assignment_parent_starts: Vec::new(),
             in_call_arguments: 0,
+            in_block_argument: 0,
             in_block: 0,
             in_call_receiver: 0,
             in_dynamic_send_args: 0,
@@ -301,6 +302,7 @@ struct SafeNavVisitor<'a> {
     in_assignment_or_operator_parent: usize,
     dotted_assignment_parent_starts: Vec<usize>,
     in_call_arguments: usize,
+    in_block_argument: usize,
     in_block: usize,
     in_call_receiver: usize,
     in_dynamic_send_args: usize,
@@ -503,6 +505,12 @@ impl<'a> SafeNavVisitor<'a> {
 }
 
 impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
+    fn visit_block_argument_node(&mut self, node: &ruby_prism::BlockArgumentNode<'pr>) {
+        self.in_block_argument += 1;
+        ruby_prism::visit_block_argument_node(self, node);
+        self.in_block_argument -= 1;
+    }
+
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         self.in_block += 1;
         ruby_prism::visit_block_node(self, node);
@@ -579,6 +587,11 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
     }
 
     fn visit_and_node(&mut self, node: &ruby_prism::AndNode<'pr>) {
+        if self.in_block_argument > 0 && self.in_block == 0 {
+            self.visit_flattened_and_clauses(node);
+            return;
+        }
+
         // Skip if inside an assignment method, operator call, or dotless method call.
         // RuboCop skips `&&` patterns when any ancestor send node is "unsafe" (dotless,
         // assignment, or operator method). For example, `scope :bar, ->(user) { user && user.name }`
@@ -653,18 +666,19 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
 
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
         let if_node = node;
-        let node_loc = if_node.location();
 
         // Check if it's a ternary (no `if` keyword location in Prism)
         if if_node.if_keyword_loc().is_none() {
-            if self.in_nil_safe_call_ancestor > 0 || self.in_ternary_operator_parent > 0 {
+            if (self.in_block_argument > 0 && self.in_block == 0)
+                || self.in_nil_safe_call_ancestor > 0
+                || self.in_ternary_operator_parent > 0
+            {
                 ruby_prism::visit_if_node(self, node);
                 return;
             }
 
             let diags = self.cop.check_ternary(
                 self.source,
-                &node_loc,
                 if_node,
                 self.max_chain_length,
                 &self.allowed_methods,
@@ -675,6 +689,8 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             ruby_prism::visit_if_node(self, node);
             return;
         }
+
+        let node_loc = if_node.location();
 
         // Check modifier if patterns: `foo.bar if foo`
         let kw = if_node.if_keyword_loc().unwrap();
@@ -697,7 +713,10 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             return;
         }
 
-        if self.in_call_receiver > 0 || self.in_call_arguments > 0 || self.in_dynamic_send_args > 0
+        if (self.in_block_argument > 0 && self.in_block == 0)
+            || self.in_call_receiver > 0
+            || self.in_call_arguments > 0
+            || self.in_dynamic_send_args > 0
         {
             ruby_prism::visit_if_node(self, node);
             return;
@@ -728,7 +747,10 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             return;
         }
 
-        if self.in_call_receiver > 0 || self.in_call_arguments > 0 || self.in_dynamic_send_args > 0
+        if (self.in_block_argument > 0 && self.in_block == 0)
+            || self.in_call_receiver > 0
+            || self.in_call_arguments > 0
+            || self.in_dynamic_send_args > 0
         {
             ruby_prism::visit_unless_node(self, node);
             return;
@@ -834,7 +856,6 @@ impl SafeNavigation {
     fn check_ternary(
         &self,
         source: &SourceFile,
-        node_loc: &ruby_prism::Location<'_>,
         if_node: &ruby_prism::IfNode<'_>,
         max_chain_length: usize,
         allowed_methods: &Option<Vec<String>>,
@@ -1011,6 +1032,7 @@ impl SafeNavigation {
             return Vec::new();
         }
 
+        let node_loc = if_node.location();
         let (line, column) =
             source.offset_to_line_col(offense_start_offset.unwrap_or(node_loc.start_offset()));
         vec![self.diagnostic(

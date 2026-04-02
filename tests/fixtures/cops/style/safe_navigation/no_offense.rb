@@ -96,6 +96,10 @@ send "#{options[:foreign_key]}=", new_value ? new_value.send(options[:primary_ke
 # Conditions already using `&.` are left alone
 callback.call unless callback&.nil?
 
+# Block-pass arguments are skipped like RuboCop
+obj.public_send(@method, *@arguments, &(@block && @block.to_proc))
+obj.public_send(:x, &(foo ? foo.bar : nil))
+
 # If/ternary used as the receiver of another call are skipped
 { debug: (writer_opts[:debug].join("\n") if writer_opts[:debug]) }.to_json
 "#{(model ? model.serial : nil).inspect}"
