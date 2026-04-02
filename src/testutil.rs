@@ -356,6 +356,18 @@ pub fn run_cop_full_internal(
     walker.visit(&parse_result.node());
     diagnostics.extend(walker.diagnostics);
 
+    // VariableForce engine
+    if let Some(consumer) = cop.as_variable_force_consumer() {
+        let registered = crate::cop::variable_force::engine::RegisteredConsumer {
+            consumer,
+            config: &config,
+        };
+        let consumers = [registered];
+        let mut engine = crate::cop::variable_force::engine::Engine::new(&source, &consumers);
+        engine.run(&parse_result);
+        diagnostics.extend(engine.into_diagnostics());
+    }
+
     diagnostics
 }
 

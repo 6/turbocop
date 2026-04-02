@@ -25,6 +25,10 @@ pub struct Assignment {
     /// by sequence, not byte offset, to reflect actual evaluation order.
     /// (RHS of `x = x + 1` is evaluated before the assignment.)
     pub sequence: usize,
+    /// Whether this assignment is inside a conditional branch (if/unless/case,
+    /// while/until, rescue, block, lambda). Used by ShadowedArgument to
+    /// distinguish conditional from unconditional shadowing.
+    pub in_branch: bool,
 }
 
 impl Assignment {
@@ -37,6 +41,7 @@ impl Assignment {
             kind,
             rhs_references_var: false,
             sequence: 0,
+            in_branch: false,
         }
     }
 

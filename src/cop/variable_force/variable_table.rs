@@ -72,12 +72,15 @@ impl VariableTable {
 
     /// Record an assignment to a variable. If the variable doesn't exist in any
     /// accessible scope, it is declared in the current scope first.
-    pub fn assign_to_variable(&mut self, name: &[u8], assignment: Assignment) {
+    /// If the variable belongs to a different scope than the current one,
+    /// `in_branch` is forced to true (block may not execute).
+    pub fn assign_to_variable(&mut self, name: &[u8], mut assignment: Assignment) {
         let current_index = self.current_scope_index();
         // Check if variable exists in accessible scopes
         if let Some(var) = self.find_variable_mut(name) {
             if var.scope_index != current_index {
                 var.captured_by_block = true;
+                assignment.in_branch = true;
             }
             var.assign(assignment);
         } else {

@@ -31,6 +31,10 @@ pub struct Engine<'a> {
     diagnostics: Vec<Diagnostic>,
     /// Monotonically increasing counter for temporal ordering.
     sequence: usize,
+    /// Depth inside conditional/branch constructs (if, unless, case, while,
+    /// until, rescue, block, lambda). Assignments created while > 0 are
+    /// marked `in_branch = true`.
+    branch_depth: usize,
 }
 
 impl<'a> Engine<'a> {
@@ -41,6 +45,7 @@ impl<'a> Engine<'a> {
             consumers,
             diagnostics: Vec::new(),
             sequence: 0,
+            branch_depth: 0,
         }
     }
 
@@ -272,24 +277,27 @@ impl<'pr> Visit<'pr> for Engine<'_> {
             self.declare_variable(name.clone(), offset, DeclarationKind::Assignment);
         }
 
-        // Count references before RHS to detect self-references
-        let refs_before = self
+        // Count explicit references before RHS to detect self-references.
+        // Only explicit references count (not implicit ones from super/binding)
+        // because RuboCop's `uses_var?` only matches `(lvar %)`.
+        let explicit_refs_before = self
             .table
             .find_variable(&name)
-            .map_or(0, |v| v.references.len());
+            .map_or(0, |v| v.references.iter().filter(|r| r.explicit).count());
 
         self.visit(&node.value());
 
-        let refs_after = self
+        let explicit_refs_after = self
             .table
             .find_variable(&name)
-            .map_or(0, |v| v.references.len());
-        let rhs_refs_var = refs_after > refs_before;
+            .map_or(0, |v| v.references.iter().filter(|r| r.explicit).count());
+        let rhs_refs_var = explicit_refs_after > explicit_refs_before;
 
         let seq = self.next_sequence();
         let mut assign = Assignment::new(offset, AssignmentKind::Simple);
         assign.sequence = seq;
         assign.rhs_references_var = rhs_refs_var;
+        assign.in_branch = self.branch_depth > 0;
         self.table.assign_to_variable(&name, assign);
     }
 
@@ -321,6 +329,7 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         let mut a = Assignment::new(offset, AssignmentKind::Operator);
         a.sequence = seq;
         a.rhs_references_var = true; // operator-writes always read the var
+        a.in_branch = self.branch_depth > 0;
         self.table.assign_to_variable(&name, a);
     }
 
@@ -343,6 +352,7 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         let mut a = Assignment::new(offset, AssignmentKind::LogicalOr);
         a.sequence = seq;
         a.rhs_references_var = true;
+        a.in_branch = self.branch_depth > 0;
         self.table.assign_to_variable(&name, a);
     }
 
@@ -365,11 +375,76 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         let mut a = Assignment::new(offset, AssignmentKind::LogicalAnd);
         a.sequence = seq;
         a.rhs_references_var = true;
+        a.in_branch = self.branch_depth > 0;
         self.table.assign_to_variable(&name, a);
     }
 
     fn visit_multi_write_node(&mut self, node: &ruby_prism::MultiWriteNode<'pr>) {
+        // Collect target names before visiting the RHS so we can detect self-refs
+        let mut target_names: Vec<Vec<u8>> = Vec::new();
+        for target in node.lefts().iter() {
+            if let Some(t) = target.as_local_variable_target_node() {
+                target_names.push(t.name().as_slice().to_vec());
+            }
+        }
+        if let Some(rest) = node.rest() {
+            if let Some(splat) = rest.as_splat_node() {
+                if let Some(expr) = splat.expression() {
+                    if let Some(t) = expr.as_local_variable_target_node() {
+                        target_names.push(t.name().as_slice().to_vec());
+                    }
+                }
+            }
+        }
+        for target in node.rights().iter() {
+            if let Some(t) = target.as_local_variable_target_node() {
+                target_names.push(t.name().as_slice().to_vec());
+            }
+        }
+
+        // Bare `super` (ForwardingSuperNode) implicitly forwards all method
+        // arguments, so any argument target in a `a, b = super` multi-write
+        // is effectively "used" on the RHS.
+        let rhs_is_forwarding_super = node.value().as_forwarding_super_node().is_some();
+
+        // Snapshot explicit reference counts before RHS
+        let refs_before: Vec<(Vec<u8>, usize)> = target_names
+            .iter()
+            .map(|name| {
+                let count = self
+                    .table
+                    .find_variable(name)
+                    .map_or(0, |v| v.references.iter().filter(|r| r.explicit).count());
+                (name.clone(), count)
+            })
+            .collect();
+
         self.visit(&node.value());
+
+        // Check which targets gained explicit references from the RHS.
+        // If the RHS is bare `super`, treat all argument variables as referenced.
+        let rhs_refs: Vec<(Vec<u8>, bool)> = refs_before
+            .iter()
+            .map(|(name, before)| {
+                let explicitly_ref = {
+                    let after = self
+                        .table
+                        .find_variable(name)
+                        .map_or(0, |v| v.references.iter().filter(|r| r.explicit).count());
+                    after > *before
+                };
+                let super_ref = rhs_is_forwarding_super
+                    && self
+                        .table
+                        .find_variable(name)
+                        .is_some_and(|v| v.is_argument());
+                (name.clone(), explicitly_ref || super_ref)
+            })
+            .collect();
+
+        let in_branch = self.branch_depth > 0;
+        let seq = self.next_sequence();
+
         for target in node.lefts().iter() {
             if let Some(t) = target.as_local_variable_target_node() {
                 let name = t.name().as_slice().to_vec();
@@ -377,8 +452,15 @@ impl<'pr> Visit<'pr> for Engine<'_> {
                 if !self.table.variable_exists(&name) {
                     self.declare_variable(name.clone(), offset, DeclarationKind::Assignment);
                 }
-                self.table
-                    .assign_to_variable(&name, Assignment::new(offset, AssignmentKind::Multiple));
+                let rhs_refs_var = rhs_refs
+                    .iter()
+                    .find(|(n, _)| n == &name)
+                    .is_some_and(|(_, r)| *r);
+                let mut a = Assignment::new(offset, AssignmentKind::Multiple);
+                a.in_branch = in_branch;
+                a.sequence = seq;
+                a.rhs_references_var = rhs_refs_var;
+                self.table.assign_to_variable(&name, a);
             } else {
                 self.visit(&target);
             }
@@ -396,10 +478,15 @@ impl<'pr> Visit<'pr> for Engine<'_> {
                                 DeclarationKind::Assignment,
                             );
                         }
-                        self.table.assign_to_variable(
-                            &name,
-                            Assignment::new(offset, AssignmentKind::Rest),
-                        );
+                        let rhs_refs_var = rhs_refs
+                            .iter()
+                            .find(|(n, _)| n == &name)
+                            .is_some_and(|(_, r)| *r);
+                        let mut a = Assignment::new(offset, AssignmentKind::Rest);
+                        a.in_branch = in_branch;
+                        a.sequence = seq;
+                        a.rhs_references_var = rhs_refs_var;
+                        self.table.assign_to_variable(&name, a);
                     }
                 }
             } else {
@@ -413,8 +500,15 @@ impl<'pr> Visit<'pr> for Engine<'_> {
                 if !self.table.variable_exists(&name) {
                     self.declare_variable(name.clone(), offset, DeclarationKind::Assignment);
                 }
-                self.table
-                    .assign_to_variable(&name, Assignment::new(offset, AssignmentKind::Multiple));
+                let rhs_refs_var = rhs_refs
+                    .iter()
+                    .find(|(n, _)| n == &name)
+                    .is_some_and(|(_, r)| *r);
+                let mut a = Assignment::new(offset, AssignmentKind::Multiple);
+                a.in_branch = in_branch;
+                a.sequence = seq;
+                a.rhs_references_var = rhs_refs_var;
+                self.table.assign_to_variable(&name, a);
             } else {
                 self.visit(&target);
             }
@@ -431,6 +525,8 @@ impl<'pr> Visit<'pr> for Engine<'_> {
             ScopeKind::Def
         };
         let loc = node.location();
+        let saved_depth = self.branch_depth;
+        self.branch_depth = 0;
         self.enter_scope(kind, loc.start_offset(), loc.end_offset());
         if let Some(params) = node.parameters() {
             self.declare_parameters(&params);
@@ -439,10 +535,16 @@ impl<'pr> Visit<'pr> for Engine<'_> {
             self.visit(&body);
         }
         self.leave_scope();
+        self.branch_depth = saved_depth;
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let loc = node.location();
+        // Save and reset branch_depth: block body starts a fresh scope.
+        // Assignments to outer variables are marked captured_by_block by the
+        // variable table, which the cop uses as a conditional indicator.
+        let saved_depth = self.branch_depth;
+        self.branch_depth = 0;
         self.enter_scope(ScopeKind::Block, loc.start_offset(), loc.end_offset());
         if let Some(params) = node.parameters() {
             if let Some(bp) = params.as_block_parameters_node() {
@@ -453,10 +555,13 @@ impl<'pr> Visit<'pr> for Engine<'_> {
             self.visit(&body);
         }
         self.leave_scope();
+        self.branch_depth = saved_depth;
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
         let loc = node.location();
+        let saved_depth = self.branch_depth;
+        self.branch_depth = 0;
         self.enter_scope(ScopeKind::Block, loc.start_offset(), loc.end_offset());
         if let Some(params) = node.parameters() {
             if let Some(bp) = params.as_block_parameters_node() {
@@ -467,6 +572,7 @@ impl<'pr> Visit<'pr> for Engine<'_> {
             self.visit(&body);
         }
         self.leave_scope();
+        self.branch_depth = saved_depth;
     }
 
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
@@ -504,22 +610,108 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         self.leave_scope();
     }
 
-    fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
         self.visit(&node.predicate());
+        self.branch_depth += 1;
         if let Some(stmts) = node.statements() {
             for stmt in stmts.body().iter() {
                 self.visit(&stmt);
             }
         }
+        self.branch_depth -= 1;
+        if let Some(subsequent) = node.subsequent() {
+            self.branch_depth += 1;
+            self.visit(&subsequent);
+            self.branch_depth -= 1;
+        }
+    }
+
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        self.visit(&node.predicate());
+        self.branch_depth += 1;
+        if let Some(stmts) = node.statements() {
+            for stmt in stmts.body().iter() {
+                self.visit(&stmt);
+            }
+        }
+        if let Some(else_clause) = node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                for stmt in stmts.body().iter() {
+                    self.visit(&stmt);
+                }
+            }
+        }
+        self.branch_depth -= 1;
+    }
+
+    fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
+        if let Some(pred) = node.predicate() {
+            self.visit(&pred);
+        }
+        self.branch_depth += 1;
+        for condition in node.conditions().iter() {
+            self.visit(&condition);
+        }
+        if let Some(else_clause) = node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                for stmt in stmts.body().iter() {
+                    self.visit(&stmt);
+                }
+            }
+        }
+        self.branch_depth -= 1;
+    }
+
+    fn visit_case_match_node(&mut self, node: &ruby_prism::CaseMatchNode<'pr>) {
+        if let Some(pred) = node.predicate() {
+            self.visit(&pred);
+        }
+        self.branch_depth += 1;
+        for condition in node.conditions().iter() {
+            self.visit(&condition);
+        }
+        if let Some(else_clause) = node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                for stmt in stmts.body().iter() {
+                    self.visit(&stmt);
+                }
+            }
+        }
+        self.branch_depth -= 1;
+    }
+
+    fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        self.visit(&node.predicate());
+        self.branch_depth += 1;
+        if let Some(stmts) = node.statements() {
+            for stmt in stmts.body().iter() {
+                self.visit(&stmt);
+            }
+        }
+        self.branch_depth -= 1;
     }
 
     fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
         self.visit(&node.predicate());
+        self.branch_depth += 1;
         if let Some(stmts) = node.statements() {
             for stmt in stmts.body().iter() {
                 self.visit(&stmt);
             }
         }
+        self.branch_depth -= 1;
+    }
+
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        self.branch_depth += 1;
+        ruby_prism::visit_rescue_node(self, node);
+        self.branch_depth -= 1;
+    }
+
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        self.branch_depth += 1;
+        ruby_prism::visit_begin_node(self, node);
+        self.branch_depth -= 1;
     }
 
     fn visit_for_node(&mut self, node: &ruby_prism::ForNode<'pr>) {
@@ -531,8 +723,9 @@ impl<'pr> Visit<'pr> for Engine<'_> {
             if !self.table.variable_exists(&name) {
                 self.declare_variable(name.clone(), offset, DeclarationKind::ForIndex);
             }
-            self.table
-                .assign_to_variable(&name, Assignment::new(offset, AssignmentKind::For));
+            let mut a = Assignment::new(offset, AssignmentKind::For);
+            a.in_branch = self.branch_depth > 0;
+            self.table.assign_to_variable(&name, a);
         } else {
             self.visit(&index);
         }
