@@ -169,3 +169,296 @@ impl VariableTable {
         result
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cop::variable_force::assignment::AssignmentKind;
+
+    fn decl(table: &mut VariableTable, name: &str, kind: DeclarationKind) {
+        table.declare_variable(name.as_bytes().to_vec(), 0, kind);
+    }
+
+    fn assign(table: &mut VariableTable, name: &str, offset: usize) {
+        table.assign_to_variable(
+            name.as_bytes(),
+            Assignment::new(offset, AssignmentKind::Simple),
+        );
+    }
+
+    fn refer(table: &mut VariableTable, name: &str, offset: usize) {
+        let si = table.current_scope_index();
+        table.reference_variable(name.as_bytes(), Reference::new(offset, si));
+    }
+
+    // ── Scope stack basics ─────────────────────────────────────────────
+
+    #[test]
+    fn test_push_pop_scope() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 100);
+        assert_eq!(t.scope_depth(), 1);
+        t.push_scope(ScopeKind::Def, 10, 90);
+        assert_eq!(t.scope_depth(), 2);
+        let popped = t.pop_scope();
+        assert_eq!(popped.kind, ScopeKind::Def);
+        assert_eq!(t.scope_depth(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "scope stack underflow")]
+    fn test_pop_empty_panics() {
+        let mut t = VariableTable::new();
+        t.pop_scope();
+    }
+
+    // ── Variable declaration ───────────────────────────────────────────
+
+    #[test]
+    fn test_declare_variable() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 100);
+        assert!(t.declare_variable(b"x".to_vec(), 5, DeclarationKind::Assignment));
+        assert!(t.variable_exists(b"x"));
+        assert!(!t.variable_exists(b"y"));
+    }
+
+    #[test]
+    fn test_declare_duplicate_returns_false() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 100);
+        assert!(t.declare_variable(b"x".to_vec(), 5, DeclarationKind::Assignment));
+        assert!(!t.declare_variable(b"x".to_vec(), 10, DeclarationKind::Assignment));
+    }
+
+    // ── Hard scope boundaries ──────────────────────────────────────────
+
+    #[test]
+    fn test_def_blocks_outer_variable_access() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 100);
+        decl(&mut t, "x", DeclarationKind::Assignment);
+
+        t.push_scope(ScopeKind::Def, 10, 90);
+        // x should NOT be visible inside def
+        assert!(!t.variable_exists(b"x"));
+        assert!(t.find_variable(b"x").is_none());
+        t.pop_scope();
+
+        // x still visible at top level
+        assert!(t.variable_exists(b"x"));
+    }
+
+    #[test]
+    fn test_class_blocks_outer_variable_access() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 100);
+        decl(&mut t, "x", DeclarationKind::Assignment);
+
+        t.push_scope(ScopeKind::Class, 10, 90);
+        assert!(!t.variable_exists(b"x"));
+        t.pop_scope();
+    }
+
+    #[test]
+    fn test_module_blocks_outer_variable_access() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 100);
+        decl(&mut t, "x", DeclarationKind::Assignment);
+
+        t.push_scope(ScopeKind::Module, 10, 90);
+        assert!(!t.variable_exists(b"x"));
+        t.pop_scope();
+    }
+
+    // ── Twisted scope (block) allows outer access ──────────────────────
+
+    #[test]
+    fn test_block_sees_outer_variable() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::Def, 0, 100);
+        decl(&mut t, "x", DeclarationKind::Assignment);
+
+        t.push_scope(ScopeKind::Block, 10, 90);
+        // x IS visible inside block (twisted scope)
+        assert!(t.variable_exists(b"x"));
+        assert!(t.find_variable(b"x").is_some());
+        t.pop_scope();
+    }
+
+    #[test]
+    fn test_nested_blocks_see_outer() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::Def, 0, 100);
+        decl(&mut t, "x", DeclarationKind::Assignment);
+
+        t.push_scope(ScopeKind::Block, 10, 90);
+        t.push_scope(ScopeKind::Block, 20, 80);
+        // x visible through two nested blocks
+        assert!(t.variable_exists(b"x"));
+        t.pop_scope();
+        t.pop_scope();
+    }
+
+    #[test]
+    fn test_block_inside_class_does_not_see_pre_class_vars() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 200);
+        decl(&mut t, "x", DeclarationKind::Assignment);
+
+        t.push_scope(ScopeKind::Class, 10, 190);
+        t.push_scope(ScopeKind::Block, 20, 180);
+        // x NOT visible — class is a hard boundary
+        assert!(!t.variable_exists(b"x"));
+        t.pop_scope();
+        t.pop_scope();
+    }
+
+    // ── Assignment tracking ────────────────────────────────────────────
+
+    #[test]
+    fn test_assign_creates_variable_if_missing() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 100);
+        assign(&mut t, "x", 5);
+        assert!(t.variable_exists(b"x"));
+        let var = t.find_variable(b"x").unwrap();
+        assert_eq!(var.assignments.len(), 1);
+    }
+
+    #[test]
+    fn test_assign_to_outer_marks_captured() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::Def, 0, 100);
+        decl(&mut t, "x", DeclarationKind::Assignment);
+
+        t.push_scope(ScopeKind::Block, 10, 90);
+        assign(&mut t, "x", 20);
+        t.pop_scope();
+
+        let var = t.find_variable(b"x").unwrap();
+        assert!(var.captured_by_block);
+        assert_eq!(var.assignments.len(), 1);
+    }
+
+    #[test]
+    fn test_cross_scope_assign_forces_in_branch() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::Def, 0, 100);
+        decl(&mut t, "x", DeclarationKind::Assignment);
+
+        t.push_scope(ScopeKind::Block, 10, 90);
+        assign(&mut t, "x", 20);
+        t.pop_scope();
+
+        let var = t.find_variable(b"x").unwrap();
+        assert!(var.assignments[0].in_branch);
+    }
+
+    // ── Reference tracking ─────────────────────────────────────────────
+
+    #[test]
+    fn test_reference_marks_used() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 100);
+        decl(&mut t, "x", DeclarationKind::Assignment);
+        refer(&mut t, "x", 10);
+        let var = t.find_variable(b"x").unwrap();
+        assert!(var.used());
+        assert_eq!(var.references.len(), 1);
+    }
+
+    #[test]
+    fn test_reference_from_block_marks_captured() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::Def, 0, 100);
+        decl(&mut t, "x", DeclarationKind::Assignment);
+
+        t.push_scope(ScopeKind::Block, 10, 90);
+        refer(&mut t, "x", 20);
+        t.pop_scope();
+
+        let var = t.find_variable(b"x").unwrap();
+        assert!(var.captured_by_block);
+        assert!(var.used());
+    }
+
+    #[test]
+    fn test_reference_to_unknown_var_is_ignored() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 100);
+        // Should not panic
+        refer(&mut t, "nonexistent", 5);
+    }
+
+    // ── accessible_variables_mut ───────────────────────────────────────
+
+    #[test]
+    fn test_accessible_variables_stops_at_hard_scope() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 200);
+        decl(&mut t, "outer", DeclarationKind::Assignment);
+
+        t.push_scope(ScopeKind::Def, 10, 190);
+        decl(&mut t, "method_var", DeclarationKind::Assignment);
+
+        t.push_scope(ScopeKind::Block, 20, 180);
+        decl(&mut t, "block_var", DeclarationKind::Assignment);
+
+        let vars = t.accessible_variables_mut();
+        let names: Vec<String> = vars
+            .iter()
+            .map(|v| String::from_utf8_lossy(&v.name).to_string())
+            .collect();
+        // Should see block_var and method_var, but NOT outer (def is hard boundary)
+        assert!(names.contains(&"block_var".to_string()));
+        assert!(names.contains(&"method_var".to_string()));
+        assert!(!names.contains(&"outer".to_string()));
+    }
+
+    // ── accessible_scopes ──────────────────────────────────────────────
+
+    #[test]
+    fn test_accessible_scopes() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 200);
+        t.push_scope(ScopeKind::Def, 10, 190);
+        t.push_scope(ScopeKind::Block, 20, 180);
+        t.push_scope(ScopeKind::Block, 30, 170);
+
+        let scopes = t.accessible_scopes();
+        // Should see: Block(30), Block(20), Def(10) — stops at Def (hard)
+        assert_eq!(scopes.len(), 3);
+        assert_eq!(scopes[0].kind, ScopeKind::Block);
+        assert_eq!(scopes[1].kind, ScopeKind::Block);
+        assert_eq!(scopes[2].kind, ScopeKind::Def);
+    }
+
+    // ── Multiple assignments to same variable ──────────────────────────
+
+    #[test]
+    fn test_reassignment_marks_previous_as_reassigned() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 100);
+        assign(&mut t, "x", 5);
+        assign(&mut t, "x", 15);
+
+        let var = t.find_variable(b"x").unwrap();
+        assert_eq!(var.assignments.len(), 2);
+        assert!(var.assignments[0].reassigned);
+        assert!(!var.assignments[1].reassigned);
+    }
+
+    #[test]
+    fn test_referenced_assignment_not_marked_reassigned() {
+        let mut t = VariableTable::new();
+        t.push_scope(ScopeKind::TopLevel, 0, 100);
+        assign(&mut t, "x", 5);
+        refer(&mut t, "x", 10); // reference before second assignment
+        assign(&mut t, "x", 15);
+
+        let var = t.find_variable(b"x").unwrap();
+        assert!(var.assignments[0].referenced);
+        assert!(!var.assignments[0].reassigned); // was referenced, so not "dead"
+    }
+}
