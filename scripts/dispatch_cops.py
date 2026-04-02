@@ -88,6 +88,7 @@ VARIABLE_FORCE_CONSUMERS = {
     "Style/InfiniteLoop",
     "Style/MapIntoArray",
     "RSpec/LeakyLocalVariable",
+    "Rails/SaveBang",
 }
 
 # Department PascalCase → snake_case directory name in src/cop/ and tests/fixtures/
