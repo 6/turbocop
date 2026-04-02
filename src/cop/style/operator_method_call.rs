@@ -10,19 +10,17 @@ use crate::parse::source::SourceFile;
 
 /// Style/OperatorMethodCall — flags redundant dot before operator methods.
 ///
-/// Investigation (2026-04-02): the remaining false negatives came from two places.
-/// First, `OPERATOR_METHODS` was missing RuboCop operators like `=~`, so cases like
-/// `@regexp.=~(@string)` were never considered. Second, the old source-text heuristic
-/// over-modeled RuboCop's parenthesized-call exemption and skipped real offenses such as
-/// `65.+(rand(25)).chr`, `self.==(other)`, and `array.-(other).length`.
+/// Investigation (2026-04-02): Prism wraps call arguments in `ArgumentsNode`, so
+/// RuboCop's `argument.parent.parent&.send_type?` maps to "the parenthesized
+/// operator call has an outer call parent", not simply "the operator call is an
+/// argument". The previous port skipped every parenthesized operator call used as
+/// an argument, which hid real offenses like `be.<(described_class)` and other
+/// bare no-receiver RHS cases.
 ///
-/// Fix: cache each call node's Prism parent/grandparent once per file, then mirror the
-/// real RuboCop boundary:
-/// - skip parenthesized operator calls used as arguments to another call
-/// - skip chained parenthesized calls only when the RHS has a Parser-style truthy first
-///   child (for example `foo.+(@bar).to_s` or `scopes.-(%i[x]).any?`)
-///
-/// Bare no-receiver calls like `other` and `rand(25)` remain offenses.
+/// Fix: only apply RuboCop's parenthesized-call exemption when the operator call
+/// is nested under another call and the RHS has a Parser-like truthy first child.
+/// Bare no-receiver calls like `described_class`, `b`, and `other` remain
+/// offenses even when the operator call is passed to another method.
 pub struct OperatorMethodCall;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
@@ -276,12 +274,10 @@ impl Cop for OperatorMethodCall {
         if call.opening_loc().is_some() {
             let context = call_context(parse_result, source, &call);
 
-            if context.parent_call_relation == ParentCallRelation::Argument {
-                return;
-            }
-
-            if context.parent_call_relation == ParentCallRelation::Receiver
-                && parser_like_first_child_truthy(&arg)
+            if matches!(
+                context.parent_call_relation,
+                ParentCallRelation::Argument | ParentCallRelation::Receiver
+            ) && parser_like_first_child_truthy(&arg)
             {
                 return;
             }
