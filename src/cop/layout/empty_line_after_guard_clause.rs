@@ -374,6 +374,27 @@ use crate::parse::source::SourceFile;
 /// guard: RuboCop checks spacing after the guard line itself, not after the
 /// heredoc terminator. Fix: only extend the effective end line for heredocs
 /// that live in the guard body/arguments, not condition-only heredocs.
+///
+/// ## Corpus investigation (2026-04-02: `@if` ivars and `?>` char literals)
+///
+/// Two remaining corpus mismatches came from overly broad text heuristics:
+///
+/// 1. **`@if` / `$if` were counted as modifier keywords**: next-sibling guard
+///    classification uses word-boundary checks on raw text. The old boundary
+///    logic treated `@if.nil?` as containing a standalone `if`, so
+///    `next unless @if.nil? || @if.call(...)` was rejected as a consecutive
+///    guard and nitrocop flagged the previous guard. Fix: treat Ruby variable
+///    sigils (`@`, `$`) as identifier characters for keyword-boundary checks.
+///
+/// 2. **Character literals ending with `>` / `<` were treated as continuation
+///    operators**: `is_multiline_guard_block` uses `ends_with_continuation()`
+///    to keep scanning multi-line `if` conditions. A line like `if byte == ?>`
+///    ends with the bytes `?>`, not a dangling `>` comparison operator, but the
+///    old helper still treated it as a continuation. That caused the next body
+///    line to be skipped and a later `break` to be misread as the first branch
+///    statement, suppressing a real offense. Fix: keep bare `>` / `<`
+///    continuation handling for comparison operators, but reject Ruby char
+///    literals `?>` and `?<`.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -1352,8 +1373,8 @@ fn ends_with_continuation(stripped: &[u8]) -> bool {
         || stripped.ends_with(b"\\")
         || stripped.ends_with(b",")
         || stripped.ends_with(b"+")
-        || stripped.ends_with(b">")
-        || stripped.ends_with(b"<")
+        || (stripped.ends_with(b">") && !stripped.ends_with(b"?>"))
+        || (stripped.ends_with(b"<") && !stripped.ends_with(b"?<"))
         || stripped.ends_with(b"==")
         || stripped.ends_with(b"!=")
         || stripped.ends_with(b"===")
@@ -2502,7 +2523,7 @@ fn contains_pattern_at_top_level(
 }
 
 fn is_ident_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_' || b == b'!' || b == b'?'
+    b.is_ascii_alphanumeric() || matches!(b, b'_' | b'!' | b'?' | b'@' | b'$')
 }
 
 /// Check if a line is an "allowed directive comment" per RuboCop's definition.
