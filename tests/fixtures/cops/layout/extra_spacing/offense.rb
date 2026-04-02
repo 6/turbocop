@@ -124,11 +124,17 @@ RSpec.describe('PosixClass parsing') do
     [0, 0] => [:nonposixclass, :word, PosixClass, name: 'word', text: '[:^word:]']
 end
 
-let(:output_missing) {      <<-EOT
-^ Layout/ExtraSpacing: Unnecessary spacing detected.
+# Spaces before a same-line heredoc opener are still offenses
+let(:hiera_config) {      <<~CONF }
+                    ^^^^^ Layout/ExtraSpacing: Unnecessary spacing detected.
+---
+version: 5
+CONF
 
-"  }
-^ Layout/ExtraSpacing: Unnecessary spacing detected.
+# Spaces before a non-heredoc same-line block closer are still offenses
+let(:output_missing) { ""  }
+                         ^ Layout/ExtraSpacing: Unnecessary spacing detected.
 
-when %r{DBSubnetGroup/VpcId$}                              then @item[:db_subnet_group][:vpc_id]             = @text
-^ Layout/ExtraSpacing: Unnecessary spacing detected.
+# Spaces before a chained `.` are still offenses for single-line receivers
+data = { a: 1 }  .transform_values
+               ^ Layout/ExtraSpacing: Unnecessary spacing detected.
