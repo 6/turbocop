@@ -3,6 +3,19 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Layout/SpaceInsideHashLiteralBraces
+///
+/// Investigation notes (2026-04-02, FP=2, FN=0):
+/// - RuboCop skips the right-brace check when the token immediately before `}`
+///   is a multiline plain string literal that starts on an earlier line, even if
+///   the closing quote is adjacent to `}`.
+/// - Nitrocop was only looking for a raw newline before `}`, so hashes ending in
+///   line-continued `StringNode` values like `{ error: "...\n..."}` were falsely
+///   flagged.
+/// - Fixed by exempting only the closing-brace check when the last hash value is
+///   a multiline, non-heredoc `StringNode` whose closing quote sits immediately
+///   before the hash's `}`. Multiline calls, arrays, and interpolated strings
+///   still follow the normal spacing rule.
 pub struct SpaceInsideHashLiteralBraces;
 
 struct BraceSpan {
@@ -10,6 +23,7 @@ struct BraceSpan {
     open_end: usize,
     close_start: usize,
     has_elements: bool,
+    close_follows_multiline_plain_string: bool,
 }
 
 impl SpaceInsideHashLiteralBraces {
@@ -29,6 +43,7 @@ impl SpaceInsideHashLiteralBraces {
             open_end,
             close_start,
             has_elements,
+            close_follows_multiline_plain_string,
         } = *span;
         let bytes = source.as_bytes();
         let empty_style = config.get_str("EnforcedStyleForEmptyBraces", "no_space");
@@ -110,7 +125,7 @@ impl SpaceInsideHashLiteralBraces {
         };
 
         // Check closing brace: skip if there's a line break between last content and brace
-        let skip_close = {
+        let skip_close = close_follows_multiline_plain_string || {
             // Scan past spaces/tabs before the closing brace
             let mut pos = close_start;
             while pos > open_end && matches!(bytes[pos - 1], b' ' | b'\t') {
@@ -230,6 +245,41 @@ impl SpaceInsideHashLiteralBraces {
             }
         }
     }
+
+    fn close_follows_multiline_plain_string_value(
+        source: &SourceFile,
+        element: &ruby_prism::Node<'_>,
+        close_start: usize,
+    ) -> bool {
+        let Some(assoc) = element.as_assoc_node() else {
+            return false;
+        };
+
+        Self::is_multiline_plain_string_ending_at_close(source, &assoc.value(), close_start)
+    }
+
+    fn is_multiline_plain_string_ending_at_close(
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        close_start: usize,
+    ) -> bool {
+        let Some(string) = node.as_string_node() else {
+            return false;
+        };
+        let (Some(opening), Some(closing)) = (string.opening_loc(), string.closing_loc()) else {
+            return false;
+        };
+
+        if opening.as_slice().starts_with(b"<<") || closing.start_offset() + 1 != close_start {
+            return false;
+        }
+
+        let start_line = source.offset_to_line_col(node.location().start_offset()).0;
+        let end_offset = node.location().end_offset().saturating_sub(1);
+        let end_line = source.offset_to_line_col(end_offset).0;
+
+        start_line < end_line
+    }
 }
 
 impl Cop for SpaceInsideHashLiteralBraces {
@@ -259,6 +309,7 @@ impl Cop for SpaceInsideHashLiteralBraces {
             // handled — this cop only applies to hash literals with `{ }` braces.
             let opening = hash.opening_loc();
             let closing = hash.closing_loc();
+            let elements: Vec<_> = hash.elements().iter().collect();
 
             // Only check hash literals with { }
             if opening.as_slice() != b"{" || closing.as_slice() != b"}" {
@@ -271,7 +322,14 @@ impl Cop for SpaceInsideHashLiteralBraces {
                     open_start: opening.start_offset(),
                     open_end: opening.end_offset(),
                     close_start: closing.start_offset(),
-                    has_elements: !hash.elements().is_empty(),
+                    has_elements: !elements.is_empty(),
+                    close_follows_multiline_plain_string: elements.last().is_some_and(|element| {
+                        Self::close_follows_multiline_plain_string_value(
+                            source,
+                            element,
+                            closing.start_offset(),
+                        )
+                    }),
                 },
                 config,
                 diagnostics,
@@ -287,6 +345,7 @@ impl Cop for SpaceInsideHashLiteralBraces {
                 Some(loc) => loc,
                 None => return,
             };
+            let elements: Vec<_> = hash_pattern.elements().iter().collect();
 
             // Only check patterns with { } braces (not Foo[...] syntax)
             if opening.as_slice() != b"{" || closing.as_slice() != b"}" {
@@ -299,7 +358,14 @@ impl Cop for SpaceInsideHashLiteralBraces {
                     open_start: opening.start_offset(),
                     open_end: opening.end_offset(),
                     close_start: closing.start_offset(),
-                    has_elements: !hash_pattern.elements().is_empty(),
+                    has_elements: !elements.is_empty(),
+                    close_follows_multiline_plain_string: elements.last().is_some_and(|element| {
+                        Self::close_follows_multiline_plain_string_value(
+                            source,
+                            element,
+                            closing.start_offset(),
+                        )
+                    }),
                 },
                 config,
                 diagnostics,
@@ -457,5 +523,30 @@ mod tests {
             0,
             "Hash with comment after brace should not flag"
         );
+    }
+
+    #[test]
+    fn multiline_plain_string_last_value_does_not_flag_right_brace() {
+        let source = b"response_body = { error: \"first line \\\nsecond line\"}\n";
+        let diags =
+            run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, CopConfig::default());
+        assert_eq!(
+            diags.len(),
+            0,
+            "Multiline plain string values should not flag the closing brace"
+        );
+    }
+
+    #[test]
+    fn multiline_call_last_value_still_flags_right_brace() {
+        let source = b"response_body = { error: some_call(\n  foo)}\n";
+        let diags =
+            run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, CopConfig::default());
+        assert_eq!(
+            diags.len(),
+            1,
+            "Only multiline plain strings should skip the closing brace check"
+        );
+        assert!(diags[0].message.contains("Space inside } missing."));
     }
 }
