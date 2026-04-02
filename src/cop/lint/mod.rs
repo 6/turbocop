@@ -336,7 +336,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(shadowed_argument::ShadowedArgument));
     registry.register(Box::new(shadowed_exception::ShadowedException));
     registry.register(Box::new(
-        shadowing_outer_local_variable::ShadowingOuterLocalVariable,
+        shadowing_outer_local_variable::ShadowingOuterLocalVariable::new(),
     ));
     registry.register(Box::new(shared_mutable_default::SharedMutableDefault));
     registry.register(Box::new(struct_new_override::StructNewOverride));
