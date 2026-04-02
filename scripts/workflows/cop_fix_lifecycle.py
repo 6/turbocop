@@ -1154,12 +1154,14 @@ def cmd_finalize(args: list[str]) -> int:
 
     # 7. Push + promote
     _git("push", "origin", f"HEAD:{opts.branch}", "--force")
+    pushed_sha = _git("rev-parse", "HEAD").stdout.strip()
     r = _run([
         sys.executable, str(SCRIPTS_DIR / "workflow_git.py"),
         "promote",
         "--repo", opts.repo,
         "--branch", opts.branch,
         "--message", f"Fix {opts.cop}: agent-generated fix{mode_note} ({opts.backend})",
+        "--expected-sha", pushed_sha,
     ])
     promote_result = {}
     for line in r.stdout.strip().splitlines():
