@@ -28,12 +28,13 @@ use crate::parse::source::SourceFile;
 /// interpolation check. We replicate this offset so that `#\@` and `#\$` in
 /// `%r` regexps are flagged as redundant, matching RuboCop.
 ///
-/// **FP fix (2 FP):** RuboCop drops interpolated parts and feeds concatenated
-/// string parts to `regexp_parser`. When an interpolation was the sole atom
-/// before a quantifier (e.g., `#{x}+`), dropping it leaves an orphaned `+`
-/// that causes a parse error, so RuboCop skips the entire regexp. We replicate
-/// this by pre-scanning interpolated regexp parts: if any string part after an
-/// interpolation starts with `+`, `*`, or `?`, we skip the regexp.
+/// **FN fix (5 FN):** A later change added a pre-scan that skipped any
+/// interpolated regexp when a string chunk after interpolation began with `+`,
+/// `*`, or `?`. Real corpus cases like `/\<#{node}*/`,
+/// `%r{(https?:\/\/)(/#{x}*)?}x`, `/(\|[^\|]+\||#{x}#{y}*)/`, and
+/// `/(?:#{id}|#{op}+\`[^`]+`)/` are still reported by RuboCop, so that guard
+/// was overfit and suppressed legitimate diagnostics. Removing it restores the
+/// missing offenses while the narrower block-call quirk remains in place.
 pub struct RedundantRegexpEscape;
 
 /// Characters that need escaping OUTSIDE a character class in regexp
@@ -120,34 +121,6 @@ impl Cop for RedundantRegexpEscape {
 
         let scan_full_interpolated =
             !followed_by_block_opener(source.as_bytes(), node_loc.end_offset());
-
-        // Pre-scan: if any string part after an interpolation starts with an
-        // orphaned quantifier (+, *, ?), RuboCop's regexp_parser would fail to
-        // parse the concatenated content and skip the whole regexp.
-        if scan_full_interpolated {
-            let mut prev_was_interpolation = false;
-            for part in re.parts().iter() {
-                if let Some(string) = part.as_string_node() {
-                    if prev_was_interpolation {
-                        let bytes = string.content_loc().as_slice();
-                        let first_significant = if flags.extended {
-                            bytes
-                                .iter()
-                                .find(|&&b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'))
-                                .copied()
-                        } else {
-                            bytes.first().copied()
-                        };
-                        if matches!(first_significant, Some(b'+' | b'*' | b'?')) {
-                            return;
-                        }
-                    }
-                    prev_was_interpolation = false;
-                } else {
-                    prev_was_interpolation = true;
-                }
-            }
-        }
 
         for part in re.parts().iter() {
             if let Some(string) = part.as_string_node() {

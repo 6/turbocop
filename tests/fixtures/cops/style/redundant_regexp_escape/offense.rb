@@ -61,3 +61,29 @@ id = %r((?!\#[a-zA-Z])[\w#\$%']+)
 
 rule %r/#{id}[%&@!#\$]?/, Name
                    ^^ Style/RedundantRegexpEscape: Redundant escape of `$` in regexp.
+
+!!(text =~ /\<#{node}*/ )
+            ^^ Style/RedundantRegexpEscape: Redundant escape of `<` in regexp.
+
+valid = /x/
+url_pattern = %r{
+  (#{valid})
+  (https?:\/\/)
+          ^^ Style/RedundantRegexpEscape: Redundant escape of `/` in regexp.
+            ^^ Style/RedundantRegexpEscape: Redundant escape of `/` in regexp.
+  (/#{valid}*)?
+}iox
+
+valid = /x/
+regex = %r{
+  ((?:https?|dat|dweb|ipfs|ipns|ssb|gopher|gemini):\/\/)?
+                                                   ^^ Style/RedundantRegexpEscape: Redundant escape of `/` in regexp.
+                                                     ^^ Style/RedundantRegexpEscape: Redundant escape of `/` in regexp.
+  (/#{valid}*)?
+}iox
+
+symbol = /(\|[^\|]+\||#{nonmacro}#{constituent}*)/
+               ^^ Style/RedundantRegexpEscape: Redundant escape of `|` in regexp.
+
+typechunk = /(?:#{idrest}|#{op}+\`[^`]+`)/
+                                ^^ Style/RedundantRegexpEscape: Redundant escape of ``` in regexp.
