@@ -581,8 +581,8 @@ end
 # FN regression fix: multiline modifier guard with inline comment on the end line still requires a blank line
 def multiline_guard_with_inline_comment
   return unless (
-
     services & NODE_NETWORK
   ) == 1 # inline comment
+
   work
 end
