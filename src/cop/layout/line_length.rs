@@ -60,6 +60,15 @@ use crate::parse::source::SourceFile;
 /// cop's local directive parser treating inline disables as block disables.
 /// RuboCop and `parse/directives.rs` only suppress that single line; later long
 /// lines must still be checked until a standalone disable opens a real range.
+///
+/// ## Corpus investigation (2026-04-02)
+///
+/// Remaining FNs came from three RuboCop-specific `Allow*` edges:
+/// shallow tab-indented lines still need the full `indentation_difference`
+/// calculation, URI schemes are matched case-insensitively so `HTTP::...`
+/// inside qualified names can create a blocking URI exemption, and nested-URI
+/// merging must stay limited to real query-parameter links like `&url=http://`
+/// instead of merging pipe-delimited records into one fake end-of-line URI.
 pub struct LineLength;
 
 impl Cop for LineLength {
@@ -124,12 +133,20 @@ fn check_line_lengths(
 
     let lines: Vec<&[u8]> = source.lines().collect();
     let mut line_length_disabled = false;
+    let mut after_end_marker = false;
 
     for (i, raw_line) in lines.iter().enumerate() {
+        if after_end_marker {
+            continue;
+        }
         if allow_heredoc && line_overlaps_heredoc(source, code_map, i + 1, raw_line) {
             continue;
         }
         let line = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+        if line == b"__END__" {
+            after_end_marker = true;
+            continue;
+        }
         let line_str = std::str::from_utf8(line).ok();
         let directive_state = line_str
             .map(parse_line_length_directive)
@@ -459,7 +476,10 @@ fn merge_query_linked_uri_matches(
         if let Some(previous) = matches.last_mut() {
             let previous_text = &line[previous.start..previous.end];
             let separator = &line[previous.end..current.start()];
-            if previous_text.contains('?') && !separator.chars().any(char::is_whitespace) {
+            if previous_text.contains('?')
+                && !separator.chars().any(char::is_whitespace)
+                && !separator.contains('|')
+            {
                 previous.end = current.end();
                 continue;
             }
@@ -574,8 +594,11 @@ fn compile_uri_regex(schemes: &[String]) -> Option<regex::Regex> {
         })
         .collect::<Vec<_>>()
         .join("|");
-    let pattern = format!(r#"(?:{})[^\s"'<>\]]*"#, prefixes);
-    regex::Regex::new(&pattern).ok()
+    let pattern = format!(r#"(?:{})[^\s"'<>\]|]*"#, prefixes);
+    regex::RegexBuilder::new(&pattern)
+        .case_insensitive(true)
+        .build()
+        .ok()
 }
 
 fn indentation_difference(line: &[u8], indentation_width: usize) -> usize {
@@ -584,7 +607,7 @@ fn indentation_difference(line: &[u8], indentation_width: usize) -> usize {
     }
 
     let leading_tabs = line.iter().take_while(|&&b| b == b'\t').count();
-    if leading_tabs == line.len() || leading_tabs < 4 {
+    if leading_tabs == line.len() {
         return 0;
     }
 
@@ -636,6 +659,18 @@ mod tests {
         assert_eq!(diags[0].location.line, 1);
         assert_eq!(diags[0].location.column, 0);
         assert_eq!(diags[0].message, "Line is too long. [25/10]");
+    }
+
+    #[test]
+    fn shallow_leading_tabs_count_toward_line_length() {
+        let diags = run_with_config(
+            b"\t\t\t@checks ||= self.available_checks.collect { |c| perform_check c }.flatten(1) + children.collect(&:checks).flatten(1)\n",
+            CopConfig::default(),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 1);
+        assert_eq!(diags[0].location.column, 117);
+        assert_eq!(diags[0].message, "Line is too long. [122/120]");
     }
 
     #[test]
@@ -815,6 +850,30 @@ x = [
     }
 
     #[test]
+    fn allow_uri_case_insensitive_http_in_constant_path_blocks_exemption() {
+        let diags = run_with_config(
+            b"        raise Puppet::Network::HTTP::Error::HTTPNotFoundError.new(\"No route for #{req.method} #{req.path}\", Puppet::Network::HTTP::Issues::HANDLER_NOT_FOUND)\n",
+            CopConfig::default(),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 1);
+        assert_eq!(diags[0].location.column, 120);
+        assert_eq!(diags[0].message, "Line is too long. [157/120]");
+    }
+
+    #[test]
+    fn allow_uri_does_not_merge_pipe_separated_urls() {
+        let diags = run_with_config(
+            b"    decoded  = '200904281000001|DOM|IND|INR|58.00|22|NULL|http://localhost:3000/orders/1/ed5230696ad525b9e322a6a64b56322e/done?utm_nooverride=1|http://hardcoregamer.localhost:3000|TOML'\n",
+            CopConfig::default(),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 1);
+        assert_eq!(diags[0].location.column, 120);
+        assert_eq!(diags[0].message, "Line is too long. [185/120]");
+    }
+
+    #[test]
     fn allow_uri_skips_escaped_url_regexes() {
         use std::collections::HashMap;
         let config = CopConfig {
@@ -989,6 +1048,18 @@ x = [
             !diags.is_empty(),
             "AllowURI should flag when URI does not extend to end of line"
         );
+    }
+
+    #[test]
+    fn ignores_lines_after_end_marker() {
+        let diags = run_with_config(
+            b"######################################################################################################################################################\n__END__\n########################################################################################################################################################################################################\n",
+            CopConfig::default(),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 1);
+        assert_eq!(diags[0].location.column, 120);
+        assert_eq!(diags[0].message, "Line is too long. [150/120]");
     }
 
     #[test]
