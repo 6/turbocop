@@ -8,8 +8,6 @@ use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
-use super::super::variable_force::scope::ScopeKind;
-
 /// Flags local variable assignments at the example-group level that are then
 /// referenced inside examples, hooks, let, or subject blocks. Use `let` instead.
 ///
@@ -346,10 +344,7 @@ fn is_hook_method(name: &[u8]) -> bool {
 
 /// Let/subject methods
 fn is_let_or_subject(name: &[u8]) -> bool {
-    matches!(
-        name,
-        b"let" | b"let!" | b"subject" | b"subject!"
-    )
+    matches!(name, b"let" | b"let!" | b"subject" | b"subject!")
 }
 
 /// Includes methods: it_behaves_like, it_should_behave_like, include_examples, include_context
@@ -597,8 +592,7 @@ describe SomeClass do
   end
 end
 "#;
-        let diags =
-            crate::testutil::run_cop_full(&LeakyLocalVariable::new(), source_with_describe);
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable::new(), source_with_describe);
         let offenses_at_line1: Vec<_> = diags.iter().filter(|d| d.location.line == 1).collect();
         assert!(
             offenses_at_line1.is_empty(),
