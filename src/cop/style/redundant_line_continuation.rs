@@ -499,9 +499,7 @@ fn trailing_identifier(bytes: &[u8]) -> Option<&[u8]> {
 }
 
 fn leading_identifier(bytes: &[u8]) -> Option<&[u8]> {
-    let Some(&first) = bytes.first() else {
-        return None;
-    };
+    let &first = bytes.first()?;
     if !first.is_ascii_alphabetic() && first != b'_' {
         return None;
     }
