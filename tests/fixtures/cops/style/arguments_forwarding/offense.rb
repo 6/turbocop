@@ -68,3 +68,23 @@ def bar_yield(**kwargs)
         ^^^^^^^^ Style/ArgumentsForwarding: Use anonymous keyword arguments forwarding (`**`).
 end
 
+# Anonymous kwrest forwarding with keyword param and explicit hash
+def create_msg(token, allowed_mentions: {}, **options)
+                                            ^^^^^^^^^ Style/ArgumentsForwarding: Use anonymous keyword arguments forwarding (`**`).
+  post(token, { allowed_mentions: allowed_mentions, **options })
+                                                    ^^^^^^^^^ Style/ArgumentsForwarding: Use anonymous keyword arguments forwarding (`**`).
+end
+
+# Anonymous *, **, & forwarding to ... with extra positional args
+def cache_html(template, key, *, **, &)
+                              ^^^^^^^^ Style/ArgumentsForwarding: Use shorthand syntax `...` for arguments forwarding.
+  html(template, *, **, &)
+                 ^^^^^^^^ Style/ArgumentsForwarding: Use shorthand syntax `...` for arguments forwarding.
+end
+
+# Anonymous *, **, & forwarding to ... without extra positional args
+def to_html(*, **, &)
+            ^^^^^^^^ Style/ArgumentsForwarding: Use shorthand syntax `...` for arguments forwarding.
+  Papercraft.html(self, *, **, &)
+                        ^^^^^^^^ Style/ArgumentsForwarding: Use shorthand syntax `...` for arguments forwarding.
+end
