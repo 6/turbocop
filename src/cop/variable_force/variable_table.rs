@@ -1,4 +1,5 @@
 use super::assignment::Assignment;
+use super::engine::BranchContext;
 use super::reference::Reference;
 use super::scope::{Scope, ScopeKind};
 use super::variable::{DeclarationKind, Variable};
@@ -11,6 +12,8 @@ use super::variable::{DeclarationKind, Variable};
 #[derive(Default)]
 pub struct VariableTable {
     scope_stack: Vec<Scope>,
+    /// Branch contexts from the engine, used for exclusivity checks.
+    pub branch_contexts: Vec<BranchContext>,
 }
 
 impl VariableTable {
@@ -94,15 +97,27 @@ impl VariableTable {
     }
 
     /// Record a reference to a variable. Finds the variable in accessible
-    /// scopes and records the reference.
+    /// scopes and records the reference with branch-awareness.
     pub fn reference_variable(&mut self, name: &[u8], reference: Reference) {
         let current_index = self.current_scope_index();
-        if let Some(var) = self.find_variable_mut(name) {
-            if var.scope_index != current_index {
-                var.captured_by_block = true;
+        // Take branch_contexts out to avoid borrow conflict (we need &mut var
+        // and &self.branch_contexts simultaneously).
+        let contexts = std::mem::take(&mut self.branch_contexts);
+        for scope in self.scope_stack.iter_mut().rev() {
+            if let Some(var) = scope.variables.get_mut(name) {
+                if var.scope_index != current_index {
+                    var.captured_by_block = true;
+                }
+                var.reference_with_branches(reference, &contexts);
+                self.branch_contexts = contexts;
+                return;
             }
-            var.reference(reference);
+            if scope.kind.is_hard() {
+                self.branch_contexts = contexts;
+                return;
+            }
         }
+        self.branch_contexts = contexts;
         // If variable not found, it's a reference to an undefined variable
         // (e.g., from eval or dynamic scope). Silently ignore.
     }
@@ -154,6 +169,24 @@ impl VariableTable {
             }
         }
         result
+    }
+
+    /// Check if two branch IDs are mutually exclusive (belong to the same
+    /// conditional parent but are different children).
+    pub fn branches_exclusive(&self, a: Option<usize>, b: Option<usize>) -> bool {
+        let (a_id, b_id) = match (a, b) {
+            (Some(a), Some(b)) => (a, b),
+            _ => return false,
+        };
+        if a_id == b_id {
+            return false;
+        }
+        if a_id >= self.branch_contexts.len() || b_id >= self.branch_contexts.len() {
+            return false;
+        }
+        let a_ctx = &self.branch_contexts[a_id];
+        let b_ctx = &self.branch_contexts[b_id];
+        a_ctx.parent_id == b_ctx.parent_id && a_ctx.child_index != b_ctx.child_index
     }
 
     /// All variables accessible from the current scope (for `binding()`/`super`

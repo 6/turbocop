@@ -14,6 +14,8 @@ pub struct Reference {
     /// single counter per engine run, enabling temporal ordering that
     /// reflects actual evaluation order (not byte offset order).
     pub sequence: usize,
+    /// Branch context ID, if this reference is inside a conditional branch.
+    pub branch_id: Option<usize>,
 }
 
 impl Reference {
@@ -23,6 +25,7 @@ impl Reference {
             scope_index,
             explicit: true,
             sequence: 0,
+            branch_id: None,
         }
     }
 
@@ -32,6 +35,7 @@ impl Reference {
             scope_index,
             explicit: false,
             sequence: 0,
+            branch_id: None,
         }
     }
 }
