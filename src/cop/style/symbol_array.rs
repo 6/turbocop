@@ -46,6 +46,17 @@ use ruby_prism::Visit;
 ///   arrays whose contents require bracket syntax, such as `%I[#{1 + 1}]` and
 ///   `%I( one  two #{ 1 } )`, and includes the bracket-array replacement in the
 ///   message. Added the percent-array path plus RuboCop-like message building.
+///
+/// ## Corpus investigation (2026-04-02)
+///
+/// Corpus oracle reported FP=3, FN=0 on 55,881 matches.
+///
+/// FP root cause:
+/// - Arrays containing an empty quoted symbol (`:""`) were incorrectly flagged.
+///   Parser/RuboCop represents `:""` as `dsym`, so `bracketed_array_of?(:sym, node)`
+///   rejects the whole array. Prism keeps it as a `SymbolNode`, so nitrocop had to
+///   explicitly exclude empty symbol elements when deciding whether a bracket array
+///   is a plain symbol array eligible for `%i`/`%I`.
 pub struct SymbolArray;
 
 /// Delimiter characters that cannot appear unmatched in %i arrays.
@@ -356,6 +367,16 @@ fn build_bracket_array_message(
     }
 }
 
+fn is_plain_symbol_element(node: &ruby_prism::Node<'_>) -> bool {
+    let Some(sym) = node.as_symbol_node() else {
+        return false;
+    };
+
+    // RuboCop's Parser AST represents `:""` as `dsym`, not `sym`, so arrays
+    // containing it are not considered plain symbol arrays for this cop.
+    !sym.unescaped().is_empty()
+}
+
 impl Cop for SymbolArray {
     fn name(&self) -> &'static str {
         "Style/SymbolArray"
@@ -448,9 +469,9 @@ impl<'pr> SymbolArrayVisitor<'_, '_, 'pr> {
             return;
         }
 
-        // All elements must be symbol nodes
+        // All elements must be plain symbol nodes by RuboCop's definition.
         for elem in elements.iter() {
-            if elem.as_symbol_node().is_none() {
+            if !is_plain_symbol_element(&elem) {
                 return;
             }
         }
