@@ -10,6 +10,14 @@ use crate::parse::source::SourceFile;
 /// is a set operation (`&`, `|`, `^`). Due to Ruby operator precedence,
 /// `x >= y & z < w` parses as `(x >= (y & z)) < w`. The center value `(y & z)`
 /// uses set operation `&`, so RuboCop does not flag it.
+///
+/// ## FP fix (2026-04): Require regular arguments on both comparison sends
+/// RuboCop only matches chained comparisons when both comparison method sends
+/// have a regular argument. In Prism, overloaded operator-method chains like
+/// `Success(1).>= {|v| ... }.>= -> v { ... }` still appear as nested `CallNode`s
+/// named `>=`, but the inner call's operand is a block rather than an argument.
+/// Treating every nested operator call as a comparison caused false positives in
+/// monadic bind-style APIs.
 pub struct MultipleComparison;
 
 impl Cop for MultipleComparison {
@@ -62,18 +70,31 @@ impl Cop for MultipleComparison {
             return;
         }
 
+        // Match RuboCop's send pattern shape: both comparisons must have exactly
+        // one regular argument. This excludes overloaded operator-method chains
+        // whose operand is carried by a block instead of an argument.
+        let inner_args = match inner_call.arguments() {
+            Some(args) if args.arguments().len() == 1 => args,
+            _ => return,
+        };
+
+        match outer_call.arguments() {
+            Some(args) if args.arguments().len() == 1 => {}
+            _ => return,
+        }
+
+        let center = match inner_args.arguments().iter().next() {
+            Some(arg) => arg,
+            None => return,
+        };
+
         // Check if the center value (RHS of inner comparison) is a set operation.
         // Due to Ruby operator precedence, `x >= y & z < w` parses as
         // `(x >= (y & z)) < w`. RuboCop skips these cases.
-        if let Some(inner_args) = inner_call.arguments() {
-            let args = inner_args.arguments();
-            if args.len() == 1 {
-                if let Some(center_call) = args.iter().next().and_then(|a| a.as_call_node()) {
-                    let center_method = center_call.name().as_slice();
-                    if is_set_operation(center_method) {
-                        return;
-                    }
-                }
+        if let Some(center_call) = center.as_call_node() {
+            let center_method = center_call.name().as_slice();
+            if is_set_operation(center_method) {
+                return;
             }
         }
 

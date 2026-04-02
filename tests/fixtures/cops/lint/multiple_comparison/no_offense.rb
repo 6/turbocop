@@ -12,3 +12,12 @@ min <= value && value <= max
 x >= y & x < z
 x >= y | x < z
 x >= y ^ x < z
+
+# Overloaded operator methods chained with blocks/lambdas are not comparisons
+either = Success(1).
+  >= {|prev| Success(prev + 1) }.
+  >= -> prev { Success(prev + 100) }
+
+Either(Maybe(params)['id']).or('id is missing').
+  >= {|v| Try { BSONTestConverter.from_string(v) }.or("id '#{v}' is not a valid BSON id") }.
+  >= {|v| Try { DatabaseReader.find(v) }.or("'#{v}' not found") }
