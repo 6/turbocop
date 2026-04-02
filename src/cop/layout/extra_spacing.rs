@@ -156,6 +156,14 @@ use std::ops::Range;
 ///     extra spaces immediately after the opener in forms like
 ///     `%w[  id lock_version]`. Ignore only separator spans between elements
 ///     plus the trailing span before the closing delimiter.
+///
+/// 18. **Symbol/label token extraction FNs (fixed 2026-04-02)**: the exact-token
+///     alignment fallback still reduced `:symbol`, `::Const`, and `label:` tokens
+///     to `:` or a bare identifier. In real files that let coincidental `:` or
+///     identifier text on adjacent lines suppress offenses that RuboCop still
+///     reports, including `loopback  :localtick`, `[:posixclass,    :word]`,
+///     and `text ...,   layout: :title`. Extract full symbol/path/label tokens
+///     so alignment only succeeds for genuinely matching tokens.
 pub struct ExtraSpacing;
 
 impl Cop for ExtraSpacing {
@@ -701,7 +709,9 @@ fn check_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> bool {
 /// This mirrors RuboCop's `range.source` for token comparison in `aligned_words?`.
 ///
 /// - Alphanumeric/underscore: returns the full identifier.
+/// - Labels: returns `label:` rather than just `label`.
 /// - Numeric literals: returns the full numeric token, including sign/decimal/exponent.
+/// - Symbols/constant paths: returns `:foo` / `::Foo` / `:@ivar` rather than just `:`.
 /// - `@`, `@@`, `$` followed by identifier: returns the full variable name.
 /// - `.` followed by a letter/underscore: returns `.method_name` (method call).
 /// - `"` or `'`: returns the full quoted string to avoid coincidental single-char matches.
@@ -715,12 +725,15 @@ fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
     if is_numeric_literal_start(line, col) {
         let end = numeric_literal_end(line, col);
         &line[col..end]
+    } else if ch == b':' {
+        extract_colon_token(line, col)
     } else if ch.is_ascii_alphanumeric() || ch == b'_' {
         // Identifier: take consecutive word characters
-        let end = line[col..]
-            .iter()
-            .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
-            .map_or(line.len(), |p| col + p);
+        let mut end = identifier_like_end(line, col);
+        if end < line.len() && line[end] == b':' && (end + 1 >= line.len() || line[end + 1] != b':')
+        {
+            end += 1;
+        }
         &line[col..end]
     } else if ch == b' ' || ch == b'\t' {
         &[]
@@ -738,20 +751,14 @@ fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
         } else {
             col + 1 // @ or $
         };
-        let end = line[ident_start..]
-            .iter()
-            .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
-            .map_or(line.len(), |p| ident_start + p);
+        let end = identifier_like_end(line, ident_start);
         &line[col..end]
     } else if ch == b'.'
         && col + 1 < line.len()
         && (line[col + 1].is_ascii_alphabetic() || line[col + 1] == b'_')
     {
         // Dot followed by identifier: extract `.method_name`
-        let end = line[col + 1..]
-            .iter()
-            .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
-            .map_or(line.len(), |p| col + 1 + p);
+        let end = identifier_like_end(line, col + 1);
         &line[col..end]
     } else if ch == b'"' || ch == b'\'' {
         // String delimiter: extract the full quoted string to avoid coincidental
@@ -781,6 +788,52 @@ fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
         // Other operator/punctuation: just the single character
         &line[col..col + 1]
     }
+}
+
+fn extract_colon_token(line: &[u8], col: usize) -> &[u8] {
+    if col + 1 >= line.len() {
+        return &line[col..col + 1];
+    }
+
+    let mut next = col + 1;
+    if line[next] == b':' {
+        next += 1;
+    }
+
+    if next >= line.len() {
+        return &line[col..next];
+    }
+
+    if line[next] == b'@' {
+        next += 1;
+        if next < line.len() && line[next] == b'@' {
+            next += 1;
+        }
+    } else if line[next] == b'$' {
+        next += 1;
+    }
+
+    if next < line.len() && (line[next].is_ascii_alphanumeric() || line[next] == b'_') {
+        let end = identifier_like_end(line, next);
+        &line[col..end]
+    } else if col + 1 < line.len() && line[col + 1] == b':' {
+        &line[col..col + 2]
+    } else {
+        &line[col..col + 1]
+    }
+}
+
+fn identifier_like_end(line: &[u8], start: usize) -> usize {
+    let mut end = line[start..]
+        .iter()
+        .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
+        .map_or(line.len(), |p| start + p);
+
+    if end < line.len() && (line[end] == b'?' || line[end] == b'!') {
+        end += 1;
+    }
+
+    end
 }
 
 fn is_numeric_literal_start(line: &[u8], col: usize) -> bool {
