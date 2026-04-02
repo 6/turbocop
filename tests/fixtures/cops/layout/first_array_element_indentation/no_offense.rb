@@ -271,6 +271,39 @@ bad_query = { prop: 'imageinfo', iiprop: 'url', iiurlheight: 480, pageids: [
   109782180, 109782183
 ], iilimit: 50 }
 
+# FP fix: array chained on the following line stays line-relative
+expect(subject).to eq([
+  expert,
+  unsigned_expert,
+  new_unsigned_expert,
+]
+  .map { _1.user.email }
+  .sort)
+
+# FP fix: first old-style `=>` pair in a hash argument uses pair-relative indentation
+setup_settings('gear' => [
+                 {
+                   adjective: 'chain', name: 'balaclava'
+                 },
+                 {
+                   adjective: 'mail', name: 'gloves'
+                 }
+               ],
+               'gear_sets' => {
+                 'standard' => ['chain balaclava']
+               })
+
+# FP fix: predicate keyword before the current arg should not suppress paren-relative indentation
+webhook = OpenStruct.new(valid?: true, events: [
+                           { 'name' => 'channel_occupied', 'channel' => 'foo' },
+                                 { 'name' => 'channel_vacated',  'channel' => 'bar' }
+                         ])
+
+# FP fix: binary operator in the current arg stays relevant after an earlier comma
+argv = to_cli_argv(config, CONFLAGS.keys - [
+  :seed, :parallel
+], exclude_dotfile_matches: false)
+
 # Empty arrays
 a = []
 
