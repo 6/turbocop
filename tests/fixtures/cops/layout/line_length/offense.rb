@@ -41,3 +41,9 @@ click_handlers = {
 
         5.times { |index| results << Hashie::Mash::Rash.new(title: "title #{index}", description: "content #{index}", url: "http://foo.gov/#{index}", published_at: twelve_years_ago, youtube_thumbnail_url: "http://youtube.com/#{index}", duration: '1:23') }
                                                                                                                         ^ Layout/LineLength: Line is too long. [255/120]
+
+final_answer = "Here are some fascinating facts from the James Webb Space Telescope's Wikipedia page" # rubocop:disable Layout/LineLength
+expect(agent.conversation_history).to eq([
+          { "role" => "user", "content" => "Tell me some interesting facts from the James Webb Space Telescope's Wikipedia page" },
+                                                                                                                        ^^^^^^^^^^^ Layout/LineLength: Line is too long. [131/120]
+])
