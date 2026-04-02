@@ -8,74 +8,17 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-29)
+/// Mirrors RuboCop's owner-sensitive handling of exception clauses.
 ///
-/// Cached corpus oracle reported FP=3, FN=5.
-///
-/// Fixed FN=5 from three Prism-specific gaps:
-/// - postfix `expr rescue nil` is a `RescueModifierNode`, so the line-start scan
-///   missed rescue keywords that do not begin the line;
-/// - the line matcher skipped valid headers written as `rescue(EOFError)` and
-///   `rescue; []` because it only accepted whitespace or `=>` after `rescue`;
-/// - RuboCop skips same-line `rescue ... end` clauses entirely, so the inline
-///   `end` guard must suppress both the "before" and "after" checks, not only
-///   the trailing blank-line check.
-///
-/// Fixed FP regression found during the required sample rerun:
-/// - RuboCop only treats postfix rescue modifiers like exception-handling
-///   keywords when the modifier is the sole body expression of a def/block/begin;
-///   a later statement-level scan was too broad and falsely flagged blank lines
-///   before modifiers that appeared alongside sibling statements;
-/// - RuboCop does not treat blank lines after postfix rescue modifiers as
-///   offenses, only blank lines before them. The modifier path therefore only
-///   performs the leading-blank check.
-///
-/// Earlier accepted fixes retained support for compact `rescue=>e` headers and
-/// skipped heredoc/string content. This patch keeps that behavior and extends it
-/// only to the narrow additional forms RuboCop accepts.
+/// The raw line scan previously treated every line-start `rescue`/`ensure`/`else`
+/// as a candidate, which created false positives for `class`/`module` body
+/// rescues and for `=begin` comment blocks. The fix narrows detection to keyword
+/// lines collected from the Prism owners RuboCop actually checks (`def`, block,
+/// and explicit `begin`) while still handling sole-body rescue modifiers and
+/// skipping all non-code ranges, including comments.
 pub struct EmptyLinesAroundExceptionHandlingKeywords;
 
 const KEYWORDS: &[&[u8]] = &[b"rescue", b"ensure", b"else"];
-
-/// Check if an `else` on this line is part of a rescue block (not if/case/etc.).
-/// Scan backwards from the `else` to find whether we hit `rescue` (rescue-else)
-/// or `if`/`unless`/`case`/`when`/`elsif` (regular else) at the same indentation.
-fn is_rescue_else(lines: &[&[u8]], else_idx: usize, else_indent: usize) -> bool {
-    for i in (0..else_idx).rev() {
-        let line = lines[i];
-        let start = match line.iter().position(|&b| b != b' ' && b != b'\t') {
-            Some(p) => p,
-            None => continue,
-        };
-        let content = &line[start..];
-        // Only consider lines at the same or less indentation
-        if start > else_indent {
-            continue;
-        }
-        // Check for rescue at the same indent
-        if start == else_indent && starts_with_kw(content, b"rescue") {
-            return true;
-        }
-        // If we hit a structural keyword at the same or less indentation, it's not rescue-else
-        if starts_with_kw(content, b"if")
-            || starts_with_kw(content, b"unless")
-            || starts_with_kw(content, b"case")
-            || starts_with_kw(content, b"when")
-            || starts_with_kw(content, b"elsif")
-        {
-            return false;
-        }
-        // def/begin/class/module at same or less indent = scope boundary, check if rescue exists
-        if starts_with_kw(content, b"def")
-            || starts_with_kw(content, b"begin")
-            || starts_with_kw(content, b"class")
-            || starts_with_kw(content, b"module")
-        {
-            return false;
-        }
-    }
-    false
-}
 
 fn starts_with_kw(content: &[u8], kw: &[u8]) -> bool {
     content.starts_with(kw)
@@ -111,15 +54,80 @@ fn has_inline_end(content: &[u8], keyword: &[u8]) -> bool {
     false
 }
 
-struct RescueModifierLineCollector<'a> {
-    source: &'a SourceFile,
-    lines: BTreeSet<usize>,
+#[derive(Default)]
+struct ExceptionKeywordLines {
+    rescue_lines: BTreeSet<usize>,
+    ensure_lines: BTreeSet<usize>,
+    else_lines: BTreeSet<usize>,
+    rescue_modifier_lines: BTreeSet<usize>,
 }
 
-impl RescueModifierLineCollector<'_> {
+fn insert_line_for_offset(source: &SourceFile, lines: &mut BTreeSet<usize>, offset: usize) {
+    let (line, _) = source.offset_to_line_col(offset);
+    lines.insert(line);
+}
+
+struct ExceptionKeywordLineCollector<'a> {
+    source: &'a SourceFile,
+    lines: ExceptionKeywordLines,
+}
+
+impl ExceptionKeywordLineCollector<'_> {
+    fn collect_begin_keywords(&mut self, begin_node: &ruby_prism::BeginNode<'_>) {
+        if let Some(rescue_clause) = begin_node.rescue_clause() {
+            self.collect_rescue_chain(rescue_clause);
+        }
+        if let Some(else_clause) = begin_node.else_clause() {
+            insert_line_for_offset(
+                self.source,
+                &mut self.lines.else_lines,
+                else_clause.else_keyword_loc().start_offset(),
+            );
+        }
+        if let Some(ensure_clause) = begin_node.ensure_clause() {
+            insert_line_for_offset(
+                self.source,
+                &mut self.lines.ensure_lines,
+                ensure_clause.ensure_keyword_loc().start_offset(),
+            );
+        }
+    }
+
+    fn collect_rescue_chain(&mut self, rescue_node: ruby_prism::RescueNode<'_>) {
+        insert_line_for_offset(
+            self.source,
+            &mut self.lines.rescue_lines,
+            rescue_node.keyword_loc().start_offset(),
+        );
+
+        if let Some(subsequent) = rescue_node.subsequent() {
+            self.collect_rescue_chain(subsequent);
+        }
+    }
+
+    fn collect_body_keywords(&mut self, body: &ruby_prism::Node<'_>) {
+        if let Some(begin_node) = body.as_begin_node() {
+            self.collect_begin_keywords(&begin_node);
+            return;
+        }
+
+        if let Some(rescue_node) = body.as_rescue_node() {
+            self.collect_rescue_chain(rescue_node);
+            return;
+        }
+
+        if let Some(ensure_node) = body.as_ensure_node() {
+            insert_line_for_offset(
+                self.source,
+                &mut self.lines.ensure_lines,
+                ensure_node.ensure_keyword_loc().start_offset(),
+            );
+        }
+    }
+
     fn collect_sole_body_modifier(&mut self, body: &ruby_prism::Node<'_>, owner_line: usize) {
         if let Some(line) = self.sole_body_modifier_line(body, owner_line) {
-            self.lines.insert(line);
+            self.lines.rescue_modifier_lines.insert(line);
         }
     }
 
@@ -167,14 +175,16 @@ impl RescueModifierLineCollector<'_> {
     }
 }
 
-impl<'pr> Visit<'pr> for RescueModifierLineCollector<'_> {
+impl<'pr> Visit<'pr> for ExceptionKeywordLineCollector<'_> {
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
         if let Some(begin_loc) = node.begin_keyword_loc() {
+            self.collect_begin_keywords(node);
+
             let (owner_line, _) = self.source.offset_to_line_col(begin_loc.start_offset());
-            if let Some(statements) = node.statements() {
-                if let Some(line) = self.sole_statement_modifier_line(statements, owner_line) {
-                    self.lines.insert(line);
-                }
+            if let Some(statements) = node.statements()
+                && let Some(line) = self.sole_statement_modifier_line(statements, owner_line)
+            {
+                self.lines.rescue_modifier_lines.insert(line);
             }
         }
 
@@ -186,6 +196,7 @@ impl<'pr> Visit<'pr> for RescueModifierLineCollector<'_> {
             .source
             .offset_to_line_col(node.location().start_offset());
         if let Some(body) = node.body() {
+            self.collect_body_keywords(&body);
             self.collect_sole_body_modifier(&body, owner_line);
         }
 
@@ -197,6 +208,7 @@ impl<'pr> Visit<'pr> for RescueModifierLineCollector<'_> {
             .source
             .offset_to_line_col(node.def_keyword_loc().start_offset());
         if let Some(body) = node.body() {
+            self.collect_body_keywords(&body);
             self.collect_sole_body_modifier(&body, owner_line);
         }
 
@@ -204,13 +216,13 @@ impl<'pr> Visit<'pr> for RescueModifierLineCollector<'_> {
     }
 }
 
-fn collect_rescue_modifier_keyword_lines(
+fn collect_exception_keyword_lines(
     source: &SourceFile,
     parse_result: &ruby_prism::ParseResult<'_>,
-) -> BTreeSet<usize> {
-    let mut collector = RescueModifierLineCollector {
+) -> ExceptionKeywordLines {
+    let mut collector = ExceptionKeywordLineCollector {
         source,
-        lines: BTreeSet::new(),
+        lines: ExceptionKeywordLines::default(),
     };
     collector.visit(&parse_result.node());
     collector.lines
@@ -235,8 +247,7 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lines: Vec<&[u8]> = source.lines().collect();
-        let rescue_modifier_keyword_lines =
-            collect_rescue_modifier_keyword_lines(source, parse_result);
+        let keyword_lines = collect_exception_keyword_lines(source, parse_result);
         let mut byte_offset: usize = 0;
 
         for (i, line) in lines.iter().enumerate() {
@@ -264,14 +275,21 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
                 }
             };
 
-            // Skip keywords inside strings/heredocs/regexps/symbols
-            if !code_map.is_not_string(byte_offset + trimmed_start) {
+            // Skip keywords inside comments, strings, heredocs, regexps, and symbols.
+            if !code_map.is_code(byte_offset + trimmed_start) {
                 byte_offset += line_len;
                 continue;
             }
 
-            // For `else`, only flag if it's part of a rescue block (not if/case/etc.)
-            if keyword == b"else" && !is_rescue_else(&lines, i, trimmed_start) {
+            let keyword_allowed = if keyword == b"rescue" {
+                keyword_lines.rescue_lines.contains(&line_num)
+            } else if keyword == b"ensure" {
+                keyword_lines.ensure_lines.contains(&line_num)
+            } else {
+                keyword_lines.else_lines.contains(&line_num)
+            };
+
+            if !keyword_allowed {
                 byte_offset += line_len;
                 continue;
             }
@@ -346,7 +364,7 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
             byte_offset += line_len;
         }
 
-        for line_num in rescue_modifier_keyword_lines {
+        for line_num in keyword_lines.rescue_modifier_lines {
             if line_num >= 3 {
                 let above_idx = line_num - 2;
                 if above_idx < lines.len() && util::is_blank_line(lines[above_idx]) {
