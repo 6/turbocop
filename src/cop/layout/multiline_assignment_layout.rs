@@ -214,10 +214,9 @@ fn assignment_start_and_value<'a>(
         Some((asgn.location().start_offset(), asgn.value()))
     } else if let Some(asgn) = node.as_index_and_write_node() {
         Some((asgn.location().start_offset(), asgn.value()))
-    } else if let Some(asgn) = node.as_index_operator_write_node() {
-        Some((asgn.location().start_offset(), asgn.value()))
     } else {
-        None
+        node.as_index_operator_write_node()
+            .map(|asgn| (asgn.location().start_offset(), asgn.value()))
     }
 }
 
