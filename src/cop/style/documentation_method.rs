@@ -1,9 +1,9 @@
-use crate::cop::node_type::DEF_NODE;
-use crate::cop::style::documentation::has_documentation_comment;
-use crate::cop::util::is_private_or_protected;
+use crate::cop::style::documentation::trim_bytes;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
+use std::collections::HashMap;
 
 /// Modifiers that wrap a def on the same line but are considered non-public.
 const NON_PUBLIC_MODIFIERS: &[&[u8]] = &[b"private_class_method "];
@@ -61,7 +61,34 @@ const PUBLIC_MODIFIERS: &[&[u8]] = &[b"module_function ", b"ruby2_keywords "];
 /// and `private`/`end` keywords inside heredocs happen to give correct visibility results
 /// more often than skipping them. The single-line class/module fix (point 1 above) is
 /// retained. A proper fix for heredoc-related FPs requires AST-based visibility tracking.
+///
+/// **Investigation (2026-04-01):** Mixed remaining FNs came from two method-specific gaps:
+/// 1. `# Note:` above a method was treated as documentation because the shared annotation
+///    filter only matched uppercase `NOTE`. RuboCop treats annotation keywords case-
+///    insensitively, so `Note:` still suppresses documentation, but sentence-style
+///    comments like `# Note that ...` and `# Note to ...` still count as documentation.
+/// 2. `private`/`protected` visibility leaked through wrapper nodes because this cop used a
+///    line-based scan. RuboCop's `VisibilityHelp` only looks at AST siblings in the same
+///    statement list, so `private` before `if ...; def foo; end` does not make the branch
+///    method non-public. Fix: use AST sibling visibility for this cop's standalone and
+///    retroactive visibility checks, while keeping existing inline-modifier handling.
+///    RuboCop's retroactive matcher is narrower than Ruby itself: it only treats
+///    `private :foo` / `protected :foo` / `public :foo` with exactly one symbol
+///    argument as visibility-changing for this cop. Calls with multiple symbols
+///    (`protected :foo, :bar`) or strings (`private "foo"`) still require docs.
+/// 3. Wrapper nodes still stole comments in two narrower cases that the line scan missed:
+///    inline visibility calls like `public def foo` / `protected (def foo)` and postfix
+///    modifiers like `def foo; end if false`. RuboCop associates comments above those lines
+///    with the wrapping call/modifier node, not the inner `def`, so they must still be
+///    reported as undocumented.
 pub struct DocumentationMethod;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MethodVisibility {
+    Private,
+    Protected,
+    Public,
+}
 
 /// Detect if the line containing the def has a modifier prefix before the `def` keyword.
 /// Returns `Some((modifier_bytes, indent))` if found, where `indent` is the column of the
@@ -96,81 +123,149 @@ fn is_non_public_modifier(modifier: &[u8]) -> bool {
     NON_PUBLIC_MODIFIERS.contains(&modifier)
 }
 
-/// Check if a method is made private/protected retroactively via `private :method_name`
-/// or `protected :method_name` appearing after the def in the same scope.
-/// This is a common Ruby pattern: `def foo; end; private :foo`
-fn has_retroactive_visibility(source: &SourceFile, def_offset: usize, method_name: &str) -> bool {
-    let (def_line, def_col) = source.offset_to_line_col(def_offset);
-    let lines: Vec<&[u8]> = source.lines().collect();
-
-    // Build target patterns to match: `:method_name` or `"method_name"` or `'method_name'`
-    let sym_pattern = format!(":{}", method_name);
-    let dq_pattern = format!("\"{}\"", method_name);
-    let sq_pattern = format!("'{}'", method_name);
-
-    // Scan lines after the def line for retroactive visibility declarations
-    for line in &lines[def_line..] {
-        let indent = line
-            .iter()
-            .take_while(|&&b| b == b' ' || b == b'\t')
-            .count();
-        let trimmed = &line[indent..];
-
-        // Scope boundary at lower indent — stop searching
-        if indent < def_col
-            && (trimmed.starts_with(b"class ")
-                || trimmed.starts_with(b"module ")
-                || trimmed == b"end"
-                || trimmed.starts_with(b"end ")
-                || trimmed.starts_with(b"end\n")
-                || trimmed.starts_with(b"end\r"))
-        {
-            break;
-        }
-
-        // Check for `private :method_name` or `protected :method_name` at same or lower indent
-        if indent <= def_col {
-            let line_str = std::str::from_utf8(trimmed).unwrap_or("");
-            let line_str = line_str.trim_end();
-            if (line_str.starts_with("private ")
-                || line_str.starts_with("private(")
-                || line_str.starts_with("protected ")
-                || line_str.starts_with("protected("))
-                && (line_str.contains(&sym_pattern)
-                    || line_str.contains(&dq_pattern)
-                    || line_str.contains(&sq_pattern))
-            {
-                return true;
-            }
-        }
+/// Check if a method is made private/protected retroactively via a single-symbol
+/// visibility call like `private :method_name` or `protected :method_name`
+/// appearing after the def in the same scope.
+fn visibility_name(node: &ruby_prism::Node<'_>) -> Option<MethodVisibility> {
+    let call = node.as_call_node()?;
+    if call.receiver().is_some() {
+        return None;
     }
 
-    false
+    match call.name().as_slice() {
+        b"private" => Some(MethodVisibility::Private),
+        b"protected" => Some(MethodVisibility::Protected),
+        b"public" => Some(MethodVisibility::Public),
+        _ => None,
+    }
 }
 
-/// Check if the inline prefix before `def` contains a visibility keyword (`private` or
-/// `protected`) anywhere in the chain. For example, `memoized internal private def baz`
-/// has `private` in the prefix, making the method non-public even though the prefix starts
-/// with an unknown modifier.
-fn has_inline_visibility_keyword(source: &SourceFile, def_offset: usize) -> bool {
-    let bytes = source.as_bytes();
-    let mut line_start = def_offset;
-    while line_start > 0 && bytes[line_start - 1] != b'\n' {
-        line_start -= 1;
-    }
-    let line_prefix = &bytes[line_start..def_offset];
-    let trimmed: &[u8] = &line_prefix[line_prefix
-        .iter()
-        .take_while(|&&b| b == b' ' || b == b'\t')
-        .count()..];
+fn single_symbol_argument_matches_method_name(
+    call: &ruby_prism::CallNode<'_>,
+    method_name: &str,
+) -> bool {
+    let Some(args) = call.arguments() else {
+        return false;
+    };
 
-    if trimmed.is_empty() {
+    let mut args = args.arguments().iter();
+    let Some(arg) = args.next() else {
+        return false;
+    };
+    if args.next().is_some() {
         return false;
     }
 
-    // Check if any word in the prefix is `private` or `protected`
-    for word in trimmed.split(|&b| b == b' ' || b == b'\t') {
-        if word == b"private" || word == b"protected" {
+    let Some(sym) = arg.as_symbol_node() else {
+        return false;
+    };
+
+    std::str::from_utf8(sym.unescaped()).unwrap_or("") == method_name
+}
+
+fn retroactive_visibility_from_siblings(
+    siblings: &[ruby_prism::Node<'_>],
+    method_name: &str,
+) -> Option<MethodVisibility> {
+    for sibling in siblings.iter().rev() {
+        let Some(vis) = visibility_name(sibling) else {
+            continue;
+        };
+        let Some(call) = sibling.as_call_node() else {
+            continue;
+        };
+        if single_symbol_argument_matches_method_name(&call, method_name) {
+            return Some(vis);
+        }
+    }
+
+    None
+}
+
+fn standalone_visibility(node: &ruby_prism::Node<'_>) -> Option<MethodVisibility> {
+    let vis = visibility_name(node)?;
+    let call = node.as_call_node()?;
+    let has_args = call
+        .arguments()
+        .is_some_and(|args| !args.arguments().is_empty());
+    if has_args { None } else { Some(vis) }
+}
+
+fn call_wrapper_steals_comments(call: &ruby_prism::CallNode<'_>) -> bool {
+    call.receiver().is_none()
+        && !matches!(
+            call.name().as_slice(),
+            b"module_function" | b"ruby2_keywords"
+        )
+}
+
+fn inline_non_public_call(call: &ruby_prism::CallNode<'_>, arg: &ruby_prism::Node<'_>) -> bool {
+    call.receiver().is_none()
+        && matches!(call.name().as_slice(), b"private" | b"protected")
+        && arg.as_def_node().is_some()
+}
+
+fn is_annotation_or_directive_case_insensitive(comment: &str) -> bool {
+    let text = comment.trim_start_matches('#').trim();
+
+    if text.starts_with("frozen_string_literal:")
+        || text.starts_with("encoding:")
+        || text.starts_with("coding:")
+        || text.starts_with("warn_indent:")
+        || text.starts_with("shareable_constant_value:")
+        || text.starts_with("rubocop:")
+    {
+        return true;
+    }
+
+    for kw in ["TODO", "FIXME", "OPTIMIZE", "HACK", "REVIEW", "NOTE"] {
+        if text.len() < kw.len() || !text[..kw.len()].eq_ignore_ascii_case(kw) {
+            continue;
+        }
+
+        let rest = &text[kw.len()..];
+        if !rest.is_empty()
+            && !rest.starts_with(':')
+            && !rest.starts_with(' ')
+            && !rest.starts_with('\t')
+        {
+            continue;
+        }
+
+        let ws_prefix_len = rest
+            .bytes()
+            .take_while(|b| *b == b' ' || *b == b'\t')
+            .count();
+        let rest_after_ws = &rest[ws_prefix_len..];
+        let colon = rest_after_ws.starts_with(':');
+        let rest_after_colon = if colon {
+            &rest_after_ws[1..]
+        } else {
+            rest_after_ws
+        };
+        let space_after = rest_after_colon
+            .bytes()
+            .take_while(|b| *b == b' ' || *b == b'\t')
+            .count();
+        let note = &rest_after_colon[space_after..];
+        let has_space = ws_prefix_len > 0 || space_after > 0;
+        let keyword = &text[..kw.len()];
+
+        if colon || has_space {
+            let mut chars = keyword.chars();
+            let capitalized = if let Some(first) = chars.next() {
+                let rest: String = chars.collect();
+                format!(
+                    "{}{}",
+                    first.to_ascii_uppercase(),
+                    rest.to_ascii_lowercase()
+                )
+            } else {
+                String::new()
+            };
+            if !colon && has_space && !note.is_empty() && keyword == capitalized {
+                return false;
+            }
             return true;
         }
     }
@@ -178,51 +273,292 @@ fn has_inline_visibility_keyword(source: &SourceFile, def_offset: usize) -> bool
     false
 }
 
-/// Check if the `def` has an unknown (non-visibility, non-registered modifier) prefix
-/// on the same line. For example: `memoize def foo` or `register_element def bar`.
-///
-/// RuboCop's AST-based approach associates comments with the wrapping `send` node, not
-/// the `def` node, so methods wrapped by unknown method calls are treated as undocumented
-/// even when comments exist above the line. We match that behavior.
-fn has_unknown_inline_prefix(source: &SourceFile, def_offset: usize) -> bool {
-    let bytes = source.as_bytes();
-    let mut line_start = def_offset;
-    while line_start > 0 && bytes[line_start - 1] != b'\n' {
-        line_start -= 1;
-    }
-    let line_prefix = &bytes[line_start..def_offset];
+fn if_is_postfix_modifier(node: &ruby_prism::IfNode<'_>) -> bool {
+    node.end_keyword_loc().is_none()
+        && node.if_keyword_loc().is_some_and(|keyword| {
+            node.statements().is_some_and(|statements| {
+                keyword.start_offset() > statements.location().end_offset()
+            })
+        })
+}
 
-    // Strip leading whitespace
-    let trimmed: &[u8] = &line_prefix[line_prefix
-        .iter()
-        .take_while(|&&b| b == b' ' || b == b'\t')
-        .count()..];
+fn unless_is_postfix_modifier(node: &ruby_prism::UnlessNode<'_>) -> bool {
+    node.end_keyword_loc().is_none()
+        && node.statements().is_some_and(|statements| {
+            node.keyword_loc().start_offset() > statements.location().end_offset()
+        })
+}
 
-    // Nothing before def — no prefix
-    if trimmed.is_empty() {
+fn while_is_postfix_modifier(node: &ruby_prism::WhileNode<'_>) -> bool {
+    node.do_keyword_loc().is_none()
+        && node.statements().is_some_and(|statements| {
+            node.keyword_loc().start_offset() > statements.location().end_offset()
+        })
+}
+
+fn until_is_postfix_modifier(node: &ruby_prism::UntilNode<'_>) -> bool {
+    node.do_keyword_loc().is_none()
+        && node.statements().is_some_and(|statements| {
+            node.keyword_loc().start_offset() > statements.location().end_offset()
+        })
+}
+
+fn has_method_documentation_comment(source: &SourceFile, keyword_offset: usize) -> bool {
+    let (node_line, _) = source.offset_to_line_col(keyword_offset);
+    if node_line <= 1 {
         return false;
     }
 
-    // Known visibility keywords that is_private_or_protected already handles
-    if trimmed.starts_with(b"private ")
-        || trimmed.starts_with(b"private(")
-        || trimmed.starts_with(b"protected ")
-        || trimmed.starts_with(b"protected(")
-        || trimmed.starts_with(b"public ")
-        || trimmed.starts_with(b"public(")
-    {
-        return false;
+    let lines: Vec<&[u8]> = source.lines().collect();
+    let mut line_idx = node_line - 2;
+    let mut found_doc_comment = false;
+    let mut seen_any_comment = false;
+
+    while let Some(line) = lines.get(line_idx) {
+        let trimmed = trim_bytes(line);
+
+        if trimmed.is_empty() {
+            if found_doc_comment {
+                break;
+            }
+            if seen_any_comment {
+                seen_any_comment = false;
+                if line_idx == 0 {
+                    break;
+                }
+                line_idx -= 1;
+                continue;
+            }
+            break;
+        }
+
+        if !trimmed.starts_with(b"#") {
+            break;
+        }
+
+        seen_any_comment = true;
+        let comment_text = std::str::from_utf8(trimmed).unwrap_or("");
+        if !is_annotation_or_directive_case_insensitive(comment_text) {
+            found_doc_comment = true;
+        }
+
+        if line_idx == 0 {
+            break;
+        }
+        line_idx -= 1;
     }
 
-    // Known modifiers already handled by detect_inline_modifier
-    for modifier in NON_PUBLIC_MODIFIERS.iter().chain(PUBLIC_MODIFIERS.iter()) {
-        if trimmed.starts_with(modifier) {
-            return false;
+    found_doc_comment
+}
+
+struct DocumentationMethodVisitor<'a> {
+    cop: &'a DocumentationMethod,
+    source: &'a SourceFile,
+    require_for_non_public: bool,
+    allowed_methods: Option<Vec<String>>,
+    diagnostics: &'a mut Vec<Diagnostic>,
+    pending_visibility: HashMap<usize, Option<MethodVisibility>>,
+    wrapped_comment_depth: usize,
+    inline_non_public_depth: usize,
+}
+
+impl DocumentationMethodVisitor<'_> {
+    fn check_def(
+        &mut self,
+        def_node: &ruby_prism::DefNode<'_>,
+        sibling_visibility: Option<MethodVisibility>,
+    ) {
+        let method_name = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
+
+        if method_name == "initialize" {
+            return;
+        }
+
+        if let Some(ref allowed) = self.allowed_methods {
+            if allowed.iter().any(|m| m == method_name) {
+                return;
+            }
+        }
+
+        let loc = def_node.location();
+        let def_offset = loc.start_offset();
+        let modifier = detect_inline_modifier(self.source, def_offset);
+
+        if !self.require_for_non_public {
+            if let Some((mod_bytes, _)) = modifier {
+                if is_non_public_modifier(mod_bytes) {
+                    return;
+                }
+            }
+            if matches!(
+                sibling_visibility,
+                Some(MethodVisibility::Private | MethodVisibility::Protected)
+            ) {
+                return;
+            }
+            if self.inline_non_public_depth > 0 {
+                return;
+            }
+        }
+
+        if self.wrapped_comment_depth == 0
+            && has_method_documentation_comment(self.source, def_offset)
+        {
+            return;
+        }
+
+        let (line, column) = if let Some((_, indent)) = modifier {
+            let (line, _) = self.source.offset_to_line_col(def_offset);
+            (line, indent)
+        } else {
+            self.source.offset_to_line_col(def_offset)
+        };
+
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Missing method documentation comment.".to_string(),
+        ));
+    }
+}
+
+impl<'pr> Visit<'pr> for DocumentationMethodVisitor<'_> {
+    fn visit_program_node(&mut self, node: &ruby_prism::ProgramNode<'pr>) {
+        self.visit_statements_node(&node.statements());
+    }
+
+    fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
+        let stmt_nodes: Vec<_> = node.body().iter().collect();
+        let mut preceding_visibility = None;
+
+        for (idx, stmt) in stmt_nodes.iter().enumerate() {
+            if let Some(def_node) = stmt.as_def_node() {
+                let method_name = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
+                let vis = retroactive_visibility_from_siblings(&stmt_nodes[idx + 1..], method_name)
+                    .or(preceding_visibility);
+                self.pending_visibility
+                    .insert(def_node.location().start_offset(), vis);
+            }
+
+            self.visit(stmt);
+
+            if let Some(vis) = standalone_visibility(stmt) {
+                preceding_visibility = Some(vis);
+            }
         }
     }
 
-    // Something else before def — unknown prefix
-    true
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        let visibility = self
+            .pending_visibility
+            .remove(&node.location().start_offset())
+            .flatten();
+        self.check_def(node, visibility);
+        ruby_prism::visit_def_node(self, node);
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+        }
+
+        if let Some(args) = node.arguments() {
+            let steal_comments = call_wrapper_steals_comments(node);
+            for arg in args.arguments().iter() {
+                if steal_comments {
+                    self.wrapped_comment_depth += 1;
+                }
+                if inline_non_public_call(node, &arg) {
+                    self.inline_non_public_depth += 1;
+                }
+
+                self.visit(&arg);
+
+                if inline_non_public_call(node, &arg) {
+                    self.inline_non_public_depth -= 1;
+                }
+                if steal_comments {
+                    self.wrapped_comment_depth -= 1;
+                }
+            }
+        }
+
+        if let Some(block) = node.block() {
+            self.visit(&block);
+        }
+    }
+
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        self.visit(&node.predicate());
+
+        if let Some(statements) = node.statements() {
+            if if_is_postfix_modifier(node) {
+                self.wrapped_comment_depth += 1;
+            }
+            self.visit_statements_node(&statements);
+            if if_is_postfix_modifier(node) {
+                self.wrapped_comment_depth -= 1;
+            }
+        }
+
+        if let Some(subsequent) = node.subsequent() {
+            self.visit(&subsequent);
+        }
+    }
+
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        self.visit(&node.predicate());
+
+        if let Some(statements) = node.statements() {
+            if unless_is_postfix_modifier(node) {
+                self.wrapped_comment_depth += 1;
+            }
+            self.visit_statements_node(&statements);
+            if unless_is_postfix_modifier(node) {
+                self.wrapped_comment_depth -= 1;
+            }
+        }
+
+        if let Some(else_clause) = node.else_clause() {
+            self.visit(&else_clause.as_node());
+        }
+    }
+
+    fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        self.visit(&node.predicate());
+
+        if let Some(statements) = node.statements() {
+            if while_is_postfix_modifier(node) {
+                self.wrapped_comment_depth += 1;
+            }
+            self.visit_statements_node(&statements);
+            if while_is_postfix_modifier(node) {
+                self.wrapped_comment_depth -= 1;
+            }
+        }
+    }
+
+    fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        self.visit(&node.predicate());
+
+        if let Some(statements) = node.statements() {
+            if until_is_postfix_modifier(node) {
+                self.wrapped_comment_depth += 1;
+            }
+            self.visit_statements_node(&statements);
+            if until_is_postfix_modifier(node) {
+                self.wrapped_comment_depth -= 1;
+            }
+        }
+    }
+
+    fn visit_rescue_modifier_node(&mut self, node: &ruby_prism::RescueModifierNode<'pr>) {
+        self.wrapped_comment_depth += 1;
+        self.visit(&node.expression());
+        self.wrapped_comment_depth -= 1;
+        self.visit(&node.rescue_expression());
+    }
 }
 
 impl Cop for DocumentationMethod {
@@ -234,95 +570,26 @@ impl Cop for DocumentationMethod {
         false
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[DEF_NODE]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let require_for_non_public = config.get_bool("RequireForNonPublicMethods", false);
-        let allowed_methods = config.get_string_array("AllowedMethods");
-
-        let def_node = match node.as_def_node() {
-            Some(d) => d,
-            None => return,
-        };
-
-        let method_name = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
-
-        // Skip initialize
-        if method_name == "initialize" {
-            return;
-        }
-
-        // Skip allowed methods
-        if let Some(ref allowed) = allowed_methods {
-            if allowed.iter().any(|m| m == method_name) {
-                return;
-            }
-        }
-
-        let loc = def_node.location();
-        let def_offset = loc.start_offset();
-
-        // Detect inline modifier (module_function def, ruby2_keywords def, private_class_method def)
-        let modifier = detect_inline_modifier(source, def_offset);
-
-        // Skip private/protected methods unless configured
-        if !require_for_non_public {
-            // Check if the modifier itself is non-public (private_class_method)
-            if let Some((mod_bytes, _)) = modifier {
-                if is_non_public_modifier(mod_bytes) {
-                    return;
-                }
-            }
-            // Check standard private/protected detection (preceding `private`/`protected`)
-            if is_private_or_protected(source, def_offset) {
-                return;
-            }
-            // Check retroactive visibility: `private :method_name` after the def
-            if has_retroactive_visibility(source, def_offset, method_name) {
-                return;
-            }
-            // Check if the inline prefix contains `private` or `protected` anywhere
-            // in the chain (e.g., `memoized internal private def baz`)
-            if has_inline_visibility_keyword(source, def_offset) {
-                return;
-            }
-        }
-
-        // When def is wrapped by an unknown method call (e.g., `memoize def foo`),
-        // RuboCop treats the def as undocumented because comments above the line
-        // are associated with the wrapping call, not the def node. Skip the
-        // documentation check in this case to match RuboCop's behavior.
-        if !has_unknown_inline_prefix(source, def_offset) {
-            // Check for documentation comment above the def (or modifier) line.
-            if has_documentation_comment(source, def_offset) {
-                return;
-            }
-        }
-
-        // Report offense - for modifiers, report at the start of the modifier
-        let (line, column) = if let Some((_, indent)) = modifier {
-            let (line, _) = source.offset_to_line_col(def_offset);
-            (line, indent)
-        } else {
-            source.offset_to_line_col(def_offset)
-        };
-
-        diagnostics.push(self.diagnostic(
+        let mut visitor = DocumentationMethodVisitor {
+            cop: self,
             source,
-            line,
-            column,
-            "Missing method documentation comment.".to_string(),
-        ));
+            require_for_non_public: config.get_bool("RequireForNonPublicMethods", false),
+            allowed_methods: config.get_string_array("AllowedMethods"),
+            diagnostics,
+            pending_visibility: HashMap::new(),
+            wrapped_comment_depth: 0,
+            inline_non_public_depth: 0,
+        };
+        visitor.visit(&parse_result.node());
     }
 }
 
