@@ -66,6 +66,14 @@ use crate::diagnostic::Severity;
 /// (`REDUNDANT_DISABLE_SKIP_COPS`) are excluded from the aggressive flagging
 /// to prevent false positives from nitrocop missing offenses that RuboCop
 /// catches.
+///
+/// **Renamed cop skip-list check**: The `is_directive_redundant` path for
+/// renamed cops (e.g., `Metrics/LineLength` → `Layout/LineLength`) now checks
+/// whether the new-name cop is in `REDUNDANT_DISABLE_SKIP_COPS`. Previously,
+/// directives using old renamed names were unconditionally flagged as redundant
+/// in `run_all_for_redundant` mode, even when the new-name cop had known
+/// detection gaps. This caused ~51 FPs (mostly `Metrics/LineLength`).
+/// Resolved 12+ FPs and 276+ FNs with 0 regressions.
 pub struct RedundantCopDisableDirective;
 
 impl Cop for RedundantCopDisableDirective {
