@@ -42,6 +42,18 @@ use crate::parse::source::SourceFile;
 ///
 /// **Fix:** treat shebangs and RuboCop-style interpreter directives as non-documentation comment
 /// lines, including relaxed `coding`/`encoding` spacing and wrapped magic-comment variants.
+///
+/// ## Investigation findings (2026-04-02, empty singleton class)
+///
+/// **FN root cause:** the include-only exemption treated `class << self` with no body as
+/// include-only because `is_include_statement_only` returned `true` for `SingletonClassNode`
+/// without a body. RuboCop walks the singleton class children, so `self` plus an empty body does
+/// not satisfy `include_statement_only?`.
+///
+/// **Fix:** keep recursing into non-empty singleton-class bodies, but stop exempting empty
+/// `class << self` blocks. That restores offenses for classes like
+/// `class Foo; class << self; end; end` without regressing `prepend/include`-only singleton
+/// classes.
 pub struct Documentation;
 
 /// Extract the short (unqualified) name from a constant node.
@@ -102,6 +114,9 @@ fn is_include_statement_only(node: &ruby_prism::Node<'_>) -> bool {
         return true;
     }
     if let Some(stmts) = node.as_statements_node() {
+        if stmts.body().is_empty() {
+            return false;
+        }
         return stmts
             .body()
             .iter()
@@ -114,7 +129,7 @@ fn is_include_statement_only(node: &ruby_prism::Node<'_>) -> bool {
         if let Some(ref body) = sclass.body() {
             return is_include_statement_only(body);
         }
-        return true; // empty singleton class
+        return false;
     }
     false
 }
@@ -1008,6 +1023,17 @@ mod tests {
         assert!(
             diags.is_empty(),
             "Module with only class << self with include should not need docs"
+        );
+    }
+
+    #[test]
+    fn empty_singleton_class_needs_docs() {
+        let source = b"class Foo\n  class << self\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Empty class << self should not count as include-only"
         );
     }
 
