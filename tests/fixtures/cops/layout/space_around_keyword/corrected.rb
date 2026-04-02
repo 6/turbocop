@@ -85,6 +85,6 @@ output = CSV.generate(:col_sep => "\t", :row_sep => "\r\n") do |csv|
   csv << ["x"]
 end
 
-source2evt.inject(0) do |memo, evts|
-  memo + evts[1].inject(0) { |sum, h| sum + h[1].size }
-end
+foo(1)do |x|
+  x
+end || 0
