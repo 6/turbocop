@@ -168,7 +168,7 @@ fn retroactive_visibility_from_siblings(
     method_name: &str,
 ) -> Option<MethodVisibility> {
     for sibling in siblings.iter().rev() {
-        let Some(vis) = visibility_name(&sibling) else {
+        let Some(vis) = visibility_name(sibling) else {
             continue;
         };
         let Some(call) = sibling.as_call_node() else {
