@@ -543,12 +543,10 @@ jobs:
             --repo "${{ github.repository }}" \
             --unset-extraheader
           git push origin HEAD:${{ steps.pr.outputs.head_branch }} --force
-          PUSHED_SHA=$(git rev-parse HEAD)
           python3 scripts/workflows/workflow_git.py promote \
             --repo "${{ github.repository }}" \
             --branch "${{ steps.pr.outputs.head_branch }}" \
             --message "Repair PR #${{ steps.pr.outputs.number }}: auto-repair (${{ steps.repair.outputs.backend }})" \
-            --expected-sha "$PUSHED_SHA" \
             >> "$GITHUB_OUTPUT"
 
       - name: Comment repair result

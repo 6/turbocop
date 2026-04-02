@@ -75,12 +75,10 @@ jobs:
           COMMIT_MSG="Release v${{ steps.version.outputs.tag }}"
           git commit -m "$COMMIT_MSG"
           git push origin main
-          PUSHED_SHA=$(git rev-parse HEAD)
           eval "$(python3 scripts/workflows/workflow_git.py promote \
             --repo "${{ github.repository }}" \
             --branch main \
-            --message "$COMMIT_MSG" \
-            --expected-sha "$PUSHED_SHA")"
+            --message "$COMMIT_MSG")"
           gh api "repos/${{ github.repository }}/git/refs" \
             -f ref="refs/tags/v${{ steps.version.outputs.tag }}" \
             -f sha="$signed_sha"
