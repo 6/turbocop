@@ -21,6 +21,7 @@ use crate::parse::source::SourceFile;
 /// - skip parenthesized operator calls used as arguments to another call
 /// - skip chained parenthesized calls only when the RHS has a Parser-style truthy first
 ///   child (for example `foo.+(@bar).to_s` or `scopes.-(%i[x]).any?`)
+///
 /// Bare no-receiver calls like `other` and `rand(25)` remain offenses.
 pub struct OperatorMethodCall;
 
