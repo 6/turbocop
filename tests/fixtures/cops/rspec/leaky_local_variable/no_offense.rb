@@ -546,3 +546,71 @@ describe SomeClass do
   end
 end
 
+# Lambda body in shared example args: variables inside lambdas are lambda-local
+# and should not be collected as group-level assignments (natalie pattern)
+describe "Kernel.sprintf" do
+  it_behaves_like :kernel_sprintf_to_str, -> format, *args {
+    r = nil
+    -> {
+    }.should_not complain(verbose: true)
+    r
+  }
+end
+
+# Lambda do...end body in shared example args (bugsnag pattern)
+describe SomeClass do
+  include_examples(
+    "metadata delegate",
+    lambda do |metadata, *args|
+      configuration = Bugsnag::Configuration.new
+      configuration.instance_variable_set(:@metadata, metadata)
+      configuration.add_metadata(*args)
+    end,
+    lambda do |metadata, *args|
+      configuration = Bugsnag::Configuration.new
+      configuration.instance_variable_set(:@metadata, metadata)
+    end
+  )
+end
+
+# Lambda inside keyword hash arg to it_behaves_like (imap-backup pattern)
+describe SomeClass do
+  it_behaves_like(
+    "an action that handles Logger options",
+    action: ->(subject, options) do
+      with_required = options.merge({"email" => "me", "server" => "host"})
+      subject.invoke(:backup, [], with_required)
+    end
+  ) do
+    let(:account) { "test" }
+  end
+end
+
+# proc do...end body in shared example args (wca pattern)
+describe SomeClass do
+  include_examples "action",
+    lambda { |current_user|
+      medium = CompetitionMedium.find_by!(text: "i was just created")
+      expect(medium.status).to eq "pending"
+    },
+    proc { |current_user|
+      record = Record.find_by!(name: "test")
+      expect(record).to be_valid
+    }
+end
+
+# Inline assignment in it description arg (thin pattern)
+describe Request, 'performance' do
+  it "should be faster then #{max_parsing_time = 0.0002} RubySeconds" do
+    expect { parse_request }.to be_faster_then(max_parsing_time)
+  end
+end
+
+# Inline assignment in it description arg (jruby-rack pattern)
+describe SomeClass do
+  it spec = "still serves when retrieving exception's message fails" do
+    @env[JRuby::Rack::ErrorApp::EXCEPTION] = InitException.new spec
+  end
+end
+
+

@@ -1664,41 +1664,64 @@ fn stmt_example_scope_var_interaction(
                             // variable inside a nested call (e.g., `expect do
                             // response = ... end`) or inside a conditional
                             // (e.g., `unless cond; x = new_val; use(x); end`).
-                            // A write without a prior read of the outer value
-                            // means the outer value is dead for this scope.
-                            let has_deep_write = stmts
+                            // Only UNCONDITIONAL deep writes definitively kill
+                            // the outer value. Conditional writes (inside
+                            // if/unless) may not execute, leaving the outer
+                            // value alive for subsequent example-scope reads.
+                            let has_deep_write_unconditional = stmts
                                 .body()
                                 .iter()
-                                .any(|s| node_writes_var_deep(&s, var_name));
+                                .any(|s| node_writes_var_deep_unconditional(&s, var_name));
+                            let has_deep_write = has_deep_write_unconditional
+                                || stmts
+                                    .body()
+                                    .iter()
+                                    .any(|s| node_writes_var_deep(&s, var_name));
                             if has_deep_write {
                                 // Check if there are any reads of the outer
                                 // value that are NOT preceded by a write.
                                 // Uses linear flow across statements: once a
-                                // statement writes the variable (deep or shallow),
-                                // reads in later statements don't count as reads
-                                // of the outer value. Within each statement,
-                                // reads are checked before writes so that
-                                // conditional predicate reads (e.g.,
-                                // `if x.nil?; x = ...; end`) are detected.
+                                // statement writes the variable (deep or shallow
+                                // unconditional), reads in later statements
+                                // don't count as reads of the outer value.
+                                // Within each statement, reads are checked
+                                // before writes so that conditional predicate
+                                // reads (e.g., `if x.nil?; x = ...; end`) are
+                                // detected.
                                 let has_outer_read = stmts_has_outer_read(&stmts, var_name);
-                                if !has_outer_read {
+                                if !has_outer_read && has_deep_write_unconditional {
+                                    // Unconditional deep write kills the outer
+                                    // value with no prior read.
                                     return combine_var_interactions(
                                         result,
                                         VarInteraction::WriteBeforeRead,
                                     );
                                 }
-                                return combine_var_interactions(
-                                    result,
-                                    VarInteraction::WriteAndReadBeforeWrite,
-                                );
-                            }
-                            // Check if the variable is referenced at all
-                            let has_read = stmts
-                                .body()
-                                .iter()
-                                .any(|s| node_references_var(&s, var_name));
-                            if has_read {
-                                result = combine_var_interactions(result, VarInteraction::ReadOnly);
+                                if has_outer_read {
+                                    return combine_var_interactions(
+                                        result,
+                                        VarInteraction::WriteAndReadBeforeWrite,
+                                    );
+                                }
+                                // Conditional-only deep write with no outer
+                                // read: the write may not execute, so the outer
+                                // value may survive. But reads within the
+                                // conditional branch are of the newly-written
+                                // value, not the outer value. Do NOT fall
+                                // through to the broad `node_references_var`
+                                // check — it would count those local reads as
+                                // references to the outer value.
+                            } else {
+                                // No deep write at all — check if the variable
+                                // is referenced anywhere in the block body.
+                                let has_read = stmts
+                                    .body()
+                                    .iter()
+                                    .any(|s| node_references_var(&s, var_name));
+                                if has_read {
+                                    result =
+                                        combine_var_interactions(result, VarInteraction::ReadOnly);
+                                }
                             }
                         }
 
@@ -2273,8 +2296,14 @@ fn filter_dead_assignments<'a>(
     live
 }
 
-/// Check if an assignment is dead — overwritten by a later unconditional assignment
-/// at the top-level statement list with no intervening example-scope reference.
+/// Check if an assignment is dead — overwritten by a later assignment (including
+/// operator-writes like `x += y`) at the top-level statement list with no
+/// intervening example-scope reference.
+///
+/// Operator-writes (`x += y`, `x -= y`) consume the previous value at the group
+/// scope level and produce a new value. The previous assignment's value never
+/// reaches example scopes — it's consumed at the group scope. RuboCop's
+/// VariableForce tracks this per-assignment and only flags the final value.
 fn is_dead_assignment(assign: &VarAssign, stmts: &ruby_prism::StatementsNode<'_>) -> bool {
     let mut past_current = false;
     let mut seen_example_ref = false;
@@ -2294,12 +2323,46 @@ fn is_dead_assignment(assign: &VarAssign, stmts: &ruby_prism::StatementsNode<'_>
             seen_example_ref = true;
         }
 
-        if !seen_example_ref && stmt_is_unconditional_assign_to(&stmt, &assign.name) {
-            // Found a later unconditional assignment with no example reference between
+        if !seen_example_ref && stmt_kills_assignment(&stmt, &assign.name) {
+            // Found a later assignment that kills this one with no example reference between
             return true;
         }
     }
 
+    false
+}
+
+/// Check if a statement kills an earlier assignment to the given variable.
+/// This includes unconditional writes (`x = expr`, multi-write) AND operator-
+/// writes (`x += expr`, `x -= expr`). Operator-writes consume the previous
+/// value at the group scope level, making the earlier assignment dead for
+/// leaky variable purposes. Unlike `stmt_reassigns_var` (which is used for
+/// linear flow in `var_value_reaches_example_scope_in_stmts`), this function
+/// specifically determines if an earlier assignment's value can reach examples.
+fn stmt_kills_assignment(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
+    // Direct writes (`x = ...`) always kill.
+    if let Some(lw) = node.as_local_variable_write_node() {
+        return lw.name().as_slice() == var_name;
+    }
+    // Operator-writes (`x += ...`, `x -= ...`) read-then-write, consuming
+    // the previous value at group scope. The previous value never reaches
+    // example scopes.
+    if let Some(opw) = node.as_local_variable_operator_write_node() {
+        return opw.name().as_slice() == var_name;
+    }
+    // Multi-write: `a, b = expr`
+    if let Some(mw) = node.as_multi_write_node() {
+        for target in mw.lefts().iter() {
+            if let Some(lt) = target.as_local_variable_target_node() {
+                if lt.name().as_slice() == var_name {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    // Note: `||=` and `&&=` are NOT included because they conditionally
+    // skip the write — the old value may survive and reach example scopes.
     false
 }
 
@@ -2535,6 +2598,61 @@ fn stmt_reassigns_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
     false
 }
 
+/// Check if a node is a call-style lambda or proc: `lambda do...end` or `proc do...end`.
+fn is_lambda_or_proc_call(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        let name = call.name().as_slice();
+        return call.receiver().is_none() && (name == b"lambda" || name == b"proc");
+    }
+    false
+}
+
+/// Collect assignments from scope-boundary arguments, skipping lambda/proc
+/// bodies. Variables first assigned inside a lambda/proc are lambda-local and
+/// can't leak to the enclosing group scope. This is used when collecting
+/// assignments from includes method and example group call arguments (e.g.,
+/// `it_behaves_like :foo, -> { r = nil; r }` — `r` is lambda-local).
+fn collect_assignments_in_scope_skip_lambdas(
+    node: &ruby_prism::Node<'_>,
+    assigns: &mut Vec<VarAssign>,
+    inside_block: bool,
+) {
+    // Skip lambda/proc nodes entirely
+    if node.as_lambda_node().is_some() {
+        return;
+    }
+    if is_lambda_or_proc_call(node) {
+        return;
+    }
+    // For container nodes that may hold lambdas (hash, array, keyword hash),
+    // recurse but filter lambdas at each level.
+    if let Some(hash) = node.as_hash_node() {
+        for elem in hash.elements().iter() {
+            collect_assignments_in_scope_skip_lambdas(&elem, assigns, inside_block);
+        }
+        return;
+    }
+    if let Some(hash) = node.as_keyword_hash_node() {
+        for elem in hash.elements().iter() {
+            collect_assignments_in_scope_skip_lambdas(&elem, assigns, inside_block);
+        }
+        return;
+    }
+    if let Some(assoc) = node.as_assoc_node() {
+        collect_assignments_in_scope_skip_lambdas(&assoc.key(), assigns, inside_block);
+        collect_assignments_in_scope_skip_lambdas(&assoc.value(), assigns, inside_block);
+        return;
+    }
+    if let Some(arr) = node.as_array_node() {
+        for elem in arr.elements().iter() {
+            collect_assignments_in_scope_skip_lambdas(&elem, assigns, inside_block);
+        }
+        return;
+    }
+    // For all other nodes, delegate to normal collection
+    collect_assignments_in_scope(node, assigns, inside_block);
+}
+
 /// Recursively collect local variable assignments within a node, stopping at
 /// scope boundaries (examples, hooks, let, subject, nested example groups,
 /// method definitions, class/module definitions).
@@ -2648,10 +2766,25 @@ fn collect_assignments_in_scope(
         if (no_recv && (is_example_scope(name) || is_includes_method(name)))
             || ((no_recv || is_rspec_recv) && is_rspec_example_group(name))
         {
-            // Collect assignments from arguments before returning.
-            if let Some(args) = call.arguments() {
-                for arg in args.arguments().iter() {
-                    collect_assignments_in_scope(&arg, assigns, inside_block);
+            // Only collect assignments from args for example group and includes
+            // methods. Example scope methods (it, specify, before, let, subject)
+            // have their args evaluated as part of the example, not at the group
+            // scope level.
+            if !is_example_scope(name) {
+                if let Some(args) = call.arguments() {
+                    for arg in args.arguments().iter() {
+                        // Skip lambda/proc arguments — variables first assigned
+                        // inside a lambda are lambda-local and can't leak to the
+                        // enclosing group scope. Captured variables from the outer
+                        // scope are already collected at the outer scope level.
+                        if arg.as_lambda_node().is_some() {
+                            continue;
+                        }
+                        if is_lambda_or_proc_call(&arg) {
+                            continue;
+                        }
+                        collect_assignments_in_scope_skip_lambdas(&arg, assigns, inside_block);
+                    }
                 }
             }
             return;
@@ -3534,6 +3667,119 @@ fn node_writes_var_deep(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
     false
 }
 
+/// Like `node_writes_var_deep`, but only considers writes that are guaranteed to
+/// execute (not inside conditional branches). This is used in `stmts_has_outer_read`
+/// to determine whether a deep write kills subsequent reads: only unconditional
+/// deep writes should kill, because writes inside `if`/`unless`/`case` may not
+/// execute, leaving the outer assignment's value alive.
+///
+/// Recurses through: begin blocks, parentheses, call blocks (which always execute
+/// when the call executes). Does NOT recurse into: if/unless/case/else branches.
+fn node_writes_var_deep_unconditional(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
+    if let Some(lw) = node.as_local_variable_write_node() {
+        if lw.name().as_slice() == var_name {
+            return true;
+        }
+        return node_writes_var_deep_unconditional(&lw.value(), var_name);
+    }
+    if let Some(ow) = node.as_local_variable_or_write_node() {
+        if ow.name().as_slice() == var_name {
+            return true;
+        }
+        return node_writes_var_deep_unconditional(&ow.value(), var_name);
+    }
+    if let Some(aw) = node.as_local_variable_and_write_node() {
+        if aw.name().as_slice() == var_name {
+            return true;
+        }
+        return node_writes_var_deep_unconditional(&aw.value(), var_name);
+    }
+    if let Some(opw) = node.as_local_variable_operator_write_node() {
+        if opw.name().as_slice() == var_name {
+            return true;
+        }
+        return node_writes_var_deep_unconditional(&opw.value(), var_name);
+    }
+    if let Some(mw) = node.as_multi_write_node() {
+        for target in mw.lefts().iter() {
+            if let Some(lt) = target.as_local_variable_target_node() {
+                if lt.name().as_slice() == var_name {
+                    return true;
+                }
+            }
+        }
+        return node_writes_var_deep_unconditional(&mw.value(), var_name);
+    }
+    // Call nodes: recurse into block body (blocks always execute when called)
+    if let Some(call) = node.as_call_node() {
+        if let Some(recv) = call.receiver() {
+            if node_writes_var_deep_unconditional(&recv, var_name) {
+                return true;
+            }
+        }
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                if node_writes_var_deep_unconditional(&arg, var_name) {
+                    return true;
+                }
+            }
+        }
+        if let Some(block) = call.block() {
+            if let Some(bn) = block.as_block_node() {
+                if !block_has_param(&bn, var_name) {
+                    if let Some(body) = bn.body() {
+                        if let Some(stmts) = body.as_statements_node() {
+                            for s in stmts.body().iter() {
+                                if node_writes_var_deep_unconditional(&s, var_name) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    // Lambda: recurse into body
+    if let Some(lambda) = node.as_lambda_node() {
+        if let Some(body) = lambda.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                return stmts
+                    .body()
+                    .iter()
+                    .any(|s| node_writes_var_deep_unconditional(&s, var_name));
+            }
+        }
+        return false;
+    }
+    // Statements: recurse
+    if let Some(stmts) = node.as_statements_node() {
+        return stmts
+            .body()
+            .iter()
+            .any(|s| node_writes_var_deep_unconditional(&s, var_name));
+    }
+    // DO NOT recurse into if/unless/case/else — writes in conditional branches
+    // are not guaranteed to execute.
+    // Begin blocks always execute their main body.
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            return stmts
+                .body()
+                .iter()
+                .any(|s| node_writes_var_deep_unconditional(&s, var_name));
+        }
+        return false;
+    }
+    if let Some(paren) = node.as_parentheses_node() {
+        if let Some(body) = paren.body() {
+            return node_writes_var_deep_unconditional(&body, var_name);
+        }
+    }
+    false
+}
+
 /// Check if a node is an interpolated string or symbol.
 /// Check if a node is an example group call (describe/context) whose arguments
 /// reference the given variable. Recurses into nested nodes (if/case/blocks)
@@ -3825,9 +4071,13 @@ fn stmts_has_outer_read(stmts: &ruby_prism::StatementsNode<'_>, var_name: &[u8])
         if node_reads_var_without_prior_write(&stmt, var_name) {
             return true;
         }
-        // If this statement writes the variable (shallow or deep), subsequent
-        // statements' reads are covered by this write — stop checking.
-        if is_unconditional_var_write(&stmt, var_name) || node_writes_var_deep(&stmt, var_name) {
+        // If this statement writes the variable (shallow or deep unconditional),
+        // subsequent statements' reads are covered by this write — stop checking.
+        // Only unconditional deep writes count: writes inside if/unless/case may
+        // not execute, leaving the outer value alive for later reads.
+        if is_unconditional_var_write(&stmt, var_name)
+            || node_writes_var_deep_unconditional(&stmt, var_name)
+        {
             return false;
         }
     }
@@ -5078,11 +5328,12 @@ end
     #[test]
     fn test_fp_operator_write_kills_group_scope_value() {
         // leftovers pattern: `merged_config_methods = X; merged_config_methods -= Y`
-        // then used in it block. RuboCop flags ALL three lines because:
-        // - Line 2 (`=`): value read by line 3's `-=`
-        // - Line 3 (`-=`): value read by line 4's `-=`
-        // - Line 4 (`-=`): value reaches `it` block
-        // `-=` reads the old value, so earlier assignments are NOT dead.
+        // then used in it block. RuboCop's VariableForce does per-assignment
+        // tracking: each `-=` consumes the previous value at group scope.
+        // Only the final `-=` result reaches the `it` block.
+        // - Line 2 (`=`): consumed by line 3's `-=` at group scope — dead
+        // - Line 3 (`-=`): consumed by line 4's `-=` at group scope — dead
+        // - Line 4 (`-=`): value reaches `it` block — offense
         let source = br#"context 'when merged' do
   merged_config_methods = ::Leftovers.config.public_methods
   merged_config_methods -= ::Class.new.new.public_methods
@@ -5094,29 +5345,29 @@ end
 end
 "#;
         let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
-        // All three assignments should be flagged — `-=` reads the old value.
+        // Only the final operator-write is flagged — earlier ones are consumed
+        // at group scope and never reach example scopes.
         assert_eq!(
             diags.len(),
-            3,
-            "Expected 3 offenses (all assignments), got {}: {:?}",
+            1,
+            "Expected 1 offense (last -=), got {}: {:?}",
             diags.len(),
             diags
                 .iter()
                 .map(|d| format!("{}:{}", d.location.line, d.location.column))
                 .collect::<Vec<_>>()
         );
-        assert_eq!(diags[0].location.line, 2, "First offense on line 2");
-        assert_eq!(diags[1].location.line, 3, "Second offense on line 3");
-        assert_eq!(diags[2].location.line, 4, "Third offense on line 4");
+        assert_eq!(diags[0].location.line, 4, "Offense on line 4 (last -=)");
     }
 
     #[test]
     fn test_fp_plus_equals_kills_group_scope_value() {
         // SlideHub pattern: `list_json_keys = %w[...]; list_json_keys += %w[...]`
-        // then used in it block. RuboCop flags BOTH assignments because:
-        // - Line 2 (`=`): leaky — value is read by line 3's `+=` at group scope
-        // - Line 3 (`+=`): leaky — result reaches the `it` block
-        // `+=` reads the old value, so the first assignment is NOT dead.
+        // then used in it block. RuboCop's VariableForce does per-assignment
+        // tracking: the first assignment's value is consumed by `+=` at group
+        // scope (not in an example scope). Only the `+=` result reaches examples.
+        // - Line 2 (`=`): consumed by line 3's `+=` at group scope — dead
+        // - Line 3 (`+=`): value reaches the `it` block — offense
         let source = br#"RSpec.describe SomeClass do
   list_json_keys = %w[id user_id name]
   list_json_keys += %w[num_of_pages created_at]
@@ -5132,11 +5383,11 @@ end
 end
 "#;
         let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
-        // Both assignments should be flagged — `+=` reads the old value.
+        // Only the `+=` is flagged — the first assignment is consumed at group scope.
         assert_eq!(
             diags.len(),
-            2,
-            "Expected 2 offenses (both assignments), got {}: {:?}",
+            1,
+            "Expected 1 offense (+=), got {}: {:?}",
             diags.len(),
             diags
                 .iter()
@@ -5144,12 +5395,8 @@ end
                 .collect::<Vec<_>>()
         );
         assert_eq!(
-            diags[0].location.line, 2,
-            "First offense should be on line 2"
-        );
-        assert_eq!(
-            diags[1].location.line, 3,
-            "Second offense should be on line 3"
+            diags[0].location.line, 3,
+            "Offense should be on line 3 (+=)"
         );
     }
 
