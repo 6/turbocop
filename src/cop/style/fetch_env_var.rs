@@ -7,7 +7,7 @@ use ruby_prism::Visit;
 
 /// ## Investigation findings
 ///
-/// ### FP root causes (20 FP)
+/// ### FP root causes
 /// 1. `::ENV['X']` (fully qualified via ConstantPathNode) was matched, but RuboCop's
 ///    `env_with_bracket?` pattern `(send (const nil? :ENV) :[] $_)` requires `nil?`
 ///    parent — `::ENV` has `(cbase)` parent, not nil. Fixed: only match
@@ -17,20 +17,34 @@ use ruby_prism::Visit;
 /// 3. Quote-style mismatch in condition-body key matching: `if ENV["KEY"]` then
 ///    `ENV['KEY']` in body failed byte-level comparison because `"KEY"` != `'KEY'`.
 ///    Fixed: normalize keys by stripping surrounding quotes before comparison.
+/// 4. `if var = ENV['X']` (assignment in condition without parens): RuboCop's
+///    `used_in_condition?` finds ENV['X'] as a direct child_node of the lvasgn
+///    condition → suppressed. With parens, a begin/ParenthesesNode wraps the
+///    lvasgn, pushing ENV['X'] to grandchild depth → NOT suppressed → flagged.
+///    Fixed: handle `LocalVariableWriteNode` in `collect_suppressed_in_condition`
+///    and `extract_condition_keys` to match RuboCop's behavior.
 ///
-/// ### FN root causes (359 FN)
+/// ### FN root causes
 /// 1. Over-suppression in conditions: `suppress_env_in_condition` walked the entire
 ///    condition subtree and suppressed ALL `ENV[]` calls found. But RuboCop only
 ///    suppresses `ENV[]` when it IS the condition itself (bare `if ENV['X']`),
 ///    or when the parent is `!` or a comparison method. In `&&` chains like
 ///    `if ENV['A'] && ENV['B']`, the nested ENV nodes should be flagged.
-/// 2. `if (repo = ENV['X'])` — assignment wraps ENV in a local_variable_write_node,
-///    and condition is wrapped in parentheses (embedded_statements). The ENV[] was
-///    incorrectly suppressed as part of the condition. RuboCop flags this.
-/// 3. Body suppression was too broad: collected ALL ENV key ranges from the entire
+/// 2. Body suppression was too broad: collected ALL ENV key ranges from the entire
 ///    condition subtree. RuboCop only suppresses body ENV['X'] when the condition
 ///    directly involves the same key (as direct child_nodes match, comparison, or
 ///    predicate check).
+/// 3. Nested condition key leakage: condition_keys from ancestor if/unless nodes
+///    were visible when visiting inner if conditions, incorrectly suppressing
+///    ENV['X'] in patterns like `if ENV['X'] =~ /-/` inside `if ENV['X']`.
+///    RuboCop's `used_if_condition_in_body?` only checks the nearest if ancestor.
+///    Fixed: temporarily clear condition_keys during predicate visit.
+///
+/// 4. Body suppression checked all ancestor condition keys, but RuboCop's
+///    `used_if_condition_in_body?` only checks the nearest if ancestor.
+///    Example: `if ENV['X'] ... if other ... ENV['X'] end end` — we suppressed,
+///    RuboCop flagged. Fixed: `key_matches_nearest_condition` checks only the
+///    top of the condition_keys stack.
 ///
 /// ### Fix approach
 /// Replaced the broad `suppress_env_in_condition` tree-walk with precise per-node
@@ -66,6 +80,14 @@ impl FetchEnvVar {
             }
         }
         false
+    }
+
+    /// Check if a CallNode with method `!` is the `!` prefix operator (not the `not` keyword).
+    /// RuboCop's `prefix_bang?` only matches `!`, not `not`. Prism uses `message_loc` source
+    /// text "!" vs "not" to distinguish them.
+    fn is_prefix_bang(call: &ruby_prism::CallNode<'_>) -> bool {
+        call.name().as_slice() == b"!"
+            && call.message_loc().is_some_and(|loc| loc.as_slice() == b"!")
     }
 
     /// Check if a method name is a comparison method (==, !=, ===, <, >, <=, >=, <=>).
@@ -231,8 +253,8 @@ impl FetchEnvVar {
                 }
             }
 
-            // Case 4: `!ENV['X']` — prefix_bang
-            if method_bytes == b"!" {
+            // Case 4: `!ENV['X']` — prefix_bang only (not `not`)
+            if Self::is_prefix_bang(&call) {
                 if let Some(receiver) = call.receiver() {
                     if let Some(recv_call) = receiver.as_call_node() {
                         if recv_call.name().as_slice() == b"[]" {
@@ -333,6 +355,14 @@ impl FetchEnvVar {
         // is a ParenthesesNode wrapping the assignment. We should NOT extract
         // keys from inside assignments — RuboCop doesn't suppress them.
 
+        // Case: `if var = ENV['X']` (no parens) — LocalVariableWriteNode.
+        // RuboCop's `condition.child_nodes.any?(node)` finds ENV['X'] as a direct
+        // child of lvasgn → suppressed. With parens, a begin node wraps the lvasgn
+        // so ENV['X'] is a grandchild → NOT suppressed → flagged.
+        if let Some(write) = condition.as_local_variable_write_node() {
+            return Self::extract_condition_keys(source, &write.value());
+        }
+
         keys
     }
 
@@ -347,6 +377,7 @@ impl FetchEnvVar {
     /// This function handles the `condition.child_nodes.any?` equivalent: suppressing
     /// ENV[] calls that are DIRECT children of the top-level condition node.
     fn collect_suppressed_in_condition(
+        source: &[u8],
         condition: &ruby_prism::Node<'_>,
         offsets: &mut HashSet<usize>,
     ) {
@@ -377,8 +408,9 @@ impl FetchEnvVar {
             // suppressed by the dot-method check, not by this function.
 
             // For safety, we still handle a few common cases:
-            if method_bytes == b"!" {
-                // `!ENV['X']` — suppress the inner ENV[]
+            // Only suppress for `!` prefix, NOT for `not` keyword — RuboCop's
+            // `prefix_bang?` only matches `!`.
+            if Self::is_prefix_bang(&call) {
                 if let Some(receiver) = call.receiver() {
                     if Self::is_env_bracket_call(&receiver) {
                         if let Some(recv_call) = receiver.as_call_node() {
@@ -432,22 +464,34 @@ impl FetchEnvVar {
             }
         }
 
-        // Case 3: `&&` or `||` — check only DIRECT children, one level deep.
-        // RuboCop's `condition.child_nodes.any?(node)` only checks direct children
-        // of the condition, NOT grandchildren. So for `if A && B && C` parsed as
-        // `(and (and A B) C)`, only `(and A B)` and `C` are children — not A or B.
-        // We check each direct child: if it's an ENV[] call, suppress it.
-        // If it's another `&&`/`||`, do NOT recurse further.
+        // Case 3: `&&` or `||` — RuboCop uses structural equality via
+        // `condition.child_nodes.any?(node)`. If ENV['X'] is a direct child,
+        // ALL structurally equal ENV['X'] nodes in the entire condition subtree
+        // are suppressed. We implement this by finding direct ENV children and
+        // then walking the full condition to suppress all matching keys.
         if let Some(and_node) = condition.as_and_node() {
-            Self::suppress_if_env_bracket(&and_node.left(), offsets);
-            Self::suppress_if_env_bracket(&and_node.right(), offsets);
+            for child in [and_node.left(), and_node.right()] {
+                if let Some(key) = Self::env_bracket_key(source, &child) {
+                    Self::suppress_env_by_key_in_subtree(source, condition, &key, offsets);
+                }
+            }
         }
         if let Some(or_node) = condition.as_or_node() {
-            Self::suppress_if_env_bracket(&or_node.left(), offsets);
-            Self::suppress_if_env_bracket(&or_node.right(), offsets);
+            for child in [or_node.left(), or_node.right()] {
+                if let Some(key) = Self::env_bracket_key(source, &child) {
+                    Self::suppress_env_by_key_in_subtree(source, condition, &key, offsets);
+                }
+            }
         }
 
         // Parenthesized assignment `if (x = ENV['X'])` — do NOT suppress
+
+        // Bare assignment `if var = ENV['X']` (no parens) — LocalVariableWriteNode.
+        // RuboCop's `condition.child_nodes.any?(node)` finds ENV['X'] as a direct
+        // child of lvasgn → suppressed. Recurse into the value.
+        if let Some(write) = condition.as_local_variable_write_node() {
+            Self::collect_suppressed_in_condition(source, &write.value(), offsets);
+        }
     }
 
     /// Extract the normalized ENV key from a node if it's a bare `ENV['X']` call.
@@ -479,13 +523,75 @@ impl FetchEnvVar {
         }
     }
 
-    /// If the node is an ENV['X'] call, add its start offset to the suppressed set.
-    fn suppress_if_env_bracket(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<usize>) {
-        if Self::is_env_bracket_call(node) {
-            if let Some(call) = node.as_call_node() {
-                offsets.insert(call.location().start_offset());
+    /// Walk the subtree and suppress all ENV['X'] calls whose normalized key matches
+    /// the given key. This implements RuboCop's structural equality behavior: if
+    /// `ENV['X']` is a direct child of the condition, ALL structurally equal `ENV['X']`
+    /// nodes in the condition are suppressed by `child_nodes.any?(node)`.
+    fn suppress_env_by_key_in_subtree(
+        source: &[u8],
+        node: &ruby_prism::Node<'_>,
+        key: &[u8],
+        offsets: &mut HashSet<usize>,
+    ) {
+        struct KeyWalker<'a> {
+            source: &'a [u8],
+            key: &'a [u8],
+            offsets: &'a mut HashSet<usize>,
+        }
+        impl<'pr> Visit<'pr> for KeyWalker<'_> {
+            fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+                if node.name().as_slice() == b"[]" {
+                    if let Some(receiver) = node.receiver() {
+                        if FetchEnvVar::is_env_receiver(&receiver) {
+                            if let Some(args) = node.arguments() {
+                                let arg_list: Vec<_> = args.arguments().iter().collect();
+                                if arg_list.len() == 1 {
+                                    let loc = arg_list[0].location();
+                                    let normalized = FetchEnvVar::normalize_key(
+                                        self.source,
+                                        loc.start_offset(),
+                                        loc.end_offset(),
+                                    );
+                                    if normalized == self.key {
+                                        self.offsets.insert(node.location().start_offset());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ruby_prism::visit_call_node(self, node);
             }
         }
+        let mut walker = KeyWalker {
+            source,
+            key,
+            offsets,
+        };
+        walker.visit(node);
+    }
+
+    /// Extract the normalized key from an ENV['X'] node, or None if not an ENV bracket call.
+    fn env_bracket_key(source: &[u8], node: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
+        let call = node.as_call_node()?;
+        if call.name().as_slice() != b"[]" {
+            return None;
+        }
+        let receiver = call.receiver()?;
+        if !Self::is_env_receiver(&receiver) {
+            return None;
+        }
+        let args = call.arguments()?;
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.len() != 1 {
+            return None;
+        }
+        let loc = arg_list[0].location();
+        Some(Self::normalize_key(
+            source,
+            loc.start_offset(),
+            loc.end_offset(),
+        ))
     }
 }
 
@@ -534,9 +640,13 @@ struct FetchEnvVarVisitor<'a> {
 }
 
 impl FetchEnvVarVisitor<'_> {
-    /// Check if a normalized ENV key matches any key from ancestor if/unless conditions.
-    fn key_matches_any_condition(&self, key: &[u8]) -> bool {
-        self.condition_keys.iter().any(|keys| keys.contains(key))
+    /// Check if a normalized ENV key matches a key from the NEAREST ancestor if/unless condition.
+    /// RuboCop's `used_if_condition_in_body?` only checks the immediate parent if/unless,
+    /// not all ancestors. So we only check the top of the stack.
+    fn key_matches_nearest_condition(&self, key: &[u8]) -> bool {
+        self.condition_keys
+            .last()
+            .is_some_and(|keys| keys.contains(key))
     }
 }
 
@@ -544,11 +654,20 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
         let predicate = node.predicate();
 
-        // First visit the predicate WITHOUT condition_keys pushed,
-        // so ENV[] calls IN the condition are not suppressed by key matching.
-        // The suppressed_offsets handle condition-internal suppression.
-        FetchEnvVar::collect_suppressed_in_condition(&predicate, &mut self.suppressed_offsets);
+        // Visit the predicate with condition_keys temporarily cleared.
+        // RuboCop's `used_if_condition_in_body?` only checks the NEAREST if ancestor,
+        // not all ancestors. Clearing prevents ancestor condition keys from incorrectly
+        // suppressing ENV[] calls in nested conditions (e.g., `if ENV['X'] =~ /-/`
+        // inside `if ENV['X']`). The suppressed_offsets handle condition-internal
+        // suppression independently.
+        let saved_keys = std::mem::take(&mut self.condition_keys);
+        FetchEnvVar::collect_suppressed_in_condition(
+            self.source.as_bytes(),
+            &predicate,
+            &mut self.suppressed_offsets,
+        );
         self.visit(&predicate);
+        self.condition_keys = saved_keys;
 
         // Then push condition keys and visit body/else.
         let keys = FetchEnvVar::extract_condition_keys(self.source.as_bytes(), &predicate);
@@ -567,8 +686,15 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
         let predicate = node.predicate();
 
-        FetchEnvVar::collect_suppressed_in_condition(&predicate, &mut self.suppressed_offsets);
+        // Same as visit_if_node: clear condition_keys during predicate visit.
+        let saved_keys = std::mem::take(&mut self.condition_keys);
+        FetchEnvVar::collect_suppressed_in_condition(
+            self.source.as_bytes(),
+            &predicate,
+            &mut self.suppressed_offsets,
+        );
         self.visit(&predicate);
+        self.condition_keys = saved_keys;
 
         let keys = FetchEnvVar::extract_condition_keys(self.source.as_bytes(), &predicate);
         self.condition_keys.push(keys);
@@ -620,8 +746,8 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
             }
         }
 
-        // `!ENV['X']` — prefix_bang suppression
-        if method_bytes == b"!" {
+        // `!ENV['X']` — prefix_bang suppression (NOT `not ENV['X']`)
+        if FetchEnvVar::is_prefix_bang(node) {
             if let Some(receiver) = node.receiver() {
                 if FetchEnvVar::is_env_bracket_call(&receiver) {
                     if let Some(call) = receiver.as_call_node() {
@@ -676,7 +802,7 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
                 arg_loc.start_offset(),
                 arg_loc.end_offset(),
             );
-            if self.key_matches_any_condition(&normalized_key) {
+            if self.key_matches_nearest_condition(&normalized_key) {
                 return;
             }
 

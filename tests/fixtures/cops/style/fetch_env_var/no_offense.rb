@@ -93,3 +93,18 @@ end
 if ENV["X"] != 'test'
   puts ENV["X"]
 end
+# ENV['X'] in && condition: same key nested inside method call is suppressed
+# by structural equality (child_nodes.any? matches the direct child ENV['X'])
+if ENV['X'] and hash(ENV['X']) != service_hash
+  set_hash = hash(ENV['X'])
+end
+# Assignment in condition without parens: RuboCop treats ENV as flag (child_nodes match)
+if var = ENV['X']
+  puts var
+end
+# elsif with assignment
+if true
+  puts "yes"
+elsif var = ENV['X']
+  puts var
+end
