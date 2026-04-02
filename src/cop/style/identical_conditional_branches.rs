@@ -41,6 +41,12 @@ use ruby_prism::Visit;
 ///    nitrocop walked all descendants, which over-suppressed offenses like
 ///    `if str.to_s.strip.empty?; @distance_string = str; else ... end`.
 ///    Narrowed the condition-variable check to direct child variables only.
+///
+/// 6. **FP: single-child branch tails that are nested conditionals** —
+///    RuboCop does not report `if`/`unless` expressions when they are the only
+///    statement in every branch and the enclosing conditional is the last
+///    expression of its parent. nitrocop compared those nested conditionals as
+///    ordinary tail statements and flagged them anyway.
 pub struct IdenticalConditionalBranches;
 
 struct StatementInfo {
@@ -54,6 +60,7 @@ struct StatementInfo {
     /// `duplicated_expressions?` to suppress when the value (for simple writes)
     /// or LHS variable name (for operator writes) matches a condition variable.
     assignment_child_source: Option<String>,
+    is_if_or_unless: bool,
 }
 
 fn node_source(source: &SourceFile, node: &ruby_prism::Node<'_>) -> String {
@@ -246,6 +253,7 @@ fn stmt_info(
         has_heredoc,
         index_assignment_receiver: index_assignment_receiver_source(source, node),
         assignment_child_source: assignment_child_source(source, node),
+        is_if_or_unless: node.as_if_node().is_some() || node.as_unless_node().is_some(),
     })
 }
 
@@ -350,6 +358,7 @@ impl IdenticalConditionalBranches {
         source: &SourceFile,
         branches: &[BranchInfo<'_>],
         condition_node: Option<&ruby_prism::Node<'_>>,
+        is_last_child_of_parent: bool,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         // All branches must have at least one statement
@@ -382,6 +391,13 @@ impl IdenticalConditionalBranches {
         }
         let first_key = &tails[0].key;
         if !tails.iter().all(|tail| tail.key == *first_key) {
+            return;
+        }
+
+        if is_last_child_of_parent
+            && branches.iter().all(|branch| branch.count == 1)
+            && tails[0].is_if_or_unless
+        {
             return;
         }
 
@@ -740,12 +756,12 @@ impl Cop for IdenticalConditionalBranches {
 
             let pre_len = diagnostics.len();
             let condition = if_node.predicate();
+            let last_child = is_last_child_of_parent(node, parse_result);
 
             // Check tails (last statement in each branch)
-            self.check_tails(source, &branches, Some(&condition), diagnostics);
+            self.check_tails(source, &branches, Some(&condition), last_child, diagnostics);
 
             // Check heads (first statement in each branch)
-            let last_child = is_last_child_of_parent(node, parse_result);
             self.check_heads(source, &branches, Some(&condition), last_child, diagnostics);
 
             // Deduplicate: when both head and tail fire on single-stmt branches
@@ -758,10 +774,16 @@ impl Cop for IdenticalConditionalBranches {
 
             let pre_len = diagnostics.len();
             let condition = case_node.predicate();
-
-            self.check_tails(source, &branches, condition.as_ref(), diagnostics);
-
             let last_child = is_last_child_of_parent(node, parse_result);
+
+            self.check_tails(
+                source,
+                &branches,
+                condition.as_ref(),
+                last_child,
+                diagnostics,
+            );
+
             self.check_heads(
                 source,
                 &branches,
@@ -779,10 +801,16 @@ impl Cop for IdenticalConditionalBranches {
 
             let pre_len = diagnostics.len();
             let condition = case_match_node.predicate();
-
-            self.check_tails(source, &branches, condition.as_ref(), diagnostics);
-
             let last_child = is_last_child_of_parent(node, parse_result);
+
+            self.check_tails(
+                source,
+                &branches,
+                condition.as_ref(),
+                last_child,
+                diagnostics,
+            );
+
             self.check_heads(
                 source,
                 &branches,
@@ -806,10 +834,10 @@ impl Cop for IdenticalConditionalBranches {
 
             let pre_len = diagnostics.len();
             let condition = unless_node.predicate();
-
-            self.check_tails(source, &branches, Some(&condition), diagnostics);
-
             let last_child = is_last_child_of_parent(node, parse_result);
+
+            self.check_tails(source, &branches, Some(&condition), last_child, diagnostics);
+
             self.check_heads(source, &branches, Some(&condition), last_child, diagnostics);
 
             Self::dedup_diagnostics(diagnostics, pre_len);

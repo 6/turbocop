@@ -173,6 +173,19 @@ def bar
   do_something_else
 end
 
+# if/else nested conditionals as single-child branches, last node of parent
+def baz
+  if outer
+    if inner
+      do_x
+    end
+  else
+    if inner
+      do_x
+    end
+  end
+end
+
 # if/else identical tail assignments where RHS variable appears in condition
 def collection_collaborator(user, obj)
   if obj.is_a?(Collection)
