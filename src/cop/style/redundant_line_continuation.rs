@@ -320,7 +320,7 @@ fn starts_with_exact_keyword(trimmed: &[u8], keyword: &[u8]) -> bool {
     trimmed.starts_with(keyword)
         && trimmed
             .get(keyword.len())
-            .map_or(true, |b| !b.is_ascii_alphanumeric() && *b != b'_')
+            .is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'_')
 }
 
 fn method_with_argument(before_backslash: &[u8], next_trimmed: &[u8]) -> bool {
