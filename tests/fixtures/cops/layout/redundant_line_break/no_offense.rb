@@ -216,6 +216,35 @@ items.each do |item|
 end \
   .tap { |r| log(r) }
 
+# Keyword-arg call inside a non-iterator predicate block should stay skipped.
+existing_indexes_for(table_name).any? do |existing_index_column_names|
+  leftmost_match?(
+    haystack: existing_index_column_names,
+    needle: indexed_column_names
+  )
+end
+
+# Iterator block with map — not unsuppressed to avoid corpus FP regressions.
+public_class_method def self.get_uris(opts = {})
+  search_results = opts[:search_results]
+
+  search_results.map do |search_results_hash|
+    extract_uris(
+      search_results_hash: search_results_hash
+    )
+  end.flatten
+rescue StandardError => e
+  raise e
+end
+
+# Iterator block with an explicit object receiver should stay skipped.
+records.sort.each do |record|
+  record.update(
+    status: :processed,
+    audit_comment: "bulk update"
+  )
+end
+
 # Multiline parenthesized group — outer call has a multiline ParenthesesNode
 # descendant so safe_to_split? is false. The inner expression is too long to
 # fit on one line, so it's also not flagged.
