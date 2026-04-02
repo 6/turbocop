@@ -75,3 +75,21 @@ html = <<-EOF
 EOF
 
 (%w[ id lock_version position version_comment created_at updated_at created_by_id updated_by_id type original_record_id])
+
+def builtin_state
+  raise Bud::Error unless @tables.empty?
+
+  loopback :localtick, [:col1]
+  @stdio = terminal :stdio
+  scratch :halt, [:key]
+  @periodics = table :periodics_tbl, [:pername] => [:period]
+end
+
+RSpec.describe('PosixClass parsing') do
+  include_examples 'parse', /[[:word:]]/,
+    [0]    => [CharacterSet, count: 1],
+    [0, 0] => [:posixclass, :word, PosixClass, name: 'word', text: '[:word:]']
+  include_examples 'parse', /[[:^word:]]/,
+    [0]    => [CharacterSet, count: 1],
+    [0, 0] => [:nonposixclass, :word, PosixClass, name: 'word', text: '[:^word:]']
+end
