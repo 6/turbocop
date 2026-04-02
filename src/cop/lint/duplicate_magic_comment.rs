@@ -6,16 +6,15 @@ use crate::parse::source::SourceFile;
 
 /// Checks for duplicated magic comments at the top of a file.
 ///
-/// Fixed: Emacs-style encoding comments (`# -*- encoding : utf-8 -*-`) were not
-/// recognized because leading whitespace in the inner content was not stripped,
-/// causing key extraction to fail. Also, `coding` and `encoding` were tracked
-/// as separate keys in the duplicate-detection set, so `# -*- encoding : utf-8 -*-`
-/// followed by `# coding: utf-8` was not flagged. Both keys are now normalized to
-/// `encoding` (along with hyphen-variants of other keys).
+/// Fixed: duplicate Sorbet `# typed:` sigils were incorrectly treated as offenses.
+/// RuboCop parses `typed` as a magic comment for other cops, but
+/// `Lint/DuplicateMagicComment` does not de-duplicate it, so this cop must ignore
+/// repeated `typed` headers to avoid false positives like the Vonage corpus files.
 ///
-/// Additionally, RuboCop's `SimpleComment#encoding` regex requires a space after
-/// the colon for encoding/coding keys (e.g. `# coding: utf-8` matches but
-/// `#coding:utf-8` does not). This is now matched to avoid false positives.
+/// The cop still normalizes Emacs-style encoding comments (`# -*- encoding : utf-8 -*-`)
+/// and alias spellings such as `coding`/`encoding`, and it preserves RuboCop's
+/// spacing rule that simple `encoding`/`coding` comments require whitespace after
+/// the colon.
 pub struct DuplicateMagicComment;
 
 impl Cop for DuplicateMagicComment {
@@ -116,7 +115,6 @@ impl Cop for DuplicateMagicComment {
                         | b"warn-indent"
                         | b"shareable_constant_value"
                         | b"shareable-constant-value"
-                        | b"typed"
                 );
 
                 // RuboCop's SimpleComment#encoding regex requires ": " (colon
