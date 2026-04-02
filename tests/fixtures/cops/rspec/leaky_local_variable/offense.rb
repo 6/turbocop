@@ -781,3 +781,26 @@ describe SomeClass do
     end
   end
 end
+
+# Variable assigned inside begin/rescue within .each, used in nested context with rescue
+describe 'REST API' do
+  [1].each do |file|
+    begin
+      test_file = SomeClass.new(file)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    rescue StandardError => e
+      next
+    end
+    context "test" do
+      test_file.tests.each do |test|
+        context test.description do
+          before(:all) do
+            test_file.setup
+          end
+        rescue StandardError => e
+          raise e
+        end
+      end
+    end
+  end
+end

@@ -749,6 +749,18 @@ fn check_def_level_vars_in_node(
                 }
             }
         }
+        return;
+    }
+    // Singleton class (`class << self`) is a local-variable scope like class/module.
+    if let Some(sc_node) = node.as_singleton_class_node() {
+        if let Some(body) = sc_node.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                diagnose_outer_scope_var_leaks_in_stmts(source, &stmts, diagnostics, cop);
+                for s in stmts.body().iter() {
+                    check_def_level_vars_in_node(&s, source, diagnostics, cop);
+                }
+            }
+        }
     }
 }
 
@@ -1816,7 +1828,20 @@ fn stmt_example_scope_var_interaction(
             if let Some(blk) = call.block() {
                 if let Some(bn) = blk.as_block_node() {
                     if let Some(body) = bn.body() {
-                        if let Some(stmts) = body.as_statements_node() {
+                        // Extract statements from block body. Normally the
+                        // body is a StatementsNode, but when the block has
+                        // rescue/ensure (e.g., `context "x" do ... rescue
+                        // ... end`), the body is a BeginNode.
+                        let (main_stmts, begin_node) =
+                            if let Some(stmts) = body.as_statements_node() {
+                                (Some(stmts), None)
+                            } else if let Some(bgn) = body.as_begin_node() {
+                                (bgn.statements(), Some(bgn))
+                            } else {
+                                (None, None)
+                            };
+
+                        if let Some(stmts) = main_stmts {
                             // Check if the variable is reassigned at the nested
                             // group's scope level before any example reads it
                             if var_reassigned_before_example_ref_in_stmts(&stmts, var_name) {
@@ -1848,6 +1873,91 @@ fn stmt_example_scope_var_interaction(
                                     VarInteraction::None => {}
                                 }
                             }
+
+                            // For BeginNode bodies, also check rescue/else/ensure.
+                            if let Some(ref bgn) = begin_node {
+                                if let Some(rescue_clause) = bgn.rescue_clause() {
+                                    let inner = rescue_var_interaction(
+                                        &rescue_clause,
+                                        var_name,
+                                        assign_offset,
+                                    );
+                                    match inner {
+                                        VarInteraction::ReadOnly => {
+                                            if !value_killed {
+                                                return VarInteraction::ReadOnly;
+                                            }
+                                        }
+                                        VarInteraction::WriteBeforeRead => {
+                                            value_killed = true;
+                                        }
+                                        VarInteraction::WriteAndReadBeforeWrite => {
+                                            if !value_killed {
+                                                return VarInteraction::WriteAndReadBeforeWrite;
+                                            }
+                                            value_killed = true;
+                                        }
+                                        VarInteraction::None => {}
+                                    }
+                                }
+                                if let Some(else_clause) = bgn.else_clause() {
+                                    if let Some(else_stmts) = else_clause.statements() {
+                                        for s in else_stmts.body().iter() {
+                                            let inner = stmt_example_scope_var_interaction(
+                                                &s,
+                                                var_name,
+                                                assign_offset,
+                                            );
+                                            match inner {
+                                                VarInteraction::ReadOnly => {
+                                                    if !value_killed {
+                                                        return VarInteraction::ReadOnly;
+                                                    }
+                                                }
+                                                VarInteraction::WriteBeforeRead => {
+                                                    value_killed = true;
+                                                }
+                                                VarInteraction::WriteAndReadBeforeWrite => {
+                                                    if !value_killed {
+                                                        return VarInteraction::WriteAndReadBeforeWrite;
+                                                    }
+                                                    value_killed = true;
+                                                }
+                                                VarInteraction::None => {}
+                                            }
+                                        }
+                                    }
+                                }
+                                if let Some(ensure_clause) = bgn.ensure_clause() {
+                                    if let Some(ensure_stmts) = ensure_clause.statements() {
+                                        for s in ensure_stmts.body().iter() {
+                                            let inner = stmt_example_scope_var_interaction(
+                                                &s,
+                                                var_name,
+                                                assign_offset,
+                                            );
+                                            match inner {
+                                                VarInteraction::ReadOnly => {
+                                                    if !value_killed {
+                                                        return VarInteraction::ReadOnly;
+                                                    }
+                                                }
+                                                VarInteraction::WriteBeforeRead => {
+                                                    value_killed = true;
+                                                }
+                                                VarInteraction::WriteAndReadBeforeWrite => {
+                                                    if !value_killed {
+                                                        return VarInteraction::WriteAndReadBeforeWrite;
+                                                    }
+                                                    value_killed = true;
+                                                }
+                                                VarInteraction::None => {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // If all reads were killed, report the write (if any).
                             return if value_killed {
                                 VarInteraction::WriteBeforeRead
@@ -3013,10 +3123,46 @@ fn check_var_used_in_example_scopes(node: &ruby_prism::Node<'_>, var_name: &[u8]
             if let Some(blk) = call.block() {
                 if let Some(bn) = blk.as_block_node() {
                     if let Some(body) = bn.body() {
-                        if let Some(stmts) = body.as_statements_node() {
+                        // Handle both StatementsNode and BeginNode block bodies.
+                        // When the block has rescue/ensure, the body is a BeginNode.
+                        let (main_stmts, begin_node) =
+                            if let Some(stmts) = body.as_statements_node() {
+                                (Some(stmts), None)
+                            } else if let Some(bgn) = body.as_begin_node() {
+                                (bgn.statements(), Some(bgn))
+                            } else {
+                                (None, None)
+                            };
+
+                        if let Some(stmts) = main_stmts {
                             for s in stmts.body().iter() {
                                 if check_var_used_in_example_scopes(&s, var_name) {
                                     return true;
+                                }
+                            }
+                        }
+                        if let Some(bgn) = begin_node {
+                            if let Some(rescue_clause) = bgn.rescue_clause() {
+                                if check_var_in_rescue_scopes_inner(&rescue_clause, var_name) {
+                                    return true;
+                                }
+                            }
+                            if let Some(else_clause) = bgn.else_clause() {
+                                if let Some(stmts) = else_clause.statements() {
+                                    for s in stmts.body().iter() {
+                                        if check_var_used_in_example_scopes(&s, var_name) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(ensure_clause) = bgn.ensure_clause() {
+                                if let Some(stmts) = ensure_clause.statements() {
+                                    for s in stmts.body().iter() {
+                                        if check_var_used_in_example_scopes(&s, var_name) {
+                                            return true;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -5085,4 +5231,44 @@ end
     // is not yet handled. Variables inside `def self.define_cases` are in a separate
     // Ruby scope. Implementing this requires VariableForce-level scope tracking.
     // This accounts for ~15-20 of the corpus FNs.
+
+    #[test]
+    fn test_fn_begin_rescue_in_each_block() {
+        // Elasticsearch pattern: variable assigned inside begin/rescue within .each,
+        // then used in example scopes in a nested context whose block body is a
+        // BeginNode (due to rescue inside the context block).
+        let source = br#"describe 'REST API' do
+  [1].each do |file|
+    begin
+      test_file = SomeClass.new(file)
+    rescue StandardError => e
+      next
+    end
+    context "test" do
+      test_file.tests.each do |test|
+        context test.description do
+          before(:all) do
+            test_file.setup
+          end
+        rescue StandardError => e
+          raise e
+        end
+      end
+    end
+  end
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for begin/rescue in each block, got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(diags[0].location.line, 4, "Offense should be on line 4");
+    }
 }
