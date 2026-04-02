@@ -80,3 +80,27 @@ if ENV['X']
     ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('X', nil)` instead of `ENV['X']`.
   end
 end
+
+@name ||= if gae_instance = ENV["GAE_INSTANCE"] || ENV["CLOUD_RUN_EXECUTION"]
+                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch("CLOUD_RUN_EXECUTION", nil)` instead of `ENV["CLOUD_RUN_EXECUTION"]`.
+
+if prefix = ENV["RAILS_CACHE_ID"] || ENV["RAILS_APP_VERSION"]
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch("RAILS_APP_VERSION", nil)` instead of `ENV["RAILS_APP_VERSION"]`.
+
+@current = if editor_name = ENV["RAILS_EDITOR"] || ENV["EDITOR"]
+                                                   ^^^^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch("EDITOR", nil)` instead of `ENV["EDITOR"]`.
+
+if hosts = ENV['TEST_ES_SERVER'] || ENV['ELASTICSEARCH_HOSTS']
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('ELASTICSEARCH_HOSTS', nil)` instead of `ENV['ELASTICSEARCH_HOSTS']`.
+
+unless token = context[:access_token] || ENV['GITHUB_TOKEN']
+                                         ^^^^^^^^^^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('GITHUB_TOKEN', nil)` instead of `ENV['GITHUB_TOKEN']`.
+
+if prefix = ENV["RAILS_CACHE_ID"] || ENV["RAILS_APP_VERSION"]
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch("RAILS_APP_VERSION", nil)` instead of `ENV["RAILS_APP_VERSION"]`.
+
+@current = if editor_name = ENV["RAILS_EDITOR"] || ENV["EDITOR"]
+                                                   ^^^^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch("EDITOR", nil)` instead of `ENV["EDITOR"]`.
+
+if alternative_ids = ENV['ALT'] && alternative_ids != lang
+                     ^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('ALT', nil)` instead of `ENV['ALT']`.

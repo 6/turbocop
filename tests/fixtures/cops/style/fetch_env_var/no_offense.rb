@@ -108,3 +108,19 @@ if true
 elsif var = ENV['X']
   puts var
 end
+# Parenthesized bare ENV condition is still a flag
+if(ENV['MODEL'])
+  puts ENV['MODEL']
+end
+# Reverse regex match with ENV on the argument side is treated as a flag
+if /1|true/ =~ ENV['LISTEN_GEM_SIMULATE_FSEVENT']
+  puts ENV['LISTEN_GEM_SIMULATE_FSEVENT']
+end
+# Duplicate ENV key on both sides of || is accepted by RuboCop
+config.api_key = ENV['BUGSNAG_API_KEY'] || ENV['BUGSNAG_API_KEY']
+# Same-key ENV ||= ENV is accepted
+ENV['OPENAI_API_KEY'] ||= ENV['OPENAI_API_KEY']
+# Non-local assignment conditions still suppress a bare direct ENV child
+if @@bin = ENV['DIFFY_DIFF']
+  puts @@bin
+end
