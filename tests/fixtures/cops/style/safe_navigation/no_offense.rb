@@ -33,6 +33,8 @@ foo ? nil : foo.bar
 foo && foo.owner.is_a?(SomeClass)
 foo && foo.value.respond_to?(:call)
 foo && foo.name.kind_of?(String)
+foo && foo.split.to_json
+env["NODE_LABELS"] && env["NODE_LABELS"].split.to_json
 
 # AllowedMethods (present?, blank?) in the chain
 config && config.value.present?
@@ -73,6 +75,13 @@ BTC::Invariant(output && output.verified?, "message")
 
 # Ternaries inside unsafe dotless call arguments are skipped
 instance_variable_set("@foo", foo.nil? ? nil : foo.to_s)
+
+# Chained && inside blocks keeps RuboCop's non-flattened traversal
+items.each do |record_type|
+  if dns_feasible?(record_type) && dns_record(record_type) && dns_record(record_type).conflicting?
+    queue.create
+  end
+end
 
 # Modifier if/unless inside call arguments or `private def` are skipped
 install_win(if parent then parent.path end, widgetname)
