@@ -12,19 +12,89 @@ use ruby_prism::Visit;
 ///
 /// ## Investigation findings
 ///
-/// Original implementation only handled simple `if/else` tail checks. FN=606
-/// was caused by missing:
-/// - `case/when/else` (CaseNode) support
-/// - `case/in/else` (CaseMatchNode / pattern matching) support
-/// - `if/elsif/else` chain expansion (walking nested elsif branches)
-/// - Leading expression (head) detection
-/// - Suppression for leading expressions when assigned to condition variable
-/// - Suppression for leading expressions with single-child branches at end of parent
+/// Original implementation missed a corpus-heavy pattern that RuboCop does
+/// flag:
+/// - multiline or differently wrapped equivalent expressions, because the old
+///   comparison used raw source slices instead of a whitespace-normalized key
 ///
-/// FP=10 were caused by firing on `if/elsif/else` chains without requiring ALL
-/// branches (including elsif) to have the same expression — the old code only
-/// checked the if and else branches, ignoring elsif.
+/// The current implementation also preserves RuboCop's narrower no-offense
+/// behavior for identical trailing index assignments such as `@store[key] =
+/// value` when the condition already depends on that receiver.
 pub struct IdenticalConditionalBranches;
+
+struct StatementInfo {
+    src: String,
+    key: String,
+    line: usize,
+    col: usize,
+    has_heredoc: bool,
+    index_assignment_receiver: Option<String>,
+}
+
+fn node_source(source: &SourceFile, node: &ruby_prism::Node<'_>) -> String {
+    let loc = node.location();
+    let src = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
+    String::from_utf8_lossy(src).trim().to_string()
+}
+
+fn normalized_source_key(src: &str) -> String {
+    #[derive(Clone, Copy)]
+    enum QuoteState {
+        None,
+        Single,
+        Double,
+    }
+
+    let mut out = String::with_capacity(src.len());
+    let mut quote = QuoteState::None;
+    let mut escaped = false;
+    let mut pending_space = false;
+
+    for ch in src.chars() {
+        match quote {
+            QuoteState::None => {
+                if ch.is_whitespace() {
+                    pending_space = true;
+                    continue;
+                }
+
+                if pending_space && !out.is_empty() {
+                    out.push(' ');
+                }
+                pending_space = false;
+                out.push(ch);
+
+                quote = match ch {
+                    '\'' => QuoteState::Single,
+                    '"' => QuoteState::Double,
+                    _ => QuoteState::None,
+                };
+            }
+            QuoteState::Single => {
+                out.push(ch);
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '\'' {
+                    quote = QuoteState::None;
+                }
+            }
+            QuoteState::Double => {
+                out.push(ch);
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    quote = QuoteState::None;
+                }
+            }
+        }
+    }
+
+    out
+}
 
 /// Check if a node contains any heredoc string nodes.
 fn contains_heredoc(node: &ruby_prism::Node<'_>) -> bool {
@@ -82,19 +152,21 @@ fn stmt_info(
     source: &SourceFile,
     stmts: &ruby_prism::StatementsNode<'_>,
     index: usize,
-) -> Option<(String, usize, usize, bool)> {
+) -> Option<StatementInfo> {
     let body: Vec<_> = stmts.body().iter().collect();
     let node = body.get(index)?;
     let loc = node.location();
-    let src = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
     let (line, col) = source.offset_to_line_col(loc.start_offset());
     let has_heredoc = contains_heredoc(node);
-    Some((
-        String::from_utf8_lossy(src).trim().to_string(),
+    let src = node_source(source, node);
+    Some(StatementInfo {
+        key: normalized_source_key(&src),
+        src,
         line,
         col,
         has_heredoc,
-    ))
+        index_assignment_receiver: index_assignment_receiver_source(source, node),
+    })
 }
 
 /// A branch in a conditional: its statements node (if present) and number of
@@ -197,6 +269,7 @@ impl IdenticalConditionalBranches {
         &self,
         source: &SourceFile,
         branches: &[BranchInfo<'_>],
+        condition_node: Option<&ruby_prism::Node<'_>>,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         // All branches must have at least one statement
@@ -205,7 +278,7 @@ impl IdenticalConditionalBranches {
         }
 
         // Get tail (last statement) from each branch
-        let mut tails: Vec<(String, usize, usize, bool)> = Vec::new();
+        let mut tails: Vec<StatementInfo> = Vec::new();
         for branch in branches {
             let stmts = match &branch.stmts {
                 Some(s) => s,
@@ -218,23 +291,32 @@ impl IdenticalConditionalBranches {
         }
 
         // Skip if any tail contains a heredoc
-        if tails.iter().any(|(_, _, _, has_heredoc)| *has_heredoc) {
+        if tails.iter().any(|tail| tail.has_heredoc) {
             return;
         }
 
         // All tails must be identical
-        let first_src = &tails[0].0;
+        let first_src = &tails[0].src;
         if first_src.is_empty() {
             return;
         }
-        if !tails.iter().all(|(src, _, _, _)| src == first_src) {
+        let first_key = &tails[0].key;
+        if !tails.iter().all(|tail| tail.key == *first_key) {
             return;
         }
 
+        if let Some(condition) = condition_node {
+            if let Some(receiver) = tails[0].index_assignment_receiver.as_deref() {
+                if condition_contains_variable_source(source, condition, receiver) {
+                    return;
+                }
+            }
+        }
+
         // Report offense on every branch's tail (RuboCop flags all of them)
-        let msg = format!("Move `{}` out of the conditional.", tails[0].0);
-        for (_, line, col, _) in &tails {
-            diagnostics.push(self.diagnostic(source, *line, *col, msg.clone()));
+        let msg = format!("Move `{}` out of the conditional.", tails[0].src);
+        for tail in &tails {
+            diagnostics.push(self.diagnostic(source, tail.line, tail.col, msg.clone()));
         }
     }
 
@@ -260,7 +342,7 @@ impl IdenticalConditionalBranches {
         }
 
         // Get head (first statement) from each branch
-        let mut heads: Vec<(String, usize, usize, bool)> = Vec::new();
+        let mut heads: Vec<StatementInfo> = Vec::new();
         for branch in branches {
             let stmts = match &branch.stmts {
                 Some(s) => s,
@@ -273,16 +355,17 @@ impl IdenticalConditionalBranches {
         }
 
         // Skip if any head contains a heredoc
-        if heads.iter().any(|(_, _, _, has_heredoc)| *has_heredoc) {
+        if heads.iter().any(|head| head.has_heredoc) {
             return;
         }
 
         // All heads must be identical
-        let first_src = &heads[0].0;
+        let first_src = &heads[0].src;
         if first_src.is_empty() {
             return;
         }
-        if !heads.iter().all(|(src, _, _, _)| src == first_src) {
+        let first_key = &heads[0].key;
+        if !heads.iter().all(|head| head.key == *first_key) {
             return;
         }
 
@@ -296,11 +379,64 @@ impl IdenticalConditionalBranches {
         }
 
         // Report offense on every branch's head (RuboCop flags all of them)
-        let msg = format!("Move `{}` out of the conditional.", heads[0].0);
-        for (_, line, col, _) in &heads {
-            diagnostics.push(self.diagnostic(source, *line, *col, msg.clone()));
+        let msg = format!("Move `{}` out of the conditional.", heads[0].src);
+        for head in &heads {
+            diagnostics.push(self.diagnostic(source, head.line, head.col, msg.clone()));
         }
     }
+}
+
+fn index_assignment_receiver_source(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+) -> Option<String> {
+    let call = node.as_call_node()?;
+    if call.name().as_slice() != b"[]=" {
+        return None;
+    }
+
+    let receiver = call.receiver()?;
+    Some(node_source(source, &receiver))
+}
+
+fn condition_contains_variable_source(
+    source: &SourceFile,
+    condition: &ruby_prism::Node<'_>,
+    needle: &str,
+) -> bool {
+    struct VariableFinder<'a> {
+        source: &'a SourceFile,
+        needle: &'a str,
+        found: bool,
+    }
+
+    impl<'a, 'pr> Visit<'pr> for VariableFinder<'a> {
+        fn visit_instance_variable_read_node(
+            &mut self,
+            node: &ruby_prism::InstanceVariableReadNode<'pr>,
+        ) {
+            if node_source(self.source, &node.as_node()) == self.needle {
+                self.found = true;
+            }
+        }
+
+        fn visit_local_variable_read_node(
+            &mut self,
+            node: &ruby_prism::LocalVariableReadNode<'pr>,
+        ) {
+            if node_source(self.source, &node.as_node()) == self.needle {
+                self.found = true;
+            }
+        }
+    }
+
+    let mut finder = VariableFinder {
+        source,
+        needle,
+        found: false,
+    };
+    finder.visit(condition);
+    finder.found
 }
 
 /// Check if the head expression is an assignment whose LHS matches the
@@ -440,12 +576,12 @@ impl Cop for IdenticalConditionalBranches {
             };
 
             let pre_len = diagnostics.len();
+            let condition = if_node.predicate();
 
             // Check tails (last statement in each branch)
-            self.check_tails(source, &branches, diagnostics);
+            self.check_tails(source, &branches, Some(&condition), diagnostics);
 
             // Check heads (first statement in each branch)
-            let condition = if_node.predicate();
             let last_child = is_last_child_of_parent(node, parse_result);
             self.check_heads(source, &branches, Some(&condition), last_child, diagnostics);
 
@@ -458,10 +594,10 @@ impl Cop for IdenticalConditionalBranches {
             };
 
             let pre_len = diagnostics.len();
-
-            self.check_tails(source, &branches, diagnostics);
-
             let condition = case_node.predicate();
+
+            self.check_tails(source, &branches, condition.as_ref(), diagnostics);
+
             let last_child = is_last_child_of_parent(node, parse_result);
             self.check_heads(
                 source,
@@ -479,10 +615,10 @@ impl Cop for IdenticalConditionalBranches {
             };
 
             let pre_len = diagnostics.len();
-
-            self.check_tails(source, &branches, diagnostics);
-
             let condition = case_match_node.predicate();
+
+            self.check_tails(source, &branches, condition.as_ref(), diagnostics);
+
             let last_child = is_last_child_of_parent(node, parse_result);
             self.check_heads(
                 source,

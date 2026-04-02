@@ -137,3 +137,11 @@ def foo
     x3
   end
 end
+
+# if/else identical trailing index assignments that reuse the condition receiver
+if @store.delete(key)
+  @store[key] = value
+else
+  @store.shift if @store.size >= @max_size
+  @store[key] = value
+end
