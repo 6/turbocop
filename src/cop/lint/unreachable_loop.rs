@@ -34,6 +34,16 @@ use ruby_prism::Visit;
 /// `select!`, `filter`, `filter_map`, `sort_by`, `find_all`, `each_entry`, etc.
 /// Fixed by expanding to match RuboCop's full method sets. Also added `for` loop
 /// detection (RuboCop's `on_for` handler).
+///
+/// ## Corpus investigation (2026-04-02)
+///
+/// Remaining FP=3, FN=0.
+///
+/// FP=3: Loops whose block body is `begin ... ensure ... end` were still being
+/// flagged when the main body raised and the ensure body did `break`, `next`, or
+/// `throw`. RuboCop does not treat `begin/ensure` as a direct break statement for
+/// this cop, just like `begin/rescue`. Fixed by returning false for `BeginNode`
+/// whenever `ensure_clause()` is present.
 pub struct UnreachableLoop;
 
 impl Cop for UnreachableLoop {
@@ -287,11 +297,10 @@ fn is_break_statement(node: &ruby_prism::Node<'_>) -> bool {
 
     // Begin/kwbegin block
     if let Some(begin_node) = node.as_begin_node() {
-        // RuboCop does NOT treat begin/rescue as a break statement.
-        // In Parser gem's AST, begin/rescue's last child is the rescue node,
-        // and rescue is not a break_statement type. So even if both the main
-        // body and all rescue clauses break, RuboCop doesn't flag the loop.
-        if begin_node.rescue_clause().is_some() {
+        // RuboCop does NOT treat begin/rescue or begin/ensure as break statements.
+        // These nodes create error-handling / cleanup context, so the loop should
+        // only be flagged when a break statement exists outside that wrapper.
+        if begin_node.rescue_clause().is_some() || begin_node.ensure_clause().is_some() {
             return false;
         }
 
