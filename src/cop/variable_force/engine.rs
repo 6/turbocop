@@ -150,9 +150,7 @@ impl<'a> Engine<'a> {
                     .assignments
                     .iter()
                     .enumerate()
-                    .filter(|(_, a)| {
-                        a.node_offset >= loop_start && a.node_offset < loop_end
-                    })
+                    .filter(|(_, a)| a.node_offset >= loop_start && a.node_offset < loop_end)
                     .map(|(i, _)| i)
                     .collect();
 
@@ -797,9 +795,25 @@ impl<'pr> Visit<'pr> for Engine<'_> {
 
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
         let parent_id = node.location().start_offset();
+
+        // If the predicate contains a local variable write, wrap it in a
+        // branch context. In modifier-if (`puts a if (a = 123)`), the
+        // predicate assignment is conditional from the perspective of later
+        // code — RuboCop treats it as branched.
+        let pred_has_write = predicate_has_lvar_write(&node.predicate());
+        if pred_has_write {
+            self.branch_depth += 1;
+            self.push_branch(parent_id, 0);
+        }
         self.visit(&node.predicate());
+        if pred_has_write {
+            self.pop_branch();
+            self.branch_depth -= 1;
+        }
+
+        let body_child = if pred_has_write { 1 } else { 0 };
         self.branch_depth += 1;
-        self.push_branch(parent_id, 0);
+        self.push_branch(parent_id, body_child);
         if let Some(stmts) = node.statements() {
             for stmt in stmts.body().iter() {
                 self.visit(&stmt);
@@ -809,7 +823,7 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         self.branch_depth -= 1;
         if let Some(subsequent) = node.subsequent() {
             self.branch_depth += 1;
-            self.push_branch(parent_id, 1);
+            self.push_branch(parent_id, body_child + 1);
             self.visit(&subsequent);
             self.pop_branch();
             self.branch_depth -= 1;
@@ -818,9 +832,21 @@ impl<'pr> Visit<'pr> for Engine<'_> {
 
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
         let parent_id = node.location().start_offset();
+
+        let pred_has_write = predicate_has_lvar_write(&node.predicate());
+        if pred_has_write {
+            self.branch_depth += 1;
+            self.push_branch(parent_id, 0);
+        }
         self.visit(&node.predicate());
+        if pred_has_write {
+            self.pop_branch();
+            self.branch_depth -= 1;
+        }
+
+        let body_child = if pred_has_write { 1 } else { 0 };
         self.branch_depth += 1;
-        self.push_branch(parent_id, 0);
+        self.push_branch(parent_id, body_child);
         if let Some(stmts) = node.statements() {
             for stmt in stmts.body().iter() {
                 self.visit(&stmt);
@@ -828,7 +854,7 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         }
         self.pop_branch();
         if let Some(else_clause) = node.else_clause() {
-            self.push_branch(parent_id, 1);
+            self.push_branch(parent_id, body_child + 1);
             if let Some(stmts) = else_clause.statements() {
                 for stmt in stmts.body().iter() {
                     self.visit(&stmt);
@@ -888,37 +914,64 @@ impl<'pr> Visit<'pr> for Engine<'_> {
     }
 
     fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        let parent_id = node.location().start_offset();
+
+        let pred_has_write = predicate_has_lvar_write(&node.predicate());
+        if pred_has_write {
+            self.branch_depth += 1;
+            self.push_branch(parent_id, 0);
+        }
         self.visit(&node.predicate());
+        if pred_has_write {
+            self.pop_branch();
+            self.branch_depth -= 1;
+        }
+
+        let body_child = if pred_has_write { 1 } else { 0 };
         self.branch_depth += 1;
+        self.push_branch(parent_id, body_child);
         if let Some(stmts) = node.statements() {
             for stmt in stmts.body().iter() {
                 self.visit(&stmt);
             }
         }
+        self.pop_branch();
         self.branch_depth -= 1;
         let loc = node.location();
         self.mark_loop_back_edges(loc.start_offset(), loc.end_offset());
     }
 
     fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        let parent_id = node.location().start_offset();
+
+        let pred_has_write = predicate_has_lvar_write(&node.predicate());
+        if pred_has_write {
+            self.branch_depth += 1;
+            self.push_branch(parent_id, 0);
+        }
         self.visit(&node.predicate());
+        if pred_has_write {
+            self.pop_branch();
+            self.branch_depth -= 1;
+        }
+
+        let body_child = if pred_has_write { 1 } else { 0 };
         self.branch_depth += 1;
+        self.push_branch(parent_id, body_child);
         if let Some(stmts) = node.statements() {
             for stmt in stmts.body().iter() {
                 self.visit(&stmt);
             }
         }
+        self.pop_branch();
         self.branch_depth -= 1;
         let loc = node.location();
         self.mark_loop_back_edges(loc.start_offset(), loc.end_offset());
     }
 
     fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
-        self.branch_depth += 1;
-        self.push_branch(node.location().start_offset(), 0);
+        // Branch context is managed by the caller (visit_begin_node).
         ruby_prism::visit_rescue_node(self, node);
-        self.pop_branch();
-        self.branch_depth -= 1;
 
         // If any rescue clause contains a `retry`, treat the entire rescue
         // as a loop — the retry causes the begin body to re-execute.
@@ -929,11 +982,54 @@ impl<'pr> Visit<'pr> for Engine<'_> {
     }
 
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
-        self.branch_depth += 1;
-        self.push_branch(node.location().start_offset(), 0);
-        ruby_prism::visit_begin_node(self, node);
-        self.pop_branch();
-        self.branch_depth -= 1;
+        let parent_id = node.location().start_offset();
+
+        // Decompose begin/rescue/else/ensure into separate branches:
+        // - body (child 0) and rescue (child 1) are exclusive branches
+        // - else (child 2) is also exclusive with rescue
+        // - ensure is NOT branched (always executes)
+
+        // Body statements
+        if let Some(stmts) = node.statements() {
+            self.branch_depth += 1;
+            self.push_branch(parent_id, 0);
+            for stmt in stmts.body().iter() {
+                self.visit(&stmt);
+            }
+            self.pop_branch();
+            self.branch_depth -= 1;
+        }
+
+        // Rescue clause(s)
+        if let Some(rescue_clause) = node.rescue_clause() {
+            self.branch_depth += 1;
+            self.push_branch(parent_id, 1);
+            self.visit_rescue_node(&rescue_clause);
+            self.pop_branch();
+            self.branch_depth -= 1;
+        }
+
+        // Else clause
+        if let Some(else_clause) = node.else_clause() {
+            self.branch_depth += 1;
+            self.push_branch(parent_id, 2);
+            if let Some(stmts) = else_clause.statements() {
+                for stmt in stmts.body().iter() {
+                    self.visit(&stmt);
+                }
+            }
+            self.pop_branch();
+            self.branch_depth -= 1;
+        }
+
+        // Ensure clause — NOT branched (always executes)
+        if let Some(ensure_clause) = node.ensure_clause() {
+            if let Some(stmts) = ensure_clause.statements() {
+                for stmt in stmts.body().iter() {
+                    self.visit(&stmt);
+                }
+            }
+        }
 
         // If begin..rescue contains a retry, treat the entire begin block
         // as a loop for back-edge purposes.
@@ -1045,6 +1141,29 @@ impl<'pr> Visit<'pr> for Engine<'_> {
             self.visit(&block);
         }
     }
+}
+
+/// Check if a predicate expression contains a local variable write.
+/// Used to detect modifier-if patterns like `puts a if (a = 123)`.
+fn predicate_has_lvar_write(node: &ruby_prism::Node<'_>) -> bool {
+    struct LvarWriteDetector {
+        found: bool,
+    }
+    impl<'pr> ruby_prism::Visit<'pr> for LvarWriteDetector {
+        fn visit_local_variable_write_node(
+            &mut self,
+            _node: &ruby_prism::LocalVariableWriteNode<'pr>,
+        ) {
+            self.found = true;
+        }
+        // Don't recurse into nested scopes
+        fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
+        fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
+        fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+    }
+    let mut detector = LvarWriteDetector { found: false };
+    detector.visit(node);
+    detector.found
 }
 
 /// Check if a rescue node (or its chained subsequent rescue clauses)

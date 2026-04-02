@@ -97,15 +97,27 @@ impl VariableTable {
     }
 
     /// Record a reference to a variable. Finds the variable in accessible
-    /// scopes and records the reference.
+    /// scopes and records the reference with branch-awareness.
     pub fn reference_variable(&mut self, name: &[u8], reference: Reference) {
         let current_index = self.current_scope_index();
-        if let Some(var) = self.find_variable_mut(name) {
-            if var.scope_index != current_index {
-                var.captured_by_block = true;
+        // Take branch_contexts out to avoid borrow conflict (we need &mut var
+        // and &self.branch_contexts simultaneously).
+        let contexts = std::mem::take(&mut self.branch_contexts);
+        for scope in self.scope_stack.iter_mut().rev() {
+            if let Some(var) = scope.variables.get_mut(name) {
+                if var.scope_index != current_index {
+                    var.captured_by_block = true;
+                }
+                var.reference_with_branches(reference, &contexts);
+                self.branch_contexts = contexts;
+                return;
             }
-            var.reference(reference);
+            if scope.kind.is_hard() {
+                self.branch_contexts = contexts;
+                return;
+            }
         }
+        self.branch_contexts = contexts;
         // If variable not found, it's a reference to an undefined variable
         // (e.g., from eval or dynamic scope). Silently ignore.
     }

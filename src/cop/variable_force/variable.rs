@@ -44,10 +44,17 @@ impl Variable {
     }
 
     /// Record a new assignment. Marks the previous assignment as reassigned
-    /// if it hasn't been referenced yet.
+    /// only if it is in the same branch (or both are unbranched). Assignments
+    /// in exclusive branches (e.g., if-then vs if-else) are NOT marked as
+    /// reassigned because only one branch executes.
     pub fn assign(&mut self, assignment: Assignment) {
-        if let Some(prev) = self.assignments.last_mut() {
-            prev.reassign();
+        if !self.captured_by_block {
+            if let Some(prev) = self.assignments.last() {
+                if assignment.branch_id == prev.branch_id {
+                    let prev_mut = self.assignments.last_mut().unwrap();
+                    prev_mut.reassign();
+                }
+            }
         }
         self.assignments.push(assignment);
     }
@@ -58,6 +65,44 @@ impl Variable {
         // Mark the most recent assignment as referenced
         if let Some(last_assign) = self.assignments.last_mut() {
             last_assign.reference(ref_node.node_offset);
+        }
+        self.references.push(ref_node);
+    }
+
+    /// Record a reference with branch-awareness. Walks backward through
+    /// assignments, referencing each one that is NOT in an exclusive branch
+    /// with this reference. Stops at the first unbranched assignment or one
+    /// in the same branch (like RuboCop's `Variable#reference!`).
+    pub fn reference_with_branches(
+        &mut self,
+        ref_node: Reference,
+        branch_contexts: &[super::engine::BranchContext],
+    ) {
+        let ref_branch_id = ref_node.branch_id;
+        let ref_offset = ref_node.node_offset;
+        let mut consumed_branch_ids: Vec<usize> = Vec::new();
+
+        for assignment in self.assignments.iter_mut().rev() {
+            // Skip assignments whose branch we've already processed
+            if let Some(a_bid) = assignment.branch_id {
+                if consumed_branch_ids.contains(&a_bid) {
+                    continue;
+                }
+            }
+
+            let exclusive = is_exclusive(assignment.branch_id, ref_branch_id, branch_contexts);
+            if !exclusive {
+                assignment.reference(ref_offset);
+            }
+
+            // Stop at the first unbranched assignment or same-branch assignment
+            if assignment.branch_id.is_none() || assignment.branch_id == ref_branch_id {
+                break;
+            }
+
+            if let Some(bid) = assignment.branch_id {
+                consumed_branch_ids.push(bid);
+            }
         }
         self.references.push(ref_node);
     }
@@ -99,6 +144,28 @@ impl Variable {
     pub fn should_be_unused(&self) -> bool {
         self.name.first() == Some(&b'_')
     }
+}
+
+/// Check if two branch IDs represent exclusive branches (same parent,
+/// different child index).
+fn is_exclusive(
+    a: Option<usize>,
+    b: Option<usize>,
+    branch_contexts: &[super::engine::BranchContext],
+) -> bool {
+    let (a_id, b_id) = match (a, b) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return false,
+    };
+    if a_id == b_id {
+        return false;
+    }
+    if a_id >= branch_contexts.len() || b_id >= branch_contexts.len() {
+        return false;
+    }
+    let a_ctx = &branch_contexts[a_id];
+    let b_ctx = &branch_contexts[b_id];
+    a_ctx.parent_id == b_ctx.parent_id && a_ctx.child_index != b_ctx.child_index
 }
 
 /// How a variable was first declared.
