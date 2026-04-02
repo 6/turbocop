@@ -36,6 +36,9 @@ foo && foo.name.kind_of?(String)
 foo && foo.split.to_json
 env["NODE_LABELS"] && env["NODE_LABELS"].split.to_json
 
+# Chained && with dotless-operator LHS — not a nil guard
+cond && @chunks[0] && @chunks[0].is_a?(String)
+
 # AllowedMethods (present?, blank?) in the chain
 config && config.value.present?
 foo && foo.bar.blank?
@@ -85,6 +88,10 @@ end
 
 # Ternary inside dynamic send arguments is skipped
 send "#{options[:foreign_key]}=", new_value ? new_value.send(options[:primary_key]) : nil
+
+# && inside || — RuboCop skips && patterns when nested inside ||
+errors && errors.is_a?(Array) || errors.is_a?(String)
+errors && (errors.is_a?(Array) && errors != EMPTY_ARRAY) || (errors.is_a?(String))
 
 # Conditions already using `&.` are left alone
 callback.call unless callback&.nil?

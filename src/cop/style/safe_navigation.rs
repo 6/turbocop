@@ -277,6 +277,7 @@ impl Cop for SafeNavigation {
             in_call_receiver: 0,
             in_dynamic_send_args: 0,
             in_double_colon_call_arguments: 0,
+            in_or_parent: 0,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -300,6 +301,7 @@ struct SafeNavVisitor<'a> {
     in_call_receiver: usize,
     in_dynamic_send_args: usize,
     in_double_colon_call_arguments: usize,
+    in_or_parent: usize,
 }
 
 impl<'a> SafeNavVisitor<'a> {
@@ -522,6 +524,7 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             || self.in_unsafe_parent > 0
             || self.in_dynamic_send_args > 0
             || self.in_double_colon_call_arguments > 0
+            || self.in_or_parent > 0
         {
             self.visit_flattened_and_clauses(node);
             return;
@@ -530,9 +533,22 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         let bytes = self.source.as_bytes();
         let clauses = SafeNavigation::top_level_and_clauses(node);
 
-        for pair in clauses.windows(2) {
+        for (window_index, pair) in clauses.windows(2).enumerate() {
             let lhs = &pair[0];
             let rhs = &pair[1];
+
+            // In chained && (3+ clauses), skip intermediate dotless-operator LHS
+            // clauses like @arr[0] — these are not nil-guard receivers and matching
+            // them produces FPs in expressions like `cond && @arr[0] && @arr[0].is_a?(X)`.
+            // The first clause (window_index == 0) is always the nil guard and should match.
+            if window_index > 0 {
+                if let Some(lhs_call) = lhs.as_call_node() {
+                    if SafeNavigation::is_dotless_operator(&lhs_call) {
+                        continue;
+                    }
+                }
+            }
+
             let checked_src = {
                 let loc = lhs.location();
                 &bytes[loc.start_offset()..loc.end_offset()]
@@ -581,6 +597,12 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         }
 
         self.visit_flattened_and_clauses(node);
+    }
+
+    fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'pr>) {
+        self.in_or_parent += 1;
+        ruby_prism::visit_or_node(self, node);
+        self.in_or_parent -= 1;
     }
 
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
