@@ -157,3 +157,15 @@ fetch('SQ') =~ \
 msg = "content #{path} from \
                             ^ Style/RedundantLineContinuation: Redundant line continuation.
 #{cksum}"
+
+=begin
+foo(1, \
+       ^ Style/RedundantLineContinuation: Redundant line continuation.
+  2)
+result \
+       ^ Style/RedundantLineContinuation: Redundant line continuation.
+  .to_s
+x = 1 + \
+        ^ Style/RedundantLineContinuation: Redundant line continuation.
+  2
+=end
