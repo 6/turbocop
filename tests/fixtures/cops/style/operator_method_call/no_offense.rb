@@ -7,7 +7,7 @@ z >> w
 
 # Chained parenthesized operator call — removing dot changes semantics
 scopes.-(%i[show_dashboard]).any?
-array.-(other).length
+foo.+(@bar).to_s
 
 # Constant receiver — RuboCop skips when receiver is const_type?
 Tree.<<(result)
