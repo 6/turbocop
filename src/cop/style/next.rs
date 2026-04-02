@@ -20,9 +20,13 @@ use crate::parse::source::SourceFile;
 ///   COSMOS-style trailing guard with an inner `if/else` among other statements,
 ///   while still allowing guarded bodies whose sole statement is a ternary.
 /// - For terminal `unless` guards whose body is exactly one nested
-///   `if`/`unless`, keep RuboCop's outer-guard eligibility checks but report the
-///   inner conditional. This fixes the paired corpus regressions where nitrocop
-///   flagged the outer `unless` and missed the inner offense.
+///   `if`/`unless`, distinguish between single-statement and multi-statement
+///   iteration bodies. RuboCop reports the nested conditional when the outer
+///   `unless` is the entire loop body, but keeps the offense on the outer
+///   `unless` when it is only the terminal statement in a larger body. The
+///   previous unconditional inner-node remap caused the current FP/FN corpus
+///   pairs by flagging the nested guard in cases where RuboCop keeps the outer
+///   one.
 /// - Added `while`/`until` loop support (RuboCop's `on_while`/`on_until`).
 /// - Added `loop` and other missing enumerator methods (`inject`, `reduce`,
 ///   `find_index`, `map!`, `select!`, `reject!`).
@@ -215,6 +219,7 @@ impl NextVisitor<'_> {
         if body_stmts.is_empty() {
             return;
         }
+        let single_statement_body = body_stmts.len() == 1;
 
         // RuboCop checks if the LAST statement is an if/unless (ends_with_condition?)
         let stmt = &body_stmts[body_stmts.len() - 1];
@@ -281,16 +286,20 @@ impl NextVisitor<'_> {
                 return;
             }
 
-            // RuboCop still gates nested terminal conditions by the OUTER
-            // `unless`, but reports the direct child conditional when the body
-            // consists of exactly one nested `if`/`unless`.
-            let start_offset = self
-                .single_nested_conditional(unless_node.statements())
-                .filter(|nested| !nested.has_else())
-                .map_or_else(
-                    || kw_loc.start_offset(),
-                    |nested| nested.keyword_start_offset(),
-                );
+            // RuboCop only remaps the offense to the nested conditional when
+            // the outer `unless` is the ENTIRE iteration body. If other
+            // top-level statements precede the terminal `unless`, keep the
+            // offense on the outer guard.
+            let start_offset = if single_statement_body {
+                self.single_nested_conditional(unless_node.statements())
+                    .filter(|nested| !nested.has_else())
+                    .map_or_else(
+                        || kw_loc.start_offset(),
+                        |nested| nested.keyword_start_offset(),
+                    )
+            } else {
+                kw_loc.start_offset()
+            };
             let (line, column) = self.source.offset_to_line_col(start_offset);
             self.diagnostics.push(self.cop.diagnostic(
                 self.source,

@@ -160,7 +160,7 @@ string.each_line do |out_line|
   end
 end
 
-# outer unless with a sole nested if should report the inner condition
+# single-statement outer unless with a sole nested if should report the inner condition
 @collection.works.each do |w|
   unless w.work_facet.nil?
     if years.include?(eval(year))
@@ -170,7 +170,7 @@ end
   end
 end
 
-# outer unless with a sole nested unless should report the inner condition
+# single-statement outer unless with a sole nested unless should report the inner condition
 cell_array.each do |cell|
   unless fields[cell.header]
     unless cell.content.blank?
@@ -189,5 +189,80 @@ attributes.each do |attr, val|
     record.attributes.key?(attr.to_s) ?
       record[attr] = val :
       record.send("#{attr}=", val)
+  end
+end
+
+# multi-statement while body should report the outer unless, not the nested if
+while (chunk = stdin.readpartial(opts[:sysread]))
+  buf << chunk
+  unless chunk.nil? || chunk.empty?
+  ^^^^^^ Style/Next: Use `next` to skip iteration.
+    if not opts[:quiet]
+      $stdout.write(chunk)
+    end
+  end
+end
+
+# multi-statement block body should report the outer unless, not the nested if
+CallbackRegistry.callbacks.each do |callback|
+  except = callback[:options][:except]
+  real_only = callback[:options][:real_requests_only]
+  unless except && except.include?(options[:lib])
+  ^^^^^^ Style/Next: Use `next` to skip iteration.
+    if !real_only || options[:real_request]
+      callback[:block].call(request_signature, response)
+    end
+  end
+end
+
+# multi-statement block body should keep the offense on the outer unless
+collection.pages.all.each do |page|
+  print "#{page.slug}\n"
+  unless page.approval_delta
+  ^^^^^^ Style/Next: Use `next` to skip iteration.
+    if Page::COMPLETED_STATUSES.include?(page.status)
+      old_transcription = if page.current_version
+                            page.current_version.transcription
+                          else
+                            ""
+                          end
+      new_transcription = page.source_text
+      page.update_column(:approval_delta, old_transcription.size - new_transcription.size)
+    end
+  end
+end
+
+# multi-statement for body should report the outer unless, not the nested unless
+for item in items
+  payment_item = build(item)
+  unless payment_item.blank?
+  ^^^^^^ Style/Next: Use `next` to skip iteration.
+    unless payment_id.blank?
+      update_payment_item(payment_item, payment_id)
+    end
+  end
+end
+
+# nested inner conditionals without else still belong to the outer unless here
+all_intervals.each do |interval|
+  interval_start = interval[0]
+  interval_end = interval[1]
+  te_date_arr = issue_entry_date_hash[entry.issue_id]
+  unless te_date_arr.blank? || te_date_arr.empty?
+  ^^^^^^ Style/Next: Use `next` to skip iteration.
+    if te_date_arr.any? { |te_dt| te_dt.between?(interval_start, interval_end) }
+      sub_quantity += get_duration(interval_start, interval_end, quantity)
+    end
+  end
+end
+
+# multi-statement outer unless should report itself even with nested unless
+@textures.each do |texture|
+  basename = check_texturename(texture.name)
+  unless basename.nil?
+  ^^^^^^ Style/Next: Use `next` to skip iteration.
+    unless basename =~ /\.[^\.]+_atlas_.+_info_.+(_.+){6}/
+      error "Texture [#{basename}] not found"
+    end
   end
 end
