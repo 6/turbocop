@@ -362,6 +362,22 @@ fn has_another_statement_on_same_line(source: &SourceFile, node: &ruby_prism::No
     trimmed.first() == Some(&b';')
 }
 
+/// Check if an IfNode or UnlessNode is a pattern matching guard (e.g., `in "a" if cond`).
+/// In Prism, pattern matching guards are IfNode/UnlessNode inside InNode.pattern.
+/// We detect this by checking if the text from line start to the node's start is just `in`.
+fn is_pattern_matching_guard(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
+    let loc = node.location();
+    let start = loc.start_offset();
+    let (line, _col) = source.offset_to_line_col(start);
+    if let Some(line_start) = source.line_col_to_offset(line, 0) {
+        if let Some(prefix) = source.try_byte_slice(line_start, start) {
+            let trimmed = prefix.trim();
+            return trimmed == "in";
+        }
+    }
+    false
+}
+
 /// Check if a `# rubocop:disable` or `# rubocop:todo` comment disables
 /// `Style/IfUnlessModifier` specifically (or `all`). Comments that disable
 /// OTHER cops should still be counted in modifier-form line length.
@@ -481,6 +497,12 @@ impl Cop for IfUnlessModifier {
             } else {
                 return;
             };
+
+        // Skip pattern matching guards (e.g., `in "a" if condition`).
+        // Prism wraps the pattern + guard as IfNode/UnlessNode inside InNode.
+        if is_pattern_matching_guard(source, node) {
+            return;
+        }
 
         // Must not have an else clause
         if has_else {

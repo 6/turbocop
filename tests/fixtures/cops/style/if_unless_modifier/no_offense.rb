@@ -171,6 +171,17 @@ unless some_long_condition ||
   do_something
 end
 
+# Pattern matching guards should not be flagged — they are part of case/in syntax
+case element.name
+in "a" if element.children.any? { |c| c.text? }
+  extract(element)
+end
+
+case url
+in _, ("facebook.com" | "fb.com"), username, *rest unless username.in?(["admin"])
+  process(username)
+end
+
 # Tab-indented: modifier form with tab expansion exceeds MaxLineLength (120)
 # 3 tabs = 3 bytes but visual width is 6 (with IndentationWidth 2)
 # modifier_len = 6 + 59 + 1 + 2 + 1 + 53 = 122 > 120
