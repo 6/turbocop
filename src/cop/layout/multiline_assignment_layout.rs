@@ -30,6 +30,12 @@ use crate::parse::source::SourceFile;
 ///   delimiters. Prism keeps `do/end` and `{}` blocks attached to a `CallNode`,
 ///   so treating either only the whole call or only the block location causes
 ///   mismatches.
+/// - Assigned `super` calls with blocks are `SuperNode` /
+///   `ForwardingSuperNode` in Prism, with the block attached there instead of
+///   on a `CallNode`. The previous implementation only recognized block RHS
+///   values hanging off `CallNode`, so every `foo = super(...) do ... end`,
+///   `foo = super do ... end`, and `foo = super(*args) { ... }` corpus case was
+///   missed.
 ///
 /// Fixes applied:
 /// - Added attribute-write `CallNode` handling so setter/index `=` assignments
@@ -45,7 +51,34 @@ use crate::parse::source::SourceFile;
 ///   reports them as `BlockNode`s with `NumberedParametersNode` or
 ///   `ItParametersNode`, but RuboCop does not treat them as supported `block`
 ///   RHS values here.
+/// - Reused that same block RHS extraction for `SuperNode` and
+///   `ForwardingSuperNode`, so assigned `super` blocks now follow the same
+///   multiline and special-block rules as ordinary call blocks.
 pub struct MultilineAssignmentLayout;
+
+fn block_has_supported_parameters(block: &ruby_prism::BlockNode<'_>) -> bool {
+    !block.parameters().is_some_and(|params| {
+        params.as_numbered_parameters_node().is_some() || params.as_it_parameters_node().is_some()
+    })
+}
+
+fn rhs_block<'a>(node: &'a ruby_prism::Node<'a>) -> Option<ruby_prism::BlockNode<'a>> {
+    let block = if let Some(call) = node.as_call_node() {
+        call.block().and_then(|block| block.as_block_node())
+    } else if let Some(super_node) = node.as_super_node() {
+        super_node.block().and_then(|block| block.as_block_node())
+    } else if let Some(forwarding_super_node) = node.as_forwarding_super_node() {
+        forwarding_super_node.block()
+    } else {
+        None
+    }?;
+
+    if !block_has_supported_parameters(&block) {
+        return None;
+    }
+
+    Some(block)
+}
 
 /// Check if a node represents one of the supported types for this cop.
 fn is_supported_type(node: &ruby_prism::Node<'_>, supported_types: &[String]) -> bool {
@@ -65,20 +98,8 @@ fn is_supported_type(node: &ruby_prism::Node<'_>, supported_types: &[String]) ->
                     return true;
                 }
 
-                if let Some(call) = node.as_call_node() {
-                    if let Some(block) = call.block() {
-                        let is_special_block = block
-                            .as_block_node()
-                            .and_then(|block| block.parameters())
-                            .is_some_and(|params| {
-                                params.as_numbered_parameters_node().is_some()
-                                    || params.as_it_parameters_node().is_some()
-                            });
-
-                        if !is_special_block {
-                            return true;
-                        }
-                    }
+                if rhs_block(node).is_some() {
+                    return true;
                 }
             }
             _ => {}
@@ -99,7 +120,7 @@ fn rhs_is_multiline(
     supported_types: &[String],
 ) -> bool {
     if supported_types.iter().any(|t| t == "block") {
-        if let Some(block) = value.as_call_node().and_then(|call| call.block()) {
+        if let Some(block) = rhs_block(value) {
             let (block_start_line, _) = source.offset_to_line_col(block.location().start_offset());
             let (block_end_line, _) =
                 source.offset_to_line_col(block.location().end_offset().saturating_sub(1));
