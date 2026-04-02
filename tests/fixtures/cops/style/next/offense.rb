@@ -159,3 +159,35 @@ string.each_line do |out_line|
     lines_to_write << line_to_write
   end
 end
+
+# outer unless with a sole nested if should report the inner condition
+@collection.works.each do |w|
+  unless w.work_facet.nil?
+    if years.include?(eval(year))
+    ^^ Style/Next: Use `next` to skip iteration.
+      facets << w.work_facet
+    end
+  end
+end
+
+# outer unless with a sole nested unless should report the inner condition
+cell_array.each do |cell|
+  unless fields[cell.header]
+    unless cell.content.blank?
+    ^^^^^^ Style/Next: Use `next` to skip iteration.
+      row << element
+    end
+  end
+end
+
+# a ternary inside the guarded body should not suppress the outer if
+attributes.each do |attr, val|
+  record = record.dup if record.frozen?
+
+  if record.respond_to?("#{attr}=")
+  ^^ Style/Next: Use `next` to skip iteration.
+    record.attributes.key?(attr.to_s) ?
+      record[attr] = val :
+      record.send("#{attr}=", val)
+  end
+end
