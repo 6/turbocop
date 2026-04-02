@@ -228,3 +228,84 @@ defined?(PTY) and defined?(IO.console) and TestIO_Console.class_eval do
   def helper
   end
 end
+
+# A bare `public` used as a method argument inside a nested block is not
+# an access modifier.
+shared_examples_for "copies public attribute" do
+  describe "#public" do
+    context "when not public" do
+      let(:public) { false }
+
+      it "copies correctly" do
+        expect(subject).to be_success
+        expect(project_copy.public).to eq public
+      end
+    end
+  end
+end
+
+# A bare `public` used as an `if` condition inside a nested block is not
+# an access modifier.
+shared_examples_for "messages which are indifferent about sharing fact" do
+  let(:public) { recipient.nil? }
+
+  it "treats status message receive correctly" do
+    entity = Fabricate(:status_message_entity, author: sender_id, public: public)
+
+    if public
+      expect(Diaspora::Federation::Dispatcher).to receive(:build) do |_user, participation, _opts|
+        expect(participation.target.guid).to eq(entity.guid)
+        instance_double(:dispatch)
+      end
+    else
+      expect(Diaspora::Federation::Dispatcher).not_to receive(:build)
+    end
+  end
+end
+
+# A proc literal on the previous line updates RuboCop's block-opening state,
+# so no extra blank line is required before `private`.
+class ExpressionFileInfo
+  validate :unset_units_unless_raw_counts
+  validate :enforce_units_on_raw_counts
+  validate :enforce_raw_counts_associations, unless: proc { |attributes| attributes[:is_raw_counts] }
+  private
+
+  def sanitize_raw_counts_associations
+  end
+end
+
+# A preceding inline class updates RuboCop's class-opening state, so no extra
+# blank line is required before `module_function`.
+module PdfFill
+  module Filler
+    class PdfFillerException < StandardError; end
+    module_function
+
+    STATSD_KEY_PREFIX = "api.pdf_fill"
+  end
+end
+
+# `case` / `when` wrappers do not propagate macro scope into receiverful blocks.
+case adapter
+when "oracle"
+  ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.class_eval do
+    def quoted_date(value)
+      value.to_s(:db)
+    end
+    private
+    # PATCH: Restore previous mapping of ActiveRecord datetime to DATE type.
+    const_get(:NATIVE_DATABASE_TYPES)[:datetime] = {name: "DATE"}
+  end
+end
+
+# `case` / `when` also suppress access-modifier handling at the start of the block.
+case adapter
+when "sqlserver"
+  ::Arel::Visitors::ToSql.class_eval do
+    private
+    def visit_Arel_Nodes_Limit(o, collector)
+      collector
+    end
+  end
+end
