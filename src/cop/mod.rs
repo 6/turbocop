@@ -17,6 +17,7 @@ pub mod security;
 pub mod style;
 pub mod tiers;
 pub mod util;
+pub mod variable_force;
 pub mod walker;
 
 use std::collections::HashMap;
@@ -364,6 +365,13 @@ pub trait Cop: Send + Sync {
         diagnostics: &mut Vec<Diagnostic>,
         corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+    }
+
+    /// Return `Some(self)` if this cop consumes VariableForce analysis.
+    /// Override this to opt into the shared variable dataflow engine instead
+    /// of implementing your own AST visitor for variable tracking.
+    fn as_variable_force_consumer(&self) -> Option<&dyn variable_force::VariableForceConsumer> {
+        None
     }
 }
 

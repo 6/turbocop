@@ -1185,6 +1185,31 @@ fn lint_source_once(
             .fetch_add(filter_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
 
+    // ── VariableForce engine ───────────────────────────────────────────
+    // Run the shared variable analysis engine if any active cop is a
+    // VariableForceConsumer. This performs a single AST walk that replaces
+    // up to 10 separate per-cop variable-tracking visitors.
+    {
+        let vf_consumers: Vec<crate::cop::variable_force::engine::RegisteredConsumer<'_>> =
+            ast_cop_indices
+                .iter()
+                .filter_map(|&i| {
+                    let cop = &*registry.cops()[i];
+                    cop.as_variable_force_consumer().map(|consumer| {
+                        crate::cop::variable_force::engine::RegisteredConsumer {
+                            consumer,
+                            config: &active_base_configs[i],
+                        }
+                    })
+                })
+                .collect();
+        if !vf_consumers.is_empty() {
+            let mut engine = crate::cop::variable_force::engine::Engine::new(source, &vf_consumers);
+            engine.run(&parse_result);
+            diagnostics.extend(engine.into_diagnostics());
+        }
+    }
+
     let ast_start = std::time::Instant::now();
     if !ast_cop_indices.is_empty() {
         let ast_cops: Vec<(&dyn Cop, &CopConfig)> = ast_cop_indices
