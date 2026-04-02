@@ -82,6 +82,32 @@ use ruby_prism::Visit;
 ///    regexp, rational, and imaginary literals. This cop was still missing the
 ///    backtick/xstring corpus case. Fix: extend `is_truthy_literal` to cover the
 ///    same literal families that Prism exposes for this cop.
+///
+/// ### VariableForce migration assessment
+///
+/// VF migration was evaluated and **deferred** because the cop's variable
+/// analysis is fundamentally offset-range-based, not scope-boundary-based.
+///
+/// The scoping exemption needs to know whether a variable is first assigned
+/// *inside a while-loop body* and referenced *after the loop ends*. `while`
+/// loops do not create Ruby scopes — the VF engine's `visit_while_node` only
+/// bumps `branch_depth` and does not push/pop a `Scope`. The VF consumer
+/// hooks (`before_leaving_scope`, etc.) fire at def/class/block/module
+/// boundaries, not at loop boundaries.
+///
+/// To use VF, the cop would still need to: (1) find `while true`/`until false`
+/// nodes via its own visitor, (2) correlate each loop's offset range against
+/// the VF `Variable` assignment/reference offsets, and (3) reproduce the
+/// closure-scope-chain walk for pre-existing assignments — all of which the
+/// current `LvarWriteCollector` / `ScopedLvarWriteChecker` /
+/// `has_visible_lvar_write_before` already handle correctly. The result would
+/// be a hybrid no simpler than the current 544-line implementation, with added
+/// coupling to the VF engine that provides no accuracy or performance benefit.
+///
+/// A correct VF-based migration would require adding loop-range hooks to the
+/// engine (e.g., `before_entering_loop` / `after_leaving_loop`), which is an
+/// engine extension solely for this cop and does not match the VF architecture
+/// (designed for scope-boundary analysis, not control-flow-range analysis).
 pub struct InfiniteLoop;
 
 impl Cop for InfiniteLoop {
