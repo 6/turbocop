@@ -93,3 +93,9 @@ module NoticesHelper
     call_number.present? and call_number.size == 11
   end
 end
+
+class Foo
+^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
+  class << self
+  end
+end
