@@ -53,6 +53,13 @@ use crate::parse::source::SourceFile;
 /// exempt the whole line, even when RuboCop would use the last URI match and
 /// still flag it. The fix restores "last URI wins" while keeping embedded
 /// query-param URLs as one outer match.
+///
+/// ## Corpus investigation (2026-04-02)
+///
+/// FNs in specs with `code # rubocop:disable Layout/LineLength` came from this
+/// cop's local directive parser treating inline disables as block disables.
+/// RuboCop and `parse/directives.rs` only suppress that single line; later long
+/// lines must still be checked until a standalone disable opens a real range.
 pub struct LineLength;
 
 impl Cop for LineLength {
@@ -127,7 +134,7 @@ fn check_line_lengths(
         let directive_state = line_str
             .map(parse_line_length_directive)
             .unwrap_or_default();
-        let current_line_disabled = line_length_disabled || directive_state.disables;
+        let current_line_disabled = line_length_disabled || directive_state.disables_current_line;
         line_length_disabled = directive_state.apply(line_length_disabled);
         if current_line_disabled {
             continue;
@@ -236,15 +243,16 @@ struct ExemptionRange {
 
 #[derive(Clone, Copy, Default)]
 struct DirectiveState {
-    disables: bool,
-    enables: bool,
+    disables_current_line: bool,
+    starts_block_disable: bool,
+    ends_block_disable: bool,
 }
 
 impl DirectiveState {
     fn apply(self, current: bool) -> bool {
-        if self.enables {
+        if self.ends_block_disable {
             false
-        } else if self.disables {
+        } else if self.starts_block_disable {
             true
         } else {
             current
@@ -254,16 +262,25 @@ impl DirectiveState {
 
 fn parse_line_length_directive(line: &str) -> DirectiveState {
     let mut state = DirectiveState::default();
+    let Some(comment_start) = line.find('#') else {
+        return state;
+    };
+    let is_inline_comment = line[..comment_start]
+        .chars()
+        .any(|char| !char.is_whitespace());
 
     for (needle, is_disable) in [("# rubocop:disable", true), ("# rubocop:enable", false)] {
-        let mut search_from = 0;
+        let mut search_from = comment_start;
         while let Some(pos) = line[search_from..].find(needle) {
             let directive_start = search_from + pos + needle.len();
             if directive_mentions_line_length(&line[directive_start..]) {
                 if is_disable {
-                    state.disables = true;
-                } else {
-                    state.enables = true;
+                    state.disables_current_line = true;
+                    if !is_inline_comment {
+                        state.starts_block_disable = true;
+                    }
+                } else if !is_inline_comment {
+                    state.ends_block_disable = true;
                 }
             }
             search_from = directive_start;
@@ -917,6 +934,23 @@ x = [
             diags.is_empty(),
             "AllowCopDirectives should skip lines with rubocop directives"
         );
+    }
+
+    #[test]
+    fn inline_disable_only_affects_that_line() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(10.into()))]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            b"foo = \"1234567890\" # rubocop:disable Layout/LineLength\nbar = \"1234567890\"\n",
+            config,
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 2);
+        assert_eq!(diags[0].location.column, 10);
+        assert_eq!(diags[0].message, "Line is too long. [18/10]");
     }
 
     #[test]
