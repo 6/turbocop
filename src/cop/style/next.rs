@@ -178,14 +178,10 @@ impl NextVisitor<'_> {
         &self,
         statements: Option<ruby_prism::StatementsNode<'pr>>,
     ) -> Option<NestedConditional<'pr>> {
-        let Some(statements) = statements else {
-            return None;
-        };
+        let statements = statements?;
 
         let mut body = statements.body().iter();
-        let Some(first_stmt) = body.next() else {
-            return None;
-        };
+        let first_stmt = body.next()?;
 
         if body.next().is_some() {
             return None;
