@@ -177,13 +177,12 @@ fn inline_method_visibility(
         // Multi-arg forms like `private :foo, :bar` are not recognized by
         // RuboCop's visibility_inline_on_method_name? node pattern.
         let args_vec: Vec<_> = args.arguments().iter().collect();
-        if args_vec.len() == 1 {
-            if args_vec[0]
+        if args_vec.len() == 1
+            && args_vec[0]
                 .as_symbol_node()
                 .is_some_and(|symbol| symbol.unescaped() == method_name)
-            {
-                return Some(visibility);
-            }
+        {
+            return Some(visibility);
         }
     }
 
