@@ -22,6 +22,7 @@
 //! separate per-cop AST walks with a single shared traversal.
 
 pub mod assignment;
+pub mod engine;
 pub mod reference;
 pub mod scope;
 pub mod variable;
