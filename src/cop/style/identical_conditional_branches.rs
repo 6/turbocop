@@ -755,9 +755,10 @@ impl Cop for IdenticalConditionalBranches {
                 None => return,
             };
 
-            let mut branches = Vec::new();
-            branches.push(BranchInfo::from_stmts(unless_node.statements()));
-            branches.push(BranchInfo::from_stmts(else_clause.statements()));
+            let branches = vec![
+                BranchInfo::from_stmts(unless_node.statements()),
+                BranchInfo::from_stmts(else_clause.statements()),
+            ];
 
             let pre_len = diagnostics.len();
             let condition = unless_node.predicate();
