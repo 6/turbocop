@@ -145,3 +145,15 @@ value = \
 fetch('SQ') =~ \
                ^ Style/RedundantLineContinuation: Redundant line continuation.
   /(\d+) BP; (\d+) A; (\d+) C/
+
+(a != foo \
+          ^ Style/RedundantLineContinuation: Redundant line continuation.
+  or b)
+
+(a != foo \
+          ^ Style/RedundantLineContinuation: Redundant line continuation.
+  and b)
+
+msg = "content #{path} from \
+                            ^ Style/RedundantLineContinuation: Redundant line continuation.
+#{cksum}"

@@ -33,9 +33,10 @@ use ruby_prism::Visit;
 ///
 /// - **Interpolated string continuations**: Prism stores a bare `\` + newline
 ///   between interpolated string segments as a `StringNode` part whose content
-///   is exactly `\\\n`. `code_map.is_code()` treated those offsets as non-code,
-///   causing FNs for patterns like `"#{a}\` + `#{b}"`. Fixed by collecting only
-///   those exact Prism string-part offsets and allowing the line scan there.
+///   ends with `\\\n`. `code_map.is_code()` treated those offsets as non-code,
+///   causing FNs for patterns like `"#{a}\` + `#{b}"`. Fixed by collecting
+///   Prism string-part offsets that end with `\\\n` and allowing the line scan
+///   there. This also handles parts with prefix content like `" from \` + `#{b}"`.
 ///
 /// - **Union/pipe operator**: `continues_union_rhs` matched `||` (logical OR)
 ///   and block parameter delimiters (`do |x|`, `{ |x|`), causing FNs when `\`
@@ -52,11 +53,22 @@ use ruby_prism::Visit;
 ///   (non-parenthesized) operands, matching RuboCop's `argument_newline?` AST
 ///   check. Chains with parenthesized method calls are not protected.
 ///
+/// - **Keyword operators on next line**: `next_line_starts_with_argument` treated
+///   `and`, `or`, `not` keywords at the start of the next line as method arguments,
+///   causing FNs for patterns like `(expr \` + `or other_expr)`. Fixed by excluding
+///   keyword operators (followed by non-identifier char) from argument detection.
+///   The `is_redundant_continuation` reparse fallback correctly determines whether
+///   removal is safe (e.g., inside parens it is, at top level it isn't).
+///
 /// ## Remaining gaps
 ///
 /// - **Reparse limitations**: `is_redundant_continuation` checks for zero parse
 ///   errors after removing `\`. Files with pre-existing Prism parse errors will
 ///   always fail this check. A future improvement could compare error counts.
+///
+/// - **`=begin`/`=end` blocks**: RuboCop scans raw source including multi-line
+///   comment blocks, but our `code_map.is_code()` returns false for content inside
+///   `=begin`/`=end`, causing FNs there.
 pub struct RedundantLineContinuation;
 
 impl Cop for RedundantLineContinuation {
@@ -296,6 +308,21 @@ fn starts_with_boolean_operator(next_trimmed: &[u8]) -> bool {
     next_trimmed.starts_with(b"&&") || next_trimmed.starts_with(b"||")
 }
 
+/// Check if line starts with a Ruby keyword operator (`and`, `or`, `not`)
+/// followed by a non-identifier character (so `and_value` is not matched).
+fn starts_with_keyword_operator(trimmed: &[u8]) -> bool {
+    starts_with_exact_keyword(trimmed, b"and")
+        || starts_with_exact_keyword(trimmed, b"or")
+        || starts_with_exact_keyword(trimmed, b"not")
+}
+
+fn starts_with_exact_keyword(trimmed: &[u8], keyword: &[u8]) -> bool {
+    trimmed.starts_with(keyword)
+        && trimmed
+            .get(keyword.len())
+            .map_or(true, |b| !b.is_ascii_alphanumeric() && *b != b'_')
+}
+
 fn method_with_argument(before_backslash: &[u8], next_trimmed: &[u8]) -> bool {
     // A ternary "then" branch (line starts with `? `) is not a method call
     let trimmed = trim_start(before_backslash);
@@ -392,6 +419,13 @@ fn next_line_starts_with_argument(next_trimmed: &[u8]) -> bool {
         return false;
     }
 
+    // Don't treat keyword boolean operators (and, or, not) as arguments.
+    // These are operators, not method arguments. The reparse fallback will
+    // correctly determine if removing \ is safe (e.g., inside parens it is).
+    if starts_with_keyword_operator(next_trimmed) {
+        return false;
+    }
+
     if next_trimmed.starts_with(b"...")
         || next_trimmed.starts_with(b"..")
         || next_trimmed.starts_with(b"->")
@@ -455,8 +489,13 @@ impl InterpolatedStringContinuationCollector<'_> {
     fn collect_string_part_offsets(&mut self, node: &ruby_prism::StringNode<'_>) {
         let loc = node.content_loc();
         let bytes = &self.source[loc.start_offset()..loc.end_offset()];
-        if bytes == b"\\\n" {
-            self.offsets.insert(loc.start_offset());
+        if bytes.ends_with(b"\\\n") {
+            let len = bytes.len();
+            // Don't match escaped backslash (\\) before the newline
+            if len >= 3 && bytes[len - 3] == b'\\' {
+                return;
+            }
+            self.offsets.insert(loc.start_offset() + len - 2);
         }
     }
 }
