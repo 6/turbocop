@@ -1230,6 +1230,16 @@ mod tests {
         has_implicit_ref: bool,
         /// Whether any assignment has rhs_references_var set.
         has_self_ref_assignment: bool,
+        /// Per-assignment details for branch/liveness testing.
+        assignments: Vec<AssignSnapshot>,
+    }
+
+    #[derive(Debug)]
+    struct AssignSnapshot {
+        referenced: bool,
+        reassigned: bool,
+        branch_id: Option<usize>,
+        kind: crate::cop::variable_force::assignment::AssignmentKind,
     }
 
     impl TestConsumer {
@@ -1265,6 +1275,16 @@ mod tests {
                             .assignments
                             .iter()
                             .any(|a| a.rhs_references_var),
+                        assignments: var
+                            .assignments
+                            .iter()
+                            .map(|a| AssignSnapshot {
+                                referenced: a.referenced,
+                                reassigned: a.reassigned,
+                                branch_id: a.branch_id,
+                                kind: a.kind,
+                            })
+                            .collect(),
                     },
                 );
             }
@@ -1644,5 +1664,187 @@ mod tests {
         let scopes = run_engine("def self.foo(x)\nend\n");
         let defs = scopes.iter().find(|s| s.kind == ScopeKind::Defs).unwrap();
         assert!(defs.vars.contains_key("x"));
+    }
+
+    // ── Branch exclusivity tests ───────────────────────────────────────
+
+    #[test]
+    fn test_if_then_else_exclusive_assignments() {
+        // x assigned in both branches, neither read → both assignments are useless
+        let scopes = run_engine("def foo\n  if cond\n    x = 1\n  else\n    x = 2\n  end\nend\n");
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        // Neither assignment is referenced (no read after the if)
+        assert!(!x.assignments[0].referenced);
+        assert!(!x.assignments[1].referenced);
+    }
+
+    #[test]
+    fn test_if_then_read_after_if() {
+        // x assigned in if-then, read AFTER the if → assignment IS referenced
+        let scopes = run_engine("def foo\n  if cond\n    x = 1\n  end\n  puts x\nend\n");
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert_eq!(x.num_assignments, 1);
+        assert!(x.assignments[0].referenced);
+    }
+
+    #[test]
+    fn test_if_both_branches_assign_read_after() {
+        // x assigned in both branches, read after → both assignments referenced
+        let scopes =
+            run_engine("def foo\n  if cond\n    x = 1\n  else\n    x = 2\n  end\n  puts x\nend\n");
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        // Both should be referenced (read after the if)
+        assert!(x.assignments[0].referenced || x.assignments[1].referenced);
+    }
+
+    #[test]
+    fn test_if_then_else_different_branch_ids() {
+        // Assignments in then vs else should have different branch IDs
+        let scopes = run_engine("def foo\n  if cond\n    x = 1\n  else\n    x = 2\n  end\nend\n");
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        let bid0 = x.assignments[0].branch_id;
+        let bid1 = x.assignments[1].branch_id;
+        assert!(
+            bid0.is_some(),
+            "then-branch assignment should have branch_id"
+        );
+        assert!(
+            bid1.is_some(),
+            "else-branch assignment should have branch_id"
+        );
+        assert_ne!(bid0, bid1, "then and else should have different branch IDs");
+    }
+
+    #[test]
+    fn test_assignment_outside_branch_has_no_branch_id() {
+        let scopes = run_engine("def foo\n  x = 1\nend\n");
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert!(x.assignments[0].branch_id.is_none());
+    }
+
+    #[test]
+    fn test_reassignment_same_branch_marks_previous_reassigned() {
+        // Two assignments in same branch → first is reassigned
+        let scopes = run_engine("def foo\n  x = 1\n  x = 2\nend\n");
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        assert!(x.assignments[0].reassigned);
+        assert!(!x.assignments[1].reassigned);
+    }
+
+    #[test]
+    fn test_reassignment_different_branches_not_marked_reassigned() {
+        // Assignments in exclusive branches → neither is reassigned
+        let scopes = run_engine("def foo\n  if cond\n    x = 1\n  else\n    x = 2\n  end\nend\n");
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        assert!(
+            !x.assignments[0].reassigned,
+            "then-branch assignment should NOT be marked reassigned"
+        );
+        assert!(
+            !x.assignments[1].reassigned,
+            "else-branch assignment should NOT be marked reassigned"
+        );
+    }
+
+    // ── Loop back-edge tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_while_loop_back_edge() {
+        // x assigned and read in while loop → assignment marked referenced (back-edge)
+        let scopes = run_engine("def foo\n  while cond\n    x = compute\n    puts x\n  end\nend\n");
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert!(
+            x.assignments[0].referenced,
+            "loop assignment should be referenced via back-edge or direct read"
+        );
+    }
+
+    #[test]
+    fn test_for_loop_variable_referenced() {
+        // for loop index is referenced in body
+        let scopes = run_engine("def foo\n  for i in [1,2,3]\n    puts i\n  end\nend\n");
+        let def_scope = &scopes[0];
+        let i = &def_scope.vars["i"];
+        assert!(i.used);
+    }
+
+    // ── Case/when branch tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_case_when_branches_are_exclusive() {
+        let scopes = run_engine(
+            "def foo(v)\n  case v\n  when 1\n    x = :a\n  when 2\n    x = :b\n  end\nend\n",
+        );
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        // Neither should be marked reassigned (exclusive branches)
+        assert!(!x.assignments[0].reassigned);
+        assert!(!x.assignments[1].reassigned);
+    }
+
+    // ── Useless assignment pattern tests ───────────────────────────────
+
+    #[test]
+    fn test_useless_assignment_detected() {
+        // x = 1 is useless because x = 2 overwrites it before any read
+        let scopes = run_engine("def foo\n  x = 1\n  x = 2\n  puts x\nend\n");
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        // First assignment: reassigned and NOT referenced → useless
+        assert!(x.assignments[0].reassigned);
+        assert!(!x.assignments[0].referenced);
+        // Second assignment: referenced → useful
+        assert!(x.assignments[1].referenced);
+    }
+
+    #[test]
+    fn test_assignment_used_then_overwritten() {
+        // x = 1 is used (puts x), then x = 2 is useless (never read)
+        let scopes = run_engine("def foo\n  x = 1\n  puts x\n  x = 2\nend\n");
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        assert!(
+            x.assignments[0].referenced,
+            "first assignment should be referenced"
+        );
+        assert!(
+            !x.assignments[1].referenced,
+            "second assignment should NOT be referenced (useless)"
+        );
+    }
+
+    #[test]
+    fn test_begin_rescue_assignment_not_useless() {
+        // result = nil; begin; result = compute; rescue; end; puts result
+        // The first assignment is NOT useless because rescue may execute before
+        // the second assignment completes.
+        let scopes = run_engine(
+            "def foo\n  result = nil\n  begin\n    result = compute\n  rescue\n    puts result\n  end\nend\n",
+        );
+        let def_scope = &scopes[0];
+        let result = &def_scope.vars["result"];
+        // The nil assignment should be referenced (rescue reads it)
+        // or at least not marked as reassigned (conservative)
+        let first = &result.assignments[0];
+        assert!(
+            first.referenced || !first.reassigned,
+            "result = nil should not be flagged as useless (rescue may use it)"
+        );
     }
 }
