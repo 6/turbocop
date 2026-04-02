@@ -123,3 +123,12 @@ RSpec.describe('PosixClass parsing') do
     [0]    => [CharacterSet, count: 1],
     [0, 0] => [:nonposixclass, :word, PosixClass, name: 'word', text: '[:^word:]']
 end
+
+let(:output_missing) {      <<-EOT
+^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+"  }
+^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+when %r{DBSubnetGroup/VpcId$}                              then @item[:db_subnet_group][:vpc_id]             = @text
+^ Layout/ExtraSpacing: Unnecessary spacing detected.

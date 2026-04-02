@@ -164,6 +164,19 @@ use std::ops::Range;
 ///     reports, including `loopback  :localtick`, `[:posixclass,    :word]`,
 ///     and `text ...,   layout: :title`. Extract full symbol/path/label tokens
 ///     so alignment only succeeds for genuinely matching tokens.
+///
+/// 19. **Multiline receiver chaining FPs (fixed 2026-04-02)**: RuboCop does not
+///     report extra spaces before a chained `.` when the receiver itself spans
+///     multiple lines, such as `expect { ... }          .to ...` or
+///     `{\n  a: 1\n}  .transform_values`. Raw scanning saw those as ordinary
+///     gaps and flagged them. Ignore only the whitespace range between a
+///     multiline receiver's end and its chained `.` operator.
+///
+/// 20. **Heredoc opener/block-close FPs (fixed 2026-04-02)**: RuboCop allows
+///     `let(:x) { <<~TEXT  }` style spacing before the same-line `}` that closes
+///     a block containing a heredoc body. Raw scanning still treated the opener
+///     line as normal code and flagged the gap. Ignore only the whitespace range
+///     between a heredoc opener and that same-line block closer.
 pub struct ExtraSpacing;
 
 impl Cop for ExtraSpacing {
@@ -198,6 +211,18 @@ impl Cop for ExtraSpacing {
         // Collect word/symbol array interior ranges to ignore (%w, %W, %i, %I).
         // Spaces inside these arrays are element separators, not extra spacing.
         ignored_ranges.extend(collect_word_array_ranges(parse_result));
+
+        // RuboCop allows spaces before a chained `.` when the receiver spans
+        // multiple lines (for example a multiline block or hash literal).
+        ignored_ranges.extend(collect_multiline_receiver_chain_ranges(
+            parse_result,
+            source,
+            src_bytes,
+        ));
+
+        // RuboCop also allows spaces between a heredoc opener and the same-line
+        // `}` that closes the surrounding block.
+        ignored_ranges.extend(collect_heredoc_block_closer_ranges(parse_result, src_bytes));
 
         // Track actual heredoc opener offsets so `<<` heredoc delimiters are
         // not mistaken for append operators during alignment checks.
@@ -384,6 +409,153 @@ impl HashPairCollector<'_> {
 
 fn is_in_ignored_range(ranges: &[Range<usize>], offset: usize) -> bool {
     ranges.iter().any(|r| r.contains(&offset))
+}
+
+// -- Multiline receiver chained-call ignored ranges --
+
+/// Collect byte ranges between a multiline receiver and its chained `.` call
+/// operator. RuboCop does not treat these as extra spacing.
+fn collect_multiline_receiver_chain_ranges(
+    parse_result: &ruby_prism::ParseResult<'_>,
+    source: &SourceFile,
+    src_bytes: &[u8],
+) -> Vec<Range<usize>> {
+    let mut collector = MultilineReceiverChainCollector {
+        ranges: Vec::new(),
+        source,
+        src_bytes,
+    };
+    collector.visit(&parse_result.node());
+    collector.ranges
+}
+
+struct MultilineReceiverChainCollector<'a> {
+    ranges: Vec<Range<usize>>,
+    source: &'a SourceFile,
+    src_bytes: &'a [u8],
+}
+
+impl<'pr> Visit<'pr> for MultilineReceiverChainCollector<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        self.collect(node.receiver(), node.call_operator_loc());
+        ruby_prism::visit_call_node(self, node);
+    }
+}
+
+impl MultilineReceiverChainCollector<'_> {
+    fn collect(
+        &mut self,
+        receiver: Option<ruby_prism::Node<'_>>,
+        operator: Option<ruby_prism::Location<'_>>,
+    ) {
+        let Some(receiver) = receiver else {
+            return;
+        };
+        let Some(operator) = operator else {
+            return;
+        };
+
+        if operator.as_slice() != b"." {
+            return;
+        }
+
+        let receiver_loc = receiver.location();
+        if !location_spans_multiple_lines(self.source, &receiver_loc) {
+            return;
+        }
+
+        let gap_start = receiver_loc.end_offset();
+        let gap_end = operator.start_offset();
+        if gap_end <= gap_start {
+            return;
+        }
+
+        if self.src_bytes[gap_start..gap_end]
+            .iter()
+            .all(|&b| b == b' ' || b == b'\t')
+        {
+            self.ranges.push(gap_start..gap_end);
+        }
+    }
+}
+
+// -- Heredoc opener/block-close ignored ranges --
+
+/// Collect byte ranges between a heredoc opener and the same-line `}` that
+/// closes the surrounding block. RuboCop allows this form.
+fn collect_heredoc_block_closer_ranges(
+    parse_result: &ruby_prism::ParseResult<'_>,
+    src_bytes: &[u8],
+) -> Vec<Range<usize>> {
+    let mut collector = HeredocBlockCloserCollector {
+        ranges: Vec::new(),
+        src_bytes,
+    };
+    collector.visit(&parse_result.node());
+    collector.ranges
+}
+
+struct HeredocBlockCloserCollector<'a> {
+    ranges: Vec<Range<usize>>,
+    src_bytes: &'a [u8],
+}
+
+impl<'pr> Visit<'pr> for HeredocBlockCloserCollector<'_> {
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        self.collect(node);
+        ruby_prism::visit_block_node(self, node);
+    }
+}
+
+impl HeredocBlockCloserCollector<'_> {
+    fn collect(&mut self, node: &ruby_prism::BlockNode<'_>) {
+        let Some(body) = node.body().and_then(|body| body.as_statements_node()) else {
+            return;
+        };
+
+        let mut statements = body.body().iter();
+        let Some(statement) = statements.next() else {
+            return;
+        };
+
+        if statements.next().is_some() {
+            return;
+        }
+
+        let Some(opener_end) = heredoc_opening_end(statement) else {
+            return;
+        };
+
+        let gap_end = node.closing_loc().start_offset();
+        if gap_end <= opener_end {
+            return;
+        }
+
+        if self.src_bytes[opener_end..gap_end]
+            .iter()
+            .all(|&b| b == b' ' || b == b'\t')
+        {
+            self.ranges.push(opener_end..gap_end);
+        }
+    }
+}
+
+fn heredoc_opening_end(node: ruby_prism::Node<'_>) -> Option<usize> {
+    if let Some(string) = node.as_string_node() {
+        let opening = string.opening_loc()?;
+        if opening.as_slice().starts_with(b"<<") {
+            return Some(opening.end_offset());
+        }
+    }
+
+    if let Some(string) = node.as_interpolated_string_node() {
+        let opening = string.opening_loc()?;
+        if opening.as_slice().starts_with(b"<<") {
+            return Some(opening.end_offset());
+        }
+    }
+
+    None
 }
 
 // -- Word/symbol array ignored ranges --
@@ -1063,6 +1235,13 @@ fn line_indentation(line: &[u8]) -> usize {
     line.iter()
         .take_while(|&&b| b == b' ' || b == b'\t')
         .count()
+}
+
+fn location_spans_multiple_lines(source: &SourceFile, loc: &ruby_prism::Location<'_>) -> bool {
+    let (start_line, _) = source.offset_to_line_col(loc.start_offset());
+    let end_offset = loc.end_offset().saturating_sub(1);
+    let (end_line, _) = source.offset_to_line_col(end_offset);
+    start_line != end_line
 }
 
 fn trim_terminal_cr(line: &[u8]) -> &[u8] {
