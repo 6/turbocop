@@ -765,6 +765,39 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         self.branch_depth -= 1;
     }
 
+    fn visit_match_write_node(&mut self, node: &ruby_prism::MatchWriteNode<'pr>) {
+        // Named capture regex: `/(?<x>\w+)/ =~ str`
+        // Visit the call (which contains the regex and the RHS) first.
+        self.visit_call_node(&node.call());
+
+        // Declare each captured variable. The declaration offset points at the
+        // regex (the receiver of the =~ call), matching RuboCop's behavior.
+        let call = node.call();
+        let regex_offset = call.receiver().map_or(call.location().start_offset(), |r| {
+            r.location().start_offset()
+        });
+
+        let in_branch = self.branch_depth > 0;
+        let seq = self.next_sequence();
+
+        for target in node.targets().iter() {
+            if let Some(t) = target.as_local_variable_target_node() {
+                let name = t.name().as_slice().to_vec();
+                if !self.table.variable_exists(&name) {
+                    self.declare_variable(
+                        name.clone(),
+                        regex_offset,
+                        DeclarationKind::RegexpCapture,
+                    );
+                }
+                let mut a = Assignment::new(regex_offset, AssignmentKind::RegexpCapture);
+                a.in_branch = in_branch;
+                a.sequence = seq;
+                self.table.assign_to_variable(&name, a);
+            }
+        }
+    }
+
     fn visit_for_node(&mut self, node: &ruby_prism::ForNode<'pr>) {
         self.visit(&node.collection());
         let index = node.index();
