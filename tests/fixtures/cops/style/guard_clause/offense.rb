@@ -285,3 +285,60 @@ def initialize(markup)
     @height   = height || '300px'
   end
 end
+
+# FN: if-else with comment-only else, guard in if-branch (FN#2)
+def test_comment_only_else_break
+  items.each do |item|
+    if item.done?
+    ^^ Style/GuardClause: Use a guard clause (`break if item.done?`) instead of wrapping the code inside a conditional expression.
+      break
+    else
+      # skip
+    end
+  end
+end
+
+# FN: if-else at end of rescue block with comment-only else (FN#3, FN#4)
+def test_rescue_comment_only_else
+  yield
+rescue SomeError
+  timeout_message = "Could not synchronize"
+  if timeout_with == :error
+  ^^ Style/GuardClause: Use a guard clause (`raise Timeout, timeout_message if timeout_with == :error`) instead of wrapping the code inside a conditional expression.
+    raise Timeout, timeout_message
+  else
+    # Don't raise an error
+  end
+end
+
+# FN: if-else with comment-only else, guard in if-branch (break) (FN#5)
+def test_comment_only_else_break_in_while
+  while true
+    if data.size == 0
+    ^^ Style/GuardClause: Use a guard clause (`break if data.size == 0`) instead of wrapping the code inside a conditional expression.
+      break
+    else
+      # going
+    end
+  end
+end
+
+# FN: if-else with comment-only else, guard in if-branch (raise) (FN#6)
+def test_comment_only_else_raise
+  if missed_late_types == late_types.size
+  ^^ Style/GuardClause: Use a guard clause (`raise UnresolvedLateBoundTypeError.new(type: lt) if missed_late_types == late_types.size`) instead of wrapping the code inside a conditional expression.
+    raise UnresolvedLateBoundTypeError.new(type: lt)
+  else
+    # Try the next one
+  end
+end
+
+# if-else at end of method with comment-only else
+def test_comment_only_else_at_end
+  if condition
+  ^^ Style/GuardClause: Use a guard clause (`raise "error" if condition`) instead of wrapping the code inside a conditional expression.
+    raise "error"
+  else
+    # just a comment
+  end
+end

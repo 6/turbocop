@@ -54,6 +54,19 @@ use ruby_prism::Visit;
 ///    for regexp named captures (`MatchWriteNode`), but RuboCop only checks
 ///    `:lvasgn` descendants, so named-capture conditions like
 ///    `/...(?<name>...)/ =~ value` remain offenses.
+/// 10. Stopped early-returning from `check_if_else_guard_clause` and
+///     `check_unless_else_guard_clause` when the else branch is comment-only
+///     (no statements). Prism creates an `ElseNode` even for comment-only
+///     else, but RuboCop's Parser gem produces nil `else_branch`, so `on_if`
+///     still checks the if-branch for guard clauses. Now we skip only the
+///     else-guard check, not the whole method, matching RuboCop behavior.
+/// 11. Added `condition_is_multiline` to match rubocop-ast's `BlockNode`
+///     override of `multiline?`/`single_line?`. rubocop-ast checks only the
+///     block delimiters (`{`/`do` .. `}`/`end`) for multiline, not the
+///     receiver chain. So `Foo.\n  bar.detect { |m| m.baz }` is NOT
+///     multiline (block `{ }` on one line), even though the expression
+///     spans two lines. Previously we used `is_multiline` on the full
+///     condition source range, incorrectly skipping these.
 pub struct GuardClause;
 
 const GUARD_METHODS: &[&[u8]] = &[b"raise", b"fail"];
@@ -143,9 +156,9 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
             return;
         }
 
-        // Skip if condition spans multiple lines
+        // Skip if condition spans multiple lines (matching rubocop-ast block override)
         let predicate = node.predicate();
-        if self.is_multiline(&predicate) {
+        if self.condition_is_multiline(&predicate) {
             return;
         }
 
@@ -225,17 +238,18 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
             None => return,
         };
 
-        // Skip if else branch has no actual statements (comment-only else)
-        if !Self::else_has_statements(&else_node) {
-            return;
-        }
+        // When else branch is comment-only (no statements), Prism still creates
+        // an ElseNode. RuboCop's Parser gem treats comment-only else as nil
+        // else_branch, so `on_if` still checks the if-branch for guard clauses.
+        // We must match that: skip only the else-guard check, not the whole method.
+        let else_has_code = Self::else_has_statements(&else_node);
 
         if self.immediate_parent_is_assignment() {
             return;
         }
 
         let predicate = node.predicate();
-        if self.is_multiline(&predicate) {
+        if self.condition_is_multiline(&predicate) {
             return;
         }
 
@@ -244,7 +258,6 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
         }
 
         let if_guard = self.single_guard_statement(node.statements());
-        let else_guard = self.single_guard_statement(else_node.statements());
 
         // Try single-line guard from if-branch first, then else-branch.
         // RuboCop's match_guard_clause? requires single_line?, so multi-line
@@ -262,15 +275,18 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
             }
         }
 
-        if let Some(ref guard_stmt) = else_guard {
-            if self.guard_stmt_is_single_line(guard_stmt) {
-                self.register_branch_guard_clause(
-                    if_keyword_loc.start_offset(),
-                    &predicate,
-                    guard_stmt,
-                    "unless",
-                    node.statements(),
-                );
+        if else_has_code {
+            let else_guard = self.single_guard_statement(else_node.statements());
+            if let Some(ref guard_stmt) = else_guard {
+                if self.guard_stmt_is_single_line(guard_stmt) {
+                    self.register_branch_guard_clause(
+                        if_keyword_loc.start_offset(),
+                        &predicate,
+                        guard_stmt,
+                        "unless",
+                        node.statements(),
+                    );
+                }
             }
         }
     }
@@ -293,9 +309,9 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
             return;
         }
 
-        // Skip if condition spans multiple lines
+        // Skip if condition spans multiple lines (matching rubocop-ast block override)
         let predicate = node.predicate();
-        if self.is_multiline(&predicate) {
+        if self.condition_is_multiline(&predicate) {
             return;
         }
 
@@ -365,17 +381,14 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
             None => return,
         };
 
-        // Skip if else branch has no actual statements (comment-only else)
-        if !Self::else_has_statements(&else_node) {
-            return;
-        }
+        let else_has_code = Self::else_has_statements(&else_node);
 
         if self.immediate_parent_is_assignment() {
             return;
         }
 
         let predicate = node.predicate();
-        if self.is_multiline(&predicate) {
+        if self.condition_is_multiline(&predicate) {
             return;
         }
 
@@ -384,7 +397,6 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
         }
 
         let unless_guard = self.single_guard_statement(node.statements());
-        let else_guard = self.single_guard_statement(else_node.statements());
 
         // Prefer a single-line guard from either branch first
         if let Some(ref guard_stmt) = unless_guard {
@@ -400,15 +412,18 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
             }
         }
 
-        if let Some(ref guard_stmt) = else_guard {
-            if self.guard_stmt_is_single_line(guard_stmt) {
-                self.register_branch_guard_clause(
-                    keyword_loc.start_offset(),
-                    &predicate,
-                    guard_stmt,
-                    "if",
-                    node.statements(),
-                );
+        if else_has_code {
+            let else_guard = self.single_guard_statement(else_node.statements());
+            if let Some(ref guard_stmt) = else_guard {
+                if self.guard_stmt_is_single_line(guard_stmt) {
+                    self.register_branch_guard_clause(
+                        keyword_loc.start_offset(),
+                        &predicate,
+                        guard_stmt,
+                        "if",
+                        node.statements(),
+                    );
+                }
             }
         }
     }
@@ -428,6 +443,33 @@ impl<'a, 'src, 'pr> GuardClauseVisitor<'a, 'src, 'pr> {
         let (start_line, _) = self.source.offset_to_line_col(loc.start_offset());
         let (end_line, _) = self.source.offset_to_line_col(loc.end_offset());
         end_line > start_line
+    }
+
+    /// Check if a condition node is multiline, matching rubocop-ast behavior.
+    ///
+    /// rubocop-ast overrides `multiline?` on BlockNode to check only the block
+    /// delimiters (`{`/`do` .. `}`/`end`), NOT the receiver chain. So a call like
+    /// `Foo.\n  bar.detect { |m| m.baz }` has a single-line block (`{ }` on one
+    /// line) and is NOT considered multiline, even though the overall expression
+    /// spans two lines. In Prism, the condition is a CallNode whose block field
+    /// holds the BlockNode.
+    fn condition_is_multiline(&self, node: &ruby_prism::Node<'_>) -> bool {
+        if let Some(call) = node.as_call_node() {
+            if let Some(block) = call.block() {
+                if let Some(block_node) = block.as_block_node() {
+                    let open_line = self
+                        .source
+                        .offset_to_line_col(block_node.opening_loc().start_offset())
+                        .0;
+                    let close_line = self
+                        .source
+                        .offset_to_line_col(block_node.closing_loc().start_offset())
+                        .0;
+                    return close_line > open_line;
+                }
+            }
+        }
+        self.is_multiline(node)
     }
 
     /// Check if descendant local variable assignments in the condition are used
