@@ -213,9 +213,6 @@ fn indentation_difference(line: &[u8], indentation_width: usize) -> usize {
     }
 
     let leading_tabs = line.iter().take_while(|&&b| b == b'\t').count();
-    if leading_tabs == line.len() || leading_tabs < 4 {
-        return 0;
-    }
 
     leading_tabs * (indentation_width - 1)
 }
@@ -365,6 +362,31 @@ fn has_another_statement_on_same_line(source: &SourceFile, node: &ruby_prism::No
     trimmed.first() == Some(&b';')
 }
 
+/// Check if a `# rubocop:disable` or `# rubocop:todo` comment disables
+/// `Style/IfUnlessModifier` specifically (or `all`). Comments that disable
+/// OTHER cops should still be counted in modifier-form line length.
+fn comment_disables_this_cop(comment: &str) -> bool {
+    // Match patterns like:
+    //   # rubocop:disable Style/IfUnlessModifier
+    //   # rubocop:todo Style/IfUnlessModifier
+    //   # rubocop:disable all
+    //   # rubocop:disable Foo, Style/IfUnlessModifier, Bar
+    for keyword in ["rubocop:disable", "rubocop:todo"] {
+        if let Some(pos) = comment.find(keyword) {
+            let after = &comment[pos + keyword.len()..];
+            let after = after.trim_start();
+            // Check if any of the comma-separated cop names is "all" or our cop
+            for cop in after.split(',') {
+                let cop = cop.trim();
+                if cop == "all" || cop == "Style/IfUnlessModifier" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn first_line_comment_len(
     source: &SourceFile,
     kw_line: usize,
@@ -400,7 +422,10 @@ fn first_line_comment_len(
         Err(_) => return 0,
     };
 
-    if comment.contains("rubocop:disable") || comment.contains("rubocop:todo") {
+    // Only exclude comments that disable THIS cop (Style/IfUnlessModifier) or
+    // all cops. Comments disabling OTHER cops carry over to the modifier form
+    // and must be counted in the line length (matching RuboCop's behavior).
+    if comment_disables_this_cop(comment) {
         return 0;
     }
 
@@ -685,6 +710,19 @@ impl Cop for IfUnlessModifier {
         // body's (deeper) indentation.
         let (_, kw_col) = source.offset_to_line_col(kw_loc.start_offset());
 
+        // Account for tab expansion: the visual width of the indentation before
+        // the keyword may be wider than the byte count if tabs are used.
+        // RuboCop's `line_length` adds `indentation_difference` for leading tabs.
+        let indentation_width = config.get_usize("IndentationWidth", 2);
+        let tab_expansion = if indentation_width > 1 {
+            let kw_line_start = kw_loc.start_offset() - kw_col;
+            let before_kw = &source.as_bytes()[kw_line_start..kw_loc.start_offset()];
+            let leading_tabs = before_kw.iter().take_while(|&&b| b == b'\t').count();
+            leading_tabs * (indentation_width - 1)
+        } else {
+            0
+        };
+
         // When the if/unless is used as the value of an assignment (e.g.,
         // `x = if cond; body; end`), RuboCop's `parenthesize?` wraps the modifier
         // form in parens: `x = (body if cond)`. This adds 2 chars to the line.
@@ -745,6 +783,7 @@ impl Cop for IfUnlessModifier {
             len
         };
         let modifier_len = kw_col
+            + tab_expansion
             + parens_overhead
             + body_text.len()
             + 1
