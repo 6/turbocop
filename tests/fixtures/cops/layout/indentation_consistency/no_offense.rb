@@ -103,3 +103,11 @@ end
 if a
 else
 end
+
+require 'ostruct'
+
+module ClinicFinder
+  module Modules
+    module GestationHelper; end
+  end
+end
