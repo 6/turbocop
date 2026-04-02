@@ -91,3 +91,73 @@ def test_numbered_blocks
   items.each { do_something_else(_1, arg) }
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
 end
+
+# Receiverless loops (implicit self)
+def test_receiverless
+  each do |item|
+    do_something(item)
+  end
+  each do |item|
+  ^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+    do_something_else(item)
+  end
+end
+
+# Multi-line do..end blocks
+def test_multiline_do_end
+  items.each do |item|
+    do_something(item)
+  end
+  items.each do |item|
+  ^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+    do_something_else(item)
+  end
+end
+
+# Inside if body
+def test_inside_if
+  if condition
+    items.each { |item| do_something(item) }
+    items.each { |item| do_something_else(item) }
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+  end
+end
+
+# Inside unless body
+def test_inside_unless
+  unless condition
+    items.each { |item| do_something(item) }
+    items.each { |item| do_something_else(item) }
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+  end
+end
+
+# Inside else body
+def test_inside_else
+  if condition
+    x = 1
+  else
+    items.each { |item| do_something(item) }
+    items.each { |item| do_something_else(item) }
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+  end
+end
+
+# Inside begin body
+def test_inside_begin
+  begin
+    items.each { |item| do_something(item) }
+    items.each { |item| do_something_else(item) }
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+  end
+end
+
+# Inside case/when body
+def test_inside_when
+  case x
+  when 1
+    items.each { |item| do_something(item) }
+    items.each { |item| do_something_else(item) }
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+  end
+end
