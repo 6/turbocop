@@ -9,6 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+ruby-prism = "1.7"
 
 [dependencies.nitrocop]
 path = ".."
@@ -30,4 +31,9 @@ doc = false
 [[bin]]
 name = "fuzz_parse_source"
 path = "fuzz_targets/parse_source.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_all_cops"
+path = "fuzz_targets/all_cops.rs"
 doc = false

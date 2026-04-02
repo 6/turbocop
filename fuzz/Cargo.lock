@@ -488,6 +488,7 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "nitrocop",
+ "ruby-prism",
 ]
 
 [[package]]
