@@ -17,6 +17,23 @@ use crate::parse::source::SourceFile;
 /// `rule %r{(#{complex_id})(#{ws}*)([\{\(])}mx do` only reports the literal
 /// prefix before the first interpolation. The byte-based scanner and offset
 /// mapping stay unchanged otherwise.
+///
+/// ## Investigation (2026-04-02)
+///
+/// **FN fix (3 FN):** RuboCop's `requires_escape_to_avoid_interpolation?` checks
+/// `node.source[ts]` where `ts` is the offset within regexp content, but
+/// `node.source` includes the delimiter prefix. For `/` (prefix 1 char) this
+/// accidentally gives `content[ts-1]` (correct). For `%r(` / `%r{` / `%r/`
+/// (prefix 3 chars) it gives `content[ts-3]`, effectively disabling the
+/// interpolation check. We replicate this offset so that `#\@` and `#\$` in
+/// `%r` regexps are flagged as redundant, matching RuboCop.
+///
+/// **FP fix (2 FP):** RuboCop drops interpolated parts and feeds concatenated
+/// string parts to `regexp_parser`. When an interpolation was the sole atom
+/// before a quantifier (e.g., `#{x}+`), dropping it leaves an orphaned `+`
+/// that causes a parse error, so RuboCop skips the entire regexp. We replicate
+/// this by pre-scanning interpolated regexp parts: if any string part after an
+/// interpolation starts with `+`, `*`, or `?`, we skip the regexp.
 pub struct RedundantRegexpEscape;
 
 /// Characters that need escaping OUTSIDE a character class in regexp
@@ -70,6 +87,7 @@ impl Cop for RedundantRegexpEscape {
         let full_bytes = &source.as_bytes()[node_loc.start_offset()..node_loc.end_offset()];
         let delimiter_chars = delimiter_chars(full_bytes);
         let flags = regex_flags(full_bytes);
+        let prefix_len = if full_bytes.starts_with(b"%r") { 3 } else { 1 };
 
         if flags.suppresses_all_offenses() {
             return;
@@ -87,6 +105,7 @@ impl Cop for RedundantRegexpEscape {
                 &offsets,
                 &delimiter_chars,
                 flags,
+                prefix_len,
                 diagnostics,
             );
             return;
@@ -101,6 +120,34 @@ impl Cop for RedundantRegexpEscape {
 
         let scan_full_interpolated =
             !followed_by_block_opener(source.as_bytes(), node_loc.end_offset());
+
+        // Pre-scan: if any string part after an interpolation starts with an
+        // orphaned quantifier (+, *, ?), RuboCop's regexp_parser would fail to
+        // parse the concatenated content and skip the whole regexp.
+        if scan_full_interpolated {
+            let mut prev_was_interpolation = false;
+            for part in re.parts().iter() {
+                if let Some(string) = part.as_string_node() {
+                    if prev_was_interpolation {
+                        let bytes = string.content_loc().as_slice();
+                        let first_significant = if flags.extended {
+                            bytes
+                                .iter()
+                                .find(|&&b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'))
+                                .copied()
+                        } else {
+                            bytes.first().copied()
+                        };
+                        if matches!(first_significant, Some(b'+' | b'*' | b'?')) {
+                            return;
+                        }
+                    }
+                    prev_was_interpolation = false;
+                } else {
+                    prev_was_interpolation = true;
+                }
+            }
+        }
 
         for part in re.parts().iter() {
             if let Some(string) = part.as_string_node() {
@@ -126,6 +173,7 @@ impl Cop for RedundantRegexpEscape {
             &offsets,
             &delimiter_chars,
             flags,
+            prefix_len,
             diagnostics,
         );
     }
@@ -199,6 +247,7 @@ fn append_bytes_with_offsets(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_regexp_fragment(
     cop: &RedundantRegexpEscape,
     source: &SourceFile,
@@ -206,6 +255,7 @@ fn check_regexp_fragment(
     offsets: &[Option<usize>],
     delimiter_chars: &[u8],
     flags: RegexFlags,
+    prefix_len: usize,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let mut i = 0;
@@ -274,13 +324,13 @@ fn check_regexp_fragment(
                     !(at_start || at_end)
                 } else {
                     MEANINGFUL_ESCAPES_IN_CHAR_CLASS.contains(&escaped)
-                        || requires_escape_to_avoid_interpolation(content, i, escaped)
+                        || requires_escape_to_avoid_interpolation(content, i, escaped, prefix_len)
                         || escaped.is_ascii_alphabetic()
                         || escaped == b' '
                 }
             } else {
                 MEANINGFUL_ESCAPES.contains(&escaped)
-                    || requires_escape_to_avoid_interpolation(content, i, escaped)
+                    || requires_escape_to_avoid_interpolation(content, i, escaped, prefix_len)
                     || escaped.is_ascii_alphabetic()
                     || escaped == b' '
             };
@@ -324,8 +374,19 @@ fn skip_named_character_class(content: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-fn requires_escape_to_avoid_interpolation(content: &[u8], index: usize, escaped: u8) -> bool {
-    index > 0 && content[index - 1] == b'#' && INTERPOLATION_SIGILS.contains(&escaped)
+fn requires_escape_to_avoid_interpolation(
+    content: &[u8],
+    index: usize,
+    escaped: u8,
+    prefix_len: usize,
+) -> bool {
+    // RuboCop checks `node.source[ts]` where `ts` is the offset in regexp content
+    // but `node.source` includes the delimiter prefix. For `/` (prefix_len=1) this
+    // gives content[ts-1] (correct). For `%r(` (prefix_len=3) this gives
+    // content[ts-3] (a bug that effectively disables the check for %r regexps).
+    // We replicate this offset to match RuboCop's behavior.
+    let offset = prefix_len.saturating_sub(1);
+    index > offset && content[index - 1 - offset] == b'#' && INTERPOLATION_SIGILS.contains(&escaped)
 }
 
 fn is_unescaped(content: &[u8], idx: usize) -> bool {

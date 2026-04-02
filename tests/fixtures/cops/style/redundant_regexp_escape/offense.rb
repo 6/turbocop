@@ -52,3 +52,12 @@ path_pattern = /(?:
   [\.,]#{chars}
    ^^ Style/RedundantRegexpEscape: Redundant escape of `.` in regexp.
 )/x
+
+rule %r(<#\@\s*)m, Name::Tag, :directive_tag
+          ^^ Style/RedundantRegexpEscape: Redundant escape of `@` in regexp.
+
+id = %r((?!\#[a-zA-Z])[\w#\$%']+)
+                          ^^ Style/RedundantRegexpEscape: Redundant escape of `$` in regexp.
+
+rule %r/#{id}[%&@!#\$]?/, Name
+                   ^^ Style/RedundantRegexpEscape: Redundant escape of `$` in regexp.
