@@ -12,21 +12,21 @@
 
 | Rank | Cop | Occurrences | Repos | Synth | Confidence |
 |-----:|-----|------------:|------:|------:|:-----------|
-| 1 | Style/Copyright | 585,849 | 5589 | 11 | High |
-| 2 | Lint/ConstantResolution | 4,070,837 | 5557 | — | High |
-| 3 | Style/MethodCallWithArgsParentheses | 3,360,515 | 5500 | — | High |
-| 4 | Style/DocumentationMethod | 1,095,539 | 5368 | — | High |
+| 1 | Style/Copyright | 585,848 | 5589 | 11 | High |
+| 2 | Lint/ConstantResolution | 4,070,712 | 5557 | — | High |
+| 3 | Style/MethodCallWithArgsParentheses | 3,360,422 | 5500 | — | High |
+| 4 | Style/DocumentationMethod | 1,095,527 | 5368 | — | High |
 | 5 | Style/Documentation | 359,165 | 5211 | — | High |
 | 6 | Style/RequireOrder | 109,915 | 5098 | — | High |
-| 7 | Style/StringLiterals | 4,181,003 | 5088 | — | High |
+| 7 | Style/StringLiterals | 4,180,939 | 5088 | — | High |
 | 8 | Style/FrozenStringLiteralComment | 374,287 | 5047 | — | High |
 | 9 | Style/MissingElse | 321,071 | 4985 | — | High |
 | 10 | Metrics/MethodLength | 261,837 | 4817 | — | High |
 | 11 | Style/ConstantVisibility | 152,738 | 4799 | — | High |
 | 12 | Metrics/AbcSize | 173,575 | 4428 | — | High |
 | 13 | Gemspec/RequiredRubyVersion | 5,180 | 4418 | — | High |
-| 14 | Layout/RedundantLineBreak | 276,319 | 4387 | — | High |
-| 15 | Layout/MultilineAssignmentLayout | 108,937 | 4276 | — | High |
+| 14 | Layout/RedundantLineBreak | 276,312 | 4387 | — | High |
+| 15 | Layout/MultilineAssignmentLayout | 108,936 | 4276 | — | High |
 | 16 | Layout/LineLength | 452,969 | 4270 | — | High |
 | 17 | Bundler/GemComment | 87,566 | 4008 | — | High |
 | 18 | Style/InlineComment | 224,292 | 3976 | — | High |
@@ -50,7 +50,7 @@
 | 36 | Style/GuardClause | 43,754 | 3142 | — | High |
 | 37 | Gemspec/DevelopmentDependencies | 16,262 | 3046 | — | High |
 | 38 | Metrics/ClassLength | 35,775 | 2978 | — | High |
-| 39 | Layout/MultilineMethodArgumentLineBreaks | 151,841 | 2945 | — | High |
+| 39 | Layout/MultilineMethodArgumentLineBreaks | 151,840 | 2945 | — | High |
 | 40 | Style/StringConcatenation | 47,873 | 2819 | — | High |
 | 41 | Style/SymbolArray | 55,881 | 2764 | — | High |
 | 42 | Style/ArgumentsForwarding | 54,949 | 2756 | — | High |
@@ -63,7 +63,7 @@
 | 49 | Style/OptionHash | 38,040 | 2683 | — | High |
 | 50 | Layout/SpaceAroundOperators | 151,497 | 2678 | — | High |
 | 51 | Layout/TrailingEmptyLines | 31,154 | 2677 | — | High |
-| 52 | RSpec/ExampleLength | 226,145 | 2670 | — | High |
+| 52 | RSpec/ExampleLength | 226,129 | 2670 | — | High |
 | 53 | Layout/ExtraSpacing | 44,465 | 2657 | — | High |
 | 54 | Style/NumericPredicate | 38,062 | 2620 | — | High |
 | 55 | Style/Encoding | 16,017 | 2540 | — | High |
@@ -78,14 +78,14 @@
 | 64 | Style/WordArray | 55,062 | 2387 | — | High |
 | 65 | Lint/UnusedBlockArgument | 23,911 | 2382 | — | High |
 | 66 | Style/CollectionMethods | 26,437 | 2341 | — | High |
-| 67 | Style/MethodCalledOnDoEndBlock | 39,411 | 2331 | — | High |
+| 67 | Style/MethodCalledOnDoEndBlock | 39,408 | 2331 | — | High |
 | 68 | Layout/EmptyLines | 49,104 | 2328 | — | High |
 | 69 | Lint/UnusedMethodArgument | 26,866 | 2297 | — | High |
 | 70 | Lint/UselessAssignment | 27,246 | 2290 | — | High |
 | 71 | Layout/HashAlignment | 225,412 | 2269 | — | High |
 | 72 | Layout/EmptyLinesAroundClassBody | 58,919 | 2255 | — | High |
 | 73 | Bundler/OrderedGems | 17,119 | 2242 | — | High |
-| 74 | RSpec/MultipleExpectations | 237,544 | 2231 | — | High |
+| 74 | RSpec/MultipleExpectations | 237,528 | 2231 | — | High |
 | 75 | Layout/TrailingWhitespace | 216,129 | 2231 | — | High |
 | 76 | Gemspec/DeprecatedAttributeAssignment | 2,397 | 2227 | — | High |
 | 77 | Gemspec/OrderedDependencies | 6,360 | 2176 | — | High |
@@ -118,7 +118,7 @@
 | 104 | Style/RedundantReturn | 32,238 | 1765 | — | High |
 | 105 | RSpec/AlignRightLetBrace | 115,906 | 1753 | — | High |
 | 106 | Style/TrailingCommaInHashLiteral | 97,270 | 1753 | — | High |
-| 107 | RSpec/ExampleWording | 145,126 | 1723 | — | High |
+| 107 | RSpec/ExampleWording | 145,106 | 1723 | — | High |
 | 108 | Style/RescueStandardError | 16,468 | 1716 | — | High |
 | 109 | Style/RedundantParentheses | 23,605 | 1713 | — | High |
 | 110 | Layout/LeadingCommentSpace | 56,638 | 1708 | — | High |
@@ -147,11 +147,11 @@
 | 133 | Naming/PredicatePrefix | 10,003 | 1475 | — | High |
 | 134 | Style/Alias | 14,763 | 1470 | — | High |
 | 135 | Style/GlobalStdStream | 5,983 | 1468 | — | High |
-| 136 | Layout/MultilineMethodCallIndentation | 40,650 | 1449 | — | High |
+| 136 | Layout/MultilineMethodCallIndentation | 40,646 | 1449 | — | High |
 | 137 | Style/EmptyMethod | 12,709 | 1448 | — | High |
-| 138 | RSpec/InstanceVariable | 253,313 | 1412 | — | High |
+| 138 | RSpec/InstanceVariable | 253,283 | 1412 | — | High |
 | 139 | Layout/MultilineOperationIndentation | 47,137 | 1411 | — | High |
-| 140 | RSpec/NestedGroups | 106,718 | 1410 | — | High |
+| 140 | RSpec/NestedGroups | 106,712 | 1410 | — | High |
 | 141 | Style/YodaExpression | 13,158 | 1405 | — | High |
 | 142 | Style/Lambda | 17,308 | 1382 | — | High |
 | 143 | Layout/FirstHashElementLineBreak | 26,140 | 1368 | — | High |
@@ -167,7 +167,7 @@
 | 153 | Style/PerlBackrefs | 16,595 | 1259 | — | High |
 | 154 | Style/ParallelAssignment | 8,836 | 1250 | — | High |
 | 155 | Style/Semicolon | 13,484 | 1237 | — | High |
-| 156 | Lint/ConstantDefinitionInBlock | 12,036 | 1230 | — | High |
+| 156 | Lint/ConstantDefinitionInBlock | 12,035 | 1230 | — | High |
 | 157 | Style/HashEachMethods | 5,313 | 1230 | — | High |
 | 158 | Layout/ElseAlignment | 7,179 | 1224 | — | High |
 | 159 | Naming/AccessorMethodName | 7,899 | 1218 | — | High |
@@ -179,7 +179,7 @@
 | 165 | Lint/DuplicateBranch | 6,057 | 1172 | — | High |
 | 166 | RSpec/NamedSubject | 154,305 | 1169 | — | High |
 | 167 | Layout/EmptyLinesAroundAccessModifier | 10,186 | 1169 | — | High |
-| 168 | RSpec/DescribeClass | 18,595 | 1164 | — | High |
+| 168 | RSpec/DescribeClass | 18,594 | 1164 | — | High |
 | 169 | Layout/FirstArrayElementIndentation | 30,485 | 1149 | — | High |
 | 170 | Layout/SpaceInsideParens | 45,368 | 1147 | — | High |
 | 171 | RSpec/MessageSpies | 85,715 | 1145 | — | High |
@@ -205,8 +205,8 @@
 | 191 | Performance/StringReplacement | 3,993 | 1053 | — | High |
 | 192 | Style/StderrPuts | 5,533 | 1048 | — | High |
 | 193 | Layout/CaseIndentation | 14,478 | 1039 | — | High |
-| 194 | RSpec/BeEq | 38,349 | 1038 | — | High |
-| 195 | RSpec/NotToNot | 21,897 | 1036 | — | High |
+| 194 | RSpec/BeEq | 38,347 | 1038 | — | High |
+| 195 | RSpec/NotToNot | 21,896 | 1036 | — | High |
 | 196 | Lint/ShadowingOuterLocalVariable | 4,325 | 1035 | — | High |
 | 197 | RSpec/EmptyLineAfterFinalLet | 23,963 | 1029 | — | High |
 | 198 | Style/FormatString | 14,217 | 1022 | — | High |
@@ -217,7 +217,7 @@
 | 203 | Rails/Exit | 5,102 | 1000 | — | High |
 | 204 | Style/RedundantRegexpArgument | 5,077 | 998 | — | High |
 | 205 | Style/DisableCopsWithinSourceCodeDirective | 24,757 | 991 | — | High |
-| 206 | Layout/EmptyLinesAroundAttributeAccessor | 4,373 | 976 | — | High |
+| 206 | Layout/EmptyLinesAroundAttributeAccessor | 4,372 | 976 | — | High |
 | 207 | Style/NegatedIfElseCondition | 5,292 | 975 | — | High |
 | 208 | Performance/MapCompact | 3,958 | 974 | — | High |
 | 209 | Lint/Void | 46,791 | 962 | — | High |
@@ -233,7 +233,7 @@
 | 219 | Naming/RescuedExceptionsVariableName | 7,806 | 903 | — | High |
 | 220 | Style/RedundantArgument | 3,008 | 900 | — | High |
 | 221 | Style/TrailingCommaInArguments | 52,545 | 871 | — | High |
-| 222 | RSpec/LeakyConstantDeclaration | 10,779 | 863 | — | High |
+| 222 | RSpec/LeakyConstantDeclaration | 10,778 | 863 | — | High |
 | 223 | RSpec/VerifiedDoubles | 18,577 | 860 | — | High |
 | 224 | Style/MultipleComparison | 3,646 | 860 | — | High |
 | 225 | Style/ColonMethodCall | 8,512 | 859 | — | High |
@@ -338,7 +338,7 @@
 | 324 | Style/RedundantFileExtensionInRequire | 3,705 | 514 | — | High |
 | 325 | Rails/DynamicFindBy | 10,529 | 513 | — | High |
 | 326 | Layout/SpaceBeforeComma | 10,063 | 512 | — | High |
-| 327 | RSpec/LeakyLocalVariable | 5,521 | 509 | — | High |
+| 327 | RSpec/LeakyLocalVariable | 5,520 | 509 | — | High |
 | 328 | RSpec/BeNil | 4,685 | 507 | — | High |
 | 329 | Layout/LeadingEmptyLines | 2,351 | 506 | — | High |
 | 330 | Style/SuperWithArgsParentheses | 2,058 | 505 | — | High |
@@ -346,7 +346,7 @@
 | 332 | Performance/TimesMap | 2,406 | 504 | — | High |
 | 333 | Lint/ParenthesesAsGroupedExpression | 4,471 | 503 | — | High |
 | 334 | Layout/IndentationStyle | 215,467 | 501 | — | High |
-| 335 | RSpec/IndexedLet | 17,323 | 499 | — | Medium |
+| 335 | RSpec/IndexedLet | 17,320 | 499 | — | Medium |
 | 336 | Layout/BlockEndNewline | 4,278 | 499 | — | Medium |
 | 337 | RSpec/ExpectInHook | 8,195 | 497 | — | Medium |
 | 338 | Style/MultilineTernaryOperator | 2,381 | 489 | — | Medium |
@@ -415,7 +415,7 @@
 | 401 | Style/TrailingUnderscoreVariable | 1,795 | 346 | — | Medium |
 | 402 | RSpec/SubjectStub | 7,406 | 343 | — | Medium |
 | 403 | Style/DefWithParentheses | 2,686 | 340 | — | Medium |
-| 404 | Style/RedundantRegexpCharacterClass | 1,980 | 339 | — | Medium |
+| 404 | Style/RedundantRegexpCharacterClass | 1,979 | 339 | — | Medium |
 | 405 | Performance/Detect | 1,330 | 337 | — | Medium |
 | 406 | Style/CombinableLoops | 881 | 332 | — | Medium |
 | 407 | Rails/RedundantActiveRecordAllMethod | 1,903 | 328 | — | Medium |
