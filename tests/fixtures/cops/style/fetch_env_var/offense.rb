@@ -65,3 +65,18 @@ if ENV['VERSION']
     puts "prerelease"
   end
 end
+# `not ENV['X']` is NOT prefix_bang — RuboCop flags it (unlike `!ENV['X']`)
+not ENV['X']
+    ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('X', nil)` instead of `ENV['X']`.
+if not ENV['X']
+       ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('X', nil)` instead of `ENV['X']`.
+  do_something
+end
+# Body ENV suppressed only by nearest if ancestor, not all ancestors
+# RuboCop flags ENV['X'] here because the nearest if has no ENV condition
+if ENV['X']
+  if other_condition
+    ENV['X']
+    ^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('X', nil)` instead of `ENV['X']`.
+  end
+end
