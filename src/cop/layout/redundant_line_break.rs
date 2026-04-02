@@ -345,7 +345,7 @@ struct RedundantLineBreakVisitor<'a, 'pr> {
     ancestors: Vec<ruby_prism::Node<'pr>>,
 }
 
-impl RedundantLineBreakVisitor<'_, '_> {
+impl<'a, 'pr> RedundantLineBreakVisitor<'a, 'pr> {
     fn is_multiline(&self, start_offset: usize, end_offset: usize) -> bool {
         let (start_line, _) = self.source.offset_to_line_col(start_offset);
         let (end_line, _) = self
@@ -475,10 +475,63 @@ impl RedundantLineBreakVisitor<'_, '_> {
             .any(|&(cs, ce)| start_offset > cs && end_offset <= ce)
     }
 
+    fn checked_chain_exact_match(&self, start_offset: usize, end_offset: usize) -> bool {
+        self.checked_chain_ranges
+            .iter()
+            .any(|&(cs, ce)| start_offset == cs && end_offset == ce)
+    }
+
+    fn has_bare_or_constant_receiver(&self, node: &ruby_prism::CallNode<'_>) -> bool {
+        node.receiver().is_none_or(|receiver| {
+            receiver.as_constant_read_node().is_some() || receiver.as_constant_path_node().is_some()
+        })
+    }
+
+    fn allowed_multiline_block_send_name(&self, name: &[u8]) -> bool {
+        matches!(name, b"each" | b"map" | b"select" | b"each_with_object")
+    }
+
+    fn allows_direct_block_send_checked_chain(
+        &self,
+        block: &ruby_prism::BlockNode<'_>,
+        block_call: &ruby_prism::CallNode<'_>,
+    ) -> bool {
+        let block_call_loc = block_call.location();
+        if self
+            .checked_chain_exact_match(block_call_loc.start_offset(), block_call_loc.end_offset())
+        {
+            return true;
+        }
+
+        self.ancestors.iter().any(|ancestor| {
+            ancestor.as_call_node().is_some_and(|parent_call| {
+                let Some(receiver) = parent_call.receiver() else {
+                    return false;
+                };
+
+                let receiver_loc = receiver.location();
+                let block_loc = block.location();
+                let parent_loc = parent_call.location();
+                let receiver_matches_block = receiver_loc.start_offset()
+                    == block_loc.start_offset()
+                    && receiver_loc.end_offset() == block_loc.end_offset();
+                let receiver_matches_block_call = receiver_loc.start_offset()
+                    == block_call_loc.start_offset()
+                    && receiver_loc.end_offset() == block_call_loc.end_offset();
+
+                (receiver_matches_block || receiver_matches_block_call)
+                    && self.checked_chain_exact_match(
+                        parent_loc.start_offset(),
+                        parent_loc.end_offset(),
+                    )
+            })
+        })
+    }
+
     fn is_direct_single_statement_multiline_block_body_call(
         &self,
         node: &ruby_prism::CallNode<'_>,
-    ) -> bool {
+    ) -> Option<(ruby_prism::BlockNode<'pr>, ruby_prism::CallNode<'pr>)> {
         let node_loc = node.location();
         let Some(current_idx) = self.ancestors.iter().rposition(|ancestor| {
             ancestor.as_call_node().is_some_and(|call| {
@@ -487,26 +540,31 @@ impl RedundantLineBreakVisitor<'_, '_> {
                     && loc.end_offset() == node_loc.end_offset()
             })
         }) else {
-            return false;
+            return None;
         };
 
-        if current_idx < 2 {
-            return false;
+        if current_idx < 3 {
+            return None;
         }
 
         let Some(statements) = self.ancestors[current_idx - 1].as_statements_node() else {
-            return false;
+            return None;
         };
         if statements.body().len() != 1 {
-            return false;
+            return None;
         }
 
         let Some(block) = self.ancestors[current_idx - 2].as_block_node() else {
-            return false;
+            return None;
+        };
+
+        let Some(block_call) = self.ancestors[current_idx - 3].as_call_node() else {
+            return None;
         };
 
         let loc = block.location();
         self.is_multiline(loc.start_offset(), loc.end_offset())
+            .then_some((block, block_call))
     }
 
     fn register_offense(&mut self, start_offset: usize, end_offset: usize) {
@@ -547,7 +605,13 @@ impl<'pr> Visit<'pr> for RedundantLineBreakVisitor<'_, 'pr> {
         let allow_keyword_hash_inner_call = self
             .contained_in_checked_chain_with_different_start(start_offset, end_offset)
             && self.has_only_keyword_hash_arguments(node)
-            && self.is_direct_single_statement_multiline_block_body_call(node);
+            && self.has_bare_or_constant_receiver(node)
+            && self
+                .is_direct_single_statement_multiline_block_body_call(node)
+                .is_some_and(|(block, block_call)| {
+                    self.allowed_multiline_block_send_name(block_call.name().as_slice())
+                        && self.allows_direct_block_send_checked_chain(&block, &block_call)
+                });
         let skip_for_checked_chain =
             self.part_of_checked_chain(start_offset, end_offset) && !allow_keyword_hash_inner_call;
 

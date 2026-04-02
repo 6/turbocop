@@ -216,6 +216,22 @@ items.each do |item|
 end \
   .tap { |r| log(r) }
 
+# Keyword-arg call inside a non-iterator predicate block should stay skipped.
+existing_indexes_for(table_name).any? do |existing_index_column_names|
+  leftmost_match?(
+    haystack: existing_index_column_names,
+    needle: indexed_column_names
+  )
+end
+
+# Iterator block with an explicit object receiver should stay skipped.
+records.sort.each do |record|
+  record.update(
+    status: :processed,
+    audit_comment: "bulk update"
+  )
+end
+
 # Multiline parenthesized group — outer call has a multiline ParenthesesNode
 # descendant so safe_to_split? is false. The inner expression is too long to
 # fit on one line, so it's also not flagged.
