@@ -47,3 +47,15 @@ items.collect { |item| item.to_i }
 
 items.flat_map { |item| item.children }
 items.flat_map { |item| item.parents }
+
+# Block argument (&:method) — not a block type per RuboCop
+items.each(&:to_s)
+items.each(&:to_i)
+
+# Block argument followed by regular block
+items.each(&:reload)
+items.each { |item| do_something(item) }
+
+# Regular block followed by block argument
+other.each { |item| do_something(item) }
+other.each(&:to_s)

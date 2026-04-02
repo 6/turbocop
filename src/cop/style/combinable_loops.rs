@@ -1,4 +1,7 @@
-use crate::cop::node_type::{CALL_NODE, FOR_NODE, PROGRAM_NODE, STATEMENTS_NODE};
+use crate::cop::node_type::{
+    BEGIN_NODE, CALL_NODE, ELSE_NODE, ENSURE_NODE, FOR_NODE, IF_NODE, IN_NODE, PROGRAM_NODE,
+    RESCUE_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -14,11 +17,27 @@ use crate::parse::source::SourceFile;
 /// only about intervening *statements*. The `left_sibling` in RuboCop is the
 /// previous AST sibling, regardless of whitespace.
 ///
+/// Additional FP root cause: calls with block arguments (`each(&:foo)`) are NOT
+/// block nodes in RuboCop's AST, so `on_block` never fires for them. nitrocop
+/// was treating `BlockArgumentNode` the same as `BlockNode`, causing false
+/// positives when consecutive `each(&:symbol)` calls appeared.
+///
 /// FN root cause: `for` loops were not handled at all (only CallNode was checked).
 /// Methods like `each_key`, `each_value`, `each_pair`, `each_with_object` were
 /// missing from the method list because it was a hardcoded allowlist instead of
 /// using the `starts_with("each") || ends_with("_each")` pattern from RuboCop.
 /// Also, RuboCop requires both loops to have bodies (not empty blocks).
+///
+/// Additional FN root cause: receiverless loop calls (implicit self, e.g. bare
+/// `each do |item| ... end`) were not handled because `call.receiver()` returning
+/// `None` caused `get_loop_info` to return `None`.
+///
+/// Additional FN root cause: Prism's visitor calls `visit_statements_node`
+/// directly from container nodes (IfNode, UnlessNode, BeginNode, ElseNode,
+/// WhenNode, WhileNode, UntilNode, EnsureNode, InNode, RescueNode), bypassing
+/// `visit_branch_node_enter`. This meant `StatementsNode` inside these containers
+/// was never dispatched to the cop. Fixed by registering for the container node
+/// types and extracting their statement lists directly.
 pub struct CombinableLoops;
 
 impl Cop for CombinableLoops {
@@ -27,7 +46,24 @@ impl Cop for CombinableLoops {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, FOR_NODE, PROGRAM_NODE, STATEMENTS_NODE]
+        &[
+            CALL_NODE,
+            FOR_NODE,
+            PROGRAM_NODE,
+            STATEMENTS_NODE,
+            // Container nodes whose StatementsNode children bypass
+            // visit_branch_node_enter in Prism's visitor:
+            BEGIN_NODE,
+            ELSE_NODE,
+            ENSURE_NODE,
+            IF_NODE,
+            IN_NODE,
+            UNLESS_NODE,
+            UNTIL_NODE,
+            WHEN_NODE,
+            WHILE_NODE,
+            RESCUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -44,6 +80,8 @@ impl Cop for CombinableLoops {
                 stmts_node.body().iter().collect()
             } else if let Some(prog_node) = node.as_program_node() {
                 prog_node.statements().body().iter().collect()
+            } else if let Some(stmts) = extract_statements(node) {
+                stmts.body().iter().collect()
             } else {
                 return;
             };
@@ -71,6 +109,44 @@ impl Cop for CombinableLoops {
             }
         }
     }
+}
+
+/// Extract the `StatementsNode` from container nodes that bypass
+/// `visit_branch_node_enter` in Prism's visitor.
+fn extract_statements<'pr>(
+    node: &ruby_prism::Node<'pr>,
+) -> Option<ruby_prism::StatementsNode<'pr>> {
+    if let Some(n) = node.as_if_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_unless_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_else_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_begin_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_when_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_while_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_until_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_ensure_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_in_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_rescue_node() {
+        return n.statements();
+    }
+    None
 }
 
 struct LoopInfo {
@@ -108,21 +184,24 @@ fn get_loop_info(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<Loo
         return None;
     }
 
-    // Must have a block
+    // Must have a real block (not a block argument like &:foo)
     let block = call.block()?;
+    let block_node = block.as_block_node()?;
 
     // Both loops must have bodies (not empty blocks)
-    if let Some(block_node) = block.as_block_node() {
-        block_node.body()?;
-    }
+    block_node.body()?;
 
-    let receiver = call.receiver()?;
-    let receiver_text = source
-        .try_byte_slice(
-            receiver.location().start_offset(),
-            receiver.location().end_offset(),
-        )?
-        .to_string();
+    // Handle receiverless calls (implicit self)
+    let receiver_text = if let Some(receiver) = call.receiver() {
+        source
+            .try_byte_slice(
+                receiver.location().start_offset(),
+                receiver.location().end_offset(),
+            )?
+            .to_string()
+    } else {
+        String::new()
+    };
 
     // Capture method arguments (e.g., each_with_object([]) — the `([])` part)
     let arguments_text = if let Some(args) = call.arguments() {
