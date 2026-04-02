@@ -33,6 +33,15 @@ use crate::parse::source::SourceFile;
 ///   string literals, but RuboCop only checks plain/interpolated strings for
 ///   this cop. Excluding `xstr` avoids flagging `eval \`...\`` forms that
 ///   RuboCop accepts.
+/// - FP/FN: Incorrect-line and incorrect-file offenses were reported at the
+///   call node start, but RuboCop reports them at the specific argument node.
+///   For multi-line calls (e.g., `class_eval %{ ... }, __FILE__, __LINE__`)
+///   this caused both a FP at the call start line and a FN at the argument
+///   line. Fixed by reporting at `line_arg.location()` / `file_arg.location()`.
+/// - FN: Parenthesized `(__LINE__ + 1)` was not recognized by
+///   `should_check_line_arg` because `ParenthesesNode` didn't match any of
+///   the checked node types. Added explicit handling so the cop flags the
+///   redundant parentheses (matching RuboCop's `line_with_offset?` behavior).
 pub struct EvalWithLocation;
 
 const EVAL_METHODS: &[&[u8]] = &[b"eval", b"class_eval", b"module_eval", b"instance_eval"];
@@ -90,6 +99,11 @@ impl EvalWithLocation {
             if method == b"+" || method == b"-" {
                 return true;
             }
+        }
+        // Parenthesized expression: e.g., (__LINE__ + 1)
+        // RuboCop checks these — the parens make it not match `line_with_offset?`
+        if node.as_parentheses_node().is_some() {
+            return true;
         }
         // Variables, other method calls → skip
         false
@@ -266,7 +280,7 @@ impl Cop for EvalWithLocation {
             let file_arg = &arg_list[file_arg_idx];
 
             if !Self::is_file_arg(file_arg) {
-                let loc = call.location();
+                let loc = file_arg.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let actual_str = Self::get_source_text(file_arg);
                 let msg = format!(
@@ -308,7 +322,7 @@ impl Cop for EvalWithLocation {
             let actual_offset = Self::get_line_offset(line_arg);
 
             if actual_offset != Some(expected_offset) {
-                let loc = call.location();
+                let loc = line_arg.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let expected_str = Self::format_expected_line(expected_offset);
                 let actual_str = Self::get_source_text(line_arg);
