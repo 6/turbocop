@@ -247,6 +247,7 @@ fn append_bytes_with_offsets(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_regexp_fragment(
     cop: &RedundantRegexpEscape,
     source: &SourceFile,
