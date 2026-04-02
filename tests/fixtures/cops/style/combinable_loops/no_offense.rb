@@ -59,3 +59,20 @@ items.each { |item| do_something(item) }
 # Regular block followed by block argument
 other.each { |item| do_something(item) }
 other.each(&:to_s)
+
+# Explicit begin body
+def test_inside_begin
+  begin
+    items.each { |item| do_something(item) }
+    items.each { |item| do_something_else(item) }
+  end
+end
+
+# Different heredoc receiver contents
+<<END.split.each { |f| require "sequel/extensions/#{f}" }
+date_arithmetic
+END
+
+<<END.split.each { |f| require "sequel/plugins/#{f}" }
+association_dependencies
+END
