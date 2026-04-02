@@ -489,7 +489,7 @@ impl<'a, 'pr> RedundantLineBreakVisitor<'a, 'pr> {
     }
 
     fn allowed_multiline_block_send_name(&self, name: &[u8]) -> bool {
-        matches!(name, b"each" | b"map" | b"select" | b"each_with_object")
+        matches!(name, b"each" | b"select" | b"each_with_object")
     }
 
     fn allows_direct_block_send_checked_chain(

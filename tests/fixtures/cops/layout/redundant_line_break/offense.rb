@@ -109,19 +109,6 @@ loop do
   end
 end
 
-public_class_method def self.get_uris(opts = {})
-  search_results = opts[:search_results]
-
-  search_results.map do |search_results_hash|
-    extract_uris(
-    ^^^^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
-      search_results_hash: search_results_hash
-    )
-  end.flatten
-rescue StandardError => e
-  raise e
-end
-
 scan_resp[:signals].each do |signal|
   cmd(
   ^^^^ Layout/RedundantLineBreak: Redundant line break detected.
