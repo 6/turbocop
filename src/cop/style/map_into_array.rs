@@ -1,3 +1,6 @@
+use std::sync::Mutex;
+
+use crate::cop::variable_force::{self, Scope, VariableTable};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -40,36 +43,77 @@ use ruby_prism::Visit;
 ///   Fixed by adding `visit_block_node` to detect `[].tap` blocks where the
 ///   only body statement is an `each` with push into the tap block parameter.
 ///   The tap block must contain only the each call (no other statements).
-pub struct MapIntoArray;
+///
+/// ## Migration to VariableForce (2026-04-02)
+///
+/// Migrated from a standalone AST visitor with manual variable analysis to a
+/// hybrid check_source + VariableForce approach. The pattern matching (detecting
+/// `each` + `<<`/`push`/`append` with `var = []` init, and `[].tap` patterns)
+/// remains in `check_source`. The variable analysis (binding detection,
+/// intermediate reference checking, operator assignment detection) is now
+/// handled by VariableForce's `before_leaving_scope` hook, which validates
+/// candidates using VF's complete variable lifetime data. This removed
+/// ~120 lines of manual `contains_binding_call`, `references_variable`,
+/// and `is_local_var_*_write` helpers.
+pub struct MapIntoArray {
+    /// Candidate offenses found by `check_source` pattern matching.
+    /// Validated by `before_leaving_scope` using VF variable data.
+    candidates: Mutex<Vec<Candidate>>,
+}
 
-impl Cop for MapIntoArray {
-    fn name(&self) -> &'static str {
-        "Style/MapIntoArray"
-    }
-
-    fn check_source(
-        &self,
-        source: &SourceFile,
-        parse_result: &ruby_prism::ParseResult<'_>,
-        _code_map: &crate::parse::codemap::CodeMap,
-        _config: &CopConfig,
-        diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
-    ) {
-        let mut visitor = MapIntoArrayVisitor {
-            cop: self,
-            source,
-            diagnostics: Vec::new(),
-        };
-        visitor.visit(&parse_result.node());
-        diagnostics.extend(visitor.diagnostics);
+impl MapIntoArray {
+    pub fn new() -> Self {
+        Self {
+            candidates: Mutex::new(Vec::new()),
+        }
     }
 }
 
-struct MapIntoArrayVisitor<'a> {
-    cop: &'a MapIntoArray,
-    source: &'a SourceFile,
-    diagnostics: Vec<Diagnostic>,
+impl Default for MapIntoArray {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A candidate offense found during pattern matching in `check_source`.
+/// Needs VF validation before being emitted as a diagnostic.
+#[derive(Debug)]
+struct Candidate {
+    /// Name of the destination variable (e.g., `dest` in `dest << x`).
+    var_name: Vec<u8>,
+    /// Byte offset of the `var = []` assignment.
+    init_offset: usize,
+    /// Byte offset of the `each` call node.
+    each_offset: usize,
+    /// Source line of the `each` call (for diagnostic).
+    line: usize,
+    /// Source column of the `each` call (for diagnostic).
+    column: usize,
+    /// Kind of candidate pattern.
+    kind: CandidateKind,
+}
+
+#[derive(Debug)]
+enum CandidateKind {
+    /// `dest = []; src.each { |x| dest << expr }`
+    /// Needs: no refs between init and each, no binding in block body.
+    EachPush {
+        /// Byte offset of the each block body start (for binding check).
+        block_body_start: usize,
+        /// Byte offset of the each block body end (for binding check).
+        block_body_end: usize,
+    },
+    /// `[].tap { |dest| src.each { |e| dest << expr } }`
+    /// The dest var is a block param in the tap block scope.
+    /// Needs: no binding in the each block body.
+    TapEachPush {
+        /// Byte offset of the tap block parameter declaration (to match the right scope).
+        param_offset: usize,
+        /// Byte offset of the each block body start (for binding check).
+        block_body_start: usize,
+        /// Byte offset of the each block body end (for binding check).
+        block_body_end: usize,
+    },
 }
 
 /// Check if a node is an empty array expression: `[]`, `Array.new`, `Array.new([])`,
@@ -126,7 +170,146 @@ fn is_empty_array_value(value: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
-impl MapIntoArrayVisitor<'_> {
+impl Cop for MapIntoArray {
+    fn name(&self) -> &'static str {
+        "Style/MapIntoArray"
+    }
+
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
+        _config: &CopConfig,
+        _diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        let mut finder = CandidateFinder {
+            source,
+            candidates: Vec::new(),
+        };
+        finder.visit(&parse_result.node());
+        *self.candidates.lock().unwrap() = finder.candidates;
+    }
+
+    fn as_variable_force_consumer(&self) -> Option<&dyn variable_force::VariableForceConsumer> {
+        Some(self)
+    }
+}
+
+impl variable_force::VariableForceConsumer for MapIntoArray {
+    fn before_leaving_scope(
+        &self,
+        scope: &Scope,
+        _variable_table: &VariableTable,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let candidates = self.candidates.lock().unwrap();
+        for candidate in candidates.iter() {
+            // Check if the candidate's variable exists in this scope
+            let var = match scope.variables.get(&candidate.var_name) {
+                Some(v) => v,
+                None => continue,
+            };
+
+            match &candidate.kind {
+                CandidateKind::EachPush {
+                    block_body_start,
+                    block_body_end,
+                } => {
+                    // Check that the variable's init assignment is within this scope
+                    // and matches the expected offset
+                    let has_init = var
+                        .assignments
+                        .iter()
+                        .any(|a| a.node_offset == candidate.init_offset && !a.is_operator());
+                    if !has_init {
+                        continue;
+                    }
+
+                    // Check no explicit references between init and each offsets
+                    let has_intermediate_ref = var.references.iter().any(|r| {
+                        r.explicit
+                            && r.node_offset > candidate.init_offset
+                            && r.node_offset < candidate.each_offset
+                    });
+                    if has_intermediate_ref {
+                        continue;
+                    }
+
+                    // Check no operator/or/and assignments between init and each
+                    let has_intermediate_operator_assign = var.assignments.iter().any(|a| {
+                        a.is_operator()
+                            && a.node_offset > candidate.init_offset
+                            && a.node_offset < candidate.each_offset
+                    });
+                    if has_intermediate_operator_assign {
+                        continue;
+                    }
+
+                    // Check no implicit references (from binding) within the block body.
+                    // VF's engine adds implicit references when it encounters `binding`
+                    // calls, with the offset of the `binding` call site.
+                    let has_binding_in_block = var.references.iter().any(|r| {
+                        !r.explicit
+                            && r.node_offset >= *block_body_start
+                            && r.node_offset <= *block_body_end
+                    });
+                    if has_binding_in_block {
+                        continue;
+                    }
+
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        candidate.line,
+                        candidate.column,
+                        "Use `map` instead of `each` to map elements into an array.".to_string(),
+                    ));
+                }
+                CandidateKind::TapEachPush {
+                    param_offset,
+                    block_body_start,
+                    block_body_end,
+                } => {
+                    // Verify this is the right scope: the variable's declaration
+                    // must match the tap block parameter offset.
+                    if var.declaration_offset != *param_offset {
+                        continue;
+                    }
+
+                    // For tap pattern, dest var is a block parameter.
+                    // Only need to check for binding in the each block body.
+                    let has_binding_in_block = var.references.iter().any(|r| {
+                        !r.explicit
+                            && r.node_offset >= *block_body_start
+                            && r.node_offset <= *block_body_end
+                    });
+                    if has_binding_in_block {
+                        continue;
+                    }
+
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        candidate.line,
+                        candidate.column,
+                        "Use `map` instead of `each` to map elements into an array.".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+}
+
+// ── Pattern-matching AST visitor ─────────────────────────────────────
+
+struct CandidateFinder<'a> {
+    source: &'a SourceFile,
+    candidates: Vec<Candidate>,
+}
+
+impl CandidateFinder<'_> {
     /// Check if a statements node contains:
     ///   dest = []
     ///   ...each { |x| dest << expr }
@@ -216,7 +399,7 @@ impl MapIntoArrayVisitor<'_> {
 
             // Now check: is there a preceding `var = []` (or Array.new etc.) in the same scope?
             let mut found_empty_array_init = false;
-            let mut init_idx = 0;
+            let mut init_offset = 0;
             for j in (0..i).rev() {
                 // Check plain assignment: `var = expr`
                 if let Some(asgn) = stmts[j].as_local_variable_write_node() {
@@ -224,37 +407,28 @@ impl MapIntoArrayVisitor<'_> {
                         // Check if the value is an empty array
                         if is_empty_array_value(&asgn.value()) {
                             found_empty_array_init = true;
-                            init_idx = j;
+                            init_offset = asgn.location().start_offset();
                         }
                         break; // found the most recent assignment, stop
                     }
                 }
                 // Check operator assignments (+=, ||=, &&=) — these mean the var
                 // was modified, so any earlier `var = []` is stale.
-                if is_local_var_operator_write(&stmts[j], var_name.as_slice())
-                    || is_local_var_or_write(&stmts[j], var_name.as_slice())
-                    || is_local_var_and_write(&stmts[j], var_name.as_slice())
+                if stmts[j]
+                    .as_local_variable_operator_write_node()
+                    .is_some_and(|n| n.name().as_slice() == var_name.as_slice())
+                    || stmts[j]
+                        .as_local_variable_or_write_node()
+                        .is_some_and(|n| n.name().as_slice() == var_name.as_slice())
+                    || stmts[j]
+                        .as_local_variable_and_write_node()
+                        .is_some_and(|n| n.name().as_slice() == var_name.as_slice())
                 {
                     break; // var was modified by operator assignment, stop
                 }
             }
 
             if !found_empty_array_init {
-                continue;
-            }
-
-            // Check that var is not referenced between the init and the each call.
-            // If there are other uses of the variable (like `var << something`),
-            // we can't guarantee it's still an empty array.
-            let var_name_slice = var_name.as_slice();
-            let mut has_intermediate_ref = false;
-            for stmt in &stmts[(init_idx + 1)..i] {
-                if references_variable(stmt, var_name_slice) {
-                    has_intermediate_ref = true;
-                    break;
-                }
-            }
-            if has_intermediate_ref {
                 continue;
             }
 
@@ -265,28 +439,25 @@ impl MapIntoArrayVisitor<'_> {
                 }
             }
 
-            // Skip if the block body contains a `binding` call, which implicitly
-            // captures all local variables (including the dest array). RuboCop's
-            // VariableForce counts these as implicit references.
-            if let Some(ref block_body) = block_node.body() {
-                if contains_binding_call(block_body) {
-                    continue;
-                }
-            }
-
             let loc = call.location();
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-            self.diagnostics.push(self.cop.diagnostic(
-                self.source,
+
+            // Get block body offsets for binding check
+            let body_loc = body.location();
+            self.candidates.push(Candidate {
+                var_name: var_name.as_slice().to_vec(),
+                init_offset,
+                each_offset: loc.start_offset(),
                 line,
                 column,
-                "Use `map` instead of `each` to map elements into an array.".to_string(),
-            ));
+                kind: CandidateKind::EachPush {
+                    block_body_start: body_loc.start_offset(),
+                    block_body_end: body_loc.end_offset(),
+                },
+            });
         }
     }
-}
 
-impl MapIntoArrayVisitor<'_> {
     /// Check for tap pattern on a call node: `[].tap { |dest| src.each { |e| dest << expr } }`
     fn check_tap_call(&mut self, call: &ruby_prism::CallNode<'_>) {
         // Must be `.tap` with an empty array receiver
@@ -444,24 +615,28 @@ impl MapIntoArrayVisitor<'_> {
             }
         }
 
-        // Skip if the block body contains a `binding` call
-        if contains_binding_call(&each_body) {
-            return;
-        }
-
         // Report offense on the each call
         let loc = each_call.location();
         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-        self.diagnostics.push(self.cop.diagnostic(
-            self.source,
+
+        // Get each block body offsets for binding check
+        let each_body_loc = each_body.location();
+        self.candidates.push(Candidate {
+            var_name: block_param_name.as_slice().to_vec(),
+            init_offset: 0, // not used for tap pattern
+            each_offset: loc.start_offset(),
             line,
             column,
-            "Use `map` instead of `each` to map elements into an array.".to_string(),
-        ));
+            kind: CandidateKind::TapEachPush {
+                param_offset: param_node.location().start_offset(),
+                block_body_start: each_body_loc.start_offset(),
+                block_body_end: each_body_loc.end_offset(),
+            },
+        });
     }
 }
 
-impl<'pr> Visit<'pr> for MapIntoArrayVisitor<'_> {
+impl<'pr> Visit<'pr> for CandidateFinder<'_> {
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
         let stmts: Vec<_> = node.body().iter().collect();
         self.check_statements(&stmts);
@@ -482,133 +657,8 @@ impl<'pr> Visit<'pr> for MapIntoArrayVisitor<'_> {
     }
 }
 
-/// Check if a node (recursively) contains a call to `binding` (no receiver, no args).
-/// `binding` implicitly captures all local variables in scope, so the destination
-/// variable gets additional implicit references that prevent the map transformation.
-fn contains_binding_call(node: &ruby_prism::Node<'_>) -> bool {
-    struct BindingFinder {
-        found: bool,
-    }
-    impl<'pr> ruby_prism::Visit<'pr> for BindingFinder {
-        fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-            if node.receiver().is_none()
-                && node.name().as_slice() == b"binding"
-                && node.arguments().is_none()
-            {
-                self.found = true;
-            }
-            ruby_prism::visit_call_node(self, node);
-        }
-    }
-    let mut finder = BindingFinder { found: false };
-    ruby_prism::Visit::visit(&mut finder, node);
-    finder.found
-}
-
-/// Check if a node is a `LocalVariableOperatorWriteNode` (e.g., `x += y`) for the given var name.
-fn is_local_var_operator_write(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
-    node.as_local_variable_operator_write_node()
-        .is_some_and(|n| n.name().as_slice() == var_name)
-}
-
-/// Check if a node is a `LocalVariableOrWriteNode` (e.g., `x ||= y`) for the given var name.
-fn is_local_var_or_write(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
-    node.as_local_variable_or_write_node()
-        .is_some_and(|n| n.name().as_slice() == var_name)
-}
-
-/// Check if a node is a `LocalVariableAndWriteNode` (e.g., `x &&= y`) for the given var name.
-fn is_local_var_and_write(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
-    node.as_local_variable_and_write_node()
-        .is_some_and(|n| n.name().as_slice() == var_name)
-}
-
-/// Check if a node (recursively) references a local variable with the given name.
-fn references_variable(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
-    if let Some(lv) = node.as_local_variable_read_node() {
-        if lv.name().as_slice() == var_name {
-            return true;
-        }
-    }
-    if let Some(lv) = node.as_local_variable_write_node() {
-        if lv.name().as_slice() == var_name {
-            return true;
-        }
-    }
-    // Check operator write nodes (+=, ||=, &&=)
-    if is_local_var_operator_write(node, var_name)
-        || is_local_var_or_write(node, var_name)
-        || is_local_var_and_write(node, var_name)
-    {
-        return true;
-    }
-    // Check children recursively
-    struct VarRefFinder<'a> {
-        var_name: &'a [u8],
-        found: bool,
-    }
-    impl<'pr> ruby_prism::Visit<'pr> for VarRefFinder<'_> {
-        fn visit_local_variable_read_node(
-            &mut self,
-            node: &ruby_prism::LocalVariableReadNode<'pr>,
-        ) {
-            if node.name().as_slice() == self.var_name {
-                self.found = true;
-            }
-        }
-        fn visit_local_variable_write_node(
-            &mut self,
-            node: &ruby_prism::LocalVariableWriteNode<'pr>,
-        ) {
-            if node.name().as_slice() == self.var_name {
-                self.found = true;
-            }
-            // Must recurse into the value of the write node, otherwise
-            // we miss references inside the RHS (e.g., `entries = src.map { order << x }`)
-            ruby_prism::visit_local_variable_write_node(self, node);
-        }
-        fn visit_local_variable_operator_write_node(
-            &mut self,
-            node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
-        ) {
-            if node.name().as_slice() == self.var_name {
-                self.found = true;
-            }
-            ruby_prism::visit_local_variable_operator_write_node(self, node);
-        }
-        fn visit_local_variable_or_write_node(
-            &mut self,
-            node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
-        ) {
-            if node.name().as_slice() == self.var_name {
-                self.found = true;
-            }
-            ruby_prism::visit_local_variable_or_write_node(self, node);
-        }
-        fn visit_local_variable_and_write_node(
-            &mut self,
-            node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
-        ) {
-            if node.name().as_slice() == self.var_name {
-                self.found = true;
-            }
-            ruby_prism::visit_local_variable_and_write_node(self, node);
-        }
-        fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-            // Check receiver and arguments
-            ruby_prism::visit_call_node(self, node);
-        }
-    }
-    let mut finder = VarRefFinder {
-        var_name,
-        found: false,
-    };
-    ruby_prism::Visit::visit(&mut finder, node);
-    finder.found
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(MapIntoArray, "cops/style/map_into_array");
+    crate::cop_fixture_tests!(MapIntoArray::new(), "cops/style/map_into_array");
 }
