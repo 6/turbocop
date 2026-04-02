@@ -4,18 +4,23 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
 
-/// Corpus investigation (2026-04-01):
+/// Corpus investigation (2026-04-02):
 ///
-/// FN root cause: repo config files that declared only a partial `InverseMethods`
-/// or `InverseBlocks` hash caused nitrocop to treat that hash as a full replacement.
-/// RuboCop always starts from its default pairs, applies project overrides, then
-/// adds the inverted direction. That mismatch suppressed the default `any?`/`none?`,
-/// comparison, and `select`/`reject` pairs in many real repos.
-///
-/// FP guard kept alongside the FN fix: RuboCop's matcher only targets calls with
-/// an explicit receiver. Without that guard, implicit-self definitions like
-/// `def empty?; !any?; end` or `def without_platforms; select { ... }; end`
-/// were flagged even though RuboCop accepts them.
+/// - Repo config files that declared only a partial `InverseMethods` or
+///   `InverseBlocks` hash caused nitrocop to treat that hash as a full
+///   replacement. RuboCop starts from its defaults, applies overrides, then adds
+///   the inverted direction, so we now merge project config with the built-ins.
+/// - RuboCop's matcher only targets calls with an explicit receiver. Keeping that
+///   guard avoids flagging implicit-self definitions like `def empty?; !any?; end`
+///   or `def without_platforms; select { ... }; end`.
+/// - RuboCop does not treat `!(/pattern/ =~ value)` like a normal `!(foo =~ bar)`
+///   inversion because regexp-left matches use a different AST shape there. We
+///   now skip only the regexp-left `=~` form, while still flagging ordinary
+///   `!(foo =~ /bar/)`.
+/// - RuboCop only suppresses comparison inversions for CamelCase constant
+///   hierarchy checks like `!(Foo < Bar)`. The earlier "any constant" guard was
+///   too broad and hid real offenses such as `!(@file.class <= IO)` and
+///   `!(RUBY_VERSION >= '2.8.0')`.
 pub struct InverseMethods;
 
 impl InverseMethods {
@@ -200,6 +205,23 @@ impl InverseMethods {
         ruby_prism::Visit::visit(&mut finder, &parse_result.node());
         finder.found
     }
+
+    /// RuboCop accepts `foo || !(bar.any? { ... }) ? a : b` and similar ternary
+    /// predicates whose condition is an `||` expression. Keep the suppression
+    /// scoped to that exact enclosing shape instead of skipping ternaries
+    /// broadly, because plain `!(foo =~ /bar/) ? a : b` is still an offense.
+    fn inside_or_ternary_predicate(
+        target: &ruby_prism::CallNode<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+    ) -> bool {
+        let mut finder = OrTernaryPredicateFinder {
+            target_start: target.location().start_offset(),
+            target_end: target.location().end_offset(),
+            found: false,
+        };
+        ruby_prism::Visit::visit(&mut finder, &parse_result.node());
+        finder.found
+    }
 }
 
 impl Cop for InverseMethods {
@@ -235,6 +257,10 @@ impl Cop for InverseMethods {
             }
 
             if Self::nested_inside_inverse_block(&call, parse_result, config) {
+                return;
+            }
+
+            if Self::inside_or_ternary_predicate(&call, parse_result) {
                 return;
             }
 
@@ -282,8 +308,16 @@ impl Cop for InverseMethods {
             // Check InverseMethods (predicate methods: !foo.any? -> foo.none?)
             let inverse_methods = InverseMethods::build_inverse_map(config);
             if let Some(inv) = inverse_methods.get(inner_method) {
-                // Skip comparison operators when either operand is a constant (CamelCase).
-                if is_comparison_operator(inner_method) && has_constant_operand(&inner_call) {
+                // RuboCop only skips CamelCase module/class hierarchy checks.
+                if is_comparison_operator(inner_method)
+                    && possible_class_hierarchy_check(&inner_call, source)
+                {
+                    return;
+                }
+
+                // Parser/RuboCop treat regexp-left `=~` matches differently from
+                // ordinary send nodes, so `!(/pattern/ =~ value)` is accepted.
+                if inner_method == b"=~" && regexp_left_match(&inner_call) {
                     return;
                 }
 
@@ -393,28 +427,91 @@ impl<'pr> ruby_prism::Visit<'pr> for NestedInverseBlockFinder<'_> {
     }
 }
 
+struct OrTernaryPredicateFinder {
+    target_start: usize,
+    target_end: usize,
+    found: bool,
+}
+
+impl<'pr> ruby_prism::Visit<'pr> for OrTernaryPredicateFinder {
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        if self.found {
+            return;
+        }
+
+        if node.if_keyword_loc().is_none() {
+            let predicate = node.predicate();
+            if let Some(or_node) = predicate.as_or_node() {
+                let loc = or_node.location();
+                if loc.start_offset() <= self.target_start && self.target_end <= loc.end_offset() {
+                    self.found = true;
+                    return;
+                }
+            }
+        }
+
+        ruby_prism::visit_if_node(self, node);
+    }
+}
+
 /// Returns true if the method name is a comparison operator.
 fn is_comparison_operator(method: &[u8]) -> bool {
     matches!(method, b"<" | b">" | b"<=" | b">=")
 }
 
-/// Returns true if either operand (receiver or first argument) of a call is a constant node,
-/// suggesting a possible class hierarchy check (e.g., `Module < OtherModule`).
-fn has_constant_operand(call: &ruby_prism::CallNode<'_>) -> bool {
-    if let Some(receiver) = call.receiver() {
-        if receiver.as_constant_read_node().is_some() || receiver.as_constant_path_node().is_some()
-        {
-            return true;
-        }
+fn possible_class_hierarchy_check(call: &ruby_prism::CallNode<'_>, source: &SourceFile) -> bool {
+    let lhs_is_camel_case = call
+        .receiver()
+        .is_some_and(|receiver| camel_case_constant(&receiver, source));
+
+    let rhs_is_single_camel_case = call.arguments().is_some_and(|args| {
+        let args: Vec<_> = args.arguments().iter().collect();
+        args.len() == 1 && camel_case_constant(&args[0], source)
+    });
+
+    lhs_is_camel_case || rhs_is_single_camel_case
+}
+
+fn camel_case_constant(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
+    if node.as_constant_read_node().is_none() && node.as_constant_path_node().is_none() {
+        return false;
     }
-    if let Some(args) = call.arguments() {
-        for arg in args.arguments().iter() {
-            if arg.as_constant_read_node().is_some() || arg.as_constant_path_node().is_some() {
+
+    let loc = node.location();
+    let text = source.byte_slice(loc.start_offset(), loc.end_offset(), "");
+    contains_camel_case(text.as_bytes())
+}
+
+fn contains_camel_case(bytes: &[u8]) -> bool {
+    let mut uppercase_run = 0usize;
+
+    for &byte in bytes {
+        if byte.is_ascii_uppercase() {
+            uppercase_run += 1;
+            continue;
+        }
+
+        if byte.is_ascii_lowercase() {
+            if uppercase_run > 0 {
                 return true;
             }
+            uppercase_run = 0;
+            continue;
         }
+
+        uppercase_run = 0;
     }
+
     false
+}
+
+fn regexp_left_match(call: &ruby_prism::CallNode<'_>) -> bool {
+    let Some(receiver) = call.receiver() else {
+        return false;
+    };
+
+    receiver.as_regular_expression_node().is_some()
+        || receiver.as_interpolated_regular_expression_node().is_some()
 }
 
 #[cfg(test)]
