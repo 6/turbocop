@@ -535,83 +535,429 @@ impl<'pr> Visit<'pr> for Engine<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
 
-    fn run_engine(source: &str) -> VariableTable {
+    use super::*;
+    use crate::cop::variable_force::variable::DeclarationKind;
+
+    /// A test consumer that collects scope/variable data during hooks.
+    struct TestConsumer {
+        /// Variables seen in before_leaving_scope, keyed by scope kind.
+        /// Each entry: (scope_kind, {var_name: (assignments_count, references_count, declaration_kind)})
+        scopes: RefCell<Vec<ScopeSnapshot>>,
+        /// Variables seen in before_declaring_variable (for shadowing tests).
+        declarations: RefCell<Vec<(Vec<u8>, bool)>>, // (name, outer_exists)
+    }
+
+    #[derive(Debug)]
+    struct ScopeSnapshot {
+        kind: ScopeKind,
+        vars: HashMap<String, VarSnapshot>,
+    }
+
+    #[derive(Debug)]
+    struct VarSnapshot {
+        decl_kind: DeclarationKind,
+        num_assignments: usize,
+        num_references: usize,
+        captured_by_block: bool,
+        used: bool,
+        has_implicit_ref: bool,
+    }
+
+    impl TestConsumer {
+        fn new() -> Self {
+            Self {
+                scopes: RefCell::new(Vec::new()),
+                declarations: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl VariableForceConsumer for TestConsumer {
+        fn before_leaving_scope(
+            &self,
+            scope: &super::super::Scope,
+            _table: &VariableTable,
+            _source: &SourceFile,
+            _config: &CopConfig,
+            _diagnostics: &mut Vec<Diagnostic>,
+        ) {
+            let mut vars = HashMap::new();
+            for (name, var) in &scope.variables {
+                vars.insert(
+                    String::from_utf8_lossy(name).to_string(),
+                    VarSnapshot {
+                        decl_kind: var.declaration_kind,
+                        num_assignments: var.assignments.len(),
+                        num_references: var.references.len(),
+                        captured_by_block: var.captured_by_block,
+                        used: var.used(),
+                        has_implicit_ref: var.references.iter().any(|r| !r.explicit),
+                    },
+                );
+            }
+            self.scopes.borrow_mut().push(ScopeSnapshot {
+                kind: scope.kind,
+                vars,
+            });
+        }
+
+        fn before_declaring_variable(
+            &self,
+            variable: &super::super::Variable,
+            table: &VariableTable,
+            _source: &SourceFile,
+            _config: &CopConfig,
+            _diagnostics: &mut Vec<Diagnostic>,
+        ) {
+            let outer_exists = table.find_variable(&variable.name).is_some();
+            self.declarations
+                .borrow_mut()
+                .push((variable.name.clone(), outer_exists));
+        }
+    }
+
+    // We need Send+Sync for the trait bounds
+    unsafe impl Send for TestConsumer {}
+    unsafe impl Sync for TestConsumer {}
+
+    fn run_with_consumer(source: &str) -> (Vec<ScopeSnapshot>, Vec<(Vec<u8>, bool)>) {
         let sf = SourceFile::from_bytes("test.rb", source.as_bytes().to_vec());
         let pr = ruby_prism::parse(source.as_bytes());
-        let consumers: Vec<RegisteredConsumer<'_>> = vec![];
-        let mut engine = Engine::new(&sf, &consumers);
+        let consumer = TestConsumer::new();
+        let config = CopConfig::default();
+        let rc = vec![RegisteredConsumer {
+            consumer: &consumer,
+            config: &config,
+        }];
+        let mut engine = Engine::new(&sf, &rc);
         engine.run(&pr);
-        engine.table
+        let scopes = consumer.scopes.into_inner();
+        let decls = consumer.declarations.into_inner();
+        (scopes, decls)
+    }
+
+    fn run_engine(source: &str) -> Vec<ScopeSnapshot> {
+        run_with_consumer(source).0
+    }
+
+    // ── Variable tracking tests ────────────────────────────────────────
+
+    #[test]
+    fn test_assignment_and_reference_tracked() {
+        let scopes = run_engine("x = 1\nputs x\n");
+        // TopLevel scope should have variable x
+        assert_eq!(scopes.len(), 1);
+        assert_eq!(scopes[0].kind, ScopeKind::TopLevel);
+        let x = &scopes[0].vars["x"];
+        assert_eq!(x.num_assignments, 1);
+        assert_eq!(x.num_references, 1);
+        assert!(x.used);
     }
 
     #[test]
-    fn test_simple_assignment_and_reference() {
-        let _ = run_engine("x = 1\nputs x\n");
+    fn test_unused_variable() {
+        let scopes = run_engine("x = 1\n");
+        let x = &scopes[0].vars["x"];
+        assert_eq!(x.num_assignments, 1);
+        assert_eq!(x.num_references, 0);
+        assert!(!x.used);
     }
+
     #[test]
-    fn test_def_scope() {
-        let _ = run_engine("x = 1\ndef foo\n  y = 2\nend\n");
+    fn test_multiple_assignments() {
+        let scopes = run_engine("x = 1\nx = 2\nputs x\n");
+        let x = &scopes[0].vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        assert_eq!(x.num_references, 1);
     }
+
     #[test]
-    fn test_block_scope() {
-        let _ = run_engine("x = 1\n[1].each { |i| puts x }\n");
+    fn test_self_referencing_assignment() {
+        // x = x + 1 should create a reference BEFORE the second assignment
+        let scopes = run_engine("x = 1\nx = x + 1\n");
+        let x = &scopes[0].vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        assert_eq!(x.num_references, 1); // x on RHS of second assignment
     }
+
     #[test]
-    fn test_operator_assignment() {
-        let _ = run_engine("x = 1\nx += 2\n");
+    fn test_operator_assignment_creates_reference() {
+        let scopes = run_engine("x = 1\nx += 2\n");
+        let x = &scopes[0].vars["x"];
+        assert_eq!(x.num_assignments, 2); // x = 1, x += 2
+        assert_eq!(x.num_references, 1); // += reads x
+        assert!(x.used);
     }
+
     #[test]
-    fn test_class_scope() {
-        let _ = run_engine("class Foo\n  x = 1\nend\n");
+    fn test_or_write_creates_reference() {
+        let scopes = run_engine("x = nil\nx ||= 1\n");
+        let x = &scopes[0].vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        assert_eq!(x.num_references, 1); // ||= reads x
     }
+
     #[test]
-    fn test_module_scope() {
-        let _ = run_engine("module Foo\n  x = 1\nend\n");
+    fn test_and_write_creates_reference() {
+        let scopes = run_engine("x = true\nx &&= false\n");
+        let x = &scopes[0].vars["x"];
+        assert_eq!(x.num_assignments, 2);
+        assert_eq!(x.num_references, 1);
     }
+
+    // ── Scope boundary tests ───────────────────────────────────────────
+
     #[test]
-    fn test_for_loop() {
-        let _ = run_engine("for x in [1, 2, 3]\n  puts x\nend\n");
+    fn test_def_is_hard_scope() {
+        let scopes = run_engine("x = 1\ndef foo\n  y = 2\n  puts x\nend\n");
+        // Should have 2 scopes: TopLevel and Def
+        assert_eq!(scopes.len(), 2);
+
+        // Def scope has y but NOT x (hard boundary)
+        let def_scope = &scopes[0]; // inner scope popped first
+        assert_eq!(def_scope.kind, ScopeKind::Def);
+        assert!(def_scope.vars.contains_key("y"));
+        assert!(!def_scope.vars.contains_key("x"));
+
+        // TopLevel has x
+        let top_scope = &scopes[1];
+        assert_eq!(top_scope.kind, ScopeKind::TopLevel);
+        assert!(top_scope.vars.contains_key("x"));
+        // x is NOT referenced (the `puts x` inside def can't see it)
+        assert_eq!(top_scope.vars["x"].num_references, 0);
     }
+
     #[test]
-    fn test_multi_assignment() {
-        let _ = run_engine("a, b = 1, 2\n");
+    fn test_block_captures_outer_variable() {
+        let scopes = run_engine("x = 1\n[1].each { |i| puts x }\n");
+        // Block scope and TopLevel scope
+        assert_eq!(scopes.len(), 2);
+
+        let block_scope = &scopes[0];
+        assert_eq!(block_scope.kind, ScopeKind::Block);
+        assert!(block_scope.vars.contains_key("i"));
+
+        let top_scope = &scopes[1];
+        assert!(top_scope.vars.contains_key("x"));
+        // x IS referenced (block captures it) and captured_by_block
+        assert_eq!(top_scope.vars["x"].num_references, 1);
+        assert!(top_scope.vars["x"].captured_by_block);
     }
+
     #[test]
-    fn test_lambda() {
-        let _ = run_engine("f = -> (x) { x + 1 }\n");
+    fn test_class_is_hard_scope() {
+        let scopes = run_engine("x = 1\nclass Foo\n  y = 2\nend\n");
+        let class_scope = &scopes[0];
+        assert_eq!(class_scope.kind, ScopeKind::Class);
+        assert!(class_scope.vars.contains_key("y"));
+        assert!(!class_scope.vars.contains_key("x"));
     }
+
     #[test]
-    fn test_singleton_class() {
-        let _ = run_engine("obj = Object.new\nclass << obj\n  x = 1\nend\n");
+    fn test_module_is_hard_scope() {
+        let scopes = run_engine("x = 1\nmodule Foo\n  y = 2\nend\n");
+        let mod_scope = &scopes[0];
+        assert_eq!(mod_scope.kind, ScopeKind::Module);
+        assert!(mod_scope.vars.contains_key("y"));
     }
+
     #[test]
-    fn test_binding_call() {
-        let _ = run_engine("x = 1\nbinding\n");
+    fn test_class_superclass_in_outer_scope() {
+        let scopes = run_engine("base = Object\nclass Foo < base\n  x = 1\nend\n");
+        // `base` should be referenced in the TopLevel scope (outer), not the Class scope
+        let top = scopes
+            .iter()
+            .find(|s| s.kind == ScopeKind::TopLevel)
+            .unwrap();
+        assert!(top.vars["base"].num_references > 0);
     }
+
     #[test]
-    fn test_forwarding_super() {
-        let _ = run_engine("def foo(x)\n  super\nend\n");
+    fn test_singleton_class_receiver_in_outer_scope() {
+        let scopes = run_engine("obj = Object.new\nclass << obj\n  x = 1\nend\n");
+        let top = scopes
+            .iter()
+            .find(|s| s.kind == ScopeKind::TopLevel)
+            .unwrap();
+        assert!(top.vars["obj"].num_references > 0);
     }
+
+    // ── Parameter declaration tests ────────────────────────────────────
+
     #[test]
-    fn test_nested_blocks() {
-        let _ = run_engine("[1].each { |x| [2].each { |y| puts x + y } }\n");
+    fn test_method_params_declared() {
+        let scopes = run_engine("def foo(a, b = 1, *c, d:, e: 2, **f, &g)\nend\n");
+        let def_scope = &scopes[0];
+        assert_eq!(def_scope.kind, ScopeKind::Def);
+        for name in &["a", "b", "c", "d", "e", "f", "g"] {
+            assert!(def_scope.vars.contains_key(*name), "missing param: {name}");
+        }
+        assert_eq!(def_scope.vars["a"].decl_kind, DeclarationKind::RequiredArg);
+        assert_eq!(def_scope.vars["b"].decl_kind, DeclarationKind::OptionalArg);
+        assert_eq!(def_scope.vars["c"].decl_kind, DeclarationKind::RestArg);
+        assert_eq!(def_scope.vars["d"].decl_kind, DeclarationKind::KeywordArg);
+        assert_eq!(
+            def_scope.vars["e"].decl_kind,
+            DeclarationKind::OptionalKeywordArg
+        );
+        assert_eq!(
+            def_scope.vars["f"].decl_kind,
+            DeclarationKind::KeywordRestArg
+        );
+        assert_eq!(def_scope.vars["g"].decl_kind, DeclarationKind::BlockArg);
     }
+
     #[test]
-    fn test_all_param_types() {
-        let _ = run_engine("def foo(a, b = 1, *c, d:, e: 2, **f, &g)\nend\n");
+    fn test_block_params_declared() {
+        let scopes = run_engine("[1].each { |x, *y; local| }\n");
+        let block_scope = &scopes[0];
+        assert!(block_scope.vars.contains_key("x"));
+        assert!(block_scope.vars.contains_key("y"));
+        assert!(block_scope.vars.contains_key("local"));
+        assert_eq!(
+            block_scope.vars["local"].decl_kind,
+            DeclarationKind::ShadowArg
+        );
     }
+
     #[test]
-    fn test_block_local_vars() {
-        let _ = run_engine("[1].each { |x; local| local = x }\n");
+    fn test_lambda_params_declared() {
+        let scopes = run_engine("f = -> (x, y) { x + y }\n");
+        let lambda_scope = &scopes[0];
+        assert_eq!(lambda_scope.kind, ScopeKind::Block);
+        assert!(lambda_scope.vars.contains_key("x"));
+        assert!(lambda_scope.vars.contains_key("y"));
     }
+
+    // ── Special node tests ─────────────────────────────────────────────
+
     #[test]
-    fn test_or_and_write() {
-        let _ = run_engine("x ||= 1\ny &&= 2\n");
+    fn test_binding_references_all_vars() {
+        let scopes = run_engine("def foo(x)\n  y = 1\n  binding\nend\n");
+        let def_scope = &scopes[0];
+        // binding should reference both x and y
+        assert!(def_scope.vars["x"].num_references > 0);
+        assert!(def_scope.vars["y"].num_references > 0);
+        // references from binding are implicit
+        assert!(def_scope.vars["x"].has_implicit_ref);
     }
+
     #[test]
-    fn test_class_with_superclass() {
-        let _ = run_engine("base = Object\nclass Foo < base\nend\n");
+    fn test_forwarding_super_references_args() {
+        let scopes = run_engine("def foo(x, y)\n  super\nend\n");
+        let def_scope = &scopes[0];
+        assert!(def_scope.vars["x"].num_references > 0);
+        assert!(def_scope.vars["y"].num_references > 0);
+        assert!(def_scope.vars["x"].has_implicit_ref);
+    }
+
+    #[test]
+    fn test_forwarding_super_does_not_ref_locals() {
+        let scopes = run_engine("def foo(x)\n  y = 1\n  super\nend\n");
+        let def_scope = &scopes[0];
+        assert!(def_scope.vars["x"].num_references > 0); // arg referenced
+        assert_eq!(def_scope.vars["y"].num_references, 0); // local NOT referenced
+    }
+
+    // ── Multi-write tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_multi_write() {
+        let scopes = run_engine("a, b = 1, 2\nputs a\n");
+        let top = &scopes[0];
+        assert!(top.vars.contains_key("a"));
+        assert!(top.vars.contains_key("b"));
+        assert_eq!(top.vars["a"].num_assignments, 1);
+        assert_eq!(top.vars["b"].num_assignments, 1);
+        assert!(top.vars["a"].used);
+        assert!(!top.vars["b"].used);
+    }
+
+    #[test]
+    fn test_multi_write_with_splat() {
+        let scopes = run_engine("a, *b = [1, 2, 3]\n");
+        let top = &scopes[0];
+        assert!(top.vars.contains_key("a"));
+        assert!(top.vars.contains_key("b"));
+    }
+
+    // ── For loop tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_for_loop_index_variable() {
+        let scopes = run_engine("for x in [1, 2, 3]\n  puts x\nend\n");
+        // for loop doesn't create a new scope — x is in TopLevel
+        let top = &scopes[0];
+        assert!(top.vars.contains_key("x"));
+        assert_eq!(top.vars["x"].decl_kind, DeclarationKind::ForIndex);
+        assert!(top.vars["x"].used);
+    }
+
+    // ── Nested scope tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_nested_blocks_capture_outer() {
+        let scopes = run_engine("x = 1\n[1].each { |i| [2].each { |j| puts x } }\n");
+        let top = scopes
+            .iter()
+            .find(|s| s.kind == ScopeKind::TopLevel)
+            .unwrap();
+        assert!(top.vars["x"].captured_by_block);
+        assert!(top.vars["x"].used);
+    }
+
+    #[test]
+    fn test_def_inside_block() {
+        // def creates a hard boundary even inside a block
+        let scopes = run_engine("x = 1\n[1].each { |i| def bar; y = x; end }\n");
+        let top = scopes
+            .iter()
+            .find(|s| s.kind == ScopeKind::TopLevel)
+            .unwrap();
+        // x should NOT be referenced (def is a hard boundary, can't see x)
+        assert_eq!(top.vars["x"].num_references, 0);
+    }
+
+    // ── before_declaring_variable hook tests ───────────────────────────
+
+    #[test]
+    fn test_block_param_shadows_outer() {
+        let (_, decls) = run_with_consumer("x = 1\n[1].each { |x| puts x }\n");
+        // The second declaration of 'x' (block param) should see outer_exists = true
+        let x_decls: Vec<_> = decls.iter().filter(|(n, _)| n == b"x").collect();
+        assert_eq!(x_decls.len(), 2);
+        assert!(!x_decls[0].1); // first x = 1, no outer
+        assert!(x_decls[1].1); // block param x, outer exists
+    }
+
+    #[test]
+    fn test_no_shadow_in_def() {
+        let (_, decls) = run_with_consumer("x = 1\ndef foo(x)\nend\n");
+        let x_decls: Vec<_> = decls.iter().filter(|(n, _)| n == b"x").collect();
+        assert_eq!(x_decls.len(), 2);
+        assert!(!x_decls[0].1); // first x = 1
+        assert!(!x_decls[1].1); // def param x — hard scope, no outer visible
+    }
+
+    // ── Defs (singleton method) tests ──────────────────────────────────
+
+    #[test]
+    fn test_defs_receiver_in_outer_scope() {
+        let scopes = run_engine("obj = Object.new\ndef obj.foo\n  x = 1\nend\n");
+        let top = scopes
+            .iter()
+            .find(|s| s.kind == ScopeKind::TopLevel)
+            .unwrap();
+        assert!(top.vars["obj"].num_references > 0);
+    }
+
+    #[test]
+    fn test_defs_scope_kind() {
+        let scopes = run_engine("def self.foo(x)\nend\n");
+        let defs = scopes.iter().find(|s| s.kind == ScopeKind::Defs).unwrap();
+        assert!(defs.vars.contains_key("x"));
     }
 }
