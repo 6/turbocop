@@ -558,9 +558,30 @@ struct SaveBangVisitor<'a, 'src> {
     /// not the enclosing assignment/argument. So block-bearing calls inside transparent
     /// containers lose their parent's exemption and are treated as void context.
     in_transparent_container: bool,
+    in_local_assignment: bool,
+    current_local_var_name: Option<Vec<u8>>,
+    suppress_create_assignment: bool,
+    suppressed_create_vars: Vec<Vec<u8>>,
 }
 
 impl SaveBangVisitor<'_, '_> {
+    fn should_suppress_create(
+        &mut self,
+        _stmt: &ruby_prism::Node<'_>,
+        _body: &ruby_prism::StatementsNode<'_>,
+        _idx: usize,
+    ) -> bool {
+        false
+    }
+
+    fn node_is_var(_node: &ruby_prism::Node<'_>, _var_name: &[u8]) -> bool {
+        false
+    }
+
+    fn subtree_checks_persisted(_node: &ruby_prism::Node<'_>, _var_name: &[u8]) -> bool {
+        false
+    }
+
     fn current_context(&self) -> Option<Context> {
         self.context_stack.last().copied()
     }
@@ -1263,23 +1284,10 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
     // than def/block/lambda (e.g., if body, begin body, class body).
 
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
-        // For StatementsNode not inside method/block, all children are void.
-        // But def/block/lambda override this to use visit_statements_with_context.
-        let body: Vec<_> = node.body().iter().collect();
-
-        for (i, stmt) in body.iter().enumerate() {
-            let suppress = self.should_suppress_create(stmt, &body, i);
-            if suppress {
-                self.suppress_create_assignment = true;
-            }
-
+        for stmt in node.body().iter() {
             self.context_stack.push(Context::VoidStatement);
-            self.visit(stmt);
+            self.visit(&stmt);
             self.context_stack.pop();
-
-            if suppress {
-                self.suppress_create_assignment = false;
-            }
         }
     }
 
@@ -1306,8 +1314,7 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
         // inside if/else branches. Push VoidStatement to prevent leakage.
         // Exception: statements matching the predicate source get Condition context.
         if let Some(stmts) = node.statements() {
-            let body: Vec<_> = stmts.body().iter().collect();
-            for (i, stmt) in body.iter().enumerate() {
+            for stmt in stmts.body().iter() {
                 let stmt_src = &self.source.as_bytes()
                     [stmt.location().start_offset()..stmt.location().end_offset()];
                 let ctx = if stmt_src == pred_src {
@@ -1316,18 +1323,9 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
                     Context::VoidStatement
                 };
 
-                let suppress = self.should_suppress_create(stmt, &body, i);
-                if suppress {
-                    self.suppress_create_assignment = true;
-                }
-
                 self.context_stack.push(ctx);
-                self.visit(stmt);
+                self.visit(&stmt);
                 self.context_stack.pop();
-
-                if suppress {
-                    self.suppress_create_assignment = false;
-                }
             }
         }
 
