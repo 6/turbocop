@@ -282,27 +282,3 @@ else
   @bin = encode(@value)
   ^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@bin = encode(@value)` out of the conditional.
 end
-
-0
-^ Style/IdenticalConditionalBranches: Move `0` out of the conditional.
-
-@bin = encode(@value)
-^ Style/IdenticalConditionalBranches: Move `@bin = encode(@value)` out of the conditional.
-
-next if topic.nil?
-^ Style/IdenticalConditionalBranches: Move `next if topic.nil?` out of the conditional.
-
-asset_id
-^ Style/IdenticalConditionalBranches: Move `asset_id` out of the conditional.
-
-response.save
-^ Style/IdenticalConditionalBranches: Move `response.save` out of the conditional.
-
-U2028, U2029 = ("\u2028" == 'u2028') ? ["\342\200\250", "\342\200\251"] : ["\u2028", "\u2029"]
-^ Style/IdenticalConditionalBranches: Move `["\u2028", "\u2029"]` out of the conditional.
-
-"{\"bar\":\"\u2028 and \u2029\"}"
-^ Style/IdenticalConditionalBranches: Move `"{\"bar\":\"\u2028 and \u2029\"}"` out of the conditional.
-
-"{\"bar\":\"\342\200\250 and \342\200\251\"}"
-^ Style/IdenticalConditionalBranches: Move `"{\"bar\":\"\342\200\250 and \342\200\251\"}"` out of the conditional.
