@@ -1,4 +1,5 @@
 use super::assignment::Assignment;
+use super::engine::BranchContext;
 use super::reference::Reference;
 use super::scope::{Scope, ScopeKind};
 use super::variable::{DeclarationKind, Variable};
@@ -11,6 +12,8 @@ use super::variable::{DeclarationKind, Variable};
 #[derive(Default)]
 pub struct VariableTable {
     scope_stack: Vec<Scope>,
+    /// Branch contexts from the engine, used for exclusivity checks.
+    pub branch_contexts: Vec<BranchContext>,
 }
 
 impl VariableTable {
@@ -154,6 +157,24 @@ impl VariableTable {
             }
         }
         result
+    }
+
+    /// Check if two branch IDs are mutually exclusive (belong to the same
+    /// conditional parent but are different children).
+    pub fn branches_exclusive(&self, a: Option<usize>, b: Option<usize>) -> bool {
+        let (a_id, b_id) = match (a, b) {
+            (Some(a), Some(b)) => (a, b),
+            _ => return false,
+        };
+        if a_id == b_id {
+            return false;
+        }
+        if a_id >= self.branch_contexts.len() || b_id >= self.branch_contexts.len() {
+            return false;
+        }
+        let a_ctx = &self.branch_contexts[a_id];
+        let b_ctx = &self.branch_contexts[b_id];
+        a_ctx.parent_id == b_ctx.parent_id && a_ctx.child_index != b_ctx.child_index
     }
 
     /// All variables accessible from the current scope (for `binding()`/`super`

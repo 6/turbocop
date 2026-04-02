@@ -29,6 +29,10 @@ pub struct Assignment {
     /// while/until, rescue, block, lambda). Used by ShadowedArgument to
     /// distinguish conditional from unconditional shadowing.
     pub in_branch: bool,
+    /// Branch context ID, if this assignment is inside a conditional branch.
+    /// Used together with `BranchContext` in the engine to determine whether
+    /// two assignments/references are in mutually exclusive branches.
+    pub branch_id: Option<usize>,
 }
 
 impl Assignment {
@@ -42,6 +46,7 @@ impl Assignment {
             rhs_references_var: false,
             sequence: 0,
             in_branch: false,
+            branch_id: None,
         }
     }
 
