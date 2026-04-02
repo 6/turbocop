@@ -534,11 +534,17 @@ impl Cop for SaveBang {
             context_stack: Vec::new(),
             in_compound_boolean: false,
             in_transparent_container: false,
+            in_local_assignment: false,
+            current_local_var_name: None,
+            suppress_create_assignment: false,
+            suppressed_create_vars: Vec::new(),
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
     }
 }
+
+impl variable_force::VariableForceConsumer for SaveBang {}
 
 struct SaveBangVisitor<'a, 'src> {
     cop: &'a SaveBang,
@@ -565,10 +571,10 @@ struct SaveBangVisitor<'a, 'src> {
 }
 
 impl SaveBangVisitor<'_, '_> {
-    fn should_suppress_create(
+    fn should_suppress_create<T>(
         &mut self,
         _stmt: &ruby_prism::Node<'_>,
-        _body: &ruby_prism::StatementsNode<'_>,
+        _body: &T,
         _idx: usize,
     ) -> bool {
         false
