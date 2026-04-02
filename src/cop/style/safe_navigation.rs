@@ -3,13 +3,14 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
-/// Matches the guarded receiver the same way RuboCop does for regular `if`/`unless`
-/// bodies, adjacent clauses inside chained `&&` guards like
-/// `proof && dom_body && dom_body.include?(proof)`, and ternaries inside dotted
-/// setter arguments like `uri.port = port ? port.to_i : nil`. It also treats
-/// `to_json` as nil-safe to match RuboCop's loaded runtime, while still skipping
-/// unsafe dotless-call, dynamic-send, double-colon-argument, and negated-wrapper
-/// contexts.
+/// Matches RuboCop's guarded receiver handling for modifier `if`/`unless`, adjacent
+/// clauses inside chained `&&` guards like `proof && dom_body && dom_body.include?(proof)`,
+/// and ternaries such as `uri.port = port ? port.to_i : nil`.
+/// Ternaries now follow RuboCop's narrower ancestor rules: argument and receiver
+/// contexts like `puts(foo ? foo.bar : nil)` remain offenses, while enclosing calls
+/// that `nil` already responds to, such as `instance_variable_set`, `inspect`, and
+/// `to_json`, still suppress them. `&&` handling keeps the existing skips for unsafe
+/// dotless-call, dynamic-send, double-colon-argument, and negated-wrapper contexts.
 pub struct SafeNavigation;
 
 /// Methods that `nil` responds to in vanilla Ruby.
@@ -270,7 +271,7 @@ impl Cop for SafeNavigation {
             max_chain_length,
             allowed_methods,
             in_unsafe_parent: 0,
-            in_unsafe_ternary_parent: 0,
+            in_nil_safe_call_ancestor: 0,
             in_assignment_or_operator_parent: 0,
             dotted_assignment_parent_starts: Vec::new(),
             in_call_arguments: 0,
@@ -294,7 +295,7 @@ struct SafeNavVisitor<'a> {
     max_chain_length: usize,
     allowed_methods: Option<Vec<String>>,
     in_unsafe_parent: usize,
-    in_unsafe_ternary_parent: usize,
+    in_nil_safe_call_ancestor: usize,
     in_assignment_or_operator_parent: usize,
     dotted_assignment_parent_starts: Vec<usize>,
     in_call_arguments: usize,
@@ -463,51 +464,8 @@ impl<'a> SafeNavVisitor<'a> {
         call.call_operator_loc().is_some() && name.ends_with(b"=") && name != b"==" && name != b"!="
     }
 
-    fn is_unsafe_ternary_parent_call(call: &ruby_prism::CallNode<'_>) -> bool {
-        let name = call.name().as_slice();
-
-        if name == b"!" {
-            return true;
-        }
-
-        if call.call_operator_loc().is_none() {
-            if name == b"[]=" {
-                return false;
-            }
-
-            if matches!(
-                name,
-                b"[]"
-                    | b"+"
-                    | b"-"
-                    | b"*"
-                    | b"/"
-                    | b"%"
-                    | b"**"
-                    | b"<"
-                    | b">"
-                    | b"<="
-                    | b">="
-                    | b"<=>"
-                    | b"<<"
-                    | b">>"
-                    | b"&"
-                    | b"|"
-                    | b"^"
-                    | b"~"
-                    | b"!"
-                    | b"+@"
-                    | b"-@"
-            ) {
-                return true;
-            }
-
-            if call.arguments().is_some() || call.block().is_some() {
-                return true;
-            }
-        }
-
-        false
+    fn is_nil_safe_call_ancestor(call: &ruby_prism::CallNode<'_>) -> bool {
+        NIL_METHODS.contains(&call.name().as_slice())
     }
 }
 
@@ -523,9 +481,9 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         if is_unsafe {
             self.in_unsafe_parent += 1;
         }
-        let is_unsafe_ternary_parent = Self::is_unsafe_ternary_parent_call(node);
-        if is_unsafe_ternary_parent {
-            self.in_unsafe_ternary_parent += 1;
+        let is_nil_safe_call_ancestor = Self::is_nil_safe_call_ancestor(node);
+        if is_nil_safe_call_ancestor {
+            self.in_nil_safe_call_ancestor += 1;
         }
         let is_assignment_or_operator_parent = Self::is_assignment_or_operator_parent_call(node);
         if is_assignment_or_operator_parent {
@@ -572,8 +530,8 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         if is_dotted_assignment_parent {
             self.dotted_assignment_parent_starts.pop();
         }
-        if is_unsafe_ternary_parent {
-            self.in_unsafe_ternary_parent -= 1;
+        if is_nil_safe_call_ancestor {
+            self.in_nil_safe_call_ancestor -= 1;
         }
         if is_unsafe {
             self.in_unsafe_parent -= 1;
@@ -664,10 +622,7 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
 
         // Check if it's a ternary (no `if` keyword location in Prism)
         if if_node.if_keyword_loc().is_none() {
-            if self.in_call_receiver > 0
-                || self.in_dynamic_send_args > 0
-                || self.in_unsafe_ternary_parent > 0
-            {
+            if self.in_nil_safe_call_ancestor > 0 {
                 ruby_prism::visit_if_node(self, node);
                 return;
             }

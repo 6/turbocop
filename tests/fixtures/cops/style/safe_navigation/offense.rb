@@ -92,6 +92,12 @@ cond && @chunks[0] && @chunks[0].is_a?(String)
 BTC::Invariant(foo.nil? ? nil : foo.to_s, "message")
                ^^^^^^^^^^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
 
+ActiveRecord::Migrator.migrate(Skyline.root + "db/migrate/", ENV["VERSION"] ? ENV["VERSION"].to_i : nil)
+                                                             ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
 a && a.b && c && c.d
 ^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
             ^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+if e && e.message
+   ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
