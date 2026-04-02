@@ -59,6 +59,10 @@ pub struct Scope {
     pub node_end_offset: usize,
     /// Variables declared in this scope, keyed by name.
     pub variables: HashMap<Vec<u8>, Variable>,
+    /// Whether this scope's body is empty (no statements). Set by the engine
+    /// for Block scopes; used by `Lint/UnusedBlockArgument` to implement
+    /// `IgnoreEmptyBlocks`.
+    pub body_empty: bool,
 }
 
 impl Scope {
@@ -68,6 +72,7 @@ impl Scope {
             node_start_offset: start_offset,
             node_end_offset: end_offset,
             variables: HashMap::new(),
+            body_empty: false,
         }
     }
 }

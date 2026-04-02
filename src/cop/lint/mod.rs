@@ -369,7 +369,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(unreachable_code::UnreachableCode));
     registry.register(Box::new(unreachable_loop::UnreachableLoop));
     registry.register(Box::new(unused_block_argument::UnusedBlockArgument));
-    registry.register(Box::new(unused_method_argument::UnusedMethodArgument));
+    registry.register(Box::new(unused_method_argument::UnusedMethodArgument::new()));
     registry.register(Box::new(uri_escape_unescape::UriEscapeUnescape));
     registry.register(Box::new(uri_regexp::UriRegexp));
     registry.register(Box::new(useless_access_modifier::UselessAccessModifier));

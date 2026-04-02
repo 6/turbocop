@@ -173,6 +173,8 @@ impl<'a> Engine<'a> {
                     rp.location().start_offset(),
                     DeclarationKind::RequiredArg,
                 );
+            } else if let Some(mt) = param.as_multi_target_node() {
+                self.declare_multi_target_params(&mt);
             }
         }
         for param in params.optionals().iter() {
@@ -188,9 +190,12 @@ impl<'a> Engine<'a> {
         if let Some(rest) = params.rest() {
             if let Some(rp) = rest.as_rest_parameter_node() {
                 if let Some(name) = rp.name() {
+                    let offset = rp
+                        .name_loc()
+                        .map_or(rp.location().start_offset(), |loc| loc.start_offset());
                     self.declare_variable(
                         name.as_slice().to_vec(),
-                        rp.location().start_offset(),
+                        offset,
                         DeclarationKind::RestArg,
                     );
                 }
@@ -203,6 +208,8 @@ impl<'a> Engine<'a> {
                     rp.location().start_offset(),
                     DeclarationKind::RequiredArg,
                 );
+            } else if let Some(mt) = param.as_multi_target_node() {
+                self.declare_multi_target_params(&mt);
             }
         }
         for param in params.keywords().iter() {
@@ -232,9 +239,12 @@ impl<'a> Engine<'a> {
         if let Some(kw_rest) = params.keyword_rest() {
             if let Some(krp) = kw_rest.as_keyword_rest_parameter_node() {
                 if let Some(name) = krp.name() {
+                    let offset = krp
+                        .name_loc()
+                        .map_or(krp.location().start_offset(), |loc| loc.start_offset());
                     self.declare_variable(
                         name.as_slice().to_vec(),
-                        krp.location().start_offset(),
+                        offset,
                         DeclarationKind::KeywordRestArg,
                     );
                 }
@@ -242,11 +252,48 @@ impl<'a> Engine<'a> {
         }
         if let Some(block) = params.block() {
             if let Some(name) = block.name() {
+                let offset = block
+                    .name_loc()
+                    .map_or(block.location().start_offset(), |loc| loc.start_offset());
+                self.declare_variable(name.as_slice().to_vec(), offset, DeclarationKind::BlockArg);
+            }
+        }
+    }
+
+    fn declare_multi_target_params(&mut self, mt: &ruby_prism::MultiTargetNode<'_>) {
+        for target in mt.lefts().iter() {
+            if let Some(rp) = target.as_required_parameter_node() {
                 self.declare_variable(
-                    name.as_slice().to_vec(),
-                    block.location().start_offset(),
-                    DeclarationKind::BlockArg,
+                    rp.name().as_slice().to_vec(),
+                    rp.location().start_offset(),
+                    DeclarationKind::RequiredArg,
                 );
+            } else if let Some(inner) = target.as_multi_target_node() {
+                self.declare_multi_target_params(&inner);
+            }
+        }
+        if let Some(rest) = mt.rest() {
+            if let Some(splat) = rest.as_splat_node() {
+                if let Some(expr) = splat.expression() {
+                    if let Some(rp) = expr.as_required_parameter_node() {
+                        self.declare_variable(
+                            rp.name().as_slice().to_vec(),
+                            rp.location().start_offset(),
+                            DeclarationKind::RestArg,
+                        );
+                    }
+                }
+            }
+        }
+        for target in mt.rights().iter() {
+            if let Some(rp) = target.as_required_parameter_node() {
+                self.declare_variable(
+                    rp.name().as_slice().to_vec(),
+                    rp.location().start_offset(),
+                    DeclarationKind::RequiredArg,
+                );
+            } else if let Some(inner) = target.as_multi_target_node() {
+                self.declare_multi_target_params(&inner);
             }
         }
     }
@@ -540,12 +587,14 @@ impl<'pr> Visit<'pr> for Engine<'_> {
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let loc = node.location();
+        let body_empty = node.body().is_none();
         // Save and reset branch_depth: block body starts a fresh scope.
         // Assignments to outer variables are marked captured_by_block by the
         // variable table, which the cop uses as a conditional indicator.
         let saved_depth = self.branch_depth;
         self.branch_depth = 0;
         self.enter_scope(ScopeKind::Block, loc.start_offset(), loc.end_offset());
+        self.table.current_scope_mut().body_empty = body_empty;
         if let Some(params) = node.parameters() {
             if let Some(bp) = params.as_block_parameters_node() {
                 self.declare_block_parameters(&bp);
@@ -560,9 +609,11 @@ impl<'pr> Visit<'pr> for Engine<'_> {
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
         let loc = node.location();
+        let body_empty = node.body().is_none();
         let saved_depth = self.branch_depth;
         self.branch_depth = 0;
         self.enter_scope(ScopeKind::Block, loc.start_offset(), loc.end_offset());
+        self.table.current_scope_mut().body_empty = body_empty;
         if let Some(params) = node.parameters() {
             if let Some(bp) = params.as_block_parameters_node() {
                 self.declare_block_parameters(&bp);
@@ -747,7 +798,17 @@ impl<'pr> Visit<'pr> for Engine<'_> {
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if node.name().as_slice() == b"binding" && node.arguments().is_none() {
+        // Detect bare `binding` calls (Kernel#binding) which capture all local vars.
+        // RuboCop's Parser AST treats `binding(&block)` as having arguments (the
+        // block-pass is a child of the send node), so it does NOT count as bare
+        // `binding`. In Prism, block-pass is separate from arguments, so we must
+        // also check that the call's block is not a BlockArgumentNode.
+        if node.name().as_slice() == b"binding"
+            && node.arguments().is_none()
+            && node
+                .block()
+                .is_none_or(|b| b.as_block_argument_node().is_none())
+        {
             let offset = node.location().start_offset();
             let si = self.table.current_scope_index();
             for var in self.table.accessible_variables_mut() {
