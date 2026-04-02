@@ -33,6 +33,13 @@ pub struct Assignment {
     /// Used together with `BranchContext` in the engine to determine whether
     /// two assignments/references are in mutually exclusive branches.
     pub branch_id: Option<usize>,
+    /// Byte offset range of the RHS value node (`start..end`). For
+    /// `x = Model.create(name: 'Joe')`, this covers `Model.create(name: 'Joe')`.
+    /// For block-wrapped assignments like `x = Model.create { ... }`, this
+    /// covers the entire block node (matching RuboCop's `right_assignment_node`
+    /// which unwraps to the send node inside the block).
+    /// `None` for parameter declarations and other non-value assignments.
+    pub value_range: Option<(usize, usize)>,
 }
 
 impl Assignment {
@@ -47,6 +54,7 @@ impl Assignment {
             sequence: 0,
             in_branch: false,
             branch_id: None,
+            value_range: None,
         }
     }
 

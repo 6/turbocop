@@ -287,7 +287,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(
         safe_navigation_with_blank::SafeNavigationWithBlank,
     ));
-    registry.register(Box::new(save_bang::SaveBang));
+    registry.register(Box::new(save_bang::SaveBang::new()));
     registry.register(Box::new(schema_comment::SchemaComment));
     registry.register(Box::new(scope_args::ScopeArgs));
     registry.register(Box::new(select_map::SelectMap));

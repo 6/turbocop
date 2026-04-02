@@ -76,6 +76,21 @@ DEPT_TO_DIR = {
     "RSpecRails": "rspec_rails",
 }
 
+# Cops that consume the shared VariableForce engine. Changes to
+# src/cop/variable_force/ should trigger corpus checks for all of these.
+VARIABLE_FORCE_CONSUMERS = {
+    "Lint/ShadowedArgument",
+    "Lint/UnusedMethodArgument",
+    "Lint/UnusedBlockArgument",
+    "Lint/UnderscorePrefixedVariableName",
+    "Lint/ShadowingOuterLocalVariable",
+    "Lint/UselessAssignment",
+    "Style/InfiniteLoop",
+    "Style/MapIntoArray",
+    "RSpec/LeakyLocalVariable",
+    "Rails/SaveBang",
+}
+
 # Department PascalCase → snake_case directory name in src/cop/ and tests/fixtures/
 # Only needed for departments where pascal_to_snake() gives the wrong result
 DEPT_TO_SRC_DIR = {
@@ -1517,7 +1532,10 @@ def detect_cops(base: str, head: str) -> list[str]:
         match = re.match(r"src/cop/([^/]+)/([^/]+)\.rs$", path)
         if match:
             dept, name = match.group(1), match.group(2)
-            if name not in {"mod", "node_type"}:
+            if dept == "variable_force":
+                # Engine changes affect all VF consumer cops
+                cops.update(VARIABLE_FORCE_CONSUMERS)
+            elif name not in {"mod", "node_type"}:
                 cops.add(f"{dept_snake_to_pascal(dept)}/{snake_to_pascal(name)}")
             continue
 

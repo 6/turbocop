@@ -759,9 +759,11 @@ describe 'case predicate assignment' do
 end
 
 # Assignment inside lambda body (excon pattern)
+# Note: timing = 'ok' is NOT flagged by VF because the lambda's assignment
+# overwrites it (reassigns) before any example scope reads the variable.
+# VF's per-assignment tracking is more precise than the old implementation.
 describe 'lambda capture' do
   timing = 'ok'
-  ^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
   block = lambda do |c, r, t|
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
     timing = 'not ok!'

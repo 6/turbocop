@@ -189,8 +189,7 @@ impl<'a> Engine<'a> {
             self.visit(&stmt);
         }
 
-        self.fire_before_leaving_scope();
-        self.table.pop_scope();
+        self.leave_scope();
     }
 
     pub fn into_diagnostics(self) -> Vec<Diagnostic> {
@@ -466,6 +465,8 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         assign.rhs_references_var = rhs_refs_var;
         assign.in_branch = self.branch_depth > 0;
         assign.branch_id = self.current_branch_id();
+        let val = node.value();
+        assign.value_range = Some((val.location().start_offset(), val.location().end_offset()));
         self.table.assign_to_variable(&name, assign);
     }
 
