@@ -173,3 +173,55 @@ else
   date_query = date_query.filter(:archival_object_id  => ao_ids)
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `date_query = date_query.filter(:archival_object_id => ao_ids)` out of the conditional.
 end
+
+# unless/else identical trailing lines
+unless condition
+  do_x
+  do_z
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_z` out of the conditional.
+else
+  do_y
+  do_z
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_z` out of the conditional.
+end
+
+# unless/else identical leading lines
+unless something
+  do_x
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_x` out of the conditional.
+  method_call_here(1, 2, 3)
+else
+  do_x
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_x` out of the conditional.
+  1 + 2 + 3
+end
+
+# unless/else identical bodies
+unless condition
+  do_x
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_x` out of the conditional.
+else
+  do_x
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_x` out of the conditional.
+end
+
+# unless/else identical trailing lines (method call with bang)
+unless params[:collection_id].blank?
+  work.collection = @collection
+  work.save!
+  ^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `work.save!` out of the conditional.
+else
+  collection = Collection.new
+  work.save!
+  ^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `work.save!` out of the conditional.
+end
+
+# unless/else identical bodies (return statements)
+unless (defined? @ipr_ids) && @ipr_ids
+  @ipr_ids = {}
+  return @ipr_ids
+  ^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `return @ipr_ids` out of the conditional.
+else
+  return @ipr_ids
+  ^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `return @ipr_ids` out of the conditional.
+end

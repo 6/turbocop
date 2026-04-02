@@ -1,4 +1,4 @@
-use crate::cop::node_type::{CASE_MATCH_NODE, CASE_NODE, IF_NODE};
+use crate::cop::node_type::{CASE_MATCH_NODE, CASE_NODE, IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -7,19 +7,27 @@ use ruby_prism::Visit;
 /// Style/IdenticalConditionalBranches
 ///
 /// Checks for identical expressions at the beginning (head) or end (tail) of
-/// each branch of a conditional expression: `if/elsif/else`, `case/when/else`,
-/// and `case/in/else` (pattern matching).
+/// each branch of a conditional expression: `if/elsif/else`, `unless/else`,
+/// `case/when/else`, and `case/in/else` (pattern matching).
 ///
-/// ## Investigation findings
+/// ## Investigation findings (round 2)
 ///
-/// Original implementation missed a corpus-heavy pattern that RuboCop does
-/// flag:
-/// - multiline or differently wrapped equivalent expressions, because the old
-///   comparison used raw source slices instead of a whitespace-normalized key
+/// 1. **FN: `unless/else` support** — Prism uses a separate `UnlessNode` type
+///    (not `IfNode`). The cop now handles `UNLESS_NODE` to detect identical
+///    heads/tails in `unless/else` blocks.
 ///
-/// The current implementation also preserves RuboCop's narrower no-offense
-/// behavior for identical trailing index assignments such as `@store[key] =
-/// value` when the condition already depends on that receiver.
+/// 2. **FP: assignment value vs condition variable** — RuboCop's
+///    `duplicated_expressions?` suppresses identical assignments when the
+///    value (RHS) matches a variable in the condition (e.g.,
+///    `if obj.is_a?(X); @y = obj; else; @y = obj; end` inside a method
+///    where `obj` is a local variable). Added `assignment_child_source`
+///    check for both heads and tails.
+///
+/// 3. **FP: conditional inside assignment** — `y = if cond; ...; end`
+///    makes the conditional the "last child" of the assignment node.
+///    RuboCop's `last_child_of_parent?` returns true, suppressing single-
+///    child-branch head checks. Fixed `is_last_child_of_parent` to also
+///    check write nodes (LocalVariableWriteNode, etc.).
 pub struct IdenticalConditionalBranches;
 
 struct StatementInfo {
@@ -29,6 +37,10 @@ struct StatementInfo {
     col: usize,
     has_heredoc: bool,
     index_assignment_receiver: Option<String>,
+    /// Source of the "first child node" for assignments, used by RuboCop's
+    /// `duplicated_expressions?` to suppress when the value (for simple writes)
+    /// or LHS variable name (for operator writes) matches a condition variable.
+    assignment_child_source: Option<String>,
 }
 
 fn node_source(source: &SourceFile, node: &ruby_prism::Node<'_>) -> String {
@@ -146,6 +158,48 @@ fn contains_heredoc(node: &ruby_prism::Node<'_>) -> bool {
     checker.found
 }
 
+/// Extract the source that RuboCop's `duplicated_expressions?` compares against
+/// condition variables.  For simple writes (lvasgn, ivasgn, …) this is the
+/// VALUE (RHS); for operator writes (op_asgn) it is the variable NAME (LHS).
+fn assignment_child_source(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<String> {
+    // Simple writes: child_nodes.first in RuboCop = value (RHS)
+    if let Some(w) = node.as_local_variable_write_node() {
+        return Some(node_source(source, &w.value()));
+    }
+    if let Some(w) = node.as_instance_variable_write_node() {
+        return Some(node_source(source, &w.value()));
+    }
+    if let Some(w) = node.as_class_variable_write_node() {
+        return Some(node_source(source, &w.value()));
+    }
+    if let Some(w) = node.as_global_variable_write_node() {
+        return Some(node_source(source, &w.value()));
+    }
+    if let Some(w) = node.as_constant_write_node() {
+        return Some(node_source(source, &w.value()));
+    }
+    // Operator writes: child_nodes.first in RuboCop = LHS variable name
+    if let Some(w) = node.as_local_variable_operator_write_node() {
+        return Some(String::from_utf8_lossy(w.name().as_slice()).to_string());
+    }
+    if let Some(w) = node.as_instance_variable_operator_write_node() {
+        return Some(String::from_utf8_lossy(w.name().as_slice()).to_string());
+    }
+    if let Some(w) = node.as_local_variable_or_write_node() {
+        return Some(String::from_utf8_lossy(w.name().as_slice()).to_string());
+    }
+    if let Some(w) = node.as_local_variable_and_write_node() {
+        return Some(String::from_utf8_lossy(w.name().as_slice()).to_string());
+    }
+    if let Some(w) = node.as_instance_variable_or_write_node() {
+        return Some(String::from_utf8_lossy(w.name().as_slice()).to_string());
+    }
+    if let Some(w) = node.as_instance_variable_and_write_node() {
+        return Some(String::from_utf8_lossy(w.name().as_slice()).to_string());
+    }
+    None
+}
+
 /// Extract the source text, location, and heredoc flag for a specific statement
 /// in a StatementsNode (by index).
 fn stmt_info(
@@ -166,6 +220,7 @@ fn stmt_info(
         col,
         has_heredoc,
         index_assignment_receiver: index_assignment_receiver_source(source, node),
+        assignment_child_source: assignment_child_source(source, node),
     })
 }
 
@@ -311,6 +366,15 @@ impl IdenticalConditionalBranches {
                     return;
                 }
             }
+
+            // RuboCop's `duplicated_expressions?` suppression: if the tail is
+            // an assignment and the value (or LHS for operator writes) matches
+            // a variable in the condition, skip.
+            if let Some(child_src) = &tails[0].assignment_child_source {
+                if condition_contains_variable_source(source, condition, child_src) {
+                    return;
+                }
+            }
         }
 
         // Report offense on every branch's tail (RuboCop flags all of them)
@@ -375,6 +439,15 @@ impl IdenticalConditionalBranches {
         if let Some(cond) = condition_node {
             if is_assignment_to_condition(source, first_src, cond) {
                 return;
+            }
+
+            // RuboCop's `duplicated_expressions?` suppression: if the head is
+            // an assignment and the value (or LHS for operator writes) matches
+            // a variable in the condition, skip.
+            if let Some(child_src) = &heads[0].assignment_child_source {
+                if condition_contains_variable_source(source, cond, child_src) {
+                    return;
+                }
             }
         }
 
@@ -520,6 +593,17 @@ fn is_last_child_of_parent(
         target_offset: usize,
         is_last: bool,
     }
+
+    impl ParentFinder {
+        /// Check if a value node matches the target (i.e. the conditional is
+        /// the value of an assignment like `y = if ...`).
+        fn check_value(&mut self, value: &ruby_prism::Node<'_>) {
+            if value.location().start_offset() == self.target_offset {
+                self.is_last = true;
+            }
+        }
+    }
+
     impl<'pr> Visit<'pr> for ParentFinder {
         fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
             let body: Vec<_> = node.body().iter().collect();
@@ -529,6 +613,41 @@ fn is_last_child_of_parent(
                 }
             }
             ruby_prism::visit_statements_node(self, node);
+        }
+
+        // Assignment nodes: the conditional is the "last child" when it's the
+        // value of an assignment (e.g. `y = if ...`).
+        fn visit_local_variable_write_node(
+            &mut self,
+            node: &ruby_prism::LocalVariableWriteNode<'pr>,
+        ) {
+            self.check_value(&node.value());
+            ruby_prism::visit_local_variable_write_node(self, node);
+        }
+        fn visit_instance_variable_write_node(
+            &mut self,
+            node: &ruby_prism::InstanceVariableWriteNode<'pr>,
+        ) {
+            self.check_value(&node.value());
+            ruby_prism::visit_instance_variable_write_node(self, node);
+        }
+        fn visit_class_variable_write_node(
+            &mut self,
+            node: &ruby_prism::ClassVariableWriteNode<'pr>,
+        ) {
+            self.check_value(&node.value());
+            ruby_prism::visit_class_variable_write_node(self, node);
+        }
+        fn visit_global_variable_write_node(
+            &mut self,
+            node: &ruby_prism::GlobalVariableWriteNode<'pr>,
+        ) {
+            self.check_value(&node.value());
+            ruby_prism::visit_global_variable_write_node(self, node);
+        }
+        fn visit_constant_write_node(&mut self, node: &ruby_prism::ConstantWriteNode<'pr>) {
+            self.check_value(&node.value());
+            ruby_prism::visit_constant_write_node(self, node);
         }
     }
 
@@ -546,7 +665,7 @@ impl Cop for IdenticalConditionalBranches {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[IF_NODE, CASE_NODE, CASE_MATCH_NODE]
+        &[IF_NODE, CASE_NODE, CASE_MATCH_NODE, UNLESS_NODE]
     }
 
     fn check_node(
@@ -627,6 +746,26 @@ impl Cop for IdenticalConditionalBranches {
                 last_child,
                 diagnostics,
             );
+
+            Self::dedup_diagnostics(diagnostics, pre_len);
+        } else if let Some(unless_node) = node.as_unless_node() {
+            // unless/else — must have an else clause for comparison
+            let else_clause = match unless_node.else_clause() {
+                Some(e) => e,
+                None => return,
+            };
+
+            let mut branches = Vec::new();
+            branches.push(BranchInfo::from_stmts(unless_node.statements()));
+            branches.push(BranchInfo::from_stmts(else_clause.statements()));
+
+            let pre_len = diagnostics.len();
+            let condition = unless_node.predicate();
+
+            self.check_tails(source, &branches, Some(&condition), diagnostics);
+
+            let last_child = is_last_child_of_parent(node, parse_result);
+            self.check_heads(source, &branches, Some(&condition), last_child, diagnostics);
 
             Self::dedup_diagnostics(diagnostics, pre_len);
         }
