@@ -47,6 +47,12 @@ jobs:
       - name: Run fuzzer — ${{ matrix.target }}
         run: |
           cd fuzz
-          cargo +nightly fuzz run ${{ matrix.target }} -- \
+          # Use seed corpus if available (contains regression inputs from prior crashes)
+          CORPUS_DIR="corpus/${{ matrix.target }}"
+          CORPUS_ARG=""
+          if [ -d "$CORPUS_DIR" ]; then
+            CORPUS_ARG="$CORPUS_DIR"
+          fi
+          cargo +nightly fuzz run ${{ matrix.target }} $CORPUS_ARG -- \
             -max_total_time=300 \
             -max_len=4096
