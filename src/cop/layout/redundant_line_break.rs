@@ -55,12 +55,13 @@ use crate::parse::source::SourceFile;
 /// ## Fixes applied (2026-04-01)
 /// - Fixed keyword-argument false negatives inside multiline chained block
 ///   expressions. Previously a multiline outer call like `items.each do ... end`
-///   or `search_results.map do ... end.flatten` could mark its entire byte range
-///   as "checked" and suppress inner multiline calls in the block body. The fix
-///   is deliberately narrow: contained calls are only unsuppressed for the
-///   validated keyword-hash argument shape when they are the direct, sole
-///   statement inside a multiline block body, matching the corpus FN shape
-///   without opening up unrelated chained-call contexts.
+///   could mark its entire byte range as "checked" and suppress inner
+///   multiline calls in the block body. The fix remains deliberately narrow:
+///   contained calls are only unsuppressed for the validated keyword-hash
+///   argument shape when they are the direct, sole statement inside a
+///   multiline block body. `map` block bodies remain excluded because the
+///   corpus gate still treats those recovered counts as regressions in
+///   already-FP-heavy repos.
 pub struct RedundantLineBreak;
 
 impl Cop for RedundantLineBreak {
@@ -488,7 +489,7 @@ impl<'a, 'pr> RedundantLineBreakVisitor<'a, 'pr> {
     }
 
     fn allowed_multiline_block_send_name(&self, name: &[u8]) -> bool {
-        matches!(name, b"each" | b"map" | b"select" | b"each_with_object")
+        matches!(name, b"each" | b"select" | b"each_with_object")
     }
 
     fn allows_direct_block_send_checked_chain(
@@ -533,34 +534,26 @@ impl<'a, 'pr> RedundantLineBreakVisitor<'a, 'pr> {
         node: &ruby_prism::CallNode<'_>,
     ) -> Option<(ruby_prism::BlockNode<'pr>, ruby_prism::CallNode<'pr>)> {
         let node_loc = node.location();
-        let Some(current_idx) = self.ancestors.iter().rposition(|ancestor| {
+        let current_idx = self.ancestors.iter().rposition(|ancestor| {
             ancestor.as_call_node().is_some_and(|call| {
                 let loc = call.location();
                 loc.start_offset() == node_loc.start_offset()
                     && loc.end_offset() == node_loc.end_offset()
             })
-        }) else {
-            return None;
-        };
+        })?;
 
         if current_idx < 3 {
             return None;
         }
 
-        let Some(statements) = self.ancestors[current_idx - 1].as_statements_node() else {
-            return None;
-        };
+        let statements = self.ancestors[current_idx - 1].as_statements_node()?;
         if statements.body().len() != 1 {
             return None;
         }
 
-        let Some(block) = self.ancestors[current_idx - 2].as_block_node() else {
-            return None;
-        };
+        let block = self.ancestors[current_idx - 2].as_block_node()?;
 
-        let Some(block_call) = self.ancestors[current_idx - 3].as_call_node() else {
-            return None;
-        };
+        let block_call = self.ancestors[current_idx - 3].as_call_node()?;
 
         let loc = block.location();
         self.is_multiline(loc.start_offset(), loc.end_offset())
