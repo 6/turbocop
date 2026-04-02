@@ -146,3 +146,12 @@ protected (def spaced_paren_protected
            ^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/DocumentationMethod: Missing method documentation comment.
   42
 end)
+
+def json!
+^ Style/DocumentationMethod: Missing method documentation comment.
+
+def articles_courses_scope
+^ Style/DocumentationMethod: Missing method documentation comment.
+
+def scope
+^ Style/DocumentationMethod: Missing method documentation comment.
