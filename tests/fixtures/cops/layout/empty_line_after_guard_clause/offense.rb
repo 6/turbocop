@@ -570,3 +570,19 @@ def consecutive_guards_backslash_between_args
   raise ArgumentError, "The name is"\
     " not allowed" if opts.key?(:name)
 end
+
+# FN regression fix: inline comments after standalone modifier guards still require a blank line
+def guard_with_inline_comment
+  return obj if cache_hit? # inline comment
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  fetch_value
+end
+
+# FN regression fix: multiline modifier guard with inline comment on the end line still requires a blank line
+def multiline_guard_with_inline_comment
+  return unless (
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+    services & NODE_NETWORK
+  ) == 1 # inline comment
+  work
+end

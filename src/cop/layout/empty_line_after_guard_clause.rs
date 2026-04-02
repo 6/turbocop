@@ -339,6 +339,41 @@ use crate::parse::source::SourceFile;
 /// multi-statement case and skips the cop, but nitrocop only treated `; code`
 /// as embedded context for multiline guards. Fix: if a single-line guard has
 /// real code after a top-level semicolon, skip the offense.
+///
+/// ## Corpus investigation (2026-04-02: embedded expressions, spaced directives,
+/// attached rescue suffixes)
+///
+/// Remaining FP came from five narrow parser/text mismatches:
+///
+/// 1. **Block guards used as assignment values**: multiline `x = if ... end`
+///    and `x ||= if ... end` have no right sibling in RuboCop and should be
+///    skipped. Fix: skip block-form if/unless guards whose immediate parent is
+///    an assignment/write node.
+///
+/// 2. **Multiline guards that end with only closing delimiters**: embedded
+///    guards inside inline blocks/calls such as
+///    `items.each { return unless cond.call(...\n  ...) }` were treated as if
+///    `}`/`)` were a following statement. Fix: when the guard's end line is
+///    followed by at least one `)`, `]`, or `}` plus optional comment/whitespace,
+///    treat that as the same enclosing expression and skip.
+///
+/// 3. **Nested semicolons inside parens**: `return (foo = (a; b)) if cond`
+///    should still count as a guard line. Fix: `find_top_level_semicolon`
+///    now ignores semicolons inside bracketed subexpressions/literals.
+///
+/// 4. **`end rescue nil` attached to a guard block**: RuboCop treats the
+///    rescue modifier as attached syntax on the same expression, not as a new
+///    following statement. Fix: treat same-line `rescue` suffixes like other
+///    attached modifiers and skip the cop.
+///
+/// 5. **Spaced directive comments**: RuboCop accepts both
+///    `# rubocop:enable` and `# rubocop: enable`. Fix: normalize optional
+///    spaces after `rubocop:` before matching `enable`.
+///
+/// Remaining FN in fixtures came from heredocs in the CONDITION of a modifier
+/// guard: RuboCop checks spacing after the guard line itself, not after the
+/// heredoc terminator. Fix: only extend the effective end line for heredocs
+/// that live in the guard body/arguments, not condition-only heredocs.
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
@@ -518,6 +553,11 @@ impl Cop for EmptyLineAfterGuardClause {
         }
 
         let lines: Vec<&[u8]> = source.lines().collect();
+        let if_start_line = source.offset_to_line_col(loc.start_offset()).0;
+
+        if !is_modifier && previous_significant_line_ends_with_assignment(&lines, if_start_line) {
+            return;
+        }
 
         // Determine the end offset to use for computing the "last line" of the guard.
         // For modifier form: end of the whole if node.
@@ -555,7 +595,7 @@ impl Cop for EmptyLineAfterGuardClause {
             if body_heredoc.is_some() {
                 (body_heredoc, true)
             } else {
-                (find_heredoc_end_line(source, node), false)
+                (find_condition_heredoc_end_line(source, node), false)
             }
         } else {
             (None, false)
@@ -600,9 +640,8 @@ impl Cop for EmptyLineAfterGuardClause {
         // For multiline guards (start != end), if there's code after the guard on the
         // end line, that code IS the next statement and there's no blank line between
         // them — this is an offense (not an embedded expression).
-        let if_start_line = source.offset_to_line_col(loc.start_offset()).0;
         let mut has_code_after_multiline_guard = false;
-        let mut has_attached_modifier_suffix = false;
+        let mut has_attached_suffix = false;
         if heredoc_end_line.is_none() {
             let statement_end_line = source.offset_to_line_col(statement_end_offset).0;
             if let Some(cur_line) = lines.get(statement_end_line.saturating_sub(1)) {
@@ -621,10 +660,14 @@ impl Cop for EmptyLineAfterGuardClause {
                         .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
                     {
                         let trailing = &rest[idx..];
+                        if is_only_closing_delimiters_then_optional_comment(trailing) {
+                            return;
+                        }
                         if starts_with_keyword(trailing, b"if")
                             || starts_with_keyword(trailing, b"unless")
+                            || starts_with_keyword(trailing, b"rescue")
                         {
-                            has_attached_modifier_suffix = true;
+                            has_attached_suffix = true;
                         } else if trailing[0] == b';' {
                             // Semicolon: check if there's code after it.
                             // `return if cond;` or `break if eof?; # comment` — standalone.
@@ -658,7 +701,7 @@ impl Cop for EmptyLineAfterGuardClause {
             }
         }
 
-        if is_modifier && has_attached_modifier_suffix {
+        if has_attached_suffix {
             return;
         }
 
@@ -942,6 +985,30 @@ fn find_heredoc_end_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Op
     };
     finder.visit(node);
     finder.max_end_line
+}
+
+/// Approximate RuboCop's condition-side heredoc handling for modifier guards.
+/// RuboCop's `last_heredoc_argument` descends through method-call chains, but
+/// not through boolean `&&`/`||` condition wrappers. That means:
+/// - `return true if <<~TEXT.length > bar` uses the heredoc end line
+/// - `return if cond && !yes?(<<~MSG)` does NOT
+fn find_condition_heredoc_end_line(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+) -> Option<usize> {
+    let predicate = if let Some(if_node) = node.as_if_node() {
+        if_node.predicate()
+    } else if let Some(unless_node) = node.as_unless_node() {
+        unless_node.predicate()
+    } else {
+        return None;
+    };
+
+    if predicate.as_and_node().is_some() || predicate.as_or_node().is_some() {
+        return None;
+    }
+
+    find_heredoc_end_line(source, &predicate)
 }
 
 /// For `and`/`or` operator nodes, return the location of the RHS (the guard part).
@@ -1480,10 +1547,36 @@ fn find_top_level_semicolon(line: &[u8]) -> Option<usize> {
     let mut in_single_quote = false;
     let mut in_double_quote = false;
     let mut in_regex = false;
+    let mut in_percent_literal: Option<(u8, u8, usize)> = None;
+    let mut depth: i32 = 0;
     let mut i = 0;
 
     while i < line.len() {
         let b = line[i];
+        if let Some((open, close, nested_depth)) = in_percent_literal.as_mut() {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+
+            if *open != *close && b == *open {
+                *nested_depth += 1;
+                i += 1;
+                continue;
+            }
+
+            if b == *close {
+                if *nested_depth == 0 {
+                    in_percent_literal = None;
+                } else {
+                    *nested_depth -= 1;
+                }
+            }
+
+            i += 1;
+            continue;
+        }
+
         match b {
             b'\\' if in_double_quote || in_single_quote || in_regex => {
                 i += 2;
@@ -1491,8 +1584,44 @@ fn find_top_level_semicolon(line: &[u8]) -> Option<usize> {
             }
             b'\'' if !in_double_quote && !in_regex => in_single_quote = !in_single_quote,
             b'"' if !in_single_quote && !in_regex => in_double_quote = !in_double_quote,
-            b'/' if !in_single_quote && !in_double_quote => in_regex = !in_regex,
-            b';' if !in_single_quote && !in_double_quote && !in_regex => return Some(i),
+            b'%' if !in_single_quote && !in_double_quote && !in_regex => {
+                if let Some((next_i, open, close)) = match_percent_literal(line, i) {
+                    in_percent_literal = Some((open, close, 0));
+                    i = next_i;
+                    continue;
+                }
+            }
+            b'/' if !in_single_quote && !in_double_quote => {
+                let is_regex_start = if i == 0 {
+                    true
+                } else {
+                    matches!(
+                        line[i - 1],
+                        b'=' | b'('
+                            | b','
+                            | b'!'
+                            | b'~'
+                            | b' '
+                            | b'\t'
+                            | b'|'
+                            | b'&'
+                            | b'{'
+                            | b'['
+                            | b';'
+                            | b':'
+                    )
+                };
+                if is_regex_start {
+                    in_regex = !in_regex;
+                }
+            }
+            b'(' | b'{' | b'[' if !in_single_quote && !in_double_quote && !in_regex => depth += 1,
+            b')' | b'}' | b']' if !in_single_quote && !in_double_quote && !in_regex => {
+                depth = depth.saturating_sub(1)
+            }
+            b';' if !in_single_quote && !in_double_quote && !in_regex && depth == 0 => {
+                return Some(i);
+            }
             _ => {}
         }
         i += 1;
@@ -2386,8 +2515,17 @@ fn is_allowed_directive_comment(line: &[u8]) -> bool {
     let Some(trimmed) = trim_to_comment_content(line) else {
         return false;
     };
-    // rubocop:enable is allowed (but NOT rubocop:disable)
-    trimmed.starts_with(b"rubocop:enable") || trimmed.starts_with(b":nocov:")
+    // rubocop:enable is allowed (but NOT rubocop:disable). RuboCop accepts
+    // optional spaces after `rubocop:`.
+    if let Some(after_prefix) = trimmed.strip_prefix(b"rubocop:") {
+        let after_prefix = after_prefix
+            .iter()
+            .position(|&b| b != b' ')
+            .map(|idx| &after_prefix[idx..])
+            .unwrap_or(b"");
+        return after_prefix.starts_with(b"enable");
+    }
+    trimmed.starts_with(b":nocov:")
 }
 
 /// Extract the content after `#` from a comment line, trimming whitespace.
@@ -2405,6 +2543,55 @@ fn trim_to_comment_content(line: &[u8]) -> Option<&[u8]> {
         .map(|i| &after_hash[i..])
         .unwrap_or(b"");
     Some(trimmed)
+}
+
+fn is_only_closing_delimiters_then_optional_comment(trailing: &[u8]) -> bool {
+    let mut i = 0;
+    let mut saw_closing_delimiter = false;
+    while i < trailing.len() {
+        match trailing[i] {
+            b' ' | b'\t' | b'\r' | b'\n' => i += 1,
+            b')' | b']' | b'}' => {
+                saw_closing_delimiter = true;
+                i += 1;
+            }
+            b'#' => return saw_closing_delimiter,
+            _ => return false,
+        }
+    }
+    saw_closing_delimiter
+}
+
+fn previous_significant_line_ends_with_assignment(lines: &[&[u8]], line_number: usize) -> bool {
+    if line_number <= 1 {
+        return false;
+    }
+
+    for line in lines[..line_number - 1].iter().rev() {
+        let trimmed = trim_trailing_whitespace(strip_inline_comment(line));
+        let Some(start) = trimmed.iter().position(|&b| b != b' ' && b != b'\t') else {
+            continue;
+        };
+        let content = &trimmed[start..];
+        if content.starts_with(b"#") {
+            continue;
+        }
+
+        return ends_with_assignment_continuation(content);
+    }
+
+    false
+}
+
+fn ends_with_assignment_continuation(content: &[u8]) -> bool {
+    content.ends_with(b"=")
+        && !content.ends_with(b"==")
+        && !content.ends_with(b"===")
+        && !content.ends_with(b"!=")
+        && !content.ends_with(b"<=")
+        && !content.ends_with(b">=")
+        && !content.ends_with(b"=~")
+        && !content.ends_with(b"!~")
 }
 
 #[cfg(test)]

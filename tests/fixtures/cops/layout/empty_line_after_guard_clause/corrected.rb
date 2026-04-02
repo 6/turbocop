@@ -544,10 +544,10 @@ end
 # right after the `return if ...` line, not after the heredoc end marker.
 def guard_with_heredoc_in_condition
   return if previous_version_prompt && !yes?(<<~MSG, :red)
+
     The default preferences update process is only supported.
     Are you sure you want to continue? (y/N)
   MSG
-
   from = options[:from]
 end
 
@@ -569,4 +569,20 @@ def consecutive_guards_backslash_between_args
 
   raise ArgumentError, "The name is"\
     " not allowed" if opts.key?(:name)
+end
+
+# FN regression fix: inline comments after standalone modifier guards still require a blank line
+def guard_with_inline_comment
+  return obj if cache_hit? # inline comment
+
+  fetch_value
+end
+
+# FN regression fix: multiline modifier guard with inline comment on the end line still requires a blank line
+def multiline_guard_with_inline_comment
+  return unless (
+
+    services & NODE_NETWORK
+  ) == 1 # inline comment
+  work
 end
