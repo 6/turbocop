@@ -136,14 +136,14 @@ def test_corpus_oracle_workflow_uses_dynamic_pr_renderer():
 def test_release_workflow_commits_directly_to_main() -> None:
     content = RELEASE.read_text()
     assert "Release workflow must run from main" in content
-    assert "GH_TOKEN: ${{ github.token }}" in content
+    assert "GH_TOKEN: ${{ steps.app-token.outputs.token }}" in content
     assert "--identity github-actions" in content
     assert "git checkout -B main origin/main" in content
-    assert "push-local" in content
+    assert "git push origin main" in content
     assert "--branch main \\" in content
     assert 'gh pr create' not in content
     assert 'gh pr merge' not in content
-    assert "actions/create-github-app-token@v3" not in content
+    assert "actions/create-github-app-token@v3" in content
 
 
 if __name__ == "__main__":

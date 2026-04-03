@@ -59,9 +59,16 @@ jobs:
             exit 1
           fi
 
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
       - name: Bump version and tag
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           sed -i 's/^version = ".*"/version = "${{ steps.version.outputs.cargo }}"/' Cargo.toml
           sed -i 's/VERSION = ".*"/VERSION = "${{ steps.version.outputs.gem }}"/' gem/lib/nitrocop.rb
@@ -74,7 +81,8 @@ jobs:
           git add Cargo.toml Cargo.lock gem/lib/nitrocop.rb
           COMMIT_MSG="Release v${{ steps.version.outputs.tag }}"
           git commit -m "$COMMIT_MSG"
-          eval "$(python3 scripts/workflows/workflow_git.py push-local \
+          git push origin main
+          eval "$(python3 scripts/workflows/workflow_git.py promote \
             --repo "${{ github.repository }}" \
             --branch main \
             --message "$COMMIT_MSG")"

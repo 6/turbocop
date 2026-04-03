@@ -136,54 +136,6 @@ def promote(repo: str, branch: str, message: str, expected_sha: str | None = Non
     return result
 
 
-def push_local(repo: str, branch: str, message: str, repo_root: Path) -> dict[str, str]:
-    """Push the local HEAD to a remote branch via the GitHub API.
-
-    Instead of `git push` (which is blocked by branch protection), this:
-    1. Reads the tree and parent SHAs from the local HEAD.
-    2. Creates a verified commit via the GitHub API.
-    3. Updates the remote ref via PATCH (bypasses branch protection).
-    """
-    tree_result = run_git(repo_root, "rev-parse", "HEAD^{tree}")
-    tree_sha = tree_result.stdout.strip()
-
-    parent_result = run_git(repo_root, "rev-parse", "HEAD^", check=False)
-    parent_shas: list[str] = []
-    if parent_result.returncode == 0:
-        parent_shas = [parent_result.stdout.strip()]
-
-    create_args = [
-        f"repos/{repo}/git/commits",
-        "-f",
-        f"message={message}",
-        "-f",
-        f"tree={tree_sha}",
-    ]
-    for parent_sha in parent_shas:
-        create_args.extend(["-f", f"parents[]={parent_sha}"])
-
-    signed = json.loads(run_gh(create_args))
-    signed_sha = signed["sha"]
-
-    run_gh([
-        f"repos/{repo}/git/refs/heads/{branch}",
-        "-X",
-        "PATCH",
-        "-f",
-        f"sha={signed_sha}",
-        "-F",
-        "force=true",
-    ])
-
-    result: dict[str, str] = {
-        "signed_sha": signed_sha,
-        "tree_sha": tree_sha,
-    }
-    if parent_shas:
-        result["parent_sha"] = parent_shas[0]
-    return result
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Shared workflow git helpers")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -214,15 +166,6 @@ def main() -> int:
     promote_parser.add_argument("--message", required=True, help="final commit message")
     promote_parser.add_argument("--expected-sha", help="expected branch tip SHA after push (retries on stale ref)")
 
-    push_local_parser = subparsers.add_parser(
-        "push-local",
-        help="Push local HEAD to remote branch via GitHub API (bypasses branch protection)",
-    )
-    push_local_parser.add_argument("--repo", required=True, help="owner/repo")
-    push_local_parser.add_argument("--branch", required=True, help="branch name")
-    push_local_parser.add_argument("--message", required=True, help="commit message")
-    push_local_parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-
     args = parser.parse_args()
 
     if args.command == "configure":
@@ -237,12 +180,6 @@ def main() -> int:
 
     if args.command == "promote":
         result = promote(args.repo, args.branch, args.message, expected_sha=args.expected_sha)
-        for key, value in result.items():
-            print(f"{key}={value}")
-        return 0
-
-    if args.command == "push-local":
-        result = push_local(args.repo, args.branch, args.message, args.repo_root.resolve())
         for key, value in result.items():
             print(f"{key}={value}")
         return 0
