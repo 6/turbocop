@@ -1,5 +1,5 @@
+use std::cell::RefCell;
 use std::ops::Range;
-use std::sync::Mutex;
 
 use crate::cop::method_identifier_predicates;
 use crate::cop::variable_force::{self, Scope, VariableTable};
@@ -7,6 +7,30 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
+
+// Thread-local storage for per-file data. Within a rayon task, a single
+// file is processed sequentially: check_source → VF engine →
+// after_leaving_scope, so thread-local storage is safe and avoids the
+// TOCTOU race that Mutex fields on the shared cop struct would cause.
+thread_local! {
+    static SAVE_BANG_DATA: RefCell<SaveBangData> = const { RefCell::new(SaveBangData::new()) };
+}
+
+struct SaveBangData {
+    persisted_receiver_offsets: Vec<usize>,
+    persisted_if_body_ranges: Vec<Range<usize>>,
+    create_assignments: Vec<CreateAssignmentInfo>,
+}
+
+impl SaveBangData {
+    const fn new() -> Self {
+        Self {
+            persisted_receiver_offsets: Vec::new(),
+            persisted_if_body_ranges: Vec::new(),
+            create_assignments: Vec::new(),
+        }
+    }
+}
 
 /// Rails/SaveBang - flags ActiveRecord persist methods (save, update, destroy, create, etc.)
 /// whose return value is not checked, suggesting bang variants instead.
@@ -37,18 +61,7 @@ use ruby_prism::Visit;
 ///
 /// FP=0, FN=0 (99.98%+ match rate). See previous doc comments in git history for
 /// detailed investigation notes on each edge case.
-pub struct SaveBang {
-    /// Byte offsets of `LocalVariableReadNode` nodes that are receivers of `.persisted?` calls.
-    /// Populated by check_source, consumed by the VF hook.
-    persisted_receiver_offsets: Mutex<Vec<usize>>,
-    /// Byte offset ranges of if-bodies where the condition is `.persisted?`.
-    /// For RuboCop's `call_to_persisted?` quirk: variable references in these ranges
-    /// are treated as having a persisted? check.
-    persisted_if_body_ranges: Mutex<Vec<Range<usize>>>,
-    /// Pre-computed create-in-local-assignment info from check_source.
-    /// Maps assignment node offset to diagnostic info. VF hook looks up assignments here.
-    create_assignments: Mutex<Vec<CreateAssignmentInfo>>,
-}
+pub struct SaveBang;
 
 /// Info about a create-type persist call in a local variable assignment.
 struct CreateAssignmentInfo {
@@ -123,17 +136,13 @@ fn is_literal_node(node: &ruby_prism::Node<'_>) -> bool {
 
 impl SaveBang {
     pub fn new() -> Self {
-        Self {
-            persisted_receiver_offsets: Mutex::new(Vec::new()),
-            persisted_if_body_ranges: Mutex::new(Vec::new()),
-            create_assignments: Mutex::new(Vec::new()),
-        }
+        Self
     }
 }
 
 impl Default for SaveBang {
     fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
@@ -171,9 +180,12 @@ impl Cop for SaveBang {
             create_assignments: Vec::new(),
         };
         collector.visit(&parse_result.node());
-        *self.persisted_receiver_offsets.lock().unwrap() = collector.receiver_offsets;
-        *self.persisted_if_body_ranges.lock().unwrap() = collector.if_body_ranges;
-        *self.create_assignments.lock().unwrap() = collector.create_assignments;
+        SAVE_BANG_DATA.with(|cell| {
+            let mut data = cell.borrow_mut();
+            data.persisted_receiver_offsets = collector.receiver_offsets;
+            data.persisted_if_body_ranges = collector.if_body_ranges;
+            data.create_assignments = collector.create_assignments;
+        });
 
         // Run the context-tracking visitor for on_send path.
         let mut visitor = SaveBangVisitor {
@@ -204,51 +216,54 @@ impl variable_force::VariableForceConsumer for SaveBang {
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        let create_assignments = self.create_assignments.lock().unwrap();
-        let persisted_offsets = self.persisted_receiver_offsets.lock().unwrap();
-        let persisted_if_ranges = self.persisted_if_body_ranges.lock().unwrap();
+        SAVE_BANG_DATA.with(|cell| {
+            let data = cell.borrow();
+            let create_assignments = &data.create_assignments;
+            let persisted_offsets = &data.persisted_receiver_offsets;
+            let persisted_if_ranges = &data.persisted_if_body_ranges;
 
-        for variable in scope.variables.values() {
-            // Check if any of the variable's references land on a persisted?-equivalent offset.
-            // RuboCop's persisted_referenced? checks assignment.variable.references (ALL refs).
-            let has_persisted_ref = variable.references.iter().any(|r| {
-                persisted_offsets.contains(&r.node_offset)
-                    || persisted_if_ranges
+            for variable in scope.variables.values() {
+                // Check if any of the variable's references land on a persisted?-equivalent offset.
+                // RuboCop's persisted_referenced? checks assignment.variable.references (ALL refs).
+                let has_persisted_ref = variable.references.iter().any(|r| {
+                    persisted_offsets.contains(&r.node_offset)
+                        || persisted_if_ranges
+                            .iter()
+                            .any(|range| range.contains(&r.node_offset))
+                });
+
+                for assignment in &variable.assignments {
+                    // Only check simple assignments (x = expr), not ||=, &&=, operator writes.
+                    // RuboCop's right_assignment_node returns early for or_asgn/and_asgn.
+                    if !matches!(assignment.kind, variable_force::AssignmentKind::Simple) {
+                        continue;
+                    }
+
+                    // Look up this assignment in the pre-computed create assignments.
+                    let create_info = create_assignments
                         .iter()
-                        .any(|range| range.contains(&r.node_offset))
-            });
+                        .find(|ca| ca.assignment_offset == assignment.node_offset);
 
-            for assignment in &variable.assignments {
-                // Only check simple assignments (x = expr), not ||=, &&=, operator writes.
-                // RuboCop's right_assignment_node returns early for or_asgn/and_asgn.
-                if !matches!(assignment.kind, variable_force::AssignmentKind::Simple) {
-                    continue;
+                    let create_info = match create_info {
+                        Some(info) => info,
+                        None => continue,
+                    };
+
+                    // RuboCop: return if persisted_referenced?(assignment)
+                    // persisted_referenced? requires assignment.referenced? AND variable has persisted? ref.
+                    if !assignment.references.is_empty() && has_persisted_ref {
+                        continue;
+                    }
+
+                    // Emit CREATE_MSG offense.
+                    let (line, column) = source.offset_to_line_col(create_info.message_offset);
+                    let message = CREATE_MSG
+                        .replace("%prefer%", &format!("{}!", create_info.method_name))
+                        .replace("%current%", create_info.method_name);
+                    diagnostics.push(self.diagnostic(source, line, column, message));
                 }
-
-                // Look up this assignment in the pre-computed create assignments.
-                let create_info = create_assignments
-                    .iter()
-                    .find(|ca| ca.assignment_offset == assignment.node_offset);
-
-                let create_info = match create_info {
-                    Some(info) => info,
-                    None => continue,
-                };
-
-                // RuboCop: return if persisted_referenced?(assignment)
-                // persisted_referenced? requires assignment.referenced? AND variable has persisted? ref.
-                if !assignment.references.is_empty() && has_persisted_ref {
-                    continue;
-                }
-
-                // Emit CREATE_MSG offense.
-                let (line, column) = source.offset_to_line_col(create_info.message_offset);
-                let message = CREATE_MSG
-                    .replace("%prefer%", &format!("{}!", create_info.method_name))
-                    .replace("%current%", create_info.method_name);
-                diagnostics.push(self.diagnostic(source, line, column, message));
             }
-        }
+        });
     }
 }
 
