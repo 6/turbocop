@@ -98,6 +98,17 @@ use crate::parse::source::SourceFile;
 /// `tp.binding.local_variable_get(name)`. Fixed by matching zero-arg `binding`
 /// calls regardless of receiver, while still leaving `binding(:arg)` as an offense.
 ///
+/// ## Corpus investigation (2026-04-03)
+///
+/// FN=5: Bare `super` (ForwardingSuperNode) inside a block incorrectly marked
+/// block arguments as implicitly referenced. `super` forwards the enclosing
+/// *method's* arguments, not block parameters. Examples: `define_method(m) do
+/// |*args| super end` and `@connection.execute(false) do |conn| super end`
+/// inside method bodies. Fixed in the VariableForce engine by changing
+/// `visit_forwarding_super_node` to use `enclosing_method_arguments_mut()`
+/// which skips Block scopes and only marks arguments from the enclosing
+/// Def/Defs scope.
+///
 /// ## Migration to VariableForce
 ///
 /// This cop was migrated from a 729-line standalone AST visitor to use the shared
