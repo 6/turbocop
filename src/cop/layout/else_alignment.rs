@@ -1,7 +1,7 @@
 use crate::cop::shared::node_type::{
     BEGIN_NODE, CASE_MATCH_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE, UNLESS_NODE,
 };
-use crate::cop::shared::util::assignment_context_base_col;
+use crate::cop::shared::util::{assignment_context_base_col, begins_its_line};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -41,25 +41,6 @@ use crate::parse::source::SourceFile;
 pub struct ElseAlignment;
 
 impl ElseAlignment {
-    /// Returns true if the token at `offset` is the first non-whitespace on its line.
-    /// Mirrors RuboCop's `begins_its_line?` — alignment checks are skipped when
-    /// `else`/`elsif` does not begin its line (e.g., compressed/minified code).
-    fn begins_its_line(source: &SourceFile, offset: usize) -> bool {
-        let bytes = source.as_bytes();
-        let mut pos = offset;
-        while pos > 0 && bytes[pos - 1] != b'\n' {
-            pos -= 1;
-        }
-        // pos is now the start of the line; scan forward for first non-whitespace
-        let mut first_nonws = pos;
-        while first_nonws < bytes.len()
-            && (bytes[first_nonws] == b' ' || bytes[first_nonws] == b'\t')
-        {
-            first_nonws += 1;
-        }
-        first_nonws == offset
-    }
-
     /// Check else alignment for begin/rescue/else constructs.
     /// `base_keyword` is the keyword name to use in the message (e.g., "begin", "def").
     fn check_begin_else(
@@ -76,7 +57,7 @@ impl ElseAlignment {
             None => return,
         };
         let else_kw_loc = else_clause.else_keyword_loc();
-        if !Self::begins_its_line(source, else_kw_loc.start_offset()) {
+        if !begins_its_line(source, else_kw_loc.start_offset()) {
             return;
         }
         let (else_line, else_col) = source.offset_to_line_col(else_kw_loc.start_offset());
@@ -141,7 +122,7 @@ impl Cop for ElseAlignment {
                 None => return,
             };
             let else_kw_loc = else_clause.else_keyword_loc();
-            if !Self::begins_its_line(source, else_kw_loc.start_offset()) {
+            if !begins_its_line(source, else_kw_loc.start_offset()) {
                 return;
             }
             let (else_line, else_col) = source.offset_to_line_col(else_kw_loc.start_offset());
@@ -183,7 +164,7 @@ impl Cop for ElseAlignment {
                 None => return,
             };
             let else_kw_loc = else_clause.else_keyword_loc();
-            if !Self::begins_its_line(source, else_kw_loc.start_offset()) {
+            if !begins_its_line(source, else_kw_loc.start_offset()) {
                 return;
             }
             let (else_line, else_col) = source.offset_to_line_col(else_kw_loc.start_offset());
@@ -296,7 +277,7 @@ impl Cop for ElseAlignment {
             };
 
             let else_kw_loc = else_clause.else_keyword_loc();
-            if !Self::begins_its_line(source, else_kw_loc.start_offset()) {
+            if !begins_its_line(source, else_kw_loc.start_offset()) {
                 return;
             }
             let (else_line, else_col) = source.offset_to_line_col(else_kw_loc.start_offset());
@@ -356,7 +337,7 @@ impl Cop for ElseAlignment {
         while let Some(subsequent) = current {
             if let Some(else_node) = subsequent.as_else_node() {
                 let else_kw_loc = else_node.else_keyword_loc();
-                if !Self::begins_its_line(source, else_kw_loc.start_offset()) {
+                if !begins_its_line(source, else_kw_loc.start_offset()) {
                     current = None;
                     continue;
                 }
@@ -380,7 +361,7 @@ impl Cop for ElseAlignment {
                     Some(loc) => loc,
                     None => break,
                 };
-                if !Self::begins_its_line(source, elsif_kw_loc.start_offset()) {
+                if !begins_its_line(source, elsif_kw_loc.start_offset()) {
                     current = elsif_node.subsequent();
                     continue;
                 }

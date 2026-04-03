@@ -1,5 +1,5 @@
 use crate::cop::shared::node_type::{AND_NODE, CALL_NODE, OR_NODE};
-use crate::cop::shared::util::indentation_of;
+use crate::cop::shared::util::{begins_its_line, indentation_of};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -226,7 +226,10 @@ fn is_inside_parentheses(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bo
 }
 
 /// Count leading whitespace bytes (spaces and tabs) on a line.
-fn leading_whitespace_len(line: &[u8]) -> usize {
+/// Unlike `shared::util::indentation_of` which only counts spaces, this
+/// also counts tabs — needed for finding the first non-whitespace token
+/// in keyword context detection.
+fn leading_whitespace_len_with_tabs(line: &[u8]) -> usize {
     line.iter()
         .take_while(|&&b| b == b' ' || b == b'\t')
         .count()
@@ -302,7 +305,7 @@ fn keyword_context_on_line(
     expr_col: usize,
 ) -> Option<KeywordContext> {
     fn extract(line_bytes: &[u8], expr_col: usize) -> Option<KeywordContext> {
-        let start = leading_whitespace_len(line_bytes);
+        let start = leading_whitespace_len_with_tabs(line_bytes);
         let end = expr_col.min(line_bytes.len());
         let before_expr = &line_bytes[start..end];
 
@@ -448,11 +451,7 @@ impl MultilineOperationIndentation {
         // the first non-whitespace on its line. When the operator is leading
         // (e.g., `expr \n  && other_expr`), the right operand is NOT the first
         // token on the line and RuboCop skips the check.
-        // Use tab-aware whitespace counting (not just spaces) to handle
-        // codebases with tab indentation.
-        let right_line_bytes = source.lines().nth(right_line - 1).unwrap_or(b"");
-        let first_nonws = leading_whitespace_len(right_line_bytes);
-        if right_col != first_nonws {
+        if !begins_its_line(source, right.location().start_offset()) {
             return Vec::new();
         }
 
