@@ -470,6 +470,28 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         self.table.assign_to_variable(&name, assign);
     }
 
+    fn visit_local_variable_target_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableTargetNode<'pr>,
+    ) {
+        // Handle LocalVariableTargetNode in contexts not already covered by
+        // visit_multi_write_node, visit_match_write_node, or visit_for_node.
+        // This covers:
+        //   - Pattern match variables: `case x; in _var; end`
+        //   - Rescue exception captures: `rescue Error => _e`
+        let name = node.name().as_slice().to_vec();
+        let offset = node.location().start_offset();
+        if !self.table.variable_exists(&name) {
+            self.declare_variable(name.clone(), offset, DeclarationKind::PatternMatch);
+        }
+        let seq = self.next_sequence();
+        let mut a = Assignment::new(offset, AssignmentKind::Simple);
+        a.sequence = seq;
+        a.in_branch = self.branch_depth > 0;
+        a.branch_id = self.current_branch_id();
+        self.table.assign_to_variable(&name, a);
+    }
+
     fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
         let scope_index = self.table.current_scope_index();
         let seq = self.next_sequence();
@@ -901,6 +923,16 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         self.branch_depth -= 1;
     }
 
+    fn visit_in_node(&mut self, node: &ruby_prism::InNode<'pr>) {
+        // Pre-declare all pattern match variables before visiting the pattern.
+        // Guard clauses like `in _ if _.blank?` are represented as IfNode where
+        // the predicate (guard) references the variable before the statements
+        // (pattern target) declares it. Pre-declaring ensures the variable exists
+        // when the guard's LocalVariableReadNode is visited.
+        predeclare_pattern_targets(self, &node.pattern());
+        ruby_prism::visit_in_node(self, node);
+    }
+
     fn visit_case_match_node(&mut self, node: &ruby_prism::CaseMatchNode<'pr>) {
         let parent_id = node.location().start_offset();
         if let Some(pred) = node.predicate() {
@@ -1188,6 +1220,38 @@ fn predicate_has_lvar_write(node: &ruby_prism::Node<'_>) -> bool {
     let mut detector = LvarWriteDetector { found: false };
     detector.visit(node);
     detector.found
+}
+
+/// Pre-declare all `LocalVariableTargetNode` variables found in a pattern
+/// match node. This ensures guard clause references (`in _ if _.blank?`) can
+/// find the variable before the pattern target node is visited.
+fn predeclare_pattern_targets(engine: &mut Engine<'_>, node: &ruby_prism::Node<'_>) {
+    struct TargetCollector {
+        targets: Vec<(Vec<u8>, usize)>,
+    }
+    impl<'pr> ruby_prism::Visit<'pr> for TargetCollector {
+        fn visit_local_variable_target_node(
+            &mut self,
+            node: &ruby_prism::LocalVariableTargetNode<'pr>,
+        ) {
+            self.targets.push((
+                node.name().as_slice().to_vec(),
+                node.location().start_offset(),
+            ));
+        }
+        fn visit_def_node(&mut self, _: &ruby_prism::DefNode<'_>) {}
+        fn visit_class_node(&mut self, _: &ruby_prism::ClassNode<'_>) {}
+        fn visit_module_node(&mut self, _: &ruby_prism::ModuleNode<'_>) {}
+    }
+    let mut collector = TargetCollector {
+        targets: Vec::new(),
+    };
+    collector.visit(node);
+    for (name, offset) in collector.targets {
+        if !engine.table.variable_exists(&name) {
+            engine.declare_variable(name, offset, DeclarationKind::PatternMatch);
+        }
+    }
 }
 
 /// Check if a rescue node (or its chained subsequent rescue clauses)

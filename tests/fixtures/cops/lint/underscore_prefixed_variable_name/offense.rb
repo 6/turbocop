@@ -191,3 +191,31 @@ def draw_with_branch(simulation, around_draw_procs)
     _simulation = simulation
   end
 end
+
+# Rescue exception capture with underscore prefix that is used
+def handle_error
+  begin
+    risky_operation
+  rescue StandardError => _e
+                          ^^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+    puts _e.message
+  end
+end
+
+# Pattern match bare underscore used in guard clause
+def process_value(value)
+  case value
+  in _ if _.blank?
+     ^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+    "blank"
+  end
+end
+
+# Pattern match named variable with underscore prefix that is used
+def parse_url(parts)
+  case parts
+  in _, _, "imgaz", "upload", _year_month_day, _
+                              ^^^^^^^^^^^^^^^ Lint/UnderscorePrefixedVariableName: Do not use prefix `_` for a variable that is used.
+    puts _year_month_day
+  end
+end

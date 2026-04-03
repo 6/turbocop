@@ -16,15 +16,9 @@
 /// - Skips variables implicitly forwarded via bare `super` or `binding`.
 /// - Handles top-level scope, class/module bodies, and nested blocks.
 /// - Handles destructured block parameters (e.g., `|(a, _b)|`).
-/// - Skips named captures from regex (`DeclarationKind::RegexpCapture`).
-///
-/// ## Migration to VariableForce
-///
-/// This cop was migrated from a 1,189-line standalone AST visitor to use the
-/// shared VariableForce engine. The `before_leaving_scope` hook iterates each
-/// variable in the scope and checks if an underscore-prefixed variable has any
-/// explicit references. The engine handles all scope boundaries, parameter
-/// shadowing, `binding()` implicit refs, and `super` forwarding.
+/// - Handles pattern match variables (e.g., `case x; in _var; end`) including
+///   guard clauses (`in _ if _.blank?`).
+/// - Handles rescue exception captures (e.g., `rescue Error => _e`).
 use crate::cop::variable_force::{self, DeclarationKind, Scope, VariableTable};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -301,6 +295,73 @@ mod tests {
             diags.len(),
             1,
             "Expected 1 offense (only in second block), got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn test_rescue_exception_capture_used() {
+        let cop = UnderscorePrefixedVariableName;
+        let source = b"def foo\n  begin\n    risky\n  rescue StandardError => _e\n    puts _e.message\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&cop, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for _e rescue capture, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn test_rescue_exception_capture_unused() {
+        let cop = UnderscorePrefixedVariableName;
+        let source =
+            b"def foo\n  begin\n    risky\n  rescue StandardError => _e\n    puts \"error\"\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&cop, source);
+        assert_eq!(
+            diags.len(),
+            0,
+            "Expected 0 offenses for unused _e, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn test_pattern_match_guard_bare_underscore() {
+        let cop = UnderscorePrefixedVariableName;
+        let source = b"def foo(v)\n  case v\n  in _ if _.blank?\n    42\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&cop, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for _ in pattern guard, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn test_pattern_match_named_var_used() {
+        let cop = UnderscorePrefixedVariableName;
+        let source =
+            b"def foo(parts)\n  case parts\n  in _, _, _year\n    puts _year\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&cop, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for _year in pattern match, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn test_pattern_match_var_unused() {
+        let cop = UnderscorePrefixedVariableName;
+        let source = b"def foo(v)\n  case v\n  in _x\n    \"matched\"\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&cop, source);
+        assert_eq!(
+            diags.len(),
+            0,
+            "Expected 0 offenses for unused _x, got: {:?}",
             diags
         );
     }
