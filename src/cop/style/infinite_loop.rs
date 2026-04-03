@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
 
+use crate::cop::literal_predicates;
 use crate::cop::variable_force::{self, Scope, VariableTable};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -296,30 +297,12 @@ fn check_variable_breaks_scoping(
 
 // ── Loop collector ────────────────────────────────────────────────────
 
-/// Returns true if the node is a truthy literal.
 fn is_truthy_literal(node: &ruby_prism::Node<'_>) -> bool {
-    node.as_true_node().is_some()
-        || node.as_integer_node().is_some()
-        || node.as_float_node().is_some()
-        || node.as_string_node().is_some()
-        || node.as_interpolated_string_node().is_some()
-        || node.as_x_string_node().is_some()
-        || node.as_interpolated_x_string_node().is_some()
-        || node.as_symbol_node().is_some()
-        || node.as_interpolated_symbol_node().is_some()
-        || node.as_array_node().is_some()
-        || node.as_hash_node().is_some()
-        || node.as_keyword_hash_node().is_some()
-        || node.as_regular_expression_node().is_some()
-        || node.as_interpolated_regular_expression_node().is_some()
-        || node.as_range_node().is_some()
-        || node.as_rational_node().is_some()
-        || node.as_imaginary_node().is_some()
+    literal_predicates::is_truthy_literal(node)
 }
 
-/// Returns true if the node is a falsey literal (false, nil).
 fn is_falsey_literal(node: &ruby_prism::Node<'_>) -> bool {
-    node.as_false_node().is_some() || node.as_nil_node().is_some()
+    literal_predicates::is_falsey_literal(node)
 }
 
 /// AST visitor that finds all `while true`/`until false` loops and records

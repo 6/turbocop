@@ -4,6 +4,7 @@ pub mod factory_bot;
 pub mod gemspec;
 pub mod layout;
 pub mod lint;
+pub mod literal_predicates;
 pub mod method_identifier_predicates;
 pub mod metrics;
 pub mod migration;

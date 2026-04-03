@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::literal_predicates;
 use crate::cop::node_type::{
     AND_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, IF_NODE, OR_NODE, UNLESS_NODE, UNTIL_NODE,
     WHILE_NODE,
@@ -154,48 +155,16 @@ use crate::parse::source::SourceFile;
 /// which account for the truthiness of the condition.
 pub struct LiteralAsCondition;
 
-/// Check if a node is a literal value (matches RuboCop's `literal?`).
-/// Includes: true, false, nil, integers, floats, rationals, imaginary,
-/// strings, symbols, arrays, hashes, regexps, ranges.
 fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
-    matches!(
-        node,
-        ruby_prism::Node::TrueNode { .. }
-            | ruby_prism::Node::FalseNode { .. }
-            | ruby_prism::Node::NilNode { .. }
-            | ruby_prism::Node::IntegerNode { .. }
-            | ruby_prism::Node::FloatNode { .. }
-            | ruby_prism::Node::RationalNode { .. }
-            | ruby_prism::Node::ImaginaryNode { .. }
-            | ruby_prism::Node::StringNode { .. }
-            | ruby_prism::Node::SymbolNode { .. }
-            | ruby_prism::Node::RegularExpressionNode { .. }
-            | ruby_prism::Node::ArrayNode { .. }
-            | ruby_prism::Node::HashNode { .. }
-            | ruby_prism::Node::RangeNode { .. }
-            | ruby_prism::Node::InterpolatedStringNode { .. }
-            | ruby_prism::Node::InterpolatedSymbolNode { .. }
-            | ruby_prism::Node::InterpolatedRegularExpressionNode { .. }
-            | ruby_prism::Node::XStringNode { .. }
-            | ruby_prism::Node::InterpolatedXStringNode { .. }
-    )
+    literal_predicates::is_literal(node)
 }
 
-/// Check if a node is a truthy literal (not nil, not false).
 fn is_truthy_literal(node: &ruby_prism::Node<'_>) -> bool {
-    is_literal(node)
-        && !matches!(
-            node,
-            ruby_prism::Node::NilNode { .. } | ruby_prism::Node::FalseNode { .. }
-        )
+    literal_predicates::is_truthy_literal(node)
 }
 
-/// Check if a node is a falsey literal (nil or false).
 fn is_falsey_literal(node: &ruby_prism::Node<'_>) -> bool {
-    matches!(
-        node,
-        ruby_prism::Node::NilNode { .. } | ruby_prism::Node::FalseNode { .. }
-    )
+    literal_predicates::is_falsey_literal(node)
 }
 
 /// Check if an array node contains only primitive (basic) literals recursively.
@@ -205,29 +174,12 @@ fn is_primitive_array(node: &ruby_prism::Node<'_>) -> bool {
             if elem.as_array_node().is_some() {
                 is_primitive_array(&elem)
             } else {
-                is_basic_literal(&elem)
+                literal_predicates::is_basic_literal(&elem)
             }
         })
     } else {
         false
     }
-}
-
-/// Check if a node is a basic literal (excludes compound types like array/hash/range).
-fn is_basic_literal(node: &ruby_prism::Node<'_>) -> bool {
-    matches!(
-        node,
-        ruby_prism::Node::TrueNode { .. }
-            | ruby_prism::Node::FalseNode { .. }
-            | ruby_prism::Node::NilNode { .. }
-            | ruby_prism::Node::IntegerNode { .. }
-            | ruby_prism::Node::FloatNode { .. }
-            | ruby_prism::Node::RationalNode { .. }
-            | ruby_prism::Node::ImaginaryNode { .. }
-            | ruby_prism::Node::StringNode { .. }
-            | ruby_prism::Node::SymbolNode { .. }
-            | ruby_prism::Node::RegularExpressionNode { .. }
-    )
 }
 
 /// Check and report a literal inside a `!` or `not()` receiver.
