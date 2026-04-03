@@ -130,6 +130,37 @@ TRAILING_COMMA_CONSUMERS = {
     "Style/TrailingCommaInHashLiteral",
 }
 
+# Cops that consume the shared MethodIdentifierPredicates module. Changes to
+# src/cop/method_identifier_predicates.rs should trigger corpus checks for all.
+METHOD_IDENTIFIER_PREDICATES_CONSUMERS = {
+    "Layout/FirstArgumentIndentation",
+    "Layout/MultilineMethodCallIndentation",
+    "Layout/SpaceBeforeFirstArg",
+    "Lint/AmbiguousBlockAssociation",
+    "Lint/AmbiguousRange",
+    "Lint/ParenthesesAsGroupedExpression",
+    "Lint/RequireParentheses",
+    "Lint/SymbolConversion",
+    "Lint/UnreachableLoop",
+    "Lint/UselessSetterCall",
+    "Metrics/AbcSize",
+    "Naming/MethodName",
+    "Naming/PredicateMethod",
+    "Performance/IoReadlines",
+    "Rails/SaveBang",
+    "Style/MethodCallWithArgsParentheses",
+    "Style/MultilineTernaryOperator",
+    "Style/Next",
+    "Style/RedundantParentheses",
+}
+
+# Cops that consume the shared LiteralPredicates module. Changes to
+# src/cop/literal_predicates.rs should trigger corpus checks for all.
+LITERAL_PREDICATES_CONSUMERS = {
+    "Lint/LiteralAsCondition",
+    "Style/InfiniteLoop",
+}
+
 # Department PascalCase → snake_case directory name in src/cop/ and tests/fixtures/
 # Only needed for departments where pascal_to_snake() gives the wrong result
 DEPT_TO_SRC_DIR = {
@@ -1606,6 +1637,18 @@ def detect_cops(base: str, head: str) -> list[str]:
 
     cops = set()
     for path in changed:
+        # Top-level shared modules: src/cop/{name}.rs
+        top_match = re.match(r"src/cop/([^/]+)\.rs$", path)
+        if top_match:
+            name = top_match.group(1)
+            if name == "method_identifier_predicates":
+                cops.update(METHOD_IDENTIFIER_PREDICATES_CONSUMERS)
+            elif name == "literal_predicates":
+                cops.update(LITERAL_PREDICATES_CONSUMERS)
+            # mod.rs, node_type.rs, util.rs, etc. are ignored
+            continue
+
+        # Department cop files: src/cop/{dept}/{name}.rs
         match = re.match(r"src/cop/([^/]+)/([^/]+)\.rs$", path)
         if match:
             dept, name = match.group(1), match.group(2)
