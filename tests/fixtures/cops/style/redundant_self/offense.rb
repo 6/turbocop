@@ -50,3 +50,46 @@ class ComboProxy < WidgetProxy
     end
   end
 end
+
+# self. in method parameter default values
+def singular_label(alt=self.name)
+                       ^^^^ Style/RedundantSelf: Redundant `self` detected.
+end
+
+def plural_label(alt=self.name)
+                     ^^^^ Style/RedundantSelf: Redundant `self` detected.
+end
+
+# keyword param default: step_id is param name, run_step_id is not
+def plan_event(event, time = nil, execution_plan_id: self.execution_plan_id, step_id: self.run_step_id, optional: false)
+                                                                                      ^^^^ Style/RedundantSelf: Redundant `self` detected.
+end
+
+def self.check_port(port_num = self.port)
+                               ^^^^ Style/RedundantSelf: Redundant `self` detected.
+end
+
+# multiline method chain starting with self
+grouping_data = self
+                ^^^^ Style/RedundantSelf: Redundant `self` detected.
+                .groupings
+
+# self.x before x = ... should be flagged (local not yet in scope)
+def scale_marks
+  return if self.annotation_categories.nil?
+            ^^^^ Style/RedundantSelf: Redundant `self` detected.
+  annotation_categories = self.annotation_categories.includes(:annotation_texts)
+end
+
+# modifier-if on a def should not leak locals into enclosing scope
+class ModifierIfDef
+  def to_image
+    date_to = 42
+    p date_to
+  end if true
+
+  def bar
+    self.date_to
+    ^^^^ Style/RedundantSelf: Redundant `self` detected.
+  end
+end
