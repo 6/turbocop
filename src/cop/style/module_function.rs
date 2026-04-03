@@ -159,6 +159,7 @@ impl<'pr> Visit<'pr> for ModuleFunctionVisitor<'_> {
 
 /// Returns true if the node is a `private` call with no receiver (bare `private`,
 /// `private :method_name`, or `private def ...`).
+// TODO: Migrate to shared access_modifier_predicates.
 fn is_private_directive(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
         return call.name().as_slice() == b"private" && call.receiver().is_none();

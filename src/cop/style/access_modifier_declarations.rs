@@ -43,6 +43,7 @@ struct AccessModifierVisitor<'a> {
     allow_modifiers_on_alias_method: bool,
     diagnostics: Vec<Diagnostic>,
     /// true when the current scope is a class/module/sclass body (not a nested block)
+    // TODO: Migrate to shared MacroScope stack for consistent scope tracking.
     in_class_body: bool,
     /// true when walking inside an ordinary method body, which RuboCop ignores.
     in_def_body: bool,
