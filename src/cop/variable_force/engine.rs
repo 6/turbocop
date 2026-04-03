@@ -470,28 +470,6 @@ impl<'pr> Visit<'pr> for Engine<'_> {
         self.table.assign_to_variable(&name, assign);
     }
 
-    fn visit_local_variable_target_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableTargetNode<'pr>,
-    ) {
-        // Handle LocalVariableTargetNode in contexts not already covered by
-        // visit_multi_write_node, visit_match_write_node, or visit_for_node.
-        // This covers:
-        //   - Pattern match variables: `case x; in _var; end`
-        //   - Rescue exception captures: `rescue Error => _e`
-        let name = node.name().as_slice().to_vec();
-        let offset = node.location().start_offset();
-        if !self.table.variable_exists(&name) {
-            self.declare_variable(name.clone(), offset, DeclarationKind::PatternMatch);
-        }
-        let seq = self.next_sequence();
-        let mut a = Assignment::new(offset, AssignmentKind::Simple);
-        a.sequence = seq;
-        a.in_branch = self.branch_depth > 0;
-        a.branch_id = self.current_branch_id();
-        self.table.assign_to_variable(&name, a);
-    }
-
     fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
         let scope_index = self.table.current_scope_index();
         let seq = self.next_sequence();
@@ -924,12 +902,14 @@ impl<'pr> Visit<'pr> for Engine<'_> {
     }
 
     fn visit_in_node(&mut self, node: &ruby_prism::InNode<'pr>) {
-        // Pre-declare all pattern match variables before visiting the pattern.
-        // Guard clauses like `in _ if _.blank?` are represented as IfNode where
-        // the predicate (guard) references the variable before the statements
-        // (pattern target) declares it. Pre-declaring ensures the variable exists
-        // when the guard's LocalVariableReadNode is visited.
-        predeclare_pattern_targets(self, &node.pattern());
+        // Declare and assign all pattern match variables before visiting the
+        // pattern. Guard clauses like `in _ if _.blank?` are represented as
+        // IfNode where the predicate (guard) references the variable before
+        // the pattern target declares it. Pre-declaring and assigning ensures
+        // the variable exists when the guard's LocalVariableReadNode is visited.
+        // The default visitor traversal is safe because there is no generic
+        // visit_local_variable_target_node handler to cause double assignments.
+        declare_and_assign_pattern_targets(self, &node.pattern());
         ruby_prism::visit_in_node(self, node);
     }
 
@@ -1022,7 +1002,42 @@ impl<'pr> Visit<'pr> for Engine<'_> {
 
     fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
         // Branch context is managed by the caller (visit_begin_node).
-        ruby_prism::visit_rescue_node(self, node);
+        // Visit children manually instead of delegating to the default visitor
+        // so we can handle the exception capture variable explicitly.
+
+        // Exception class references
+        for exc in node.exceptions().iter() {
+            self.visit(&exc);
+        }
+
+        // Exception capture: `rescue Error => e`
+        if let Some(ref_node) = node.reference() {
+            if let Some(t) = ref_node.as_local_variable_target_node() {
+                let name = t.name().as_slice().to_vec();
+                let offset = t.location().start_offset();
+                if !self.table.variable_exists(&name) {
+                    self.declare_variable(name.clone(), offset, DeclarationKind::Assignment);
+                }
+                let seq = self.next_sequence();
+                let mut a = Assignment::new(offset, AssignmentKind::ExceptionCapture);
+                a.sequence = seq;
+                a.in_branch = self.branch_depth > 0;
+                a.branch_id = self.current_branch_id();
+                self.table.assign_to_variable(&name, a);
+            }
+        }
+
+        // Rescue body statements
+        if let Some(stmts) = node.statements() {
+            for stmt in stmts.body().iter() {
+                self.visit(&stmt);
+            }
+        }
+
+        // Chained rescue clauses
+        if let Some(subsequent) = node.subsequent() {
+            self.visit_rescue_node(&subsequent);
+        }
 
         // If any rescue clause contains a `retry`, treat the entire rescue
         // as a loop — the retry causes the begin body to re-execute.
@@ -1222,10 +1237,12 @@ fn predicate_has_lvar_write(node: &ruby_prism::Node<'_>) -> bool {
     detector.found
 }
 
-/// Pre-declare all `LocalVariableTargetNode` variables found in a pattern
-/// match node. This ensures guard clause references (`in _ if _.blank?`) can
-/// find the variable before the pattern target node is visited.
-fn predeclare_pattern_targets(engine: &mut Engine<'_>, node: &ruby_prism::Node<'_>) {
+/// Declare and assign all `LocalVariableTargetNode` variables found in a
+/// pattern match node. This ensures guard clause references (`in _ if _.blank?`)
+/// can find the variable before the pattern target node is visited. Without the
+/// generic `visit_local_variable_target_node` handler, this function must also
+/// create assignments (not just declarations) for pattern match variables.
+fn declare_and_assign_pattern_targets(engine: &mut Engine<'_>, node: &ruby_prism::Node<'_>) {
     struct TargetCollector {
         targets: Vec<(Vec<u8>, usize)>,
     }
@@ -1249,8 +1266,14 @@ fn predeclare_pattern_targets(engine: &mut Engine<'_>, node: &ruby_prism::Node<'
     collector.visit(node);
     for (name, offset) in collector.targets {
         if !engine.table.variable_exists(&name) {
-            engine.declare_variable(name, offset, DeclarationKind::PatternMatch);
+            engine.declare_variable(name.clone(), offset, DeclarationKind::PatternMatch);
         }
+        let seq = engine.next_sequence();
+        let mut a = Assignment::new(offset, AssignmentKind::Simple);
+        a.sequence = seq;
+        a.in_branch = engine.branch_depth > 0;
+        a.branch_id = engine.current_branch_id();
+        engine.table.assign_to_variable(&name, a);
     }
 }
 
