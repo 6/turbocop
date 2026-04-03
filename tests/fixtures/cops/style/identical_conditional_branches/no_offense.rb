@@ -186,6 +186,18 @@ def baz
   end
 end
 
+# if/else leading nested unless where terminal else is only that nested conditional
+if repo.finalize_updates_to(name, version)
+  unless config[:use_current_branch]
+    repo.reset_to_default_state
+  end
+  repo.merge_updates_from(name, version)
+else
+  unless config[:use_current_branch]
+    repo.reset_to_default_state
+  end
+end
+
 # if/else identical tail assignments where RHS variable appears in condition
 def collection_collaborator(user, obj)
   if obj.is_a?(Collection)

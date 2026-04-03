@@ -53,6 +53,13 @@ use ruby_prism::Visit;
 ///    like `/[^\d ]/` and `/[^\d]/` compared equal even though RuboCop keeps
 ///    regexp bodies whitespace-sensitive. Regex literals now keep their raw
 ///    trimmed source as the comparison key.
+///
+/// 8. **FP/FN: terminal `else` with a single nested conditional** —
+///    RuboCop expands `else` bodies that contain a single nested `if` like an
+///    `elsif` chain, but it bails entirely when that nested conditional is not
+///    exhaustive (for example, an `unless` without `else`, or a modifier `if`).
+///    Prism keeps that structure inside an explicit `ElseNode`, so nitrocop has
+///    to flatten or bail explicitly to match RuboCop.
 pub struct IdenticalConditionalBranches;
 
 struct StatementInfo {
@@ -287,34 +294,63 @@ impl<'pr> BranchInfo<'pr> {
 }
 
 impl IdenticalConditionalBranches {
+    fn single_statement<'pr>(
+        stmts: Option<ruby_prism::StatementsNode<'pr>>,
+    ) -> Option<ruby_prism::Node<'pr>> {
+        let stmts = stmts?;
+        let mut body = stmts.body().iter();
+        let stmt = body.next()?;
+        if body.next().is_some() {
+            return None;
+        }
+        Some(stmt)
+    }
+
+    fn collect_if_subsequent_branches<'pr>(
+        mut subsequent: Option<ruby_prism::Node<'pr>>,
+        branches: &mut Vec<BranchInfo<'pr>>,
+    ) -> Option<()> {
+        loop {
+            match subsequent {
+                None => return None,
+                Some(node) => {
+                    if let Some(elsif_node) = node.as_if_node() {
+                        branches.push(BranchInfo::from_stmts(elsif_node.statements()));
+                        subsequent = elsif_node.subsequent();
+                        continue;
+                    }
+
+                    if let Some(else_node) = node.as_else_node() {
+                        if let Some(stmt) = Self::single_statement(else_node.statements()) {
+                            if let Some(nested_if) = stmt.as_if_node() {
+                                branches.push(BranchInfo::from_stmts(nested_if.statements()));
+                                subsequent = nested_if.subsequent();
+                                continue;
+                            }
+
+                            if let Some(nested_unless) = stmt.as_unless_node() {
+                                let else_clause = nested_unless.else_clause()?;
+                                branches.push(BranchInfo::from_stmts(else_clause.statements()));
+                                branches.push(BranchInfo::from_stmts(nested_unless.statements()));
+                                return Some(());
+                            }
+                        }
+
+                        branches.push(BranchInfo::from_stmts(else_node.statements()));
+                        return Some(());
+                    }
+
+                    return None;
+                }
+            }
+        }
+    }
+
     /// Collect all branches from an if/elsif/else chain, expanding nested elsifs.
     fn collect_if_branches<'pr>(if_node: &ruby_prism::IfNode<'pr>) -> Option<Vec<BranchInfo<'pr>>> {
         let mut branches = Vec::new();
         branches.push(BranchInfo::from_stmts(if_node.statements()));
-
-        let mut subsequent = if_node.subsequent();
-        loop {
-            match subsequent {
-                None => {
-                    // No else clause at all (if/elsif without else) — not exhaustive
-                    return None;
-                }
-                Some(node) => {
-                    if let Some(elsif_node) = node.as_if_node() {
-                        // This is an elsif
-                        branches.push(BranchInfo::from_stmts(elsif_node.statements()));
-                        subsequent = elsif_node.subsequent();
-                    } else if let Some(else_node) = node.as_else_node() {
-                        // Terminal else
-                        branches.push(BranchInfo::from_stmts(else_node.statements()));
-                        break;
-                    } else {
-                        return None;
-                    }
-                }
-            }
-        }
-
+        Self::collect_if_subsequent_branches(if_node.subsequent(), &mut branches)?;
         Some(branches)
     }
 
@@ -769,7 +805,6 @@ impl Cop for IdenticalConditionalBranches {
                 None => return, // no else clause
             };
 
-            let pre_len = diagnostics.len();
             let condition = if_node.predicate();
             let last_child = is_last_child_of_parent(node, parse_result);
 
@@ -780,14 +815,13 @@ impl Cop for IdenticalConditionalBranches {
             self.check_heads(source, &branches, Some(&condition), last_child, diagnostics);
 
             // Deduplicate: when both head and tail fire on single-stmt branches
-            Self::dedup_diagnostics(diagnostics, pre_len);
+            Self::dedup_diagnostics(diagnostics, 0);
         } else if let Some(case_node) = node.as_case_node() {
             let branches = match Self::collect_case_branches(&case_node) {
                 Some(b) => b,
                 None => return,
             };
 
-            let pre_len = diagnostics.len();
             let condition = case_node.predicate();
             let last_child = is_last_child_of_parent(node, parse_result);
 
@@ -807,14 +841,13 @@ impl Cop for IdenticalConditionalBranches {
                 diagnostics,
             );
 
-            Self::dedup_diagnostics(diagnostics, pre_len);
+            Self::dedup_diagnostics(diagnostics, 0);
         } else if let Some(case_match_node) = node.as_case_match_node() {
             let branches = match Self::collect_case_match_branches(&case_match_node) {
                 Some(b) => b,
                 None => return,
             };
 
-            let pre_len = diagnostics.len();
             let condition = case_match_node.predicate();
             let last_child = is_last_child_of_parent(node, parse_result);
 
@@ -834,7 +867,7 @@ impl Cop for IdenticalConditionalBranches {
                 diagnostics,
             );
 
-            Self::dedup_diagnostics(diagnostics, pre_len);
+            Self::dedup_diagnostics(diagnostics, 0);
         } else if let Some(unless_node) = node.as_unless_node() {
             // unless/else — must have an else clause for comparison
             let else_clause = match unless_node.else_clause() {
@@ -847,7 +880,6 @@ impl Cop for IdenticalConditionalBranches {
                 BranchInfo::from_stmts(else_clause.statements()),
             ];
 
-            let pre_len = diagnostics.len();
             let condition = unless_node.predicate();
             let last_child = is_last_child_of_parent(node, parse_result);
 
@@ -855,7 +887,7 @@ impl Cop for IdenticalConditionalBranches {
 
             self.check_heads(source, &branches, Some(&condition), last_child, diagnostics);
 
-            Self::dedup_diagnostics(diagnostics, pre_len);
+            Self::dedup_diagnostics(diagnostics, 0);
         }
     }
 }
