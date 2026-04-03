@@ -98,6 +98,7 @@ pub mod hash_fetch_chain;
 pub mod hash_like_case;
 pub mod hash_lookup_method;
 pub mod hash_slice;
+pub mod hash_subset;
 pub mod hash_syntax;
 pub mod hash_transform_keys;
 pub mod hash_transform_values;
