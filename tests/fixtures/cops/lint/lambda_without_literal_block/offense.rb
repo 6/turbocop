@@ -15,3 +15,8 @@ lambda(some_var)
 
 result = lines.flat_map(&split).reduce(&lambda(&method(:longest_words)))
                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Lint/LambdaWithoutLiteralBlock: lambda without a literal block is deprecated; use the proc without lambda instead.
+
+foo do |b|
+  lambda(&b).call
+  ^^^^^^^^^^ Lint/LambdaWithoutLiteralBlock: lambda without a literal block is deprecated; use the proc without lambda instead.
+end

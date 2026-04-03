@@ -36,10 +36,16 @@ use crate::parse::source::SourceFile;
 /// non-transparent for `parent_is_block_body` tracking so only direct block-body
 /// children stay exempt, matching RuboCop's `node.parent&.block_type?`.
 ///
-/// The remaining corpus FN from matplotlib.rb (`lambda(&b).call`) is detected in
-/// isolation, indicating a repo config/context issue rather than another
-/// detection bug. We intentionally keep this fix narrow to avoid regressing the
-/// 14 existing matches.
+/// ## Investigation findings (2026-04-03)
+///
+/// FN=1: `lambda(&b).call` in matplotlib.rb. We correctly exempted a `lambda`
+/// call that is itself a direct child of a block body, but incorrectly leaked
+/// that exemption into the child receiver/argument/block-pass walk of the outer
+/// `.call`. In parser gem, the inner `lambda` send's immediate parent is the
+/// outer send, not the block, so RuboCop still flags it. Fix: clear
+/// `parent_is_block_body` before visiting a call's receiver, arguments, and
+/// non-literal block child; only the call node itself and literal block bodies
+/// retain the direct block-body context.
 pub struct LambdaWithoutLiteralBlock;
 
 impl Cop for LambdaWithoutLiteralBlock {
@@ -91,18 +97,23 @@ impl<'pr> Visit<'pr> for LambdaWalker<'_> {
             self.check_lambda_call(node);
         }
 
-        // Visit children manually. The call's block (if BlockNode) creates a new
-        // block body context; arguments and receiver do not.
+        // Visit children manually. The call's block body (if BlockNode) creates
+        // a new direct block-body context; the receiver, arguments, and a
+        // non-literal `&...` child do not.
+        let saved = self.parent_is_block_body;
+
         if let Some(recv) = node.receiver() {
+            self.parent_is_block_body = false;
             self.visit(&recv);
         }
         if let Some(args) = node.arguments() {
+            self.parent_is_block_body = false;
             self.visit(&args.as_node());
         }
         if let Some(block) = node.block() {
             if let Some(block_node) = block.as_block_node() {
-                // Entering a block body — direct children are in block body context
-                let saved = self.parent_is_block_body;
+                // Entering a literal block body — direct children are in block
+                // body context.
                 self.parent_is_block_body = true;
                 if let Some(body) = block_node.body() {
                     self.visit(&body);
@@ -113,9 +124,12 @@ impl<'pr> Visit<'pr> for LambdaWalker<'_> {
                 }
                 self.parent_is_block_body = saved;
             } else {
+                self.parent_is_block_body = false;
                 self.visit(&block);
             }
         }
+
+        self.parent_is_block_body = saved;
     }
 
     fn visit_block_argument_node(&mut self, node: &ruby_prism::BlockArgumentNode<'pr>) {
