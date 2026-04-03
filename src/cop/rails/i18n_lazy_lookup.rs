@@ -1,3 +1,4 @@
+use crate::cop::shared::access_modifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;
@@ -106,7 +107,7 @@ impl<'pr> Visit<'pr> for I18nLazyLookupVisitor<'_> {
         let method = node.name().as_slice();
 
         // Track visibility modifiers: bare `private`, `protected`, `public` calls
-        if node.receiver().is_none() && node.arguments().is_none() && node.block().is_none() {
+        if access_modifier_predicates::is_bare_access_modifier(node) {
             match method {
                 b"private" => self.method_visibility = Visibility::Private,
                 b"protected" => self.method_visibility = Visibility::Protected,

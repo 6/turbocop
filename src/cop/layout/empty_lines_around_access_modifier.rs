@@ -1,3 +1,4 @@
+use crate::cop::shared::access_modifier_predicates::{self, MacroScope};
 use crate::cop::shared::util::is_blank_or_whitespace_line;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -109,7 +110,7 @@ use crate::parse::source::SourceFile;
 ///     (2026-04-02).
 pub struct EmptyLinesAroundAccessModifier;
 
-const ACCESS_MODIFIERS: &[&[u8]] = &[b"private", b"protected", b"public", b"module_function"];
+// Uses access_modifier_predicates for access modifier detection.
 
 /// Check if a line is a comment (first non-whitespace character is `#`).
 fn is_comment_line(line: &[u8]) -> bool {
@@ -206,12 +207,13 @@ struct ModifierInfo {
     last_block_opening_line: Option<usize>,
 }
 
+/// Whether this scope was entered as a root or class-like context (needed
+/// for body_end_boundary which only applies to Root/ClassLike, not DslBlock).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ScopeKind {
+enum ScopeOrigin {
     Root,
     ClassLike,
-    DslBlock,
-    NonClass,
+    Other,
 }
 
 /// AST visitor that collects byte offsets of bare access modifier calls that are
@@ -232,7 +234,8 @@ struct AccessModifierCollector {
 }
 
 struct ScopeState {
-    kind: ScopeKind,
+    macro_scope: MacroScope,
+    origin: ScopeOrigin,
     body_opening_line: usize,
     body_closing_line: usize,
     seen_nested_class_like: bool,
@@ -242,12 +245,7 @@ impl AccessModifierCollector {
     fn in_access_modifier_scope(&self) -> bool {
         self.scope_stack
             .last()
-            .map(|scope| {
-                matches!(
-                    scope.kind,
-                    ScopeKind::Root | ScopeKind::ClassLike | ScopeKind::DslBlock
-                )
-            })
+            .map(|scope| scope.macro_scope.is_macro())
             .unwrap_or(false)
     }
 
@@ -258,19 +256,19 @@ impl AccessModifierCollector {
                 (
                     scope.body_opening_line,
                     scope.body_closing_line,
-                    matches!(scope.kind, ScopeKind::Root)
-                        || matches!(scope.kind, ScopeKind::ClassLike)
+                    matches!(scope.origin, ScopeOrigin::Root)
+                        || matches!(scope.origin, ScopeOrigin::ClassLike)
                             && !scope.seen_nested_class_like,
                 )
             })
             .unwrap_or((0, 0, false))
     }
 
-    fn current_scope_kind(&self) -> ScopeKind {
+    fn current_macro_scope(&self) -> MacroScope {
         self.scope_stack
             .last()
-            .map(|scope| scope.kind)
-            .unwrap_or(ScopeKind::Root)
+            .map(|scope| scope.macro_scope)
+            .unwrap_or(MacroScope::InMacroScope)
     }
 
     fn check_call(&mut self, call: &ruby_prism::CallNode<'_>) {
@@ -280,17 +278,7 @@ impl AccessModifierCollector {
         if self.expression_depth > 0 {
             return;
         }
-        if call.receiver().is_some() {
-            return;
-        }
-        let method_name = call.name().as_slice();
-        if !ACCESS_MODIFIERS.contains(&method_name) {
-            return;
-        }
-        if call.arguments().is_some() {
-            return;
-        }
-        if call.block().is_some() {
+        if !access_modifier_predicates::is_bare_access_modifier(call) {
             return;
         }
         let (body_opening_line, body_closing_line, body_end_boundary) = self.current_scope();
@@ -306,16 +294,18 @@ impl AccessModifierCollector {
 
     fn push_class_scope(&mut self, body_opening_line: usize, body_closing_line: usize) {
         self.scope_stack.push(ScopeState {
-            kind: ScopeKind::ClassLike,
+            macro_scope: MacroScope::InMacroScope,
+            origin: ScopeOrigin::ClassLike,
             body_opening_line,
             body_closing_line,
             seen_nested_class_like: false,
         });
     }
 
-    fn push_dsl_block_scope(&mut self, body_opening_line: usize, body_closing_line: usize) {
+    fn push_wrapper_scope(&mut self, body_opening_line: usize, body_closing_line: usize) {
         self.scope_stack.push(ScopeState {
-            kind: ScopeKind::DslBlock,
+            macro_scope: self.current_macro_scope(),
+            origin: ScopeOrigin::Other,
             body_opening_line,
             body_closing_line,
             seen_nested_class_like: false,
@@ -324,7 +314,8 @@ impl AccessModifierCollector {
 
     fn push_non_class_scope(&mut self) {
         self.scope_stack.push(ScopeState {
-            kind: ScopeKind::NonClass,
+            macro_scope: MacroScope::NotMacroScope,
+            origin: ScopeOrigin::Other,
             body_opening_line: 0,
             body_closing_line: 0,
             seen_nested_class_like: false,
@@ -333,7 +324,7 @@ impl AccessModifierCollector {
 
     fn note_nested_class_like(&mut self) {
         for scope in self.scope_stack.iter_mut().rev() {
-            if matches!(scope.kind, ScopeKind::ClassLike) {
+            if matches!(scope.origin, ScopeOrigin::ClassLike) {
                 scope.seen_nested_class_like = true;
                 break;
             }
@@ -492,26 +483,12 @@ impl<'pr> ruby_prism::Visit<'pr> for AccessModifierCollector {
                 return;
             }
 
-            if node.receiver().is_none() && self.in_access_modifier_scope() {
-                self.push_dsl_block_scope(opening, closing);
-                ruby_prism::visit_block_node(self, &block_node);
-                self.pop_scope();
-                return;
+            // Blocks in macro scope inherit it (wrapper); otherwise non-macro.
+            if self.in_access_modifier_scope() {
+                self.push_wrapper_scope(opening, closing);
+            } else {
+                self.push_non_class_scope();
             }
-
-            if node.receiver().is_some()
-                && matches!(
-                    self.current_scope_kind(),
-                    ScopeKind::Root | ScopeKind::ClassLike | ScopeKind::DslBlock
-                )
-            {
-                self.push_dsl_block_scope(opening, closing);
-                ruby_prism::visit_block_node(self, &block_node);
-                self.pop_scope();
-                return;
-            }
-
-            self.push_non_class_scope();
             ruby_prism::visit_block_node(self, &block_node);
             self.pop_scope();
             return;
@@ -622,7 +599,8 @@ impl Cop for EmptyLinesAroundAccessModifier {
         let mut collector = AccessModifierCollector {
             modifiers: Vec::new(),
             scope_stack: vec![ScopeState {
-                kind: ScopeKind::Root,
+                macro_scope: MacroScope::InMacroScope,
+                origin: ScopeOrigin::Root,
                 body_opening_line: 0,
                 body_closing_line: 0,
                 seen_nested_class_like: false,
@@ -641,10 +619,12 @@ impl Cop for EmptyLinesAroundAccessModifier {
 
             // Determine the method name from the source at this offset
             let bytes = source.as_bytes();
-            let method_name = ACCESS_MODIFIERS.iter().find(|&&m| {
-                modifier.offset + m.len() <= bytes.len()
-                    && &bytes[modifier.offset..modifier.offset + m.len()] == m
-            });
+            let method_name = access_modifier_predicates::ACCESS_MODIFIER_NAMES
+                .iter()
+                .find(|&&m| {
+                    modifier.offset + m.len() <= bytes.len()
+                        && &bytes[modifier.offset..modifier.offset + m.len()] == m
+                });
             let method_name = match method_name {
                 Some(m) => *m,
                 None => continue,

@@ -144,6 +144,21 @@ SHARED_MODULE_CONSUMERS: dict[str, set[str]] = {
         "Lint/LiteralAsCondition",
         "Style/InfiniteLoop",
     },
+    "access_modifier_predicates": {
+        "Layout/AccessModifierIndentation",
+        "Layout/ClassStructure",
+        "Layout/EmptyLinesAroundAccessModifier",
+        "Layout/IndentationConsistency",
+        "Layout/IndentationWidth",
+        "Lint/IneffectiveAccessModifier",
+        "Lint/UselessAccessModifier",
+        "Lint/UselessConstantScoping",
+        "Lint/UselessMethodDefinition",
+        "Rails/I18nLazyLookup",
+        "Style/AccessModifierDeclarations",
+        "Style/DocumentationMethod",
+        "Style/ModuleFunction",
+    },
 }
 
 # Department PascalCase → snake_case directory name in src/cop/ and tests/fixtures/
