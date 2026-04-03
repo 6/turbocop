@@ -1044,48 +1044,127 @@ pub fn keyword_arg_pair_start_offset(call: &ruby_prism::CallNode<'_>, key: &[u8]
     None
 }
 
-/// Get the constant name (last segment) from a constant path or constant read node.
-///
-/// For `ActiveRecord::Base`, returns `b"Base"`.
-/// For `User`, returns `b"User"`.
-pub fn constant_name<'a>(node: &ruby_prism::Node<'a>) -> Option<&'a [u8]> {
-    if let Some(cr) = node.as_constant_read_node() {
-        return Some(cr.name().as_slice());
-    }
-    if let Some(cp) = node.as_constant_path_node() {
-        if let Some(name_node) = cp.name() {
-            return Some(name_node.as_slice());
-        }
-    }
-    None
-}
+// ── String escape helpers ─────────────────────────────────────────────
 
-/// Check if a node is a simple constant matching `(const {nil? cbase} :Name)`.
+/// Check if string content contains escape sequences that require double quotes.
 ///
-/// Returns true for `Name` (ConstantReadNode) or `::Name` (ConstantPathNode with cbase parent),
-/// but NOT for qualified paths like `Foo::Name`.
-pub fn is_simple_constant(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
-    if let Some(cr) = node.as_constant_read_node() {
-        return cr.name().as_slice() == name;
-    }
-    if let Some(cp) = node.as_constant_path_node() {
-        if let Some(n) = cp.name() {
-            if n.as_slice() != name {
-                return false;
+/// Returns true if the content has `\X` where X is anything other than `\` or `"`.
+/// Those two escapes (`\\`, `\"`) are representable in single-quoted strings, but
+/// all others (`\n`, `\t`, `\#`, etc.) require double quotes.
+///
+/// Handles consecutive backslashes correctly: in `\\\\n`, there are 4 backslashes
+/// (2 pairs of `\\`) followed by `n`, which does NOT require double quotes.
+pub fn has_non_trivial_escape(content: &[u8]) -> bool {
+    let mut i = 0;
+    while i < content.len() {
+        if content[i] == b'\\' {
+            let run_start = i;
+            while i < content.len() && content[i] == b'\\' {
+                i += 1;
             }
-            // cbase: parent is None (e.g., `::Date`)
-            return cp.parent().is_none();
+            let run_len = i - run_start;
+            let next = content.get(i).copied();
+            // Odd number of backslashes means the last one escapes the next char.
+            // Only \\ and \" are safe for single quotes; anything else needs double.
+            if run_len % 2 == 1 && !matches!(next, Some(b'\\' | b'"')) {
+                return true;
+            }
+        } else {
+            i += 1;
         }
     }
     false
 }
 
-/// Get the full constant path string from source bytes.
+/// Check if string content requires double-quoted representation.
 ///
-/// For a ConstantPathNode like `ActiveRecord::Base`, extracts the full text.
-pub fn full_constant_path<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> &'a [u8] {
-    let loc = node.location();
-    &source.as_bytes()[loc.start_offset()..loc.end_offset()]
+/// Returns true if the content contains a bare single quote (`'`) or escape
+/// sequences that only work in double-quoted strings. This is the combined
+/// check used by quoted_symbols, string_literals_in_interpolation, and
+/// redundant_percent_q cops.
+pub fn double_quotes_required(content: &[u8]) -> bool {
+    content.contains(&b'\'') || has_non_trivial_escape(content)
+}
+
+// ── Conditional / modifier helpers ────────────────────────────────────
+
+/// Check if an IfNode is a ternary operator (`x ? y : z`).
+/// Ternaries have no `if` keyword in Prism — `if_keyword_loc` is None.
+pub fn is_ternary(if_node: &ruby_prism::IfNode<'_>) -> bool {
+    if_node.if_keyword_loc().is_none()
+}
+
+/// Check if an IfNode is a modifier form (`body if condition`).
+/// Modifier conditionals have no `end` keyword and are not ternaries.
+pub fn is_modifier_if(if_node: &ruby_prism::IfNode<'_>) -> bool {
+    if_node.end_keyword_loc().is_none() && if_node.if_keyword_loc().is_some()
+}
+
+/// Check if an UnlessNode is a modifier form (`body unless condition`).
+pub fn is_modifier_unless(unless_node: &ruby_prism::UnlessNode<'_>) -> bool {
+    unless_node.end_keyword_loc().is_none()
+}
+
+// ── Shared node helpers ────────────────────────────────────────────────
+
+/// Unwrap parentheses from a node, returning the inner expression.
+/// Handles nested parentheses: `(expr)`, `((expr))`, etc.
+/// Stops at empty parentheses or multi-statement bodies.
+///
+/// Note: Prism's ParenthesesNode body can be either a StatementsNode (for
+/// `(expr)` in expression context) or a bare node (e.g., CallNode for
+/// `def (receiver).method`). This function handles both shapes.
+pub fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
+    let mut current = node;
+    while let Some(paren) = current.as_parentheses_node() {
+        let Some(body) = paren.body() else {
+            break;
+        };
+        if let Some(stmts) = body.as_statements_node() {
+            let stmts_body = stmts.body();
+            if stmts_body.len() == 1 {
+                current = stmts_body.iter().next().unwrap();
+                continue;
+            }
+            break;
+        }
+        // Body is a bare node (not wrapped in StatementsNode)
+        current = body;
+    }
+    current
+}
+
+/// Check if a node is a single negation (`!expr`),
+/// excluding double negation (`!!expr`) and safe-navigation `&.!`.
+pub fn is_single_negation(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"!" {
+            // Skip safe-navigation `&.!` — rewriting is problematic
+            if call.call_operator_loc().is_some() {
+                return false;
+            }
+            // Check for double negation: `!!expr`
+            if let Some(recv) = call.receiver() {
+                if let Some(inner_call) = recv.as_call_node() {
+                    if inner_call.name().as_slice() == b"!" {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+    }
+    false
+}
+
+/// Get the inner expression from a negation node (`!expr` → `expr`).
+pub fn get_negation_inner<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"!" {
+            return call.receiver();
+        }
+    }
+    None
 }
 
 /// Extract a 3-method chain from a node.
@@ -1445,273 +1524,152 @@ mod tests {
         let src = SourceFile::from_bytes("test.rb", b"x => if foo\n  bar\nend\n".to_vec());
         assert_eq!(assignment_context_base_col(&src, 5), None);
     }
-}
 
-/// Check if a method at the given offset is likely private or protected.
-/// Check if a trimmed line is a single-line class or module definition
-/// (e.g., `class Error < StandardError; end` or `module Foo; end`).
-/// These open and close on the same line and should not affect peer scope depth.
-fn is_single_line_class_or_module(trimmed: &[u8]) -> bool {
-    // Must end with `end` (possibly followed by whitespace, already stripped)
-    if trimmed.ends_with(b"; end") || trimmed.ends_with(b";end") {
-        return true;
-    }
-    false
-}
+    // ── string escape helper tests ─────────────────────────────────────
 
-/// Looks for:
-/// - `private def foo` (inline) on the same line
-/// - Standalone `private` or `protected` on any preceding line at the SAME indentation
-///   scope (without a subsequent `public`)
-pub fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
-    let bytes = source.as_bytes();
-    let (def_line, def_col) = source.offset_to_line_col(def_offset);
-
-    // Check inline: the same line might start with `private ` or `protected `
-    let mut line_start = def_offset;
-    while line_start > 0 && bytes[line_start - 1] != b'\n' {
-        line_start -= 1;
-    }
-    let line_to_def = &bytes[line_start..def_offset];
-    let trimmed = line_to_def
-        .iter()
-        .copied()
-        .skip_while(|&b| b == b' ' || b == b'\t')
-        .collect::<Vec<u8>>();
-    if trimmed.starts_with(b"private ")
-        || trimmed.starts_with(b"private(")
-        || trimmed.starts_with(b"protected ")
-        || trimmed.starts_with(b"protected(")
-        || trimmed.starts_with(b"private_class_method ")
-    {
-        return true;
+    #[test]
+    fn has_non_trivial_escape_basic() {
+        assert!(has_non_trivial_escape(b"hello\\nworld"));
+        assert!(has_non_trivial_escape(b"\\t"));
+        assert!(!has_non_trivial_escape(b"hello"));
+        assert!(!has_non_trivial_escape(b"hello\\\\world")); // \\\\ = two literal backslashes
+        assert!(!has_non_trivial_escape(b"hello\\\"world")); // \\\" = escaped quote
     }
 
-    // Check preceding lines for standalone `private` or `protected`.
-    // Only consider lines at the same indentation level as the def.
-    // When we see `class`, `module`, or `end` at lower indentation, reset state
-    // (those indicate scope boundaries).
-    //
-    // Peer scope tracking: when we see `class`/`module`/`class <<` at indent == def_col,
-    // we're entering a peer scope (another class/module at the same level as the def).
-    // Any `private` inside that peer scope should NOT affect our def. We track this with
-    // `peer_scope_depth`: when > 0, we're inside a peer scope and skip visibility updates.
-    //
-    // Example (mongomapper pattern):
-    //   module ClassMethods  ← peer scope opener at def_col
-    //     private            ← inside peer scope, ignored
-    //   end                  ← peer scope closer, depth→0
-    //   def associations     ← NOT private
-    //
-    // Compare with: `private` before a peer class/module still applies:
-    //   private              ← depth=0, sets in_private
-    //   class Inner          ← depth=1 (but we already set in_private)
-    //   end                  ← depth=0
-    //   def method           ← IS private (private was set before Inner)
-    let lines: Vec<&[u8]> = source.lines().collect();
-    let mut in_private = false;
-    let mut peer_scope_depth = 0usize;
-    for line in &lines[..def_line] {
-        let indent = line
+    #[test]
+    fn has_non_trivial_escape_consecutive_backslashes() {
+        // 3 backslashes + n: odd count means last one escapes n → needs double quotes
+        assert!(has_non_trivial_escape(b"\\\\\\n"));
+        // 4 backslashes + n: even count means all are paired, n is literal
+        assert!(!has_non_trivial_escape(b"\\\\\\\\n"));
+    }
+
+    #[test]
+    fn double_quotes_required_bare_quote() {
+        assert!(double_quotes_required(b"it's"));
+        assert!(!double_quotes_required(b"hello"));
+    }
+
+    #[test]
+    fn double_quotes_required_escapes() {
+        assert!(double_quotes_required(b"hello\\nworld"));
+        assert!(!double_quotes_required(b"hello\\\\world"));
+    }
+
+    // ── unwrap_parentheses tests ───────────────────────────────────────
+
+    /// Parse Ruby source and return the first expression node.
+    fn parse_first_expr(source: &str) -> (ruby_prism::ParseResult<'static>, ()) {
+        let bytes = source.as_bytes().to_vec();
+        let leaked = Box::leak(bytes.into_boxed_slice());
+        (ruby_prism::parse(leaked), ())
+    }
+
+    fn first_node<'a>(result: &'a ruby_prism::ParseResult<'a>) -> ruby_prism::Node<'a> {
+        result
+            .node()
+            .as_program_node()
+            .unwrap()
+            .statements()
+            .body()
             .iter()
-            .take_while(|&&b| b == b' ' || b == b'\t')
-            .count();
-        let raw_trimmed = &line[indent..];
-        // Strip trailing whitespace (spaces, tabs, carriage returns) so that
-        // `private ` (with trailing space) is correctly matched as a bare
-        // visibility keyword.
-        let end_pos = raw_trimmed
-            .iter()
-            .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r')
-            .map_or(0, |p| p + 1);
-        let trimmed: &[u8] = &raw_trimmed[..end_pos];
-
-        // NOTE: Heredoc tracking was attempted here (commit 89035db5, reverted)
-        // to skip `end`/`private` inside heredoc content. While conceptually
-        // correct, it caused a 20,000+ offense regression: the line-based scanner
-        // incidentally processes heredoc content, and `private`/`end` keywords
-        // inside heredocs happen to produce correct visibility results more often
-        // than skipping them. A proper fix requires AST-based visibility tracking.
-
-        // Track peer scope depth for class/module/class<< bodies at indent == def_col.
-        // These are sibling scopes — their internal `private` doesn't affect our def.
-        if indent == def_col {
-            if trimmed.starts_with(b"class ") || trimmed.starts_with(b"module ") {
-                // Single-line class/module (e.g., `class Error < StandardError; end`)
-                // opens and closes on the same line — do NOT modify peer_scope_depth.
-                if !is_single_line_class_or_module(trimmed) {
-                    peer_scope_depth += 1;
-                }
-            } else if peer_scope_depth > 0
-                && (trimmed == b"end"
-                    || trimmed.starts_with(b"end ")
-                    || trimmed.starts_with(b"end;"))
-            {
-                peer_scope_depth -= 1;
-            }
-        }
-
-        // Only update visibility state when NOT inside a peer scope.
-        if peer_scope_depth == 0 {
-            // Scope boundary: class/module at STRICTLY lower indent resets private state.
-            // A nested class/module at the same indent is a peer within the current scope
-            // and does NOT reset visibility — e.g., `private` followed by `class Inner` then
-            // `def method` at the same indent level keeps the method private.
-            // `end` also resets only at strictly lower indent.
-            if indent < def_col
-                && (trimmed.starts_with(b"class ") || trimmed.starts_with(b"module "))
-            {
-                in_private = false;
-            }
-            if indent < def_col
-                && (trimmed == b"end"
-                    || trimmed.starts_with(b"end ")
-                    || trimmed.starts_with(b"end;"))
-            {
-                in_private = false;
-            }
-
-            // Consider private/protected/public at the same or lower indent level
-            // within the same scope. Ruby allows `private` at a lower indent than
-            // the methods it affects (e.g., `private` + indented `def`). Scope
-            // boundaries (class/module/end) already reset `in_private` above.
-            // Note: trailing whitespace is already stripped from `trimmed`.
-            if indent <= def_col {
-                if trimmed == b"private"
-                    || trimmed.starts_with(b"private #")
-                    || trimmed == b"protected"
-                    || trimmed.starts_with(b"protected #")
-                {
-                    in_private = true;
-                } else if trimmed == b"public" || trimmed.starts_with(b"public #") {
-                    in_private = false;
-                }
-            }
-        }
-    }
-
-    in_private
-}
-
-#[cfg(test)]
-mod private_tests {
-    use super::is_private_or_protected;
-    use crate::parse::source::SourceFile;
-
-    fn check(source_text: &str, def_needle: &str, expected: bool) {
-        let source = SourceFile::from_bytes("test.rb", source_text.as_bytes().to_vec());
-        let off = source_text.find(def_needle).expect("needle not found");
-        let result = is_private_or_protected(&source, off);
-        assert_eq!(
-            result, expected,
-            "for '{}' in:\n{}",
-            def_needle, source_text
-        );
+            .next()
+            .unwrap()
     }
 
     #[test]
-    fn public_method_not_private() {
-        check(
-            "class Foo\n  def bar\n  end\n  private\n  def secret\n  end\nend\n",
-            "def bar",
-            false,
-        );
+    fn unwrap_parentheses_simple_expression() {
+        let (result, _) = parse_first_expr("(42)");
+        let unwrapped = unwrap_parentheses(first_node(&result));
+        assert!(unwrapped.as_integer_node().is_some());
     }
 
     #[test]
-    fn private_method_is_private() {
-        check(
-            "class Foo\n  def bar\n  end\n  private\n  def secret\n  end\nend\n",
-            "def secret",
-            true,
-        );
+    fn unwrap_parentheses_nested() {
+        let (result, _) = parse_first_expr("((42))");
+        let unwrapped = unwrap_parentheses(first_node(&result));
+        assert!(unwrapped.as_integer_node().is_some());
     }
 
     #[test]
-    fn indented_private_is_private() {
-        check(
-            "class Foo\n  private\n    def bar\n    end\nend\n",
-            "def bar",
-            true,
-        );
+    fn unwrap_parentheses_multi_statement_stops() {
+        let (result, _) = parse_first_expr("(1; 2)");
+        let unwrapped = unwrap_parentheses(first_node(&result));
+        assert!(unwrapped.as_parentheses_node().is_some());
     }
 
     #[test]
-    fn public_in_next_class_not_private() {
-        // private in ClassA should NOT leak to ClassB
-        check(
-            "class A\n  private\n  def secret\n  end\nend\nclass B\n  def public_m\n  end\nend\n",
-            "def public_m",
-            false,
-        );
+    fn unwrap_parentheses_no_parens() {
+        let (result, _) = parse_first_expr("42");
+        let unwrapped = unwrap_parentheses(first_node(&result));
+        assert!(unwrapped.as_integer_node().is_some());
     }
 
     #[test]
-    fn nested_class_public_not_private() {
-        // private in outer should NOT leak to inner class
-        check(
-            "class Outer\n  private\n  def secret\n  end\n  class Inner\n    def public_m\n    end\n  end\nend\n",
-            "def public_m",
-            false,
-        );
+    fn unwrap_parentheses_empty_parens() {
+        let (result, _) = parse_first_expr("()");
+        let unwrapped = unwrap_parentheses(first_node(&result));
+        assert!(unwrapped.as_parentheses_node().is_some());
+    }
+
+    // ── is_single_negation tests ───────────────────────────────────────
+
+    #[test]
+    fn is_single_negation_simple() {
+        let (result, _) = parse_first_expr("!foo");
+        assert!(is_single_negation(&first_node(&result)));
     }
 
     #[test]
-    fn private_in_different_module_no_leak() {
-        check(
-            "module A\n  private\n  def secret\n  end\nend\nmodule B\n  def public_m\n  end\nend\n",
-            "def public_m",
-            false,
-        );
+    fn is_single_negation_double_negation() {
+        let (result, _) = parse_first_expr("!!foo");
+        assert!(!is_single_negation(&first_node(&result)));
     }
 
     #[test]
-    fn deeply_nested_no_leak() {
-        // private at indent 4 in ClassA, public at indent 4 in ClassB
-        check(
-            "module M\n  class A\n    private\n    def secret\n    end\n  end\n  class B\n    def public_m\n    end\n  end\nend\n",
-            "def public_m",
-            false,
-        );
+    fn is_single_negation_safe_nav() {
+        let (result, _) = parse_first_expr("foo&.!");
+        assert!(!is_single_negation(&first_node(&result)));
     }
 
     #[test]
-    fn private_at_lower_indent_in_same_class() {
-        // Common pattern: private at lower indent, defs at higher indent (same class)
-        check(
-            "class Foo\n  private\n    def bar\n    end\n    def baz\n    end\nend\n",
-            "def baz",
-            true,
-        );
+    fn is_single_negation_non_negation() {
+        let (result, _) = parse_first_expr("foo");
+        assert!(!is_single_negation(&first_node(&result)));
     }
 
     #[test]
-    fn comment_with_heredoc_syntax_does_not_break_private() {
-        // A comment mentioning <<EOF should not trigger false heredoc tracking
-        check(
-            "class Foo\n  # Use <<EOF for heredocs\n  private\n  def secret\n  end\nend\n",
-            "def secret",
-            true,
-        );
+    fn is_single_negation_method_call() {
+        let (result, _) = parse_first_expr("foo.bar");
+        assert!(!is_single_negation(&first_node(&result)));
+    }
+
+    // ── get_negation_inner tests ───────────────────────────────────────
+
+    #[test]
+    fn get_negation_inner_returns_receiver() {
+        // Use `foo = 1; !foo` so Prism parses `foo` as a local variable
+        let (result, _) = parse_first_expr("foo = 1; !foo");
+        let stmts = result.node().as_program_node().unwrap().statements().body();
+        // The second statement is `!foo`
+        let negation = stmts.iter().nth(1).unwrap();
+        let inner = get_negation_inner(&negation);
+        assert!(inner.is_some());
+        assert!(inner.unwrap().as_local_variable_read_node().is_some());
     }
 
     #[test]
-    fn trailing_comment_with_heredoc_does_not_break_private() {
-        // A trailing comment with <<WORD should not trigger heredoc tracking
-        check(
-            "class Foo\n  x = 1 # use <<HEREDOC\n  private\n  def secret\n  end\nend\n",
-            "def secret",
-            true,
-        );
+    fn get_negation_inner_non_negation() {
+        let (result, _) = parse_first_expr("foo");
+        assert!(get_negation_inner(&first_node(&result)).is_none());
     }
 
     #[test]
-    fn comment_line_with_heredoc_syntax_does_not_break_private() {
-        // A full comment line mentioning <<~RUBY should not trigger heredoc tracking
-        check(
-            "class Foo\n  # Heredocs use <<~RUBY or <<-SQL\n  private\n  def secret\n  end\nend\n",
-            "def secret",
-            true,
-        );
+    fn get_negation_inner_double_negation() {
+        // `!!foo` → inner is `!foo` (a CallNode, not a local var)
+        let (result, _) = parse_first_expr("!!foo");
+        let inner = get_negation_inner(&first_node(&result));
+        assert!(inner.is_some());
+        assert!(inner.unwrap().as_call_node().is_some());
     }
 }

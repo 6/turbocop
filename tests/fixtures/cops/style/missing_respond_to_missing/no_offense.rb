@@ -1,3 +1,8 @@
+def method_missing(message, *args, &block)
+  return get(Regexp.last_match(1).to_sym, *args, &block) if message.to_s.match?(/^get_(.*)/)
+  super
+end
+
 class Test
   def respond_to_missing?
   end
@@ -68,4 +73,24 @@ module Test7
     def respond_to_missing?
     end
   end
+end
+
+Class.new do
+  def respond_to_missing?
+  end
+
+  def method_missing
+  end
+end
+
+# Keep only the unstable top-level forms here: RuboCop still reports many
+# explicit-arg top-level `method_missing` defs, but file-leading block-arg
+# forms and zero-arg/rest-only signatures are inconsistent.
+def respond_to_missing?
+end
+
+def method_missing
+end
+
+def method_missing(*args)
 end

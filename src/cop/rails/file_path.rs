@@ -1,8 +1,9 @@
-use crate::cop::node_type::{
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::method_dispatch_predicates;
+use crate::cop::shared::node_type::{
     CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, EMBEDDED_STATEMENTS_NODE,
     INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, STRING_NODE,
 };
-use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -36,7 +37,7 @@ use crate::parse::source::SourceFile;
 /// ## Investigation findings (2026-03-16)
 ///
 /// **FP root cause**: `is_rails_root` and `File.join` receiver check used
-/// `util::constant_name()` which only compares the last segment of a constant path.
+/// `constant_predicates::constant_short_name()` which only compares the last segment of a constant path.
 /// `SomeModule::Rails.root` and `SomeModule::File.join(...)` were incorrectly matched
 /// as `Rails.root` and `File.join`. RuboCop's pattern `(const {nil? cbase} :Rails)`
 /// requires the constant to be top-level (bare or `::` prefixed). Added
@@ -133,7 +134,7 @@ fn is_rails_root(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
         if call.name().as_slice() == b"root" {
             if let Some(recv) = call.receiver() {
-                return util::constant_name(&recv) == Some(b"Rails")
+                return constant_predicates::constant_short_name(&recv) == Some(b"Rails")
                     && is_top_level_constant(&recv);
             }
         }
@@ -220,13 +221,6 @@ fn contains_rails_root(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
-/// Check if a call uses safe navigation (`&.`). RuboCop's `RESTRICT_ON_SEND`
-/// only matches regular sends, not csends (safe navigation).
-fn is_safe_navigation_call(call: &ruby_prism::CallNode<'_>) -> bool {
-    call.call_operator_loc()
-        .is_some_and(|loc| loc.as_slice().starts_with(b"&"))
-}
-
 /// Check if a node is any kind of variable (local, instance, class, global).
 fn is_variable(node: &ruby_prism::Node<'_>) -> bool {
     node.as_local_variable_read_node().is_some()
@@ -266,7 +260,7 @@ fn string_contains_slash(node: &ruby_prism::Node<'_>) -> bool {
 /// Check if a node is a constant (not Rails).
 fn is_non_rails_constant(node: &ruby_prism::Node<'_>) -> bool {
     (node.as_constant_read_node().is_some() || node.as_constant_path_node().is_some())
-        && util::constant_name(node) != Some(b"Rails")
+        && constant_predicates::constant_short_name(node) != Some(b"Rails")
 }
 
 impl Cop for FilePath {
@@ -318,7 +312,7 @@ impl Cop for FilePath {
 
         // Skip safe navigation calls: Rails.root&.join(...) is csend, not send.
         // RuboCop's RESTRICT_ON_SEND only matches regular send, not csend.
-        if is_safe_navigation_call(&call) {
+        if method_dispatch_predicates::is_safe_navigation(&call) {
             return;
         }
 
@@ -327,7 +321,9 @@ impl Cop for FilePath {
             None => return,
         };
 
-        if util::constant_name(&recv) == Some(b"File") && is_top_level_constant(&recv) {
+        if constant_predicates::constant_short_name(&recv) == Some(b"File")
+            && is_top_level_constant(&recv)
+        {
             // Pattern 1: File.join(Rails.root, ...) — receiver is File or ::File constant
             self.check_file_join(source, node, &call, style, diagnostics);
             return;

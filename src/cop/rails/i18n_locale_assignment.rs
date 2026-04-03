@@ -1,5 +1,5 @@
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util;
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -43,7 +43,7 @@ impl Cop for I18nLocaleAssignment {
         };
 
         // Handle both ConstantReadNode (I18n) and ConstantPathNode (::I18n)
-        if util::constant_name(&recv) != Some(b"I18n") {
+        if constant_predicates::constant_short_name(&recv) != Some(b"I18n") {
             return;
         }
 

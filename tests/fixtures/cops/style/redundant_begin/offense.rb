@@ -132,3 +132,88 @@ def join_thread(thr)
   begin thr.join() if thr.alive? rescue nil end
   ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
 end
+
+after(:each) do
+  begin
+  ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+    @db.delete! rescue nil
+  end
+end
+
+def parser_step(stack, top, cs)
+  begin
+  ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+    begin
+      stack[top] = cs
+      top += 1
+      cs = 2449
+    end
+  end
+  top
+end
+
+def require_debugger(debugger_library)
+  library = debugger_library
+  begin
+  ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+    begin
+      require library
+    rescue LoadError
+      false
+    else
+      true
+    end
+  end
+end
+
+# Redundant begin inside else clause of begin..rescue..else (traversal test)
+def test_else_clause
+  begin
+  ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+    setup
+  rescue => e
+    handle(e)
+  else
+    begin
+    ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+      cleanup
+    end
+  end
+end
+
+# Redundant begin inside do..end block nested in else clause of begin..rescue..else
+def test_nested_else
+  begin
+  ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+    try_connect
+  rescue => e
+    skip_test
+  else
+    items.each do |link|
+      begin
+      ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+        check(link)
+      rescue => e
+        handle(e)
+      end
+    end
+  end
+end
+
+# Redundant begin in splat inside array indexing with += operator
+(h[*begin [:k] end] += 10).should == 20
+    ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+
+# Redundant begin in splat inside array indexing with ||= operator
+h[*begin [:k] end] ||= 20
+   ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+
+# Redundant begin used as a chained call receiver in ||= assignment
+@current_website ||= begin
+                     ^^^^^ Style/RedundantBegin: Redundant `begin` block detected.
+  if current_event
+    current_event.website
+  else
+    latest_domain_website
+  end
+end&.decorate

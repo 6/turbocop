@@ -168,6 +168,20 @@ From the deep-dive output, select **up to 4 cops** for this batch. Priority orde
 
 Skip Layout/ alignment cops unless they're the only ones remaining (complex multi-line state machines).
 
+**Establish ground truth first** — before reading cop source or running reducers,
+run these commands **in parallel** for each selected cop:
+```bash
+git log --oneline -5 -- src/cop/<dept>/<cop_name>.rs   # what's been committed recently?
+python3 scripts/check_cop.py Department/CopName --verbose  # oracle FP/FN — the actual current gap
+```
+Compare the latest cop commit date against the corpus oracle run date (shown in
+`check_cop.py` output). If the oracle ran AFTER the latest fix, its FP/FN
+numbers are the real remaining gap — not stale data from before the fix. This
+tells you exactly what still needs fixing before you spend time reading source
+or running reducers. Do NOT read the full cop source (which may have hundreds
+of lines of investigation comments) until you know the current numbers and
+which repos are diverging.
+
 For each selected cop, investigate the FP/FN pattern:
 ```bash
 python3 scripts/investigate_cop.py Department/CopName --context --fp-only --limit 10
@@ -323,6 +337,11 @@ if the prompt/examples require local corpus source context.
    - `cargo test --release -p nitrocop --lib -- <cop_name_snake>` — all tests pass
    - `cargo fmt`
    - `cargo clippy --release -- -D warnings`
+   - **Important:** Fixture tests bypass config (Include patterns, Enabled status).
+     A passing test does NOT guarantee the binary fires on real files. If fixing
+     an FN, also verify the binary detects the pattern — see AGENTS.md Key
+     Constraints for Prism block body shape gotchas (BeginNode vs StatementsNode,
+     itblock/numblock).
 
 7. **Commit your fix**:
    ```bash
@@ -389,7 +408,14 @@ if the prompt/examples require local corpus source context.
    Do not stop here. Exact-match per-cop reruns can still leave the target
    department/gem below 100% once the corpus reports are regenerated.
 
-5. **Handle regressions**: if a fix increases FP count (even if unit tests pass), revert
+5. **Handle regressions**: When CI reports a regression, check CI logs first:
+   ```bash
+   gh run view <run-id> --job <job-id> --log 2>&1 | grep -A 3 "FAIL:"
+   ```
+   This immediately names the regressed repo(s) — do NOT re-run `check_cop.py
+   --rerun --clone` locally to find a regression that CI already identified.
+
+   If a fix increases FP count (even if unit tests pass), revert
    the code change but **add a detailed investigation comment** to the cop source file
    documenting what was tried, exactly where code changed, acceptance-gate numbers
    before/after, why it regressed, and what a correct fix would need. Use:

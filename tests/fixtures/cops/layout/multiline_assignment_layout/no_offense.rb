@@ -31,3 +31,38 @@ result =
   end
 
 x = 42
+
+Then(/^I see an? (\w+) attribute "([^\"]+)" with value (.*)$/) do |kind, path, value|
+  values = all("div#attributes-#{kind} tr")
+           .select { |row| row.find('td[1]').text == path }
+           .map { |row| row.find('td[2]').text }
+
+  assert { values.length == 1 }
+  assert { values.first == value }
+end
+
+result = case value
+in [single]
+  single
+else
+  nil
+end
+
+values = items.map do
+  _1 + 1
+end
+
+values = items.map do
+  it + 1
+end
+
+def decorate(*args)
+  result = super(*args) { |item| item }
+end
+
+def with_context(request)
+  __skip__ =
+    super(request) do |context|
+      context
+    end
+end

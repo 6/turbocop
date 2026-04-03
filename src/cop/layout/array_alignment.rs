@@ -170,12 +170,12 @@ impl ArrayAlignment {
                     let open_loc = array_node.opening_loc().unwrap();
                     let (open_line, _) = source.offset_to_line_col(open_loc.start_offset());
                     let open_line_bytes = source.lines().nth(open_line - 1).unwrap_or(b"");
-                    crate::cop::util::indentation_of(open_line_bytes) + indent_width
+                    crate::cop::shared::util::indentation_of(open_line_bytes) + indent_width
                 } else {
                     // For bracketless arrays (trailing comma), use first element's
                     // line indentation + indent_width
                     let first_line_bytes = source.lines().nth(first_line - 1).unwrap_or(b"");
-                    crate::cop::util::indentation_of(first_line_bytes) + indent_width
+                    crate::cop::shared::util::indentation_of(first_line_bytes) + indent_width
                 }
             }
             _ => first_col, // "with_first_element" (default)
@@ -208,7 +208,7 @@ impl ArrayAlignment {
             "with_fixed_indentation" => {
                 // Use the rescue keyword line's indentation + indent_width
                 let rescue_line_bytes = source.lines().nth(first_line - 1).unwrap_or(b"");
-                crate::cop::util::indentation_of(rescue_line_bytes) + indent_width
+                crate::cop::shared::util::indentation_of(rescue_line_bytes) + indent_width
             }
             _ => first_col, // "with_first_element" (default)
         };

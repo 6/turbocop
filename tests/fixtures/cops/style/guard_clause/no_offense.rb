@@ -68,11 +68,41 @@ def test
   end
 end
 
+# Parenthesized assignment used by a later bare expression in a multi-statement branch
+def test
+  if (deprecated_value = deprecated_options.delete(key))
+    warn "deprecated"
+    deprecated_value
+  end
+end
+
 # Multi-assignment in condition used in body
 def test
   if (var, obj = simple_comparison_lhs(node)) || (obj, var = simple_comparison_rhs(node))
     return if var.call_type?
     [var, obj]
+  end
+end
+
+# Parenthesized ||= assignment in condition used in the non-guard branch
+def test
+  if (object ||= fallback) && object.respond_to?(:to_param)
+    @auto_index = object.to_param
+  else
+    raise ArgumentError, object.inspect
+  end
+end
+
+# Multiline heredoc guard branch is not a single-line branch guard clause
+def test(database_id)
+  if splitted = database_id.split(":") and splitted.length == 2
+    splitted
+  else
+    fail(
+      <<-TXT
+        Expected database id '#{database_id}'
+      TXT
+    )
   end
 end
 
@@ -101,5 +131,14 @@ def test
     return foo
   else
     baz
+  end
+end
+
+# Setter assignment parent suppresses branch-style guard-clause suggestions
+def test(obj)
+  obj.value = if something
+    raise "error"
+  else
+    work
   end
 end

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use ruby_prism::Visit;
 
-use crate::cop::node_type::{BEGIN_NODE, CASE_MATCH_NODE, CASE_NODE, IF_NODE, UNLESS_NODE};
+use crate::cop::shared::node_type::{BEGIN_NODE, CASE_MATCH_NODE, CASE_NODE, IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -127,6 +127,19 @@ use crate::parse::source::SourceFile;
 /// fingerprints for `ReturnNode`, block nodes, local/instance variable writes,
 /// and hash-like nodes so nested AST-equivalent bodies compare equal without
 /// broad comment/whitespace suppression across unrelated node kinds.
+///
+/// ## Follow-up (2026-04-02) — `case in` pattern locals inside arrays
+///
+/// FP=2 remained in `case in` branches where array bodies had identical source
+/// text, but Prism resolved a bare identifier as a zero-arg method call in one
+/// branch and as a `LocalVariableReadNode` introduced by the pattern in another.
+/// Example: `[status, headers, [body]]` under `in String => body` versus
+/// `in [Integer => status, String => body]`.
+///
+/// Source-based fallback on `ArrayNode` collapsed those branches even though
+/// their nested ASTs differ. Fix: fingerprint `ArrayNode` structurally by
+/// element so `CallNode(status)` and `LocalVariableReadNode(status)` stay
+/// distinct without suppressing legitimate duplicate array branches.
 pub struct DuplicateBranch;
 
 impl Cop for DuplicateBranch {
@@ -421,6 +434,11 @@ fn node_fingerprint(bytes: &[u8], node: &ruby_prism::Node<'_>, out: &mut Vec<u8>
         return;
     }
 
+    if let Some(array) = node.as_array_node() {
+        array_fingerprint(bytes, &array, out);
+        return;
+    }
+
     if let Some(hash) = node.as_hash_node() {
         hash_fingerprint(bytes, hash.elements().iter(), out);
         return;
@@ -495,6 +513,17 @@ fn variable_write_fingerprint(
     out.extend_from_slice(name);
     out.push(b'=');
     node_fingerprint(bytes, value, out);
+}
+
+fn array_fingerprint(bytes: &[u8], array: &ruby_prism::ArrayNode<'_>, out: &mut Vec<u8>) {
+    out.extend_from_slice(b"A[");
+    for (i, element) in array.elements().iter().enumerate() {
+        if i > 0 {
+            out.push(b',');
+        }
+        node_fingerprint(bytes, &element, out);
+    }
+    out.push(b']');
 }
 
 fn hash_fingerprint<'pr, I>(bytes: &[u8], elements: I, out: &mut Vec<u8>)
@@ -1302,5 +1331,30 @@ mod tests {
         assert_eq!(normalize_whitespace(b"return []"), b"return[]");
         // Space preserved between identifiers
         assert_eq!(normalize_whitespace(b"foo bar baz"), b"foo bar baz");
+    }
+
+    #[test]
+    fn array_fingerprint_distinguishes_pattern_locals_from_method_calls() {
+        let src = b"case caught\nin Enumerator => body\n  [status, headers, body]\nin [Integer => status, Enumerator => body]\n  [status, headers, body]\nend\n";
+        let result = ruby_prism::parse(src);
+        let root = result.node();
+        let program = root.as_program_node().unwrap();
+        let case_match = program
+            .statements()
+            .body()
+            .iter()
+            .next()
+            .unwrap()
+            .as_case_match_node()
+            .unwrap();
+
+        let mut branches = case_match.conditions().iter();
+        let first = branches.next().unwrap().as_in_node().unwrap();
+        let second = branches.next().unwrap().as_in_node().unwrap();
+
+        assert_ne!(
+            stmts_fingerprint(src, &first.statements()),
+            stmts_fingerprint(src, &second.statements())
+        );
     }
 }

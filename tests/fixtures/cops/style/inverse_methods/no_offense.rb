@@ -25,3 +25,66 @@ end
 # Safe navigation &. with incompatible methods — can't invert
 !foo&.any?
 !foo&.none?
+if !(/[A-Z]/ =~ kind)
+end
+meta = j.metacol_id && !(/metacol/ =~ params[:type]) ? (' (' + link_to(j.metacol_id, j.metacol) + ')') : ''
+(xml.include?("<feed") && xml.include?("Atom") && xml.include?("feedburner") && !(/<rss|<rdf/ =~ xml)) || false
+
+rows.map do |j|
+  sub = User.find(j.submitted_by)
+  doer = User.find_by(id: j.user_id)
+  group = Group.find(j.group_id)
+  name = j.path.split('/').last.split('.').first
+  meta = j.metacol_id && !(/metacol/ =~ params[:type]) ? (' (' + link_to(j.metacol_id, j.metacol) + ')') : ''
+end
+
+if ventilate
+  result.map do |l|
+    (l.start_with? '//') || !(STOP_PUNCTUATION.any? { |punc| l.include? punc }) ? l : (l.gsub StopPunctRx, LF)
+  end.join LF
+else
+  result.join LF
+end
+
+def empty?
+  !any?
+end
+
+def without_platforms
+  select { |k, v| !v.has_platforms? }
+end
+
+# Parenthesized block-form inverse methods are accepted
+!(Array(value).any? { |key_code| input.key_push?(key_code) })
+
+def valid_characters?(data_stream_parameter)
+  not (INVALID_CHARACTERS.each.any? do |v|
+    data_stream_parameter.include?(v)
+  end)
+end
+
+line !~ Rails::BacktraceCleaner::APP_DIRS_PATTERN &&
+  !(Foreman::Plugin.all.any? { |plugin| !plugin.name.nil? && line.include?(plugin.name) })
+
+# Safe navigation negated equality does not trigger inverse-block detection
+list = columns.select { |c| c.change&.!= :rename }
+
+# A receiver chain with `next` in an earlier block is accepted
+Dir.entries(dir).map do |f|
+  next if matches_nil?(f)
+
+  build(f)
+end.select { |x| !x.nil? }
+
+items
+  .map do |item|
+    item
+  end
+  .select do |item|
+    next true if skip?(item)
+
+    allowed?(item)
+  end
+  .select do |item|
+    !item.is_a?(Sidebar)
+  end.compact

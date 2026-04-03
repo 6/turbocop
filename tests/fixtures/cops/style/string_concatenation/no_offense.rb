@@ -32,9 +32,12 @@ HEREDOC
 name = 'First' +
   'Last'
 
-# Percent literal concatenation — in Prism these are StringNode but in Parser they're dstr
-config + %[some value]
-header + %{some value}
+# Line-end concatenation with percent literals — handled by Style/LineEndConcatenation
+"str" +
+  %(str)
+
+"str" +
+  %q{str}
 
 # Multi-line string literal — in Parser these are dstr (not str_type?)
 # so RuboCop does not flag them. In Prism they are StringNode.

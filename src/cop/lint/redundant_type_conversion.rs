@@ -1,8 +1,9 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     ARRAY_NODE, CALL_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE,
     INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, KEYWORD_HASH_NODE, RATIONAL_NODE,
     STRING_NODE, SYMBOL_NODE,
 };
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -12,12 +13,12 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Investigation findings
 ///
-/// FP fix: `is_constructor` and `is_kernel_method` used `constant_name()` which
+/// FP fix: `is_constructor` and `is_kernel_method` used `constant_short_name()` which
 /// returns the last segment for both `ConstantReadNode` (bare `Array`) and
 /// `ConstantPathNode` (qualified `Native::Array`). This caused false positives
 /// for qualified paths like `Native::Array.new(x).to_a` since `Native::Array`
 /// is not Ruby's `Array`. Fixed by checking `as_constant_read_node()` directly
-/// instead of using `constant_name()`, so only bare constants match.
+/// instead of using `constant_short_name()`, so only bare constants match.
 ///
 /// FN fix: Missing `to_json` as a typed method that always returns a String.
 /// RuboCop's `TYPED_METHODS` maps `to_s` to `[:inspect, :to_json]`, but we
@@ -44,28 +45,6 @@ use crate::parse::source::SourceFile;
 ///   always yields a String. Treat `SourceFileNode` as string-like for
 ///   `to_s` redundancy checks.
 pub struct RedundantTypeConversion;
-
-fn unwrap_parentheses<'a>(mut node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
-    loop {
-        let Some(paren) = node.as_parentheses_node() else {
-            return node;
-        };
-        let Some(body) = paren.body() else {
-            return node;
-        };
-        let Some(stmts) = body.as_statements_node() else {
-            return node;
-        };
-        let mut body_nodes = stmts.body().iter();
-        let Some(single_node) = body_nodes.next() else {
-            return node;
-        };
-        if body_nodes.next().is_some() {
-            return node;
-        }
-        node = single_node;
-    }
-}
 
 impl Cop for RedundantTypeConversion {
     fn name(&self) -> &'static str {
@@ -124,7 +103,7 @@ impl Cop for RedundantTypeConversion {
             Some(r) => r,
             None => return,
         };
-        let receiver = unwrap_parentheses(receiver);
+        let receiver = util::unwrap_parentheses(receiver);
 
         let is_redundant = match method_name {
             b"to_s" => {

@@ -81,20 +81,38 @@ Use `uv run` as the preferred way to invoke Python tools (`ruff`, `pytest`, etc.
 ## Repo Layout
 
 - `src/cop/` — cop implementations by department
+- `src/cop/shared/` — shared cop infrastructure (util, node types, predicates)
 - `tests/fixtures/cops/` — per-cop offense and no-offense fixtures
 - `scripts/` — public CLI tools
 - `scripts/workflows/` — workflow-only internals
 - `scripts/shared/` — shared Python helpers
 - `bench/` — corpus and benchmark tooling
 
+## Shared Cop Infrastructure
+
+Before implementing cop logic, check for shared modules — do not reimplement what already exists. Key shared code:
+
+- **`src/cop/shared/util.rs`** — Node helpers (`is_safe_navigation_call`, `unwrap_parentheses`, `is_ternary`, `is_modifier_if`, `double_quotes_required`, etc.).
+- **`src/cop/shared/node_type.rs`** — Node type tag constants for O(1) dispatch.
+- **`src/cop/shared/method_identifier_predicates.rs`** — Method name classification (mirrors rubocop-ast's `MethodIdentifierPredicates` and `MethodDispatchNode`).
+- **`src/cop/shared/literal_predicates.rs`** — Literal node classification (mirrors rubocop-ast's `Node` literal constants).
+- **`src/cop/shared/access_modifier_predicates.rs`** — Access modifier detection and `MacroScope` helpers (mirrors rubocop-ast's `MethodDispatchNode` access modifier methods).
+- **`src/cop/variable_force/`** — Variable dataflow engine (10 cops via `VariableForceConsumer` trait).
+- **Per-department shared modules** — `metrics/method_complexity.rs`, `style/hash_subset.rs`, `style/hash_transform_method.rs`, `style/trailing_comma.rs`, `layout/multiline_literal_brace_layout.rs`.
+
+The canonical reference for RuboCop's AST node predicates is vendored at `vendor/rubocop-ast/`. When adding a shared module consumed by multiple cops, add a `*_CONSUMERS` set to `scripts/dispatch_cops.py` for CI dispatch.
+
 ## Key Constraints
 
 - `ruby_prism::ParseResult` is `!Send + !Sync`, so parsing must happen inside each rayon worker thread.
 - The `Cop` trait is `Send + Sync`; cops that need mutable visitor state should create a temporary visitor struct internally.
+- **No `Mutex` fields for per-file state on shared cop structs.** Cop instances are shared across rayon worker threads. If a cop pre-computes data in `check_source` and reads it in a VariableForce callback (`before_leaving_scope`, `before_declaring_variable`, etc.), storing that data in `Mutex<Vec<...>>` fields creates a TOCTOU race: another thread's `check_source` can overwrite the data before the first thread's VF callback reads it. Use `thread_local!` with `RefCell` instead — within a rayon task, a single file is processed sequentially (`check_source` → VF engine → callbacks).
 - Edition 2024 / Rust 1.85+.
 - Cops disabled by default in vendor config must override `default_enabled() -> false`, or they will produce false positives when vendored config loading fails. Note: `default_enabled()` has no effect on corpus FP/FN numbers — the corpus baseline config (`baseline_rubocop.yml`) explicitly enables all cops, overriding this. The override only matters for real-world usage.
 - Plugin cops depend on the target project's installed gem version, not just the vendored submodule version in this repo. When nitrocop processes `require: [rubocop-rspec]`, it runs `bundle info --path` to find the installed gem and loads that gem's `config/default.yml`. Cops not in the installed gem's config are treated as non-existent (disabled), matching RuboCop's behavior.
 - Corpus bundle version matters: `check_cop.py --rerun` requires the corpus bundle installed for the Ruby version in `mise.toml`. If the Ruby version is wrong or gems are missing, config resolution falls back to hardcoded defaults and offense counts will be wildly incorrect (often 5-10x higher). Fix with `cd bench/corpus && BUNDLE_PATH=vendor/bundle bundle install`.
+- **Prism block body shapes:** Block bodies are not always `StatementsNode`. When a block has `rescue`, `ensure`, or `else`, Prism wraps the body as a `BeginNode` with `statements()`, `rescue_clause()`, `else_clause()`, and `ensure_clause()`. Code that only checks `body.as_statements_node()` will silently miss the entire block body. Similarly, RuboCop's parser gem produces `itblock`/`numblock` node types for blocks using Ruby 3.4 `it` keyword or numbered parameters — Prism uses regular `BlockNode` with `ItParametersNode`/`NumberedParametersNode` as parameters. Always check both node shapes when processing block bodies.
+- **Fixture tests bypass config:** `cargo test` calls `check_source` directly on the cop, bypassing Include patterns, `Enabled: pending` status, and config resolution. A passing test does NOT mean the binary will fire on real files. When debugging "test passes but binary doesn't fire," verify the cop is enabled in the config being used and that the file matches Include patterns.
 
 ## Fixture Rules
 
@@ -136,6 +154,7 @@ BUNDLE_PATH=vendor/bundle bundle install
 ```
 
 - Do not run `cargo run --release --bin bench_nitrocop -- conform` by default during cop-fix loops. Use per-cop corpus gates unless the task explicitly asks for full conformance regeneration.
+- **Disk space:** The devcontainer can only hold ~50 corpus repos locally. Never run `bench/corpus/clone_repos.sh` (which syncs all ~5,500 repos). Instead, clone only the repos needed for a specific cop with `python3 scripts/corpus_repo_map.py --clone Department/CopName`, or use `check_cop.py --rerun --clone` which fetches only diverging repos.
 
 ## Core Rules
 

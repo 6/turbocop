@@ -336,7 +336,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(shadowed_argument::ShadowedArgument));
     registry.register(Box::new(shadowed_exception::ShadowedException));
     registry.register(Box::new(
-        shadowing_outer_local_variable::ShadowingOuterLocalVariable,
+        shadowing_outer_local_variable::ShadowingOuterLocalVariable::new(),
     ));
     registry.register(Box::new(shared_mutable_default::SharedMutableDefault));
     registry.register(Box::new(struct_new_override::StructNewOverride));
@@ -369,7 +369,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(unreachable_code::UnreachableCode));
     registry.register(Box::new(unreachable_loop::UnreachableLoop));
     registry.register(Box::new(unused_block_argument::UnusedBlockArgument));
-    registry.register(Box::new(unused_method_argument::UnusedMethodArgument));
+    registry.register(Box::new(unused_method_argument::UnusedMethodArgument::new()));
     registry.register(Box::new(uri_escape_unescape::UriEscapeUnescape));
     registry.register(Box::new(uri_regexp::UriRegexp));
     registry.register(Box::new(useless_access_modifier::UselessAccessModifier));

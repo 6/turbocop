@@ -1,4 +1,6 @@
-use crate::cop::node_type::CALL_NODE;
+use crate::cop::shared::method_dispatch_predicates;
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -93,21 +95,18 @@ impl Cop for ParenthesesAsGroupedExpression {
         let method_name = call.name().as_slice();
 
         // Skip operator methods (%, +, -, ==, etc.)
-        if is_operator(method_name) {
+        if method_identifier_predicates::is_operator_method(method_name) {
             return;
         }
 
         // Skip setter methods (foo=)
-        if method_name.ends_with(b"=") && method_name != b"==" && method_name != b"!=" {
+        if method_identifier_predicates::is_setter_method(method_name) {
             return;
         }
 
         // RuboCop's matcher only treats `.` and `&.` call syntax as candidates.
         // Constant-path class method calls like `Foo::bar (x)` are ignored.
-        if call
-            .call_operator_loc()
-            .is_some_and(|op| op.as_slice() == b"::")
-        {
+        if method_dispatch_predicates::is_double_colon_call(&call) {
             return;
         }
 
@@ -176,35 +175,6 @@ impl Cop for ParenthesesAsGroupedExpression {
             format!("`{}` interpreted as grouped expression.", arg_text),
         ));
     }
-}
-
-fn is_operator(name: &[u8]) -> bool {
-    matches!(
-        name,
-        b"=="
-            | b"!="
-            | b"<"
-            | b">"
-            | b"<="
-            | b">="
-            | b"<=>"
-            | b"+"
-            | b"-"
-            | b"*"
-            | b"/"
-            | b"%"
-            | b"**"
-            | b"&"
-            | b"|"
-            | b"^"
-            | b"~"
-            | b"<<"
-            | b">>"
-            | b"[]"
-            | b"[]="
-            | b"=~"
-            | b"!~"
-    )
 }
 
 #[cfg(test)]

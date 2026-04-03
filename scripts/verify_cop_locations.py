@@ -106,21 +106,30 @@ def parse_loc(loc_str: str) -> tuple[str, str, int]:
 def run_nitrocop_on_repo(
     nitrocop_bin: Path, corpus_dir: Path, config_path: Path,
     repo_id: str, filepaths: list[str], cop_name: str,
-) -> dict[str, set[int]]:
-    """Run nitrocop once on all files in a repo, return {filepath: set of offense lines}."""
+) -> dict[str, set[int]] | None:
+    """Run nitrocop once on all files in a repo, return {filepath: set of offense lines}.
+
+    Returns None when the repo directory doesn't exist or none of the
+    requested files are on disk.  Callers must distinguish None (not
+    checked) from an empty-set result (checked, no offenses found).
+    """
     # Import shared corpus runner for oracle-identical env/config
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bench" / "corpus"))
     from run_nitrocop import build_env, resolve_repo_config
 
     repo_dir = corpus_dir / repo_id
+    if not repo_dir.is_dir():
+        return None
+
     existing = []
     for fp in filepaths:
         if (repo_dir / fp).exists():
             existing.append(fp)
 
-    result_map: dict[str, set[int]] = {fp: set() for fp in filepaths}
     if not existing:
-        return result_map
+        return None
+
+    result_map: dict[str, set[int]] = {fp: set() for fp in filepaths}
 
     env = build_env(str(repo_dir))
     resolved_config = resolve_repo_config(repo_id, str(repo_dir))
@@ -220,8 +229,10 @@ def main():
 
     overall_fp_fixed = 0
     overall_fp_remain = 0
+    overall_fp_skipped = 0
     overall_fn_fixed = 0
     overall_fn_remain = 0
+    overall_fn_skipped = 0
 
     for cop_name in args.cops:
         cop_data = by_cop.get(cop_name)
@@ -254,7 +265,9 @@ def main():
                 pass
 
         # Batch run nitrocop per repo
-        nitrocop_cache: dict[tuple[str, str], set[int]] = {}
+        # nitrocop_cache values: set[int] = checked, None = repo not cloned
+        nitrocop_cache: dict[tuple[str, str], set[int] | None] = {}
+        skipped_repos: set[str] = set()
         total_repos = len(repo_files)
         for i, (repo_id, files) in enumerate(sorted(repo_files.items()), 1):
             print(f"\r  Scanning repo {i}/{total_repos}: {repo_id[:50]}...  ",
@@ -263,15 +276,27 @@ def main():
                 nitrocop_bin, corpus_dir, config_path,
                 repo_id, sorted(files), cop_name,
             )
-            for fp, lines in result_map.items():
-                nitrocop_cache[(repo_id, fp)] = lines
+            if result_map is None:
+                skipped_repos.add(repo_id)
+                for fp in files:
+                    nitrocop_cache[(repo_id, fp)] = None
+            else:
+                for fp, lines in result_map.items():
+                    nitrocop_cache[(repo_id, fp)] = lines
         if total_repos:
             print(file=sys.stderr)  # clear progress line
+        if skipped_repos:
+            print(
+                f"\n  WARNING: {len(skipped_repos)}/{total_repos} repo(s) not "
+                f"cloned locally — those locations cannot be verified.",
+                file=sys.stderr,
+            )
 
         # Check FPs
         if not args.fn_only and fp_examples:
             fp_fixed = 0
             fp_remain = 0
+            fp_skipped = 0
             print(f"\nFalse Positives ({len(fp_examples)} from CI):")
             for ex in fp_examples:
                 loc = ex["loc"] if isinstance(ex, dict) else ex
@@ -280,10 +305,14 @@ def main():
                     repo_id, filepath, line = parse_loc(loc)
                 except (ValueError, IndexError):
                     print(f"  ? SKIP (can't parse): {loc}")
+                    fp_skipped += 1
                     continue
 
-                nitro_lines = nitrocop_cache.get((repo_id, filepath), set())
-                if line in nitro_lines:
+                cached = nitrocop_cache.get((repo_id, filepath))
+                if cached is None:
+                    print(f"  SKIP    {loc}  (repo not cloned)")
+                    fp_skipped += 1
+                elif line in cached:
                     print(f"  REMAIN  {loc}")
                     if msg:
                         print(f"          {msg}")
@@ -292,14 +321,19 @@ def main():
                     print(f"  FIXED   {loc}")
                     fp_fixed += 1
 
-            print(f"\n  FP summary: {fp_fixed} fixed, {fp_remain} remain")
+            parts = [f"{fp_fixed} fixed", f"{fp_remain} remain"]
+            if fp_skipped:
+                parts.append(f"{fp_skipped} skipped")
+            print(f"\n  FP summary: {', '.join(parts)}")
             overall_fp_fixed += fp_fixed
             overall_fp_remain += fp_remain
+            overall_fp_skipped += fp_skipped
 
         # Check FNs
         if not args.fp_only and fn_examples:
             fn_fixed = 0
             fn_remain = 0
+            fn_skipped = 0
             print(f"\nFalse Negatives ({len(fn_examples)} from CI):")
             for ex in fn_examples:
                 loc = ex["loc"] if isinstance(ex, dict) else ex
@@ -308,10 +342,14 @@ def main():
                     repo_id, filepath, line = parse_loc(loc)
                 except (ValueError, IndexError):
                     print(f"  ? SKIP (can't parse): {loc}")
+                    fn_skipped += 1
                     continue
 
-                nitro_lines = nitrocop_cache.get((repo_id, filepath), set())
-                if line in nitro_lines:
+                cached = nitrocop_cache.get((repo_id, filepath))
+                if cached is None:
+                    print(f"  SKIP    {loc}  (repo not cloned)")
+                    fn_skipped += 1
+                elif line in cached:
                     print(f"  FIXED   {loc}")
                     fn_fixed += 1
                 else:
@@ -320,22 +358,56 @@ def main():
                         print(f"          {msg}")
                     fn_remain += 1
 
-            print(f"\n  FN summary: {fn_fixed} fixed, {fn_remain} remain")
+            parts = [f"{fn_fixed} fixed", f"{fn_remain} remain"]
+            if fn_skipped:
+                parts.append(f"{fn_skipped} skipped")
+            print(f"\n  FN summary: {', '.join(parts)}")
             overall_fn_fixed += fn_fixed
             overall_fn_remain += fn_remain
+            overall_fn_skipped += fn_skipped
 
     # Overall summary
-    print(f"\n{'='*70}")
-    print(f"OVERALL: FP {overall_fp_fixed} fixed / {overall_fp_remain} remain, "
-          f"FN {overall_fn_fixed} fixed / {overall_fn_remain} remain")
+    total_skipped = overall_fp_skipped + overall_fn_skipped
+    total_checked = (overall_fp_fixed + overall_fp_remain
+                     + overall_fn_fixed + overall_fn_remain)
     total_remain = overall_fp_remain + overall_fn_remain
-    if total_remain == 0:
-        print("ALL FP/FN VERIFIED FIXED")
-    else:
+
+    print(f"\n{'='*70}")
+    fp_parts = [f"{overall_fp_fixed} fixed", f"{overall_fp_remain} remain"]
+    fn_parts = [f"{overall_fn_fixed} fixed", f"{overall_fn_remain} remain"]
+    if overall_fp_skipped:
+        fp_parts.append(f"{overall_fp_skipped} skipped")
+    if overall_fn_skipped:
+        fn_parts.append(f"{overall_fn_skipped} skipped")
+    print(f"OVERALL: FP {' / '.join(fp_parts)}, FN {' / '.join(fn_parts)}")
+
+    exit_code = 0 if total_remain == 0 and total_checked > 0 else 1
+
+    if total_skipped and total_checked == 0:
+        print(
+            f"WARNING: All {total_skipped} location(s) skipped — no corpus "
+            f"repos are cloned locally. Results are not meaningful."
+        )
+        if os.environ.get("CI"):
+            print(
+                "ERROR: Running in CI with no checkable repos. Use "
+                "check_cop.py --rerun --clone instead, or clone repos with "
+                "scripts/corpus_repo_map.py --clone.",
+                file=sys.stderr,
+            )
+            exit_code = 2
+    elif total_skipped:
+        print(
+            f"NOTE: {total_skipped} location(s) skipped (repos not cloned). "
+            f"Only {total_checked} location(s) were actually verified."
+        )
+    if total_remain == 0 and total_checked > 0:
+        print("ALL CHECKED FP/FN VERIFIED FIXED")
+    elif total_remain > 0:
         print(f"{total_remain} issues remain")
     print(f"{'='*70}")
 
-    sys.exit(0 if total_remain == 0 else 1)
+    sys.exit(exit_code)
 
 
 def _run_tests():

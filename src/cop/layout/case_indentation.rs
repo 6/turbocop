@@ -1,4 +1,4 @@
-use crate::cop::node_type::{CASE_MATCH_NODE, CASE_NODE, WHEN_NODE};
+use crate::cop::shared::node_type::{CASE_MATCH_NODE, CASE_NODE, WHEN_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

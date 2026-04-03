@@ -1,4 +1,5 @@
-use crate::cop::node_type::{
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::{
     AND_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE,
     FALSE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_READ_NODE, IMAGINARY_NODE, INSTANCE_VARIABLE_READ_NODE,
     INTEGER_NODE, INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, NIL_NODE, OR_NODE,
@@ -240,7 +241,7 @@ fn is_acceptable_boundary(node: &ruby_prism::Node<'_>, require_parens_for_chains
 
         // Operator methods (except []) are NOT acceptable — they create
         // ambiguity like `x + 1..y - 1` where the range boundaries are unclear.
-        if is_operator(name) && name != b"[]" {
+        if method_identifier_predicates::is_operator_method(name) && name != b"[]" {
             return false;
         }
 
@@ -255,35 +256,6 @@ fn is_acceptable_boundary(node: &ruby_prism::Node<'_>, require_parens_for_chains
     }
 
     false
-}
-
-fn is_operator(name: &[u8]) -> bool {
-    matches!(
-        name,
-        b"=="
-            | b"!="
-            | b"<"
-            | b">"
-            | b"<="
-            | b">="
-            | b"<=>"
-            | b"+"
-            | b"-"
-            | b"*"
-            | b"/"
-            | b"%"
-            | b"**"
-            | b"&"
-            | b"|"
-            | b"^"
-            | b"~"
-            | b"<<"
-            | b">>"
-            | b"[]"
-            | b"[]="
-            | b"=~"
-            | b"!~"
-    )
 }
 
 /// Matches RuboCop's `RationalLiteral` mixin: `(send (int _) :/ (rational _))`.

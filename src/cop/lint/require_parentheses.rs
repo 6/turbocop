@@ -1,4 +1,6 @@
-use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::{AND_NODE, CALL_NODE, OR_NODE};
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -15,13 +17,8 @@ use crate::parse::source::SourceFile;
 ///   the ternary-first-argument path entirely.
 pub struct RequireParentheses;
 
-fn is_ternary(if_node: &ruby_prism::IfNode<'_>) -> bool {
-    if_node.if_keyword_loc().is_none()
-}
-
 fn is_assignment_method(call: &ruby_prism::CallNode<'_>) -> bool {
-    let name = call.name().as_slice();
-    name.ends_with(b"=") && name != b"=="
+    method_identifier_predicates::is_assignment_method(call.name().as_slice())
 }
 
 impl Cop for RequireParentheses {
@@ -64,7 +61,7 @@ impl Cop for RequireParentheses {
         if let Some(first_arg) = args.arguments().iter().next() {
             if let Some(ternary) = first_arg.as_if_node() {
                 let condition = ternary.predicate();
-                if is_ternary(&ternary)
+                if util::is_ternary(&ternary)
                     && !is_assignment_method(&call)
                     && call.name().as_slice() != b"[]"
                     && (condition.as_and_node().is_some() || condition.as_or_node().is_some())

@@ -148,3 +148,137 @@ else
   x = do_something
   ^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `x = do_something` out of the conditional.
 end
+
+# if/else identical leading lines with different formatting
+if RSpec::Core::Version::STRING >= '3'
+  c.include Ammeter::RSpec::Rails::GeneratorExampleHelpers, :type          => :generator
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `c.include Ammeter::RSpec::Rails::GeneratorExampleHelpers, :type          => :generator` out of the conditional.
+  c.include Ammeter::RSpec::Rails::GeneratorExampleGroup,
+    :type          => :generator
+else
+  c.include Ammeter::RSpec::Rails::GeneratorExampleHelpers, :type => :generator
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `c.include Ammeter::RSpec::Rails::GeneratorExampleHelpers, :type          => :generator` out of the conditional.
+  c.include Ammeter::RSpec::Rails::GeneratorExampleGroup, :type => :generator, :example_group => {
+    :file_path => generator_path_regex
+  }
+end
+
+# if/else identical trailing lines with different formatting
+if @root_object.is_a?(Resource)
+  ao_ids = archive_ids
+  date_query = date_query.filter(:archival_object_id => ao_ids)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `date_query = date_query.filter(:archival_object_id => ao_ids)` out of the conditional.
+else
+  ao_ids = []
+  date_query = date_query.filter(:archival_object_id  => ao_ids)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `date_query = date_query.filter(:archival_object_id => ao_ids)` out of the conditional.
+end
+
+# unless/else identical trailing lines
+unless condition
+  do_x
+  do_z
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_z` out of the conditional.
+else
+  do_y
+  do_z
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_z` out of the conditional.
+end
+
+# unless/else identical leading lines
+unless something
+  do_x
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_x` out of the conditional.
+  method_call_here(1, 2, 3)
+else
+  do_x
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_x` out of the conditional.
+  1 + 2 + 3
+end
+
+# unless/else identical bodies
+unless condition
+  do_x
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_x` out of the conditional.
+else
+  do_x
+  ^^^^ Style/IdenticalConditionalBranches: Move `do_x` out of the conditional.
+end
+
+# unless/else identical trailing lines (method call with bang)
+unless params[:collection_id].blank?
+  work.collection = @collection
+  work.save!
+  ^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `work.save!` out of the conditional.
+else
+  collection = Collection.new
+  work.save!
+  ^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `work.save!` out of the conditional.
+end
+
+# unless/else identical bodies (return statements)
+unless (defined? @ipr_ids) && @ipr_ids
+  @ipr_ids = {}
+  return @ipr_ids
+  ^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `return @ipr_ids` out of the conditional.
+else
+  return @ipr_ids
+  ^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `return @ipr_ids` out of the conditional.
+end
+
+# if/else identical trailing lines with deep condition call chain
+if str.to_s.strip.empty?
+  @distance = nil
+  @distance_string = str
+  ^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@distance_string = str` out of the conditional.
+else
+  @distance = str.to_f
+  @distance_string = str
+  ^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@distance_string = str` out of the conditional.
+end
+
+# if/else identical trailing lines with longer else branch
+if str.to_s.strip.empty?
+  @bootstrap = nil
+  @bootstrap_string = str
+  ^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@bootstrap_string = str` out of the conditional.
+else
+  i = str.to_i
+  f = str.to_f
+  @bootstrap = (i == f ? i : f)
+  @bootstrap_string = str
+  ^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@bootstrap_string = str` out of the conditional.
+end
+
+# if/else identical literal tails
+if package_installed?(package)
+  out "Failure [INSTALL_FAILED_ALREADY_EXISTS]\r\n"
+  0
+  ^ Style/IdenticalConditionalBranches: Move `0` out of the conditional.
+else
+  out "Success\r\n"
+  0
+  ^ Style/IdenticalConditionalBranches: Move `0` out of the conditional.
+end
+
+# if/else identical leading redirects with different following statements
+if errorMsg.blank?
+  redirect_to :controller => 'wkassetdepreciation', :action => 'index' , :tab => 'wkassetdepreciation'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `redirect_to :controller => 'wkassetdepreciation', :action => 'index' , :tab => 'wkassetdepreciation'` out of the conditional.
+  flash[:notice] = l(:notice_successful_update)
+else
+  redirect_to :controller => 'wkassetdepreciation', :action => 'index', :tab => 'wkassetdepreciation'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `redirect_to :controller => 'wkassetdepreciation', :action => 'index' , :tab => 'wkassetdepreciation'` out of the conditional.
+  flash[:error] = errorMsg
+end
+
+# if/else identical trailing encodes after different value coercions
+if VALUE_CONVERSION[@vr] == :to_s
+  @value = new_value.to_s.encode(ENCODING_NAME[character_set], new_value.to_s.encoding.name)
+  @bin = encode(@value)
+  ^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@bin = encode(@value)` out of the conditional.
+else
+  @value = new_value
+  @bin = encode(@value)
+  ^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@bin = encode(@value)` out of the conditional.
+end

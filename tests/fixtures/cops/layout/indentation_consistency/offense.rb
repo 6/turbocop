@@ -66,3 +66,44 @@ begin
    func2
    ^^^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
 end
+
+agent.measure_block("test") do
+  ActiveSupport::Notifications.instrument("deliver.action_mailer", {mailer: "Mailer"}) do line = __LINE__
+    sleep 0.01
+    ^^^^^^^^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
+  end
+end
+
+def foo
+  a
+    b
+    ^ Layout/IndentationConsistency: Inconsistent indentation detected.
+rescue
+  c
+end
+
+begin
+	foo
+rescue Exception => ex
+	bar
+  ex
+  ^^ Layout/IndentationConsistency: Inconsistent indentation detected.
+end
+
+class A
+  class << self
+    private
+      def first_block_start(language, parent_block, line_number, string, offset, maximum_offset = nil)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
+      end
+  end
+end
+
+require 'ostruct'
+
+ module ClinicFinder
+ ^^^^^^^^^^^^^^^^^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
+  module Modules
+    module GestationHelper; end
+  end
+end

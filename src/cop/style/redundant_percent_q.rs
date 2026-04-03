@@ -1,4 +1,5 @@
-use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
+use crate::cop::shared::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -128,7 +129,7 @@ fn acceptable_static_percent_capital_q(source: &[u8]) -> bool {
     // RuboCop only applies double_quotes_required? for `str` (single-line) nodes.
     // The Ruby parser represents multiline strings as `dstr` where str_type? is false.
     // Prism always uses StringNode for static strings, so check for newlines to match.
-    source.contains(&b'"') && !source.contains(&b'\n') && double_quotes_required(source)
+    source.contains(&b'"') && !source.contains(&b'\n') && util::double_quotes_required(source)
 }
 
 fn acceptable_dynamic_percent_capital_q(source: &[u8]) -> bool {
@@ -167,33 +168,6 @@ fn contains_interpolation_pattern(source: &[u8]) -> bool {
                 .position(|&b| b == b'}')
                 .is_some_and(|offset| offset > 0)
     })
-}
-
-/// Match RuboCop's `double_quotes_required?` helper on the full node source.
-fn double_quotes_required(source: &[u8]) -> bool {
-    let mut i = 0;
-
-    while i < source.len() {
-        match source[i] {
-            b'\'' => return true,
-            b'\\' => {
-                let run_start = i;
-                while i < source.len() && source[i] == b'\\' {
-                    i += 1;
-                }
-
-                let run_len = i - run_start;
-                let next = source.get(i).copied();
-
-                if run_len % 2 == 1 && !matches!(next, Some(b'\\' | b'"')) {
-                    return true;
-                }
-            }
-            _ => i += 1,
-        }
-    }
-
-    false
 }
 
 fn path_has_hidden_directory(path: &Path) -> bool {

@@ -1,7 +1,7 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     BEGIN_NODE, CASE_MATCH_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE, UNLESS_NODE,
 };
-use crate::cop::util::assignment_context_base_col;
+use crate::cop::shared::util::assignment_context_base_col;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

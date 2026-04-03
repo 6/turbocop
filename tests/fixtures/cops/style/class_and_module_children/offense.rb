@@ -56,3 +56,55 @@ module Multi
          ^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
   end
 end
+
+# Compact-style with cbase prefix (::) — still flagged if multi-segment
+class ::Rack::MiniProfiler::SnapshotsTransporter
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+end
+
+module ::FFI::Library
+       ^^^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+end
+
+class ::FFI::Pointer
+      ^^^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+end
+
+module ::FFI::WIN32
+       ^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+end
+
+class ::PuppetSpec::DataTypes::MyTest
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+end
+
+class ::ActiveRecord::Base
+      ^^^^^^^^^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+end
+
+class ::ActionView::Base
+      ^^^^^^^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+end
+
+# Compact-style inside a block within a single-statement module body
+module PuppetSpec
+  describe "something" do
+    before(:each) do
+      class ::PuppetSpec::DataTypes::MyTest
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+      end
+    end
+  end
+end
+
+# Compact-style class inside an if within a single-statement module body
+module Underscore
+  module Rails
+    if defined?(::Rails) and Gem::Requirement.new('>= 3.1').satisfied_by?(Gem::Version.new(::Rails.version))
+      class Rails::Engine < ::Rails::Engine
+            ^^^^^^^^^^^^^ Style/ClassAndModuleChildren: Use nested module/class definitions instead of compact style.
+        # this class enables the asset pipeline
+      end
+    end
+  end
+end

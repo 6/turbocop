@@ -137,3 +137,78 @@ def foo
     x3
   end
 end
+
+# if/else identical trailing index assignments that reuse the condition receiver
+if @store.delete(key)
+  @store[key] = value
+else
+  @store.shift if @store.size >= @max_size
+  @store[key] = value
+end
+
+# if/else identical trailing setter calls that reuse the condition receiver
+object = nil
+obj_hash = {}
+
+if object.present?
+  object.attributes = obj_hash
+else
+  object = Topic.new
+  object.attributes = obj_hash
+end
+
+# unless without else
+unless condition
+  do_x
+end
+
+# if/else inside assignment — identical heads with single-child else branch
+def bar
+  y = if something
+        do_x
+      else
+        do_x
+        1 + 2 + 3
+      end
+  do_something_else
+end
+
+# if/else nested conditionals as single-child branches, last node of parent
+def baz
+  if outer
+    if inner
+      do_x
+    end
+  else
+    if inner
+      do_x
+    end
+  end
+end
+
+# if/else identical tail assignments where RHS variable appears in condition
+def collection_collaborator(user, obj)
+  if obj.is_a?(Collection)
+    @collection = obj
+  else
+    @collection = obj
+  end
+end
+
+# if/else identical tail assignments where RHS variable appears in condition (lvar)
+def process(sorted_values, prev_v, start_v, runs, v)
+  if v == prev_v + 1
+    prev_v = v
+  else
+    runs << [start_v, prev_v]
+    start_v = v
+    prev_v = v
+  end
+end
+
+# if/else with different regex literals that only differ by whitespace in the pattern
+regex = if allow_spaces_in_card?(value)
+          /[^\d ]/
+        else
+          /[^\d]/
+        end

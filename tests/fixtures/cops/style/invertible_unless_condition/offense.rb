@@ -66,3 +66,27 @@ errors.add(
   :base,
   "subject and expected_receive_period_in_days are required"
 ) unless x != y
+
+return nil unless time_of_day.present? && time_of_day.values.any?(&:positive?)
+^ Style/InvertibleUnlessCondition: Prefer `if time_of_day.blank? || time_of_day.values.none?(&:positive?)` over `unless time_of_day.present? && time_of_day.values.any?(&:positive?)`.
+
+return nil unless day_of_week.present? && day_of_week.any?(&:positive?)
+^ Style/InvertibleUnlessCondition: Prefer `if day_of_week.blank? || day_of_week.none?(&:positive?)` over `unless day_of_week.present? && day_of_week.any?(&:positive?)`.
+
+return nil unless seasonality.present? && seasonality.values.any?(&:positive?)
+^ Style/InvertibleUnlessCondition: Prefer `if seasonality.blank? || seasonality.values.none?(&:positive?)` over `unless seasonality.present? && seasonality.values.any?(&:positive?)`.
+
+return nil unless day_of_week.present? && day_of_week.any?(&:positive?)
+^ Style/InvertibleUnlessCondition: Prefer `if day_of_week.blank? || day_of_week.none?(&:positive?)` over `unless day_of_week.present? && day_of_week.any?(&:positive?)`.
+
+return unless @queries.values.any?(&:current_context?) || @connections.any?(&:current_context?)
+^ Style/InvertibleUnlessCondition: Prefer `if @queries.values.none?(&:current_context?) && @connections.none?(&:current_context?)` over `unless @queries.values.any?(&:current_context?) || @connections.any?(&:current_context?)`.
+
+return unless target.dependent_targets_for_test_spec(test_spec).any?(&:uses_swift?)
+^ Style/InvertibleUnlessCondition: Prefer `if target.dependent_targets_for_test_spec(test_spec).none?(&:uses_swift?)` over `unless target.dependent_targets_for_test_spec(test_spec).any?(&:uses_swift?)`.
+
+result[f] = r unless r.any?(&:empty?)
+^ Style/InvertibleUnlessCondition: Prefer `if r.none?(&:empty?)` over `unless r.any?(&:empty?)`.
+
+errors.add(:base, :scripts_absent) unless fields.any?(&:present?)
+^ Style/InvertibleUnlessCondition: Prefer `if fields.none?(&:present?)` over `unless fields.any?(&:present?)`.

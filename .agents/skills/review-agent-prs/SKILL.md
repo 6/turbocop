@@ -14,17 +14,30 @@ User runs `/review-agent-prs` (optionally with filters like `--cop Style/*`).
 
 ## Workflow
 
-### 1. List open agent PRs
+### 1. List open agent PRs with passing CI
 
 ```bash
 gh pr list --repo 6/nitrocop --label type:cop-fix --state open \
   --json number,title,headRefName,statusCheckRollup,labels,createdAt \
-  --jq '.[] | "\(.number)\t\(.title)\t\(.labels | map(.name) | join(","))"'
+  --jq '[.[] | select(
+    (.statusCheckRollup | length > 0) and
+    (.statusCheckRollup | all(.status == "COMPLETED")) and
+    (.statusCheckRollup | all(.conclusion == "SUCCESS"))
+  )] | .[] | "\(.number)\t\(.title)\t\(.labels | map(.name) | join(","))"'
+```
+
+This filters to only PRs where all CI checks have passed, skipping drafts with no checks, PRs with pending checks, and PRs with failures — no need to run `gh pr checks` per PR.
+
+Also list PRs with `validation-failed` label separately so they can be closed:
+
+```bash
+gh pr list --repo 6/nitrocop --label type:cop-fix,validation-failed --state open \
+  --json number,title --jq '.[] | "\(.number)\t\(.title)"'
 ```
 
 ### 2. Review each PR
 
-For each PR, fetch the diff with `gh pr diff <number>` and review:
+For each passing PR, fetch the diff with `gh pr diff <number>` and review:
 
 **Code correctness:**
 - Does the logic match the cop's intended behavior?

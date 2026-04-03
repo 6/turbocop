@@ -1,4 +1,7 @@
-use crate::cop::node_type::{CALL_NODE, FOR_NODE, PROGRAM_NODE, STATEMENTS_NODE};
+use crate::cop::shared::node_type::{
+    BEGIN_NODE, CALL_NODE, CASE_NODE, ELSE_NODE, ENSURE_NODE, FOR_NODE, IF_NODE, IN_NODE,
+    PROGRAM_NODE, RESCUE_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -14,11 +17,32 @@ use crate::parse::source::SourceFile;
 /// only about intervening *statements*. The `left_sibling` in RuboCop is the
 /// previous AST sibling, regardless of whitespace.
 ///
+/// Additional FP root cause: calls with block arguments (`each(&:foo)`) are NOT
+/// block nodes in RuboCop's AST, so `on_block` never fires for them. nitrocop
+/// was treating `BlockArgumentNode` the same as `BlockNode`, causing false
+/// positives when consecutive `each(&:symbol)` calls appeared.
+///
 /// FN root cause: `for` loops were not handled at all (only CallNode was checked).
 /// Methods like `each_key`, `each_value`, `each_pair`, `each_with_object` were
 /// missing from the method list because it was a hardcoded allowlist instead of
 /// using the `starts_with("each") || ends_with("_each")` pattern from RuboCop.
 /// Also, RuboCop requires both loops to have bodies (not empty blocks).
+///
+/// Additional FN root cause: receiverless loop calls (implicit self, e.g. bare
+/// `each do |item| ... end`) were not handled because `call.receiver()` returning
+/// `None` caused `get_loop_info` to return `None`.
+///
+/// Additional FP/FN root causes fixed here:
+/// - Pure explicit `begin .. end` (`kwbegin`) bodies are not scanned by RuboCop,
+///   but handled `begin` bodies with `rescue`/`else`/`ensure` are. Prism uses
+///   `BeginNode` for both, so this cop now only scans `BeginNode` statements
+///   when one of those handler clauses is present.
+/// - Prism's `CallNode#location` for heredoc receivers omits the heredoc body
+///   (`<<END.split`), so raw source slicing made different heredocs look equal.
+///   The receiver/argument comparison now uses a structural key for nested calls.
+/// - Prism's visitor can bypass `StatementsNode` dispatch for some containers,
+///   and `for` / `case ... else` bodies need explicit extraction so nested
+///   consecutive loops are still compared.
 pub struct CombinableLoops;
 
 impl Cop for CombinableLoops {
@@ -27,7 +51,25 @@ impl Cop for CombinableLoops {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, FOR_NODE, PROGRAM_NODE, STATEMENTS_NODE]
+        &[
+            BEGIN_NODE,
+            CALL_NODE,
+            CASE_NODE,
+            FOR_NODE,
+            PROGRAM_NODE,
+            STATEMENTS_NODE,
+            // Container nodes whose StatementsNode children bypass
+            // visit_branch_node_enter in Prism's visitor:
+            ELSE_NODE,
+            ENSURE_NODE,
+            IF_NODE,
+            IN_NODE,
+            UNLESS_NODE,
+            UNTIL_NODE,
+            WHEN_NODE,
+            WHILE_NODE,
+            RESCUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -44,6 +86,8 @@ impl Cop for CombinableLoops {
                 stmts_node.body().iter().collect()
             } else if let Some(prog_node) = node.as_program_node() {
                 prog_node.statements().body().iter().collect()
+            } else if let Some(stmts) = extract_statements(node) {
+                stmts.body().iter().collect()
             } else {
                 return;
             };
@@ -73,6 +117,55 @@ impl Cop for CombinableLoops {
     }
 }
 
+/// Extract the `StatementsNode` from container nodes that bypass
+/// `visit_branch_node_enter` in Prism's visitor.
+fn extract_statements<'pr>(
+    node: &ruby_prism::Node<'pr>,
+) -> Option<ruby_prism::StatementsNode<'pr>> {
+    if let Some(n) = node.as_if_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_begin_node() {
+        if n.rescue_clause().is_some() || n.else_clause().is_some() || n.ensure_clause().is_some() {
+            return n.statements();
+        }
+        return None;
+    }
+    if let Some(n) = node.as_unless_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_else_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_when_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_while_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_until_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_ensure_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_in_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_rescue_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_for_node() {
+        return n.statements();
+    }
+    if let Some(n) = node.as_case_node() {
+        return n
+            .else_clause()
+            .and_then(|else_clause| else_clause.statements());
+    }
+    None
+}
+
 struct LoopInfo {
     receiver: String,
     method: String,
@@ -86,15 +179,8 @@ fn is_collection_looping_method(method_name: &str) -> bool {
 fn get_loop_info(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<LoopInfo> {
     // Handle for loops
     if let Some(for_node) = node.as_for_node() {
-        let collection = for_node.collection();
-        let receiver_text = source
-            .try_byte_slice(
-                collection.location().start_offset(),
-                collection.location().end_offset(),
-            )?
-            .to_string();
         return Some(LoopInfo {
-            receiver: receiver_text,
+            receiver: node_key(source, &for_node.collection())?,
             method: "for".to_string(),
             arguments: String::new(),
         });
@@ -108,28 +194,23 @@ fn get_loop_info(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<Loo
         return None;
     }
 
-    // Must have a block
+    // Must have a real block (not a block argument like &:foo)
     let block = call.block()?;
+    let block_node = block.as_block_node()?;
 
     // Both loops must have bodies (not empty blocks)
-    if let Some(block_node) = block.as_block_node() {
-        block_node.body()?;
-    }
+    block_node.body()?;
 
-    let receiver = call.receiver()?;
-    let receiver_text = source
-        .try_byte_slice(
-            receiver.location().start_offset(),
-            receiver.location().end_offset(),
-        )?
-        .to_string();
+    // Handle receiverless calls (implicit self)
+    let receiver_text = if let Some(receiver) = call.receiver() {
+        node_key(source, &receiver)?
+    } else {
+        String::new()
+    };
 
     // Capture method arguments (e.g., each_with_object([]) — the `([])` part)
     let arguments_text = if let Some(args) = call.arguments() {
-        source
-            .try_byte_slice(args.location().start_offset(), args.location().end_offset())
-            .unwrap_or("")
-            .to_string()
+        arguments_key(source, &args)?
     } else {
         String::new()
     };
@@ -139,6 +220,109 @@ fn get_loop_info(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<Loo
         method: method_name.to_string(),
         arguments: arguments_text,
     })
+}
+
+fn node_key(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<String> {
+    if let Some(call) = node.as_call_node() {
+        let receiver = if let Some(receiver) = call.receiver() {
+            node_key(source, &receiver)?
+        } else {
+            String::new()
+        };
+        let operator = call
+            .call_operator_loc()
+            .and_then(|loc| source.try_byte_slice(loc.start_offset(), loc.end_offset()))
+            .unwrap_or(".");
+        let method_name = std::str::from_utf8(call.name().as_slice()).ok()?;
+        let arguments = if let Some(args) = call.arguments() {
+            arguments_key(source, &args)?
+        } else {
+            String::new()
+        };
+        let block = if let Some(block) = call.block() {
+            format!("{{{}}}", node_key(source, &block)?)
+        } else {
+            String::new()
+        };
+
+        return Some(format!(
+            "{receiver}{operator}{method_name}{arguments}{block}"
+        ));
+    }
+
+    if let Some(string) = node.as_string_node() {
+        return string_node_key(source, &string);
+    }
+
+    if let Some(string) = node.as_interpolated_string_node() {
+        return interpolated_string_node_key(source, &string);
+    }
+
+    source
+        .try_byte_slice(node.location().start_offset(), node.location().end_offset())
+        .map(ToOwned::to_owned)
+}
+
+fn arguments_key(source: &SourceFile, args: &ruby_prism::ArgumentsNode<'_>) -> Option<String> {
+    let mut parts = Vec::new();
+    for argument in args.arguments().iter() {
+        parts.push(node_key(source, &argument)?);
+    }
+    if parts.is_empty() {
+        Some(String::new())
+    } else {
+        Some(format!("[{}]", parts.join(",")))
+    }
+}
+
+fn string_node_key(source: &SourceFile, node: &ruby_prism::StringNode<'_>) -> Option<String> {
+    if let Some(opening) = node.opening_loc() {
+        let opening_text = slice_text(source, opening)?;
+        if opening_text.starts_with("<<") {
+            let mut key = opening_text;
+            let content = slice_text(source, node.content_loc())?;
+            key.push_str(&content);
+            if let Some(closing) = node.closing_loc() {
+                let closing = slice_text(source, closing)?;
+                key.push_str(&closing);
+            }
+            return Some(key);
+        }
+    }
+
+    source
+        .try_byte_slice(node.location().start_offset(), node.location().end_offset())
+        .map(ToOwned::to_owned)
+}
+
+fn interpolated_string_node_key(
+    source: &SourceFile,
+    node: &ruby_prism::InterpolatedStringNode<'_>,
+) -> Option<String> {
+    if let Some(opening) = node.opening_loc() {
+        let opening_text = slice_text(source, opening)?;
+        if opening_text.starts_with("<<") {
+            let mut key = opening_text;
+            for part in node.parts().iter() {
+                key.push_str(&node_key(source, &part)?);
+            }
+            if let Some(closing) = node.closing_loc() {
+                let closing = slice_text(source, closing)?;
+                key.push_str(&closing);
+            }
+            return Some(key);
+        }
+    }
+
+    source
+        .try_byte_slice(node.location().start_offset(), node.location().end_offset())
+        .map(ToOwned::to_owned)
+}
+
+fn slice_text(source: &SourceFile, loc: ruby_prism::Location<'_>) -> Option<String> {
+    source
+        .try_byte_slice(loc.start_offset(), loc.end_offset())
+        .map(ToOwned::to_owned)
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+use crate::cop::shared::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -34,6 +35,16 @@ use ruby_prism::Visit;
 /// `select!`, `filter`, `filter_map`, `sort_by`, `find_all`, `each_entry`, etc.
 /// Fixed by expanding to match RuboCop's full method sets. Also added `for` loop
 /// detection (RuboCop's `on_for` handler).
+///
+/// ## Corpus investigation (2026-04-02)
+///
+/// Remaining FP=3, FN=0.
+///
+/// FP=3: Loops whose block body is `begin ... ensure ... end` were still being
+/// flagged when the main body raised and the ensure body did `break`, `next`, or
+/// `throw`. RuboCop does not treat `begin/ensure` as a direct break statement for
+/// this cop, just like `begin/rescue`. Fixed by returning false for `BeginNode`
+/// whenever `ensure_clause()` is present.
 pub struct UnreachableLoop;
 
 impl Cop for UnreachableLoop {
@@ -127,107 +138,9 @@ fn is_kernel_receiver(call: &ruby_prism::CallNode<'_>) -> bool {
     false
 }
 
-fn is_enumerator_method(name: &[u8]) -> bool {
-    // rubocop-ast ENUMERATOR_METHODS + any method starting with "each_"
-    if name.starts_with(b"each_") {
-        return true;
-    }
-    matches!(
-        name,
-        b"collect"
-            | b"collect_concat"
-            | b"detect"
-            | b"downto"
-            | b"each"
-            | b"find"
-            | b"find_all"
-            | b"find_index"
-            | b"inject"
-            | b"loop"
-            | b"map!"
-            | b"map"
-            | b"reduce"
-            | b"reject"
-            | b"reject!"
-            | b"reverse_each"
-            | b"select"
-            | b"select!"
-            | b"times"
-            | b"upto"
-    )
-}
-
-fn is_enumerable_method(name: &[u8]) -> bool {
-    // Ruby's Enumerable.instance_methods + :each
-    matches!(
-        name,
-        b"all?"
-            | b"any?"
-            | b"chain"
-            | b"chunk"
-            | b"chunk_while"
-            | b"collect"
-            | b"collect_concat"
-            | b"compact"
-            | b"count"
-            | b"cycle"
-            | b"detect"
-            | b"drop"
-            | b"drop_while"
-            | b"each"
-            | b"each_cons"
-            | b"each_entry"
-            | b"each_slice"
-            | b"each_with_index"
-            | b"each_with_object"
-            | b"entries"
-            | b"filter"
-            | b"filter_map"
-            | b"find"
-            | b"find_all"
-            | b"find_index"
-            | b"first"
-            | b"flat_map"
-            | b"grep"
-            | b"grep_v"
-            | b"group_by"
-            | b"include?"
-            | b"inject"
-            | b"lazy"
-            | b"map"
-            | b"max"
-            | b"max_by"
-            | b"member?"
-            | b"min"
-            | b"min_by"
-            | b"minmax"
-            | b"minmax_by"
-            | b"none?"
-            | b"one?"
-            | b"partition"
-            | b"reduce"
-            | b"reject"
-            | b"reverse_each"
-            | b"select"
-            | b"slice_after"
-            | b"slice_before"
-            | b"slice_when"
-            | b"sort"
-            | b"sort_by"
-            | b"sum"
-            | b"take"
-            | b"take_while"
-            | b"tally"
-            | b"to_a"
-            | b"to_h"
-            | b"to_set"
-            | b"uniq"
-            | b"zip"
-    )
-}
-
 fn is_loop_method_name(name: &[u8]) -> bool {
-    is_enumerator_method(name) || is_enumerable_method(name)
+    method_identifier_predicates::is_enumerator_method(name)
+        || method_identifier_predicates::is_enumerable_method(name)
 }
 
 /// Check if a sequence of statements has a break statement that isn't preceded
@@ -287,11 +200,10 @@ fn is_break_statement(node: &ruby_prism::Node<'_>) -> bool {
 
     // Begin/kwbegin block
     if let Some(begin_node) = node.as_begin_node() {
-        // RuboCop does NOT treat begin/rescue as a break statement.
-        // In Parser gem's AST, begin/rescue's last child is the rescue node,
-        // and rescue is not a break_statement type. So even if both the main
-        // body and all rescue clauses break, RuboCop doesn't flag the loop.
-        if begin_node.rescue_clause().is_some() {
+        // RuboCop does NOT treat begin/rescue or begin/ensure as break statements.
+        // These nodes create error-handling / cleanup context, so the loop should
+        // only be flagged when a break statement exists outside that wrapper.
+        if begin_node.rescue_clause().is_some() || begin_node.ensure_clause().is_some() {
             return false;
         }
 

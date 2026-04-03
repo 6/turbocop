@@ -12,6 +12,20 @@ elsif baz
   qux
 end
 
+if acting_as.respond_to?(method)
+  if responds_locally
+    false
+  else
+    if acting_as_persisted?
+      true
+    else
+      responds_locally ? false : true
+    end
+  end
+else
+  false
+end
+
 if try_run(<<EOF)
 int main() {
    Tcl_Interp *ip;

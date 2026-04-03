@@ -1,8 +1,8 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     BEGIN_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, FOR_NODE, LAMBDA_NODE, MODULE_NODE, PROGRAM_NODE,
     SINGLETON_CLASS_NODE,
 };
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
+use crate::cop::shared::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

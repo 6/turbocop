@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     ASSOC_NODE, IMPLICIT_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, SYMBOL_NODE,
 };
 use crate::cop::{Cop, CopConfig};

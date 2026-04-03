@@ -83,6 +83,38 @@ use crate::parse::source::SourceFile;
 /// - FP regression guard: RuboCop accepts `then'foo'` / `then:bar` inside
 ///   `when` branches because it only checks `then` for `if` nodes. We now skip
 ///   `WhenNode.then_keyword_loc()` positions while still checking `if ... then`.
+///
+/// **Round 8 (2026-04-01):**
+/// - FP: Prism still exposes several non-keyword source ranges that the
+///   text scanner would hit, even though RuboCop never checks them:
+///   keyword-named call selectors (`.or(...)`, `.not(...)`) including across
+///   comments/interpolation, keyword parameters in method definitions
+///   (`if:`, `return:`, `do:`), and post-condition `begin ... end while(...)`
+///   loops.
+/// - Fixed by broadening AST collection from just hash labels/`when then`/`end`
+///   to exact Prism-backed skip sets for those constructs.
+///
+/// **Round 9 (2026-04-01):**
+/// - FN: `before(:each)do`, `RSpec.describe(SomeObject)do`,
+///   `Squib::Deck.new(...)do`, `CSV.generate(...)do`, and similar
+///   `call(...)do` blocks were being skipped entirely for the missing-space-
+///   before check.
+/// - Root cause: a Prism visitor treated every `CallNode` with parentheses and
+///   a `do` block as a false-positive shape, but RuboCop flags the general
+///   pattern (`foo(1)do`) as an offense.
+/// - Fixed by removing that skip and keeping only the Prism-backed exclusions
+///   RuboCop actually accepts.
+///
+/// **Round 10 (2026-04-02):**
+/// - FP: `source2evt.inject(0)do ... end || 0` in apotonick/onfire.
+///   RuboCop still treats the outer `do` as a real block keyword, but its
+///   `preceded_by_operator?` guard suppresses only the missing-space-before
+///   offense when the block expression sits inside an operator/range ancestor
+///   context (`||` here).
+/// - Fixed by collecting a separate Prism-backed skip set for the `do`
+///   opening keyword in that context and applying it only to the "space
+///   before" check. Ordinary `call(...)do` offenses and `do|args|` spacing
+///   after `do` still report.
 pub struct SpaceAroundKeyword;
 
 /// Keywords that accept `(` immediately after them (no space required).
@@ -232,14 +264,13 @@ impl Cop for SpaceAroundKeyword {
         // Collect source offsets where RuboCop's AST semantics differ from
         // raw keyword text scanning.
         let mut collector = KeywordSkipCollector {
-            skip_end_positions: HashSet::new(),
-            hash_key_positions: HashSet::new(),
-            when_then_positions: HashSet::new(),
+            skip_keyword_positions: HashSet::new(),
+            skip_before_positions: HashSet::new(),
+            ancestor_kinds: Vec::new(),
         };
         collector.visit(&parse_result.node());
-        let skip_end_positions = collector.skip_end_positions;
-        let hash_key_positions = collector.hash_key_positions;
-        let when_then_positions = collector.when_then_positions;
+        let skip_keyword_positions = collector.skip_keyword_positions;
+        let skip_before_positions = collector.skip_before_positions;
 
         let bytes = source.as_bytes();
         let len = bytes.len();
@@ -325,25 +356,16 @@ impl Cop for SpaceAroundKeyword {
                     }
                 }
 
-                // AST-collected keyword labels (`case:`, `end:`) are symbol keys,
-                // not executable keywords.
-                if hash_key_positions.contains(&i) {
+                // Prism gives exact source ranges for keyword-looking tokens that
+                // RuboCop never checks as executable keywords.
+                if skip_keyword_positions.contains(&i) {
                     continue;
                 }
 
                 let kw_str = std::str::from_utf8(kw).unwrap_or("");
 
-                if kw == b"then" && when_then_positions.contains(&i) {
-                    continue;
-                }
-
                 // --- Check "space before missing" ---
-                // Skip `end` keywords from def/class/module — RuboCop doesn't check those.
-                if kw == b"end" && skip_end_positions.contains(&i) {
-                    // Still need to skip past the keyword to avoid re-matching
-                    break;
-                }
-                if i > 0 && !accepted_before(bytes, i) {
+                if i > 0 && !accepted_before(bytes, i) && !skip_before_positions.contains(&i) {
                     let (line, column) = source.offset_to_line_col(i);
                     let mut diag = self.diagnostic(
                         source,
@@ -474,34 +496,108 @@ fn is_accept_left_bracket(kw: &[u8]) -> bool {
 /// if/unless/case (with 'then' begin_keyword), while/until/for with `do`.
 /// It does NOT check `end` for: def, class, module, singleton class.
 struct KeywordSkipCollector {
-    skip_end_positions: HashSet<usize>,
-    hash_key_positions: HashSet<usize>,
-    when_then_positions: HashSet<usize>,
+    skip_keyword_positions: HashSet<usize>,
+    skip_before_positions: HashSet<usize>,
+    ancestor_kinds: Vec<AncestorKind>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AncestorKind {
+    Other,
+    Send,
+    OperatorMethod,
+    OperatorOrRange,
+}
+
+impl KeywordSkipCollector {
+    fn ancestor_kind(node: ruby_prism::Node<'_>) -> AncestorKind {
+        match node {
+            ruby_prism::Node::AndNode { .. }
+            | ruby_prism::Node::OrNode { .. }
+            | ruby_prism::Node::RangeNode { .. } => AncestorKind::OperatorOrRange,
+            _ => {
+                if let Some(call) = node.as_call_node() {
+                    if is_ruby_operator_method(call.name().as_slice()) {
+                        AncestorKind::OperatorMethod
+                    } else {
+                        AncestorKind::Send
+                    }
+                } else {
+                    AncestorKind::Other
+                }
+            }
+        }
+    }
+
+    fn block_begin_is_preceded_by_operator(&self) -> bool {
+        for (index, kind) in self.ancestor_kinds.iter().rev().skip(1).enumerate() {
+            // Prism stores the owning call node above BlockNode, but Parser/RuboCop's
+            // block AST does not. Skip that first call node before mirroring
+            // `preceded_by_operator?` on the remaining ancestors.
+            if index == 0 && matches!(kind, AncestorKind::Send | AncestorKind::OperatorMethod) {
+                continue;
+            }
+
+            match kind {
+                AncestorKind::OperatorOrRange | AncestorKind::OperatorMethod => return true,
+                AncestorKind::Send => continue,
+                AncestorKind::Other => return false,
+            }
+        }
+
+        false
+    }
 }
 
 impl<'pr> Visit<'pr> for KeywordSkipCollector {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.ancestor_kinds.push(Self::ancestor_kind(node));
+    }
+
+    fn visit_branch_node_leave(&mut self) {
+        self.ancestor_kinds.pop();
+    }
+
+    fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.ancestor_kinds.push(Self::ancestor_kind(node));
+    }
+
+    fn visit_leaf_node_leave(&mut self) {
+        self.ancestor_kinds.pop();
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        let opening_loc = node.opening_loc();
+        if opening_loc.as_slice() == b"do" && self.block_begin_is_preceded_by_operator() {
+            self.skip_before_positions
+                .insert(opening_loc.start_offset());
+        }
+
+        ruby_prism::visit_block_node(self, node);
+    }
+
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         if let Some(end_loc) = node.end_keyword_loc() {
-            self.skip_end_positions.insert(end_loc.start_offset());
+            self.skip_keyword_positions.insert(end_loc.start_offset());
         }
         // Continue visiting children (nested defs, etc.)
         ruby_prism::visit_def_node(self, node);
     }
 
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
-        self.skip_end_positions
+        self.skip_keyword_positions
             .insert(node.end_keyword_loc().start_offset());
         ruby_prism::visit_class_node(self, node);
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        self.skip_end_positions
+        self.skip_keyword_positions
             .insert(node.end_keyword_loc().start_offset());
         ruby_prism::visit_module_node(self, node);
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
-        self.skip_end_positions
+        self.skip_keyword_positions
             .insert(node.end_keyword_loc().start_offset());
         ruby_prism::visit_singleton_class_node(self, node);
     }
@@ -512,7 +608,7 @@ impl<'pr> Visit<'pr> for KeywordSkipCollector {
         if node.operator_loc().is_none() {
             if let Some(symbol) = node.key().as_symbol_node() {
                 if symbol.opening_loc().is_none() {
-                    self.hash_key_positions
+                    self.skip_keyword_positions
                         .insert(symbol.location().start_offset());
                 }
             }
@@ -522,10 +618,83 @@ impl<'pr> Visit<'pr> for KeywordSkipCollector {
 
     fn visit_when_node(&mut self, node: &ruby_prism::WhenNode<'pr>) {
         if let Some(then_loc) = node.then_keyword_loc() {
-            self.when_then_positions.insert(then_loc.start_offset());
+            self.skip_keyword_positions.insert(then_loc.start_offset());
         }
         ruby_prism::visit_when_node(self, node);
     }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if let Some(message_loc) = node.message_loc() {
+            self.skip_keyword_positions
+                .insert(message_loc.start_offset());
+        }
+
+        ruby_prism::visit_call_node(self, node);
+    }
+
+    fn visit_optional_keyword_parameter_node(
+        &mut self,
+        node: &ruby_prism::OptionalKeywordParameterNode<'pr>,
+    ) {
+        self.skip_keyword_positions
+            .insert(node.name_loc().start_offset());
+        ruby_prism::visit_optional_keyword_parameter_node(self, node);
+    }
+
+    fn visit_required_keyword_parameter_node(
+        &mut self,
+        node: &ruby_prism::RequiredKeywordParameterNode<'pr>,
+    ) {
+        self.skip_keyword_positions
+            .insert(node.name_loc().start_offset());
+        ruby_prism::visit_required_keyword_parameter_node(self, node);
+    }
+
+    fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        if node.is_begin_modifier() {
+            self.skip_keyword_positions
+                .insert(node.keyword_loc().start_offset());
+        }
+        ruby_prism::visit_until_node(self, node);
+    }
+
+    fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        if node.is_begin_modifier() {
+            self.skip_keyword_positions
+                .insert(node.keyword_loc().start_offset());
+        }
+        ruby_prism::visit_while_node(self, node);
+    }
+}
+
+fn is_ruby_operator_method(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"+" | b"-"
+            | b"*"
+            | b"/"
+            | b"%"
+            | b"**"
+            | b"<"
+            | b">"
+            | b"<="
+            | b">="
+            | b"=="
+            | b"!="
+            | b"==="
+            | b"<=>"
+            | b"<<"
+            | b">>"
+            | b"&"
+            | b"|"
+            | b"^"
+            | b"~"
+            | b"=~"
+            | b"!~"
+            | b"!"
+            | b"[]"
+            | b"[]="
+    )
 }
 
 #[cfg(test)]

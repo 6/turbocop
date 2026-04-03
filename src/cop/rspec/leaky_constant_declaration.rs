@@ -1,5 +1,6 @@
-use crate::cop::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::util::{
+    RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -101,7 +102,7 @@ impl<'a> LeakyVisitor<'a> {
     fn is_example_group_call(&self, call: &ruby_prism::CallNode<'_>) -> bool {
         let method_name = call.name().as_slice();
         if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
                 && (is_rspec_example_group(method_name) || is_rspec_shared_group(method_name))
         } else {
             is_rspec_example_group(method_name) || is_rspec_shared_group(method_name)

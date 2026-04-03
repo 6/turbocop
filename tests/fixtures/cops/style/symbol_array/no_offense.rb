@@ -36,3 +36,6 @@ foo [:one, :two, :three] { |x| x }
 
 # Symbol containing delimiter with spaces inside
 [:one, :two, :"[ ]", :"( )"]
+
+# Arrays containing an empty quoted symbol — RuboCop does not treat `:""` as a plain `sym`
+[:foo, :""]

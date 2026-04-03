@@ -1,88 +1,98 @@
-use crate::cop::node_type::{CALL_NODE, PARENTHESES_NODE, STATEMENTS_NODE};
+use crate::cop::shared::node_type::{CALL_NODE, PARENTHESES_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
 
-/// Corpus investigation (FP=159, FN=125):
-/// - **FP root cause 1 (132 FPs)**: Double negation `!!` patterns like `!!(x =~ /pattern/)`
-///   were flagged as "use `!~`". RuboCop's `negated?` check detects when the `!` node's parent
-///   is also a `!` (double negation for boolean coercion) and skips. Fixed by scanning source
-///   bytes before the `!` operator's message_loc to detect a preceding `!`.
-/// - **FP root cause 2**: Safe navigation `!foo&.any?` was flagged. RuboCop skips when the
-///   inner method uses `&.` with incompatible methods (any?, none?, comparison operators)
-///   because `nil.none?` etc. don't exist. Fixed by checking `call_operator_loc()` for `&.`.
-/// - **FN root cause (847 FNs in corpus)**: The cop was not in tiers.json, so it defaulted
-///   to "preview" tier and was disabled at runtime. Fixed by adding to stable tier.
-///   After enabling, verify-cop-locations shows 0 FP and 0 FN.
+/// Corpus investigation (2026-04-02):
+///
+/// - Repo config files that declared only a partial `InverseMethods` or
+///   `InverseBlocks` hash caused nitrocop to treat that hash as a full
+///   replacement. RuboCop starts from its defaults, applies overrides, then adds
+///   the inverted direction, so we now merge project config with the built-ins.
+/// - RuboCop's matcher only targets calls with an explicit receiver. Keeping that
+///   guard avoids flagging implicit-self definitions like `def empty?; !any?; end`
+///   or `def without_platforms; select { ... }; end`.
+/// - RuboCop does not treat `!(/pattern/ =~ value)` like a normal `!(foo =~ bar)`
+///   inversion because regexp-left matches use a different AST shape there. We
+///   now skip only the regexp-left `=~` form, while still flagging ordinary
+///   `!(foo =~ /bar/)`.
+/// - RuboCop only suppresses comparison inversions for CamelCase constant
+///   hierarchy checks like `!(Foo < Bar)`. The earlier "any constant" guard was
+///   too broad and hid real offenses such as `!(@file.class <= IO)` and
+///   `!(RUBY_VERSION >= '2.8.0')`.
+/// - RuboCop does not match parenthesized `!`/`not` around a block-form
+///   predicate call, so `!(items.any? { ... })` and `not (items.any? do ... end)`
+///   are accepted even though the unparenthesized form is still an offense.
+/// - RuboCop's inverse-block matcher ignores safe-navigation negated operators
+///   such as `c.change&.!= :rename`.
+/// - RuboCop also suppresses `select`/`reject` inverse-block offenses when any
+///   earlier block in the receiver chain contains `next`, which covers
+///   `map { ... next ... }.select { |x| !x.nil? }` and longer chained filters.
 pub struct InverseMethods;
 
 impl InverseMethods {
-    /// Build the inverse methods map from config or defaults.
     fn build_inverse_map(config: &CopConfig) -> HashMap<Vec<u8>, String> {
-        let mut map = HashMap::new();
+        const DEFAULTS: &[(&str, &str)] = &[
+            ("any?", "none?"),
+            ("even?", "odd?"),
+            ("==", "!="),
+            ("=~", "!~"),
+            ("<", ">="),
+            (">", "<="),
+        ];
 
-        if let Some(configured) = config.get_string_hash("InverseMethods") {
-            for (key, val) in &configured {
-                let k = key.trim_start_matches(':');
-                let v = val.trim_start_matches(':');
-                map.insert(k.as_bytes().to_vec(), v.to_string());
-            }
-        } else {
-            // RuboCop defaults — note: relationship only defined one direction
-            // but we need both directions for lookup
-            let defaults: &[(&[u8], &str)] = &[
-                (b"any?", "none?"),
-                (b"none?", "any?"),
-                (b"even?", "odd?"),
-                (b"odd?", "even?"),
-                (b"==", "!="),
-                (b"!=", "=="),
-                (b"=~", "!~"),
-                (b"!~", "=~"),
-                (b"<", ">="),
-                (b">=", "<"),
-                (b">", "<="),
-                (b"<=", ">"),
-            ];
-            for &(k, v) in defaults {
-                map.insert(k.to_vec(), v.to_string());
-            }
-        }
-        map
+        Self::build_symmetric_inverse_map(config, "InverseMethods", DEFAULTS)
     }
 
     fn build_inverse_blocks(config: &CopConfig) -> HashMap<Vec<u8>, String> {
-        let mut map = HashMap::new();
+        const DEFAULTS: &[(&str, &str)] = &[("select", "reject"), ("select!", "reject!")];
 
-        if let Some(configured) = config.get_string_hash("InverseBlocks") {
-            for (key, val) in &configured {
-                let k = key.trim_start_matches(':');
-                let v = val.trim_start_matches(':');
-                map.insert(k.as_bytes().to_vec(), v.to_string());
-            }
-        } else {
-            // RuboCop defaults
-            let defaults: &[(&[u8], &str)] = &[(b"select", "reject"), (b"reject", "select")];
-            for &(k, v) in defaults {
-                map.insert(k.to_vec(), v.to_string());
-            }
-        }
-        map
+        Self::build_symmetric_inverse_map(config, "InverseBlocks", DEFAULTS)
     }
 
-    /// Build the inverse blocks map including bang variants.
-    fn build_inverse_blocks_with_bang(config: &CopConfig) -> HashMap<Vec<u8>, String> {
-        let base = Self::build_inverse_blocks(config);
-        let mut map = base.clone();
-        // Add bang variants (select! -> reject!, reject! -> select!)
-        for (k, v) in &base {
-            let mut bang_k = k.clone();
-            bang_k.push(b'!');
-            let bang_v = format!("{v}!");
-            map.insert(bang_k, bang_v);
+    fn build_symmetric_inverse_map(
+        config: &CopConfig,
+        key: &str,
+        defaults: &[(&str, &str)],
+    ) -> HashMap<Vec<u8>, String> {
+        let mut one_way = HashMap::new();
+        for &(method, inverse) in defaults {
+            one_way.insert(method.as_bytes().to_vec(), inverse.to_string());
         }
-        map
+
+        if let Some(configured) = config.options.get(key).and_then(|value| value.as_mapping()) {
+            for (configured_key, configured_value) in configured {
+                let Some(configured_key) = configured_key.as_str() else {
+                    continue;
+                };
+
+                let trimmed_key = configured_key.trim_start_matches(':');
+                let key_bytes = trimmed_key.as_bytes().to_vec();
+
+                if configured_value.is_null() {
+                    one_way.remove(&key_bytes);
+                    continue;
+                }
+
+                let Some(configured_value) = configured_value.as_str() else {
+                    continue;
+                };
+
+                let trimmed_value = configured_value.trim_start_matches(':');
+                one_way.insert(key_bytes, trimmed_value.to_string());
+            }
+        }
+
+        let mut symmetric = one_way.clone();
+        for (method, inverse) in one_way {
+            symmetric.insert(
+                inverse.as_bytes().to_vec(),
+                String::from_utf8_lossy(&method).into(),
+            );
+        }
+
+        symmetric
     }
 
     /// Check if this `!` call is the inner part of a double negation `!!`.
@@ -113,6 +123,14 @@ impl InverseMethods {
     const SAFE_NAVIGATION_INCOMPATIBLE: &'static [&'static [u8]] =
         &[b"any?", b"none?", b"<", b">", b"<=", b">="];
 
+    fn uses_safe_navigation(call: &ruby_prism::CallNode<'_>, source: &SourceFile) -> bool {
+        let Some(op_loc) = call.call_operator_loc() else {
+            return false;
+        };
+
+        source.byte_slice(op_loc.start_offset(), op_loc.end_offset(), "") == "&."
+    }
+
     /// Check if the inner call uses safe navigation (`&.`) with a method that is
     /// incompatible with inversion. E.g., `!foo&.any?` can't become `foo&.none?`
     /// because `nil.none?` doesn't exist.
@@ -120,19 +138,17 @@ impl InverseMethods {
         inner_call: &ruby_prism::CallNode<'_>,
         source: &SourceFile,
     ) -> bool {
-        if let Some(op_loc) = inner_call.call_operator_loc() {
-            let op = source.byte_slice(op_loc.start_offset(), op_loc.end_offset(), "");
-            if op == "&." {
-                let method = inner_call.name().as_slice();
-                return Self::SAFE_NAVIGATION_INCOMPATIBLE.contains(&method);
-            }
+        if Self::uses_safe_navigation(inner_call, source) {
+            let method = inner_call.name().as_slice();
+            return Self::SAFE_NAVIGATION_INCOMPATIBLE.contains(&method);
         }
+
         false
     }
 
     /// Check if the last expression of a block body is a negation.
     /// Returns true for: !expr, expr != ..., expr !~ ...
-    fn last_expr_is_negated(block: &ruby_prism::BlockNode<'_>) -> bool {
+    fn last_expr_is_negated(block: &ruby_prism::BlockNode<'_>, source: &SourceFile) -> bool {
         let body = match block.body() {
             Some(b) => b,
             None => return false,
@@ -146,10 +162,10 @@ impl InverseMethods {
             return false;
         }
         let last = &body_nodes[body_nodes.len() - 1];
-        Self::is_negated_expr(last)
+        Self::is_negated_expr(last, source)
     }
 
-    fn is_negated_expr(node: &ruby_prism::Node<'_>) -> bool {
+    fn is_negated_expr(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
         if let Some(call) = node.as_call_node() {
             let name = call.name().as_slice();
             // !expr
@@ -157,7 +173,7 @@ impl InverseMethods {
                 return true;
             }
             // expr != ...  or  expr !~ ...
-            if name == b"!=" || name == b"!~" {
+            if (name == b"!=" || name == b"!~") && !Self::uses_safe_navigation(&call, source) {
                 return true;
             }
         }
@@ -167,7 +183,7 @@ impl InverseMethods {
                 if let Some(stmts) = body.as_statements_node() {
                     let body_nodes: Vec<_> = stmts.body().iter().collect();
                     if let Some(last) = body_nodes.last() {
-                        return Self::is_negated_expr(last);
+                        return Self::is_negated_expr(last, source);
                     }
                 }
             }
@@ -185,6 +201,78 @@ impl InverseMethods {
         ruby_prism::Visit::visit(&mut finder, &body);
         finder.found
     }
+
+    /// Walk the chained receiver calls to find an earlier block with `next`.
+    /// RuboCop suppresses later inverse-block offenses in these chains.
+    fn receiver_chain_has_next(mut receiver: Option<ruby_prism::Node<'_>>) -> bool {
+        while let Some(node) = receiver {
+            if let Some(call) = node.as_call_node() {
+                if let Some(block_node) = call.block().and_then(|block| block.as_block_node()) {
+                    if Self::has_next_statements(&block_node) {
+                        return true;
+                    }
+                }
+                receiver = call.receiver();
+                continue;
+            }
+
+            if let Some(parens) = node.as_parentheses_node() {
+                let Some(body) = parens.body() else {
+                    return false;
+                };
+                let Some(stmts) = body.as_statements_node() else {
+                    return false;
+                };
+                let mut body_nodes = stmts.body().iter();
+                receiver = match (body_nodes.next(), body_nodes.next()) {
+                    (Some(inner), None) => Some(inner),
+                    _ => None,
+                };
+                continue;
+            }
+
+            return false;
+        }
+
+        false
+    }
+
+    /// RuboCop suppresses nested `!any?` / `!(x =~ y)` offenses when they sit
+    /// inside the block of a larger `select`/`reject` inverse-block offense.
+    fn nested_inside_inverse_block(
+        target: &ruby_prism::CallNode<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        source: &SourceFile,
+        config: &CopConfig,
+    ) -> bool {
+        let inverse_blocks = Self::build_inverse_blocks(config);
+        let mut finder = NestedInverseBlockFinder {
+            target_start: target.location().start_offset(),
+            target_end: target.location().end_offset(),
+            inverse_blocks: &inverse_blocks,
+            source,
+            found: false,
+        };
+        ruby_prism::Visit::visit(&mut finder, &parse_result.node());
+        finder.found
+    }
+
+    /// RuboCop accepts `foo || !(bar.any? { ... }) ? a : b` and similar ternary
+    /// predicates whose condition is an `||` expression. Keep the suppression
+    /// scoped to that exact enclosing shape instead of skipping ternaries
+    /// broadly, because plain `!(foo =~ /bar/) ? a : b` is still an offense.
+    fn inside_or_ternary_predicate(
+        target: &ruby_prism::CallNode<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+    ) -> bool {
+        let mut finder = OrTernaryPredicateFinder {
+            target_start: target.location().start_offset(),
+            target_end: target.location().end_offset(),
+            found: false,
+        };
+        ruby_prism::Visit::visit(&mut finder, &parse_result.node());
+        finder.found
+    }
 }
 
 impl Cop for InverseMethods {
@@ -200,7 +288,7 @@ impl Cop for InverseMethods {
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
@@ -219,14 +307,23 @@ impl Cop for InverseMethods {
                 return;
             }
 
+            if Self::nested_inside_inverse_block(&call, parse_result, source, config) {
+                return;
+            }
+
+            if Self::inside_or_ternary_predicate(&call, parse_result) {
+                return;
+            }
+
             let receiver = match call.receiver() {
                 Some(r) => r,
                 None => return,
             };
 
             // Try to get the inner call - either directly from receiver or by unwrapping parens
-            let inner_call = if let Some(c) = receiver.as_call_node() {
-                c
+            let (inner_call, receiver_was_parenthesized) = if let Some(c) = receiver.as_call_node()
+            {
+                (c, false)
             } else if let Some(parens) = receiver.as_parentheses_node() {
                 let body = match parens.body() {
                     Some(b) => b,
@@ -241,12 +338,16 @@ impl Cop for InverseMethods {
                     return;
                 }
                 match stmts_list[0].as_call_node() {
-                    Some(c) => c,
+                    Some(c) => (c, true),
                     None => return,
                 }
             } else {
                 return;
             };
+
+            if receiver_was_parenthesized && inner_call.block().is_some() {
+                return;
+            }
 
             let inner_method = inner_call.name().as_slice();
 
@@ -255,11 +356,24 @@ impl Cop for InverseMethods {
                 return;
             }
 
+            // RuboCop only matches explicit receivers for inverse method checks.
+            if inner_call.receiver().is_none() {
+                return;
+            }
+
             // Check InverseMethods (predicate methods: !foo.any? -> foo.none?)
             let inverse_methods = InverseMethods::build_inverse_map(config);
             if let Some(inv) = inverse_methods.get(inner_method) {
-                // Skip comparison operators when either operand is a constant (CamelCase).
-                if is_comparison_operator(inner_method) && has_constant_operand(&inner_call) {
+                // RuboCop only skips CamelCase module/class hierarchy checks.
+                if is_comparison_operator(inner_method)
+                    && possible_class_hierarchy_check(&inner_call, source)
+                {
+                    return;
+                }
+
+                // Parser/RuboCop treat regexp-left `=~` matches differently from
+                // ordinary send nodes, so `!(/pattern/ =~ value)` is accepted.
+                if inner_method == b"=~" && regexp_left_match(&inner_call) {
                     return;
                 }
 
@@ -295,12 +409,17 @@ impl Cop for InverseMethods {
 
         // Pattern 2: foo.select { |f| !f.even? } or foo.reject { |k, v| v != :a }
         // Block where the method is in InverseBlocks and the last expression is negated
-        let inverse_blocks = InverseMethods::build_inverse_blocks_with_bang(config);
+        if call.receiver().is_none() {
+            return;
+        }
+
+        let inverse_blocks = InverseMethods::build_inverse_blocks(config);
         if let Some(inv) = inverse_blocks.get(method_bytes) {
             if let Some(block) = call.block() {
                 if let Some(block_node) = block.as_block_node() {
-                    if InverseMethods::last_expr_is_negated(&block_node)
+                    if InverseMethods::last_expr_is_negated(&block_node, source)
                         && !InverseMethods::has_next_statements(&block_node)
+                        && !InverseMethods::receiver_chain_has_next(call.receiver())
                     {
                         let method_name = std::str::from_utf8(method_bytes).unwrap_or("method");
                         let loc = call.location();
@@ -333,32 +452,169 @@ impl<'pr> ruby_prism::Visit<'pr> for NextFinder {
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
 }
 
+struct NestedInverseBlockFinder<'a> {
+    target_start: usize,
+    target_end: usize,
+    inverse_blocks: &'a HashMap<Vec<u8>, String>,
+    source: &'a SourceFile,
+    found: bool,
+}
+
+impl<'pr> ruby_prism::Visit<'pr> for NestedInverseBlockFinder<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if self.found {
+            return;
+        }
+
+        if node.receiver().is_some() {
+            if let Some(block) = node.block().and_then(|block| block.as_block_node()) {
+                let block_loc = block.location();
+                if block_loc.start_offset() <= self.target_start
+                    && self.target_end <= block_loc.end_offset()
+                    && self.inverse_blocks.contains_key(node.name().as_slice())
+                    && InverseMethods::last_expr_is_negated(&block, self.source)
+                    && !InverseMethods::has_next_statements(&block)
+                    && !InverseMethods::receiver_chain_has_next(node.receiver())
+                {
+                    self.found = true;
+                    return;
+                }
+            }
+        }
+
+        ruby_prism::visit_call_node(self, node);
+    }
+}
+
+struct OrTernaryPredicateFinder {
+    target_start: usize,
+    target_end: usize,
+    found: bool,
+}
+
+impl<'pr> ruby_prism::Visit<'pr> for OrTernaryPredicateFinder {
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        if self.found {
+            return;
+        }
+
+        if node.if_keyword_loc().is_none() {
+            let predicate = node.predicate();
+            if let Some(or_node) = predicate.as_or_node() {
+                let loc = or_node.location();
+                if loc.start_offset() <= self.target_start && self.target_end <= loc.end_offset() {
+                    self.found = true;
+                    return;
+                }
+            }
+        }
+
+        ruby_prism::visit_if_node(self, node);
+    }
+}
+
 /// Returns true if the method name is a comparison operator.
 fn is_comparison_operator(method: &[u8]) -> bool {
     matches!(method, b"<" | b">" | b"<=" | b">=")
 }
 
-/// Returns true if either operand (receiver or first argument) of a call is a constant node,
-/// suggesting a possible class hierarchy check (e.g., `Module < OtherModule`).
-fn has_constant_operand(call: &ruby_prism::CallNode<'_>) -> bool {
-    if let Some(receiver) = call.receiver() {
-        if receiver.as_constant_read_node().is_some() || receiver.as_constant_path_node().is_some()
-        {
-            return true;
-        }
+fn possible_class_hierarchy_check(call: &ruby_prism::CallNode<'_>, source: &SourceFile) -> bool {
+    let lhs_is_camel_case = call
+        .receiver()
+        .is_some_and(|receiver| camel_case_constant(&receiver, source));
+
+    let rhs_is_single_camel_case = call.arguments().is_some_and(|args| {
+        let args: Vec<_> = args.arguments().iter().collect();
+        args.len() == 1 && camel_case_constant(&args[0], source)
+    });
+
+    lhs_is_camel_case || rhs_is_single_camel_case
+}
+
+fn camel_case_constant(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
+    if node.as_constant_read_node().is_none() && node.as_constant_path_node().is_none() {
+        return false;
     }
-    if let Some(args) = call.arguments() {
-        for arg in args.arguments().iter() {
-            if arg.as_constant_read_node().is_some() || arg.as_constant_path_node().is_some() {
+
+    let loc = node.location();
+    let text = source.byte_slice(loc.start_offset(), loc.end_offset(), "");
+    contains_camel_case(text.as_bytes())
+}
+
+fn contains_camel_case(bytes: &[u8]) -> bool {
+    let mut uppercase_run = 0usize;
+
+    for &byte in bytes {
+        if byte.is_ascii_uppercase() {
+            uppercase_run += 1;
+            continue;
+        }
+
+        if byte.is_ascii_lowercase() {
+            if uppercase_run > 0 {
                 return true;
             }
+            uppercase_run = 0;
+            continue;
         }
+
+        uppercase_run = 0;
     }
+
     false
+}
+
+fn regexp_left_match(call: &ruby_prism::CallNode<'_>) -> bool {
+    let Some(receiver) = call.receiver() else {
+        return false;
+    };
+
+    receiver.as_regular_expression_node().is_some()
+        || receiver.as_interpolated_regular_expression_node().is_some()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(InverseMethods, "cops/style/inverse_methods");
+
+    #[test]
+    fn merges_partial_inverse_methods_config_with_defaults() {
+        use crate::testutil::assert_cop_offenses_full_with_config;
+
+        let fixture = br#"!items.none?
+^ Style/InverseMethods: Use `any?` instead of inverting `none?`.
+!(a <= b)
+^ Style/InverseMethods: Use `>` instead of inverting `<=`.
+"#;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "InverseMethods".into(),
+                serde_yml::from_str("present?: blank?\ninclude?: exclude?\n").unwrap(),
+            )]),
+            ..CopConfig::default()
+        };
+
+        assert_cop_offenses_full_with_config(&InverseMethods, fixture, config);
+    }
+
+    #[test]
+    fn merges_partial_inverse_blocks_config_with_defaults() {
+        use crate::testutil::assert_cop_offenses_full_with_config;
+
+        let fixture = br#"items.reject { |x| !x.valid? }
+^ Style/InverseMethods: Use `select` instead of inverting `reject`.
+"#;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "InverseBlocks".into(),
+                serde_yml::from_str("filter_map: compact_map\n").unwrap(),
+            )]),
+            ..CopConfig::default()
+        };
+
+        assert_cop_offenses_full_with_config(&InverseMethods, fixture, config);
+    }
 }

@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;
@@ -34,10 +35,10 @@ use crate::parse::source::SourceFile;
 ///    `def it.attached? = true` because the wrapped subject is still a call/const/variable.
 ///    Fix: unwrap single-expression parens and treat `ItLocalVariableReadNode` as allowed.
 /// 6. **FN (qualified constructor paths, 2026-03-28):** `is_scope_creating_call` used
-///    `constant_name()`, which only returns the last constant segment. That incorrectly
+///    `constant_short_name()`, which only returns the last constant segment. That incorrectly
 ///    treated `Object::Module.new` as `Module.new`, suppressing real offenses like
 ///    nested `def self.session` in the SugarCRM corpus. Fix: require a simple/top-level
-///    constant via `util::is_simple_constant()`, so only `Module.new`, `::Module.new`,
+///    constant via `constant_predicates::is_simple_constant()`, so only `Module.new`, `::Module.new`,
 ///    `Class.new`, `Struct.new`, and `Data.define` create scope.
 pub struct NestedMethodDefinition;
 
@@ -70,26 +71,8 @@ struct FullTreeWalker<'a> {
 /// RuboCop allows `def obj.method` when the receiver is a variable (local,
 /// instance, class, global), a constant, or a method call. The `self` keyword
 /// is NOT allowed — `def self.method` nested inside another def IS an offense.
-fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
-    let mut current = node;
-    while let Some(paren) = current.as_parentheses_node() {
-        let Some(body) = paren.body() else {
-            break;
-        };
-        if let Some(stmts) = body.as_statements_node() {
-            let body_nodes = stmts.body();
-            if body_nodes.len() == 1 {
-                current = body_nodes.iter().next().unwrap();
-                continue;
-            }
-        }
-        current = body;
-    }
-    current
-}
-
 fn is_allowed_receiver_node(node: ruby_prism::Node<'_>) -> bool {
-    let node = unwrap_parentheses(node);
+    let node = util::unwrap_parentheses(node);
     // Variables: local, instance, class, global, implicit `it`
     if node.as_local_variable_read_node().is_some()
         || node.as_it_local_variable_read_node().is_some()
@@ -193,15 +176,19 @@ fn is_scope_creating_call(node: &ruby_prism::Node<'_>) -> bool {
     // Module.new, Class.new, Struct.new (also handles root-qualified like ::Module.new)
     if method_name == b"new" {
         if let Some(receiver) = call.receiver() {
-            return crate::cop::util::is_simple_constant(&receiver, b"Module")
-                || crate::cop::util::is_simple_constant(&receiver, b"Class")
-                || crate::cop::util::is_simple_constant(&receiver, b"Struct");
+            return crate::cop::shared::constant_predicates::is_simple_constant(
+                &receiver, b"Module",
+            ) || crate::cop::shared::constant_predicates::is_simple_constant(
+                &receiver, b"Class",
+            ) || crate::cop::shared::constant_predicates::is_simple_constant(
+                &receiver, b"Struct",
+            );
         }
     }
     // Data.define (Ruby 3.2+, recognized by rubocop-ast class_constructor?)
     if method_name == b"define" {
         if let Some(receiver) = call.receiver() {
-            return crate::cop::util::is_simple_constant(&receiver, b"Data");
+            return crate::cop::shared::constant_predicates::is_simple_constant(&receiver, b"Data");
         }
     }
     false

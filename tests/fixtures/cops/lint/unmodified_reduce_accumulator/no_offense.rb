@@ -95,3 +95,17 @@ scanline_positions.inject do |m, n|
   line_sizes << n - m - 1
   n
 end
+
+# Receiver calls nested inside an assignment still count as element modification.
+scanline_positions.inject do |pos, delimit|
+  scanline = Scanline.new(@filtered_data, pos, (delimit - pos - 1), at)
+  delimit
+end
+
+# The same applies when the assigned receiver call itself carries an inner block.
+scanline_positions.inject do |pos, delimit|
+  scanline = Scanline.new(@filtered_data, pos, (delimit - pos - 1), at) do |line|
+    line.compress
+  end
+  delimit
+end

@@ -220,3 +220,10 @@ wrap *items.map { |item|
                              ssl: ssl_options) do |conn|
   conn.request :json
 end
+
+# FP fix: if the line starts with a previous closer before ||, keep the RHS block target
+left_side.find {
+  it
+} || right_side.any? do |item|
+  item
+     end

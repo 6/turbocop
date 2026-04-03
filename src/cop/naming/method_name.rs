@@ -1,4 +1,5 @@
-use crate::cop::node_type::{ALIAS_METHOD_NODE, CALL_NODE, DEF_NODE};
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::{ALIAS_METHOD_NODE, CALL_NODE, DEF_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -99,44 +100,6 @@ impl MethodNameConfig {
             forbidden_patterns: config.get_string_array("ForbiddenPatterns"),
         }
     }
-}
-
-/// Returns true for Ruby's built-in operator method names.
-fn is_operator_method(name: &[u8]) -> bool {
-    matches!(
-        std::str::from_utf8(name).ok(),
-        Some(
-            "|" | "^"
-                | "&"
-                | "<=>"
-                | "=="
-                | "==="
-                | "=~"
-                | ">"
-                | ">="
-                | "<"
-                | "<="
-                | "<<"
-                | ">>"
-                | "+"
-                | "-"
-                | "*"
-                | "/"
-                | "%"
-                | "**"
-                | "~"
-                | "+@"
-                | "-@"
-                | "!@"
-                | "~@"
-                | "[]"
-                | "[]="
-                | "!"
-                | "!="
-                | "!~"
-                | "`"
-        )
-    )
 }
 
 /// Check if a method name matches AllowedPatterns using regex matching.
@@ -305,7 +268,7 @@ fn check_def_node(
     let method_name = def_node.name().as_slice();
     let method_name_str = std::str::from_utf8(method_name).unwrap_or("");
 
-    if is_operator_method(method_name) {
+    if method_identifier_predicates::is_operator_method(method_name) {
         return;
     }
 
@@ -396,7 +359,7 @@ fn check_define_method(
         Err(_) => return,
     };
 
-    if is_operator_method(&name_bytes) {
+    if method_identifier_predicates::is_operator_method(&name_bytes) {
         return;
     }
 
@@ -601,7 +564,7 @@ fn emit_method_name_offense(
         return;
     }
 
-    if is_operator_method(name_bytes) {
+    if method_identifier_predicates::is_operator_method(name_bytes) {
         return;
     }
 

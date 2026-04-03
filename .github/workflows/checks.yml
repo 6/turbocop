@@ -153,11 +153,11 @@ jobs:
     needs: [cop-detect, build-linux]
     if: needs.cop-detect.outputs.has_cops == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -184,7 +184,7 @@ jobs:
           bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
-      - name: Check cops against corpus baseline (shard ${{ matrix.shard }}/4)
+      - name: Check cops against corpus baseline (shard ${{ matrix.shard }}/12)
         env:
           NITROCOP_BIN: ${{ github.workspace }}/target/release/nitrocop
           GH_TOKEN: ${{ github.token }}
@@ -196,10 +196,10 @@ jobs:
             [ -z "$cop" ] && continue
             echo ""
             echo "=============================="
-            echo "Checking: $cop (shard ${{ matrix.shard }}/4)"
+            echo "Checking: $cop (shard ${{ matrix.shard }}/12)"
             echo "=============================="
             OUTPUT=$(python3 scripts/check_cop.py "$cop" --verbose --rerun --clone \
-                 --shard-index ${{ matrix.shard }} --total-shards 8 \
+                 --shard-index ${{ matrix.shard }} --total-shards 12 \
                  --allow-net-improvement 2>&1) || true
             echo "$OUTPUT"
             # Extract SUMMARY line and save for gate job
@@ -274,14 +274,14 @@ jobs:
           ICON="✅"
           [ "$RESULT" = "fail" ] && ICON="❌"
 
-          BODY="${ICON} **Cop-check results** (8 shards)\n\n"
+          BODY="${ICON} **Cop-check results** (12 shards)\n\n"
           BODY+="| Cop | Baseline FP | Baseline FN | Local FP | Local FN | FP Δ | FN Δ | Result |\n"
           BODY+="|-----|-----------|-----------|--------|--------|------|------|--------|\n"
 
           if [ -d summaries ]; then
             for f in summaries/*.txt; do
               [ -f "$f" ] || continue
-              while IFS='|' read -r cop bl_fp bl_fn local_fp local_fn shard_result; do
+              while IFS='|' read -r cop bl_fp bl_fn local_fp local_fn shard_result count_bl_fp count_bl_fn; do
                 STATUS="✅"
                 [ "$shard_result" = "fail" ] && STATUS="❌"
                 fp_delta=$((local_fp - bl_fp))
@@ -289,7 +289,17 @@ jobs:
                 # Show sign explicitly: +N for regressions, -N for improvements, 0 for unchanged
                 [ "$fp_delta" -gt 0 ] && fp_delta="+${fp_delta}"
                 [ "$fn_delta" -gt 0 ] && fn_delta="+${fn_delta}"
-                BODY+="| \`${cop}\` | ${bl_fp} | ${bl_fn} | ${local_fp} | ${local_fn} | ${fp_delta} | ${fn_delta} | ${STATUS} |\n"
+                # Sanity check: if location-level FP regressed but count-level
+                # shows no excess, the regression is a location shift or config
+                # artifact, not extra offenses. Annotate the status to help triage.
+                NOTE=""
+                if [ -n "$count_bl_fp" ] && [ "$shard_result" = "fail" ]; then
+                  count_fp_delta=$((local_fp - count_bl_fp))
+                  if [ "$count_fp_delta" -le 0 ] && [ "$((local_fp - bl_fp))" -gt 0 ]; then
+                    NOTE=" ⚠️ count Δ=${count_fp_delta}"
+                  fi
+                fi
+                BODY+="| \`${cop}\` | ${bl_fp} | ${bl_fn} | ${local_fp} | ${local_fn} | ${fp_delta} | ${fn_delta} | ${STATUS}${NOTE} |\n"
               done < "$f"
             done
           else

@@ -1,5 +1,5 @@
-use crate::cop::node_type::{CLASS_NODE, SINGLETON_CLASS_NODE};
-use crate::cop::util;
+use crate::cop::shared::node_type::{CLASS_NODE, SINGLETON_CLASS_NODE};
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

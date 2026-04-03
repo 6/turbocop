@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::DEF_NODE;
+use crate::cop::shared::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -33,6 +33,18 @@ use crate::parse::source::SourceFile;
 ///    Fix: Added `block_depth` tracking to `SendClassifier` and `inside_block` flag to
 ///    `SendClassification`. Skip anonymous forwarding when any send is inside a block
 ///    for Ruby < 3.4.
+///
+/// FP=39 investigation (2026-04-03): Two Prism-specific false-positive buckets remained:
+///
+/// 1. **Spacing-sensitive redundant names**: RuboCop compares the full parameter source (`*args`,
+///    `&block`), so spaced forms like `* args` and `& block` are not treated as redundant.
+///    nitrocop only compared bare local names and incorrectly flagged them.
+///
+/// 2. **Overly broad anonymous-to-`...` detection**: `try_report_all_anonymous_forwarding`
+///    treated any send containing anonymous `*`, `**`, and `&` as `...`-eligible. Prism
+///    RuboCop is narrower: explicit keyword params in the def, or extra/interleaved keyword
+///    arguments in the call (for example `foo(*, extra:, **, &)`) must not be collapsed to
+///    `...`.
 pub struct ArgumentsForwarding;
 
 const FORWARDING_MSG: &str = "Use shorthand syntax `...` for arguments forwarding.";
@@ -107,6 +119,19 @@ impl Cop for ArgumentsForwarding {
             None => return,
         };
 
+        // Check for all-anonymous forwarding: def foo(*, **, &) → def foo(...)
+        if self.try_report_all_anonymous_forwarding(
+            source,
+            &params,
+            &body,
+            &def_node,
+            _parse_result,
+            ruby_version,
+            diagnostics,
+        ) {
+            return;
+        }
+
         // Extract param names — these represent the method's actual parameters
         let rest_name = extract_rest_param_name(&params);
         let kwrest_name = extract_kwrest_param_name(&params);
@@ -120,15 +145,13 @@ impl Cop for ArgumentsForwarding {
         // Determine which param names are "redundant" (meaningless names)
         let rest_is_redundant = rest_name
             .as_ref()
-            .is_some_and(|n| redundant_rest.iter().any(|r| r.as_bytes() == n.as_slice()));
-        let kwrest_is_redundant = kwrest_name.as_ref().is_some_and(|n| {
-            redundant_kw_rest
-                .iter()
-                .any(|r| r.as_bytes() == n.as_slice())
-        });
+            .is_some_and(|n| redundant_named_param_source(source, n, "*", &redundant_rest));
+        let kwrest_is_redundant = kwrest_name
+            .as_ref()
+            .is_some_and(|n| redundant_named_param_source(source, n, "**", &redundant_kw_rest));
         let block_is_redundant = block_name
             .as_ref()
-            .is_some_and(|n| redundant_block.iter().any(|r| r.as_bytes() == n.as_slice()));
+            .is_some_and(|n| redundant_named_param_source(source, n, "&", &redundant_block));
 
         // Collect non-forwarding references
         let referenced = non_forwarding_references(&body);
@@ -300,10 +323,264 @@ impl ArgumentsForwarding {
     }
 }
 
+impl ArgumentsForwarding {
+    /// Check if the def uses all-anonymous forwarding (*, **, &) and can be replaced with `...`.
+    /// Returns true if offenses were reported (caller should return early).
+    #[allow(clippy::too_many_arguments)]
+    fn try_report_all_anonymous_forwarding(
+        &self,
+        source: &SourceFile,
+        params: &ruby_prism::ParametersNode<'_>,
+        body: &ruby_prism::Node<'_>,
+        def_node: &ruby_prism::DefNode<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        ruby_version: f64,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) -> bool {
+        // Anonymous forwarding requires Ruby >= 3.2
+        if ruby_version < 3.2 {
+            return false;
+        }
+
+        // Prism RuboCop does not collapse anonymous forwarding to `...` when the def
+        // signature includes explicit keyword params alongside `*`, `**`, and `&`.
+        if !params.keywords().is_empty() {
+            return false;
+        }
+
+        // All three anonymous params must exist
+        let anon_rest = match get_anonymous_rest_offset(params) {
+            Some(o) => o,
+            None => return false,
+        };
+        let anon_kwrest = match get_anonymous_kwrest_offset(params) {
+            Some(o) => o,
+            None => return false,
+        };
+        let _anon_block = match get_anonymous_block_offset(params) {
+            Some(o) => o,
+            None => return false,
+        };
+
+        // RuboCop's `ruby_32_only_anonymous_forwarding?` checks if the send node
+        // has ANY block ancestor (including blocks enclosing the def). If a def is
+        // inside a block (e.g., RSpec.describe do...end), the anonymous-to-...
+        // suggestion is suppressed.
+        if is_inside_block_node(&parse_result.node(), def_node.location().start_offset()) {
+            return false;
+        }
+
+        // Find all call sites that use anonymous forwarding
+        let classifications = classify_anonymous_sends(body, ruby_version);
+        if classifications.is_empty() {
+            return false;
+        }
+
+        // All classified sends must forward all three anonymous args
+        if !classifications
+            .iter()
+            .all(|c| c.has_anon_rest && c.has_anon_kwrest && c.has_anon_block)
+        {
+            return false;
+        }
+
+        // Report offense on def params (first forwardable = anon_rest since * comes first)
+        let first_offset = anon_rest.min(anon_kwrest);
+        let (line, col) = source.offset_to_line_col(first_offset);
+        diagnostics.push(self.diagnostic(source, line, col, FORWARDING_MSG.to_string()));
+
+        // Report offense on each call site
+        for c in &classifications {
+            if let Some(offset) = c.first_anon_offset() {
+                let (line, col) = source.offset_to_line_col(offset);
+                diagnostics.push(self.diagnostic(source, line, col, FORWARDING_MSG.to_string()));
+            }
+        }
+
+        true
+    }
+}
+
+/// Classification of anonymous forwarding in a single call site
+struct AnonSendClassification {
+    has_anon_rest: bool,
+    has_anon_kwrest: bool,
+    has_anon_block: bool,
+    anon_rest_offset: Option<usize>,
+    anon_kwrest_offset: Option<usize>,
+    anon_block_offset: Option<usize>,
+}
+
+impl AnonSendClassification {
+    fn first_anon_offset(&self) -> Option<usize> {
+        [
+            self.anon_rest_offset,
+            self.anon_kwrest_offset,
+            self.anon_block_offset,
+        ]
+        .iter()
+        .filter_map(|o| *o)
+        .min()
+    }
+}
+
+fn classify_anonymous_sends(
+    body: &ruby_prism::Node<'_>,
+    ruby_version: f64,
+) -> Vec<AnonSendClassification> {
+    let mut classifier = AnonSendClassifier {
+        results: Vec::new(),
+        block_depth: 0,
+        ruby_version,
+    };
+    classifier.visit(body);
+    classifier.results
+}
+
+struct AnonSendClassifier {
+    results: Vec<AnonSendClassification>,
+    block_depth: usize,
+    ruby_version: f64,
+}
+
+impl AnonSendClassifier {
+    fn classify_anon_call(
+        &self,
+        arguments: Option<ruby_prism::ArgumentsNode<'_>>,
+        block: Option<ruby_prism::Node<'_>>,
+    ) -> Option<AnonSendClassification> {
+        // For Ruby < 3.4, anonymous forwarding inside a block is a syntax error
+        if self.ruby_version < 3.4 && self.block_depth > 0 {
+            return None;
+        }
+
+        let args = arguments?;
+        let arg_nodes: Vec<_> = args.arguments().iter().collect();
+
+        let rest_index = arg_nodes
+            .iter()
+            .position(|arg| anonymous_rest_offset(arg).is_some())?;
+
+        let rest_offset = anonymous_rest_offset(&arg_nodes[rest_index])?;
+        let kw_index = rest_index + 1;
+        let kw_arg = arg_nodes.get(kw_index)?;
+        let kw_offset = anonymous_kwrest_offset(kw_arg)?;
+
+        let block_index = kw_index + 1;
+        let inline_block_offset = arg_nodes
+            .get(block_index)
+            .and_then(anonymous_block_argument_offset);
+        let separate_block_offset = anonymous_block_node_offset(block);
+
+        let block_offset = if let Some(offset) = inline_block_offset {
+            if block_index + 1 != arg_nodes.len() {
+                return None;
+            }
+            offset
+        } else {
+            if block_index != arg_nodes.len() {
+                return None;
+            }
+            separate_block_offset?
+        };
+
+        Some(AnonSendClassification {
+            has_anon_rest: true,
+            has_anon_kwrest: true,
+            has_anon_block: true,
+            anon_rest_offset: Some(rest_offset),
+            anon_kwrest_offset: Some(kw_offset),
+            anon_block_offset: Some(block_offset),
+        })
+    }
+}
+
+impl<'pr> Visit<'pr> for AnonSendClassifier {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if let Some(sc) = self.classify_anon_call(node.arguments(), node.block()) {
+            self.results.push(sc);
+        }
+        ruby_prism::visit_call_node(self, node);
+    }
+
+    fn visit_super_node(&mut self, node: &ruby_prism::SuperNode<'pr>) {
+        if let Some(sc) = self.classify_anon_call(node.arguments(), node.block()) {
+            self.results.push(sc);
+        }
+        ruby_prism::visit_super_node(self, node);
+    }
+
+    fn visit_yield_node(&mut self, node: &ruby_prism::YieldNode<'pr>) {
+        if let Some(sc) = self.classify_anon_call(node.arguments(), None) {
+            self.results.push(sc);
+        }
+        ruby_prism::visit_yield_node(self, node);
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        self.block_depth += 1;
+        ruby_prism::visit_block_node(self, node);
+        self.block_depth -= 1;
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        self.block_depth += 1;
+        ruby_prism::visit_lambda_node(self, node);
+        self.block_depth -= 1;
+    }
+
+    // Don't recurse into nested defs
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
+}
+
+/// Check if a given byte offset falls inside any BlockNode or LambdaNode in the AST.
+/// This mirrors RuboCop's `send_node.each_ancestor(:any_block).any?` check which
+/// suppresses anonymous-to-... forwarding when the def is inside a block.
+fn is_inside_block_node(root: &ruby_prism::Node<'_>, target_offset: usize) -> bool {
+    let mut checker = BlockAncestorChecker {
+        target_offset,
+        found: false,
+    };
+    checker.visit(root);
+    checker.found
+}
+
+struct BlockAncestorChecker {
+    target_offset: usize,
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for BlockAncestorChecker {
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        let start = node.location().start_offset();
+        let end = node.location().end_offset();
+        if self.target_offset > start && self.target_offset < end {
+            self.found = true;
+            return;
+        }
+        if !self.found {
+            ruby_prism::visit_block_node(self, node);
+        }
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        let start = node.location().start_offset();
+        let end = node.location().end_offset();
+        if self.target_offset > start && self.target_offset < end {
+            self.found = true;
+            return;
+        }
+        if !self.found {
+            ruby_prism::visit_lambda_node(self, node);
+        }
+    }
+}
+
 /// A parameter name with its source location
 struct ParamName {
     name: Vec<u8>,
     start_offset: usize,
+    end_offset: usize,
 }
 
 impl ParamName {
@@ -316,6 +593,50 @@ impl ParamName {
     }
 }
 
+fn redundant_named_param_source(
+    source: &SourceFile,
+    param: &ParamName,
+    prefix: &str,
+    redundant_names: &[String],
+) -> bool {
+    let Some(param_source) = source.try_byte_slice(param.start_offset, param.end_offset) else {
+        return false;
+    };
+
+    redundant_names
+        .iter()
+        .any(|name| param_source == format!("{prefix}{name}"))
+}
+
+/// Get the start offset of an anonymous `*` rest param (no name).
+fn get_anonymous_rest_offset(params: &ruby_prism::ParametersNode<'_>) -> Option<usize> {
+    let rest = params.rest()?;
+    let rest_param = rest.as_rest_parameter_node()?;
+    if rest_param.name().is_some() {
+        return None;
+    }
+    Some(rest.location().start_offset())
+}
+
+/// Get the start offset of an anonymous `**` kwrest param (no name).
+fn get_anonymous_kwrest_offset(params: &ruby_prism::ParametersNode<'_>) -> Option<usize> {
+    let kw_rest = params.keyword_rest()?;
+    let kw_rest_param = kw_rest.as_keyword_rest_parameter_node()?;
+    if kw_rest_param.name().is_some() {
+        return None;
+    }
+    Some(kw_rest.location().start_offset())
+}
+
+/// Get the start offset of an anonymous `&` block param (no name).
+fn get_anonymous_block_offset(params: &ruby_prism::ParametersNode<'_>) -> Option<usize> {
+    let block = params.block()?;
+    if block.name().is_some() {
+        return None;
+    }
+    Some(block.location().start_offset())
+}
+
 fn extract_rest_param_name(params: &ruby_prism::ParametersNode<'_>) -> Option<ParamName> {
     let rest = params.rest()?;
     let rest_param = rest.as_rest_parameter_node()?;
@@ -323,6 +644,7 @@ fn extract_rest_param_name(params: &ruby_prism::ParametersNode<'_>) -> Option<Pa
     Some(ParamName {
         name: name.as_slice().to_vec(),
         start_offset: rest.location().start_offset(),
+        end_offset: rest.location().end_offset(),
     })
 }
 
@@ -333,6 +655,7 @@ fn extract_kwrest_param_name(params: &ruby_prism::ParametersNode<'_>) -> Option<
     Some(ParamName {
         name: name.as_slice().to_vec(),
         start_offset: kw_rest.location().start_offset(),
+        end_offset: kw_rest.location().end_offset(),
     })
 }
 
@@ -342,7 +665,43 @@ fn extract_block_param_name(params: &ruby_prism::ParametersNode<'_>) -> Option<P
     Some(ParamName {
         name: name.as_slice().to_vec(),
         start_offset: block.location().start_offset(),
+        end_offset: block.location().end_offset(),
     })
+}
+
+fn anonymous_rest_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
+    let splat = node.as_splat_node()?;
+    if splat.expression().is_some() {
+        return None;
+    }
+    Some(splat.location().start_offset())
+}
+
+fn anonymous_kwrest_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
+    let elements = node
+        .as_keyword_hash_node()
+        .map(|h| h.elements())
+        .or_else(|| node.as_hash_node().map(|h| h.elements()))?;
+
+    let mut elements = elements.iter();
+    let assoc_splat = elements.next()?.as_assoc_splat_node()?;
+    if elements.next().is_some() || assoc_splat.value().is_some() {
+        return None;
+    }
+
+    Some(assoc_splat.location().start_offset())
+}
+
+fn anonymous_block_argument_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
+    let block_arg = node.as_block_argument_node()?;
+    if block_arg.expression().is_some() {
+        return None;
+    }
+    Some(block_arg.location().start_offset())
+}
+
+fn anonymous_block_node_offset(node: Option<ruby_prism::Node<'_>>) -> Option<usize> {
+    anonymous_block_argument_offset(&node?)
 }
 
 /// Classification of what a single call site forwards
@@ -529,10 +888,14 @@ impl SendClassifier {
                         }
                     }
                 }
-                // Check for **kwrest forwarding (inside a keyword hash node in args)
-                if let Some(hash) = arg.as_keyword_hash_node() {
+                // Check for **kwrest forwarding (inside a keyword hash node or explicit hash in args)
+                let hash_elements = arg
+                    .as_keyword_hash_node()
+                    .map(|h| h.elements())
+                    .or_else(|| arg.as_hash_node().map(|h| h.elements()));
+                if let Some(elements) = hash_elements {
                     if let Some(ref kw_name) = self.kwrest_name {
-                        for elem in hash.elements().iter() {
+                        for elem in elements.iter() {
                             if let Some(assoc_splat) = elem.as_assoc_splat_node() {
                                 if let Some(expr) = assoc_splat.value() {
                                     if let Some(lvar) = expr.as_local_variable_read_node() {
@@ -1037,6 +1400,21 @@ mod tests {
             diags.len(),
             4,
             "Ruby 3.4: should flag anonymous forwarding inside blocks: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_anonymous_to_dots_forwarding_inside_block() {
+        use crate::testutil::run_cop_full;
+        // def with anonymous (*, **, &) inside a block (e.g. RSpec.describe do...end)
+        // should NOT suggest ... because RuboCop suppresses this via block ancestor check
+        let source = b"RSpec.describe do\n  def render_component(*, **, &)\n    render(described_class.new(*, **, &))\n  end\nend\n";
+        let diags = run_cop_full(&ArgumentsForwarding, source);
+        assert_eq!(
+            diags.len(),
+            0,
+            "should not suggest ... for anonymous forwarding when def is inside a block: {:?}",
             diags
         );
     }

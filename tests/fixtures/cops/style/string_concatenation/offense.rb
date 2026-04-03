@@ -36,3 +36,30 @@ EOM
 # Single-line string with escape \n (not multi-line source) — flagged
 "hello\nworld" + name
 ^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+# Percent literal %q (single-quoted, str_type? in Parser) — flagged
+%q[hello] + %q[world]
+^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+# Percent literal %() with no interpolation — str_type? in Parser — flagged
+name + %(suffix)
+^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+# Interpolated string + percent literal — flagged (RHS is str_type?)
+"hello #{name}" + %(world)
+^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+# Percent literal %{} with no interpolation — str_type? in Parser — flagged
+config + %{some value}
+^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+# Percent literal %[] with no interpolation — str_type? in Parser — flagged
+header + %[some value]
+^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+
+raise 'Cannot specify both a hash/array/struct and a ' + \
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.
+  'proc for method #insert!'
+
+__FILE__ + ":#{__LINE__}:in `bar`"
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/StringConcatenation: Prefer string interpolation to string concatenation.

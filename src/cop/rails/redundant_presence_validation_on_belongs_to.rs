@@ -1,8 +1,8 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     ASSOC_NODE, CLASS_NODE, FALSE_NODE, HASH_NODE, KEYWORD_HASH_NODE, NIL_NODE, SYMBOL_NODE,
     TRUE_NODE,
 };
-use crate::cop::util::{class_body_calls, is_dsl_call, keyword_arg_value};
+use crate::cop::shared::util::{class_body_calls, is_dsl_call, keyword_arg_value};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
