@@ -104,6 +104,28 @@ obj.public_send(:x, &(foo ? foo.bar : nil))
 { debug: (writer_opts[:debug].join("\n") if writer_opts[:debug]) }.to_json
 "#{(model ? model.serial : nil).inspect}"
 
+# Comparison operators after the checked receiver are skipped
+if matcher && matcher === actual
+  matcher
+end
+
+# Mixed `and` / `&&` chains are not flattened across precedence groups
+raise Interrupt if status and status.signaled? && status.termsig == 1
+
+# Block-receiver bodies that themselves end in block calls are skipped
+items.map { options.queries && options.queries.keys.map { |q| q } }.compact.flatten
+items.map { options.queries ? options.queries.keys.map { |q| q } : nil }.compact.flatten
+items.map { options.queries.keys.map { |q| q } if options.queries }.compact.flatten
+
+framework_input_paths.flat_map do |framework_path|
+  outputs = unless framework_path.paths.nil?
+              framework_path.paths.map do |path|
+                path
+              end
+            end
+  [*outputs]
+end.compact.uniq
+
 # Parenthesized lhs in `&&` is skipped like RuboCop
 (safe_site['authentication']) && safe_site['authentication'].is_a?(Hash)
 
