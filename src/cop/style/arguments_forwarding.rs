@@ -33,6 +33,18 @@ use crate::parse::source::SourceFile;
 ///    Fix: Added `block_depth` tracking to `SendClassifier` and `inside_block` flag to
 ///    `SendClassification`. Skip anonymous forwarding when any send is inside a block
 ///    for Ruby < 3.4.
+///
+/// FP=39 investigation (2026-04-03): Two Prism-specific false-positive buckets remained:
+///
+/// 1. **Spacing-sensitive redundant names**: RuboCop compares the full parameter source (`*args`,
+///    `&block`), so spaced forms like `* args` and `& block` are not treated as redundant.
+///    nitrocop only compared bare local names and incorrectly flagged them.
+///
+/// 2. **Overly broad anonymous-to-`...` detection**: `try_report_all_anonymous_forwarding`
+///    treated any send containing anonymous `*`, `**`, and `&` as `...`-eligible. Prism
+///    RuboCop is narrower: explicit keyword params in the def, or extra/interleaved keyword
+///    arguments in the call (for example `foo(*, extra:, **, &)`) must not be collapsed to
+///    `...`.
 pub struct ArgumentsForwarding;
 
 const FORWARDING_MSG: &str = "Use shorthand syntax `...` for arguments forwarding.";
@@ -133,15 +145,13 @@ impl Cop for ArgumentsForwarding {
         // Determine which param names are "redundant" (meaningless names)
         let rest_is_redundant = rest_name
             .as_ref()
-            .is_some_and(|n| redundant_rest.iter().any(|r| r.as_bytes() == n.as_slice()));
-        let kwrest_is_redundant = kwrest_name.as_ref().is_some_and(|n| {
-            redundant_kw_rest
-                .iter()
-                .any(|r| r.as_bytes() == n.as_slice())
-        });
+            .is_some_and(|n| redundant_named_param_source(source, n, "*", &redundant_rest));
+        let kwrest_is_redundant = kwrest_name
+            .as_ref()
+            .is_some_and(|n| redundant_named_param_source(source, n, "**", &redundant_kw_rest));
         let block_is_redundant = block_name
             .as_ref()
-            .is_some_and(|n| redundant_block.iter().any(|r| r.as_bytes() == n.as_slice()));
+            .is_some_and(|n| redundant_named_param_source(source, n, "&", &redundant_block));
 
         // Collect non-forwarding references
         let referenced = non_forwarding_references(&body);
@@ -332,6 +342,12 @@ impl ArgumentsForwarding {
             return false;
         }
 
+        // Prism RuboCop does not collapse anonymous forwarding to `...` when the def
+        // signature includes explicit keyword params alongside `*`, `**`, and `&`.
+        if !params.keywords().is_empty() {
+            return false;
+        }
+
         // All three anonymous params must exist
         let anon_rest = match get_anonymous_rest_offset(params) {
             Some(o) => o,
@@ -438,71 +454,53 @@ impl AnonSendClassifier {
             return None;
         }
 
-        let mut has_anon_rest = false;
-        let mut has_anon_kwrest = false;
-        let mut has_anon_block = false;
-        let mut anon_rest_offset = None;
-        let mut anon_kwrest_offset = None;
-        let mut anon_block_offset = None;
+        let args = arguments?;
+        let arg_nodes: Vec<_> = args.arguments().iter().collect();
 
-        if let Some(args) = &arguments {
-            for arg in args.arguments().iter() {
-                // Anonymous * (SplatNode with no expression)
-                if let Some(splat) = arg.as_splat_node() {
-                    if splat.expression().is_none() {
-                        has_anon_rest = true;
-                        anon_rest_offset = Some(splat.location().start_offset());
-                    }
-                }
-                // Anonymous ** in KeywordHashNode or HashNode
-                let hash_elements = arg
-                    .as_keyword_hash_node()
-                    .map(|h| h.elements())
-                    .or_else(|| arg.as_hash_node().map(|h| h.elements()));
-                if let Some(elements) = hash_elements {
-                    for elem in elements.iter() {
-                        if let Some(assoc_splat) = elem.as_assoc_splat_node() {
-                            if assoc_splat.value().is_none() {
-                                has_anon_kwrest = true;
-                                anon_kwrest_offset = Some(assoc_splat.location().start_offset());
-                            }
-                        }
-                    }
-                }
-                // Anonymous & in arguments list
-                if let Some(ba) = arg.as_block_argument_node() {
-                    if ba.expression().is_none() {
-                        has_anon_block = true;
-                        anon_block_offset = Some(ba.location().start_offset());
-                    }
-                }
+        let Some(rest_index) = arg_nodes
+            .iter()
+            .position(|arg| anonymous_rest_offset(arg).is_some())
+        else {
+            return None;
+        };
+
+        let Some(rest_offset) = anonymous_rest_offset(&arg_nodes[rest_index]) else {
+            return None;
+        };
+        let kw_index = rest_index + 1;
+        let Some(kw_arg) = arg_nodes.get(kw_index) else {
+            return None;
+        };
+        let Some(kw_offset) = anonymous_kwrest_offset(kw_arg) else {
+            return None;
+        };
+
+        let block_index = kw_index + 1;
+        let inline_block_offset = arg_nodes
+            .get(block_index)
+            .and_then(anonymous_block_argument_offset);
+        let separate_block_offset = anonymous_block_node_offset(block);
+
+        let block_offset = if let Some(offset) = inline_block_offset {
+            if block_index + 1 != arg_nodes.len() {
+                return None;
             }
-        }
-
-        // Also check block node for anonymous &
-        if !has_anon_block {
-            if let Some(block_node) = block {
-                if let Some(ba) = block_node.as_block_argument_node() {
-                    if ba.expression().is_none() {
-                        has_anon_block = true;
-                        anon_block_offset = Some(ba.location().start_offset());
-                    }
-                }
-            }
-        }
-
-        if has_anon_rest || has_anon_kwrest || has_anon_block {
-            Some(AnonSendClassification {
-                has_anon_rest,
-                has_anon_kwrest,
-                has_anon_block,
-                anon_rest_offset,
-                anon_kwrest_offset,
-                anon_block_offset,
-            })
+            offset
         } else {
-            None
-        }
+            if block_index != arg_nodes.len() {
+                return None;
+            }
+            separate_block_offset?
+        };
+
+        Some(AnonSendClassification {
+            has_anon_rest: true,
+            has_anon_kwrest: true,
+            has_anon_block: true,
+            anon_rest_offset: Some(rest_offset),
+            anon_kwrest_offset: Some(kw_offset),
+            anon_block_offset: Some(block_offset),
+        })
     }
 }
 
@@ -591,6 +589,7 @@ impl<'pr> Visit<'pr> for BlockAncestorChecker {
 struct ParamName {
     name: Vec<u8>,
     start_offset: usize,
+    end_offset: usize,
 }
 
 impl ParamName {
@@ -601,6 +600,21 @@ impl ParamName {
     fn start(&self) -> usize {
         self.start_offset
     }
+}
+
+fn redundant_named_param_source(
+    source: &SourceFile,
+    param: &ParamName,
+    prefix: &str,
+    redundant_names: &[String],
+) -> bool {
+    let Some(param_source) = source.try_byte_slice(param.start_offset, param.end_offset) else {
+        return false;
+    };
+
+    redundant_names
+        .iter()
+        .any(|name| param_source == format!("{prefix}{name}"))
 }
 
 /// Get the start offset of an anonymous `*` rest param (no name).
@@ -639,6 +653,7 @@ fn extract_rest_param_name(params: &ruby_prism::ParametersNode<'_>) -> Option<Pa
     Some(ParamName {
         name: name.as_slice().to_vec(),
         start_offset: rest.location().start_offset(),
+        end_offset: rest.location().end_offset(),
     })
 }
 
@@ -649,6 +664,7 @@ fn extract_kwrest_param_name(params: &ruby_prism::ParametersNode<'_>) -> Option<
     Some(ParamName {
         name: name.as_slice().to_vec(),
         start_offset: kw_rest.location().start_offset(),
+        end_offset: kw_rest.location().end_offset(),
     })
 }
 
@@ -658,7 +674,43 @@ fn extract_block_param_name(params: &ruby_prism::ParametersNode<'_>) -> Option<P
     Some(ParamName {
         name: name.as_slice().to_vec(),
         start_offset: block.location().start_offset(),
+        end_offset: block.location().end_offset(),
     })
+}
+
+fn anonymous_rest_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
+    let splat = node.as_splat_node()?;
+    if splat.expression().is_some() {
+        return None;
+    }
+    Some(splat.location().start_offset())
+}
+
+fn anonymous_kwrest_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
+    let elements = node
+        .as_keyword_hash_node()
+        .map(|h| h.elements())
+        .or_else(|| node.as_hash_node().map(|h| h.elements()))?;
+
+    let mut elements = elements.iter();
+    let assoc_splat = elements.next()?.as_assoc_splat_node()?;
+    if elements.next().is_some() || assoc_splat.value().is_some() {
+        return None;
+    }
+
+    Some(assoc_splat.location().start_offset())
+}
+
+fn anonymous_block_argument_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
+    let block_arg = node.as_block_argument_node()?;
+    if block_arg.expression().is_some() {
+        return None;
+    }
+    Some(block_arg.location().start_offset())
+}
+
+fn anonymous_block_node_offset(node: Option<ruby_prism::Node<'_>>) -> Option<usize> {
+    anonymous_block_argument_offset(&node?)
 }
 
 /// Classification of what a single call site forwards
