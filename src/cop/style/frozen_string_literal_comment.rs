@@ -2,36 +2,16 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// FP=523 root causes identified and fixed:
-/// 1. Blank lines between shebang/encoding and the frozen_string_literal comment caused the
-///    scan to stop prematurely. RuboCop scans all lines before the first non-comment token,
-///    so blank lines don't break the search. Fixed by scanning through comment AND blank lines.
-/// 2. Case-sensitive matching: RuboCop uses `/frozen[_-]string[_-]literal/i` (case-insensitive),
-///    but nitrocop only matched exact `frozen_string_literal:`. Fixed with case-insensitive scan.
-/// 3. Hyphen separator: RuboCop accepts `frozen-string-literal:` (hyphens) as well as
-///    underscores. Fixed by accepting both `_` and `-` as separators.
+/// Recent corpus fixes for RuboCop parity:
+/// 1. `# frozen_string_literal:` only counts as a valid magic comment when its value is
+///    `true` or `false` (case-insensitive). Malformed values like `tru` must be treated as
+///    missing comments, not as present-but-disabled directives.
+/// 2. `__END__` only suppresses this cop for bare data files whose first non-blank line is
+///    `__END__`. RuboCop still flags files that have leading shebang, encoding, or ordinary
+///    comments before `__END__`, so this cop must not skip those.
 ///
-/// Previous fix (FP=778): Emacs-style magic comments like
-/// `# -*- encoding: utf-8; frozen_string_literal: true -*-` were not recognized.
-///
-/// FP=10 root causes: Files with invalid encoding (invalid UTF-8 bytes, null bytes from UTF-16,
-/// ISO-8859 encoding) and files starting with `__END__` (data-only, no code tokens). RuboCop
-/// returns early via `processed_source.tokens.empty?` for these. Fixed by checking UTF-8 validity,
-/// null byte presence, and `__END__`-only files. Remaining FPs (4 of 10) are config-related
-/// (vendor/ dir exclusion, non-.rb extensions) not cop logic issues.
-///
-/// FN=19 root cause: `is_frozen_string_literal_comment` used a substring search
-/// (`has_frozen_string_literal_key`) after stripping the first `#`. This meant
-/// `# # frozen_string_literal: true` (double-hash) was incorrectly recognized as
-/// a valid magic comment — after stripping `#` + whitespace, the remaining
-/// `# frozen_string_literal: true` still contained the key as a substring. RuboCop's
-/// `SimpleComment` regex requires `\A\s*#\s*frozen[_-]string[_-]literal:\s*TOKEN\s*\z`
-/// (key must follow directly after the single `#`). Fixed by using a prefix match
-/// (`starts_with_frozen_string_literal_key`) for simple comments, while keeping the
-/// substring search only for Emacs-style (`-*-...-*-`) comments.
-///
-/// Remaining FP=1 is config-related: `.rb.spec` file extension excluded by RuboCop's
-/// `Include` pattern, not a cop logic issue.
+/// Remaining corpus FPs around `vendor/` and `.rb.spec` paths are config/include issues rather
+/// than content-matching bugs in this cop.
 pub struct FrozenStringLiteralComment;
 
 impl Cop for FrozenStringLiteralComment {
@@ -102,10 +82,9 @@ impl Cop for FrozenStringLiteralComment {
             return;
         }
 
-        // Skip files where the only non-blank/non-comment content is `__END__`.
-        // These files contain only data (no code tokens), so RuboCop's
-        // `processed_source.tokens.empty?` check returns true and it skips them.
-        if first_code_line_is_end(&lines) {
+        // RuboCop skips bare data files that start with `__END__`, but it still flags files
+        // that have leading comments before `__END__`.
+        if starts_with_end_data_only(&lines) {
             return;
         }
 
@@ -204,9 +183,9 @@ impl Cop for FrozenStringLiteralComment {
     }
 }
 
-/// Returns true if the first non-blank, non-comment line is `__END__`,
-/// meaning the file has no real code tokens.
-fn first_code_line_is_end(lines: &[&[u8]]) -> bool {
+/// Returns true when the file is bare `__END__` data: its first non-blank line is `__END__`
+/// with no leading comments or shebang lines ahead of it.
+fn starts_with_end_data_only(lines: &[&[u8]]) -> bool {
     for line in lines {
         if is_blank_line(line) {
             continue;
@@ -219,9 +198,9 @@ fn first_code_line_is_end(lines: &[&[u8]]) -> bool {
             &line[start..]
         };
         if trimmed.starts_with(b"#") {
-            continue;
+            return false;
         }
-        // First non-blank, non-comment line
+        // First non-blank, non-comment line.
         return trimmed.starts_with(b"__END__");
     }
     false
@@ -268,21 +247,7 @@ fn is_encoding_comment(line: &[u8]) -> bool {
 /// For Emacs-style comments (`# -*- ... -*-`), the key can appear anywhere
 /// among semicolon-separated directives.
 fn is_frozen_string_literal_comment(line: &[u8]) -> bool {
-    let s = match std::str::from_utf8(line) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    // Allow leading whitespace, then `#`, then optional space, then the magic comment key
-    let s = s.trim_start();
-    let trimmed = s.strip_prefix('#').unwrap_or("");
-    let trimmed = trimmed.trim_start();
-    // Emacs-style: # -*- ... frozen_string_literal: true/false ... -*-
-    if trimmed.starts_with("-*-") && trimmed.ends_with("-*-") {
-        return has_frozen_string_literal_key(trimmed);
-    }
-    // Simple comment: key must START immediately after `# ` (no extra `#` or other text).
-    // This matches RuboCop's `\A\s*#\s*frozen[_-]string[_-]literal:\s*TOKEN\s*\z`.
-    starts_with_frozen_string_literal_key(trimmed)
+    frozen_string_literal_value(line).is_some_and(is_frozen_string_literal_boolean)
 }
 
 /// Check if a string STARTS WITH `frozen_string_literal:` or `frozen-string-literal:`
@@ -300,49 +265,23 @@ fn starts_with_frozen_string_literal_key(s: &str) -> bool {
         && bytes[14..].starts_with(b"literal:")
 }
 
-/// Check if a string contains `frozen_string_literal:` or `frozen-string-literal:`
-/// (case-insensitive, allowing hyphens or underscores as separators).
-/// Matches RuboCop's `/frozen[_-]string[_-]literal/i` regex.
-fn has_frozen_string_literal_key(s: &str) -> bool {
-    let lower = s.to_ascii_lowercase();
-    let bytes = lower.as_bytes();
-    // "frozen" (6) + sep (1) + "string" (6) + sep (1) + "literal:" (8) = 22 chars
-    for i in 0..bytes.len() {
-        if bytes[i..].starts_with(b"frozen")
-            && i + 22 <= bytes.len()
-            && (bytes[i + 6] == b'_' || bytes[i + 6] == b'-')
-            && bytes[i + 7..].starts_with(b"string")
-            && (bytes[i + 13] == b'_' || bytes[i + 13] == b'-')
-            && bytes[i + 14..].starts_with(b"literal:")
-        {
-            return true;
-        }
-    }
-    false
+fn is_frozen_string_literal_true(line: &[u8]) -> bool {
+    frozen_string_literal_value(line).is_some_and(|value| value.eq_ignore_ascii_case("true"))
 }
 
-fn is_frozen_string_literal_true(line: &[u8]) -> bool {
-    let s = match std::str::from_utf8(line) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    // Allow leading whitespace
-    let s = s.trim_start();
-    let trimmed = s.strip_prefix('#').unwrap_or("");
-    let trimmed = trimmed.trim_start();
-    // Emacs-style: # -*- ... frozen_string_literal: true ... -*-
+fn frozen_string_literal_value(line: &[u8]) -> Option<&str> {
+    let s = std::str::from_utf8(line).ok()?;
+    let trimmed = s.trim_start().strip_prefix('#')?.trim_start();
     if trimmed.starts_with("-*-") && trimmed.ends_with("-*-") {
-        if let Some(after_key) = strip_frozen_string_literal_key(trimmed) {
-            // Extract the value: take until `;` or `-*-`
-            let value = after_key.split([';', '-']).next().unwrap_or("");
-            return value.trim() == "true";
-        }
+        let after_key = strip_frozen_string_literal_key(trimmed)?;
+        return Some(after_key.split([';', '-']).next().unwrap_or("").trim());
     }
-    // Simple comment: key must start immediately after `# `
-    if let Some(after_key) = strip_prefix_frozen_string_literal_key(trimmed) {
-        return after_key.trim() == "true";
-    }
-    false
+    let after_key = strip_prefix_frozen_string_literal_key(trimmed)?;
+    Some(after_key.trim())
+}
+
+fn is_frozen_string_literal_boolean(value: &str) -> bool {
+    value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false")
 }
 
 /// If the string STARTS WITH `frozen[_-]string[_-]literal:` (case-insensitive),
@@ -386,6 +325,9 @@ mod tests {
         shebang_missing = "shebang_missing.rb",
         encoding_missing = "encoding_missing.rb",
         double_hash_frozen = "double_hash_frozen.rb",
+        invalid_token = "invalid_token.rb",
+        comment_before_end = "comment_before_end.rb",
+        encoding_before_end = "encoding_before_end.rb",
     );
 
     #[test]

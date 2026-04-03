@@ -3,7 +3,9 @@ use ruby_prism::Visit;
 use crate::cop::factory_bot::{
     ATTRIBUTE_DEFINING_METHODS, FACTORY_BOT_DEFAULT_INCLUDE, RESERVED_METHODS,
 };
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, STATEMENTS_NODE};
+use crate::cop::shared::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

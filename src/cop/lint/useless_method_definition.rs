@@ -26,13 +26,12 @@
 ///    using source-text comparison for super args matching.
 use ruby_prism::Visit;
 
+use crate::cop::shared::access_modifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct UselessMethodDefinition;
-
-const ACCESS_MODIFIERS: &[&[u8]] = &[b"private", b"protected", b"public", b"module_function"];
 
 impl Cop for UselessMethodDefinition {
     fn name(&self) -> &'static str {
@@ -79,7 +78,7 @@ impl<'pr> Visit<'pr> for UselessMethodVisitor<'_, '_> {
         // and whether it's an access modifier or a generic macro.
         let is_non_access_modifier = if node.receiver().is_none() {
             let name = node.name().as_slice();
-            !ACCESS_MODIFIERS.contains(&name)
+            !access_modifier_predicates::is_access_modifier_name(name)
         } else {
             // Has a receiver — not a bare call, treat as generic macro
             true

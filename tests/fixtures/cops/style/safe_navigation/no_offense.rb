@@ -33,6 +33,8 @@ foo ? nil : foo.bar
 foo && foo.owner.is_a?(SomeClass)
 foo && foo.value.respond_to?(:call)
 foo && foo.name.kind_of?(String)
+foo && foo.split.to_json
+env["NODE_LABELS"] && env["NODE_LABELS"].split.to_json
 
 # AllowedMethods (present?, blank?) in the chain
 config && config.value.present?
@@ -74,6 +76,13 @@ BTC::Invariant(output && output.verified?, "message")
 # Ternaries inside unsafe dotless call arguments are skipped
 instance_variable_set("@foo", foo.nil? ? nil : foo.to_s)
 
+# Chained && inside blocks keeps RuboCop's non-flattened traversal
+items.each do |record_type|
+  if dns_feasible?(record_type) && dns_record(record_type) && dns_record(record_type).conflicting?
+    queue.create
+  end
+end
+
 # Modifier if/unless inside call arguments or `private def` are skipped
 install_win(if parent then parent.path end, widgetname)
 
@@ -87,6 +96,48 @@ send "#{options[:foreign_key]}=", new_value ? new_value.send(options[:primary_ke
 # Conditions already using `&.` are left alone
 callback.call unless callback&.nil?
 
+# Block-pass arguments are skipped like RuboCop
+obj.public_send(@method, *@arguments, &(@block && @block.to_proc))
+obj.public_send(:x, &(foo ? foo.bar : nil))
+
 # If/ternary used as the receiver of another call are skipped
 { debug: (writer_opts[:debug].join("\n") if writer_opts[:debug]) }.to_json
 "#{(model ? model.serial : nil).inspect}"
+
+# Comparison operators after the checked receiver are skipped
+if matcher && matcher === actual
+  matcher
+end
+
+# Mixed `and` / `&&` chains are not flattened across precedence groups
+raise Interrupt if status and status.signaled? && status.termsig == 1
+
+# Block-receiver bodies that themselves end in block calls are skipped
+items.map { options.queries && options.queries.keys.map { |q| q } }.compact.flatten
+items.map { options.queries ? options.queries.keys.map { |q| q } : nil }.compact.flatten
+items.map { options.queries.keys.map { |q| q } if options.queries }.compact.flatten
+
+framework_input_paths.flat_map do |framework_path|
+  outputs = unless framework_path.paths.nil?
+              framework_path.paths.map do |path|
+                path
+              end
+            end
+  [*outputs]
+end.compact.uniq
+
+# Parenthesized lhs in `&&` is skipped like RuboCop
+(safe_site['authentication']) && safe_site['authentication'].is_a?(Hash)
+
+# Ternaries used as dotless operator receivers are skipped
+(expected.nil? ? nil : expected.to_date) == actual
+
+# Nested call-argument ternaries with block bodies are skipped
+RbLazyFrame.new_from_parquet(
+  sources,
+  schema,
+  ScanOptions.new(
+    storage_options: storage_options ? storage_options.map { |k, v| [k.to_s, v.to_s] } : nil
+  ),
+  parallel
+)

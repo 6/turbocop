@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::{Cop, CopConfig, EnabledState};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -122,7 +123,7 @@ impl PluckIdVisitor<'_, '_> {
 
         // Check for pluck(primary_key) — bare method call with no receiver
         if let Some(pk_call) = arg_list[0].as_call_node() {
-            if pk_call.name().as_slice() == b"primary_key" && pk_call.receiver().is_none() {
+            if method_dispatch_predicates::is_command(&pk_call, b"primary_key") {
                 return Some("Use `ids` instead of `pluck(primary_key)`.");
             }
         }

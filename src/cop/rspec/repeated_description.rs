@@ -1,6 +1,7 @@
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_shared_group,
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
+use crate::cop::shared::util::{
+    RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_shared_group,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -255,7 +256,9 @@ fn is_example_group_call(call: &ruby_prism::CallNode<'_>) -> bool {
 
     match call.receiver() {
         None => true,
-        Some(recv) => util::constant_name(&recv).is_some_and(|n| n == b"RSpec"),
+        Some(recv) => {
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
+        }
     }
 }
 
@@ -272,8 +275,8 @@ fn is_scope_change_call(call: &ruby_prism::CallNode<'_>) -> bool {
             || is_include_scope_method(name);
     }
 
-    let is_rspec_receiver =
-        util::constant_name(&call.receiver().unwrap()).is_some_and(|n| n == b"RSpec");
+    let is_rspec_receiver = constant_predicates::constant_short_name(&call.receiver().unwrap())
+        .is_some_and(|n| n == b"RSpec");
     is_rspec_receiver && (is_rspec_example_group(name) || is_rspec_shared_group(name))
 }
 

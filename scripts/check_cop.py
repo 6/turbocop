@@ -592,12 +592,12 @@ def spot_check_examples(cop_name: str, data: dict) -> tuple[int, int, int, int, 
     by_cop = {c["cop"]: c for c in data.get("by_cop", [])}
     cop_data = by_cop.get(cop_name)
     if not cop_data:
-        return 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0
 
     fp_examples = cop_data.get("fp_examples", [])
     fn_examples = cop_data.get("fn_examples", [])
     if not fp_examples and not fn_examples:
-        return 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0
 
     corpus_dir = _get_corpus_dir()
 
@@ -1036,6 +1036,8 @@ def main():
         total_baseline_fn = 0
         total_local_fp = 0
         total_local_fn = 0
+        total_count_baseline_fp = 0
+        total_count_baseline_fn = 0
         fp_repos = []
         fn_repos = []
         # Build per-repo baseline counts from the oracle.
@@ -1046,6 +1048,8 @@ def main():
         # regressions — they were already there on main.
         oracle_nitrocop_counts = {}
         oracle_rubocop_counts = {}
+        oracle_location_fp = {}
+        oracle_location_fn = {}
         for repo_id, cops in by_repo_cop.items():
             if args.cop in cops:
                 entry = cops[args.cop]
@@ -1054,6 +1058,13 @@ def main():
                 fn = entry.get("fn", 0)
                 oracle_nitrocop_counts[repo_id] = matches + fp
                 oracle_rubocop_counts[repo_id] = matches + fn
+                # Store location-level FP/FN from the oracle directly.
+                # The oracle compares by (file, line), so location swaps
+                # where nitrocop fires at line 10 and rubocop at line 15
+                # are captured as fp=1, fn=1. Count-based recomputation
+                # (max(0, nc - rc)) collapses these to 0 when fp == fn.
+                oracle_location_fp[repo_id] = fp
+                oracle_location_fn[repo_id] = fn
 
         # For repos with oracle activity but no divergence, oracle nitrocop
         # matched rubocop exactly. Use local count as proxy for both.
@@ -1070,11 +1081,19 @@ def main():
             baseline_rc = oracle_rubocop_counts.get(repo_id)
             if baseline_nc is None or baseline_rc is None:
                 continue
-            # How far was the oracle's nitrocop from rubocop?
-            baseline_fp = max(0, baseline_nc - baseline_rc)
-            baseline_fn = max(0, baseline_rc - baseline_nc)
+            # Use the oracle's location-level FP/FN as the baseline.
+            # This is more accurate than count-based recomputation which
+            # loses location-swap information (fp==fn cancels to 0).
+            baseline_fp = oracle_location_fp.get(repo_id, 0)
+            baseline_fn = oracle_location_fn.get(repo_id, 0)
             total_baseline_fp += baseline_fp
             total_baseline_fn += baseline_fn
+            # Also track count-level baseline for sanity-check annotation.
+            # Count-level FP = max(0, nitrocop_count - rubocop_count).
+            count_bl_fp = max(0, baseline_nc - baseline_rc)
+            count_bl_fn = max(0, baseline_rc - baseline_nc)
+            total_count_baseline_fp += count_bl_fp
+            total_count_baseline_fn += count_bl_fn
             # How far is the local nitrocop from rubocop?
             local_fp = max(0, local_count - baseline_rc)
             local_fn = max(0, baseline_rc - local_count)
@@ -1120,14 +1139,25 @@ def main():
             fn_gate = new_fn
         if fp_gate > args.threshold:
             label = f"net +{new_fp - resolved_fp:,}" if args.allow_net_improvement else f"+{new_fp:,}"
-            print(f"FAIL: FP regression detected ({label})")
-            for repo_id, local, bl_nc, bl_rc, diff in sorted(fp_repos, key=lambda x: -x[4])[:10]:
+            sorted_fp = sorted(fp_repos, key=lambda x: -x[4])[:10]
+            # Include repo names directly in FAIL line for small regressions
+            if len(sorted_fp) <= 3:
+                repo_names = ", ".join(r[0] for r in sorted_fp)
+                print(f"FAIL: FP regression ({label}) in: {repo_names}")
+            else:
+                print(f"FAIL: FP regression detected ({label})")
+            for repo_id, local, bl_nc, bl_rc, diff in sorted_fp:
                 print(f"  +{diff:>4}  {repo_id}  (local={local}, baseline_nc={bl_nc}, rubocop={bl_rc})")
             failed = True
         if fn_gate > args.threshold:
             label = f"net +{new_fn - resolved_fn:,}" if args.allow_net_improvement else f"+{new_fn:,}"
-            print(f"FAIL: FN regression detected ({label})")
-            for repo_id, local, bl_nc, bl_rc, diff in sorted(fn_repos, key=lambda x: -x[4])[:10]:
+            sorted_fn = sorted(fn_repos, key=lambda x: -x[4])[:10]
+            if len(sorted_fn) <= 3:
+                repo_names = ", ".join(r[0] for r in sorted_fn)
+                print(f"FAIL: FN regression ({label}) in: {repo_names}")
+            else:
+                print(f"FAIL: FN regression detected ({label})")
+            for repo_id, local, bl_nc, bl_rc, diff in sorted_fn:
                 print(f"  +{diff:>4}  {repo_id}  (local={local}, baseline_nc={bl_nc}, rubocop={bl_rc})")
             failed = True
 
@@ -1150,10 +1180,15 @@ def main():
             print()
 
         # Machine-readable summary for CI aggregation
-        # Format: cop|baseline_fp|baseline_fn|local_fp|local_fn|result
-        # local_fp/fn are the actual FP/FN counts from this run (not just regressions)
+        # Format: cop|baseline_fp|baseline_fn|local_fp|local_fn|result|count_bl_fp|count_bl_fn
+        # baseline_fp/fn = location-level from oracle
+        # local_fp/fn = count-level from local run (max(0, local - rubocop))
+        # count_bl_fp/fn = count-level baseline (max(0, oracle_nc - oracle_rc))
+        # The last two fields enable the CI comment to detect when a large
+        # location-level FP delta has no count-level counterpart (location
+        # shift or config resolution artifact, not a real regression).
         result_str = "fail" if failed else "pass"
-        print(f"SUMMARY|{args.cop}|{total_baseline_fp}|{total_baseline_fn}|{total_local_fp}|{total_local_fn}|{result_str}")
+        print(f"SUMMARY|{args.cop}|{total_baseline_fp}|{total_baseline_fn}|{total_local_fp}|{total_local_fn}|{result_str}|{total_count_baseline_fp}|{total_count_baseline_fn}")
 
         if failed:
             sys.exit(1)

@@ -69,6 +69,12 @@ unless FileTest.exists?(path)
   FileUtils.makedirs(path, force: false)
 end
 
+# Space before paren causes argument mismatch (RuboCop compares AST nodes;
+# the exist? argument is wrapped in a begin/paren node, the file op is not)
+if Dir.exist? (path)
+  FileUtils.rm_rf(path)
+end
+
 # rm_r and rmtree are not recognized methods
 if FileTest.exist?(path)
   FileUtils.rm_r(path)

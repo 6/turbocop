@@ -162,6 +162,8 @@ def _compute_gate(by_repo_cop, cop, per_repo):
     """
     oracle_nitrocop_counts = {}
     oracle_rubocop_counts = {}
+    oracle_location_fp = {}
+    oracle_location_fn = {}
     for repo_id, cops in by_repo_cop.items():
         if cop in cops:
             entry = cops[cop]
@@ -170,20 +172,27 @@ def _compute_gate(by_repo_cop, cop, per_repo):
             fn = entry.get("fn", 0)
             oracle_nitrocop_counts[repo_id] = matches + fp
             oracle_rubocop_counts[repo_id] = matches + fn
+            oracle_location_fp[repo_id] = fp
+            oracle_location_fn[repo_id] = fn
 
     new_fp, new_fn = 0, 0
     resolved_fp, resolved_fn = 0, 0
     total_baseline_fp, total_baseline_fn = 0, 0
     total_local_fp, total_local_fn = 0, 0
+    total_count_baseline_fp, total_count_baseline_fn = 0, 0
     for repo_id, local_count in per_repo.items():
         bl_nc = oracle_nitrocop_counts.get(repo_id)
         bl_rc = oracle_rubocop_counts.get(repo_id)
         if bl_nc is None or bl_rc is None:
             continue
-        baseline_fp = max(0, bl_nc - bl_rc)
-        baseline_fn = max(0, bl_rc - bl_nc)
+        baseline_fp = oracle_location_fp.get(repo_id, 0)
+        baseline_fn = oracle_location_fn.get(repo_id, 0)
         total_baseline_fp += baseline_fp
         total_baseline_fn += baseline_fn
+        count_bl_fp = max(0, bl_nc - bl_rc)
+        count_bl_fn = max(0, bl_rc - bl_nc)
+        total_count_baseline_fp += count_bl_fp
+        total_count_baseline_fn += count_bl_fn
         local_fp = max(0, local_count - bl_rc)
         local_fn = max(0, bl_rc - local_count)
         total_local_fp += local_fp
@@ -204,6 +213,8 @@ def _compute_gate(by_repo_cop, cop, per_repo):
         "net_fp": net_fp, "net_fn": net_fn,
         "total_baseline_fp": total_baseline_fp, "total_baseline_fn": total_baseline_fn,
         "total_local_fp": total_local_fp, "total_local_fn": total_local_fn,
+        "total_count_baseline_fp": total_count_baseline_fp,
+        "total_count_baseline_fn": total_count_baseline_fn,
     }
 
 
@@ -237,12 +248,12 @@ def test_gate_new_fp_detected():
     """New FP beyond baseline is flagged."""
     by_repo_cop = {
         "repo-a": {
-            # Oracle: nitrocop=12, rubocop=13 → baseline FP=0
-            "Style/Foo": {"matches": 10, "fp": 2, "fn": 3},
+            # Oracle: nitrocop=10, rubocop=10 → baseline FP=0
+            "Style/Foo": {"matches": 10, "fp": 0, "fn": 0},
         },
     }
-    # Local=15 → 2 more FP than rubocop, baseline had 0 excess over rubocop
-    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 15})
+    # Local=12 → 2 more FP than rubocop, baseline had 0 FP
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 12})
     assert g["new_fp"] == 2
     assert g["net_fp"] == 2  # no resolved FP to offset
 
@@ -251,14 +262,45 @@ def test_gate_new_fn_detected():
     """New FN beyond baseline is flagged."""
     by_repo_cop = {
         "repo-a": {
-            # Oracle: nitrocop=12, rubocop=13 → baseline FN=1
-            "Style/Foo": {"matches": 10, "fp": 2, "fn": 3},
+            # Oracle: nitrocop=10, rubocop=10 → baseline FN=0
+            "Style/Foo": {"matches": 10, "fp": 0, "fn": 0},
         },
     }
-    # Local=9 → FN=4 vs rubocop, baseline had FN=1, so +3 new FN
-    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 9})
+    # Local=7 → FN=3 vs rubocop, baseline had FN=0
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 7})
     assert g["new_fn"] == 3
     assert g["net_fn"] == 3  # no resolved FN to offset
+
+
+def test_gate_location_swap_visible_in_baseline():
+    """Location swaps (equal FP and FN) should be visible, not cancel to 0.
+
+    This is the key case: the oracle found nitrocop fires at different lines
+    than RuboCop (e.g., outer unless vs inner if). Both produce the same count,
+    but the oracle's location-level comparison shows fp=2, fn=2. The old
+    count-based baseline computed max(0, 10-10)=0, hiding the divergence.
+    """
+    by_repo_cop = {
+        "repo-a": {
+            # Oracle: 8 locations match, 2 nitrocop-only (FP), 2 rubocop-only (FN)
+            # nc=10, rc=10 — counts match, but locations differ
+            "Style/Next": {"matches": 8, "fp": 2, "fn": 2},
+        },
+    }
+    # Baseline should reflect the location-level FP/FN
+    g = _compute_gate(by_repo_cop, "Style/Next", {"repo-a": 10})
+    assert g["total_baseline_fp"] == 2  # was 0 with count-based
+    assert g["total_baseline_fn"] == 2  # was 0 with count-based
+
+    # Local count matches rubocop (10=10), so local FP/FN = 0
+    assert g["total_local_fp"] == 0
+    assert g["total_local_fn"] == 0
+
+    # The fix resolved the location mismatches
+    assert g["resolved_fp"] == 2
+    assert g["resolved_fn"] == 2
+    assert g["net_fp"] == -2
+    assert g["net_fn"] == -2
 
 
 def test_gate_exact_match_no_regression():
@@ -387,6 +429,36 @@ def test_summary_shows_improvement_correctly():
     assert g["total_local_fp"] == 2
     assert g["resolved_fp"] == 3
     assert g["new_fp"] == 0
+
+
+def test_count_level_baseline_detects_location_shift():
+    """When location-level FP increases but count-level doesn't, it's a location shift."""
+    by_repo_cop = {
+        # Oracle: nitrocop=100 (95 match + 5 FP), rubocop=98 (95 match + 3 FN)
+        # Location-level: FP=5, FN=3. Count-level: FP=max(0,100-98)=2.
+        "repo-a": {"Style/Foo": {"matches": 95, "fp": 5, "fn": 3}},
+    }
+    # Local produces 100 (same count as oracle nitrocop) but at different locations.
+    # Location-level FP could be higher, but count-level FP = max(0,100-98) = 2.
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 100})
+    assert g["total_baseline_fp"] == 5       # location-level from oracle
+    assert g["total_count_baseline_fp"] == 2  # count-level from oracle
+    assert g["total_local_fp"] == 2           # count-level from local
+    # No count-level regression: local count FP (2) <= count baseline FP (2)
+    # Even though location-level baseline was 5, count tells us no extra offenses.
+
+
+def test_count_level_baseline_detects_real_regression():
+    """When both location and count-level FP increase, it's a real regression."""
+    by_repo_cop = {
+        # Oracle: nitrocop=10 (10 match + 0 FP), rubocop=10 (10 match + 0 FN)
+        "repo-a": {"Style/Foo": {"matches": 10, "fp": 0, "fn": 0}},
+    }
+    # Local produces 15 → 5 more than rubocop → real FP
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 15})
+    assert g["total_count_baseline_fp"] == 0
+    assert g["total_local_fp"] == 5
+    assert g["new_fp"] == 5  # real regression
 
 
 # ── sampling tests for relevant_repos_for_cop ──

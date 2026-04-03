@@ -66,6 +66,7 @@ assert !@called
 @data_gathering[pair_hash] ||= {}
 
 let(:output_missing) {      <<-EOT
+                      ^^^^^ Layout/ExtraSpacing: Unnecessary spacing detected.
 EOT
 }
 
@@ -99,3 +100,41 @@ html = <<-EOF
 #{baz(5,  6)}
         ^ Layout/ExtraSpacing: Unnecessary spacing detected.
 EOF
+
+(%w[  id lock_version position version_comment created_at updated_at created_by_id updated_by_id type original_record_id])
+    ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+def builtin_state
+  raise Bud::Error unless @tables.empty?
+
+  loopback  :localtick, [:col1]
+          ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+  @stdio = terminal :stdio
+  scratch :halt, [:key]
+  @periodics = table :periodics_tbl, [:pername] => [:period]
+end
+
+RSpec.describe('PosixClass parsing') do
+  include_examples 'parse', /[[:word:]]/,
+    [0]    => [CharacterSet, count: 1],
+    [0, 0] => [:posixclass,    :word, PosixClass, name: 'word', text: '[:word:]']
+                           ^^^ Layout/ExtraSpacing: Unnecessary spacing detected.
+  include_examples 'parse', /[[:^word:]]/,
+    [0]    => [CharacterSet, count: 1],
+    [0, 0] => [:nonposixclass, :word, PosixClass, name: 'word', text: '[:^word:]']
+end
+
+# Spaces before a same-line heredoc opener are still offenses
+let(:hiera_config) {      <<~CONF }
+                    ^^^^^ Layout/ExtraSpacing: Unnecessary spacing detected.
+---
+version: 5
+CONF
+
+# Spaces before a non-heredoc same-line block closer are still offenses
+let(:output_missing) { ""  }
+                         ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+# Spaces before a chained `.` are still offenses for single-line receivers
+data = { a: 1 }  .transform_values
+               ^ Layout/ExtraSpacing: Unnecessary spacing detected.

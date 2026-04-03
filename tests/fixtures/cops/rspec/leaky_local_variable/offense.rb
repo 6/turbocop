@@ -430,6 +430,7 @@ describe 'TypeSet generator' do
     module_def = nil
     ^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
     module_def2 = nil
+    ^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
 
     before(:each) do
       if module_def.nil?
@@ -662,5 +663,222 @@ RSpec.describe 'Concurrent' do
       result = receive(on(ANY, &identity))
       expect(result).to eq(:v)
     end
+  end
+end
+
+# Variable used in example scope with ensure clause.
+# When `it` has `ensure`, Prism wraps the body as a BeginNode instead of
+# StatementsNode. The example-scope detection must look inside the BeginNode.
+# Regression: SlideHub custom_links_helper_spec.rb:12
+RSpec.describe CustomLinksHelper do
+  describe 'custom_links' do
+    class DummyController
+      def initialize
+        @controller_name = 'pages'
+      end
+    end
+    controller = DummyController.new
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+    it "returns ''" do
+      expect(helper.custom_links(controller)).to eq ''
+    ensure
+      ApplicationSetting['custom_content.header_menus'] = '[]'
+    end
+  end
+end
+
+# Variable initialized to nil, used via ||= in before hook (capybara-envjs pattern)
+# The ||= reads the variable first (conditional write), so the outer value leaks.
+describe Capybara::Driver::Envjs do
+  driver = nil
+  ^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  before do
+    @driver = (driver ||= Capybara::Driver::Envjs.new(TestApp))
+  end
+end
+
+# Inline assignment in context argument, variable used in let (rack-server-pages pattern)
+describe 'Basic requests' do
+  context path = '/aaa/bbb/AB-c.182-d.min.js' do
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    let(:path_info) { path }
+  end
+end
+
+# Inline assignment in non-RSpec method call argument (zendesk pattern)
+describe ZendeskAPI::Setting do
+  under(user = ZendeskAPI::User.new(client, id: "me")) do
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    describe "updating", :vcr do
+      it "should be updatable" do
+        settings = user.settings
+      end
+    end
+  end
+end
+
+# Underscored file-level variable used in example (pry pattern)
+_version = 1
+^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+describe "test Pry defaults" do
+  it "overrides" do
+    expect(_version).to eq(1)
+  end
+end
+
+# Group-scope variable used in nested describe argument (puppet-ssh pattern)
+describe 'ssh' do
+  package_name = case fact('os.family')
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+                 when 'Archlinux'
+                   'openssh'
+                 else
+                   'openssh-server'
+                 end
+  context 'with defaults' do
+    it_behaves_like 'an idempotent resource' do
+      describe package(package_name) do
+      end
+    end
+  end
+end
+
+# Assignment embedded in case predicate (stupidedi pattern)
+describe 'case predicate assignment' do
+  items.each do |original_path, _, config|
+    case path = original_path.to_s
+         ^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    when %r{/pass/}
+      it "can parse '#{path}'" do
+        expect(path).to be_truthy
+      end
+    end
+  end
+end
+
+# Assignment inside lambda body (excon pattern)
+# Note: timing = 'ok' is NOT flagged by VF because the lambda's assignment
+# overwrites it (reassigns) before any example scope reads the variable.
+# VF's per-assignment tracking is more precise than the old implementation.
+describe 'lambda capture' do
+  timing = 'ok'
+  block = lambda do |c, r, t|
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    timing = 'not ok!'
+    ^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  end
+  it 'gets a response' do
+    call_endpoint(block)
+    expect(timing).to eq 'ok'
+  end
+end
+
+# Variable read in unless modifier predicate inside includes block (pleaserun pattern)
+describe SomeClass do
+  writable = File.stat("/etc/init.d").writable? rescue false
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  if !writable
+    it_behaves_like SomeClass do
+      let(:skip) { "Cannot write" } unless writable
+    end
+  end
+end
+
+# Variable assigned inside begin/rescue within .each, used in nested context with rescue
+describe 'REST API' do
+  [1].each do |file|
+    begin
+      test_file = SomeClass.new(file)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+    rescue StandardError => e
+      next
+    end
+    context "test" do
+      test_file.tests.each do |test|
+        context test.description do
+          before(:all) do
+            test_file.setup
+          end
+        rescue StandardError => e
+          raise e
+        end
+      end
+    end
+  end
+end
+
+# Operator-write dead assignment: += consumes first assignment at group scope.
+# The first assignment's value is consumed by += (group-scope read+write), so
+# it's dead and should NOT be flagged. Only the operator-write's result reaches
+# examples and IS an offense. (SlideHub pattern)
+RSpec.describe Api::V1::SlidesController, type: :controller do
+  list_json_keys = %w[id user_id name description]
+  list_json_keys += %w[num_of_pages created_at category_name]
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  it 'has correct keys' do
+    expect(list_json_keys).to include('id')
+  end
+end
+
+# Operator-write dead assignment: -= chain consumes previous values.
+# First assignment consumed by first -=, first -= consumed by second -=.
+# Only the final -= value reaches examples. (leftovers pattern)
+context 'when merged' do
+  merged_config_methods = ::Leftovers.config.public_methods
+  merged_config_methods -= ::Class.new.new.public_methods
+  merged_config_methods -= %i{<<}
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  it 'has expected methods' do
+    expect(merged_config_methods).to include(:test_method)
+  end
+end
+
+# Conditional write in before(:all) hook should NOT kill group-level nil value (fastlane pattern)
+# Variables assigned to nil at group scope, conditionally reassigned in before(:all),
+# and read in it blocks. The conditional write should NOT kill the group-level value.
+describe Fastlane::PluginGenerator do
+  initialized = false
+  ^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  tmp_dir = nil
+  ^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+  oldwd = nil
+  ^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  describe '#generate' do
+    before(:all) do
+      unless initialized
+        tmp_dir = Dir.mktmpdir
+        oldwd = Dir.pwd
+        initialized = true
+      end
+    end
+
+    it 'uses the temp dir' do
+      expect(tmp_dir).not_to be_nil
+    end
+
+    it 'preserves the old dir' do
+      expect(oldwd).not_to be_nil
+    end
+  end
+end
+
+# Conditional write in before(:all) hook with if guard (sorah/nginx pattern)
+describe "nginx integration" do
+  adapter_pid = nil
+  ^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  before(:all) do
+    if ENV['ADAPTER_DOCKER']
+      adapter_pid = spawn('adapter', '--port', '9292')
+    end
+  end
+
+  it 'checks the adapter' do
+    expect(adapter_pid).to satisfy { |p| p.nil? || p > 0 }
   end
 end

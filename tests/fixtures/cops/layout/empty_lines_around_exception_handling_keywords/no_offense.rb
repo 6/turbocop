@@ -81,3 +81,28 @@ end
 def install_rdoc
   install_rdoc_yard
 end
+
+class C
+  a
+  b
+
+rescue StandardError => e
+  handle_error
+end
+
+module M
+  a
+  b
+
+rescue StandardError => e
+  handle_error
+end
+
+=begin
+begin
+  work
+
+rescue => e
+  handle
+end
+=end

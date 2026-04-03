@@ -1,8 +1,9 @@
-use crate::cop::node_type::{
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::{
     ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE, TRUE_NODE,
 };
-use crate::cop::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_hook,
+use crate::cop::shared::util::{
+    RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_hook,
     is_rspec_shared_group,
 };
 use crate::cop::{Cop, CopConfig};
@@ -112,7 +113,7 @@ impl Cop for MetadataStyle {
 
         // Must be receiverless or RSpec.describe / ::RSpec.describe
         if let Some(recv) = call.receiver() {
-            if util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+            if constant_predicates::constant_short_name(&recv).is_none_or(|n| n != b"RSpec") {
                 return;
             }
         }
@@ -225,7 +226,7 @@ impl MetadataStyle {
             Some(r) => r,
             None => return,
         };
-        if util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+        if constant_predicates::constant_short_name(&recv).is_none_or(|n| n != b"RSpec") {
             return;
         }
 

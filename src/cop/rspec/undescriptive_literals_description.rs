@@ -1,8 +1,9 @@
-use crate::cop::node_type::{
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::{
     CALL_NODE, FLOAT_NODE, INTEGER_NODE, INTERPOLATED_X_STRING_NODE, REGULAR_EXPRESSION_NODE,
     X_STRING_NODE,
 };
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
+use crate::cop::shared::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -56,7 +57,7 @@ impl Cop for UndescriptiveLiteralsDescription {
 
         // Must be receiverless or RSpec.describe / ::RSpec.describe
         if let Some(recv) = call.receiver() {
-            if util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+            if constant_predicates::constant_short_name(&recv).is_none_or(|n| n != b"RSpec") {
                 return;
             }
         }

@@ -102,26 +102,6 @@ class RetroactiveProtected
   protected :guarded_method
 end
 
-# Multiple methods made private retroactively
-class MultiRetroactive
-  def helper_one
-    42
-  end
-
-  def helper_two
-    42
-  end
-  private :helper_one, :helper_two
-end
-
-# Retroactive private with string argument
-class RetroactivePrivateString
-  def string_method
-    42
-  end
-  private "string_method"
-end
-
 # public re-establishes visibility after private section
 class PublicAfterPrivate
   private
@@ -296,5 +276,35 @@ end
 
 # protected in a mixed inline prefix also makes method non-public
 some_decorator protected def decorated_protected_method
+  42
+end
+
+# Sentence-style "Note" comments are documentation, unlike "Note:" annotations.
+# Note to recompute the bitmaps on a resize
+def note_to_method
+  42
+end
+
+# Note that the compatibility hacks only apply to the old ctors
+def note_that_method
+  42
+end
+
+# private inside the same conditional branch still makes the method non-public
+if condition
+  private
+  def same_branch_private
+    42
+  end
+end
+
+# Multi-byte UTF-8 in comments must not panic the annotation keyword scanner
+# All ΔE* formulae were designed for JND thresholds
+def method_with_unicode_comment
+  42
+end
+
+# [c, d] ← to ← [to.begin, to.end]
+def method_with_arrow_comment
   42
 end

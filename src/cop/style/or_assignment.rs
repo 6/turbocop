@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     CLASS_VARIABLE_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE,
     LOCAL_VARIABLE_WRITE_NODE, UNLESS_NODE,
 };

@@ -19,7 +19,8 @@ use ruby_prism::Visit;
 ///   `until`, etc.) at the end of a line before `\` were incorrectly treated as
 ///   method names that could take arguments on the next line. This caused FNs for
 ///   patterns like `expr or \`, `expr if \`, `expr unless \`. Fixed by excluding
-///   Ruby keywords from `last_token_can_take_argument`.
+///   Ruby keywords from `last_token_can_take_argument` via `is_keyword_not_method`,
+///   which also avoids false-triggering on method calls like `.and` and `.or`.
 ///
 /// - **Ternary branch detection**: Lines starting with `? ` (ternary "then"
 ///   branch, e.g. `? self.refs \`) were incorrectly treated as method-with-argument
@@ -32,15 +33,67 @@ use ruby_prism::Visit;
 ///
 /// - **Interpolated string continuations**: Prism stores a bare `\` + newline
 ///   between interpolated string segments as a `StringNode` part whose content
-///   is exactly `\\\n`. `code_map.is_code()` treated those offsets as non-code,
-///   causing FNs for patterns like `"#{a}\` + `#{b}"`. Fixed by collecting only
-///   those exact Prism string-part offsets and allowing the line scan there.
+///   ends with `\\\n`. `code_map.is_code()` treated those offsets as non-code,
+///   causing FNs for patterns like `"#{a}\` + `#{b}"`. Fixed by collecting
+///   Prism string-part offsets that end with `\\\n` and allowing the line scan
+///   there. This also handles parts with prefix content like `" from \` + `#{b}"`.
+///
+/// - **Union/pipe operator**: `continues_union_rhs` matched `||` (logical OR)
+///   and block parameter delimiters (`do |x|`, `{ |x|`), causing FNs when `\`
+///   appeared after `||` or at the end of a block-param line. Fixed by excluding
+///   `||` patterns and detecting block parameter context.
+///
+/// - **Regex vs division**: `starts_with_arithmetic_operator` treated `/` as
+///   division, causing FNs when `\` preceded a regex literal on the next line.
+///   At line start, `/` is almost always a regex. Removed `/` from the check;
+///   the reparse fallback correctly handles actual division.
+///
+/// - **Assignment to operator chain**: `assignment_to_simple_operator_chain`
+///   protects `var = \` when the RHS is a multi-line operator chain with simple
+///   (non-parenthesized) operands, matching RuboCop's `argument_newline?` AST
+///   check. Chains with parenthesized method calls are not protected.
+///
+/// - **Keyword operators on next line**: `next_line_starts_with_argument` treated
+///   `and`, `or`, `not` keywords at the start of the next line as method arguments,
+///   causing FNs for patterns like `(expr \` + `or other_expr)`. Fixed by excluding
+///   keyword operators (followed by non-identifier char) from argument detection.
+///   The `is_redundant_continuation` reparse fallback correctly determines whether
+///   removal is safe (e.g., inside parens it is, at top level it isn't).
+///
+/// - **Percent literals, control-flow keywords, and `\\`-ending literals**:
+///   `%w(...)` and `%i[...]` lines were misread as modulo operations because any
+///   next line starting with `%` counted as arithmetic. Control-flow keywords on
+///   the next line (`begin`, `then`, `else`, `end`, etc.) were also treated as
+///   method arguments, and the blanket doubled-`\` skip hid real offenses in
+///   character literals (`?\\`) and percent-array elements like `%W(... \\)`.
+///   Fixed by only treating `%` as arithmetic when followed by whitespace,
+///   excluding non-argument Ruby keywords at the start of the next line, detecting
+///   ternary `? expr \` branches before `:`, and allowing those narrow literal
+///   contexts to participate in the raw line scan.
+///
+/// - **`=begin`/`=end` block scanning**: RuboCop scans raw source including
+///   multi-line comment blocks (`=begin`/`=end`), but our `code_map.is_code()`
+///   returns false for content inside these blocks, causing FNs. Fixed by
+///   tracking `=begin`/`=end` regions in the line scan and directly flagging
+///   `\` at end of line inside them (skipping only string concatenation, to
+///   match RuboCop's behavior). The `=begin` and `=end` markers must start at
+///   column 0 per Ruby syntax.
 ///
 /// ## Remaining gaps
 ///
 /// - **Reparse limitations**: `is_redundant_continuation` checks for zero parse
 ///   errors after removing `\`. Files with pre-existing Prism parse errors will
 ///   always fail this check. A future improvement could compare error counts.
+///
+/// - **CRLF line endings**: Files with `\r\n` line endings have ~80+ FNs because
+///   `trim_end` does not strip `\r`, so `\` followed by `\r\n` is not detected.
+///   Adding `\r` to `trim_end` correctly detects these, but introduces ~30 FPs
+///   because RuboCop itself has a CRLF bug: its `LINE_CONTINUATION_PATTERN`
+///   regex `/(\\\n)/` fails to match `\<CR><LF>` patterns, and its reparse
+///   position offsets become misaligned between normalized and raw source.
+///   Confirmed by running RuboCop on LF-converted files, where it finds the
+///   same offenses our cop does. A fix requires the oracle to normalize CRLF
+///   before comparison.
 pub struct RedundantLineContinuation;
 
 impl Cop for RedundantLineContinuation {
@@ -61,15 +114,52 @@ impl Cop for RedundantLineContinuation {
         let source_bytes = source.as_bytes();
         let interpolated_string_continuations =
             interpolated_string_continuation_offsets(parse_result, source_bytes);
+        let string_like_literal_continuations =
+            string_like_literal_continuation_offsets(parse_result, source_bytes);
 
+        let mut in_embdoc = false;
         for (i, line) in lines.iter().enumerate() {
-            let trimmed = trim_end(line);
-            if !trimmed.ends_with(b"\\") {
+            // Track =begin/=end embedded document blocks.
+            // =begin must start at column 0 (no leading whitespace).
+            if line.starts_with(b"=begin")
+                && line
+                    .get(6)
+                    .is_none_or(|&b| b == b' ' || b == b'\t' || b == b'\r' || b == b'\n')
+            {
+                in_embdoc = true;
+                continue;
+            }
+            if in_embdoc {
+                if line.starts_with(b"=end")
+                    && line
+                        .get(4)
+                        .is_none_or(|&b| b == b' ' || b == b'\t' || b == b'\r' || b == b'\n')
+                {
+                    in_embdoc = false;
+                } else {
+                    // Inside =begin/=end: \ is always redundant (it's in a comment)
+                    // unless it looks like string concatenation (to match RuboCop).
+                    let trimmed = trim_end(line);
+                    if trimmed.ends_with(b"\\")
+                        && !(trimmed.len() >= 2 && trimmed[trimmed.len() - 2] == b'\\')
+                    {
+                        let before_backslash = trim_end(&trimmed[..trimmed.len() - 1]);
+                        if !string_concatenation(before_backslash) {
+                            let col = trimmed.len() - 1;
+                            diagnostics.push(self.diagnostic(
+                                source,
+                                i + 1,
+                                col,
+                                "Redundant line continuation.".to_string(),
+                            ));
+                        }
+                    }
+                }
                 continue;
             }
 
-            // Check the character before backslash is not another backslash (string escape)
-            if trimmed.len() >= 2 && trimmed[trimmed.len() - 2] == b'\\' {
+            let trimmed = trim_end(line);
+            if !trimmed.ends_with(b"\\") {
                 continue;
             }
 
@@ -77,10 +167,20 @@ impl Cop for RedundantLineContinuation {
             let line_start = source.line_start_offset(i + 1);
             let backslash_offset = line_start + trimmed.len() - 1;
 
+            // A doubled `\\` at end of line is usually just a literal backslash,
+            // but RuboCop still flags it in narrow contexts like `?\\` and `%W(... \\)`.
+            if trimmed.len() >= 2
+                && trimmed[trimmed.len() - 2] == b'\\'
+                && !string_like_literal_continuations.contains(&backslash_offset)
+            {
+                continue;
+            }
+
             // Use code_map to verify the backslash is in a code region
             // (not inside a string, heredoc, or comment)
             if !code_map.is_code(backslash_offset)
                 && !interpolated_string_continuations.contains(&backslash_offset)
+                && !string_like_literal_continuations.contains(&backslash_offset)
             {
                 continue;
             }
@@ -144,8 +244,56 @@ fn continuation_is_required(before_backslash: &[u8], line_idx: usize, lines: &[&
     let next_trimmed = trim_start(next_line);
 
     assignment_to_multiline_rhs(trimmed, next_trimmed)
+        || assignment_to_simple_operator_chain(trimmed, line_idx, lines)
         || starts_with_arithmetic_operator(next_trimmed)
         || method_with_argument(trimmed, next_trimmed)
+}
+
+/// Check if `var = \` is followed by a simple multi-line operator chain
+/// (e.g., `a.value - \ a.value - \ a.value`). RuboCop's `argument_newline?`
+/// considers this non-redundant when the chain's final operand is a simple
+/// expression (no parenthesized method calls), but redundant when the final
+/// operand has parenthesized arguments.
+fn assignment_to_simple_operator_chain(
+    before_backslash: &[u8],
+    line_idx: usize,
+    lines: &[&[u8]],
+) -> bool {
+    if !ends_with_assignment_operator(before_backslash) {
+        return false;
+    }
+
+    // Check if the next line ends with `operator \`
+    let Some(next_line) = lines.get(line_idx + 1) else {
+        return false;
+    };
+    let next_end = trim_end(trim_start(next_line));
+    if !next_end.ends_with(b"\\") {
+        return false;
+    }
+    let before_cont = trim_end(&next_end[..next_end.len() - 1]);
+    if !matches!(before_cont.last(), Some(b'+' | b'-' | b'*' | b'/' | b'%')) {
+        return false;
+    }
+
+    // Find the last line of the operator chain (first line without `\`)
+    let mut idx = line_idx + 2;
+    while let Some(line) = lines.get(idx) {
+        let t = trim_end(line);
+        if !t.ends_with(b"\\") {
+            break;
+        }
+        idx += 1;
+    }
+
+    // Check if the final line has parenthesized method calls.
+    // If it does, the continuation IS redundant (RuboCop flags it).
+    // If it doesn't, the chain is simple and the continuation is required.
+    let Some(last_line) = lines.get(idx) else {
+        return true;
+    };
+    let last_trimmed = trim_start(last_line);
+    !last_trimmed.contains(&b'(')
 }
 
 fn is_redundant_continuation(source: &[u8], backslash_offset: usize) -> bool {
@@ -175,7 +323,28 @@ fn ends_with_assignment_operator(trimmed: &[u8]) -> bool {
 }
 
 fn continues_union_rhs(line: &[u8]) -> bool {
-    trim_end(line).ends_with(b"|")
+    let trimmed = trim_end(line);
+    if !trimmed.ends_with(b"|") || trimmed.ends_with(b"||") {
+        return false;
+    }
+    // Exclude block parameter patterns like "do |param|" or "{ |param|"
+    // These end with | but are not pipe/union operators
+    if trimmed.len() >= 2 {
+        let before_pipe = trimmed[trimmed.len() - 2];
+        if before_pipe.is_ascii_alphanumeric() || before_pipe == b'_' {
+            // Looks like |identifier| — check for a matching | after a block opener
+            if let Some(pos) = trimmed[..trimmed.len() - 1]
+                .iter()
+                .rposition(|&b| b == b'|')
+            {
+                let before_first_pipe = trim_end(&trimmed[..pos]);
+                if before_first_pipe.ends_with(b"do") || before_first_pipe.ends_with(b"{") {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 fn continues_string_concat_rhs(line: &[u8]) -> bool {
@@ -204,17 +373,48 @@ fn leading_dot_method_chain_with_blank_line(
 
 fn starts_with_arithmetic_operator(next_trimmed: &[u8]) -> bool {
     next_trimmed.starts_with(b"**")
-        || matches!(next_trimmed.first(), Some(b'*' | b'/' | b'%' | b'+' | b'-'))
+        || matches!(next_trimmed.first(), Some(b'*' | b'+' | b'-'))
+        || (next_trimmed.starts_with(b"%")
+            && next_trimmed
+                .get(1)
+                .is_some_and(|b| matches!(b, b' ' | b'\t')))
 }
 
 fn starts_with_boolean_operator(next_trimmed: &[u8]) -> bool {
     next_trimmed.starts_with(b"&&") || next_trimmed.starts_with(b"||")
 }
 
+/// Check if line starts with a Ruby keyword operator (`and`, `or`, `not`)
+/// followed by a non-identifier character (so `and_value` is not matched).
+fn starts_with_keyword_operator(trimmed: &[u8]) -> bool {
+    starts_with_exact_keyword(trimmed, b"and")
+        || starts_with_exact_keyword(trimmed, b"or")
+        || starts_with_exact_keyword(trimmed, b"not")
+}
+
+fn starts_with_non_argument_keyword(trimmed: &[u8]) -> bool {
+    leading_identifier(trimmed).is_some_and(is_ruby_keyword)
+}
+
+fn starts_with_exact_keyword(trimmed: &[u8], keyword: &[u8]) -> bool {
+    trimmed.starts_with(keyword)
+        && trimmed
+            .get(keyword.len())
+            .is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'_')
+}
+
 fn method_with_argument(before_backslash: &[u8], next_trimmed: &[u8]) -> bool {
     // A ternary "then" branch (line starts with `? `) is not a method call
     let trimmed = trim_start(before_backslash);
     if trimmed.len() >= 2 && trimmed[0] == b'?' && (trimmed[1] == b' ' || trimmed[1] == b'\t') {
+        return false;
+    }
+    // `cond ? expr \` + `: other` is also a ternary branch, not a method call.
+    if next_trimmed.starts_with(b":")
+        && before_backslash
+            .windows(2)
+            .any(|window| window == b"? " || window == b"?\t")
+    {
         return false;
     }
 
@@ -230,7 +430,18 @@ fn last_token_can_take_argument(before_backslash: &[u8]) -> bool {
         || (token
             .first()
             .is_some_and(|b| b.is_ascii_lowercase() || *b == b'_')
-            && !is_ruby_keyword(token))
+            && !is_keyword_not_method(before_backslash, token))
+}
+
+/// Check if a trailing token is a Ruby keyword used as a keyword (not a method call).
+/// Keywords preceded by `.` or `&.` are method names (e.g., `.and`, `.or`).
+fn is_keyword_not_method(before_backslash: &[u8], token: &[u8]) -> bool {
+    if !is_ruby_keyword(token) {
+        return false;
+    }
+    // If preceded by `.` or `&.`, it's a method call, not a keyword
+    let prefix = trim_end(&before_backslash[..before_backslash.len() - token.len()]);
+    !prefix.ends_with(b".") && !prefix.ends_with(b"&.")
 }
 
 fn is_ruby_keyword(token: &[u8]) -> bool {
@@ -287,12 +498,42 @@ fn trailing_identifier(bytes: &[u8]) -> Option<&[u8]> {
     (start < end).then_some(&bytes[start..end])
 }
 
+fn leading_identifier(bytes: &[u8]) -> Option<&[u8]> {
+    let &first = bytes.first()?;
+    if !first.is_ascii_alphabetic() && first != b'_' {
+        return None;
+    }
+
+    let mut end = 1;
+    while end < bytes.len() {
+        let b = bytes[end];
+        if b.is_ascii_alphanumeric() || matches!(b, b'_' | b'?' | b'!') {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+
+    Some(&bytes[..end])
+}
+
 fn next_line_starts_with_argument(next_trimmed: &[u8]) -> bool {
     if next_trimmed.is_empty() {
         return false;
     }
 
     if starts_with_boolean_operator(next_trimmed) {
+        return false;
+    }
+
+    // Don't treat keyword boolean operators (and, or, not) as arguments.
+    // These are operators, not method arguments. The reparse fallback will
+    // correctly determine if removing \ is safe (e.g., inside parens it is).
+    if starts_with_keyword_operator(next_trimmed) {
+        return false;
+    }
+
+    if starts_with_non_argument_keyword(next_trimmed) {
         return false;
     }
 
@@ -348,6 +589,19 @@ fn interpolated_string_continuation_offsets(
     collector.offsets
 }
 
+fn string_like_literal_continuation_offsets(
+    parse_result: &ruby_prism::ParseResult<'_>,
+    source: &[u8],
+) -> HashSet<usize> {
+    let mut collector = StringLikeLiteralContinuationCollector {
+        source,
+        offsets: HashSet::new(),
+        percent_array_depth: 0,
+    };
+    collector.visit(&parse_result.node());
+    collector.offsets
+}
+
 struct InterpolatedStringContinuationCollector<'a> {
     source: &'a [u8],
     offsets: HashSet<usize>,
@@ -359,8 +613,13 @@ impl InterpolatedStringContinuationCollector<'_> {
     fn collect_string_part_offsets(&mut self, node: &ruby_prism::StringNode<'_>) {
         let loc = node.content_loc();
         let bytes = &self.source[loc.start_offset()..loc.end_offset()];
-        if bytes == b"\\\n" {
-            self.offsets.insert(loc.start_offset());
+        if bytes.ends_with(b"\\\n") {
+            let len = bytes.len();
+            // Don't match escaped backslash (\\) before the newline
+            if len >= 3 && bytes[len - 3] == b'\\' {
+                return;
+            }
+            self.offsets.insert(loc.start_offset() + len - 2);
         }
     }
 }
@@ -388,6 +647,45 @@ impl<'pr> Visit<'pr> for InterpolatedStringContinuationCollector<'_> {
     fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
         if self.interpolated_string_depth > 0 && self.embedded_depth == 0 {
             self.collect_string_part_offsets(node);
+        }
+        ruby_prism::visit_string_node(self, node);
+    }
+}
+
+struct StringLikeLiteralContinuationCollector<'a> {
+    source: &'a [u8],
+    offsets: HashSet<usize>,
+    percent_array_depth: usize,
+}
+
+impl StringLikeLiteralContinuationCollector<'_> {
+    fn collect_string_end_backslash(&mut self, node: &ruby_prism::StringNode<'_>) {
+        let loc = node.content_loc();
+        let bytes = &self.source[loc.start_offset()..loc.end_offset()];
+        if bytes.ends_with(b"\\\\") {
+            self.offsets.insert(loc.end_offset() - 1);
+        }
+    }
+}
+
+impl<'pr> Visit<'pr> for StringLikeLiteralContinuationCollector<'_> {
+    fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
+        let was_percent_array = self.percent_array_depth;
+        if let Some(opening) = node.opening_loc() {
+            if opening.as_slice().starts_with(b"%") {
+                self.percent_array_depth += 1;
+            }
+        }
+        ruby_prism::visit_array_node(self, node);
+        self.percent_array_depth = was_percent_array;
+    }
+
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        let is_character_literal = node
+            .opening_loc()
+            .is_some_and(|opening| opening.as_slice() == b"?");
+        if is_character_literal || self.percent_array_depth > 0 {
+            self.collect_string_end_backslash(node);
         }
         ruby_prism::visit_string_node(self, node);
     }

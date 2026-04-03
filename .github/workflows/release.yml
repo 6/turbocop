@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -59,9 +60,16 @@ jobs:
             exit 1
           fi
 
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
       - name: Bump version and tag
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           sed -i 's/^version = ".*"/version = "${{ steps.version.outputs.cargo }}"/' Cargo.toml
           sed -i 's/VERSION = ".*"/VERSION = "${{ steps.version.outputs.gem }}"/' gem/lib/nitrocop.rb
@@ -70,18 +78,25 @@ jobs:
             --repo "${{ github.repository }}" \
             --identity github-actions \
             --unset-extraheader
-          git checkout -B main origin/main
           git add Cargo.toml Cargo.lock gem/lib/nitrocop.rb
           COMMIT_MSG="Release v${{ steps.version.outputs.tag }}"
           git commit -m "$COMMIT_MSG"
-          git push origin main
+          # Push tag first — builds check out by tag, not main
+          BRANCH="release/v${{ steps.version.outputs.tag }}"
+          git checkout -b "$BRANCH"
+          git push origin "$BRANCH" --force
           eval "$(python3 scripts/workflows/workflow_git.py promote \
             --repo "${{ github.repository }}" \
-            --branch main \
+            --branch "$BRANCH" \
             --message "$COMMIT_MSG")"
           gh api "repos/${{ github.repository }}/git/refs" \
             -f ref="refs/tags/v${{ steps.version.outputs.tag }}" \
             -f sha="$signed_sha"
+          # Merge version bump to main via PR (respects branch protection)
+          gh pr create --title "Release v${{ steps.version.outputs.tag }}" \
+            --body "Version bump from release workflow. Auto-merges after CI passes." \
+            --base main --head "$BRANCH"
+          gh pr merge "$BRANCH" --auto --squash --delete-branch
 
   build:
     needs: prepare

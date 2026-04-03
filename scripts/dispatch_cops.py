@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -74,6 +75,131 @@ DEPT_TO_DIR = {
     "FactoryBot": "factory_bot",
     "RSpec": "rspec",
     "RSpecRails": "rspec_rails",
+}
+
+# Cops that consume the shared VariableForce engine. Changes to
+# src/cop/variable_force/ should trigger corpus checks for all of these.
+VARIABLE_FORCE_CONSUMERS = {
+    "Lint/ShadowedArgument",
+    "Lint/UnusedMethodArgument",
+    "Lint/UnusedBlockArgument",
+    "Lint/UnderscorePrefixedVariableName",
+    "Lint/ShadowingOuterLocalVariable",
+    "Lint/UselessAssignment",
+    "Style/InfiniteLoop",
+    "Style/MapIntoArray",
+    "RSpec/LeakyLocalVariable",
+    "Rails/SaveBang",
+}
+
+# Shared modules consumed by multiple cops. When a shared module file changes,
+# corpus checks trigger for all its consumers. Keyed by module filename (without .rs).
+# Matches against src/cop/shared/{key}.rs and src/cop/{dept}/{key}.rs.
+# The "variable_force" key is special — it matches the entire directory.
+SHARED_MODULE_CONSUMERS: dict[str, set[str]] = {
+    "method_complexity": {
+        "Metrics/CyclomaticComplexity",
+        "Metrics/PerceivedComplexity",
+    },
+    "hash_subset": {
+        "Style/HashExcept",
+        "Style/HashSlice",
+    },
+    "hash_transform_method": {
+        "Style/HashTransformKeys",
+        "Style/HashTransformValues",
+    },
+    "multiline_literal_brace_layout": {
+        "Layout/MultilineArrayBraceLayout",
+        "Layout/MultilineHashBraceLayout",
+        "Layout/MultilineMethodCallBraceLayout",
+        "Layout/MultilineMethodDefinitionBraceLayout",
+    },
+    "trailing_comma": {
+        "Style/TrailingCommaInArguments",
+        "Style/TrailingCommaInArrayLiteral",
+        "Style/TrailingCommaInHashLiteral",
+    },
+    "method_identifier_predicates": {
+        "Layout/FirstArgumentIndentation",
+        "Layout/MultilineMethodCallIndentation",
+        "Layout/SpaceBeforeFirstArg",
+        "Lint/AmbiguousBlockAssociation",
+        "Lint/AmbiguousRange",
+        "Lint/ParenthesesAsGroupedExpression",
+        "Lint/RequireParentheses",
+        "Lint/SymbolConversion",
+        "Lint/UnreachableLoop",
+        "Lint/UselessSetterCall",
+        "Metrics/AbcSize",
+        "Naming/MethodName",
+        "Naming/PredicateMethod",
+        "Performance/IoReadlines",
+        "Rails/SaveBang",
+        "Style/MethodCallWithArgsParentheses",
+        "Style/MultilineTernaryOperator",
+        "Style/Next",
+        "Style/RedundantParentheses",
+    },
+    "literal_predicates": {
+        "Lint/LiteralAsCondition",
+        "Style/InfiniteLoop",
+    },
+    "access_modifier_predicates": {
+        "Layout/AccessModifierIndentation",
+        "Layout/ClassStructure",
+        "Layout/EmptyLinesAroundAccessModifier",
+        "Layout/IndentationConsistency",
+        "Layout/IndentationWidth",
+        "Lint/IneffectiveAccessModifier",
+        "Lint/UselessAccessModifier",
+        "Lint/UselessConstantScoping",
+        "Lint/UselessMethodDefinition",
+        "Rails/I18nLazyLookup",
+        "Style/AccessModifierDeclarations",
+        "Style/DocumentationMethod",
+        "Style/ModuleFunction",
+    },
+    "method_dispatch_predicates": {
+        "Bundler/DuplicatedGroup",
+        "FactoryBot/AssociationStyle",
+        "Layout/ClassStructure",
+        "Lint/NumberConversion",
+        "Lint/ParenthesesAsGroupedExpression",
+        "Lint/RedundantRequireStatement",
+        "Lint/UselessAccessModifier",
+        "Lint/UselessConstantScoping",
+        "Lint/UselessRuby2Keywords",
+        "Rails/ActionControllerFlashBeforeRender",
+        "Rails/BulkChangeTable",
+        "Rails/DefaultScope",
+        "Rails/FilePath",
+        "Rails/HttpPositionalArguments",
+        "Rails/PluckId",
+        "Rails/StrongParametersExpect",
+        "Rails/ThreeStateBooleanColumn",
+        "Rails/TransactionExitStatement",
+        "RSpec/AroundBlock",
+        "RSpec/ExpectActual",
+        "RSpec/MessageExpectation",
+        "RSpec/MessageSpies",
+        "RSpec/ReceiveNever",
+        "RSpec/SkipBlockInsideExample",
+        "RSpec/StubbedMock",
+        "RSpec/SubjectStub",
+        "RSpec/VoidExpect",
+        "Security/Eval",
+        "Style/ArrayFirstLast",
+        "Style/HashExcept",
+        "Style/HashSlice",
+        "Style/SafeNavigation",
+        "Style/StaticClass",
+    },
+    "predicate_operator_predicates": {
+        "Lint/AmbiguousOperatorPrecedence",
+        "Style/RedundantParentheses",
+        "Style/UnlessLogicalOperators",
+    },
 }
 
 # Department PascalCase → snake_case directory name in src/cop/ and tests/fixtures/
@@ -680,19 +806,21 @@ def _fetch_full_file(repo_url: str, sha: str, filepath: str) -> str | None:
 def _run_nitrocop_on_file(
     binary_path: Path, file_content: str, cop: str, filename: str = "test.rb",
 ) -> list[dict]:
-    """Run nitrocop on arbitrary file content, return offenses list."""
+    """Run nitrocop on arbitrary file content, return offenses list.
+
+    ``filename`` can be a relative path (e.g. ``spec/models/foo_spec.rb``);
+    intermediate directories are created so that cops with Include patterns
+    (like ``**/*_spec.rb`` or ``**/spec/**/*.rb``) can match.
+    """
     tmp_dir = tempfile.mkdtemp(prefix="nitrocop_diag_ff_")
     tmp_path = os.path.join(tmp_dir, filename)
+    os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
     try:
         with open(tmp_path, "w") as f:
             f.write(file_content)
         return _run_nitrocop(binary_path, tmp_dir, cop, filename)
     finally:
-        try:
-            os.unlink(tmp_path)
-            os.rmdir(tmp_dir)
-        except OSError:
-            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 BASELINE_CONFIG = PROJECT_ROOT / "bench" / "corpus" / "baseline_rubocop.yml"
@@ -816,72 +944,83 @@ def run_diagnostic(
                     )
 
                 # --- Full-file fallback ---
-                # When the snippet doesn't detect an FN, the extracted
-                # context may be too narrow (e.g. an `if` wrapping the
-                # entire class 60 lines above).  Fetch the real file and
-                # re-test to distinguish "snippet too narrow" from
-                # "genuine code bug".
+                # Fetch the real file and re-test.  This serves two purposes:
+                # 1. When the snippet doesn't detect: distinguish "snippet too
+                #    narrow" from "genuine code bug".
+                # 2. When the snippet DOES detect an FN: confirm whether the
+                #    full file also detects.  If not, the full-file context
+                #    (e.g., rubocop:disable comments, begin/rescue wrappers)
+                #    suppresses detection — this is a real bug in how nitrocop
+                #    handles that context, not just a config issue.
                 full_file_detected: bool | None = None
                 full_file_enclosing: str | None = None
                 full_file_context: str | None = None
                 diagnosis_note: str | None = None
 
-                if not detected and (kind == "fn" or kind == "fp"):
-                    parsed = _parse_example_loc(loc)
-                    if parsed:
-                        repo_id, filepath, real_line = parsed
-                        manifest = _load_manifest()
-                        entry = manifest.get(repo_id)
-                        if entry and entry["repo_url"] and entry["sha"]:
-                            content = _fetch_full_file(
-                                entry["repo_url"], entry["sha"], filepath,
+                parsed = _parse_example_loc(loc)
+                if parsed:
+                    repo_id, filepath, real_line = parsed
+                    manifest = _load_manifest()
+                    entry = manifest.get(repo_id)
+                    if entry and entry["repo_url"] and entry["sha"]:
+                        content = _fetch_full_file(
+                            entry["repo_url"], entry["sha"], filepath,
+                        )
+                        if content is not None:
+                            ff_offenses = _run_nitrocop_on_file(
+                                binary_path, content, cop,
+                                filename=filepath,
                             )
-                            if content is not None:
-                                ff_offenses = _run_nitrocop_on_file(
-                                    binary_path, content, cop,
-                                    filename=os.path.basename(filepath),
+                            ff_hit = any(
+                                o.get("line") == real_line
+                                for o in ff_offenses
+                            )
+                            full_file_detected = ff_hit
+
+                            # Build enclosing chain from the full file
+                            full_lines = content.splitlines()
+                            if 0 < real_line <= len(full_lines):
+                                chain = _find_enclosing_structures(
+                                    full_lines, real_line - 1,
+                                    real_line_offset=0,
                                 )
-                                ff_hit = any(
-                                    o.get("line") == real_line
-                                    for o in ff_offenses
+                                if chain:
+                                    full_file_enclosing = " > ".join(chain)
+
+                                # Provide broader context (30 lines before)
+                                ctx_start = max(0, real_line - 1 - 30)
+                                ctx_end = min(len(full_lines), real_line + 7)
+                                ctx_lines = []
+                                for ci in range(ctx_start, ctx_end):
+                                    marker = ">>> " if ci == real_line - 1 else "    "
+                                    ctx_lines.append(
+                                        f"{marker}{ci + 1:>5}: {full_lines[ci]}"
+                                    )
+                                full_file_context = "\n".join(ctx_lines)
+
+                            if not detected and ff_hit and kind == "fn":
+                                diagnosis_note = (
+                                    "Snippet too narrow — offense is detected "
+                                    "in the full file but not in the ±7-line "
+                                    "extract. The enclosing structure chain "
+                                    "shows the missing context."
                                 )
-                                full_file_detected = ff_hit
-
-                                # Build enclosing chain from the full file
-                                full_lines = content.splitlines()
-                                if 0 < real_line <= len(full_lines):
-                                    chain = _find_enclosing_structures(
-                                        full_lines, real_line - 1,
-                                        real_line_offset=0,
-                                    )
-                                    if chain:
-                                        full_file_enclosing = " > ".join(chain)
-
-                                    # Provide broader context (30 lines before)
-                                    ctx_start = max(0, real_line - 1 - 30)
-                                    ctx_end = min(len(full_lines), real_line + 7)
-                                    ctx_lines = []
-                                    for ci in range(ctx_start, ctx_end):
-                                        marker = ">>> " if ci == real_line - 1 else "    "
-                                        ctx_lines.append(
-                                            f"{marker}{ci + 1:>5}: {full_lines[ci]}"
-                                        )
-                                    full_file_context = "\n".join(ctx_lines)
-
-                                if ff_hit and kind == "fn":
-                                    diagnosis_note = (
-                                        "Snippet too narrow — offense is detected "
-                                        "in the full file but not in the ±7-line "
-                                        "extract. The enclosing structure chain "
-                                        "shows the missing context."
-                                    )
-                                elif ff_hit and kind == "fp":
-                                    diagnosis_note = (
-                                        "Snippet too narrow — FP reproduces in "
-                                        "the full file but not in the ±7-line "
-                                        "extract. This is a real code/config bug, "
-                                        "not just context-dependent."
-                                    )
+                            elif not detected and ff_hit and kind == "fp":
+                                diagnosis_note = (
+                                    "Snippet too narrow — FP reproduces in "
+                                    "the full file but not in the ±7-line "
+                                    "extract. This is a real code/config bug, "
+                                    "not just context-dependent."
+                                )
+                            elif detected and not ff_hit and kind == "fn":
+                                diagnosis_note = (
+                                    "Snippet detects but full file does not — "
+                                    "something in the full-file context "
+                                    "(rubocop:disable comment, begin/rescue "
+                                    "wrapper, config interaction) suppresses "
+                                    "detection. This is a real code bug, not "
+                                    "a project config issue."
+                                )
 
                 results.append({
                     "kind": kind, "loc": loc, "msg": msg,
@@ -935,16 +1074,26 @@ def _format_with_diagnostics(
     fn_undiagnosed = [d for d in fn_diags if not d.get("diagnosed")]
     fp_undiagnosed = [d for d in fp_diags if not d.get("diagnosed")]
 
-    # Summary counts — full-file fallback can reclassify snippet misses
+    # Summary counts — full-file fallback can reclassify snippet misses.
+    # A FN is a "code bug" when:
+    #   - Neither snippet nor full-file detects it (classic code bug), OR
+    #   - Snippet detects but full-file does NOT (context-sensitive bug:
+    #     something in the real file suppresses detection, e.g. a
+    #     rubocop:disable comment nitrocop mishandles, a begin/rescue
+    #     wrapper, or a config interaction bug).
     fn_code_bugs = sum(
         1 for d in fn_diagnosed
-        if not d.get("detected") and not d.get("full_file_detected")
+        if (not d.get("detected") and not d.get("full_file_detected"))
+        or (d.get("detected") and d.get("full_file_detected") is False)
     )
     fn_context_narrow = sum(
         1 for d in fn_diagnosed
         if not d.get("detected") and d.get("full_file_detected")
     )
-    fn_config = sum(1 for d in fn_diagnosed if d.get("detected"))
+    fn_config = sum(
+        1 for d in fn_diagnosed
+        if d.get("detected") and d.get("full_file_detected") is not False
+    )
     fp_code_bugs = sum(
         1 for d in fp_diagnosed
         if d.get("detected") or d.get("full_file_detected")
@@ -960,7 +1109,8 @@ def _format_with_diagnostics(
 
     lines.append("### Diagnosis Summary")
     lines.append("Each example was tested by running nitrocop on the extracted source in isolation")
-    lines.append("with `--force-default-config` to determine if the issue is a code bug or config issue.")
+    lines.append("and against the full file fetched from GitHub to determine if the issue is a")
+    lines.append("code bug or config issue.")
     lines.append("Note: source context is truncated and may not parse perfectly. If a diagnosis")
     lines.append("seems wrong (e.g., your test passes immediately for a 'CODE BUG'), treat it as")
     lines.append("a config/context issue instead.\n")
@@ -1011,7 +1161,17 @@ def _format_with_diagnostics(
     for i, d in enumerate(fn_display, 1):
         lines.append(f"### FN #{i}: `{d['loc']}`")
         if d.get("diagnosed"):
-            if d.get("detected"):
+            if d.get("detected") and d.get("full_file_detected") is False:
+                lines.append("**DETECTED in snippet but NOT in full file — CODE BUG**")
+                lines.append("The cop detects the pattern in a small snippet but fails")
+                lines.append("when the full file is present. Something in the file context")
+                lines.append("(rubocop:disable comment, begin/rescue wrapper, or config")
+                lines.append("interaction) incorrectly suppresses detection.")
+                if d.get("diagnosis_note"):
+                    lines.append(f"\n> {d['diagnosis_note']}")
+                if d.get("full_file_enclosing"):
+                    lines.append(f"\n**Full-file enclosing chain:** {d['full_file_enclosing']}")
+            elif d.get("detected"):
                 lines.append("**DETECTED in isolation — CONFIG/CONTEXT issue**")
                 lines.append("The cop correctly detects this pattern with default config.")
                 lines.append("The corpus FN is caused by the target repo's configuration")
@@ -1237,6 +1397,10 @@ def generate_task(
             if not d.get("diagnosed"):
                 continue
             if d["kind"] == "fn" and not d.get("detected") and not d.get("full_file_detected"):
+                has_code_bugs = True
+            elif d["kind"] == "fn" and d.get("detected") and d.get("full_file_detected") is False:
+                # Snippet detects but full file doesn't → context-sensitive
+                # code bug (e.g. rubocop:disable handling, begin/rescue).
                 has_code_bugs = True
             elif d["kind"] == "fn" and (d.get("detected") or d.get("full_file_detected")):
                 has_config_issues = True
@@ -1515,11 +1679,21 @@ def detect_cops(base: str, head: str) -> list[str]:
     cops = set()
     for path in changed:
         match = re.match(r"src/cop/([^/]+)/([^/]+)\.rs$", path)
-        if match:
-            dept, name = match.group(1), match.group(2)
-            if name not in {"mod", "node_type"}:
-                cops.add(f"{dept_snake_to_pascal(dept)}/{snake_to_pascal(name)}")
+        if not match:
             continue
+        dept, name = match.group(1), match.group(2)
+
+        if dept == "variable_force":
+            cops.update(VARIABLE_FORCE_CONSUMERS)
+        elif name in SHARED_MODULE_CONSUMERS:
+            cops.update(SHARED_MODULE_CONSUMERS[name])
+        elif dept == "shared" or name == "mod":
+            # shared/util.rs, shared/node_type.rs, mod.rs — used by nearly
+            # all cops; changes validated by cargo test, skip dispatch.
+            pass
+        else:
+            cops.add(f"{dept_snake_to_pascal(dept)}/{snake_to_pascal(name)}")
+        continue
 
     return sorted(cops)
 
@@ -2310,7 +2484,7 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
     if dept_filter:
         diverging_cops = {cop for cop in diverging_cops if cop.startswith(dept_filter + "/")}
 
-    created = updated = reopened = closed = config_only = 0
+    created = updated = reopened = closed = config_only = failed = 0
 
     # ── Phase 1: Pre-diagnose all cops in parallel ──────────────────────
     # Prefer pre-computed diagnosis from corpus oracle (embedded in by_cop
@@ -2427,18 +2601,46 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
         with ThreadPoolExecutor(max_workers=4) as pool:
             def _run_action(action: Action) -> str:
                 action_type, fn = action
-                fn()
-                return action_type
+                max_attempts = 3
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        fn()
+                        return action_type
+                    except Exception as exc:
+                        if attempt < max_attempts:
+                            backoff = attempt  # 1s then 2s
+                            print(
+                                f"  warning: {action_type} attempt {attempt}/{max_attempts}"
+                                f" failed ({exc}), retrying in {backoff}s...",
+                                file=sys.stderr,
+                            )
+                            time.sleep(backoff)
+                        else:
+                            print(
+                                f"  warning: {action_type} failed after {max_attempts}"
+                                f" attempts: {exc}",
+                                file=sys.stderr,
+                            )
+                            return "failed"
+                return "failed"  # unreachable, but keeps mypy happy
             results = list(pool.map(_run_action, actions))
         dept_created = results.count("created")
         dept_updated = results.count("updated")
         dept_reopened = results.count("reopened")
+        dept_failed = results.count("failed")
         created += dept_created
         updated += dept_updated
         reopened += dept_reopened
+        failed += dept_failed
+        summary_parts = [
+            f"{dept_created} created",
+            f"{dept_updated} updated",
+            f"{dept_reopened} reopened",
+        ]
+        if dept_failed:
+            summary_parts.append(f"{dept_failed} failed")
         print(
-            f"  done ({dept_created} created, {dept_updated} updated,"
-            f" {dept_reopened} reopened)",
+            f"  done ({', '.join(summary_parts)})",
             file=sys.stderr,
         )
 
@@ -2464,6 +2666,13 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
             list(pool.map(lambda t: close_tracker_issue(repo, t[0], t[1]), to_close))
         closed = len(to_close)
 
+    if failed:
+        print(
+            f"warning: {failed} action(s) failed due to transient errors"
+            " (sync is best-effort)",
+            file=sys.stderr,
+        )
+
     print(
         json.dumps(
             {
@@ -2471,6 +2680,7 @@ def cmd_issues_sync(args: argparse.Namespace) -> int:
                 "updated": updated,
                 "reopened": reopened,
                 "closed": closed,
+                "failed": failed,
                 "config_only": config_only,
                 "diverging_cops": len(diverging_cops),
             },

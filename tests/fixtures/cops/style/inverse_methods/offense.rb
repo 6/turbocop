@@ -62,3 +62,12 @@ end
 
 headers.reject { |k, _| !(k =~ /X-Object-Meta-/) }
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/InverseMethods: Use `select` instead of inverting `reject`.
+
+if !(@file.class <= IO) && !@file.instance_of?(StringIO)
+   ^ Style/InverseMethods: Use `>` instead of inverting `<=`.
+
+raise 'invalid cpu' if not cpu < CPU
+                       ^^^ Style/InverseMethods: Use `>=` instead of inverting `<`.
+
+return if !(RUBY_VERSION >= '2.8.0')
+          ^ Style/InverseMethods: Use `<` instead of inverting `>=`.

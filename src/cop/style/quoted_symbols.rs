@@ -1,4 +1,5 @@
-use crate::cop::node_type::SYMBOL_NODE;
+use crate::cop::shared::node_type::SYMBOL_NODE;
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -50,6 +51,10 @@ impl Cop for QuotedSymbols {
         let is_single_quoted = is_hash_key_single || is_standalone_single;
 
         if is_double_quoted {
+            // Unterminated symbol literal (parse error) — bail out.
+            if src_bytes.len() < 3 {
+                return;
+            }
             // Extract inner content (between the quotes)
             let inner = if is_hash_key_double {
                 &src_bytes[1..src_bytes.len().saturating_sub(2)] // strip leading " and trailing ":
@@ -87,7 +92,7 @@ impl Cop for QuotedSymbols {
                 &src_bytes[1..]
             };
 
-            if prefer_single && !double_quotes_required(string_literal_src) {
+            if prefer_single && !util::double_quotes_required(string_literal_src) {
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
                     source,
@@ -97,6 +102,10 @@ impl Cop for QuotedSymbols {
                 ));
             }
         } else if is_single_quoted {
+            // Unterminated symbol literal (parse error) — bail out.
+            if src_bytes.len() < 3 {
+                return;
+            }
             let inner = if is_hash_key_single {
                 &src_bytes[1..src_bytes.len().saturating_sub(2)] // strip leading ' and trailing ':
             } else {
@@ -124,31 +133,30 @@ impl Cop for QuotedSymbols {
     }
 }
 
-fn double_quotes_required(src: &[u8]) -> bool {
-    let mut backslash_run = 0usize;
-
-    for &byte in src {
-        if byte == b'\'' {
-            return true;
-        }
-
-        if byte == b'\\' {
-            backslash_run += 1;
-            continue;
-        }
-
-        if backslash_run % 2 == 1 && byte != b'\\' && byte != b'"' {
-            return true;
-        }
-
-        backslash_run = 0;
-    }
-
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(QuotedSymbols, "cops/style/quoted_symbols");
+
+    /// Regression test: unterminated symbol literals (parse errors) must not panic.
+    /// Found by fuzz_all_cops with input `:'`.
+    #[test]
+    fn unterminated_symbol_no_panic() {
+        use crate::cop::Cop;
+        use crate::cop::walker::BatchedCopWalker;
+        use ruby_prism::Visit;
+
+        for input in [":'", ":\"", ":'hello", ":\"hello"] {
+            let source = crate::parse::source::SourceFile::from_string(
+                std::path::PathBuf::from("fuzz.rb"),
+                input.to_string(),
+            );
+            let parse_result = crate::parse::parse_source(source.as_bytes());
+            let config = crate::cop::CopConfig::default();
+            let cop = QuotedSymbols;
+            let ast_cops: Vec<(&dyn Cop, &crate::cop::CopConfig)> = vec![(&cop, &config)];
+            let mut walker = BatchedCopWalker::new(ast_cops, &source, &parse_result);
+            walker.visit(&parse_result.node());
+        }
+    }
 }

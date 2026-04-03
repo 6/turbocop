@@ -1,5 +1,6 @@
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example};
+use crate::cop::shared::method_dispatch_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
+use crate::cop::shared::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -75,8 +76,7 @@ fn find_skip_with_block_recursive(
     cop: &SkipBlockInsideExample,
 ) {
     if let Some(call) = node.as_call_node() {
-        if call.name().as_slice() == b"skip" && call.receiver().is_none() && call.block().is_some()
-        {
+        if method_dispatch_predicates::is_command(&call, b"skip") && call.block().is_some() {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(cop.diagnostic(

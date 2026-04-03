@@ -74,3 +74,24 @@ def nested_begin_scoping
   end
   puts data
 end
+
+# Keyword param modified inside loop, referenced after — scoping exemption
+def kwarg_scoping(offset: 0)
+  while true
+    offset += 1
+    break if done?
+  end
+  offset
+end
+
+# Variable first assigned inside a loop nested in a block is still a scoping exemption
+def block_scoping_exemption
+  mutex.synchronize do
+    while true
+      now = Time.now
+      break if done?
+    end
+
+    puts now
+  end
+end

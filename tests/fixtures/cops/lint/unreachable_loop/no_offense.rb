@@ -144,6 +144,33 @@ while true
   end
 end
 
+# begin/ensure also creates control-flow context RuboCop does not flag
+%w(hello).each do |word|
+  begin
+    raise('WTF?')
+  ensure
+    break 2
+  end
+end
+
+[3].each do |word|
+  begin
+    raise('WTF?')
+  ensure
+    next
+  end
+end
+
+catch(:foo) do
+  [1, 2, 3].each do |n|
+    begin
+      raise('boom')
+    ensure
+      throw(:foo, 'hello')
+    end
+  end
+end
+
 # return ... || next — the `next` provides a loop continuation path
 [nil, nil, 42].each do |value|
   return do_something(value) || next

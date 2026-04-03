@@ -820,11 +820,34 @@ def cmd_snapshot(args: list[str]) -> int:
     return 0
 
 
+def _is_rs_patch_docs_only(rs_patch: str) -> bool:
+    """Return True when every added/removed line is a doc comment or blank.
+
+    A fix that deletes code logic (even if it only adds ``///`` doc
+    comments) is a real change, not docs-only.
+    """
+    for line in rs_patch.splitlines():
+        # Check both added (+) and removed (-) lines for real code.
+        # Skip diff headers (+++/---) and context lines.
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if not line.startswith("+") and not line.startswith("-"):
+            continue
+        content = line[1:].strip()
+        if not content or content.startswith("///"):
+            continue
+        # Any non-doc, non-blank changed line in .rs means real logic
+        return False
+    return True
+
+
 def _is_docs_only_change(signed_sha: str, repo: str) -> bool:
     """Check if .rs file changes are only doc comments (///) — no logic changes.
 
     Fixture files (.rb) are always allowed. Returns True only when every
-    added/modified line in .rs files is a doc comment or blank.
+    added AND removed line in .rs files is a doc comment or blank.
+    A fix that deletes code logic (even if it only adds doc comments) is
+    a real change, not docs-only.
     """
     r = _run_ok(["gh", "api", f"repos/{repo}/compare/main...{signed_sha}",
                  "--jq", '.files[] | select(.filename | endswith(".rs")) | .patch // empty'])
@@ -834,15 +857,7 @@ def _is_docs_only_change(signed_sha: str, repo: str) -> bool:
     if not rs_patch:
         # No .rs files changed at all — only fixtures. That's docs-only.
         return True
-    for line in rs_patch.splitlines():
-        if not line.startswith("+") or line.startswith("+++"):
-            continue
-        content = line[1:].strip()
-        if not content or content.startswith("///"):
-            continue
-        # Any non-doc, non-blank added line in .rs means real logic
-        return False
-    return True
+    return _is_rs_patch_docs_only(rs_patch)
 
 
 # ── finalize ────────────────────────────────────────────────────────────
@@ -1154,12 +1169,14 @@ def cmd_finalize(args: list[str]) -> int:
 
     # 7. Push + promote
     _git("push", "origin", f"HEAD:{opts.branch}", "--force")
+    pushed_sha = _git("rev-parse", "HEAD").stdout.strip()
     r = _run([
         sys.executable, str(SCRIPTS_DIR / "workflow_git.py"),
         "promote",
         "--repo", opts.repo,
         "--branch", opts.branch,
         "--message", f"Fix {opts.cop}: agent-generated fix{mode_note} ({opts.backend})",
+        "--expected-sha", pushed_sha,
     ])
     promote_result = {}
     for line in r.stdout.strip().splitlines():
@@ -1337,6 +1354,15 @@ def cmd_cleanup_failure(args: list[str]) -> int:
                 f"- Mode: `{opts.mode}`\n"
                 f"- Run: {opts.run_url}\n\n"
                 f"Review the failed workflow run for details.\n"
+            )
+        # Include agent findings so future retry runs see what was tried.
+        findings = _read_agent_findings()
+        if findings:
+            body += (
+                "\n<details>\n"
+                "<summary>Agent findings (what was tried)</summary>\n\n"
+                f"```\n{findings}\n```\n"
+                "</details>\n"
             )
         write_and_read(claim_body, body)
         _warn_best_effort_failure(

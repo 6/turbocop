@@ -41,3 +41,20 @@ output = Whenever.cron \
     command "blah"
   end
 file
+
+change(Commentaire, :count).by(0).and \
+  change(ContactForm, :count).by(1)
+
+contain_exactly(a, b).or \
+  contain_exactly(c, d)
+
+foo \
+  %w[bar]
+
+1 \
+  % 2
+
+=begin
+x = 'hello' \
+  'world'
+=end

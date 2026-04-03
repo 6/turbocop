@@ -175,3 +175,50 @@ describe "x" do
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
   end
 end
+
+# Receiverless calls inside string interpolation are NOT macros
+# (interpolated string is not a wrapper in RuboCop's in_macro_scope?)
+"text #{bar :baz}"
+        ^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+# BEGIN {} is not a wrapper — receiverless calls inside are NOT macros
+BEGIN {
+  require 'ostruct'
+  ^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+}
+
+# case/in (pattern matching) is not a wrapper — calls inside are NOT macros
+case foo
+in { a: 1 }
+  puts "a"
+  ^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Operator assignment (+=) breaks macro scope for receiverless calls
+describe "x" do
+  count += process_item arg
+           ^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Pure begin only preserves macro scope when the whole expression is.
+value = begin
+  require 'rubygems/specification'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+logger ||= begin
+  require 'active_support/tagged_logging' unless defined?(ActiveSupport::TaggedLogging)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# `or begin` is also a non-wrapper parent for the begin body.
+ready || begin
+  warn "Automatic creation of the sandbox app failed"
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  exit 1
+  ^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Interpolated x-strings are not macro wrappers.
+%x{#{raise TypeError, "x"}}
+     ^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.

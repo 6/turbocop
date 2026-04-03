@@ -1,4 +1,4 @@
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

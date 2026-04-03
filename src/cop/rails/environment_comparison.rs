@@ -1,5 +1,5 @@
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util;
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -20,7 +20,7 @@ fn is_rails_env(node: &ruby_prism::Node<'_>) -> bool {
         None => return false,
     };
     // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
-    util::constant_name(&recv) == Some(b"Rails")
+    constant_predicates::constant_short_name(&recv) == Some(b"Rails")
 }
 
 /// Check if a node is a string or symbol literal.

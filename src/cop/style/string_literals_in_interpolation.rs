@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -126,7 +127,7 @@ impl<'pr> Visit<'pr> for InterpStringVisitor<'_> {
                 if open_bytes == b"\"" {
                     // Check if it needs double quotes (has escape sequences)
                     let content = node.content_loc().as_slice();
-                    if !needs_double_quotes(content) {
+                    if !util::double_quotes_required(content) {
                         let loc = node.location();
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                         self.diagnostics.push(self.cop.diagnostic(
@@ -153,35 +154,6 @@ impl<'pr> Visit<'pr> for InterpStringVisitor<'_> {
             _ => {}
         }
     }
-}
-
-fn needs_double_quotes(content: &[u8]) -> bool {
-    let mut i = 0;
-    while i < content.len() {
-        // If the content contains a bare single quote, it can't use single-quoted style
-        if content[i] == b'\'' {
-            return true;
-        }
-        if content[i] == b'\\' && i + 1 < content.len() {
-            match content[i + 1] {
-                // \\ and \" are safe to convert to single quotes:
-                // \\ is valid in single-quoted strings ('\\' → \)
-                // \" is only needed in double quotes; single quotes write " directly
-                b'\\' | b'"' => {
-                    i += 2;
-                    continue;
-                }
-                // Everything else requires double quotes:
-                // - Recognized escapes (\n, \t, etc.) only work in double quotes
-                // - \' hides a literal single quote
-                // - Unrecognized escapes (\., \/, \#) produce just the char in
-                //   double quotes but \char (two chars) in single quotes
-                _ => return true,
-            }
-        }
-        i += 1;
-    }
-    false
 }
 
 #[cfg(test)]

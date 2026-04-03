@@ -1,4 +1,5 @@
-use crate::cop::node_type::CALL_NODE;
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -54,20 +55,6 @@ use crate::parse::source::SourceFile;
 ///    when the selector and first argument share a line. Fixed by matching both
 ///    behaviors.
 pub struct SpaceBeforeFirstArg;
-
-const OPERATOR_METHODS: &[&[u8]] = &[
-    b"+", b"-", b"*", b"/", b"**", b"%", b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>", b"===",
-    b"=~", b"!~", b"&", b"|", b"^", b"~", b"<<", b">>", b"[]", b"[]=", b"+@", b"-@",
-];
-
-fn is_operator_method(name: &[u8]) -> bool {
-    OPERATOR_METHODS.contains(&name)
-}
-
-fn is_setter_method(name: &[u8]) -> bool {
-    // Setter methods end with `=` but are not comparison operators
-    name.len() >= 2 && name.last() == Some(&b'=') && !is_operator_method(name)
-}
 
 /// Convert a 0-indexed character column within a line to a byte offset.
 fn char_col_to_byte_offset(line: &[u8], col: usize) -> Option<usize> {
@@ -287,7 +274,9 @@ impl Cop for SpaceBeforeFirstArg {
         // These are parsed as CallNodes but should not be checked.
         let method_name = call.name();
         let name_bytes = method_name.as_slice();
-        if is_operator_method(name_bytes) || is_setter_method(name_bytes) {
+        if method_identifier_predicates::is_operator_method(name_bytes)
+            || method_identifier_predicates::is_setter_method(name_bytes)
+        {
             return;
         }
 

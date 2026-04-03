@@ -144,6 +144,39 @@ use std::ops::Range;
 ///     incorrectly allowed. Extract full numeric literals, including signs,
 ///     decimal parts, exponents, and common Ruby suffixes, before comparing
 ///     exact-token alignment.
+///
+/// 16. **Heredoc opener FNs (fixed 2026-04-01)**: `check_equals_alignment`
+///     treated every `<<` as an append operator, so heredoc openers like
+///     `let(:x) {      <<-EOT` were incorrectly considered aligned with `=` on
+///     adjacent lines. Track actual heredoc opener offsets from Prism and
+///     exclude them from `=`/`<<` cross-alignment.
+///
+/// 17. **Leading-space `%w/%i/%W/%I` FNs (fixed 2026-04-01)**: non-empty
+///     word/symbol arrays previously ignored their entire interior, which hid
+///     extra spaces immediately after the opener in forms like
+///     `%w[  id lock_version]`. Ignore only separator spans between elements
+///     plus the trailing span before the closing delimiter.
+///
+/// 18. **Symbol/label token extraction FNs (fixed 2026-04-02)**: the exact-token
+///     alignment fallback still reduced `:symbol`, `::Const`, and `label:` tokens
+///     to `:` or a bare identifier. In real files that let coincidental `:` or
+///     identifier text on adjacent lines suppress offenses that RuboCop still
+///     reports, including `loopback  :localtick`, `[:posixclass,    :word]`,
+///     and `text ...,   layout: :title`. Extract full symbol/path/label tokens
+///     so alignment only succeeds for genuinely matching tokens.
+///
+/// 19. **Multiline receiver chaining FPs (fixed 2026-04-02)**: RuboCop does not
+///     report extra spaces before a chained `.` when the receiver itself spans
+///     multiple lines, such as `expect { ... }          .to ...` or
+///     `{\n  a: 1\n}  .transform_values`. Raw scanning saw those as ordinary
+///     gaps and flagged them. Ignore only the whitespace range between a
+///     multiline receiver's end and its chained `.` operator.
+///
+/// 20. **Heredoc opener/block-close FPs (fixed 2026-04-02)**: RuboCop allows
+///     `let(:x) { <<~TEXT  }` style spacing before the same-line `}` that closes
+///     a block containing a heredoc body. Raw scanning still treated the opener
+///     line as normal code and flagged the gap. Ignore only the whitespace range
+///     between a heredoc opener and that same-line block closer.
 pub struct ExtraSpacing;
 
 impl Cop for ExtraSpacing {
@@ -178,6 +211,22 @@ impl Cop for ExtraSpacing {
         // Collect word/symbol array interior ranges to ignore (%w, %W, %i, %I).
         // Spaces inside these arrays are element separators, not extra spacing.
         ignored_ranges.extend(collect_word_array_ranges(parse_result));
+
+        // RuboCop allows spaces before a chained `.` when the receiver spans
+        // multiple lines (for example a multiline block or hash literal).
+        ignored_ranges.extend(collect_multiline_receiver_chain_ranges(
+            parse_result,
+            source,
+            src_bytes,
+        ));
+
+        // RuboCop also allows spaces between a heredoc opener and the same-line
+        // `}` that closes the surrounding block.
+        ignored_ranges.extend(collect_heredoc_block_closer_ranges(parse_result, src_bytes));
+
+        // Track actual heredoc opener offsets so `<<` heredoc delimiters are
+        // not mistaken for append operators during alignment checks.
+        let heredoc_opener_starts = collect_heredoc_opener_starts(parse_result);
 
         // Build the set of aligned comment lines (1-indexed). Two consecutive
         // comments that start at the same column are both considered "aligned".
@@ -265,6 +314,9 @@ impl Cop for ExtraSpacing {
                                     &lines,
                                     line_idx,
                                     i,
+                                    line_start_offset,
+                                    source,
+                                    &heredoc_opener_starts,
                                     &comment_only_lines,
                                 )
                             {
@@ -359,10 +411,161 @@ fn is_in_ignored_range(ranges: &[Range<usize>], offset: usize) -> bool {
     ranges.iter().any(|r| r.contains(&offset))
 }
 
+// -- Multiline receiver chained-call ignored ranges --
+
+/// Collect byte ranges between a multiline receiver and its chained `.` call
+/// operator. RuboCop does not treat these as extra spacing.
+fn collect_multiline_receiver_chain_ranges(
+    parse_result: &ruby_prism::ParseResult<'_>,
+    source: &SourceFile,
+    src_bytes: &[u8],
+) -> Vec<Range<usize>> {
+    let mut collector = MultilineReceiverChainCollector {
+        ranges: Vec::new(),
+        source,
+        src_bytes,
+    };
+    collector.visit(&parse_result.node());
+    collector.ranges
+}
+
+struct MultilineReceiverChainCollector<'a> {
+    ranges: Vec<Range<usize>>,
+    source: &'a SourceFile,
+    src_bytes: &'a [u8],
+}
+
+impl<'pr> Visit<'pr> for MultilineReceiverChainCollector<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        self.collect(node.receiver(), node.call_operator_loc());
+        ruby_prism::visit_call_node(self, node);
+    }
+}
+
+impl MultilineReceiverChainCollector<'_> {
+    fn collect(
+        &mut self,
+        receiver: Option<ruby_prism::Node<'_>>,
+        operator: Option<ruby_prism::Location<'_>>,
+    ) {
+        let Some(receiver) = receiver else {
+            return;
+        };
+        let Some(operator) = operator else {
+            return;
+        };
+
+        if operator.as_slice() != b"." {
+            return;
+        }
+
+        let receiver_loc = receiver.location();
+        if !location_spans_multiple_lines(self.source, &receiver_loc) {
+            return;
+        }
+
+        let gap_start = receiver_loc.end_offset();
+        let gap_end = operator.start_offset();
+        if gap_end <= gap_start {
+            return;
+        }
+
+        if self.src_bytes[gap_start..gap_end]
+            .iter()
+            .all(|&b| b == b' ' || b == b'\t')
+        {
+            self.ranges.push(gap_start..gap_end);
+        }
+    }
+}
+
+// -- Heredoc opener/block-close ignored ranges --
+
+/// Collect byte ranges between a heredoc opener and the same-line `}` that
+/// closes the surrounding block. RuboCop allows this form.
+fn collect_heredoc_block_closer_ranges(
+    parse_result: &ruby_prism::ParseResult<'_>,
+    src_bytes: &[u8],
+) -> Vec<Range<usize>> {
+    let mut collector = HeredocBlockCloserCollector {
+        ranges: Vec::new(),
+        src_bytes,
+    };
+    collector.visit(&parse_result.node());
+    collector.ranges
+}
+
+struct HeredocBlockCloserCollector<'a> {
+    ranges: Vec<Range<usize>>,
+    src_bytes: &'a [u8],
+}
+
+impl<'pr> Visit<'pr> for HeredocBlockCloserCollector<'_> {
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        self.collect(node);
+        ruby_prism::visit_block_node(self, node);
+    }
+}
+
+impl HeredocBlockCloserCollector<'_> {
+    fn collect(&mut self, node: &ruby_prism::BlockNode<'_>) {
+        let Some(body) = node.body().and_then(|body| body.as_statements_node()) else {
+            return;
+        };
+
+        let mut statements = body.body().iter();
+        let Some(statement) = statements.next() else {
+            return;
+        };
+
+        if statements.next().is_some() {
+            return;
+        }
+
+        let Some(opener_end) = heredoc_opening_end(statement) else {
+            return;
+        };
+
+        let gap_end = node.closing_loc().start_offset();
+        if gap_end <= opener_end {
+            return;
+        }
+
+        if self.src_bytes[opener_end..gap_end]
+            .iter()
+            .all(|&b| b == b' ' || b == b'\t')
+        {
+            self.ranges.push(opener_end..gap_end);
+        }
+    }
+}
+
+fn heredoc_opening_end(node: ruby_prism::Node<'_>) -> Option<usize> {
+    if let Some(string) = node.as_string_node() {
+        let opening = string.opening_loc()?;
+        if opening.as_slice().starts_with(b"<<") {
+            return Some(opening.end_offset());
+        }
+    }
+
+    if let Some(string) = node.as_interpolated_string_node() {
+        let opening = string.opening_loc()?;
+        if opening.as_slice().starts_with(b"<<") {
+            return Some(opening.end_offset());
+        }
+    }
+
+    None
+}
+
 // -- Word/symbol array ignored ranges --
 
-/// Collect byte ranges of word/symbol array interiors (%w, %W, %i, %I).
-/// Spaces inside these arrays are element separators, not extra spacing.
+/// Collect byte ranges inside word/symbol arrays (%w, %W, %i, %I) that should
+/// be ignored by ExtraSpacing.
+///
+/// RuboCop allows separator spaces between elements and trailing spaces before
+/// the closing delimiter, but still flags extra spaces immediately after the
+/// opener in non-empty arrays (for example `%w[  id lock_version]`).
 fn collect_word_array_ranges(parse_result: &ruby_prism::ParseResult<'_>) -> Vec<Range<usize>> {
     let mut collector = WordArrayCollector { ranges: Vec::new() };
     collector.visit(&parse_result.node());
@@ -383,21 +586,64 @@ impl<'pr> Visit<'pr> for WordArrayCollector {
                 || opener.starts_with(b"%i")
                 || opener.starts_with(b"%I")
             {
-                // Only ignore interior of non-empty word/symbol arrays.
-                // Empty arrays like %w(  ) or %i(  ) should still have
-                // their extra spaces flagged, matching RuboCop behavior.
-                if !node.elements().is_empty() {
-                    let start = opening.end_offset();
-                    let end = node
+                let elements: Vec<_> = node.elements().iter().collect();
+                if let Some(first) = elements.first() {
+                    // Ignore separator gaps between elements and the trailing
+                    // span before the closing delimiter, but not the leading
+                    // span after the opener.
+                    let mut prev_end = first.location().end_offset();
+                    for element in elements.iter().skip(1) {
+                        let next_start = element.location().start_offset();
+                        if next_start > prev_end {
+                            self.ranges.push(prev_end..next_start);
+                        }
+                        prev_end = element.location().end_offset();
+                    }
+
+                    let closing_start = node
                         .closing_loc()
                         .map_or(node.location().end_offset(), |c| c.start_offset());
-                    if end > start {
-                        self.ranges.push(start..end);
+                    if closing_start > prev_end {
+                        self.ranges.push(prev_end..closing_start);
                     }
                 }
             }
         }
         ruby_prism::visit_array_node(self, node);
+    }
+}
+
+// -- Heredoc opener tracking --
+
+fn collect_heredoc_opener_starts(parse_result: &ruby_prism::ParseResult<'_>) -> HashSet<usize> {
+    let mut collector = HeredocOpenerCollector {
+        starts: HashSet::new(),
+    };
+    collector.visit(&parse_result.node());
+    collector.starts
+}
+
+struct HeredocOpenerCollector {
+    starts: HashSet<usize>,
+}
+
+impl<'pr> Visit<'pr> for HeredocOpenerCollector {
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        if let Some(opening) = node.opening_loc() {
+            if opening.as_slice().starts_with(b"<<") {
+                self.starts.insert(opening.start_offset());
+            }
+        }
+        ruby_prism::visit_string_node(self, node);
+    }
+
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        if let Some(opening) = node.opening_loc() {
+            if opening.as_slice().starts_with(b"<<") {
+                self.starts.insert(opening.start_offset());
+            }
+        }
+        ruby_prism::visit_interpolated_string_node(self, node);
     }
 }
 
@@ -455,6 +701,9 @@ fn is_aligned_with_adjacent(
     lines: &[&[u8]],
     line_idx: usize,
     col: usize,
+    line_start_offset: usize,
+    source: &SourceFile,
+    heredoc_opener_starts: &HashSet<usize>,
     comment_only_lines: &HashSet<usize>,
 ) -> bool {
     let base_indent = line_indentation(lines[line_idx]);
@@ -464,14 +713,28 @@ fn is_aligned_with_adjacent(
     // Pass 1: nearest non-blank, non-comment-only line
     if let Some(adj) = find_nearest_line(lines, line_idx, true, comment_only_lines, None) {
         if check_alignment(current_line, lines[adj], col)
-            || check_equals_alignment(current_line, lines[adj], col)
+            || check_equals_alignment(
+                current_line,
+                lines[adj],
+                col,
+                line_start_offset,
+                source.line_start_offset(adj + 1),
+                heredoc_opener_starts,
+            )
         {
             return true;
         }
     }
     if let Some(adj) = find_nearest_line(lines, line_idx, false, comment_only_lines, None) {
         if check_alignment(current_line, lines[adj], col)
-            || check_equals_alignment(current_line, lines[adj], col)
+            || check_equals_alignment(
+                current_line,
+                lines[adj],
+                col,
+                line_start_offset,
+                source.line_start_offset(adj + 1),
+                heredoc_opener_starts,
+            )
         {
             return true;
         }
@@ -482,7 +745,14 @@ fn is_aligned_with_adjacent(
         find_nearest_line(lines, line_idx, true, comment_only_lines, Some(base_indent))
     {
         if check_alignment(current_line, lines[adj], col)
-            || check_equals_alignment(current_line, lines[adj], col)
+            || check_equals_alignment(
+                current_line,
+                lines[adj],
+                col,
+                line_start_offset,
+                source.line_start_offset(adj + 1),
+                heredoc_opener_starts,
+            )
         {
             return true;
         }
@@ -495,7 +765,14 @@ fn is_aligned_with_adjacent(
         Some(base_indent),
     ) {
         if check_alignment(current_line, lines[adj], col)
-            || check_equals_alignment(current_line, lines[adj], col)
+            || check_equals_alignment(
+                current_line,
+                lines[adj],
+                col,
+                line_start_offset,
+                source.line_start_offset(adj + 1),
+                heredoc_opener_starts,
+            )
         {
             return true;
         }
@@ -604,7 +881,9 @@ fn check_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> bool {
 /// This mirrors RuboCop's `range.source` for token comparison in `aligned_words?`.
 ///
 /// - Alphanumeric/underscore: returns the full identifier.
+/// - Labels: returns `label:` rather than just `label`.
 /// - Numeric literals: returns the full numeric token, including sign/decimal/exponent.
+/// - Symbols/constant paths: returns `:foo` / `::Foo` / `:@ivar` rather than just `:`.
 /// - `@`, `@@`, `$` followed by identifier: returns the full variable name.
 /// - `.` followed by a letter/underscore: returns `.method_name` (method call).
 /// - `"` or `'`: returns the full quoted string to avoid coincidental single-char matches.
@@ -618,12 +897,15 @@ fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
     if is_numeric_literal_start(line, col) {
         let end = numeric_literal_end(line, col);
         &line[col..end]
+    } else if ch == b':' {
+        extract_colon_token(line, col)
     } else if ch.is_ascii_alphanumeric() || ch == b'_' {
         // Identifier: take consecutive word characters
-        let end = line[col..]
-            .iter()
-            .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
-            .map_or(line.len(), |p| col + p);
+        let mut end = identifier_like_end(line, col);
+        if end < line.len() && line[end] == b':' && (end + 1 >= line.len() || line[end + 1] != b':')
+        {
+            end += 1;
+        }
         &line[col..end]
     } else if ch == b' ' || ch == b'\t' {
         &[]
@@ -641,20 +923,14 @@ fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
         } else {
             col + 1 // @ or $
         };
-        let end = line[ident_start..]
-            .iter()
-            .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
-            .map_or(line.len(), |p| ident_start + p);
+        let end = identifier_like_end(line, ident_start);
         &line[col..end]
     } else if ch == b'.'
         && col + 1 < line.len()
         && (line[col + 1].is_ascii_alphabetic() || line[col + 1] == b'_')
     {
         // Dot followed by identifier: extract `.method_name`
-        let end = line[col + 1..]
-            .iter()
-            .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
-            .map_or(line.len(), |p| col + 1 + p);
+        let end = identifier_like_end(line, col + 1);
         &line[col..end]
     } else if ch == b'"' || ch == b'\'' {
         // String delimiter: extract the full quoted string to avoid coincidental
@@ -684,6 +960,52 @@ fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
         // Other operator/punctuation: just the single character
         &line[col..col + 1]
     }
+}
+
+fn extract_colon_token(line: &[u8], col: usize) -> &[u8] {
+    if col + 1 >= line.len() {
+        return &line[col..col + 1];
+    }
+
+    let mut next = col + 1;
+    if line[next] == b':' {
+        next += 1;
+    }
+
+    if next >= line.len() {
+        return &line[col..next];
+    }
+
+    if line[next] == b'@' {
+        next += 1;
+        if next < line.len() && line[next] == b'@' {
+            next += 1;
+        }
+    } else if line[next] == b'$' {
+        next += 1;
+    }
+
+    if next < line.len() && (line[next].is_ascii_alphanumeric() || line[next] == b'_') {
+        let end = identifier_like_end(line, next);
+        &line[col..end]
+    } else if col + 1 < line.len() && line[col + 1] == b':' {
+        &line[col..col + 2]
+    } else {
+        &line[col..col + 1]
+    }
+}
+
+fn identifier_like_end(line: &[u8], start: usize) -> usize {
+    let mut end = line[start..]
+        .iter()
+        .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
+        .map_or(line.len(), |p| start + p);
+
+    if end < line.len() && (line[end] == b'?' || line[end] == b'!') {
+        end += 1;
+    }
+
+    end
 }
 
 fn is_numeric_literal_start(line: &[u8], col: usize) -> bool {
@@ -770,7 +1092,14 @@ fn is_base_prefixed_numeric_char(ch: u8) -> bool {
 /// Both the current and adjacent line's `=` must look like an assignment
 /// operator (preceded by space or an operator character like `+`, `|`, etc.)
 /// to avoid matching `=` inside strings or other non-assignment contexts.
-fn check_equals_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> bool {
+fn check_equals_alignment(
+    current_line: &[u8],
+    adj_line: &[u8],
+    col: usize,
+    current_line_start_offset: usize,
+    adj_line_start_offset: usize,
+    heredoc_opener_starts: &HashSet<usize>,
+) -> bool {
     // Find the '=' in or near the token starting at col on the current line
     let eq_col = find_equals_col(current_line, col);
     if let Some(eq_col) = eq_col {
@@ -803,7 +1132,10 @@ fn check_equals_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> b
                 || adj_line[lshift_start - 1] == b' '
                 || adj_line[lshift_start - 1] == b'\t'
             {
-                return true;
+                let adj_lshift_offset = adj_line_start_offset + lshift_start;
+                if !heredoc_opener_starts.contains(&adj_lshift_offset) {
+                    return true;
+                }
             }
         }
     }
@@ -813,6 +1145,11 @@ fn check_equals_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> b
     // range.source == '<<' && token.equal_sign? && last_column matches.
     let lshift_col = find_lshift_col(current_line, col);
     if let Some(lshift_col) = lshift_col {
+        let current_lshift_offset = current_line_start_offset + lshift_col;
+        if heredoc_opener_starts.contains(&current_lshift_offset) {
+            return false;
+        }
+
         // The last `<` of `<<` is at lshift_col + 1
         let last_char_col = byte_to_char_col(current_line, lshift_col + 1);
         let adj_last_col = match char_col_to_byte(adj_line, last_char_col) {
@@ -898,6 +1235,13 @@ fn line_indentation(line: &[u8]) -> usize {
     line.iter()
         .take_while(|&&b| b == b' ' || b == b'\t')
         .count()
+}
+
+fn location_spans_multiple_lines(source: &SourceFile, loc: &ruby_prism::Location<'_>) -> bool {
+    let (start_line, _) = source.offset_to_line_col(loc.start_offset());
+    let end_offset = loc.end_offset().saturating_sub(1);
+    let (end_line, _) = source.offset_to_line_col(end_offset);
+    start_line != end_line
 }
 
 fn trim_terminal_cr(line: &[u8]) -> &[u8] {

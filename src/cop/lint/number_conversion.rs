@@ -1,4 +1,5 @@
-use crate::cop::node_type::{
+use crate::cop::shared::method_dispatch_predicates;
+use crate::cop::shared::node_type::{
     CALL_NODE, CALL_OR_WRITE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, RATIONAL_NODE,
 };
 use crate::cop::{Cop, CopConfig};
@@ -46,7 +47,7 @@ use crate::parse::source::SourceFile;
 /// Corpus oracle reported FP=0, FN=11.
 ///
 /// FN=11: All from DataDog/dd-trace-rb using `Core::Utils::Time.now.to_i`.
-/// `is_ignored_class` used `constant_name()` which returns just the last
+/// `is_ignored_class` used `constant_short_name()` which returns just the last
 /// segment "Time" from `Core::Utils::Time`, matching the default IgnoredClasses
 /// ["Time", "DateTime"]. But RuboCop uses `const_name` which returns the full
 /// qualified name "Core::Utils::Time" — this does NOT match "Time" so it's
@@ -208,7 +209,7 @@ impl NumberConversion {
             // RuboCop's `receiver.send_type?` excludes `csend`, so safe-navigation
             // receivers like `foo&.second.to_f` must still be flagged even when
             // `second` appears in AllowedMethods (e.g. from rubocop-rails).
-            if !is_safe_navigation_call(&recv_call) {
+            if !method_dispatch_predicates::is_safe_navigation(&recv_call) {
                 if CONVERSION_METHODS.iter().any(|(m, _)| *m == recv_method) {
                     return;
                 }
@@ -375,11 +376,6 @@ fn is_ignored_class(node: &ruby_prism::Node<'_>, ignored_classes: &[String]) -> 
 fn node_source<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> &'a str {
     let loc = node.location();
     source.byte_slice(loc.start_offset(), loc.end_offset(), "...")
-}
-
-fn is_safe_navigation_call(call: &ruby_prism::CallNode<'_>) -> bool {
-    call.call_operator_loc()
-        .is_some_and(|loc| loc.as_slice() == b"&.")
 }
 
 #[cfg(test)]

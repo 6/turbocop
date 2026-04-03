@@ -1,8 +1,8 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     CLASS_NODE, CONSTANT_OR_WRITE_NODE, CONSTANT_PATH_OR_WRITE_NODE, CONSTANT_PATH_WRITE_NODE,
     CONSTANT_WRITE_NODE, MODULE_NODE, MULTI_WRITE_NODE, STATEMENTS_NODE,
 };
-use crate::cop::util::{
+use crate::cop::shared::util::{
     collect_foldable_ranges, count_body_lines_ex, count_body_lines_full, inner_classlike_ranges,
 };
 use crate::cop::{Cop, CopConfig};

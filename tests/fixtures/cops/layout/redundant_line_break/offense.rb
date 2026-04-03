@@ -96,3 +96,38 @@ names = %w[
   beta
   gamma
 ]
+
+loop do
+  if scan_progress_busy_duration > queue_timeout.to_i
+    scan_progress_resp[:products].select { |p| p[:status] == 'B' }.each do |p|
+      PWN::Plugins::BlackDuckBinaryAnalysis.abort_product_scan(
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+        token: token,
+        product_id: p[:product_id]
+      )
+    end
+  end
+end
+
+scan_resp[:signals].each do |signal|
+  cmd(
+  ^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+    gqrx_sock: gqrx_sock,
+    cmd: "M #{mode_str} #{passband_hz}",
+    resp_ok: 'RPRT 0'
+  )
+end
+
+if dev_dependency_arr.include?(gem_name.to_sym)
+  spec.add_development_dependency(
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+    gem_name,
+    gem_version
+  )
+else
+  spec.add_dependency(
+  ^^^^^^^^^^^^^^^^^^^ Layout/RedundantLineBreak: Redundant line break detected.
+    gem_name,
+    gem_version
+  )
+end

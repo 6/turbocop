@@ -60,6 +60,7 @@ pub mod multiline_assignment_layout;
 pub mod multiline_block_layout;
 pub mod multiline_hash_brace_layout;
 pub mod multiline_hash_key_line_breaks;
+pub mod multiline_literal_brace_layout;
 pub mod multiline_method_argument_line_breaks;
 pub mod multiline_method_call_brace_layout;
 pub mod multiline_method_call_indentation;

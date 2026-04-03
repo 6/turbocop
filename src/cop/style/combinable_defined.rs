@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     AND_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, DEFINED_NODE,
 };
 use crate::cop::{Cop, CopConfig};

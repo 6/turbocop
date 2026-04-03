@@ -257,6 +257,15 @@ def guard_rubocop_enable_ok
   bar
 end
 
+# FP fix: spaced rubocop: enable directive is allowed too
+def guard_spaced_rubocop_enable_ok
+  # rubocop: disable Style/CaseEquality
+  return if cond
+  # rubocop: enable Style/CaseEquality
+
+  work
+end
+
 # Multiple statements on same line with semicolon
 def foo(item)
   return unless item.positive?; item * 2
@@ -902,13 +911,61 @@ def guard_then_if_with_bare_and_return
   end
 end
 
-# Guard with heredoc in condition followed by blank line after heredoc
-def guard_heredoc_condition_blank
-  return if cond && !yes?(<<~MSG, :red)
-    Some message here.
-  MSG
+# FP fix: block guard used as the value of a multiline assignment is embedded
+def embedded_assignment_guard
+  value =
+    if cond
+      return 1
+    end
+  work(value)
+end
+
+# FP fix: multiline embedded guard inside an inline block is not standalone
+def inline_block_multiline_guard(items, cond)
+  items.each { |item| return true unless cond.call(item,
+    :extra) }
+  work
+end
+
+# FP fix: embedded multiline guard ending with a closing delimiter can still
+# carry an inline comment without becoming standalone code
+def inline_block_multiline_guard_with_comment(items, cond)
+  items.each { |item| return true unless cond.call(item,
+    :extra) } # trailing comment
+  work
+end
+
+# FP fix: semicolons inside nested parens do not split a guard line
+def nested_semicolon_guard
+  return @log if @log
+  return (@log = (stub = Object.new; stub)) if @args[:nolog]
+  return :fallback if default?
 
   work
+end
+
+# FP fix: block guard with attached rescue modifier is not followed by a sibling
+def block_guard_with_rescue_modifier(x)
+  if x.nan? || x.infinite?
+    return 'null'
+  end rescue nil
+  x.to_s
+end
+
+# FP fix: `@if` ivar is not a modifier keyword in the next consecutive guard
+def consecutive_guards_with_if_ivar(store)
+  CALL_GRAPH.dup.each do |base_mod, mixins|
+    base_mod_name = Utils.module_name(base_mod) or next
+    content = store[base_mod_name]
+    mixins.each do |(how, mod)|
+      mod_name = Utils.module_name(mod) or next
+      next if mod_name.start_with?("Orthoses")
+      next unless @if.nil? || @if.call(base_mod, how, mod)
+
+      store[mod_name].header = "module #{mod_name}"
+      content << "#{how} #{mod_name}#{type_params_sig(mod)}"
+    end
+  end
 end
 
 # FP fix: same-line brace-block body with guard followed by `;` sibling

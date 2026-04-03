@@ -511,3 +511,106 @@ describe SomeClass do
   list_json_keys += %w[num_of_pages created_at]
 end
 
+# Variable used only as &block argument to example method (not inside block body).
+# The & reads the variable at the call site (group scope), not inside the example.
+# (celluloid pattern: xit("can be deferred", &execute_deferred))
+describe SomeClass do
+  execute_deferred = proc do
+    a1 = MyBlockActor.new("one", [])
+    expect(a1.deferred_excecution(:pete) { |v| v }).to eq(:pete)
+  end
+  xit("can be deferred", &execute_deferred)
+end
+
+# Dead assignment: immediately overwritten by if-expression (puppetlabs pattern).
+# Only the second assignment's value reaches examples; the first is dead.
+describe SomeClass do
+  on_supported_os.each do |os, os_facts|
+    storage_driver = 'devicemapper'
+    storage_driver = if os[:family] == 'RedHat'
+                       'devicemapper'
+                     else
+                       'overlay2'
+                     end
+  end
+end
+
+# Dead assignment: sequential assignment within conditional (puppetlabs pattern).
+# The first `facts = ...` is immediately overwritten and never reaches examples.
+describe SomeClass do
+  on_supported_os.each do |os, os_facts|
+    if os.include?('windows')
+      facts = windows_facts.merge(os_facts)
+      facts = facts.merge({ puppetversion: Puppet.version })
+    end
+  end
+end
+
+# Lambda body in shared example args: variables inside lambdas are lambda-local
+# and should not be collected as group-level assignments (natalie pattern)
+describe "Kernel.sprintf" do
+  it_behaves_like :kernel_sprintf_to_str, -> format, *args {
+    r = nil
+    -> {
+    }.should_not complain(verbose: true)
+    r
+  }
+end
+
+# Lambda do...end body in shared example args (bugsnag pattern)
+describe SomeClass do
+  include_examples(
+    "metadata delegate",
+    lambda do |metadata, *args|
+      configuration = Bugsnag::Configuration.new
+      configuration.instance_variable_set(:@metadata, metadata)
+      configuration.add_metadata(*args)
+    end,
+    lambda do |metadata, *args|
+      configuration = Bugsnag::Configuration.new
+      configuration.instance_variable_set(:@metadata, metadata)
+    end
+  )
+end
+
+# Lambda inside keyword hash arg to it_behaves_like (imap-backup pattern)
+describe SomeClass do
+  it_behaves_like(
+    "an action that handles Logger options",
+    action: ->(subject, options) do
+      with_required = options.merge({"email" => "me", "server" => "host"})
+      subject.invoke(:backup, [], with_required)
+    end
+  ) do
+    let(:account) { "test" }
+  end
+end
+
+# proc do...end body in shared example args (wca pattern)
+describe SomeClass do
+  include_examples "action",
+    lambda { |current_user|
+      medium = CompetitionMedium.find_by!(text: "i was just created")
+      expect(medium.status).to eq "pending"
+    },
+    proc { |current_user|
+      record = Record.find_by!(name: "test")
+      expect(record).to be_valid
+    }
+end
+
+# Inline assignment in it description arg (thin pattern)
+describe Request, 'performance' do
+  it "should be faster then #{max_parsing_time = 0.0002} RubySeconds" do
+    expect { parse_request }.to be_faster_then(max_parsing_time)
+  end
+end
+
+# Inline assignment in it description arg (jruby-rack pattern)
+describe SomeClass do
+  it spec = "still serves when retrieving exception's message fails" do
+    @env[JRuby::Rack::ErrorApp::EXCEPTION] = InitException.new spec
+  end
+end
+
+

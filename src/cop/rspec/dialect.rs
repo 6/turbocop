@@ -1,5 +1,6 @@
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -171,7 +172,7 @@ impl Cop for Dialect {
         let is_rspec_call = if call.receiver().is_none() {
             true
         } else if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
         } else {
             false
         };

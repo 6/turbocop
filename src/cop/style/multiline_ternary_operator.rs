@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::cop::shared::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Location, Severity};
 use crate::parse::source::SourceFile;
@@ -145,8 +146,7 @@ impl TernaryVisitor<'_> {
 
     /// Check if a call node is an assignment method (e.g., `a.foo=`).
     fn is_assignment_method_call(call_node: &ruby_prism::CallNode<'_>) -> bool {
-        let name = call_node.name().as_slice();
-        name.ends_with(b"=") && name != b"==" && name != b"!=" && name != b"==="
+        method_identifier_predicates::is_assignment_method(call_node.name().as_slice())
     }
 }
 

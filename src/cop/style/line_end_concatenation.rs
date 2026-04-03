@@ -1,4 +1,4 @@
-use crate::cop::node_type::CALL_NODE;
+use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -23,6 +23,12 @@ use crate::parse::source::SourceFile;
 /// string literals for this cop, so the previous `opening_loc` gate missed long
 /// multiline `+` chains such as the `net-ssh` hex constant. Fix: accept those
 /// wrapper nodes when every part is itself a standard quoted string literal.
+///
+/// Follow-up (2026-04-01): `%Q'...'` and `%q"..."` strings have non-standard
+/// openings but standard closing delimiters (`'` or `"`). RuboCop's token-based
+/// check looks at the closing token for predecessors (receiver side), so these
+/// are valid predecessors. Fix: `ends_with_standard_string_literal` now also
+/// checks the closing delimiter via `has_standard_closing_quote`.
 pub struct LineEndConcatenation;
 
 impl Cop for LineEndConcatenation {
@@ -126,8 +132,32 @@ impl LineEndConcatenation {
                 .all(|part| Self::is_adjacent_standard_string_part(&part))
     }
 
+    /// Check if a string node's closing delimiter is a standard quote.
+    /// RuboCop's token-based check looks at the closing token for predecessor
+    /// strings, so `%Q'...'` (closing `'`) and `%Q"..."` (closing `"`) are
+    /// valid predecessors even though their opening is non-standard.
+    fn has_standard_closing_quote(node: &ruby_prism::Node<'_>) -> bool {
+        if let Some(string) = node.as_string_node() {
+            return string
+                .closing_loc()
+                .is_some_and(|loc| Self::is_standard_quote(loc.as_slice()));
+        }
+        if let Some(string) = node.as_interpolated_string_node() {
+            return string
+                .closing_loc()
+                .is_some_and(|loc| Self::is_standard_quote(loc.as_slice()));
+        }
+        false
+    }
+
     fn ends_with_standard_string_literal(node: &ruby_prism::Node<'_>) -> bool {
         if Self::is_standard_string_literal(node) {
+            return true;
+        }
+
+        // For the receiver (predecessor) side, accept strings whose closing
+        // delimiter is a standard quote (e.g., %Q'...' closes with ').
+        if Self::has_standard_closing_quote(node) {
             return true;
         }
 

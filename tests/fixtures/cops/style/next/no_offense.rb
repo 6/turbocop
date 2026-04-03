@@ -16,6 +16,12 @@ items.map do |item|
   end
 end
 
+items.flat_map do |item|
+  if item
+    [process(item)]
+  end
+end
+
 rows.each do |row|
   if col_len > max_len
     if col_len > MAX_COL_WIDTH

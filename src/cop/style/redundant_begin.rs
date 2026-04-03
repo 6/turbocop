@@ -38,6 +38,44 @@ use crate::parse::source::SourceFile;
 /// Fix: only suppress an outer nested `begin` when the inner subtree contains a
 /// non-root generic offense, and keep the rescue-modifier allowance out of
 /// `def`/`do..end` body checks.
+///
+/// ## Investigation (2026-04-01, second pass)
+///
+/// Resolved 6 of 7 remaining FNs. Two root causes:
+/// 1. `visit_begin_children` did not traverse `else_clause()` of `BeginNode`,
+///    so any `begin` offenses nested inside `else` branches of
+///    `begin..rescue..else..end` blocks were never reached. Fixed by adding
+///    else_clause visitation.
+/// 2. `visit_index_{or,and,operator}_write_node` only visited `value()`, not
+///    `receiver()` or `arguments()`, so `begin` inside splats in array index
+///    expressions (e.g. `h[*begin [:k] end] ||= 20`) was unreachable. Fixed
+///    by visiting receiver and arguments before checking the value.
+///
+/// ## Investigation (2026-04-01, third pass)
+///
+/// The last remaining FN was not a config issue. The corpus file was truncated
+/// in the prompt: the real pattern is `@ivar ||= begin ... end&.decorate`.
+/// Prism parses this as an assignment whose value is a `CallNode` with the
+/// explicit `BeginNode` as its receiver. RuboCop still flags that receiver
+/// `begin`, but this visitor treated both call receivers and direct call
+/// arguments as "allowed direct begin children", which skipped the offense.
+///
+/// Fix: inspect `CallNode` receivers normally so chained-call receiver begins
+/// still flow through generic `begin` detection, while keeping the direct
+/// method-argument allowance for `do_something begin ... end`.
+///
+/// ## Investigation (2026-04-03)
+///
+/// Corpus FP cluster: RuboCop allows explicit `begin` when it is the receiver
+/// of a regular chained call like `begin ... end.freeze`, `end.to_sym`, or
+/// `end.round` under the corpus baseline config. The previous pass regressed by
+/// treating every call receiver like the safe-navigation FN above, which made
+/// plain `.` receivers look redundant in assignments and method bodies.
+///
+/// Fix: allow `BeginNode` receivers for regular `CallNode`s again, but only
+/// when the call operator is not `&.`. Safe-navigation receivers still flow
+/// through generic `begin` detection so `begin ... end&.decorate` remains an
+/// offense.
 pub struct RedundantBegin;
 
 impl Cop for RedundantBegin {
@@ -103,6 +141,9 @@ impl RedundantBeginVisitor<'_> {
         }
         if let Some(rescue) = begin_node.rescue_clause() {
             self.visit_rescue_node(&rescue);
+        }
+        if let Some(else_clause) = begin_node.else_clause() {
+            self.visit(&else_clause.as_node());
         }
         if let Some(ensure) = begin_node.ensure_clause() {
             self.visit_ensure_node(&ensure);
@@ -473,7 +514,11 @@ impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         if let Some(receiver) = node.receiver() {
-            self.visit_allowed_direct_begin_child(&receiver);
+            if node.is_safe_navigation() {
+                self.visit(&receiver);
+            } else {
+                self.visit_allowed_direct_begin_child(&receiver);
+            }
         }
         if let Some(arguments) = node.arguments() {
             for argument in arguments.arguments().iter() {
@@ -658,14 +703,38 @@ impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
     }
 
     fn visit_index_or_write_node(&mut self, node: &ruby_prism::IndexOrWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+        }
+        if let Some(arguments) = node.arguments() {
+            for argument in arguments.arguments().iter() {
+                self.visit(&argument);
+            }
+        }
         self.check_assignment_begin(&node.value());
     }
 
     fn visit_index_and_write_node(&mut self, node: &ruby_prism::IndexAndWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+        }
+        if let Some(arguments) = node.arguments() {
+            for argument in arguments.arguments().iter() {
+                self.visit(&argument);
+            }
+        }
         self.check_assignment_begin(&node.value());
     }
 
     fn visit_index_operator_write_node(&mut self, node: &ruby_prism::IndexOperatorWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+        }
+        if let Some(arguments) = node.arguments() {
+            for argument in arguments.arguments().iter() {
+                self.visit(&argument);
+            }
+        }
         self.check_assignment_begin(&node.value());
     }
 }

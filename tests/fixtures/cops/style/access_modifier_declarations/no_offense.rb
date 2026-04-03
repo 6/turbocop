@@ -19,6 +19,34 @@ module MyModule
   singleton_methods.each { |method| private(method) }
 end
 
+# Modifier-form conditionals nested inside a one-line block should stay ignored
+class Recursor
+  instance_methods(true).each { |m| private m unless /^(__|object_id$)/ =~ m.to_s }
+end
+
+# Multi-statement proc bodies should stay ignored
+body = proc do
+  public def pub
+    @a << :pub
+  end
+
+  protected def pro
+    @a << :pro
+  end
+
+  private def pri
+    @a << :pri
+  end
+
+  attr_reader :a
+end
+
+module Builder
+  def hide(name)
+    private name
+  end
+end
+
 class SomeService
   included do
     private def helper

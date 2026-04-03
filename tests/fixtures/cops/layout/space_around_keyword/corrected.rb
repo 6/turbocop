@@ -56,3 +56,35 @@ end
 (m..n).inject(0) do |sum, j|
   sum + j
 end
+
+before(:each) do
+  setup
+end
+
+RSpec.describe(SomeObject) do
+  nil
+end
+
+Squib::Deck.new(width:'2in', height: '1in') do
+  nil
+end
+
+h = c.inject({}) do |old, new|
+  old.merge!(new)
+end
+
+assert_raised_with_message("msg", RuntimeError) do
+  run
+end
+
+After('~@cli') do |scenario|
+  scenario
+end
+
+output = CSV.generate(:col_sep => "\t", :row_sep => "\r\n") do |csv|
+  csv << ["x"]
+end
+
+foo(1)do |x|
+  x
+end || 0

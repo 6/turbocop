@@ -134,12 +134,11 @@ def test
   end
 end
 
-# If-else where else branch is comment-only (no code) — not flagged by RuboCop
-# because Parser gem treats comment-only else as no-else
-def test
-  if condition
+# Setter assignment parent suppresses branch-style guard-clause suggestions
+def test(obj)
+  obj.value = if something
     raise "error"
   else
-    # just a comment
+    work
   end
 end

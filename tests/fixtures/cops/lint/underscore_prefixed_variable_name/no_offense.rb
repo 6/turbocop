@@ -98,3 +98,20 @@ def setup_workspace
   handler = ->{ _temp = 42 }
   handler.call
 end
+
+# Rescue exception capture not read
+def safe_operation
+  begin
+    risky
+  rescue StandardError => _e
+    puts "error"
+  end
+end
+
+# Pattern match variable not read
+def classify(value)
+  case value
+  in _x
+    "matched"
+  end
+end

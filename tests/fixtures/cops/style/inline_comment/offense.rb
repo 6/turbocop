@@ -37,3 +37,29 @@ emoji = TanukiEmoji.find_by_alpha_code name # rubocop: disable Rails/DynamicFind
 
 emoji = TanukiEmoji.find_by_codepoints moji # rubocop: disable Rails/DynamicFindBy
                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/InlineComment: Avoid trailing inline comments.
+
+def validate_file(key, file) #  rubocop:disable Naming/PredicateMethod
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/InlineComment: Avoid trailing inline comments.
+
+def find_model(options, id:, **) #rubocop:disable Lint/DuplicateMethods
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/InlineComment: Avoid trailing inline comments.
+
+def find_model(options, id:, **) # rubocop: disable Lint/DuplicateMethods
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/InlineComment: Avoid trailing inline comments.
+
+else # 'windows'
+     ^^^^^^^^^^^^ Style/InlineComment: Avoid trailing inline comments.
+
+else # 'windows'
+     ^^^^^^^^^^^^ Style/InlineComment: Avoid trailing inline comments.
+
+text = <<~HEREDOC
+  some text #{
+    if true
+      "yes"
+    else # inline in heredoc interpolation
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/InlineComment: Avoid trailing inline comments.
+      "no"
+    end
+  }
+HEREDOC
