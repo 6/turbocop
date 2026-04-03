@@ -61,6 +61,12 @@ use ruby_prism::Visit;
 ///    Example: `if ENV['X'] ... if other ... ENV['X'] end end` — we suppressed,
 ///    RuboCop flagged. Fixed: `key_matches_nearest_condition` checks only the
 ///    top of the condition_keys stack.
+/// 5. Interpolated regex `=~` match: `/-r #{expr}\S+/ =~ ENV['X']` was suppressed
+///    like simple `/re/ =~ ENV['X']`, but RuboCop's parser creates `match_with_lvasgn`
+///    only for simple regexp `=~` (suppressed via `child_nodes.any?`), while
+///    interpolated regexp `=~` stays a `send` node (NOT suppressed since `=~` is not
+///    a `comparison_method?`). Fixed: only suppress `=~` when receiver is a
+///    `RegularExpressionNode`, not `InterpolatedRegularExpressionNode`.
 ///
 /// ### Fix approach
 /// Replaced the broad `suppress_env_in_condition` tree-walk with precise per-node
@@ -240,9 +246,16 @@ impl FetchEnvVar {
 
             // `/re/ =~ ENV['X']` is treated as a flag, but `ENV['X'] =~ /re/`
             // is still an offense. Only collect keys from argument-side ENV.
+            // IMPORTANT: Only suppress when the receiver is a simple RegularExpressionNode.
+            // RuboCop's parser creates `match_with_lvasgn` for simple regexp =~ (which
+            // suppresses ENV via child_nodes.any?), but creates a regular `send` node for
+            // interpolated regexp =~ (which does NOT suppress, since =~ is not a
+            // comparison_method? or predicate_method?).
             if Self::is_reverse_match_method(method_bytes) {
                 if let Some(receiver) = call.receiver() {
-                    if !Self::is_env_bracket_call(&receiver) {
+                    if !Self::is_env_bracket_call(&receiver)
+                        && receiver.as_regular_expression_node().is_some()
+                    {
                         if let Some(args) = call.arguments() {
                             for arg in args.arguments().iter() {
                                 if let Some(key) = Self::env_bracket_key(source, &arg) {
@@ -532,7 +545,9 @@ impl FetchEnvVar {
 
             if Self::is_reverse_match_method(method_bytes) {
                 if let Some(receiver) = call.receiver() {
-                    if !Self::is_env_bracket_call(&receiver) {
+                    if !Self::is_env_bracket_call(&receiver)
+                        && receiver.as_regular_expression_node().is_some()
+                    {
                         if let Some(args) = call.arguments() {
                             for arg in args.arguments().iter() {
                                 if Self::is_env_bracket_call(&arg) {
