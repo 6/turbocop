@@ -1,5 +1,5 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
-use std::sync::Mutex;
 
 use crate::cop::shared::literal_predicates;
 use crate::cop::variable_force::{self, Scope, VariableTable};
@@ -97,28 +97,44 @@ use ruby_prism::Visit;
 /// exemption (whether converting to `loop do` would break variable visibility).
 /// This replaces the previous 544-line standalone AST visitor with ~200 lines
 /// of VF-integrated code.
-pub struct InfiniteLoop {
+pub struct InfiniteLoop;
+
+// Thread-local storage for per-file context data. Within a rayon task, a single
+// file is processed sequentially: check_source -> VF engine ->
+// before_leaving_scope, so thread-local storage is safe and avoids the
+// TOCTOU race that Mutex fields on the shared cop struct would cause.
+thread_local! {
+    static INFINITE_LOOP_CTX: RefCell<InfiniteLoopCtx> = RefCell::new(InfiniteLoopCtx::new());
+}
+
+struct InfiniteLoopCtx {
     /// Potential offenses found by `check_source`. Each entry is a loop that
     /// has a truthy/falsey condition. The VF hook will filter out loops where
     /// the conversion would break variable scoping.
-    loops: Mutex<Vec<LoopInfo>>,
+    loops: Vec<LoopInfo>,
     /// Loop offsets that have already been processed by an inner scope's
     /// `before_leaving_scope`. Prevents duplicate emissions from outer scopes.
-    processed: Mutex<HashSet<usize>>,
+    processed: HashSet<usize>,
+}
+
+impl InfiniteLoopCtx {
+    fn new() -> Self {
+        Self {
+            loops: Vec::new(),
+            processed: HashSet::new(),
+        }
+    }
 }
 
 impl InfiniteLoop {
     pub fn new() -> Self {
-        Self {
-            loops: Mutex::new(Vec::new()),
-            processed: Mutex::new(HashSet::new()),
-        }
+        Self
     }
 }
 
 impl Default for InfiniteLoop {
     fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
@@ -152,8 +168,11 @@ impl Cop for InfiniteLoop {
     ) {
         let mut collector = LoopCollector { loops: Vec::new() };
         collector.visit(&parse_result.node());
-        *self.loops.lock().unwrap() = collector.loops;
-        self.processed.lock().unwrap().clear();
+        INFINITE_LOOP_CTX.with(|cell| {
+            let mut ctx = cell.borrow_mut();
+            ctx.loops = collector.loops;
+            ctx.processed.clear();
+        });
     }
 
     fn as_variable_force_consumer(&self) -> Option<&dyn variable_force::VariableForceConsumer> {
@@ -170,37 +189,39 @@ impl variable_force::VariableForceConsumer for InfiniteLoop {
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        let loops = self.loops.lock().unwrap();
-        let mut processed = self.processed.lock().unwrap();
+        INFINITE_LOOP_CTX.with(|cell| {
+            let mut guard = cell.borrow_mut();
+            let ctx = &mut *guard;
 
-        for loop_info in loops.iter() {
-            // Skip loops already handled by an inner scope.
-            if processed.contains(&loop_info.loop_start) {
-                continue;
+            for loop_info in ctx.loops.iter() {
+                // Skip loops already handled by an inner scope.
+                if ctx.processed.contains(&loop_info.loop_start) {
+                    continue;
+                }
+
+                // The loop must be inside this scope's range.
+                if loop_info.loop_start < scope.node_start_offset
+                    || loop_info.loop_end > scope.node_end_offset
+                {
+                    continue;
+                }
+
+                // Mark as processed so outer scopes don't re-emit.
+                ctx.processed.insert(loop_info.loop_start);
+
+                if would_break_scoping(scope, variable_table, loop_info) {
+                    continue;
+                }
+
+                let (line, column) = source.offset_to_line_col(loop_info.keyword_offset);
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `Kernel#loop` for infinite loops.".to_string(),
+                ));
             }
-
-            // The loop must be inside this scope's range.
-            if loop_info.loop_start < scope.node_start_offset
-                || loop_info.loop_end > scope.node_end_offset
-            {
-                continue;
-            }
-
-            // Mark as processed so outer scopes don't re-emit.
-            processed.insert(loop_info.loop_start);
-
-            if would_break_scoping(scope, variable_table, loop_info) {
-                continue;
-            }
-
-            let (line, column) = source.offset_to_line_col(loop_info.keyword_offset);
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Use `Kernel#loop` for infinite loops.".to_string(),
-            ));
-        }
+        });
     }
 }
 
