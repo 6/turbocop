@@ -1,4 +1,5 @@
 use crate::cop::node_type::SYMBOL_NODE;
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -91,7 +92,7 @@ impl Cop for QuotedSymbols {
                 &src_bytes[1..]
             };
 
-            if prefer_single && !double_quotes_required(string_literal_src) {
+            if prefer_single && !util::double_quotes_required(string_literal_src) {
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
                     source,
@@ -130,29 +131,6 @@ impl Cop for QuotedSymbols {
             }
         }
     }
-}
-
-fn double_quotes_required(src: &[u8]) -> bool {
-    let mut backslash_run = 0usize;
-
-    for &byte in src {
-        if byte == b'\'' {
-            return true;
-        }
-
-        if byte == b'\\' {
-            backslash_run += 1;
-            continue;
-        }
-
-        if backslash_run % 2 == 1 && byte != b'\\' && byte != b'"' {
-            return true;
-        }
-
-        backslash_run = 0;
-    }
-
-    false
 }
 
 #[cfg(test)]

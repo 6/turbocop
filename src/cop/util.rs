@@ -1088,6 +1088,48 @@ pub fn full_constant_path<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_
     &source.as_bytes()[loc.start_offset()..loc.end_offset()]
 }
 
+// ── String escape helpers ─────────────────────────────────────────────
+
+/// Check if string content contains escape sequences that require double quotes.
+///
+/// Returns true if the content has `\X` where X is anything other than `\` or `"`.
+/// Those two escapes (`\\`, `\"`) are representable in single-quoted strings, but
+/// all others (`\n`, `\t`, `\#`, etc.) require double quotes.
+///
+/// Handles consecutive backslashes correctly: in `\\\\n`, there are 4 backslashes
+/// (2 pairs of `\\`) followed by `n`, which does NOT require double quotes.
+pub fn has_non_trivial_escape(content: &[u8]) -> bool {
+    let mut i = 0;
+    while i < content.len() {
+        if content[i] == b'\\' {
+            let run_start = i;
+            while i < content.len() && content[i] == b'\\' {
+                i += 1;
+            }
+            let run_len = i - run_start;
+            let next = content.get(i).copied();
+            // Odd number of backslashes means the last one escapes the next char.
+            // Only \\ and \" are safe for single quotes; anything else needs double.
+            if run_len % 2 == 1 && !matches!(next, Some(b'\\' | b'"')) {
+                return true;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
+/// Check if string content requires double-quoted representation.
+///
+/// Returns true if the content contains a bare single quote (`'`) or escape
+/// sequences that only work in double-quoted strings. This is the combined
+/// check used by quoted_symbols, string_literals_in_interpolation, and
+/// redundant_percent_q cops.
+pub fn double_quotes_required(content: &[u8]) -> bool {
+    content.contains(&b'\'') || has_non_trivial_escape(content)
+}
+
 // ── Shared node helpers ────────────────────────────────────────────────
 
 /// Unwrap parentheses from a node, returning the inner expression.
@@ -1512,6 +1554,37 @@ mod tests {
         // Hash rocket (not assignment): `x => if ...`
         let src = SourceFile::from_bytes("test.rb", b"x => if foo\n  bar\nend\n".to_vec());
         assert_eq!(assignment_context_base_col(&src, 5), None);
+    }
+
+    // ── string escape helper tests ─────────────────────────────────────
+
+    #[test]
+    fn has_non_trivial_escape_basic() {
+        assert!(has_non_trivial_escape(b"hello\\nworld"));
+        assert!(has_non_trivial_escape(b"\\t"));
+        assert!(!has_non_trivial_escape(b"hello"));
+        assert!(!has_non_trivial_escape(b"hello\\\\world")); // \\\\ = two literal backslashes
+        assert!(!has_non_trivial_escape(b"hello\\\"world")); // \\\" = escaped quote
+    }
+
+    #[test]
+    fn has_non_trivial_escape_consecutive_backslashes() {
+        // 3 backslashes + n: odd count means last one escapes n → needs double quotes
+        assert!(has_non_trivial_escape(b"\\\\\\n"));
+        // 4 backslashes + n: even count means all are paired, n is literal
+        assert!(!has_non_trivial_escape(b"\\\\\\\\n"));
+    }
+
+    #[test]
+    fn double_quotes_required_bare_quote() {
+        assert!(double_quotes_required(b"it's"));
+        assert!(!double_quotes_required(b"hello"));
+    }
+
+    #[test]
+    fn double_quotes_required_escapes() {
+        assert!(double_quotes_required(b"hello\\nworld"));
+        assert!(!double_quotes_required(b"hello\\\\world"));
     }
 
     // ── unwrap_parentheses tests ───────────────────────────────────────
