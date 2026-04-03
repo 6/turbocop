@@ -3402,9 +3402,9 @@ fn redundant_disable_unknown_department() {
 }
 
 #[test]
-fn no_redundant_disable_running_cop_no_offense() {
-    // Disable for a real cop that is running but doesn't fire on clean code.
-    // Conservative approach: don't flag, since it might be a detection gap.
+fn redundant_disable_running_cop_no_offense_flagged_in_normal_mode() {
+    // In normal mode (no --only/--except), all cops run. If a cop ran and
+    // didn't fire, its unused disable directive IS redundant.
     let dir = temp_dir("redundant_disable_running_clean");
     let file = write_file(
         &dir,
@@ -3429,9 +3429,90 @@ fn no_redundant_disable_running_cop_no_offense() {
         .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
         .collect();
 
+    assert_eq!(
+        redundant.len(),
+        1,
+        "Should flag unused disable for a running cop in normal mode, got: {:?}",
+        redundant
+    );
+    assert!(
+        redundant[0].message.contains("Layout/TrailingWhitespace"),
+        "Message should mention the cop: {}",
+        redundant[0].message
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn no_redundant_disable_for_skip_list_cop_in_normal_mode() {
+    // Cops in REDUNDANT_DISABLE_SKIP_COPS have known detection gaps.
+    // Even in normal mode, their unused directives should NOT be flagged.
+    let dir = temp_dir("redundant_disable_skip_list");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Style/SafeNavigation\n",
+    );
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
     assert!(
         redundant.is_empty(),
-        "Should NOT flag disable for a running cop (conservative approach), got: {:?}",
+        "Should NOT flag disable for a skip-list cop, got: {:?}",
+        redundant
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn no_redundant_disable_with_except_filter() {
+    // With --except, the excepted cop didn't run, so we can't tell if the
+    // disable directive is needed. Should NOT flag.
+    let dir = temp_dir("redundant_disable_except");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Layout/TrailingWhitespace\n",
+    );
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let mut args = default_args();
+    args.except = vec!["Layout/TrailingWhitespace".to_string()];
+
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert!(
+        redundant.is_empty(),
+        "Should NOT flag disable when cop is in --except, got: {:?}",
         redundant
     );
 
@@ -4556,13 +4637,14 @@ fn redundant_disable_mixed_excluded_and_active() {
     // Two cops on one disable directive: one is excluded (Lint/UselessMethodDefinition),
     // one actively suppresses an offense (Layout/TrailingWhitespace). Only the
     // excluded cop's directive should be flagged as redundant.
+    // Use a block disable so the trailing whitespace on the next line is suppressed.
     let dir = temp_dir("redundant_disable_mixed_excl_active");
     let sub = dir.join("app").join("controllers");
     fs::create_dir_all(&sub).unwrap();
     let file = write_file(
         &dir,
         "app/controllers/test_controller.rb",
-        b"x = 1   # rubocop:disable Lint/UselessMethodDefinition, Layout/TrailingWhitespace\n",
+        b"# rubocop:disable Lint/UselessMethodDefinition, Layout/TrailingWhitespace\nx = 1   \n# rubocop:enable Lint/UselessMethodDefinition, Layout/TrailingWhitespace\n",
     );
     write_file(
         &dir,
@@ -4620,10 +4702,11 @@ fn redundant_disable_mixed_excluded_and_active() {
 #[test]
 fn no_redundant_disable_executed_cop_no_offense() {
     // A cop that is enabled and executes on the file but produces no offense.
-    // Conservative: we don't flag this because nitrocop may have detection gaps.
+    // In normal mode (no --only/--except), all cops ran, so the unused
+    // directive is correctly flagged as redundant.
     let dir = temp_dir("no_redundant_disable_exec_no_off");
     // Style/FrozenStringLiteralComment fires on missing frozen_string_literal
-    // but this file HAS it, so no offense. The disable is unused but the cop ran.
+    // but this file HAS it, so no offense. The disable is unused and the cop ran.
     let file = write_file(
         &dir,
         "test.rb",
@@ -4649,9 +4732,16 @@ fn no_redundant_disable_executed_cop_no_offense() {
 
     assert_eq!(
         redundant.len(),
-        0,
-        "Executed cop with no offense should NOT be flagged: {:?}",
+        1,
+        "Executed cop with no offense should be flagged in normal mode: {:?}",
         redundant
+    );
+    assert!(
+        redundant[0]
+            .message
+            .contains("Style/FrozenStringLiteralComment"),
+        "Message should mention the cop: {}",
+        redundant[0].message
     );
 
     fs::remove_dir_all(&dir).ok();

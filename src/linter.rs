@@ -535,34 +535,17 @@ fn contains_subsequence(haystack: &[u8], needle: &[u8]) -> bool {
 const REDUNDANT_DISABLE_COP: &str = "Lint/RedundantCopDisableDirective";
 
 /// Cops with known detection gaps that cause false positives when flagging
-/// unused disable directives in `run_all_for_redundant` mode. These cops
-/// miss certain offense patterns that RuboCop catches, so their unused
-/// directives might actually be needed.
+/// unused disable directives. These cops miss certain offense patterns that
+/// RuboCop catches, so their unused directives might actually be needed.
+///
+/// Pruned 2026-04-03: removed 19 entries whose corpus match rates reached
+/// 100% (or 99.9% with 0 FN), meaning their detection gaps have been fixed.
 const REDUNDANT_DISABLE_SKIP_COPS: &[&str] = &[
-    "Layout/AlignHash",     // misses some multiline hash alignment patterns
-    "Layout/HashAlignment", // misses some hash alignment variants
-    "Layout/LineLength",    // misses some long-line suppression cases
-    "Layout/MultilineOperationIndentation", // misses some multiline indentation cases
-    "Lint/DuplicateMethods", // misses some reopened-definition patterns
-    "Lint/HandleExceptions", // misses some rescue modifier patterns
-    "Layout/SpaceAroundKeyword", // misses `&super` before keyword
-    "Lint/RedundantCopEnableDirective", // misses YARD doc examples
-    "Lint/UselessAssignment", // misses compound assignment to block params
-    "Lint/MissingSuper",    // misses some inherited initialize hooks
-    "Metrics/BlockNesting", // misses some nested control-flow patterns
-    "Metrics/CyclomaticComplexity", // misses some branch counting patterns
-    "Metrics/ParameterLists", // misses some keyword/default arg shapes
-    "Security/YAMLLoad",    // misses some unsafe load entry points
-    "Style/CaseLikeIf",     // misses certain case/when patterns
-    "Style/HashLikeCase",   // alias/related to CaseLikeIf
-    "Style/AndOr",          // misses some boolean-operator rewrites
-    "Style/Alias",          // misses some alias forms
-    "Style/EvalWithLocation", // misses some eval binding/location variants
-    "Style/GuardClause",    // misses some early-return patterns
-    "Style/Next",           // misses some next/if rewrites
-    "Style/RedundantParentheses", // misses rescue/modifier edge cases
-    "Style/RegexpLiteral",  // misses some literal interpolation cases
-    "Style/SafeNavigation", // misses guarded call patterns
+    "Layout/LineLength", // FN=220, misses some long-line suppression cases
+    "Layout/MultilineOperationIndentation", // FN=39534, 16% match rate
+    "Lint/UselessAssignment", // FN=527, misses compound assignment to block params
+    "Style/RedundantParentheses", // FN=2300, misses rescue/modifier edge cases
+    "Style/SafeNavigation", // FN=236, misses guarded call patterns
 ];
 
 /// Determine if a disable directive should be flagged as redundant.
@@ -574,11 +557,10 @@ const REDUNDANT_DISABLE_SKIP_COPS: &[&str] = &[
 /// The logic is conservative to avoid false positives:
 ///   - "all" or department-only directives: never flag (too broad to check)
 ///   - Known cop that is explicitly disabled (Enabled: false): flag as redundant
-///   - Known cop that is enabled: don't flag (nitrocop may have detection gaps)
-///   - Renamed cop (per obsoletion.yml) whose new name IS in the registry:
-///     flag as redundant (the old name is obsolete)
-///   - Cop NOT in the registry but known from gem config (has Include/Exclude):
-///     flag as redundant if the file is excluded by those patterns
+///   - Known cop that is enabled + all_cops_ran + file matched + NOT in skip
+///     list: flag as redundant (cop ran and didn't fire)
+///   - Known cop in `REDUNDANT_DISABLE_SKIP_COPS`: never flag (detection gaps)
+///   - Renamed cop: flag, unless new-name cop is in skip list
 ///   - Completely unknown cop: flag with "(unknown cop)" suffix, except during
 ///     unrelated `--only` runs where it would leak into another cop's results
 fn is_directive_redundant(
@@ -677,6 +659,12 @@ fn is_directive_redundant(
                     && cop_filters.is_cop_match(new_idx, path)
                     && REDUNDANT_DISABLE_SKIP_COPS.contains(&new_name.as_str())
                 {
+                    return None;
+                }
+                // Even without all_cops_ran (e.g. --except mode), don't flag
+                // if the new-name cop has known detection gaps — the directive
+                // may legitimately suppress an offense nitrocop misses.
+                if !all_cops_ran && REDUNDANT_DISABLE_SKIP_COPS.contains(&new_name.as_str()) {
                     return None;
                 }
             }
@@ -1086,6 +1074,12 @@ fn lint_source_once(
     let run_all_for_redundant =
         has_only && args.only.len() == 1 && args.only[0] == REDUNDANT_DISABLE_COP;
 
+    // All cops ran if: (a) run_all_for_redundant mode, or (b) normal mode
+    // with no --only/--except filters. In these cases, every enabled cop that
+    // matched the file executed, so unused disable directives are reliable
+    // indicators of redundancy (modulo REDUNDANT_DISABLE_SKIP_COPS).
+    let all_cops_ran = run_all_for_redundant || (!has_only && args.except.is_empty());
+
     // Pass 1: Universal cops
     for &i in active_filters.universal_cop_indices() {
         let cop = &cops[i];
@@ -1287,7 +1281,7 @@ fn lint_source_once(
                     &source.path,
                     !args.only.is_empty(),
                     redundant_disable_explicitly_selected,
-                    run_all_for_redundant,
+                    all_cops_ran,
                 ) {
                     Some(s) => s,
                     None => continue,
