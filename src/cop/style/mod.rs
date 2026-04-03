@@ -268,6 +268,7 @@ pub mod top_level_method_definition;
 pub mod trailing_body_on_class;
 pub mod trailing_body_on_method_definition;
 pub mod trailing_body_on_module;
+pub mod trailing_comma;
 pub mod trailing_comma_in_arguments;
 pub mod trailing_comma_in_array_literal;
 pub mod trailing_comma_in_block_args;
