@@ -1,5 +1,5 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
-use std::sync::Mutex;
 
 use crate::cop::variable_force::{self, Scope, VariableTable};
 use crate::cop::{Cop, CopConfig};
@@ -9,6 +9,14 @@ use ruby_prism::Visit;
 
 use super::super::variable_force::scope::ScopeKind;
 use super::super::variable_force::variable::DeclarationKind;
+
+// Thread-local storage for per-file context data. Within a rayon task, a single
+// file is processed sequentially: check_source -> VF engine ->
+// before_leaving_scope, so thread-local storage is safe and avoids the
+// TOCTOU race that Mutex fields on the shared cop struct would cause.
+thread_local! {
+    static UNUSED_METHOD_ARG_SKIPS: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
+}
 
 /// Checks for unused method arguments.
 ///
@@ -58,23 +66,17 @@ use super::super::variable_force::variable::DeclarationKind;
 /// VariableForce engine. A minimal `check_source` pass pre-computes which def
 /// scopes should be skipped (empty methods, not-implemented stubs). The VF
 /// `before_leaving_scope` hook then checks each argument variable for usage.
-pub struct UnusedMethodArgument {
-    /// Byte offsets of def nodes whose bodies are empty or raise NotImplementedError.
-    /// Populated by `check_source`, consumed by `before_leaving_scope`.
-    skip_offsets: Mutex<HashSet<usize>>,
-}
+pub struct UnusedMethodArgument;
 
 impl UnusedMethodArgument {
     pub fn new() -> Self {
-        Self {
-            skip_offsets: Mutex::new(HashSet::new()),
-        }
+        Self
     }
 }
 
 impl Default for UnusedMethodArgument {
     fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
@@ -107,7 +109,9 @@ impl Cop for UnusedMethodArgument {
             not_implemented_exceptions,
         };
         collector.visit(&parse_result.node());
-        *self.skip_offsets.lock().unwrap() = collector.offsets;
+        UNUSED_METHOD_ARG_SKIPS.with(|cell| {
+            *cell.borrow_mut() = collector.offsets;
+        });
     }
 
     fn as_variable_force_consumer(&self) -> Option<&dyn variable_force::VariableForceConsumer> {
@@ -130,12 +134,9 @@ impl variable_force::VariableForceConsumer for UnusedMethodArgument {
         }
 
         // Check if this scope should be skipped (empty or not-implemented)
-        if self
-            .skip_offsets
-            .lock()
-            .unwrap()
-            .contains(&scope.node_start_offset)
-        {
+        let should_skip =
+            UNUSED_METHOD_ARG_SKIPS.with(|cell| cell.borrow().contains(&scope.node_start_offset));
+        if should_skip {
             return;
         }
 

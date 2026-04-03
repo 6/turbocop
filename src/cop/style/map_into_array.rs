@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::cell::RefCell;
 
 use crate::cop::variable_force::{self, Scope, VariableTable};
 use crate::cop::{Cop, CopConfig};
@@ -55,23 +55,25 @@ use ruby_prism::Visit;
 /// candidates using VF's complete variable lifetime data. This removed
 /// ~120 lines of manual `contains_binding_call`, `references_variable`,
 /// and `is_local_var_*_write` helpers.
-pub struct MapIntoArray {
-    /// Candidate offenses found by `check_source` pattern matching.
-    /// Validated by `before_leaving_scope` using VF variable data.
-    candidates: Mutex<Vec<Candidate>>,
+pub struct MapIntoArray;
+
+// Thread-local storage for per-file candidate data. Within a rayon task, a single
+// file is processed sequentially: check_source -> VF engine ->
+// before_leaving_scope, so thread-local storage is safe and avoids the
+// TOCTOU race that Mutex fields on the shared cop struct would cause.
+thread_local! {
+    static MAP_INTO_ARRAY_CTX: RefCell<Vec<Candidate>> = const { RefCell::new(Vec::new()) };
 }
 
 impl MapIntoArray {
     pub fn new() -> Self {
-        Self {
-            candidates: Mutex::new(Vec::new()),
-        }
+        Self
     }
 }
 
 impl Default for MapIntoArray {
     fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
@@ -189,7 +191,9 @@ impl Cop for MapIntoArray {
             candidates: Vec::new(),
         };
         finder.visit(&parse_result.node());
-        *self.candidates.lock().unwrap() = finder.candidates;
+        MAP_INTO_ARRAY_CTX.with(|cell| {
+            *cell.borrow_mut() = finder.candidates;
+        });
     }
 
     fn as_variable_force_consumer(&self) -> Option<&dyn variable_force::VariableForceConsumer> {
@@ -206,99 +210,107 @@ impl variable_force::VariableForceConsumer for MapIntoArray {
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        let candidates = self.candidates.lock().unwrap();
-        for candidate in candidates.iter() {
-            // Check if the candidate's variable exists in this scope
-            let var = match scope.variables.get(&candidate.var_name) {
-                Some(v) => v,
-                None => continue,
-            };
+        MAP_INTO_ARRAY_CTX.with(|cell| {
+            let candidates = cell.borrow();
+            for candidate in candidates.iter() {
+                // Check if the candidate's variable exists in this scope
+                let var = match scope.variables.get(&candidate.var_name) {
+                    Some(v) => v,
+                    None => continue,
+                };
 
-            match &candidate.kind {
-                CandidateKind::EachPush {
-                    block_body_start,
-                    block_body_end,
-                } => {
-                    // Check that the variable's init assignment is within this scope
-                    // and matches the expected offset
-                    let has_init = var
-                        .assignments
-                        .iter()
-                        .any(|a| a.node_offset == candidate.init_offset && !a.is_operator());
-                    if !has_init {
-                        continue;
+                match &candidate.kind {
+                    CandidateKind::EachPush {
+                        block_body_start,
+                        block_body_end,
+                    } => {
+                        // Check that the variable's init assignment is within this scope
+                        // and matches the expected offset
+                        let has_init = var
+                            .assignments
+                            .iter()
+                            .any(|a| a.node_offset == candidate.init_offset && !a.is_operator());
+                        if !has_init {
+                            continue;
+                        }
+
+                        // Check no explicit references between init and each offsets
+                        let has_intermediate_ref = var.references.iter().any(|r| {
+                            r.explicit
+                                && r.node_offset > candidate.init_offset
+                                && r.node_offset < candidate.each_offset
+                        });
+                        if has_intermediate_ref {
+                            continue;
+                        }
+
+                        // Check no operator/or/and assignments between init and each
+                        let has_intermediate_operator_assign = var.assignments.iter().any(|a| {
+                            a.is_operator()
+                                && a.node_offset > candidate.init_offset
+                                && a.node_offset < candidate.each_offset
+                        });
+                        if has_intermediate_operator_assign {
+                            continue;
+                        }
+
+                        // Check no implicit references (from binding) within the block body.
+                        // VF's engine adds implicit references when it encounters `binding`
+                        // calls, with the offset of the `binding` call site.
+                        let has_binding_in_block = var.references.iter().any(|r| {
+                            !r.explicit
+                                && r.node_offset >= *block_body_start
+                                && r.node_offset <= *block_body_end
+                        });
+                        if has_binding_in_block {
+                            continue;
+                        }
+
+                        diagnostics.push(
+                            self.diagnostic(
+                                source,
+                                candidate.line,
+                                candidate.column,
+                                "Use `map` instead of `each` to map elements into an array."
+                                    .to_string(),
+                            ),
+                        );
                     }
+                    CandidateKind::TapEachPush {
+                        param_offset,
+                        block_body_start,
+                        block_body_end,
+                    } => {
+                        // Verify this is the right scope: the variable's declaration
+                        // must match the tap block parameter offset.
+                        if var.declaration_offset != *param_offset {
+                            continue;
+                        }
 
-                    // Check no explicit references between init and each offsets
-                    let has_intermediate_ref = var.references.iter().any(|r| {
-                        r.explicit
-                            && r.node_offset > candidate.init_offset
-                            && r.node_offset < candidate.each_offset
-                    });
-                    if has_intermediate_ref {
-                        continue;
+                        // For tap pattern, dest var is a block parameter.
+                        // Only need to check for binding in the each block body.
+                        let has_binding_in_block = var.references.iter().any(|r| {
+                            !r.explicit
+                                && r.node_offset >= *block_body_start
+                                && r.node_offset <= *block_body_end
+                        });
+                        if has_binding_in_block {
+                            continue;
+                        }
+
+                        diagnostics.push(
+                            self.diagnostic(
+                                source,
+                                candidate.line,
+                                candidate.column,
+                                "Use `map` instead of `each` to map elements into an array."
+                                    .to_string(),
+                            ),
+                        );
                     }
-
-                    // Check no operator/or/and assignments between init and each
-                    let has_intermediate_operator_assign = var.assignments.iter().any(|a| {
-                        a.is_operator()
-                            && a.node_offset > candidate.init_offset
-                            && a.node_offset < candidate.each_offset
-                    });
-                    if has_intermediate_operator_assign {
-                        continue;
-                    }
-
-                    // Check no implicit references (from binding) within the block body.
-                    // VF's engine adds implicit references when it encounters `binding`
-                    // calls, with the offset of the `binding` call site.
-                    let has_binding_in_block = var.references.iter().any(|r| {
-                        !r.explicit
-                            && r.node_offset >= *block_body_start
-                            && r.node_offset <= *block_body_end
-                    });
-                    if has_binding_in_block {
-                        continue;
-                    }
-
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        candidate.line,
-                        candidate.column,
-                        "Use `map` instead of `each` to map elements into an array.".to_string(),
-                    ));
-                }
-                CandidateKind::TapEachPush {
-                    param_offset,
-                    block_body_start,
-                    block_body_end,
-                } => {
-                    // Verify this is the right scope: the variable's declaration
-                    // must match the tap block parameter offset.
-                    if var.declaration_offset != *param_offset {
-                        continue;
-                    }
-
-                    // For tap pattern, dest var is a block parameter.
-                    // Only need to check for binding in the each block body.
-                    let has_binding_in_block = var.references.iter().any(|r| {
-                        !r.explicit
-                            && r.node_offset >= *block_body_start
-                            && r.node_offset <= *block_body_end
-                    });
-                    if has_binding_in_block {
-                        continue;
-                    }
-
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        candidate.line,
-                        candidate.column,
-                        "Use `map` instead of `each` to map elements into an array.".to_string(),
-                    ));
                 }
             }
-        }
+        });
     }
 }
 
