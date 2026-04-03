@@ -8,6 +8,8 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
+
 /// Layout/IndentationConsistency checks that the body of each construct
 /// (class, module, def, block, if, unless, case/when, while, until, for, begin)
 /// uses consistent indentation. All statements within a body must start at
@@ -31,6 +33,10 @@ use crate::parse::source::SourceFile;
 ///    the file body through `ProgramNode`, not a standalone top-level
 ///    `StatementsNode`. This missed scripts where one top-level statement is
 ///    indented differently from the next.
+/// 6. Files starting with a UTF-8 BOM made the first top-level statement appear
+///    to start at column 1. That bogus base column cascaded into false positives
+///    for every later top-level sibling (`require`, `module`, `class`, etc.).
+///    This cop now derives display columns that ignore a leading BOM on line 1.
 pub struct IndentationConsistency;
 
 /// Check if a node is a bare access modifier call
@@ -41,6 +47,16 @@ fn is_bare_access_modifier(node: &ruby_prism::Node<'_>) -> bool {
 }
 
 impl IndentationConsistency {
+    fn line_col_for(&self, source: &SourceFile, byte_offset: usize) -> (usize, usize) {
+        let (line, col) = source.offset_to_line_col(byte_offset);
+
+        if line == 1 && byte_offset >= UTF8_BOM.len() && source.as_bytes().starts_with(&UTF8_BOM) {
+            return (line, col.saturating_sub(1));
+        }
+
+        (line, col)
+    }
+
     fn end_line_for(&self, source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {
         let loc = node.location();
         let end_offset = loc.end_offset().saturating_sub(1);
@@ -71,7 +87,7 @@ impl IndentationConsistency {
         }
 
         let (_, access_modifier_column) =
-            source.offset_to_line_col(first_child.location().start_offset());
+            self.line_col_for(source, first_child.location().start_offset());
 
         match parent_column {
             Some(parent_column) => {
@@ -124,7 +140,7 @@ impl IndentationConsistency {
         };
 
         let (kw_line, _) = source.offset_to_line_col(keyword_offset);
-        let (_, parent_column) = source.offset_to_line_col(keyword_offset);
+        let (_, parent_column) = self.line_col_for(source, keyword_offset);
 
         self.check_child_list_consistency(
             source,
@@ -171,7 +187,7 @@ impl IndentationConsistency {
         }
 
         let first_loc = children[0].location();
-        let (first_line, first_col) = source.offset_to_line_col(first_loc.start_offset());
+        let (first_line, first_col) = self.line_col_for(source, first_loc.start_offset());
         let expected_column = base_column.unwrap_or(first_col);
 
         let mut diagnostics = Vec::new();
@@ -188,7 +204,7 @@ impl IndentationConsistency {
 
         for child in &children[1..] {
             let loc = child.location();
-            let (child_line, child_col) = source.offset_to_line_col(loc.start_offset());
+            let (child_line, child_col) = self.line_col_for(source, loc.start_offset());
 
             // Skip semicolon-separated statements on the same line as previous sibling
             if child_line == prev_end_line || child_line == kw_line {
@@ -239,12 +255,12 @@ impl IndentationConsistency {
             }
 
             let first_loc = section[0].location();
-            let (_, first_col) = source.offset_to_line_col(first_loc.start_offset());
+            let (_, first_col) = self.line_col_for(source, first_loc.start_offset());
             let mut prev_end_line = self.end_line_for(source, section[0]);
 
             for child in &section[1..] {
                 let loc = child.location();
-                let (child_line, child_col) = source.offset_to_line_col(loc.start_offset());
+                let (child_line, child_col) = self.line_col_for(source, loc.start_offset());
 
                 // Skip semicolon-separated statements on same line as previous sibling
                 if child_line == prev_end_line {
@@ -530,6 +546,18 @@ mod tests {
         assert_eq!(diags[0].location.line, 3);
         assert_eq!(diags[0].location.column, 0);
         assert_eq!(diags[0].message, "Inconsistent indentation detected.");
+    }
+
+    #[test]
+    fn bom_prefixed_top_level_statements_no_offense() {
+        let source = b"\xef\xbb\xbfrequire 'colorize'\nrequire 'tmpdir'\n\nmodule Dryrun\nend\n";
+        let diags = run_cop_full(&IndentationConsistency, source);
+
+        assert!(
+            diags.is_empty(),
+            "BOM-prefixed top-level statements should not fire: {:?}",
+            diags
+        );
     }
 
     #[test]
