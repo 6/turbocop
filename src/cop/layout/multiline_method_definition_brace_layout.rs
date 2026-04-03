@@ -3,6 +3,8 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+use super::multiline_literal_brace_layout::{self, BracePositions, METHOD_DEFINITION_BRACE};
+
 pub struct MultilineMethodDefinitionBraceLayout;
 
 impl Cop for MultilineMethodDefinitionBraceLayout {
@@ -47,11 +49,6 @@ impl Cop for MultilineMethodDefinitionBraceLayout {
 
         let (open_line, _) = source.offset_to_line_col(lparen_loc.start_offset());
         let (close_line, close_col) = source.offset_to_line_col(rparen_loc.start_offset());
-
-        // Only check multiline parameter lists
-        if open_line == close_line {
-            return;
-        }
 
         // Find the first and last parameter locations
         let mut first_offset: Option<usize> = None;
@@ -157,52 +154,20 @@ impl Cop for MultilineMethodDefinitionBraceLayout {
         let (first_param_line, _) = source.offset_to_line_col(first_off);
         let (last_param_line, _) = source.offset_to_line_col(last_end.saturating_sub(1));
 
-        let open_same_as_first = open_line == first_param_line;
-        let close_same_as_last = close_line == last_param_line;
-
-        match enforced_style {
-            "symmetrical" => {
-                if open_same_as_first && !close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "Closing method definition brace must be on the same line as the last parameter when opening brace is on the same line as the first parameter.".to_string(),
-                    ));
-                }
-                if !open_same_as_first && close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "Closing method definition brace must be on the line after the last parameter when opening brace is on a separate line from the first parameter.".to_string(),
-                    ));
-                }
-            }
-            "new_line" => {
-                if close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "Closing method definition brace must be on the line after the last parameter."
-                            .to_string(),
-                    ));
-                }
-            }
-            "same_line" => {
-                if !close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "Closing method definition brace must be on the same line as the last parameter."
-                            .to_string(),
-                    ));
-                }
-            }
-            _ => {}
-        }
+        multiline_literal_brace_layout::check_brace_layout(
+            self,
+            source,
+            enforced_style,
+            &METHOD_DEFINITION_BRACE,
+            &BracePositions {
+                open_line,
+                close_line,
+                close_col,
+                first_elem_line: first_param_line,
+                last_elem_line: last_param_line,
+            },
+            diagnostics,
+        );
     }
 }
 

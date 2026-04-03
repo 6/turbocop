@@ -3,6 +3,8 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+use super::multiline_literal_brace_layout::{self, BracePositions, METHOD_CALL_BRACE};
+
 /// ## Corpus investigation (2026-03-10)
 ///
 /// Corpus oracle reported FP=0, FN=3.
@@ -77,20 +79,14 @@ impl Cop for MultilineMethodCallBraceLayout {
         }
 
         let last_arg = arg_list.last().unwrap();
-        if last_line_heredoc(source, last_arg) {
+        if multiline_literal_brace_layout::last_line_heredoc(source, last_arg) {
             return;
         }
 
         let (open_line, _) = source.offset_to_line_col(opening.start_offset());
         let (close_line, close_col) = source.offset_to_line_col(closing.start_offset());
 
-        // Only check multiline calls (opening paren to closing paren)
-        if open_line == close_line {
-            return;
-        }
-
         let first_arg = &arg_list[0];
-
         let (first_arg_line, _) = source.offset_to_line_col(first_arg.location().start_offset());
 
         // Compute the effective end of the last argument. In Prism, `&block`
@@ -111,124 +107,21 @@ impl Cop for MultilineMethodCallBraceLayout {
         };
         let (last_arg_line, _) = source.offset_to_line_col(last_arg_end);
 
-        let open_same_as_first = open_line == first_arg_line;
-        let close_same_as_last = close_line == last_arg_line;
-
-        match enforced_style {
-            "symmetrical" => {
-                if open_same_as_first && !close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "Closing method call brace must be on the same line as the last argument when opening brace is on the same line as the first argument.".to_string(),
-                    ));
-                }
-                if !open_same_as_first && close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "Closing method call brace must be on the line after the last argument when opening brace is on a separate line from the first argument.".to_string(),
-                    ));
-                }
-            }
-            "new_line" => {
-                if close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "Closing method call brace must be on the line after the last argument."
-                            .to_string(),
-                    ));
-                }
-            }
-            "same_line" => {
-                if !close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "Closing method call brace must be on the same line as the last argument."
-                            .to_string(),
-                    ));
-                }
-            }
-            _ => {}
-        }
+        multiline_literal_brace_layout::check_brace_layout(
+            self,
+            source,
+            enforced_style,
+            &METHOD_CALL_BRACE,
+            &BracePositions {
+                open_line,
+                close_line,
+                close_col,
+                first_elem_line: first_arg_line,
+                last_elem_line: last_arg_line,
+            },
+            diagnostics,
+        );
     }
-}
-
-fn last_line_heredoc(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
-    use ruby_prism::Visit;
-
-    struct LastLineHeredocDetector<'a> {
-        source: &'a SourceFile,
-        parent_last_line: usize,
-        found: bool,
-    }
-
-    impl LastLineHeredocDetector<'_> {
-        fn visit_heredoc<'pr>(
-            &mut self,
-            opening: Option<ruby_prism::Location<'pr>>,
-            closing: Option<ruby_prism::Location<'pr>>,
-        ) {
-            let Some(opening) = opening else {
-                return;
-            };
-            if self.found || !opening.as_slice().starts_with(b"<<") {
-                return;
-            }
-            let Some(closing) = closing else {
-                return;
-            };
-
-            let end_off = closing
-                .end_offset()
-                .saturating_sub(1)
-                .max(closing.start_offset());
-            let (closing_line, _) = self.source.offset_to_line_col(end_off);
-            if closing_line >= self.parent_last_line {
-                self.found = true;
-            }
-        }
-    }
-
-    impl<'pr> Visit<'pr> for LastLineHeredocDetector<'_> {
-        fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
-            self.visit_heredoc(node.opening_loc(), node.closing_loc());
-            if !self.found {
-                ruby_prism::visit_string_node(self, node);
-            }
-        }
-
-        fn visit_interpolated_string_node(
-            &mut self,
-            node: &ruby_prism::InterpolatedStringNode<'pr>,
-        ) {
-            self.visit_heredoc(node.opening_loc(), node.closing_loc());
-            if !self.found {
-                ruby_prism::visit_interpolated_string_node(self, node);
-            }
-        }
-    }
-
-    let parent_last_line = node_last_line(source, node);
-    let mut detector = LastLineHeredocDetector {
-        source,
-        parent_last_line,
-        found: false,
-    };
-    detector.visit(node);
-    detector.found
-}
-
-fn node_last_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {
-    let loc = node.location();
-    let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
-    source.offset_to_line_col(end_off).0
 }
 
 #[cfg(test)]

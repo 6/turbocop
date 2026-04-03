@@ -3,6 +3,8 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+use super::multiline_literal_brace_layout::{self, ARRAY_BRACE, BracePositions};
+
 /// Layout/MultilineArrayBraceLayout
 ///
 /// ## Investigation findings
@@ -66,102 +68,33 @@ impl Cop for MultilineArrayBraceLayout {
         // Skip arrays where the last element contains a heredoc — the heredoc
         // body forces the closing brace placement and adjusting it would
         // produce invalid code.
-        if contains_heredoc(&last_elem) {
+        if multiline_literal_brace_layout::contains_heredoc(&last_elem) {
             return;
         }
 
         let (open_line, _) = source.offset_to_line_col(opening.start_offset());
         let (close_line, close_col) = source.offset_to_line_col(closing.start_offset());
 
-        // Get first and last element lines
         let first_elem = elements.iter().next().unwrap();
         let (first_elem_line, _) = source.offset_to_line_col(first_elem.location().start_offset());
         let (last_elem_line, _) =
             source.offset_to_line_col(last_elem.location().end_offset().saturating_sub(1));
 
-        // Only check multiline arrays
-        if open_line == close_line {
-            return;
-        }
-
-        let open_same_as_first = open_line == first_elem_line;
-        let close_same_as_last = close_line == last_elem_line;
-
-        match enforced_style {
-            "symmetrical" => {
-                // Opening and closing should be symmetric
-                if open_same_as_first && !close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "The closing array brace must be on the same line as the last array element when the opening brace is on the same line as the first array element.".to_string(),
-                    ));
-                }
-                if !open_same_as_first && close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "The closing array brace must be on the line after the last array element when the opening brace is on a separate line from the first array element.".to_string(),
-                    ));
-                }
-            }
-            "new_line" => {
-                if close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "The closing array brace must be on the line after the last array element."
-                            .to_string(),
-                    ));
-                }
-            }
-            "same_line" => {
-                if !close_same_as_last {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        close_line,
-                        close_col,
-                        "The closing array brace must be on the same line as the last array element."
-                            .to_string(),
-                    ));
-                }
-            }
-            _ => {}
-        }
+        multiline_literal_brace_layout::check_brace_layout(
+            self,
+            source,
+            enforced_style,
+            &ARRAY_BRACE,
+            &BracePositions {
+                open_line,
+                close_line,
+                close_col,
+                first_elem_line,
+                last_elem_line,
+            },
+            diagnostics,
+        );
     }
-}
-
-/// Check if an array element node contains a heredoc string.
-/// Walks into method call receivers/arguments.
-fn contains_heredoc(node: &ruby_prism::Node<'_>) -> bool {
-    if let Some(s) = node.as_interpolated_string_node() {
-        if let Some(open) = s.opening_loc() {
-            return open.as_slice().starts_with(b"<<");
-        }
-    }
-    if let Some(s) = node.as_string_node() {
-        if let Some(open) = s.opening_loc() {
-            return open.as_slice().starts_with(b"<<");
-        }
-    }
-    if let Some(call) = node.as_call_node() {
-        if let Some(recv) = call.receiver() {
-            if contains_heredoc(&recv) {
-                return true;
-            }
-        }
-        if let Some(args) = call.arguments() {
-            for arg in args.arguments().iter() {
-                if contains_heredoc(&arg) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
 }
 
 #[cfg(test)]
