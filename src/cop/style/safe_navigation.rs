@@ -1,3 +1,4 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -198,11 +199,6 @@ impl SafeNavigation {
 
     fn chain_has_dotless_operator(chain: &[ruby_prism::CallNode<'_>]) -> bool {
         chain.iter().any(Self::is_dotless_operator)
-    }
-
-    fn is_safe_navigation_call(call: &ruby_prism::CallNode<'_>) -> bool {
-        call.call_operator_loc()
-            .is_some_and(|operator| operator.as_slice() == b"&.")
     }
 
     fn is_double_colon_call(call: &ruby_prism::CallNode<'_>) -> bool {
@@ -781,7 +777,7 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         let checked_src: Option<&[u8]> = if let Some(call) = condition.as_call_node() {
             let name = call.name().as_slice();
             if name == b"nil?" {
-                if SafeNavigation::is_safe_navigation_call(&call) {
+                if util::is_safe_navigation_call(&call) {
                     ruby_prism::visit_unless_node(self, node);
                     return;
                 }
@@ -875,7 +871,7 @@ impl SafeNavigation {
         let (checked_var_range, body_is_else) = if let Some(call) = condition.as_call_node() {
             let name = call.name().as_slice();
             if name == b"nil?" {
-                if Self::is_safe_navigation_call(&call) {
+                if util::is_safe_navigation_call(&call) {
                     return Vec::new();
                 }
                 // foo.nil? ? nil : foo.bar
@@ -898,7 +894,7 @@ impl SafeNavigation {
                 if let Some(recv) = call.receiver() {
                     if let Some(inner_call) = recv.as_call_node() {
                         if inner_call.name().as_slice() == b"nil?" {
-                            if Self::is_safe_navigation_call(&inner_call) {
+                            if util::is_safe_navigation_call(&inner_call) {
                                 return Vec::new();
                             }
                             // !foo.nil? ? foo.bar : nil
@@ -1092,7 +1088,7 @@ impl SafeNavigation {
         let checked_src: Option<&[u8]> = if let Some(call) = condition.as_call_node() {
             let name = call.name().as_slice();
             if name == b"nil?" {
-                if Self::is_safe_navigation_call(&call) {
+                if util::is_safe_navigation_call(&call) {
                     return Vec::new();
                 }
                 // unless foo.nil? => check foo
@@ -1107,7 +1103,7 @@ impl SafeNavigation {
                 call.receiver().and_then(|r| {
                     if let Some(inner) = r.as_call_node() {
                         if inner.name().as_slice() == b"nil?" {
-                            if Self::is_safe_navigation_call(&inner) {
+                            if util::is_safe_navigation_call(&inner) {
                                 return None;
                             }
                             if is_unless {

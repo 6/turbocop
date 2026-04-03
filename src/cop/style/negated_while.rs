@@ -1,4 +1,5 @@
 use crate::cop::node_type::{CALL_NODE, UNTIL_NODE, WHILE_NODE};
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -61,39 +62,6 @@ fn effective_predicate<'a>(node: ruby_prism::Node<'a>) -> Option<(ruby_prism::No
     Some((current, replace_entire_predicate))
 }
 
-/// Check if a node is a single negation (`!expr` or `not expr`),
-/// excluding double negation (`!!expr`) and safe-navigation `&.!`.
-fn is_single_negation(node: &ruby_prism::Node<'_>) -> bool {
-    if let Some(call) = node.as_call_node() {
-        if call.name().as_slice() == b"!" {
-            // Skip safe-navigation `&.!` — rewriting is problematic
-            if call.call_operator_loc().is_some() {
-                return false;
-            }
-            // Check for double negation: `!!expr`
-            if let Some(recv) = call.receiver() {
-                if let Some(inner_call) = recv.as_call_node() {
-                    if inner_call.name().as_slice() == b"!" {
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }
-    }
-    false
-}
-
-/// Get the inner expression from a negation node (`!expr` → `expr`).
-fn get_negation_inner<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
-    if let Some(call) = node.as_call_node() {
-        if call.name().as_slice() == b"!" {
-            return call.receiver();
-        }
-    }
-    None
-}
-
 /// Add corrections for negated loop: swap keyword and remove negation.
 fn add_negated_loop_corrections(
     cop: &NegatedWhile,
@@ -114,7 +82,7 @@ fn add_negated_loop_corrections(
             cop_index: 0,
         });
         // 2. Replace the negated condition with its inner expression.
-        if let Some(inner) = get_negation_inner(effective_predicate) {
+        if let Some(inner) = util::get_negation_inner(effective_predicate) {
             let inner_src = std::str::from_utf8(inner.location().as_slice())
                 .unwrap_or("")
                 .to_string();
@@ -187,7 +155,7 @@ impl Cop for NegatedWhile {
                 return;
             };
 
-            if is_single_negation(&effective_predicate) {
+            if util::is_single_negation(&effective_predicate) {
                 let (line, column) = source.offset_to_line_col(node.location().start_offset());
                 let mut diag = self.diagnostic(
                     source,
@@ -222,7 +190,7 @@ impl Cop for NegatedWhile {
                 return;
             };
 
-            if is_single_negation(&effective_predicate) {
+            if util::is_single_negation(&effective_predicate) {
                 let (line, column) = source.offset_to_line_col(node.location().start_offset());
                 let mut diag = self.diagnostic(
                     source,

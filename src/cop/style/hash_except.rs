@@ -1,4 +1,5 @@
 use crate::cop::node_type::CALL_NODE;
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -62,7 +63,7 @@ impl Cop for HashExcept {
             None => return,
         };
 
-        if self.is_safe_navigation_call(&predicate_call) {
+        if util::is_safe_navigation_call(&predicate_call) {
             return;
         }
 
@@ -272,11 +273,6 @@ impl HashExcept {
     fn is_lvar_named(&self, node: &ruby_prism::Node<'_>, expected: &[u8]) -> bool {
         node.as_local_variable_read_node()
             .is_some_and(|lvar| lvar.name().as_slice() == expected)
-    }
-
-    fn is_safe_navigation_call(&self, call: &ruby_prism::CallNode<'_>) -> bool {
-        call.call_operator_loc()
-            .is_some_and(|op| op.as_slice() == b"&.")
     }
 
     fn is_range_like(&self, node: &ruby_prism::Node<'_>) -> bool {

@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;
@@ -70,26 +71,8 @@ struct FullTreeWalker<'a> {
 /// RuboCop allows `def obj.method` when the receiver is a variable (local,
 /// instance, class, global), a constant, or a method call. The `self` keyword
 /// is NOT allowed — `def self.method` nested inside another def IS an offense.
-fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
-    let mut current = node;
-    while let Some(paren) = current.as_parentheses_node() {
-        let Some(body) = paren.body() else {
-            break;
-        };
-        if let Some(stmts) = body.as_statements_node() {
-            let body_nodes = stmts.body();
-            if body_nodes.len() == 1 {
-                current = body_nodes.iter().next().unwrap();
-                continue;
-            }
-        }
-        current = body;
-    }
-    current
-}
-
 fn is_allowed_receiver_node(node: ruby_prism::Node<'_>) -> bool {
-    let node = unwrap_parentheses(node);
+    let node = util::unwrap_parentheses(node);
     // Variables: local, instance, class, global, implicit `it`
     if node.as_local_variable_read_node().is_some()
         || node.as_it_local_variable_read_node().is_some()

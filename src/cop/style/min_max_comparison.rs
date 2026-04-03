@@ -1,4 +1,5 @@
 use crate::cop::node_type::IF_NODE;
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -110,29 +111,8 @@ impl Cop for MinMaxComparison {
     }
 }
 
-fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
-    let mut current = node;
-
-    while let Some(paren) = current.as_parentheses_node() {
-        let Some(body) = paren.body() else {
-            break;
-        };
-        let Some(statements) = body.as_statements_node() else {
-            break;
-        };
-        let stmt_body = statements.body();
-        if stmt_body.len() != 1 {
-            break;
-        }
-
-        current = stmt_body.iter().next().unwrap();
-    }
-
-    current
-}
-
 fn extract_comparison_call<'a>(node: ruby_prism::Node<'a>) -> Option<ruby_prism::CallNode<'a>> {
-    unwrap_parentheses(node).as_call_node()
+    util::unwrap_parentheses(node).as_call_node()
 }
 
 fn extract_single_stmt<'a>(
