@@ -1770,6 +1770,10 @@ fn is_single_line_class_or_module(trimmed: &[u8]) -> bool {
 /// - `private def foo` (inline) on the same line
 /// - Standalone `private` or `protected` on any preceding line at the SAME indentation
 ///   scope (without a subsequent `public`)
+/// Deprecated: prefer AST-based visibility tracking using
+/// `access_modifier_predicates::MacroScope` and sibling analysis.
+/// This line-based approach is fragile with heredocs and boolean combinators.
+/// Only remaining consumer: `rails/delegate.rs`.
 pub fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
     let bytes = source.as_bytes();
     let (def_line, def_col) = source.offset_to_line_col(def_offset);
