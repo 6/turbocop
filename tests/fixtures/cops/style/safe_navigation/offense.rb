@@ -128,3 +128,18 @@ end
 
 [zip64 && zip64.compressed_size ? 0xFFFFFFFF : @compressed_size].pack("V")
  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+if handler && (!handler.is_a?(Proc) || (handler.lambda? && handler.arity != 0))
+   ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+if handler && (!handler.is_a?(Proc) || (handler.lambda? && handler.arity != 1))
+   ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+if handler && (!handler.is_a?(Proc) || (handler.lambda? && handler.arity != 2))
+   ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+foo&.bar && foo.bar.baz
+^^^^^^^^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+foo && (foo.bar? || (foo.baz? && foo.quux?))
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
