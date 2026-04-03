@@ -178,7 +178,7 @@ def test_write():
         updated = readme_path.read_text()
         assert "96.0% conformance" in updated
         assert "167k Ruby files" in updated
-        assert "nitrocop supports 14 cops from 6 RuboCop gems." in updated
+        assert "nitrocop supports 14 cops from 7 RuboCop gems." in updated
         assert "Compared with RuboCop on [**500 open-source repos**](docs/corpus.md) (167k Ruby files)." in updated
         assert "96.0% of compared issue reports matched (4.9M of 5.1M). 6 of 14 cops matched exactly; 4 differed; 4 had no corpus data." in updated
         assert "\"Matched exactly\" means nitrocop produced no extra issues and missed no issues for that cop anywhere in the corpus." in updated

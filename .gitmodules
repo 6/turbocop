@@ -19,3 +19,6 @@
 [submodule "vendor/rubocop-ast"]
 	path = vendor/rubocop-ast
 	url = https://github.com/rubocop/rubocop-ast.git
+[submodule "vendor/rubocop-rake"]
+	path = vendor/rubocop-rake
+	url = https://github.com/rubocop/rubocop-rake.git
