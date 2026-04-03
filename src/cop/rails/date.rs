@@ -10,7 +10,7 @@ use crate::parse::source::SourceFile;
 ///
 /// FP=4: All 4 FPs from ecleel/hijri repo — `Hijri::Date.today` and `Hijri::DateTime.now`.
 /// RuboCop's NodePattern matches `(const {nil? cbase} :Date)` which only accepts bare `Date`
-/// or `::Date`, not qualified paths like `Hijri::Date`. Fixed by replacing `constant_name()`
+/// or `::Date`, not qualified paths like `Hijri::Date`. Fixed by replacing `constant_short_name()`
 /// (which returns the terminal name) with `is_simple_constant()` which validates the full path.
 ///
 /// FN=1: netzke/netzke-basepack — `to_time_in_current_zone` deprecated method was not detected.

@@ -45,7 +45,7 @@ impl Cop for HooksBeforeExamples {
         // Check for example group calls (including ::RSpec.describe), but
         // exclude shared groups to match RuboCop's ExampleGroups scope.
         let is_example_group = if let Some(recv) = call.receiver() {
-            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
                 && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name) && !is_shared_group(method_name)

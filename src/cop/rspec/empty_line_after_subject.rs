@@ -162,7 +162,7 @@ fn is_spec_group_call(node: &ruby_prism::Node<'_>) -> bool {
 
     let name = call.name().as_slice();
     if let Some(recv) = call.receiver() {
-        constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+        constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
             && (is_rspec_example_group(name) || is_rspec_shared_group(name))
     } else {
         is_rspec_example_group(name) || is_rspec_shared_group(name)

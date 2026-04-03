@@ -63,7 +63,7 @@ impl Cop for SharedExamples {
 
         // Check for RSpec.shared_examples / RSpec.shared_context etc. as well
         let is_shared = if let Some(recv) = call.receiver() {
-            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
                 && (method_name == b"shared_examples"
                     || method_name == b"shared_examples_for"
                     || method_name == b"shared_context")

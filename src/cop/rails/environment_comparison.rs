@@ -20,7 +20,7 @@ fn is_rails_env(node: &ruby_prism::Node<'_>) -> bool {
         None => return false,
     };
     // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
-    constant_predicates::constant_name(&recv) == Some(b"Rails")
+    constant_predicates::constant_short_name(&recv) == Some(b"Rails")
 }
 
 /// Check if a node is a string or symbol literal.

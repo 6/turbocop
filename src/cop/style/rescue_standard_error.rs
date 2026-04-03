@@ -20,7 +20,7 @@ fn check_rescue_node(
             // Handle both ConstantReadNode and constant_path_node (e.g. ::StandardError)
             if exceptions.len() == 1 {
                 if let Some(name) =
-                    crate::cop::shared::constant_predicates::constant_name(&exceptions[0])
+                    crate::cop::shared::constant_predicates::constant_short_name(&exceptions[0])
                 {
                     if name == b"StandardError" {
                         let kw_loc = rescue_node.keyword_loc();

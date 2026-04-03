@@ -87,7 +87,7 @@ impl UnknownEnv {
         };
 
         // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
-        if constant_predicates::constant_name(&inner_recv) != Some(b"Rails") {
+        if constant_predicates::constant_short_name(&inner_recv) != Some(b"Rails") {
             return;
         }
 
@@ -197,7 +197,7 @@ impl UnknownEnv {
             Some(r) => r,
             None => return false,
         };
-        constant_predicates::constant_name(&recv) == Some(b"Rails")
+        constant_predicates::constant_short_name(&recv) == Some(b"Rails")
     }
 }
 

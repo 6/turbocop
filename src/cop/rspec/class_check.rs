@@ -48,7 +48,7 @@ impl Cop for ClassCheck {
                     // Must not have a non-expect-chain receiver (skip Foo.be_kind_of)
                     if let Some(recv) = call.receiver() {
                         if recv.as_call_node().is_none()
-                            && constant_predicates::constant_name(&recv).is_some()
+                            && constant_predicates::constant_short_name(&recv).is_some()
                         {
                             return;
                         }
@@ -70,7 +70,7 @@ impl Cop for ClassCheck {
                 if method == b"be_a" || method == b"be_an" {
                     if let Some(recv) = call.receiver() {
                         if recv.as_call_node().is_none()
-                            && constant_predicates::constant_name(&recv).is_some()
+                            && constant_predicates::constant_short_name(&recv).is_some()
                         {
                             return;
                         }

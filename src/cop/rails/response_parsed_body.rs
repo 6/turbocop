@@ -92,7 +92,7 @@ impl Cop for ResponseParsedBody {
         };
 
         // Check for JSON.parse(response.body)
-        if constant_predicates::constant_name(&recv) == Some(b"JSON") {
+        if constant_predicates::constant_short_name(&recv) == Some(b"JSON") {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(
@@ -109,7 +109,7 @@ impl Cop for ResponseParsedBody {
                 let name_bytes = name.as_slice();
                 if name_bytes == b"HTML" || name_bytes == b"HTML5" {
                     if let Some(parent) = cp.parent() {
-                        if constant_predicates::constant_name(&parent) == Some(b"Nokogiri") {
+                        if constant_predicates::constant_short_name(&parent) == Some(b"Nokogiri") {
                             let const_name = std::str::from_utf8(name_bytes).unwrap_or("HTML");
                             let loc = node.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());

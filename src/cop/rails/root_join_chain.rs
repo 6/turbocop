@@ -86,7 +86,7 @@ fn chain_starts_with_rails_root(call: ruby_prism::CallNode<'_>) -> bool {
         // Check if this is Rails.root or Rails.public_path
         if recv_call.name().as_slice() == b"root" || recv_call.name().as_slice() == b"public_path" {
             if let Some(r) = recv_call.receiver() {
-                return constant_predicates::constant_name(&r) == Some(b"Rails");
+                return constant_predicates::constant_short_name(&r) == Some(b"Rails");
             }
         }
     }

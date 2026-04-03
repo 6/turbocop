@@ -37,7 +37,7 @@ use crate::parse::source::SourceFile;
 /// ## Investigation findings (2026-03-16)
 ///
 /// **FP root cause**: `is_rails_root` and `File.join` receiver check used
-/// `constant_predicates::constant_name()` which only compares the last segment of a constant path.
+/// `constant_predicates::constant_short_name()` which only compares the last segment of a constant path.
 /// `SomeModule::Rails.root` and `SomeModule::File.join(...)` were incorrectly matched
 /// as `Rails.root` and `File.join`. RuboCop's pattern `(const {nil? cbase} :Rails)`
 /// requires the constant to be top-level (bare or `::` prefixed). Added
@@ -134,7 +134,7 @@ fn is_rails_root(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
         if call.name().as_slice() == b"root" {
             if let Some(recv) = call.receiver() {
-                return constant_predicates::constant_name(&recv) == Some(b"Rails")
+                return constant_predicates::constant_short_name(&recv) == Some(b"Rails")
                     && is_top_level_constant(&recv);
             }
         }
@@ -260,7 +260,7 @@ fn string_contains_slash(node: &ruby_prism::Node<'_>) -> bool {
 /// Check if a node is a constant (not Rails).
 fn is_non_rails_constant(node: &ruby_prism::Node<'_>) -> bool {
     (node.as_constant_read_node().is_some() || node.as_constant_path_node().is_some())
-        && constant_predicates::constant_name(node) != Some(b"Rails")
+        && constant_predicates::constant_short_name(node) != Some(b"Rails")
 }
 
 impl Cop for FilePath {
@@ -321,7 +321,7 @@ impl Cop for FilePath {
             None => return,
         };
 
-        if constant_predicates::constant_name(&recv) == Some(b"File")
+        if constant_predicates::constant_short_name(&recv) == Some(b"File")
             && is_top_level_constant(&recv)
         {
             // Pattern 1: File.join(Rails.root, ...) — receiver is File or ::File constant

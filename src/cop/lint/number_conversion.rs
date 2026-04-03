@@ -47,7 +47,7 @@ use crate::parse::source::SourceFile;
 /// Corpus oracle reported FP=0, FN=11.
 ///
 /// FN=11: All from DataDog/dd-trace-rb using `Core::Utils::Time.now.to_i`.
-/// `is_ignored_class` used `constant_name()` which returns just the last
+/// `is_ignored_class` used `constant_short_name()` which returns just the last
 /// segment "Time" from `Core::Utils::Time`, matching the default IgnoredClasses
 /// ["Time", "DateTime"]. But RuboCop uses `const_name` which returns the full
 /// qualified name "Core::Utils::Time" — this does NOT match "Time" so it's

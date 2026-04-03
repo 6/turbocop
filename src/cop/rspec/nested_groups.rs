@@ -184,14 +184,14 @@ impl NestedGroups {
         let is_shared_group = if call.receiver().is_none() {
             is_rspec_shared_group(method_name)
         } else {
-            constant_predicates::constant_name(&call.receiver().unwrap())
+            constant_predicates::constant_short_name(&call.receiver().unwrap())
                 .is_some_and(|n| n == b"RSpec")
                 && is_rspec_shared_group(method_name)
         };
         let is_example_group = if is_shared_group {
             false
         } else if let Some(recv) = call.receiver() {
-            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
                 && is_rspec_example_group(method_name)
         } else {
             is_rspec_example_group(method_name)
@@ -274,7 +274,7 @@ impl NestingVisitor<'_> {
         let is_shared = if call.receiver().is_none() {
             is_rspec_shared_group(method_name)
         } else {
-            constant_predicates::constant_name(&call.receiver().unwrap())
+            constant_predicates::constant_short_name(&call.receiver().unwrap())
                 .is_some_and(|n| n == b"RSpec")
                 && is_rspec_shared_group(method_name)
         };
@@ -290,7 +290,7 @@ impl NestingVisitor<'_> {
             // Example groups with or without RSpec receiver count toward nesting.
             // RuboCop's `example_group?` matches both `context do` and `RSpec.describe do`.
             let is_example_group = if let Some(recv) = call.receiver() {
-                constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
                     && is_rspec_example_group(method_name)
             } else {
                 is_rspec_example_group(method_name)

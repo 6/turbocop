@@ -43,7 +43,7 @@ impl Cop for I18nLocaleAssignment {
         };
 
         // Handle both ConstantReadNode (I18n) and ConstantPathNode (::I18n)
-        if constant_predicates::constant_name(&recv) != Some(b"I18n") {
+        if constant_predicates::constant_short_name(&recv) != Some(b"I18n") {
             return;
         }
 

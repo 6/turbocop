@@ -3,7 +3,7 @@
 /// Investigation findings:
 /// - FN root cause: nitrocop only checked `escape` and `unescape`, but RuboCop also checks
 ///   `encode` and `decode`. Added all four methods.
-/// - FP root cause: `constant_name()` returns just the final segment (e.g., `URI`) for qualified
+/// - FP root cause: `constant_short_name()` returns just the final segment (e.g., `URI`) for qualified
 ///   paths like `SomeModule::URI`, causing false matches. RuboCop's NodePattern requires the
 ///   receiver to be `(const nil :URI)` (unqualified) or `(const cbase :URI)` (top-level `::URI`).
 ///   Fixed by checking that ConstantPathNode has no parent (for `::URI`) or that the receiver is

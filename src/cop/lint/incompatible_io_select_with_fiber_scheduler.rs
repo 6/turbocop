@@ -1,4 +1,4 @@
-use crate::cop::shared::constant_predicates::is_simple_constant;
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::{ARRAY_NODE, CALL_NODE, NIL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -9,7 +9,7 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Investigation findings
 ///
-/// FP fix (2026-03-31): the old receiver check used `constant_name()`, which only
+/// FP fix (2026-03-31): the old receiver check used `constant_short_name()`, which only
 /// compares the final constant segment. That incorrectly treated namespaced
 /// receivers like `LightIO::Library::IO.select(...)` and `LightIO::IO.select(...)`
 /// as top-level `IO.select(...)`. RuboCop only matches bare `IO` / `::IO`, so this
@@ -52,7 +52,7 @@ impl Cop for IncompatibleIoSelectWithFiberScheduler {
             None => return,
         };
 
-        if !is_simple_constant(&receiver, b"IO") {
+        if !constant_predicates::is_simple_constant(&receiver, b"IO") {
             return;
         }
 

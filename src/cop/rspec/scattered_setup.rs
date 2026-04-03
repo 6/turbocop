@@ -189,7 +189,8 @@ impl<'a> HookCollector<'a> {
         if call.receiver().is_some() {
             // Receiverful RSpec group/shared-group declarations are scope changes.
             if let Some(recv) = call.receiver() {
-                return constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                return constant_predicates::constant_short_name(&recv)
+                    .is_some_and(|n| n == b"RSpec")
                     && (is_rspec_example_group(name) || is_rspec_shared_group(name));
             }
             return false;
@@ -316,7 +317,7 @@ impl Cop for ScatteredSetup {
         // Only trigger for example groups, NOT shared groups
         // RuboCop's example_group? matcher uses ExampleGroups.all which excludes SharedGroups
         let is_example_group = if let Some(recv) = call.receiver() {
-            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
                 && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name) && !is_rspec_shared_group(method_name)

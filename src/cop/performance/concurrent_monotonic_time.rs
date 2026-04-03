@@ -1,5 +1,5 @@
 // Handles both as_constant_read_node and as_constant_path_node (qualified constants like ::Concurrent)
-use crate::cop::shared::constant_predicates::constant_name;
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -43,7 +43,7 @@ impl Cop for ConcurrentMonotonicTime {
             None => return,
         };
 
-        let recv_name = match constant_name(&receiver) {
+        let recv_name = match constant_predicates::constant_short_name(&receiver) {
             Some(n) => n,
             None => return,
         };

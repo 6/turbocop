@@ -239,7 +239,7 @@ impl<'pr> Visit<'pr> for HelperCollector {
         //   (block (send nil? #Includes.all ...) ...)
         if has_block {
             let is_scope_boundary = if let Some(recv) = node.receiver() {
-                constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
                     && (is_rspec_example_group(method_name) || is_rspec_shared_group(method_name))
             } else {
                 is_rspec_example_group(method_name)
@@ -287,7 +287,7 @@ impl<'a> MemoizedHelperVisitor<'a> {
     fn is_example_group_call(&self, call: &ruby_prism::CallNode<'_>) -> bool {
         let method_name = call.name().as_slice();
         if let Some(recv) = call.receiver() {
-            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
                 && (is_rspec_example_group(method_name) || is_rspec_shared_group(method_name))
         } else {
             is_rspec_example_group(method_name)

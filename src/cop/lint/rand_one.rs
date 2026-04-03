@@ -1,4 +1,4 @@
-use crate::cop::shared::constant_predicates::constant_name;
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::{CALL_NODE, FLOAT_NODE, INTEGER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -39,7 +39,7 @@ impl Cop for RandOne {
 
         // Must be receiverless or Kernel.rand
         if let Some(recv) = call.receiver() {
-            match constant_name(&recv) {
+            match constant_predicates::constant_short_name(&recv) {
                 Some(name) if name == b"Kernel" => {}
                 _ => return,
             }

@@ -42,7 +42,7 @@ impl Cop for TimeZoneAssignment {
             None => return,
         };
         // Handle both ConstantReadNode (Time) and ConstantPathNode (::Time)
-        if constant_predicates::constant_name(&recv) != Some(b"Time") {
+        if constant_predicates::constant_short_name(&recv) != Some(b"Time") {
             return;
         }
 

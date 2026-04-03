@@ -20,7 +20,7 @@
 /// Corpus oracle reported FP=5, FN=0.
 ///
 /// FP fixes:
-/// - `constant_name()` matched only the final segment, so `Custom::File.exists?`
+/// - `constant_short_name()` matched only the final segment, so `Custom::File.exists?`
 ///   was incorrectly treated as `File.exists?`. Restrict bare constant receivers
 ///   to `File`, `Dir`, `ENV`, and `Socket`, with optional leading `::`.
 /// - `ENV.clone` / `ENV.dup` / `ENV.freeze` were flagged even when arguments

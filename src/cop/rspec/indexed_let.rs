@@ -71,7 +71,7 @@ impl Cop for IndexedLet {
 
         let method_name = call.name().as_slice();
         let is_group = if let Some(recv) = call.receiver() {
-            crate::cop::shared::constant_predicates::constant_name(&recv)
+            crate::cop::shared::constant_predicates::constant_short_name(&recv)
                 .is_some_and(|n| n == b"RSpec")
                 && is_rspec_example_group(method_name)
         } else {

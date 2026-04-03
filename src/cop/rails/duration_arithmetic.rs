@@ -41,7 +41,7 @@ fn is_time_current(node: &ruby_prism::Node<'_>) -> bool {
 
     // Pattern 1: Time.current or ::Time.current
     if method == b"current" {
-        return constant_predicates::constant_name(&recv) == Some(b"Time");
+        return constant_predicates::constant_short_name(&recv) == Some(b"Time");
     }
 
     // Pattern 2: Time.zone.now or ::Time.zone.now
@@ -49,7 +49,7 @@ fn is_time_current(node: &ruby_prism::Node<'_>) -> bool {
         if let Some(zone_call) = recv.as_call_node() {
             if zone_call.name().as_slice() == b"zone" {
                 if let Some(time_recv) = zone_call.receiver() {
-                    return constant_predicates::constant_name(&time_recv) == Some(b"Time");
+                    return constant_predicates::constant_short_name(&time_recv) == Some(b"Time");
                 }
             }
         }

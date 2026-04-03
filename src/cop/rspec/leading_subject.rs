@@ -240,9 +240,10 @@ impl LeadingSubject {
 
                 // Handle calls with receiver (e.g. RSpec.describe, items.each)
                 if c.receiver().is_some() {
-                    let is_rspec_group = constant_predicates::constant_name(&c.receiver().unwrap())
-                        .is_some_and(|n| n == b"RSpec")
-                        && is_rspec_example_group(name);
+                    let is_rspec_group =
+                        constant_predicates::constant_short_name(&c.receiver().unwrap())
+                            .is_some_and(|n| n == b"RSpec")
+                            && is_rspec_example_group(name);
                     if is_rspec_group {
                         // Recurse into RSpec.describe / RSpec.shared_examples_for / etc.
                         self.check_block_body(source, &stmt, diagnostics);
@@ -448,7 +449,7 @@ fn is_spec_group_call(node: &ruby_prism::Node<'_>) -> bool {
     let name = call.name().as_slice();
     if let Some(recv) = call.receiver() {
         // RSpec.describe, RSpec.shared_examples_for, RSpec.shared_context, RSpec.feature, etc.
-        constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+        constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
             && is_rspec_example_group(name)
     } else {
         is_rspec_example_group(name)
@@ -474,7 +475,7 @@ fn direct_offending_name<'pr>(node: &ruby_prism::Node<'pr>) -> Option<&'pr [u8]>
     let name = call.name().as_slice();
 
     if let Some(recv) = call.receiver() {
-        let is_rspec_group = constant_predicates::constant_name(&recv)
+        let is_rspec_group = constant_predicates::constant_short_name(&recv)
             .is_some_and(|n| n == b"RSpec")
             && is_rspec_example_group(name)
             && call.block().is_some_and(|b| b.as_block_node().is_some());

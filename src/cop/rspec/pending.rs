@@ -54,7 +54,9 @@ const REGULAR_EXAMPLES: &[&[u8]] = &[b"example", b"it", b"its", b"scenario", b"s
 fn has_rspec_or_nil_receiver(call: &ruby_prism::CallNode<'_>) -> bool {
     match call.receiver() {
         None => true,
-        Some(recv) => constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec"),
+        Some(recv) => {
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
+        }
     }
 }
 

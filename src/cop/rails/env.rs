@@ -95,7 +95,7 @@ impl EnvVisitor<'_> {
         if let Some(call) = node.as_call_node() {
             if call.name().as_slice() == b"env" {
                 if let Some(recv) = call.receiver() {
-                    return constant_predicates::constant_name(&recv) == Some(b"Rails");
+                    return constant_predicates::constant_short_name(&recv) == Some(b"Rails");
                 }
             }
         }

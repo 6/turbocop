@@ -35,7 +35,7 @@ use crate::parse::source::SourceFile;
 ///    `def it.attached? = true` because the wrapped subject is still a call/const/variable.
 ///    Fix: unwrap single-expression parens and treat `ItLocalVariableReadNode` as allowed.
 /// 6. **FN (qualified constructor paths, 2026-03-28):** `is_scope_creating_call` used
-///    `constant_name()`, which only returns the last constant segment. That incorrectly
+///    `constant_short_name()`, which only returns the last constant segment. That incorrectly
 ///    treated `Object::Module.new` as `Module.new`, suppressing real offenses like
 ///    nested `def self.session` in the SugarCRM corpus. Fix: require a simple/top-level
 ///    constant via `constant_predicates::is_simple_constant()`, so only `Module.new`, `::Module.new`,

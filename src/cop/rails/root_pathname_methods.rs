@@ -194,7 +194,7 @@ impl Cop for RootPathnameMethods {
             None => return,
         };
 
-        let recv_name = constant_predicates::constant_name(&recv);
+        let recv_name = constant_predicates::constant_short_name(&recv);
         let is_relevant = match recv_name {
             Some(b"File") | Some(b"IO") => FILE_METHODS.contains(&method_name),
             Some(b"Dir") => DIR_METHODS.contains(&method_name),
@@ -366,7 +366,7 @@ fn rails_root_method_from_node(node: &ruby_prism::Node<'_>) -> Option<&'static s
         _ => return None,
     };
     let recv = call.receiver()?;
-    if constant_predicates::constant_name(&recv) == Some(b"Rails") {
+    if constant_predicates::constant_short_name(&recv) == Some(b"Rails") {
         Some(label)
     } else {
         None

@@ -1,4 +1,4 @@
-use crate::cop::shared::constant_predicates::full_constant_path;
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::CLASS_NODE;
 use crate::cop::shared::util::parent_class_name;
 use crate::cop::{Cop, CopConfig};
@@ -39,7 +39,7 @@ impl Cop for ApplicationJob {
             None => return,
         };
 
-        let class_name = full_constant_path(source, &class.constant_path());
+        let class_name = constant_predicates::full_constant_path(source, &class.constant_path());
         if class_name == b"ApplicationJob" {
             return;
         }

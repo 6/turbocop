@@ -65,7 +65,7 @@ impl Cop for LetBeforeExamples {
         // `example_group_with_body?` only matches ExampleGroups (describe/context/feature),
         // not SharedGroups, so let ordering inside shared_examples is allowed.
         let is_example_group = if let Some(recv) = call.receiver() {
-            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
                 && is_rspec_example_group(method_name)
                 && !is_shared_group(method_name)
         } else {

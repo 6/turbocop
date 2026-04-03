@@ -61,7 +61,7 @@ impl Cop for ExcessiveDocstringSpacing {
 
         // Must be receiverless or RSpec.describe / ::RSpec.describe
         if let Some(recv) = call.receiver() {
-            if constant_predicates::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+            if constant_predicates::constant_short_name(&recv).is_none_or(|n| n != b"RSpec") {
                 return;
             }
         }

@@ -74,7 +74,7 @@ impl Cop for RootPublicPath {
             Some(r) => r,
             None => return,
         };
-        if constant_predicates::constant_name(&rails_recv) != Some(b"Rails") {
+        if constant_predicates::constant_short_name(&rails_recv) != Some(b"Rails") {
             return;
         }
 

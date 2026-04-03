@@ -110,7 +110,7 @@ impl Cop for ContextWording {
 
         // Receiver must be nil or RSpec constant
         if let Some(recv) = call.receiver() {
-            if constant_predicates::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+            if constant_predicates::constant_short_name(&recv).is_none_or(|n| n != b"RSpec") {
                 return;
             }
         }

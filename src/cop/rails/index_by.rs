@@ -427,7 +427,7 @@ impl Cop for IndexBy {
         // Pattern 4: Hash[items.map { |e| [key, e] }]  (also: numbered/it params)
         if call.name().as_slice() == b"[]" {
             if let Some(recv) = call.receiver() {
-                if constant_predicates::constant_name(&recv) == Some(b"Hash") {
+                if constant_predicates::constant_short_name(&recv) == Some(b"Hash") {
                     if let Some(args) = call.arguments() {
                         let arg_list: Vec<_> = args.arguments().iter().collect();
                         if arg_list.len() == 1 {

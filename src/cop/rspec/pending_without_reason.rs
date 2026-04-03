@@ -275,7 +275,7 @@ fn is_non_shared_example_group_method(name: &[u8]) -> bool {
 
 fn is_explicit_rspec_receiver(receiver: Option<ruby_prism::Node<'_>>) -> bool {
     receiver.is_some_and(|recv| {
-        constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+        constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
     })
 }
 

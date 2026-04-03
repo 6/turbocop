@@ -125,7 +125,7 @@ impl<'a> EmptyGroupVisitor<'a> {
     fn is_example_group_call(&self, call: &ruby_prism::CallNode<'_>) -> bool {
         let method_name = call.name().as_slice();
         if let Some(recv) = call.receiver() {
-            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
                 && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)

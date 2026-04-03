@@ -69,7 +69,7 @@ impl Cop for MissingExampleGroupArgument {
         let is_rspec_call = if call.receiver().is_none() {
             true
         } else if let Some(recv) = call.receiver() {
-            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
         } else {
             false
         };

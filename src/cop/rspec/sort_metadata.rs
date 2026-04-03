@@ -96,7 +96,7 @@ impl Cop for SortMetadata {
         }
 
         if let Some(recv) = call.receiver() {
-            if constant_predicates::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+            if constant_predicates::constant_short_name(&recv).is_none_or(|n| n != b"RSpec") {
                 return;
             }
         }
@@ -246,7 +246,7 @@ impl SortMetadata {
             Some(r) => r,
             None => return,
         };
-        if constant_predicates::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+        if constant_predicates::constant_short_name(&recv).is_none_or(|n| n != b"RSpec") {
             return;
         }
 

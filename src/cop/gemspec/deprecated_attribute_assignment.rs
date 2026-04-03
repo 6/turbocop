@@ -108,7 +108,7 @@ impl GemspecVisitor<'_> {
             Some(parent) => parent,
             None => return false,
         };
-        constant_predicates::constant_name(&parent) == Some(b"Gem")
+        constant_predicates::constant_short_name(&parent) == Some(b"Gem")
     }
 }
 

@@ -37,7 +37,7 @@ fn is_rails_env_check(node: &ruby_prism::Node<'_>, env_method: &[u8]) -> bool {
     };
 
     // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
-    constant_predicates::constant_name(&rails_recv) == Some(b"Rails")
+    constant_predicates::constant_short_name(&rails_recv) == Some(b"Rails")
 }
 
 impl Cop for EnvLocal {

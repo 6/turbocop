@@ -52,7 +52,7 @@ impl Cop for Exit {
         // Check receiver: must be nil, Kernel, or Process
         if let Some(receiver) = call.receiver() {
             let is_allowed_receiver =
-                if let Some(name) = constant_predicates::constant_name(&receiver) {
+                if let Some(name) = constant_predicates::constant_short_name(&receiver) {
                     EXPLICIT_RECEIVERS.contains(&name)
                 } else {
                     false

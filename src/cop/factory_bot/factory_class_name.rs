@@ -105,7 +105,7 @@ impl Cop for FactoryClassName {
                 };
 
                 // Skip allowed constants (last segment check)
-                let last_segment = constant_predicates::constant_name(&value);
+                let last_segment = constant_predicates::constant_short_name(&value);
                 if let Some(name) = last_segment {
                     if ALLOWED_CONSTANTS.contains(&name) {
                         continue;

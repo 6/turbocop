@@ -110,7 +110,7 @@ impl<'pr> Visit<'pr> for ImplicitBlockVisitor<'_> {
             name == b"describe"
                 && node
                     .receiver()
-                    .and_then(|r| constant_predicates::constant_name(&r))
+                    .and_then(|r| constant_predicates::constant_short_name(&r))
                     .is_some_and(|n| n == b"RSpec")
         };
         if is_example_group {

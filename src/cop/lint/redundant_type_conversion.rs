@@ -13,12 +13,12 @@ use crate::parse::source::SourceFile;
 ///
 /// ## Investigation findings
 ///
-/// FP fix: `is_constructor` and `is_kernel_method` used `constant_name()` which
+/// FP fix: `is_constructor` and `is_kernel_method` used `constant_short_name()` which
 /// returns the last segment for both `ConstantReadNode` (bare `Array`) and
 /// `ConstantPathNode` (qualified `Native::Array`). This caused false positives
 /// for qualified paths like `Native::Array.new(x).to_a` since `Native::Array`
 /// is not Ruby's `Array`. Fixed by checking `as_constant_read_node()` directly
-/// instead of using `constant_name()`, so only bare constants match.
+/// instead of using `constant_short_name()`, so only bare constants match.
 ///
 /// FN fix: Missing `to_json` as a typed method that always returns a String.
 /// RuboCop's `TYPED_METHODS` maps `to_s` to `[:inspect, :to_json]`, but we

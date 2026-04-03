@@ -27,7 +27,7 @@ use crate::parse::source::SourceFile;
 /// - `Foo::Bar`    → `Some(b"Bar")`
 /// - `::Foo::Bar`  → `Some(b"Bar")`
 /// - `foo`         → `None`
-pub fn constant_name<'a>(node: &ruby_prism::Node<'a>) -> Option<&'a [u8]> {
+pub fn constant_short_name<'a>(node: &ruby_prism::Node<'a>) -> Option<&'a [u8]> {
     if let Some(const_read) = node.as_constant_read_node() {
         Some(const_read.name().as_slice())
     } else if let Some(const_path) = node.as_constant_path_node() {
@@ -143,33 +143,33 @@ mod tests {
         f(&node);
     }
 
-    // ── constant_name ────────────────────────────────────────────────────
+    // ── constant_short_name ────────────────────────────────────────────────────
 
     #[test]
-    fn test_constant_name_simple() {
+    fn test_constant_short_name_simple() {
         with_first_node("Foo", |node| {
-            assert_eq!(constant_name(node), Some(b"Foo" as &[u8]));
+            assert_eq!(constant_short_name(node), Some(b"Foo" as &[u8]));
         });
     }
 
     #[test]
-    fn test_constant_name_qualified() {
+    fn test_constant_short_name_qualified() {
         with_first_node("Foo::Bar", |node| {
-            assert_eq!(constant_name(node), Some(b"Bar" as &[u8]));
+            assert_eq!(constant_short_name(node), Some(b"Bar" as &[u8]));
         });
     }
 
     #[test]
-    fn test_constant_name_absolute() {
+    fn test_constant_short_name_absolute() {
         with_first_node("::Foo::Bar", |node| {
-            assert_eq!(constant_name(node), Some(b"Bar" as &[u8]));
+            assert_eq!(constant_short_name(node), Some(b"Bar" as &[u8]));
         });
     }
 
     #[test]
-    fn test_constant_name_non_constant() {
+    fn test_constant_short_name_non_constant() {
         with_first_node("foo", |node| {
-            assert_eq!(constant_name(node), None);
+            assert_eq!(constant_short_name(node), None);
         });
     }
 

@@ -11,7 +11,7 @@
 //! "identity" (passes through unchanged) vs the "transform" (is modified).
 
 use crate::cop::Cop;
-use crate::cop::shared::constant_predicates::is_simple_constant;
+use crate::cop::shared::constant_predicates;
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
@@ -241,7 +241,7 @@ fn check_hash_brackets_map(
         Some(r) => r,
         None => return,
     };
-    if !is_simple_constant(&receiver, b"Hash") {
+    if !constant_predicates::is_simple_constant(&receiver, b"Hash") {
         return;
     }
 
