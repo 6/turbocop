@@ -2,6 +2,9 @@ do_something if x
 
 do_something unless x
 
+# Another statement on the same line — RuboCop skips long modifier forms here
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa if condition; bar
+
 if x
   do_something
 else
@@ -53,6 +56,11 @@ end
 # Body with EOL comment should not suggest modifier
 unless a
   b # A comment
+end
+
+# Long comment on condition line would make the modifier form too long
+unless @values[item.key] # this is important to not verify if there already is a value there
+  item.verify_block.call(item.default_value)
 end
 
 # Comment before end should not suggest modifier
@@ -161,4 +169,28 @@ end
 unless some_long_condition ||
        another_condition
   do_something
+end
+
+# Pattern matching guards should not be flagged — they are part of case/in syntax
+case element.name
+in "a" if element.children.any? { |c| c.text? }
+  extract(element)
+end
+
+case url
+in _, ("facebook.com" | "fb.com"), username, *rest unless username.in?(["admin"])
+  process(username)
+end
+
+# Tab-indented: modifier form with tab expansion exceeds MaxLineLength (120)
+# 3 tabs = 3 bytes but visual width is 6 (with IndentationWidth 2)
+# modifier_len = 6 + 59 + 1 + 2 + 1 + 53 = 122 > 120
+			if ["SQ"].include?(params[:invoice_type]) && item_idd !=0
+				invoiceDetails_quantity = getIssueEstimatedHoursXY(item_idd)
+			end
+
+# rubocop:disable for OTHER cops should be counted in modifier form length
+# The comment carries over to the modifier form, making the line too long
+if (log_state == 'newCall' && cause != 'forwarded') || log_to_comment == 'voicemail' # rubocop:disable Style/SoleNestedConditional
+  log_done = false
 end
