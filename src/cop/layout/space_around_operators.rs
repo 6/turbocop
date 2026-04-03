@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
@@ -513,7 +514,7 @@ fn check_text_scanner_extra_space(
         if p < bytes.len() && bytes[p] == b'#' {
             multi_after = false;
         } else if allow_trailing_rhs_alignment {
-            if let Some(rhs_start) = first_non_whitespace_offset_after(bytes, op_end) {
+            if let Some(rhs_start) = util::first_non_space_on_line(bytes, op_end) {
                 if is_aligned_rhs_standalone(source, rhs_start) {
                     multi_after = false;
                 }
@@ -802,18 +803,6 @@ fn line_has_operator_ending_at_col(line: &[u8], target_end_col: usize) -> bool {
     false
 }
 
-fn first_non_whitespace_offset_after(bytes: &[u8], mut offset: usize) -> Option<usize> {
-    while offset < bytes.len() && (bytes[offset] == b' ' || bytes[offset] == b'\t') {
-        offset += 1;
-    }
-
-    if offset < bytes.len() && bytes[offset] != b'\n' && bytes[offset] != b'\r' {
-        Some(offset)
-    } else {
-        None
-    }
-}
-
 fn is_aligned_rhs_standalone(source: &SourceFile, start: usize) -> bool {
     let bytes = source.as_bytes();
     let mut ls = start;
@@ -1074,7 +1063,7 @@ impl OperatorChecker<'_> {
                     if is_aligned_rhs_standalone(self.source, anchor) {
                         multi_space_after = false;
                     }
-                } else if let Some(rhs_start) = first_non_whitespace_offset_after(bytes, end) {
+                } else if let Some(rhs_start) = util::first_non_space_on_line(bytes, end) {
                     if is_aligned_rhs_standalone(self.source, rhs_start) {
                         multi_space_after = false;
                     }

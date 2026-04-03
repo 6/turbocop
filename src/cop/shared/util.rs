@@ -543,6 +543,33 @@ pub fn indentation_of(line: &[u8]) -> usize {
     line.iter().take_while(|&&b| b == b' ').count()
 }
 
+/// Find the first non-whitespace byte offset starting from `start`.
+///
+/// All ASCII whitespace (space, tab, newline, \r, etc.) is skipped.
+/// Returns the absolute byte offset, or `None` if only whitespace remains.
+pub fn first_non_whitespace_offset(bytes: &[u8], start: usize) -> Option<usize> {
+    bytes
+        .get(start..)?
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .map(|pos| start + pos)
+}
+
+/// Find the first non-space/tab byte offset on the current line starting from `offset`.
+///
+/// Unlike [`first_non_whitespace_offset`], this treats newlines as a boundary:
+/// returns `None` if a newline or end-of-bytes is reached before any visible content.
+pub fn first_non_space_on_line(bytes: &[u8], mut offset: usize) -> Option<usize> {
+    while offset < bytes.len() && (bytes[offset] == b' ' || bytes[offset] == b'\t') {
+        offset += 1;
+    }
+    if offset < bytes.len() && bytes[offset] != b'\n' && bytes[offset] != b'\r' {
+        Some(offset)
+    } else {
+        None
+    }
+}
+
 /// Check if there is a trailing comma between last_element_end and closing_start.
 pub fn has_trailing_comma(
     source_bytes: &[u8],
