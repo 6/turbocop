@@ -1,3 +1,4 @@
+use crate::cop::method_identifier_predicates;
 use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -20,8 +21,7 @@ fn is_ternary(if_node: &ruby_prism::IfNode<'_>) -> bool {
 }
 
 fn is_assignment_method(call: &ruby_prism::CallNode<'_>) -> bool {
-    let name = call.name().as_slice();
-    name.ends_with(b"=") && name != b"=="
+    method_identifier_predicates::is_assignment_method(call.name().as_slice())
 }
 
 impl Cop for RequireParentheses {

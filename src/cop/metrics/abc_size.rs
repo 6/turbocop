@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::method_identifier_predicates;
 use crate::cop::node_type::{
     BLOCK_NODE, BLOCK_PARAMETER_NODE, CALL_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE,
     KEYWORD_REST_PARAMETER_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE,
@@ -1056,16 +1057,14 @@ impl<'pr> Visit<'pr> for AbcCounter {
 /// RuboCop comparison operators: ==, ===, !=, <=, >=, >, <
 /// These are counted as conditions, not branches, in ABC metric.
 fn is_comparison_method(name: &[u8]) -> bool {
-    matches!(name, b"==" | b"===" | b"!=" | b"<=" | b">=" | b">" | b"<")
+    method_identifier_predicates::is_comparison_method(name)
 }
 
 /// Setter methods end in '=' but are not operators (!=, ==, <=, >=).
 /// Examples: foo=, bar=
 /// In RuboCop, setter method calls count as both a branch and an assignment.
 fn is_setter_method(name: &[u8]) -> bool {
-    name.len() >= 2
-        && name.ends_with(b"=")
-        && !matches!(name, b"==" | b"!=" | b"<=" | b">=" | b"===")
+    method_identifier_predicates::is_setter_method(name)
 }
 
 impl AbcSize {

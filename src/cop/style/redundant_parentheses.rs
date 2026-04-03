@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -1095,33 +1096,7 @@ fn uses_keyword_operator(node: &ruby_prism::Node<'_>) -> bool {
 }
 
 fn is_operator_method(call: &ruby_prism::CallNode<'_>) -> bool {
-    let name = call.name().as_slice();
-    matches!(
-        name,
-        b"+" | b"-"
-            | b"*"
-            | b"/"
-            | b"%"
-            | b"**"
-            | b"=="
-            | b"!="
-            | b"<"
-            | b">"
-            | b"<="
-            | b">="
-            | b"<=>"
-            | b"<<"
-            | b">>"
-            | b"&"
-            | b"|"
-            | b"^"
-            | b"~"
-            | b"=~"
-            | b"!~"
-            | b"[]"
-            | b"[]="
-            | b"==="
-    )
+    method_identifier_predicates::is_operator_method(call.name().as_slice())
 }
 
 fn classify_simple(node: &ruby_prism::Node<'_>) -> Option<&'static str> {

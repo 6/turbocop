@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use ruby_prism::Visit;
 
+use crate::cop::method_identifier_predicates;
 use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -212,14 +213,7 @@ impl Cop for UselessSetterCall {
 /// Check if a method name is a setter (ends with `=` but not comparison operators).
 /// Includes `[]=` which RuboCop also flags.
 fn is_setter_method(name: &[u8]) -> bool {
-    if !name.ends_with(b"=") {
-        return false;
-    }
-    // Exclude comparison operators
-    if matches!(name, b"==" | b"===" | b"!=" | b"<=" | b">=") {
-        return false;
-    }
-    true
+    method_identifier_predicates::is_setter_method(name)
 }
 
 /// Check if a node is a constructor call (`.new`) or a literal.

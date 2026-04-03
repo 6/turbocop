@@ -1,3 +1,4 @@
+use crate::cop::method_identifier_predicates;
 use crate::cop::node_type::{
     BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, LAMBDA_NODE,
 };
@@ -62,7 +63,7 @@ impl Cop for AmbiguousBlockAssociation {
 
         // Skip operator methods (==, !=, +, -, etc.) and assignment methods (x=)
         let outer_name = call.name().as_slice();
-        if is_operator(outer_name) {
+        if method_identifier_predicates::is_operator_method(outer_name) {
             return;
         }
         if outer_name.ends_with(b"=") && outer_name != b"==" && outer_name != b"!=" {
@@ -214,35 +215,6 @@ fn is_lambda_or_proc(node: &ruby_prism::Node<'_>) -> bool {
     }
 
     false
-}
-
-fn is_operator(name: &[u8]) -> bool {
-    matches!(
-        name,
-        b"=="
-            | b"!="
-            | b"<"
-            | b">"
-            | b"<="
-            | b">="
-            | b"<=>"
-            | b"+"
-            | b"-"
-            | b"*"
-            | b"/"
-            | b"%"
-            | b"**"
-            | b"&"
-            | b"|"
-            | b"^"
-            | b"~"
-            | b"<<"
-            | b">>"
-            | b"[]"
-            | b"[]="
-            | b"=~"
-            | b"!~"
-    )
 }
 
 #[cfg(test)]
