@@ -281,7 +281,7 @@ jobs:
           if [ -d summaries ]; then
             for f in summaries/*.txt; do
               [ -f "$f" ] || continue
-              while IFS='|' read -r cop bl_fp bl_fn local_fp local_fn shard_result; do
+              while IFS='|' read -r cop bl_fp bl_fn local_fp local_fn shard_result count_bl_fp count_bl_fn; do
                 STATUS="✅"
                 [ "$shard_result" = "fail" ] && STATUS="❌"
                 fp_delta=$((local_fp - bl_fp))
@@ -289,7 +289,17 @@ jobs:
                 # Show sign explicitly: +N for regressions, -N for improvements, 0 for unchanged
                 [ "$fp_delta" -gt 0 ] && fp_delta="+${fp_delta}"
                 [ "$fn_delta" -gt 0 ] && fn_delta="+${fn_delta}"
-                BODY+="| \`${cop}\` | ${bl_fp} | ${bl_fn} | ${local_fp} | ${local_fn} | ${fp_delta} | ${fn_delta} | ${STATUS} |\n"
+                # Sanity check: if location-level FP regressed but count-level
+                # shows no excess, the regression is a location shift or config
+                # artifact, not extra offenses. Annotate the status to help triage.
+                NOTE=""
+                if [ -n "$count_bl_fp" ] && [ "$shard_result" = "fail" ]; then
+                  count_fp_delta=$((local_fp - count_bl_fp))
+                  if [ "$count_fp_delta" -le 0 ] && [ "$((local_fp - bl_fp))" -gt 0 ]; then
+                    NOTE=" ⚠️ count Δ=${count_fp_delta}"
+                  fi
+                fi
+                BODY+="| \`${cop}\` | ${bl_fp} | ${bl_fn} | ${local_fp} | ${local_fn} | ${fp_delta} | ${fn_delta} | ${STATUS}${NOTE} |\n"
               done < "$f"
             done
           else

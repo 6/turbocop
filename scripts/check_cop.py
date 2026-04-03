@@ -1036,6 +1036,8 @@ def main():
         total_baseline_fn = 0
         total_local_fp = 0
         total_local_fn = 0
+        total_count_baseline_fp = 0
+        total_count_baseline_fn = 0
         fp_repos = []
         fn_repos = []
         # Build per-repo baseline counts from the oracle.
@@ -1086,6 +1088,12 @@ def main():
             baseline_fn = oracle_location_fn.get(repo_id, 0)
             total_baseline_fp += baseline_fp
             total_baseline_fn += baseline_fn
+            # Also track count-level baseline for sanity-check annotation.
+            # Count-level FP = max(0, nitrocop_count - rubocop_count).
+            count_bl_fp = max(0, baseline_nc - baseline_rc)
+            count_bl_fn = max(0, baseline_rc - baseline_nc)
+            total_count_baseline_fp += count_bl_fp
+            total_count_baseline_fn += count_bl_fn
             # How far is the local nitrocop from rubocop?
             local_fp = max(0, local_count - baseline_rc)
             local_fn = max(0, baseline_rc - local_count)
@@ -1172,10 +1180,15 @@ def main():
             print()
 
         # Machine-readable summary for CI aggregation
-        # Format: cop|baseline_fp|baseline_fn|local_fp|local_fn|result
-        # local_fp/fn are the actual FP/FN counts from this run (not just regressions)
+        # Format: cop|baseline_fp|baseline_fn|local_fp|local_fn|result|count_bl_fp|count_bl_fn
+        # baseline_fp/fn = location-level from oracle
+        # local_fp/fn = count-level from local run (max(0, local - rubocop))
+        # count_bl_fp/fn = count-level baseline (max(0, oracle_nc - oracle_rc))
+        # The last two fields enable the CI comment to detect when a large
+        # location-level FP delta has no count-level counterpart (location
+        # shift or config resolution artifact, not a real regression).
         result_str = "fail" if failed else "pass"
-        print(f"SUMMARY|{args.cop}|{total_baseline_fp}|{total_baseline_fn}|{total_local_fp}|{total_local_fn}|{result_str}")
+        print(f"SUMMARY|{args.cop}|{total_baseline_fp}|{total_baseline_fn}|{total_local_fp}|{total_local_fn}|{result_str}|{total_count_baseline_fp}|{total_count_baseline_fn}")
 
         if failed:
             sys.exit(1)

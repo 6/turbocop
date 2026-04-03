@@ -179,6 +179,7 @@ def _compute_gate(by_repo_cop, cop, per_repo):
     resolved_fp, resolved_fn = 0, 0
     total_baseline_fp, total_baseline_fn = 0, 0
     total_local_fp, total_local_fn = 0, 0
+    total_count_baseline_fp, total_count_baseline_fn = 0, 0
     for repo_id, local_count in per_repo.items():
         bl_nc = oracle_nitrocop_counts.get(repo_id)
         bl_rc = oracle_rubocop_counts.get(repo_id)
@@ -188,6 +189,10 @@ def _compute_gate(by_repo_cop, cop, per_repo):
         baseline_fn = oracle_location_fn.get(repo_id, 0)
         total_baseline_fp += baseline_fp
         total_baseline_fn += baseline_fn
+        count_bl_fp = max(0, bl_nc - bl_rc)
+        count_bl_fn = max(0, bl_rc - bl_nc)
+        total_count_baseline_fp += count_bl_fp
+        total_count_baseline_fn += count_bl_fn
         local_fp = max(0, local_count - bl_rc)
         local_fn = max(0, bl_rc - local_count)
         total_local_fp += local_fp
@@ -208,6 +213,8 @@ def _compute_gate(by_repo_cop, cop, per_repo):
         "net_fp": net_fp, "net_fn": net_fn,
         "total_baseline_fp": total_baseline_fp, "total_baseline_fn": total_baseline_fn,
         "total_local_fp": total_local_fp, "total_local_fn": total_local_fn,
+        "total_count_baseline_fp": total_count_baseline_fp,
+        "total_count_baseline_fn": total_count_baseline_fn,
     }
 
 
@@ -422,6 +429,36 @@ def test_summary_shows_improvement_correctly():
     assert g["total_local_fp"] == 2
     assert g["resolved_fp"] == 3
     assert g["new_fp"] == 0
+
+
+def test_count_level_baseline_detects_location_shift():
+    """When location-level FP increases but count-level doesn't, it's a location shift."""
+    by_repo_cop = {
+        # Oracle: nitrocop=100 (95 match + 5 FP), rubocop=98 (95 match + 3 FN)
+        # Location-level: FP=5, FN=3. Count-level: FP=max(0,100-98)=2.
+        "repo-a": {"Style/Foo": {"matches": 95, "fp": 5, "fn": 3}},
+    }
+    # Local produces 100 (same count as oracle nitrocop) but at different locations.
+    # Location-level FP could be higher, but count-level FP = max(0,100-98) = 2.
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 100})
+    assert g["total_baseline_fp"] == 5       # location-level from oracle
+    assert g["total_count_baseline_fp"] == 2  # count-level from oracle
+    assert g["total_local_fp"] == 2           # count-level from local
+    # No count-level regression: local count FP (2) <= count baseline FP (2)
+    # Even though location-level baseline was 5, count tells us no extra offenses.
+
+
+def test_count_level_baseline_detects_real_regression():
+    """When both location and count-level FP increase, it's a real regression."""
+    by_repo_cop = {
+        # Oracle: nitrocop=10 (10 match + 0 FP), rubocop=10 (10 match + 0 FN)
+        "repo-a": {"Style/Foo": {"matches": 10, "fp": 0, "fn": 0}},
+    }
+    # Local produces 15 → 5 more than rubocop → real FP
+    g = _compute_gate(by_repo_cop, "Style/Foo", {"repo-a": 15})
+    assert g["total_count_baseline_fp"] == 0
+    assert g["total_local_fp"] == 5
+    assert g["new_fp"] == 5  # real regression
 
 
 # ── sampling tests for relevant_repos_for_cop ──
