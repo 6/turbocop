@@ -1,5 +1,5 @@
+use std::cell::RefCell;
 use std::ops::Range;
-use std::sync::Mutex;
 
 use crate::cop::variable_force::{self, Scope, VariableTable};
 use crate::cop::{Cop, CopConfig};
@@ -7,6 +7,30 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
+
+// Thread-local storage for per-file range data. Within a rayon task, a single
+// file is processed sequentially: check_source → VF engine →
+// before_leaving_scope, so thread-local storage is safe and avoids the
+// TOCTOU race that Mutex fields on the shared cop struct would cause.
+thread_local! {
+    static LEAKY_RANGES: RefCell<LeakyRanges> = const { RefCell::new(LeakyRanges::new()) };
+}
+
+struct LeakyRanges {
+    example_scope_ranges: Vec<Range<usize>>,
+    example_group_ranges: Vec<Range<usize>>,
+    allowed_ref_ranges: Vec<Range<usize>>,
+}
+
+impl LeakyRanges {
+    const fn new() -> Self {
+        Self {
+            example_scope_ranges: Vec::new(),
+            example_group_ranges: Vec::new(),
+            allowed_ref_ranges: Vec::new(),
+        }
+    }
+}
 
 /// Flags local variable assignments at the example-group level that are then
 /// referenced inside examples, hooks, let, or subject blocks. Use `let` instead.
@@ -28,29 +52,17 @@ use ruby_prism::Visit;
 /// Per-assignment tracking from VF gives us precise dead-assignment filtering
 /// for free: if an assignment is overwritten before any read, it has no
 /// references and is never flagged.
-pub struct LeakyLocalVariable {
-    /// Byte ranges of example scope blocks (it/before/let/subject/etc.).
-    example_scope_ranges: Mutex<Vec<Range<usize>>>,
-    /// Byte ranges of example group blocks (describe/context/shared_examples/etc.).
-    example_group_ranges: Mutex<Vec<Range<usize>>>,
-    /// Byte ranges where variable references are "allowed" (example descriptions,
-    /// includes first args, etc.). References in these ranges don't trigger offenses.
-    allowed_ref_ranges: Mutex<Vec<Range<usize>>>,
-}
+pub struct LeakyLocalVariable;
 
 impl LeakyLocalVariable {
     pub fn new() -> Self {
-        Self {
-            example_scope_ranges: Mutex::new(Vec::new()),
-            example_group_ranges: Mutex::new(Vec::new()),
-            allowed_ref_ranges: Mutex::new(Vec::new()),
-        }
+        Self
     }
 }
 
 impl Default for LeakyLocalVariable {
     fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
@@ -94,9 +106,12 @@ impl Cop for LeakyLocalVariable {
             .allowed_ref_ranges
             .sort_unstable_by_key(|r| r.start);
 
-        *self.example_scope_ranges.lock().unwrap() = collector.example_scope_ranges;
-        *self.example_group_ranges.lock().unwrap() = collector.example_group_ranges;
-        *self.allowed_ref_ranges.lock().unwrap() = collector.allowed_ref_ranges;
+        LEAKY_RANGES.with(|cell| {
+            let mut ranges = cell.borrow_mut();
+            ranges.example_scope_ranges = collector.example_scope_ranges;
+            ranges.example_group_ranges = collector.example_group_ranges;
+            ranges.allowed_ref_ranges = collector.allowed_ref_ranges;
+        });
     }
 
     fn as_variable_force_consumer(&self) -> Option<&dyn variable_force::VariableForceConsumer> {
@@ -115,39 +130,42 @@ impl variable_force::VariableForceConsumer for LeakyLocalVariable {
     ) {
         // Process all scope types — VF creates scopes for blocks, defs, modules, etc.
         // We rely on range checks rather than scope filtering.
-        let es_ranges = self.example_scope_ranges.lock().unwrap();
-        let eg_ranges = self.example_group_ranges.lock().unwrap();
-        let ar_ranges = self.allowed_ref_ranges.lock().unwrap();
+        LEAKY_RANGES.with(|cell| {
+            let ranges = cell.borrow();
+            let es_ranges = &ranges.example_scope_ranges;
+            let eg_ranges = &ranges.example_group_ranges;
+            let ar_ranges = &ranges.allowed_ref_ranges;
 
-        for variable in scope.variables.values() {
-            for assignment in &variable.assignments {
-                // Skip assignments that are inside example scopes — they're local
-                if offset_in_ranges(assignment.node_offset, &es_ranges) {
-                    continue;
-                }
+            for variable in scope.variables.values() {
+                for assignment in &variable.assignments {
+                    // Skip assignments that are inside example scopes — they're local
+                    if offset_in_ranges(assignment.node_offset, es_ranges) {
+                        continue;
+                    }
 
-                // Check if any reference to this assignment is:
-                // 1. Inside an example scope
-                // 2. Inside an example group (describe block)
-                // 3. NOT in an allowed reference range
-                let has_leaky_ref = assignment.references.iter().any(|ref_offset| {
-                    offset_in_ranges(*ref_offset, &es_ranges)
-                        && offset_in_ranges(*ref_offset, &eg_ranges)
-                        && !offset_in_ranges(*ref_offset, &ar_ranges)
-                });
+                    // Check if any reference to this assignment is:
+                    // 1. Inside an example scope
+                    // 2. Inside an example group (describe block)
+                    // 3. NOT in an allowed reference range
+                    let has_leaky_ref = assignment.references.iter().any(|ref_offset| {
+                        offset_in_ranges(*ref_offset, es_ranges)
+                            && offset_in_ranges(*ref_offset, eg_ranges)
+                            && !offset_in_ranges(*ref_offset, ar_ranges)
+                    });
 
-                if has_leaky_ref {
-                    let (line, column) = source.offset_to_line_col(assignment.node_offset);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Do not use local variables defined outside of examples inside of them."
-                            .to_string(),
-                    ));
+                    if has_leaky_ref {
+                        let (line, column) = source.offset_to_line_col(assignment.node_offset);
+                        diagnostics.push(self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Do not use local variables defined outside of examples inside of them."
+                                .to_string(),
+                        ));
+                    }
                 }
             }
-        }
+        });
     }
 }
 
