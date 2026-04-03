@@ -186,6 +186,39 @@ pub fn is_loop_type(tag: u8) -> bool {
     matches!(tag, WHILE_NODE | UNTIL_NODE | FOR_NODE)
 }
 
+// ---------------------------------------------------------------------------
+// Node-level convenience wrappers
+// ---------------------------------------------------------------------------
+// These accept a `&ruby_prism::Node` directly so callers don't need to import
+// `node_type_tag` separately.
+
+use super::node_type::node_type_tag;
+
+/// Check if a `Node` is a boolean literal (`true` or `false`).
+pub fn is_boolean_node(node: &ruby_prism::Node<'_>) -> bool {
+    is_boolean_type(node_type_tag(node))
+}
+
+/// Check if a `Node` is a numeric literal (integer, float, rational, or imaginary).
+pub fn is_numeric_node(node: &ruby_prism::Node<'_>) -> bool {
+    is_numeric_type(node_type_tag(node))
+}
+
+/// Check if a `Node` is any string type (string, interpolated string, xstring).
+pub fn is_any_string_node(node: &ruby_prism::Node<'_>) -> bool {
+    is_any_string_type(node_type_tag(node))
+}
+
+/// Check if a `Node` is any symbol type (symbol or interpolated symbol).
+pub fn is_any_symbol_node(node: &ruby_prism::Node<'_>) -> bool {
+    is_any_symbol_type(node_type_tag(node))
+}
+
+/// Check if a `Node` is any block type (block or lambda).
+pub fn is_any_block_node(node: &ruby_prism::Node<'_>) -> bool {
+    is_any_block_type(node_type_tag(node))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

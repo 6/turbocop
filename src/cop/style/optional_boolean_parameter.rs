@@ -1,4 +1,5 @@
 use crate::cop::shared::node_type::{DEF_NODE, FALSE_NODE, OPTIONAL_PARAMETER_NODE, TRUE_NODE};
+use crate::cop::shared::node_type_groups;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -56,7 +57,7 @@ impl Cop for OptionalBooleanParameter {
         for opt in params.optionals().iter() {
             if let Some(opt_param) = opt.as_optional_parameter_node() {
                 let value = opt_param.value();
-                let is_boolean = value.as_true_node().is_some() || value.as_false_node().is_some();
+                let is_boolean = node_type_groups::is_boolean_node(&value);
 
                 if is_boolean {
                     let param_loc = opt_param.location();

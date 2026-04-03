@@ -1,3 +1,4 @@
+use crate::cop::shared::node_type_groups;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -311,7 +312,7 @@ impl FormatContextCollector<'_> {
         node: &ruby_prism::Node<'_>,
         ranges: &mut HashSet<NodeRange>,
     ) {
-        if node.as_string_node().is_some() || node.as_interpolated_string_node().is_some() {
+        if node_type_groups::is_any_string_node(node) {
             let location = node.location();
             ranges.insert((location.start_offset(), location.end_offset()));
         }
@@ -322,7 +323,7 @@ impl FormatContextCollector<'_> {
     /// meaning only the NEAREST send ancestor matters. Strings inside nested method calls
     /// have a different nearest send ancestor and should NOT be suppressed.
     fn collect_shallow_string_ranges(node: &ruby_prism::Node<'_>, ranges: &mut HashSet<NodeRange>) {
-        if node.as_string_node().is_some() || node.as_interpolated_string_node().is_some() {
+        if node_type_groups::is_any_string_node(node) {
             let location = node.location();
             ranges.insert((location.start_offset(), location.end_offset()));
         }

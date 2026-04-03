@@ -1,4 +1,5 @@
 use crate::cop::shared::node_type::{CALL_NODE, FALSE_NODE, TRUE_NODE};
+use crate::cop::shared::node_type_groups;
 use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -243,9 +244,7 @@ fn is_boolean_matcher(node: &ruby_prism::Node<'_>, strict: bool) -> bool {
     if !strict && (name == b"be" || name == b"eq" || name == b"eql" || name == b"equal") {
         if let Some(args) = call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
-            if arg_list.len() == 1
-                && (arg_list[0].as_true_node().is_some() || arg_list[0].as_false_node().is_some())
-            {
+            if arg_list.len() == 1 && node_type_groups::is_boolean_node(&arg_list[0]) {
                 return true;
             }
         }

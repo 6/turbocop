@@ -1,4 +1,5 @@
 use crate::cop::shared::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
+use crate::cop::shared::node_type_groups;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -47,10 +48,8 @@ impl Cop for ImplicitStringConcatenation {
         for part in parts.iter() {
             if let Some(ref prev_node) = prev {
                 // Both must be string-like (StringNode or InterpolatedStringNode)
-                let prev_is_str = prev_node.as_string_node().is_some()
-                    || prev_node.as_interpolated_string_node().is_some();
-                let curr_is_str =
-                    part.as_string_node().is_some() || part.as_interpolated_string_node().is_some();
+                let prev_is_str = node_type_groups::is_any_string_node(prev_node);
+                let curr_is_str = node_type_groups::is_any_string_node(&part);
 
                 if prev_is_str && curr_is_str {
                     let prev_loc = prev_node.location();

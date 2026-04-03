@@ -1,6 +1,7 @@
 use crate::cop::shared::node_type::{
     CALL_NODE, ELSE_NODE, IF_NODE, RESCUE_NODE, UNLESS_NODE, WHILE_NODE,
 };
+use crate::cop::shared::node_type_groups;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -331,7 +332,7 @@ fn check_chain_pattern(
     // because in the parser gem they remain part of the `send` node.
     if call
         .block()
-        .is_some_and(|b| b.as_block_node().is_some() || b.as_lambda_node().is_some())
+        .is_some_and(|b| node_type_groups::is_any_block_node(&b))
     {
         return None;
     }

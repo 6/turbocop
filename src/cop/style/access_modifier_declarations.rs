@@ -1,4 +1,5 @@
 use crate::cop::shared::access_modifier_predicates;
+use crate::cop::shared::node_type_groups;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -146,9 +147,8 @@ fn symbol_splat_arg(arg: &ruby_prism::Node<'_>) -> bool {
         || expression.as_constant_read_node().is_some()
         || expression.as_constant_path_node().is_some()
         || expression.as_call_node().is_some_and(|call| {
-            call.block().is_none_or(|block| {
-                block.as_block_node().is_none() && block.as_lambda_node().is_none()
-            })
+            call.block()
+                .is_none_or(|block| !node_type_groups::is_any_block_node(&block))
         })
 }
 

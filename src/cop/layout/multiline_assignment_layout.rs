@@ -13,6 +13,7 @@ use crate::cop::shared::node_type::{
     LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, MODULE_NODE, MULTI_WRITE_NODE,
     UNLESS_NODE,
 };
+use crate::cop::shared::node_type_groups;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -94,7 +95,7 @@ fn is_supported_type(node: &ruby_prism::Node<'_>, supported_types: &[String]) ->
             "module" if node.as_module_node().is_some() => return true,
             "kwbegin" if node.as_begin_node().is_some() => return true,
             "block" => {
-                if node.as_block_node().is_some() || node.as_lambda_node().is_some() {
+                if node_type_groups::is_any_block_node(node) {
                     return true;
                 }
 

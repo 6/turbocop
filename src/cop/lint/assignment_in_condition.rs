@@ -1,4 +1,5 @@
 use crate::cop::shared::node_type::{IF_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE};
+use crate::cop::shared::node_type_groups;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -153,7 +154,7 @@ fn traverse_condition(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     // Block nodes halt traversal — assignments inside blocks are irrelevant
-    if node.as_block_node().is_some() || node.as_lambda_node().is_some() {
+    if node_type_groups::is_any_block_node(node) {
         return;
     }
 

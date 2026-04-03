@@ -1,6 +1,7 @@
 use ruby_prism::Visit;
 
 use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type_groups;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -701,7 +702,7 @@ fn classify_node(node: &ruby_prism::Node<'_>, wayward: &[String]) -> ReturnType 
     }
 
     // true/false literals
-    if node.as_true_node().is_some() || node.as_false_node().is_some() {
+    if node_type_groups::is_boolean_node(node) {
         return ReturnType::Boolean;
     }
 

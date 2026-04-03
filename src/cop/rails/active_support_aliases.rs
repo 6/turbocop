@@ -1,4 +1,5 @@
 use crate::cop::shared::node_type::{ARRAY_NODE, CALL_NODE, INTERPOLATED_STRING_NODE, STRING_NODE};
+use crate::cop::shared::node_type_groups;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -16,7 +17,7 @@ pub struct ActiveSupportAliases;
 
 /// Check if the receiver is a string literal node.
 fn is_string_receiver(receiver: &ruby_prism::Node<'_>) -> bool {
-    receiver.as_string_node().is_some() || receiver.as_interpolated_string_node().is_some()
+    node_type_groups::is_any_string_node(receiver)
 }
 
 /// Check if the receiver is an array literal node.

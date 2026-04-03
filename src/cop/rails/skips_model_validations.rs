@@ -2,6 +2,7 @@ use crate::cop::shared::node_type::{
     ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, HASH_NODE,
     KEYWORD_HASH_NODE, SYMBOL_NODE, TRUE_NODE,
 };
+use crate::cop::shared::node_type_groups;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -247,7 +248,7 @@ impl Cop for SkipsModelValidations {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if arg_list.len() == 1 {
                     let first = &arg_list[0];
-                    if first.as_true_node().is_some() || first.as_false_node().is_some() {
+                    if node_type_groups::is_boolean_node(first) {
                         return;
                     }
                 }

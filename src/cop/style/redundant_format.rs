@@ -2,6 +2,7 @@ use crate::cop::shared::node_type::{
     CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE, SPLAT_NODE,
     STRING_NODE,
 };
+use crate::cop::shared::node_type_groups;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -694,7 +695,7 @@ impl Cop for RedundantFormat {
             let arg = &arg_list[0];
 
             // Single string/dstr argument
-            if arg.as_string_node().is_some() || arg.as_interpolated_string_node().is_some() {
+            if node_type_groups::is_any_string_node(arg) {
                 let arg_src = std::str::from_utf8(arg.location().as_slice()).unwrap_or("");
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
