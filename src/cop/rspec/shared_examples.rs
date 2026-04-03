@@ -1,5 +1,6 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::{CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE};
-use crate::cop::shared::util::{self, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -62,7 +63,7 @@ impl Cop for SharedExamples {
 
         // Check for RSpec.shared_examples / RSpec.shared_context etc. as well
         let is_shared = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && (method_name == b"shared_examples"
                     || method_name == b"shared_examples_for"
                     || method_name == b"shared_context")

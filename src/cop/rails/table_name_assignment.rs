@@ -1,4 +1,4 @@
-use crate::cop::shared::util;
+use crate::cop::shared::constant_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -55,7 +55,7 @@ impl<'pr> Visit<'pr> for TableNameAssignmentVisitor<'_> {
         self.in_class = true;
         // Check if the class name ends with `Base` (e.g., `Base`, `Admin::Base`)
         let class_name_node = node.constant_path();
-        if util::constant_name(&class_name_node) == Some(b"Base") {
+        if constant_predicates::constant_name(&class_name_node) == Some(b"Base") {
             self.in_base_class = true;
         }
         if let Some(body) = node.body() {

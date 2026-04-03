@@ -1,7 +1,6 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::{CALL_NODE, HASH_NODE};
-use crate::cop::shared::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group,
-};
+use crate::cop::shared::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -65,7 +64,7 @@ impl Cop for EmptyMetadata {
         let is_rspec = if call.receiver().is_none() {
             is_rspec_example_group(method_name) || is_rspec_example(method_name)
         } else if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && (is_rspec_example_group(method_name) || is_rspec_example(method_name))
         } else {
             false

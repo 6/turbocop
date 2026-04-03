@@ -1,5 +1,5 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::CALL_NODE;
-use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -86,7 +86,7 @@ fn is_time_now_pattern(node: &ruby_prism::Node<'_>) -> bool {
     // Handle both ConstantReadNode (Time) and ConstantPathNode (::Time)
     if method_name == b"now" || method_name == b"current" {
         if let Some(recv) = call.receiver() {
-            if util::constant_name(&recv) == Some(b"Time") {
+            if constant_predicates::constant_name(&recv) == Some(b"Time") {
                 return true;
             }
             // Time.zone.now
@@ -94,7 +94,7 @@ fn is_time_now_pattern(node: &ruby_prism::Node<'_>) -> bool {
                 if let Some(zone_call) = recv.as_call_node() {
                     if zone_call.name().as_slice() == b"zone" {
                         if let Some(time_recv) = zone_call.receiver() {
-                            if util::constant_name(&time_recv) == Some(b"Time") {
+                            if constant_predicates::constant_name(&time_recv) == Some(b"Time") {
                                 return true;
                             }
                         }

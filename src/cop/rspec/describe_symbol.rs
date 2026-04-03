@@ -49,7 +49,9 @@ impl Cop for DescribeSymbol {
         // Must be receiverless or RSpec.describe / ::RSpec.describe
         // Regular method calls like `obj.describe(:sym)` are not RSpec describe blocks.
         if let Some(recv) = call.receiver() {
-            if crate::cop::shared::util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+            if crate::cop::shared::constant_predicates::constant_name(&recv)
+                .is_none_or(|n| n != b"RSpec")
+            {
                 return;
             }
         }

@@ -6,7 +6,7 @@ use crate::parse::source::SourceFile;
 /// ## Corpus investigation (2026-03-07)
 ///
 /// FP=13, FN=0. All FPs from `Pagy::I18n.translate(...)` — a qualified constant path.
-/// `util::constant_name` returns the last segment, so `Pagy::I18n` matched `I18n`.
+/// `constant_predicates::constant_name` returns the last segment, so `Pagy::I18n` matched `I18n`.
 /// RuboCop's pattern is `(const {nil? cbase} :I18n)` — only unqualified `I18n` or `::I18n`.
 /// Fixed by checking ConstantReadNode/ConstantPathNode directly instead of constant_name.
 pub struct ShortI18n;

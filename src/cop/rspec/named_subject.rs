@@ -153,7 +153,7 @@ fn is_shared_group_call(node: &ruby_prism::CallNode<'_>) -> bool {
         return true;
     }
     node.receiver().is_some_and(|r| {
-        crate::cop::shared::util::constant_name(&r)
+        crate::cop::shared::constant_predicates::constant_name(&r)
             .is_some_and(|n| n == b"RSpec" || n.starts_with(b"RSpec::"))
     })
 }

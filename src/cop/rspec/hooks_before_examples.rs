@@ -1,6 +1,7 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 use crate::cop::shared::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_hook,
+    RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_hook,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -44,7 +45,8 @@ impl Cop for HooksBeforeExamples {
         // Check for example group calls (including ::RSpec.describe), but
         // exclude shared groups to match RuboCop's ExampleGroups scope.
         let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec") && method_name == b"describe"
+            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name) && !is_shared_group(method_name)
         };

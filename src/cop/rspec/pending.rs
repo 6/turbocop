@@ -1,4 +1,5 @@
-use crate::cop::shared::util::{self, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;
@@ -53,7 +54,7 @@ const REGULAR_EXAMPLES: &[&[u8]] = &[b"example", b"it", b"its", b"scenario", b"s
 fn has_rspec_or_nil_receiver(call: &ruby_prism::CallNode<'_>) -> bool {
     match call.receiver() {
         None => true,
-        Some(recv) => util::constant_name(&recv).is_some_and(|n| n == b"RSpec"),
+        Some(recv) => constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec"),
     }
 }
 

@@ -1,7 +1,8 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::{
     CALL_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_X_STRING_NODE, STRING_NODE, X_STRING_NODE,
 };
-use crate::cop::shared::util::{self, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -109,7 +110,7 @@ impl Cop for ContextWording {
 
         // Receiver must be nil or RSpec constant
         if let Some(recv) = call.receiver() {
-            if util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+            if constant_predicates::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
                 return;
             }
         }

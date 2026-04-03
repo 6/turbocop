@@ -1,4 +1,4 @@
-use crate::cop::shared::util;
+use crate::cop::shared::constant_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -122,7 +122,7 @@ fn is_active_record_class(source: &SourceFile, class: &ruby_prism::ClassNode<'_>
         None => return false,
     };
 
-    let full_path = util::full_constant_path(source, &superclass);
+    let full_path = constant_predicates::full_constant_path(source, &superclass);
     let path_str = std::str::from_utf8(full_path).unwrap_or("");
     ACTIVE_RECORD_CLASSES.contains(&path_str)
 }

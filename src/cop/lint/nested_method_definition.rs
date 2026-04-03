@@ -38,7 +38,7 @@ use crate::parse::source::SourceFile;
 ///    `constant_name()`, which only returns the last constant segment. That incorrectly
 ///    treated `Object::Module.new` as `Module.new`, suppressing real offenses like
 ///    nested `def self.session` in the SugarCRM corpus. Fix: require a simple/top-level
-///    constant via `util::is_simple_constant()`, so only `Module.new`, `::Module.new`,
+///    constant via `constant_predicates::is_simple_constant()`, so only `Module.new`, `::Module.new`,
 ///    `Class.new`, `Struct.new`, and `Data.define` create scope.
 pub struct NestedMethodDefinition;
 
@@ -176,15 +176,19 @@ fn is_scope_creating_call(node: &ruby_prism::Node<'_>) -> bool {
     // Module.new, Class.new, Struct.new (also handles root-qualified like ::Module.new)
     if method_name == b"new" {
         if let Some(receiver) = call.receiver() {
-            return crate::cop::shared::util::is_simple_constant(&receiver, b"Module")
-                || crate::cop::shared::util::is_simple_constant(&receiver, b"Class")
-                || crate::cop::shared::util::is_simple_constant(&receiver, b"Struct");
+            return crate::cop::shared::constant_predicates::is_simple_constant(
+                &receiver, b"Module",
+            ) || crate::cop::shared::constant_predicates::is_simple_constant(
+                &receiver, b"Class",
+            ) || crate::cop::shared::constant_predicates::is_simple_constant(
+                &receiver, b"Struct",
+            );
         }
     }
     // Data.define (Ruby 3.2+, recognized by rubocop-ast class_constructor?)
     if method_name == b"define" {
         if let Some(receiver) = call.receiver() {
-            return crate::cop::shared::util::is_simple_constant(&receiver, b"Data");
+            return crate::cop::shared::constant_predicates::is_simple_constant(&receiver, b"Data");
         }
     }
     false

@@ -1,5 +1,5 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::CALL_NODE;
-use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -51,11 +51,12 @@ impl Cop for Exit {
 
         // Check receiver: must be nil, Kernel, or Process
         if let Some(receiver) = call.receiver() {
-            let is_allowed_receiver = if let Some(name) = util::constant_name(&receiver) {
-                EXPLICIT_RECEIVERS.contains(&name)
-            } else {
-                false
-            };
+            let is_allowed_receiver =
+                if let Some(name) = constant_predicates::constant_name(&receiver) {
+                    EXPLICIT_RECEIVERS.contains(&name)
+                } else {
+                    false
+                };
             if !is_allowed_receiver {
                 return;
             }

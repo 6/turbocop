@@ -1,6 +1,7 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::PROGRAM_NODE;
 use crate::cop::shared::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
+    RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -183,13 +184,14 @@ impl NestedGroups {
         let is_shared_group = if call.receiver().is_none() {
             is_rspec_shared_group(method_name)
         } else {
-            util::constant_name(&call.receiver().unwrap()).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_name(&call.receiver().unwrap())
+                .is_some_and(|n| n == b"RSpec")
                 && is_rspec_shared_group(method_name)
         };
         let is_example_group = if is_shared_group {
             false
         } else if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && is_rspec_example_group(method_name)
         } else {
             is_rspec_example_group(method_name)
@@ -272,7 +274,8 @@ impl NestingVisitor<'_> {
         let is_shared = if call.receiver().is_none() {
             is_rspec_shared_group(method_name)
         } else {
-            util::constant_name(&call.receiver().unwrap()).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_name(&call.receiver().unwrap())
+                .is_some_and(|n| n == b"RSpec")
                 && is_rspec_shared_group(method_name)
         };
 
@@ -287,7 +290,7 @@ impl NestingVisitor<'_> {
             // Example groups with or without RSpec receiver count toward nesting.
             // RuboCop's `example_group?` matches both `context do` and `RSpec.describe do`.
             let is_example_group = if let Some(recv) = call.receiver() {
-                util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                     && is_rspec_example_group(method_name)
             } else {
                 is_rspec_example_group(method_name)

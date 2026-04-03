@@ -1,5 +1,5 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::{CALL_NODE, OR_NODE};
-use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -37,7 +37,7 @@ fn is_rails_env_check(node: &ruby_prism::Node<'_>, env_method: &[u8]) -> bool {
     };
 
     // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
-    util::constant_name(&rails_recv) == Some(b"Rails")
+    constant_predicates::constant_name(&rails_recv) == Some(b"Rails")
 }
 
 impl Cop for EnvLocal {

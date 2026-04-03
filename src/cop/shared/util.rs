@@ -1044,50 +1044,6 @@ pub fn keyword_arg_pair_start_offset(call: &ruby_prism::CallNode<'_>, key: &[u8]
     None
 }
 
-/// Get the constant name (last segment) from a constant path or constant read node.
-///
-/// For `ActiveRecord::Base`, returns `b"Base"`.
-/// For `User`, returns `b"User"`.
-pub fn constant_name<'a>(node: &ruby_prism::Node<'a>) -> Option<&'a [u8]> {
-    if let Some(cr) = node.as_constant_read_node() {
-        return Some(cr.name().as_slice());
-    }
-    if let Some(cp) = node.as_constant_path_node() {
-        if let Some(name_node) = cp.name() {
-            return Some(name_node.as_slice());
-        }
-    }
-    None
-}
-
-/// Check if a node is a simple constant matching `(const {nil? cbase} :Name)`.
-///
-/// Returns true for `Name` (ConstantReadNode) or `::Name` (ConstantPathNode with cbase parent),
-/// but NOT for qualified paths like `Foo::Name`.
-pub fn is_simple_constant(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
-    if let Some(cr) = node.as_constant_read_node() {
-        return cr.name().as_slice() == name;
-    }
-    if let Some(cp) = node.as_constant_path_node() {
-        if let Some(n) = cp.name() {
-            if n.as_slice() != name {
-                return false;
-            }
-            // cbase: parent is None (e.g., `::Date`)
-            return cp.parent().is_none();
-        }
-    }
-    false
-}
-
-/// Get the full constant path string from source bytes.
-///
-/// For a ConstantPathNode like `ActiveRecord::Base`, extracts the full text.
-pub fn full_constant_path<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> &'a [u8] {
-    let loc = node.location();
-    &source.as_bytes()[loc.start_offset()..loc.end_offset()]
-}
-
 // ── String escape helpers ─────────────────────────────────────────────
 
 /// Check if string content contains escape sequences that require double quotes.

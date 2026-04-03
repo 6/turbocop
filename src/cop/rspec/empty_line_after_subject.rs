@@ -2,9 +2,10 @@ use std::collections::HashSet;
 
 use ruby_prism::Visit;
 
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::PROGRAM_NODE;
 use crate::cop::shared::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example_group,
+    RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example_group,
     is_rspec_shared_group, is_rspec_subject, line_at,
 };
 use crate::cop::{Cop, CopConfig};
@@ -161,7 +162,7 @@ fn is_spec_group_call(node: &ruby_prism::Node<'_>) -> bool {
 
     let name = call.name().as_slice();
     if let Some(recv) = call.receiver() {
-        util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+        constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
             && (is_rspec_example_group(name) || is_rspec_shared_group(name))
     } else {
         is_rspec_example_group(name) || is_rspec_shared_group(name)

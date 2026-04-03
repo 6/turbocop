@@ -1,4 +1,4 @@
-use crate::cop::shared::util;
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -87,7 +87,7 @@ impl UnknownEnv {
         };
 
         // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
-        if util::constant_name(&inner_recv) != Some(b"Rails") {
+        if constant_predicates::constant_name(&inner_recv) != Some(b"Rails") {
             return;
         }
 
@@ -197,7 +197,7 @@ impl UnknownEnv {
             Some(r) => r,
             None => return false,
         };
-        util::constant_name(&recv) == Some(b"Rails")
+        constant_predicates::constant_name(&recv) == Some(b"Rails")
     }
 }
 

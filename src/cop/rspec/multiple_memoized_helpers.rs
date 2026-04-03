@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::util::{
     self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_let,
     is_rspec_shared_group,
@@ -238,7 +239,7 @@ impl<'pr> Visit<'pr> for HelperCollector {
         //   (block (send nil? #Includes.all ...) ...)
         if has_block {
             let is_scope_boundary = if let Some(recv) = node.receiver() {
-                util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                     && (is_rspec_example_group(method_name) || is_rspec_shared_group(method_name))
             } else {
                 is_rspec_example_group(method_name)
@@ -260,7 +261,7 @@ impl<'pr> Visit<'pr> for HelperCollector {
         if node.receiver().is_none()
             && node.block().is_some()
             && (is_rspec_let(method_name)
-                || (!self.allow_subject && util::is_rspec_subject(method_name)))
+                || (!self.allow_subject && crate::cop::shared::util::is_rspec_subject(method_name)))
         {
             if let Some(name) = extract_helper_name(node) {
                 self.names.insert(name);
@@ -286,7 +287,7 @@ impl<'a> MemoizedHelperVisitor<'a> {
     fn is_example_group_call(&self, call: &ruby_prism::CallNode<'_>) -> bool {
         let method_name = call.name().as_slice();
         if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            constant_predicates::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && (is_rspec_example_group(method_name) || is_rspec_shared_group(method_name))
         } else {
             is_rspec_example_group(method_name)

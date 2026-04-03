@@ -1,5 +1,5 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::{CALL_NODE, STRING_NODE};
-use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -74,7 +74,7 @@ impl Cop for RootPublicPath {
             Some(r) => r,
             None => return,
         };
-        if util::constant_name(&rails_recv) != Some(b"Rails") {
+        if constant_predicates::constant_name(&rails_recv) != Some(b"Rails") {
             return;
         }
 

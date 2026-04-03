@@ -1,9 +1,9 @@
 use crate::cop::factory_bot::FACTORY_BOT_DEFAULT_INCLUDE;
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::{
     ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, KEYWORD_HASH_NODE,
     SYMBOL_NODE,
 };
-use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -94,7 +94,7 @@ impl Cop for FactoryClassName {
                 let const_name = if value.as_constant_read_node().is_some()
                     || value.as_constant_path_node().is_some()
                 {
-                    Some(util::full_constant_path(source, &value))
+                    Some(constant_predicates::full_constant_path(source, &value))
                 } else {
                     None
                 };
@@ -105,7 +105,7 @@ impl Cop for FactoryClassName {
                 };
 
                 // Skip allowed constants (last segment check)
-                let last_segment = util::constant_name(&value);
+                let last_segment = constant_predicates::constant_name(&value);
                 if let Some(name) = last_segment {
                     if ALLOWED_CONSTANTS.contains(&name) {
                         continue;

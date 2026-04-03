@@ -1,5 +1,5 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::CALL_NODE;
-use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -104,7 +104,7 @@ impl Cop for Date {
         };
         // RuboCop matches `(const {nil? cbase} :Date)` — only bare `Date` or `::Date`,
         // not qualified paths like `Hijri::Date`.
-        if !util::is_simple_constant(&recv, b"Date") {
+        if !constant_predicates::is_simple_constant(&recv, b"Date") {
             return;
         }
 

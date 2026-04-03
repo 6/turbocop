@@ -1,5 +1,5 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::CLASS_NODE;
-use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -46,14 +46,14 @@ impl Cop for MailerName {
         };
 
         // Check superclass is a mailer base
-        let superclass_name = util::full_constant_path(source, &superclass);
+        let superclass_name = constant_predicates::full_constant_path(source, &superclass);
         if !MAILER_BASES.contains(&superclass_name) {
             return;
         }
 
         // Get class name and check if it ends with "Mailer"
         let class_name_node = class_node.constant_path();
-        let class_name = util::full_constant_path(source, &class_name_node);
+        let class_name = constant_predicates::full_constant_path(source, &class_name_node);
         let class_name_str = std::str::from_utf8(class_name).unwrap_or("");
 
         // Get the last segment of the class name

@@ -125,7 +125,8 @@ impl<'a, 'pr> Visit<'pr> for MultipleExpectationsVisitor<'a> {
         // with aggregate_failures. When called with RSpec. prefix, accept all example
         // group methods (not just describe) to handle RSpec.shared_examples, RSpec.context, etc.
         let is_group = if let Some(recv) = node.receiver() {
-            crate::cop::shared::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            crate::cop::shared::constant_predicates::constant_name(&recv)
+                .is_some_and(|n| n == b"RSpec")
                 && is_rspec_example_group(method_name)
         } else {
             is_rspec_example_group(method_name)

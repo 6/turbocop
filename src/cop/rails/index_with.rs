@@ -1,3 +1,4 @@
+use crate::cop::shared::constant_predicates;
 use crate::cop::shared::node_type::{
     ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE,
     LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE,
@@ -297,7 +298,7 @@ impl Cop for IndexWith {
         // Pattern 4: Hash[items.map { |e| [e, value] }]
         if call.name().as_slice() == b"[]" {
             if let Some(recv) = call.receiver() {
-                if util::constant_name(&recv) == Some(b"Hash") {
+                if constant_predicates::constant_name(&recv) == Some(b"Hash") {
                     if let Some(args) = call.arguments() {
                         let arg_list: Vec<_> = args.arguments().iter().collect();
                         if arg_list.len() == 1 {

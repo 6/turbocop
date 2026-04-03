@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::shared::util;
+use crate::cop::shared::constant_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -108,7 +108,7 @@ impl GemspecVisitor<'_> {
             Some(parent) => parent,
             None => return false,
         };
-        util::constant_name(&parent) == Some(b"Gem")
+        constant_predicates::constant_name(&parent) == Some(b"Gem")
     }
 }
 

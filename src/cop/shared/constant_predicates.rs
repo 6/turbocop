@@ -13,26 +13,65 @@
 //! - `::Foo` in Prism is a `ConstantPathNode` whose `parent()` is `None` (representing cbase).
 //! - `casgn` maps to `ConstantWriteNode` (simple) or `ConstantPathWriteNode` (qualified).
 
-/// Get the short (demodulized) constant name from a node.
+use crate::parse::source::SourceFile;
+
+// ---------------------------------------------------------------------------
+// Name extraction
+// ---------------------------------------------------------------------------
+
+/// Get the last segment name of a constant node.
 ///
 /// Matches rubocop-ast's `ConstantNode#short_name`.
 ///
 /// - `Foo`         → `Some(b"Foo")`
 /// - `Foo::Bar`    → `Some(b"Bar")`
 /// - `::Foo::Bar`  → `Some(b"Bar")`
-///
-/// Returns `None` if the node is neither a `ConstantReadNode` nor a `ConstantPathNode`.
-pub fn constant_short_name<'a>(node: &ruby_prism::Node<'a>) -> Option<&'a [u8]> {
+/// - `foo`         → `None`
+pub fn constant_name<'a>(node: &ruby_prism::Node<'a>) -> Option<&'a [u8]> {
     if let Some(const_read) = node.as_constant_read_node() {
         Some(const_read.name().as_slice())
     } else if let Some(const_path) = node.as_constant_path_node() {
-        // ConstantPathNode always has a name (the rightmost segment).
-        // In `Foo::Bar`, name is `Bar`. In `::Foo`, name is `Foo`.
         Some(const_path.name().map_or(b"" as &[u8], |n| n.as_slice()))
     } else {
         None
     }
 }
+
+/// Get the full constant path string from source bytes.
+///
+/// For a ConstantPathNode like `ActiveRecord::Base`, extracts the full text.
+pub fn full_constant_path<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> &'a [u8] {
+    let loc = node.location();
+    &source.as_bytes()[loc.start_offset()..loc.end_offset()]
+}
+
+// ---------------------------------------------------------------------------
+// Simple constant matching
+// ---------------------------------------------------------------------------
+
+/// Check if a node is a simple constant matching `(const {nil? cbase} :Name)`.
+///
+/// Returns true for `Name` (ConstantReadNode) or `::Name` (ConstantPathNode
+/// with cbase parent), but NOT for qualified paths like `Foo::Name`.
+pub fn is_simple_constant(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
+    if let Some(cr) = node.as_constant_read_node() {
+        return cr.name().as_slice() == name;
+    }
+    if let Some(cp) = node.as_constant_path_node() {
+        if let Some(n) = cp.name() {
+            if n.as_slice() != name {
+                return false;
+            }
+            // cbase: parent is None (e.g., `::Date`)
+            return cp.parent().is_none();
+        }
+    }
+    false
+}
+
+// ---------------------------------------------------------------------------
+// Path predicates (from rubocop-ast ConstantNode mixin)
+// ---------------------------------------------------------------------------
 
 /// Check if a `ConstantPathNode` is absolute (starts with `::`).
 ///
@@ -43,8 +82,6 @@ pub fn constant_short_name<'a>(node: &ruby_prism::Node<'a>) -> Option<&'a [u8]> 
 /// - `Foo::Bar`   → false
 /// - `Foo`        → N/A (use on ConstantPathNode only)
 pub fn is_absolute_constant(node: &ruby_prism::ConstantPathNode<'_>) -> bool {
-    // Walk the parent chain to the leftmost segment.
-    // If the leftmost ConstantPathNode has parent() == None, it's absolute (cbase).
     let mut current_parent = node.parent();
     loop {
         match current_parent {
@@ -84,7 +121,6 @@ fn collect_segments<'a>(node: &ruby_prism::Node<'a>, out: &mut Vec<&'a [u8]>) {
     if let Some(const_read) = node.as_constant_read_node() {
         out.push(const_read.name().as_slice());
     } else if let Some(const_path) = node.as_constant_path_node() {
-        // Recurse into parent first (left side), then push our name (right side).
         if let Some(parent) = const_path.parent() {
             collect_segments(&parent, out);
         }
@@ -99,45 +135,76 @@ mod tests {
     use super::*;
     use crate::parse::parse_source;
 
-    fn first_node(code: &str) -> ruby_prism::ParseResult<'_> {
-        parse_source(code.as_bytes())
-    }
-
     fn with_first_node<F: Fn(&ruby_prism::Node<'_>)>(code: &str, f: F) {
-        let result = first_node(code);
+        let result = parse_source(code.as_bytes());
         let program = result.node().as_program_node().unwrap();
         let stmts = program.statements();
         let node = stmts.body().iter().next().unwrap();
         f(&node);
     }
 
+    // ── constant_name ────────────────────────────────────────────────────
+
     #[test]
-    fn test_constant_short_name_simple() {
+    fn test_constant_name_simple() {
         with_first_node("Foo", |node| {
-            assert_eq!(constant_short_name(node), Some(b"Foo" as &[u8]));
+            assert_eq!(constant_name(node), Some(b"Foo" as &[u8]));
         });
     }
 
     #[test]
-    fn test_constant_short_name_qualified() {
+    fn test_constant_name_qualified() {
         with_first_node("Foo::Bar", |node| {
-            assert_eq!(constant_short_name(node), Some(b"Bar" as &[u8]));
+            assert_eq!(constant_name(node), Some(b"Bar" as &[u8]));
         });
     }
 
     #[test]
-    fn test_constant_short_name_absolute() {
+    fn test_constant_name_absolute() {
         with_first_node("::Foo::Bar", |node| {
-            assert_eq!(constant_short_name(node), Some(b"Bar" as &[u8]));
+            assert_eq!(constant_name(node), Some(b"Bar" as &[u8]));
         });
     }
 
     #[test]
-    fn test_constant_short_name_non_constant() {
+    fn test_constant_name_non_constant() {
         with_first_node("foo", |node| {
-            assert_eq!(constant_short_name(node), None);
+            assert_eq!(constant_name(node), None);
         });
     }
+
+    // ── is_simple_constant ───────────────────────────────────────────────
+
+    #[test]
+    fn test_is_simple_constant_read() {
+        with_first_node("Foo", |node| {
+            assert!(is_simple_constant(node, b"Foo"));
+            assert!(!is_simple_constant(node, b"Bar"));
+        });
+    }
+
+    #[test]
+    fn test_is_simple_constant_absolute() {
+        with_first_node("::Foo", |node| {
+            assert!(is_simple_constant(node, b"Foo"));
+        });
+    }
+
+    #[test]
+    fn test_is_simple_constant_qualified_rejects() {
+        with_first_node("Bar::Foo", |node| {
+            assert!(!is_simple_constant(node, b"Foo"));
+        });
+    }
+
+    #[test]
+    fn test_is_simple_constant_non_constant() {
+        with_first_node("foo", |node| {
+            assert!(!is_simple_constant(node, b"foo"));
+        });
+    }
+
+    // ── is_absolute_constant / is_relative_constant ──────────────────────
 
     #[test]
     fn test_is_absolute_constant() {
@@ -159,20 +226,20 @@ mod tests {
         });
     }
 
+    // ── constant_path_segments ───────────────────────────────────────────
+
     #[test]
     fn test_constant_path_segments_simple() {
         with_first_node("Foo", |node| {
-            let segs = constant_path_segments(node);
-            assert_eq!(segs, vec![b"Foo" as &[u8]]);
+            assert_eq!(constant_path_segments(node), vec![b"Foo" as &[u8]]);
         });
     }
 
     #[test]
     fn test_constant_path_segments_qualified() {
         with_first_node("Foo::Bar::Baz", |node| {
-            let segs = constant_path_segments(node);
             assert_eq!(
-                segs,
+                constant_path_segments(node),
                 vec![b"Foo" as &[u8], b"Bar" as &[u8], b"Baz" as &[u8]]
             );
         });
@@ -181,16 +248,17 @@ mod tests {
     #[test]
     fn test_constant_path_segments_absolute() {
         with_first_node("::Foo::Bar", |node| {
-            let segs = constant_path_segments(node);
-            assert_eq!(segs, vec![b"Foo" as &[u8], b"Bar" as &[u8]]);
+            assert_eq!(
+                constant_path_segments(node),
+                vec![b"Foo" as &[u8], b"Bar" as &[u8]]
+            );
         });
     }
 
     #[test]
     fn test_constant_path_segments_non_constant() {
         with_first_node("foo", |node| {
-            let segs = constant_path_segments(node);
-            assert!(segs.is_empty());
+            assert!(constant_path_segments(node).is_empty());
         });
     }
 }

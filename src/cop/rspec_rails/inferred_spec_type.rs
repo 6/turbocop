@@ -108,7 +108,8 @@ impl Cop for InferredSpecType {
 
         // Check for RSpec.describe/context/feature/example_group or bare calls.
         let is_example_group = if let Some(recv) = call.receiver() {
-            crate::cop::shared::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            crate::cop::shared::constant_predicates::constant_name(&recv)
+                .is_some_and(|n| n == b"RSpec")
                 && EXAMPLE_GROUPS.contains(&method_name)
         } else {
             EXAMPLE_GROUPS.contains(&method_name)

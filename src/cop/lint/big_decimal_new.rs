@@ -1,5 +1,5 @@
+use crate::cop::shared::constant_predicates::constant_name;
 use crate::cop::shared::node_type::CALL_NODE;
-use crate::cop::shared::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

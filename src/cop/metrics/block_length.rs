@@ -700,12 +700,12 @@ fn is_class_constructor(call: &ruby_prism::CallNode<'_>) -> bool {
 
     match call.name().as_slice() {
         b"new" => {
-            crate::cop::shared::util::is_simple_constant(&recv, b"Struct")
-                || crate::cop::shared::util::is_simple_constant(&recv, b"Class")
-                || crate::cop::shared::util::is_simple_constant(&recv, b"Module")
+            crate::cop::shared::constant_predicates::is_simple_constant(&recv, b"Struct")
+                || crate::cop::shared::constant_predicates::is_simple_constant(&recv, b"Class")
+                || crate::cop::shared::constant_predicates::is_simple_constant(&recv, b"Module")
         }
         // Data.define is also a class constructor in RuboCop.
-        b"define" => crate::cop::shared::util::is_simple_constant(&recv, b"Data"),
+        b"define" => crate::cop::shared::constant_predicates::is_simple_constant(&recv, b"Data"),
         _ => false,
     }
 }
