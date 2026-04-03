@@ -210,3 +210,34 @@ is_found ? found += [c] : found
 
 is_found ? found += [c] : found
            ^^^^^ Lint/UselessAssignment: Useless assignment to variable - `found`.
+
+# An exclusive outer-branch read must not suppress the earlier rescue-clause
+# offense in the rescue chain.
+def rescue_chain_read_in_else(flag)
+  if flag
+    begin
+      work
+    rescue SomeError
+      score = 0
+      ^^^^^ Lint/UselessAssignment: Useless assignment to variable - `score`.
+    rescue OtherError
+      score = 99
+    end
+  else
+    puts score
+  end
+end
+
+# The last rescue clause should not be suppressed by its own RHS self-reference.
+def final_rescue_assignment(flag)
+  connection = connect(flag)
+  begin
+    work(connection)
+  rescue TimeoutError
+    handle_timeout
+  rescue StandardError => e
+    connection = disconnect(connection) unless connection.nil?
+    ^^^^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `connection`.
+    raise e
+  end
+end

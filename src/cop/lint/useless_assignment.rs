@@ -295,6 +295,14 @@ fn should_suppress_multi_rescue_false_positive(
         return false;
     };
 
+    let has_later_sibling_assignment = offense.assignment_states.iter().any(|assignment| {
+        assignment.offset > offense.node_offset
+            && is_sibling_multi_rescue_assignment(context, assignment.offset, contexts)
+    });
+    if !has_later_sibling_assignment {
+        return false;
+    }
+
     let next_real_assignment = offense
         .assignment_states
         .iter()
@@ -314,7 +322,10 @@ fn should_suppress_multi_rescue_false_positive(
         .filter(|reference| {
             reference.offset > offense.node_offset && reference.offset < next_real_assignment
         })
-        .any(|reference| !is_sibling_multi_rescue_reference(context, reference.offset, contexts))
+        .any(|reference| {
+            !is_sibling_multi_rescue_reference(context, reference.offset, contexts)
+                && reference_can_consume_rescue_value(*reference, offense.branch_id)
+        })
 }
 
 fn is_sibling_multi_rescue_assignment(
@@ -335,6 +346,13 @@ fn is_sibling_multi_rescue_reference(
     contexts.references.get(&offset).is_some_and(|other| {
         other.begin_offset == current.begin_offset && other.clause_index != current.clause_index
     })
+}
+
+fn reference_can_consume_rescue_value(
+    reference: ReferenceState,
+    offense_branch_id: Option<usize>,
+) -> bool {
+    reference.branch_id.is_none() || reference.branch_id == offense_branch_id
 }
 
 fn collect_conditional_operator_write_offsets(
