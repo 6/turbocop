@@ -1753,4 +1753,3 @@ mod tests {
         assert!(!is_safe_navigation_call(&call));
     }
 }
-
