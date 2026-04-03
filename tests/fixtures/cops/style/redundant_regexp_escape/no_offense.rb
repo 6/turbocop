@@ -38,3 +38,29 @@ x =~ /\-/s
 # RuboCop only reports interpolated block-call regexps up to the first interpolation
 rule %r{(#{complex_id})(#{ws}*)([\{\(])}mx do |m|
 end
+# In /x regexps, RuboCop drops the whole regexp when blanking interpolation
+# leaves a branch-start quantifier for regexp_parser
+URIREGEX[:valid_url_path_chars] = /(?:
+  #{URIREGEX[:wikipedia_disambiguation]}|
+  @#{URIREGEX[:valid_general_url_path_chars]}+\/|
+  [\.,]#{URIREGEX[:valid_general_url_path_chars]}+|
+  #{URIREGEX[:valid_general_url_path_chars]}+
+)/ix
+
+URIREGEX[:valid_url] = %r{
+      (
+        (#{URIREGEX[:valid_preceding_chars]})
+        (
+          (https?:\/\/)?
+          (#{URIREGEX[:valid_domain]})
+          (/
+            (?:
+              #{URIREGEX[:valid_url_path_chars]}+#{URIREGEX[:valid_url_path_ending_chars]}|
+              #{URIREGEX[:valid_url_path_chars]}+#{URIREGEX[:valid_url_path_ending_chars]}?|
+              #{URIREGEX[:valid_url_path_ending_chars]}
+            )?
+          )?
+          (\?#{URIREGEX[:valid_url_query_chars]}*#{URIREGEX[:valid_url_query_ending_chars]})?
+        )
+      )
+    }iox
