@@ -594,11 +594,11 @@ fn compile_uri_regex(schemes: &[String]) -> Option<regex::Regex> {
         })
         .collect::<Vec<_>>()
         .join("|");
-    let pattern = format!(r#"(?:{})[^\s"'<>\]|]*"#, prefixes);
-    regex::RegexBuilder::new(&pattern)
-        .case_insensitive(true)
-        .build()
-        .ok()
+    // Case-insensitive matching only on the scheme prefixes (e.g. HTTP:// matches
+    // but HTTP::Error does not). Using inline (?i:...) avoids making the entire
+    // pattern case-insensitive, which would over-match Ruby constant paths.
+    let pattern = format!(r#"(?i:{})[^\s"'<>\]|]*"#, prefixes);
+    regex::Regex::new(&pattern).ok()
 }
 
 fn indentation_difference(line: &[u8], indentation_width: usize) -> usize {
