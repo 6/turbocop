@@ -99,3 +99,37 @@ class Foo
   class << self
   end
 end
+
+# outer docs
+module Foo; class Bar
+            ^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
+  def method
+  end
+end; end
+
+# real doc
+module UserVars
+^^^^^^ Style/Documentation: Missing top-level documentation comment for `module`.
+  class << self
+    attr_accessor :autostart_scripts
+  end
+
+  self.autostart_scripts = []
+end unless defined?(UserVars)
+
+begin
+  # comment
+  class Tester
+  ^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
+    def method
+    end
+  end
+rescue LoadError
+end
+
+class ::Object #:nodoc:
+^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
+  def meta_class
+    class << self; self end
+  end
+end
