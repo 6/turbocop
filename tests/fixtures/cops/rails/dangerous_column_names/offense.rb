@@ -8,3 +8,6 @@ t.string :errors
          ^^^^^^^ Rails/DangerousColumnNames: Avoid dangerous column names.
 t.integer :destroy
           ^^^^^^^^ Rails/DangerousColumnNames: Avoid dangerous column names.
+
+primary_key :id
+            ^^^ Rails/DangerousColumnNames: Avoid dangerous column names.

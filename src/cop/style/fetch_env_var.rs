@@ -23,6 +23,22 @@ use ruby_prism::Visit;
 ///    lvasgn, pushing ENV['X'] to grandchild depth → NOT suppressed → flagged.
 ///    Fixed: handle `LocalVariableWriteNode` in `collect_suppressed_in_condition`
 ///    and `extract_condition_keys` to match RuboCop's behavior.
+/// 5. Parenthesized conditions were over-unwrapped. RuboCop keeps the outer
+///    `begin`/parentheses wrapper when deciding whether an `ENV[]` use is a flag
+///    or whether the condition suppresses the same key in the body. That means
+///    `if (foo && ENV['X'])`, `(ENV['X'].nil?) ? a : ENV['X']`, and
+///    `($stdout.tty? || ENV['X']) ? ...` are offenses, while bare
+///    `if (ENV['X'])` is still allowed because the direct child of the wrapper is
+///    the `ENV[]` call itself. Fixed: treat `ParenthesesNode` as a direct-child
+///    wrapper instead of fully unwrapping compound expressions.
+/// 6. Reverse regex matches like `/re/ =~ ENV['X']` were flagged, but RuboCop
+///    accepts them while still flagging `ENV['X'] =~ /re/`. Fixed: suppress only
+///    when `ENV['X']` is on the argument side of `=~`.
+/// 7. Same-key repetition like `ENV['X'] || ENV['X']`, `ENV['X'] ||= ENV['X']`,
+///    and `if @@x = ENV['X']` were flagged because we only suppressed lhs `||`
+///    nodes and only handled local-variable assignments in conditions. Fixed:
+///    add same-key RHS suppression for `||`/`||=` and handle class/global/instance
+///    variable write nodes when the direct child is a bare `ENV['X']`.
 ///
 /// ### FN root causes
 /// 1. Over-suppression in conditions: `suppress_env_in_condition` walked the entire
@@ -82,6 +98,11 @@ impl FetchEnvVar {
         false
     }
 
+    fn env_bracket_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
+        let call = node.as_call_node()?;
+        Self::is_env_bracket_call(node).then(|| call.location().start_offset())
+    }
+
     /// Check if a CallNode with method `!` is the `!` prefix operator (not the `not` keyword).
     /// RuboCop's `prefix_bang?` only matches `!`, not `not`. Prism uses `message_loc` source
     /// text "!" vs "not" to distinguish them.
@@ -98,6 +119,10 @@ impl FetchEnvVar {
         )
     }
 
+    fn is_reverse_match_method(name: &[u8]) -> bool {
+        name == b"=~"
+    }
+
     /// Extract the unquoted ENV key string from a key argument node's source bytes.
     /// Strips surrounding single or double quotes for normalized comparison.
     fn normalize_key(source: &[u8], start: usize, end: usize) -> Vec<u8> {
@@ -112,6 +137,53 @@ impl FetchEnvVar {
         raw.to_vec()
     }
 
+    fn parenthesized_direct_child<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
+        let paren = node.as_parentheses_node()?;
+        let body = paren.body()?;
+        if let Some(stmts) = body.as_statements_node() {
+            let mut iter = stmts.body().iter();
+            let stmt = iter.next()?;
+            if iter.next().is_some() {
+                return None;
+            }
+            return Some(stmt);
+        }
+        Some(body)
+    }
+
+    fn is_write_condition(node: &ruby_prism::Node<'_>) -> bool {
+        node.as_local_variable_write_node().is_some()
+            || node.as_instance_variable_write_node().is_some()
+            || node.as_class_variable_write_node().is_some()
+            || node.as_global_variable_write_node().is_some()
+    }
+
+    fn write_condition_value<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
+        if let Some(write) = node.as_local_variable_write_node() {
+            return Some(write.value());
+        }
+        if let Some(write) = node.as_instance_variable_write_node() {
+            return Some(write.value());
+        }
+        if let Some(write) = node.as_class_variable_write_node() {
+            return Some(write.value());
+        }
+        if let Some(write) = node.as_global_variable_write_node() {
+            return Some(write.value());
+        }
+        None
+    }
+
+    fn write_condition_env_key(source: &[u8], node: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
+        let value = Self::write_condition_value(node)?;
+        Self::env_bracket_key(source, &value)
+    }
+
+    fn write_condition_env_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
+        let value = Self::write_condition_value(node)?;
+        Self::env_bracket_offset(&value)
+    }
+
     /// Extract normalized ENV key strings from qualifying condition patterns.
     /// Only extracts keys from patterns that RuboCop's `used_in_condition?` considers:
     /// - Direct `ENV['X']` calls (the condition IS the ENV access)
@@ -124,6 +196,23 @@ impl FetchEnvVar {
     /// are checked, matching RuboCop's `condition.child_nodes.any?(node)` behavior.
     fn extract_condition_keys(source: &[u8], condition: &ruby_prism::Node<'_>) -> HashSet<Vec<u8>> {
         let mut keys = HashSet::new();
+
+        // RuboCop keeps the outer begin/parens wrapper. Only a direct bare
+        // `ENV['X']` child matches body uses; compound expressions stay wrapped.
+        if let Some(inner) = Self::parenthesized_direct_child(condition) {
+            if let Some(key) = Self::env_bracket_key(source, &inner) {
+                keys.insert(key);
+            }
+            return keys;
+        }
+
+        if let Some(key) = Self::write_condition_env_key(source, condition) {
+            keys.insert(key);
+            return keys;
+        }
+        if Self::is_write_condition(condition) {
+            return keys;
+        }
 
         // Case 1: Condition IS `ENV['X']`
         if let Some(call) = condition.as_call_node() {
@@ -147,6 +236,23 @@ impl FetchEnvVar {
                     }
                 }
                 return keys;
+            }
+
+            // `/re/ =~ ENV['X']` is treated as a flag, but `ENV['X'] =~ /re/`
+            // is still an offense. Only collect keys from argument-side ENV.
+            if Self::is_reverse_match_method(method_bytes) {
+                if let Some(receiver) = call.receiver() {
+                    if !Self::is_env_bracket_call(&receiver) {
+                        if let Some(args) = call.arguments() {
+                            for arg in args.arguments().iter() {
+                                if let Some(key) = Self::env_bracket_key(source, &arg) {
+                                    keys.insert(key);
+                                }
+                            }
+                        }
+                        return keys;
+                    }
+                }
             }
 
             // Case 2: `ENV['X'].predicate?` or `ENV['X'].method` (any method on ENV[])
@@ -351,18 +457,6 @@ impl FetchEnvVar {
             Self::extract_env_key_from_node(source, &or_node.right(), &mut keys);
         }
 
-        // For parenthesized conditions like `if (x = ENV['X'])`, the condition
-        // is a ParenthesesNode wrapping the assignment. We should NOT extract
-        // keys from inside assignments — RuboCop doesn't suppress them.
-
-        // Case: `if var = ENV['X']` (no parens) — LocalVariableWriteNode.
-        // RuboCop's `condition.child_nodes.any?(node)` finds ENV['X'] as a direct
-        // child of lvasgn → suppressed. With parens, a begin node wraps the lvasgn
-        // so ENV['X'] is a grandchild → NOT suppressed → flagged.
-        if let Some(write) = condition.as_local_variable_write_node() {
-            return Self::extract_condition_keys(source, &write.value());
-        }
-
         keys
     }
 
@@ -381,6 +475,21 @@ impl FetchEnvVar {
         condition: &ruby_prism::Node<'_>,
         offsets: &mut HashSet<usize>,
     ) {
+        if let Some(inner) = Self::parenthesized_direct_child(condition) {
+            if let Some(offset) = Self::env_bracket_offset(&inner) {
+                offsets.insert(offset);
+            }
+            return;
+        }
+
+        if let Some(offset) = Self::write_condition_env_offset(condition) {
+            offsets.insert(offset);
+            return;
+        }
+        if Self::is_write_condition(condition) {
+            return;
+        }
+
         // Case 1: Condition IS `ENV['X']` directly — bare flag like `if ENV['X']`
         if Self::is_env_bracket_call(condition) {
             if let Some(call) = condition.as_call_node() {
@@ -419,6 +528,23 @@ impl FetchEnvVar {
                     }
                 }
                 return;
+            }
+
+            if Self::is_reverse_match_method(method_bytes) {
+                if let Some(receiver) = call.receiver() {
+                    if !Self::is_env_bracket_call(&receiver) {
+                        if let Some(args) = call.arguments() {
+                            for arg in args.arguments().iter() {
+                                if Self::is_env_bracket_call(&arg) {
+                                    if let Some(arg_call) = arg.as_call_node() {
+                                        offsets.insert(arg_call.location().start_offset());
+                                    }
+                                }
+                            }
+                        }
+                        return;
+                    }
+                }
             }
 
             if Self::is_comparison_method(method_bytes) {
@@ -482,15 +608,6 @@ impl FetchEnvVar {
                     Self::suppress_env_by_key_in_subtree(source, condition, &key, offsets);
                 }
             }
-        }
-
-        // Parenthesized assignment `if (x = ENV['X'])` — do NOT suppress
-
-        // Bare assignment `if var = ENV['X']` (no parens) — LocalVariableWriteNode.
-        // RuboCop's `condition.child_nodes.any?(node)` finds ENV['X'] as a direct
-        // child of lvasgn → suppressed. Recurse into the value.
-        if let Some(write) = condition.as_local_variable_write_node() {
-            Self::collect_suppressed_in_condition(source, &write.value(), offsets);
         }
     }
 
@@ -583,6 +700,26 @@ impl FetchEnvVar {
         }
         let args = call.arguments()?;
         let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.len() != 1 {
+            return None;
+        }
+        let loc = arg_list[0].location();
+        Some(Self::normalize_key(
+            source,
+            loc.start_offset(),
+            loc.end_offset(),
+        ))
+    }
+
+    fn env_index_write_key(
+        source: &[u8],
+        receiver: &ruby_prism::Node<'_>,
+        arguments: &ruby_prism::ArgumentsNode<'_>,
+    ) -> Option<Vec<u8>> {
+        if !Self::is_env_receiver(receiver) {
+            return None;
+        }
+        let arg_list: Vec<_> = arguments.arguments().iter().collect();
         if arg_list.len() != 1 {
             return None;
         }
@@ -716,6 +853,20 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
         // This correctly handles `ENV['A'] || ENV['B'] || default` where
         // the parse tree is `(ENV['A'] || ENV['B']) || default`.
         Self::collect_or_lhs_env_offsets(&node.left(), &mut self.suppressed_offsets);
+
+        // RuboCop also accepts repeated same-key ENV lookups on both sides of a
+        // single `||`, e.g. `ENV['X'] || ENV['X']`.
+        if let (Some(left_key), Some(right_key)) = (
+            FetchEnvVar::env_bracket_key(self.source.as_bytes(), &node.left()),
+            FetchEnvVar::env_bracket_key(self.source.as_bytes(), &node.right()),
+        ) {
+            if left_key == right_key {
+                if let Some(offset) = FetchEnvVar::env_bracket_offset(&node.right()) {
+                    self.suppressed_offsets.insert(offset);
+                }
+            }
+        }
+
         ruby_prism::visit_or_node(self, node);
     }
 
@@ -887,6 +1038,25 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
             }
         }
         ruby_prism::visit_call_and_write_node(self, node);
+    }
+
+    fn visit_index_or_write_node(&mut self, node: &ruby_prism::IndexOrWriteNode<'pr>) {
+        if let (Some(receiver), Some(arguments)) = (node.receiver(), node.arguments()) {
+            if let Some(lhs_key) =
+                FetchEnvVar::env_index_write_key(self.source.as_bytes(), &receiver, &arguments)
+            {
+                if let Some(rhs_key) =
+                    FetchEnvVar::env_bracket_key(self.source.as_bytes(), &node.value())
+                {
+                    if lhs_key == rhs_key {
+                        return;
+                    }
+                }
+                self.visit(&node.value());
+                return;
+            }
+        }
+        ruby_prism::visit_index_or_write_node(self, node);
     }
 }
 

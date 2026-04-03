@@ -718,6 +718,68 @@ def test_build_prompt_fix_mode_has_no_time_budget(tmp_path):
     assert "Reduce Mode" not in content
 
 
+# ── _is_rs_patch_docs_only ─────────────────────────────────────────────
+
+def test_rs_patch_docs_only_pure_doc_additions():
+    patch = (
+        "+/// This is a doc comment.\n"
+        "+/// Another doc line.\n"
+        "+\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is True
+
+
+def test_rs_patch_docs_only_code_addition():
+    patch = (
+        "+/// Doc comment.\n"
+        "+    let x = 1;\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is False
+
+
+def test_rs_patch_docs_only_code_removal():
+    """The PR #1317 bug: removing code lines while only adding doc comments."""
+    patch = (
+        "+/// FN fix: removed the receiver check.\n"
+        "+/// RuboCop does not require a receiver.\n"
+        "-            if call.receiver().is_none() {\n"
+        "-                return;\n"
+        "-            }\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is False
+
+
+def test_rs_patch_docs_only_removes_doc_comments_only():
+    patch = (
+        "-/// Old doc comment.\n"
+        "+/// New doc comment.\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is True
+
+
+def test_rs_patch_docs_only_skips_diff_headers():
+    patch = (
+        "--- a/src/cop/foo.rs\n"
+        "+++ b/src/cop/foo.rs\n"
+        "@@ -1,3 +1,3 @@\n"
+        "+/// Doc line.\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is True
+
+
+def test_rs_patch_docs_only_empty_patch():
+    assert cop_fix_lifecycle._is_rs_patch_docs_only("") is True
+
+
+def test_rs_patch_docs_only_context_lines_ignored():
+    patch = (
+        " fn main() {\n"
+        "+/// Added doc.\n"
+        " }\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is True
+
+
 # ── CLI error handling ──────────────────────────────────────────────────
 
 def test_unknown_command():

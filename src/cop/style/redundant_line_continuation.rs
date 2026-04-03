@@ -60,6 +60,17 @@ use ruby_prism::Visit;
 ///   The `is_redundant_continuation` reparse fallback correctly determines whether
 ///   removal is safe (e.g., inside parens it is, at top level it isn't).
 ///
+/// - **Percent literals, control-flow keywords, and `\\`-ending literals**:
+///   `%w(...)` and `%i[...]` lines were misread as modulo operations because any
+///   next line starting with `%` counted as arithmetic. Control-flow keywords on
+///   the next line (`begin`, `then`, `else`, `end`, etc.) were also treated as
+///   method arguments, and the blanket doubled-`\` skip hid real offenses in
+///   character literals (`?\\`) and percent-array elements like `%W(... \\)`.
+///   Fixed by only treating `%` as arithmetic when followed by whitespace,
+///   excluding non-argument Ruby keywords at the start of the next line, detecting
+///   ternary `? expr \` branches before `:`, and allowing those narrow literal
+///   contexts to participate in the raw line scan.
+///
 /// - **`=begin`/`=end` block scanning**: RuboCop scans raw source including
 ///   multi-line comment blocks (`=begin`/`=end`), but our `code_map.is_code()`
 ///   returns false for content inside these blocks, causing FNs. Fixed by
@@ -103,6 +114,8 @@ impl Cop for RedundantLineContinuation {
         let source_bytes = source.as_bytes();
         let interpolated_string_continuations =
             interpolated_string_continuation_offsets(parse_result, source_bytes);
+        let string_like_literal_continuations =
+            string_like_literal_continuation_offsets(parse_result, source_bytes);
 
         let mut in_embdoc = false;
         for (i, line) in lines.iter().enumerate() {
@@ -150,19 +163,24 @@ impl Cop for RedundantLineContinuation {
                 continue;
             }
 
-            // Check the character before backslash is not another backslash (string escape)
-            if trimmed.len() >= 2 && trimmed[trimmed.len() - 2] == b'\\' {
-                continue;
-            }
-
             // Compute the absolute offset of the backslash to check if it's in code.
             let line_start = source.line_start_offset(i + 1);
             let backslash_offset = line_start + trimmed.len() - 1;
+
+            // A doubled `\\` at end of line is usually just a literal backslash,
+            // but RuboCop still flags it in narrow contexts like `?\\` and `%W(... \\)`.
+            if trimmed.len() >= 2
+                && trimmed[trimmed.len() - 2] == b'\\'
+                && !string_like_literal_continuations.contains(&backslash_offset)
+            {
+                continue;
+            }
 
             // Use code_map to verify the backslash is in a code region
             // (not inside a string, heredoc, or comment)
             if !code_map.is_code(backslash_offset)
                 && !interpolated_string_continuations.contains(&backslash_offset)
+                && !string_like_literal_continuations.contains(&backslash_offset)
             {
                 continue;
             }
@@ -355,7 +373,11 @@ fn leading_dot_method_chain_with_blank_line(
 
 fn starts_with_arithmetic_operator(next_trimmed: &[u8]) -> bool {
     next_trimmed.starts_with(b"**")
-        || matches!(next_trimmed.first(), Some(b'*' | b'%' | b'+' | b'-'))
+        || matches!(next_trimmed.first(), Some(b'*' | b'+' | b'-'))
+        || (next_trimmed.starts_with(b"%")
+            && next_trimmed
+                .get(1)
+                .is_some_and(|b| matches!(b, b' ' | b'\t')))
 }
 
 fn starts_with_boolean_operator(next_trimmed: &[u8]) -> bool {
@@ -370,6 +392,10 @@ fn starts_with_keyword_operator(trimmed: &[u8]) -> bool {
         || starts_with_exact_keyword(trimmed, b"not")
 }
 
+fn starts_with_non_argument_keyword(trimmed: &[u8]) -> bool {
+    leading_identifier(trimmed).is_some_and(is_ruby_keyword)
+}
+
 fn starts_with_exact_keyword(trimmed: &[u8], keyword: &[u8]) -> bool {
     trimmed.starts_with(keyword)
         && trimmed
@@ -381,6 +407,14 @@ fn method_with_argument(before_backslash: &[u8], next_trimmed: &[u8]) -> bool {
     // A ternary "then" branch (line starts with `? `) is not a method call
     let trimmed = trim_start(before_backslash);
     if trimmed.len() >= 2 && trimmed[0] == b'?' && (trimmed[1] == b' ' || trimmed[1] == b'\t') {
+        return false;
+    }
+    // `cond ? expr \` + `: other` is also a ternary branch, not a method call.
+    if next_trimmed.starts_with(b":")
+        && before_backslash
+            .windows(2)
+            .any(|window| window == b"? " || window == b"?\t")
+    {
         return false;
     }
 
@@ -464,6 +498,25 @@ fn trailing_identifier(bytes: &[u8]) -> Option<&[u8]> {
     (start < end).then_some(&bytes[start..end])
 }
 
+fn leading_identifier(bytes: &[u8]) -> Option<&[u8]> {
+    let &first = bytes.first()?;
+    if !first.is_ascii_alphabetic() && first != b'_' {
+        return None;
+    }
+
+    let mut end = 1;
+    while end < bytes.len() {
+        let b = bytes[end];
+        if b.is_ascii_alphanumeric() || matches!(b, b'_' | b'?' | b'!') {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+
+    Some(&bytes[..end])
+}
+
 fn next_line_starts_with_argument(next_trimmed: &[u8]) -> bool {
     if next_trimmed.is_empty() {
         return false;
@@ -477,6 +530,10 @@ fn next_line_starts_with_argument(next_trimmed: &[u8]) -> bool {
     // These are operators, not method arguments. The reparse fallback will
     // correctly determine if removing \ is safe (e.g., inside parens it is).
     if starts_with_keyword_operator(next_trimmed) {
+        return false;
+    }
+
+    if starts_with_non_argument_keyword(next_trimmed) {
         return false;
     }
 
@@ -532,6 +589,19 @@ fn interpolated_string_continuation_offsets(
     collector.offsets
 }
 
+fn string_like_literal_continuation_offsets(
+    parse_result: &ruby_prism::ParseResult<'_>,
+    source: &[u8],
+) -> HashSet<usize> {
+    let mut collector = StringLikeLiteralContinuationCollector {
+        source,
+        offsets: HashSet::new(),
+        percent_array_depth: 0,
+    };
+    collector.visit(&parse_result.node());
+    collector.offsets
+}
+
 struct InterpolatedStringContinuationCollector<'a> {
     source: &'a [u8],
     offsets: HashSet<usize>,
@@ -577,6 +647,45 @@ impl<'pr> Visit<'pr> for InterpolatedStringContinuationCollector<'_> {
     fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
         if self.interpolated_string_depth > 0 && self.embedded_depth == 0 {
             self.collect_string_part_offsets(node);
+        }
+        ruby_prism::visit_string_node(self, node);
+    }
+}
+
+struct StringLikeLiteralContinuationCollector<'a> {
+    source: &'a [u8],
+    offsets: HashSet<usize>,
+    percent_array_depth: usize,
+}
+
+impl StringLikeLiteralContinuationCollector<'_> {
+    fn collect_string_end_backslash(&mut self, node: &ruby_prism::StringNode<'_>) {
+        let loc = node.content_loc();
+        let bytes = &self.source[loc.start_offset()..loc.end_offset()];
+        if bytes.ends_with(b"\\\\") {
+            self.offsets.insert(loc.end_offset() - 1);
+        }
+    }
+}
+
+impl<'pr> Visit<'pr> for StringLikeLiteralContinuationCollector<'_> {
+    fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
+        let was_percent_array = self.percent_array_depth;
+        if let Some(opening) = node.opening_loc() {
+            if opening.as_slice().starts_with(b"%") {
+                self.percent_array_depth += 1;
+            }
+        }
+        ruby_prism::visit_array_node(self, node);
+        self.percent_array_depth = was_percent_array;
+    }
+
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        let is_character_literal = node
+            .opening_loc()
+            .is_some_and(|opening| opening.as_slice() == b"?");
+        if is_character_literal || self.percent_array_depth > 0 {
+            self.collect_string_end_backslash(node);
         }
         ruby_prism::visit_string_node(self, node);
     }

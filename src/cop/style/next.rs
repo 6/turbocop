@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::shared::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -17,7 +18,16 @@ use crate::parse::source::SourceFile;
 ///   every outer guard whose body happens to contain a nested `if/unless ...
 ///   else`. In Prism, that means only skipping bodies whose sole statement is a
 ///   nested conditional with `else`; broader scanning caused real FN such as the
-///   COSMOS-style trailing guard with an inner `if/else` among other statements.
+///   COSMOS-style trailing guard with an inner `if/else` among other statements,
+///   while still allowing guarded bodies whose sole statement is a ternary.
+/// - For terminal `unless` guards whose body is exactly one nested
+///   `if`/`unless`, distinguish between single-statement and multi-statement
+///   iteration bodies. RuboCop reports the nested conditional when the outer
+///   `unless` is the entire loop body, but keeps the offense on the outer
+///   `unless` when it is only the terminal statement in a larger body. The
+///   previous unconditional inner-node remap caused the current FP/FN corpus
+///   pairs by flagging the nested guard in cases where RuboCop keeps the outer
+///   one.
 /// - Added `while`/`until` loop support (RuboCop's `on_while`/`on_until`).
 /// - Added `loop` and other missing enumerator methods (`inject`, `reduce`,
 ///   `find_index`, `map!`, `select!`, `reject!`).
@@ -27,37 +37,13 @@ use crate::parse::source::SourceFile;
 ///   bluepotion `filter do` blocks).
 pub struct Next;
 
-/// Iterator methods whose blocks should use `next` instead of wrapping conditionals.
-/// Matches RuboCop's `ENUMERATOR_METHODS` plus any method starting with `each_`.
-const ITERATION_METHODS: &[&[u8]] = &[
-    b"collect",
-    b"collect_concat",
-    b"detect",
-    b"downto",
-    b"each",
-    b"find",
-    b"find_all",
-    b"find_index",
-    b"inject",
-    b"loop",
-    b"map",
-    b"map!",
-    b"max_by",
-    b"min_by",
-    b"reduce",
-    b"reject",
-    b"reject!",
-    b"reverse_each",
-    b"select",
-    b"select!",
-    b"sort_by",
-    b"times",
-    b"upto",
-];
-
-/// Check if a method name is an enumerator method (static list or `each_*` prefix)
+/// Check if a method name is an iteration method for Style/Next.
+///
+/// Uses the canonical `ENUMERATOR_METHODS` plus `each_*` prefix from rubocop-ast,
+/// with `max_by`, `min_by`, `sort_by` added based on corpus investigation.
 fn is_enumerator_method(name: &[u8]) -> bool {
-    ITERATION_METHODS.contains(&name) || name.starts_with(b"each_")
+    method_identifier_predicates::is_enumerator_method(name)
+        || matches!(name, b"max_by" | b"min_by" | b"sort_by")
 }
 
 impl Cop for Next {
@@ -95,6 +81,37 @@ struct NextVisitor<'a> {
     style: &'a str,
     min_body_length: usize,
     diagnostics: Vec<Diagnostic>,
+}
+
+enum NestedConditional<'pr> {
+    If(ruby_prism::IfNode<'pr>),
+    Unless(ruby_prism::UnlessNode<'pr>),
+}
+
+impl NestedConditional<'_> {
+    fn has_else(&self) -> bool {
+        match self {
+            Self::If(node) => node.subsequent().is_some(),
+            Self::Unless(node) => node.else_clause().is_some(),
+        }
+    }
+
+    fn has_keyword_else(&self) -> bool {
+        match self {
+            Self::If(node) => node.if_keyword_loc().is_some() && node.subsequent().is_some(),
+            Self::Unless(node) => node.else_clause().is_some(),
+        }
+    }
+
+    fn keyword_start_offset(&self) -> usize {
+        match self {
+            Self::If(node) => node
+                .if_keyword_loc()
+                .expect("non-modifier nested if should have `if` keyword")
+                .start_offset(),
+            Self::Unless(node) => node.keyword_loc().start_offset(),
+        }
+    }
 }
 
 impl NextVisitor<'_> {
@@ -138,32 +155,35 @@ impl NextVisitor<'_> {
             && (first_stmt.as_break_node().is_some() || first_stmt.as_return_node().is_some())
     }
 
+    fn single_nested_conditional<'pr>(
+        &self,
+        statements: Option<ruby_prism::StatementsNode<'pr>>,
+    ) -> Option<NestedConditional<'pr>> {
+        let statements = statements?;
+
+        let mut body = statements.body().iter();
+        let first_stmt = body.next()?;
+
+        if body.next().is_some() {
+            return None;
+        }
+
+        first_stmt
+            .as_if_node()
+            .map(NestedConditional::If)
+            .or_else(|| first_stmt.as_unless_node().map(NestedConditional::Unless))
+    }
+
     fn has_single_nested_conditional_with_else(
         &self,
         statements: Option<ruby_prism::StatementsNode<'_>>,
     ) -> bool {
-        let Some(statements) = statements else {
-            return false;
-        };
-
-        let mut body = statements.body().iter();
-        let Some(first_stmt) = body.next() else {
-            return false;
-        };
-
-        if body.next().is_some() {
-            return false;
-        }
-
-        // RuboCop checks only direct child `if` nodes here. Prism always wraps
-        // multi-statement branches in `StatementsNode`, so the equivalent shape
-        // is a body whose sole statement is a nested conditional with `else`.
-        first_stmt
-            .as_if_node()
-            .is_some_and(|nested_if| nested_if.subsequent().is_some())
-            || first_stmt
-                .as_unless_node()
-                .is_some_and(|nested_unless| nested_unless.else_clause().is_some())
+        // RuboCop checks only direct child conditionals here. Prism always
+        // wraps multi-statement branches in `StatementsNode`, so the equivalent
+        // shape is a body whose sole statement is a nested conditional with
+        // `else`.
+        self.single_nested_conditional(statements)
+            .is_some_and(|nested| nested.has_keyword_else())
     }
 
     fn check_block_body(&mut self, body: &ruby_prism::Node<'_>) {
@@ -176,6 +196,7 @@ impl NextVisitor<'_> {
         if body_stmts.is_empty() {
             return;
         }
+        let single_statement_body = body_stmts.len() == 1;
 
         // RuboCop checks if the LAST statement is an if/unless (ends_with_condition?)
         let stmt = &body_stmts[body_stmts.len() - 1];
@@ -224,10 +245,8 @@ impl NextVisitor<'_> {
 
             // Skip modifier unless if style is skip_modifier_ifs
             let kw_loc = unless_node.keyword_loc();
-            let unless_statements = unless_node.statements();
-
             if self.style == "skip_modifier_ifs"
-                && self.is_modifier_form(&kw_loc, unless_statements)
+                && self.is_modifier_form(&kw_loc, unless_node.statements())
             {
                 return;
             }
@@ -244,7 +263,21 @@ impl NextVisitor<'_> {
                 return;
             }
 
-            let (line, column) = self.source.offset_to_line_col(kw_loc.start_offset());
+            // RuboCop only remaps the offense to the nested conditional when
+            // the outer `unless` is the ENTIRE iteration body. If other
+            // top-level statements precede the terminal `unless`, keep the
+            // offense on the outer guard.
+            let start_offset = if single_statement_body {
+                self.single_nested_conditional(unless_node.statements())
+                    .filter(|nested| !nested.has_else())
+                    .map_or_else(
+                        || kw_loc.start_offset(),
+                        |nested| nested.keyword_start_offset(),
+                    )
+            } else {
+                kw_loc.start_offset()
+            };
+            let (line, column) = self.source.offset_to_line_col(start_offset);
             self.diagnostics.push(self.cop.diagnostic(
                 self.source,
                 line,

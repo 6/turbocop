@@ -820,11 +820,34 @@ def cmd_snapshot(args: list[str]) -> int:
     return 0
 
 
+def _is_rs_patch_docs_only(rs_patch: str) -> bool:
+    """Return True when every added/removed line is a doc comment or blank.
+
+    A fix that deletes code logic (even if it only adds ``///`` doc
+    comments) is a real change, not docs-only.
+    """
+    for line in rs_patch.splitlines():
+        # Check both added (+) and removed (-) lines for real code.
+        # Skip diff headers (+++/---) and context lines.
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if not line.startswith("+") and not line.startswith("-"):
+            continue
+        content = line[1:].strip()
+        if not content or content.startswith("///"):
+            continue
+        # Any non-doc, non-blank changed line in .rs means real logic
+        return False
+    return True
+
+
 def _is_docs_only_change(signed_sha: str, repo: str) -> bool:
     """Check if .rs file changes are only doc comments (///) — no logic changes.
 
     Fixture files (.rb) are always allowed. Returns True only when every
-    added/modified line in .rs files is a doc comment or blank.
+    added AND removed line in .rs files is a doc comment or blank.
+    A fix that deletes code logic (even if it only adds doc comments) is
+    a real change, not docs-only.
     """
     r = _run_ok(["gh", "api", f"repos/{repo}/compare/main...{signed_sha}",
                  "--jq", '.files[] | select(.filename | endswith(".rs")) | .patch // empty'])
@@ -834,15 +857,7 @@ def _is_docs_only_change(signed_sha: str, repo: str) -> bool:
     if not rs_patch:
         # No .rs files changed at all — only fixtures. That's docs-only.
         return True
-    for line in rs_patch.splitlines():
-        if not line.startswith("+") or line.startswith("+++"):
-            continue
-        content = line[1:].strip()
-        if not content or content.startswith("///"):
-            continue
-        # Any non-doc, non-blank added line in .rs means real logic
-        return False
-    return True
+    return _is_rs_patch_docs_only(rs_patch)
 
 
 # ── finalize ────────────────────────────────────────────────────────────

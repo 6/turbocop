@@ -225,3 +225,60 @@ else
   return @ipr_ids
   ^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `return @ipr_ids` out of the conditional.
 end
+
+# if/else identical trailing lines with deep condition call chain
+if str.to_s.strip.empty?
+  @distance = nil
+  @distance_string = str
+  ^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@distance_string = str` out of the conditional.
+else
+  @distance = str.to_f
+  @distance_string = str
+  ^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@distance_string = str` out of the conditional.
+end
+
+# if/else identical trailing lines with longer else branch
+if str.to_s.strip.empty?
+  @bootstrap = nil
+  @bootstrap_string = str
+  ^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@bootstrap_string = str` out of the conditional.
+else
+  i = str.to_i
+  f = str.to_f
+  @bootstrap = (i == f ? i : f)
+  @bootstrap_string = str
+  ^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@bootstrap_string = str` out of the conditional.
+end
+
+# if/else identical literal tails
+if package_installed?(package)
+  out "Failure [INSTALL_FAILED_ALREADY_EXISTS]\r\n"
+  0
+  ^ Style/IdenticalConditionalBranches: Move `0` out of the conditional.
+else
+  out "Success\r\n"
+  0
+  ^ Style/IdenticalConditionalBranches: Move `0` out of the conditional.
+end
+
+# if/else identical leading redirects with different following statements
+if errorMsg.blank?
+  redirect_to :controller => 'wkassetdepreciation', :action => 'index' , :tab => 'wkassetdepreciation'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `redirect_to :controller => 'wkassetdepreciation', :action => 'index' , :tab => 'wkassetdepreciation'` out of the conditional.
+  flash[:notice] = l(:notice_successful_update)
+else
+  redirect_to :controller => 'wkassetdepreciation', :action => 'index', :tab => 'wkassetdepreciation'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `redirect_to :controller => 'wkassetdepreciation', :action => 'index' , :tab => 'wkassetdepreciation'` out of the conditional.
+  flash[:error] = errorMsg
+end
+
+# if/else identical trailing encodes after different value coercions
+if VALUE_CONVERSION[@vr] == :to_s
+  @value = new_value.to_s.encode(ENCODING_NAME[character_set], new_value.to_s.encoding.name)
+  @bin = encode(@value)
+  ^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@bin = encode(@value)` out of the conditional.
+else
+  @value = new_value
+  @bin = encode(@value)
+  ^^^^^^^^^^^^^^^^^^^^^ Style/IdenticalConditionalBranches: Move `@bin = encode(@value)` out of the conditional.
+end

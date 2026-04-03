@@ -1,6 +1,7 @@
 use ruby_prism::Visit;
 
-use crate::cop::util::{assignment_context_base_col, indentation_of};
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::util::{assignment_context_base_col, indentation_of};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -354,9 +355,7 @@ impl ChainVisitor<'_> {
 
 /// Check if a call node is a setter method (e.g., `foo.bar = x`).
 fn is_assignment_method(call: &ruby_prism::CallNode<'_>) -> bool {
-    let name = call.name().as_slice();
-    // Setter methods end with `=` but are not `==`, `!=`, `<=`, `>=`
-    name.ends_with(b"=") && name != b"==" && name != b"!=" && name != b"<=" && name != b">="
+    method_identifier_predicates::is_assignment_method(call.name().as_slice())
 }
 
 /// Get the line number of the selector/method name for a call node.

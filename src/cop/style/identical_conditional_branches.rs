@@ -1,4 +1,4 @@
-use crate::cop::node_type::{CASE_MATCH_NODE, CASE_NODE, IF_NODE, UNLESS_NODE};
+use crate::cop::shared::node_type::{CASE_MATCH_NODE, CASE_NODE, IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -28,6 +28,31 @@ use ruby_prism::Visit;
 ///    RuboCop's `last_child_of_parent?` returns true, suppressing single-
 ///    child-branch head checks. Fixed `is_last_child_of_parent` to also
 ///    check write nodes (LocalVariableWriteNode, etc.).
+///
+/// 4. **FP: setter-call assignments reusing the condition receiver** —
+///    RuboCop treats `object.foo = value` like an assignment whose compared
+///    child node is the receiver (`object`). nitrocop only handled simple
+///    write nodes and `[]=`. Added setter-call receiver extraction so cases
+///    like `if object.present?; object.attributes = ...; else ... end` are
+///    suppressed.
+///
+/// 5. **FN: deep condition call chains** — RuboCop only checks direct child
+///    nodes of the condition when suppressing duplicated assignments.
+///    nitrocop walked all descendants, which over-suppressed offenses like
+///    `if str.to_s.strip.empty?; @distance_string = str; else ... end`.
+///    Narrowed the condition-variable check to direct child variables only.
+///
+/// 6. **FP: single-child branch tails that are nested conditionals** —
+///    RuboCop does not report `if`/`unless` expressions when they are the only
+///    statement in every branch and the enclosing conditional is the last
+///    expression of its parent. nitrocop compared those nested conditionals as
+///    ordinary tail statements and flagged them anyway.
+///
+/// 7. **FP: regex literals with whitespace-sensitive bodies** — nitrocop's
+///    source normalizer collapsed spaces inside `/.../`, so distinct regexes
+///    like `/[^\d ]/` and `/[^\d]/` compared equal even though RuboCop keeps
+///    regexp bodies whitespace-sensitive. Regex literals now keep their raw
+///    trimmed source as the comparison key.
 pub struct IdenticalConditionalBranches;
 
 struct StatementInfo {
@@ -41,6 +66,7 @@ struct StatementInfo {
     /// `duplicated_expressions?` to suppress when the value (for simple writes)
     /// or LHS variable name (for operator writes) matches a condition variable.
     assignment_child_source: Option<String>,
+    is_if_or_unless: bool,
 }
 
 fn node_source(source: &SourceFile, node: &ruby_prism::Node<'_>) -> String {
@@ -71,7 +97,12 @@ fn normalized_source_key(src: &str) -> String {
                 }
 
                 if pending_space && !out.is_empty() {
-                    out.push(' ');
+                    let prev = out.chars().next_back();
+                    if !matches!(ch, ',' | ')' | ']' | '}' | ';')
+                        && !matches!(prev, Some('(' | '[' | '{'))
+                    {
+                        out.push(' ');
+                    }
                 }
                 pending_space = false;
                 out.push(ch);
@@ -197,6 +228,13 @@ fn assignment_child_source(source: &SourceFile, node: &ruby_prism::Node<'_>) -> 
     if let Some(w) = node.as_instance_variable_and_write_node() {
         return Some(String::from_utf8_lossy(w.name().as_slice()).to_string());
     }
+    if let Some(call) = node.as_call_node() {
+        if call.equal_loc().is_some() {
+            return call
+                .receiver()
+                .map(|receiver| node_source(source, &receiver));
+        }
+    }
     None
 }
 
@@ -213,14 +251,24 @@ fn stmt_info(
     let (line, col) = source.offset_to_line_col(loc.start_offset());
     let has_heredoc = contains_heredoc(node);
     let src = node_source(source, node);
+    let key = if node.as_regular_expression_node().is_some()
+        || node.as_interpolated_regular_expression_node().is_some()
+    {
+        // Whitespace inside a regexp body is semantic, unlike the formatting-only
+        // whitespace we collapse for ordinary Ruby statements.
+        src.clone()
+    } else {
+        normalized_source_key(&src)
+    };
     Some(StatementInfo {
-        key: normalized_source_key(&src),
+        key,
         src,
         line,
         col,
         has_heredoc,
         index_assignment_receiver: index_assignment_receiver_source(source, node),
         assignment_child_source: assignment_child_source(source, node),
+        is_if_or_unless: node.as_if_node().is_some() || node.as_unless_node().is_some(),
     })
 }
 
@@ -325,6 +373,7 @@ impl IdenticalConditionalBranches {
         source: &SourceFile,
         branches: &[BranchInfo<'_>],
         condition_node: Option<&ruby_prism::Node<'_>>,
+        is_last_child_of_parent: bool,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
         // All branches must have at least one statement
@@ -357,6 +406,13 @@ impl IdenticalConditionalBranches {
         }
         let first_key = &tails[0].key;
         if !tails.iter().all(|tail| tail.key == *first_key) {
+            return;
+        }
+
+        if is_last_child_of_parent
+            && branches.iter().all(|branch| branch.count == 1)
+            && tails[0].is_if_or_unless
+        {
             return;
         }
 
@@ -477,35 +533,54 @@ fn condition_contains_variable_source(
     condition: &ruby_prism::Node<'_>,
     needle: &str,
 ) -> bool {
-    struct VariableFinder<'a> {
+    struct DirectVariableFinder<'a> {
         source: &'a SourceFile,
         needle: &'a str,
+        branch_depth: usize,
         found: bool,
     }
 
-    impl<'a, 'pr> Visit<'pr> for VariableFinder<'a> {
-        fn visit_instance_variable_read_node(
-            &mut self,
-            node: &ruby_prism::InstanceVariableReadNode<'pr>,
-        ) {
-            if node_source(self.source, &node.as_node()) == self.needle {
-                self.found = true;
-            }
+    impl<'a, 'pr> Visit<'pr> for DirectVariableFinder<'a> {
+        fn visit_branch_node_enter(&mut self, _node: ruby_prism::Node<'pr>) {
+            self.branch_depth += 1;
         }
 
-        fn visit_local_variable_read_node(
-            &mut self,
-            node: &ruby_prism::LocalVariableReadNode<'pr>,
-        ) {
-            if node_source(self.source, &node.as_node()) == self.needle {
+        fn visit_branch_node_leave(&mut self) {
+            self.branch_depth -= 1;
+        }
+
+        fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+            if self.branch_depth != 1 {
+                return;
+            }
+
+            let matches = node
+                .as_local_variable_read_node()
+                .map(|n| node_source(self.source, &n.as_node()) == self.needle)
+                .or_else(|| {
+                    node.as_instance_variable_read_node()
+                        .map(|n| node_source(self.source, &n.as_node()) == self.needle)
+                })
+                .or_else(|| {
+                    node.as_class_variable_read_node()
+                        .map(|n| node_source(self.source, &n.as_node()) == self.needle)
+                })
+                .or_else(|| {
+                    node.as_global_variable_read_node()
+                        .map(|n| node_source(self.source, &n.as_node()) == self.needle)
+                })
+                .unwrap_or(false);
+
+            if matches {
                 self.found = true;
             }
         }
     }
 
-    let mut finder = VariableFinder {
+    let mut finder = DirectVariableFinder {
         source,
         needle,
+        branch_depth: 0,
         found: false,
     };
     finder.visit(condition);
@@ -696,12 +771,12 @@ impl Cop for IdenticalConditionalBranches {
 
             let pre_len = diagnostics.len();
             let condition = if_node.predicate();
+            let last_child = is_last_child_of_parent(node, parse_result);
 
             // Check tails (last statement in each branch)
-            self.check_tails(source, &branches, Some(&condition), diagnostics);
+            self.check_tails(source, &branches, Some(&condition), last_child, diagnostics);
 
             // Check heads (first statement in each branch)
-            let last_child = is_last_child_of_parent(node, parse_result);
             self.check_heads(source, &branches, Some(&condition), last_child, diagnostics);
 
             // Deduplicate: when both head and tail fire on single-stmt branches
@@ -714,10 +789,16 @@ impl Cop for IdenticalConditionalBranches {
 
             let pre_len = diagnostics.len();
             let condition = case_node.predicate();
-
-            self.check_tails(source, &branches, condition.as_ref(), diagnostics);
-
             let last_child = is_last_child_of_parent(node, parse_result);
+
+            self.check_tails(
+                source,
+                &branches,
+                condition.as_ref(),
+                last_child,
+                diagnostics,
+            );
+
             self.check_heads(
                 source,
                 &branches,
@@ -735,10 +816,16 @@ impl Cop for IdenticalConditionalBranches {
 
             let pre_len = diagnostics.len();
             let condition = case_match_node.predicate();
-
-            self.check_tails(source, &branches, condition.as_ref(), diagnostics);
-
             let last_child = is_last_child_of_parent(node, parse_result);
+
+            self.check_tails(
+                source,
+                &branches,
+                condition.as_ref(),
+                last_child,
+                diagnostics,
+            );
+
             self.check_heads(
                 source,
                 &branches,
@@ -762,10 +849,10 @@ impl Cop for IdenticalConditionalBranches {
 
             let pre_len = diagnostics.len();
             let condition = unless_node.predicate();
-
-            self.check_tails(source, &branches, Some(&condition), diagnostics);
-
             let last_child = is_last_child_of_parent(node, parse_result);
+
+            self.check_tails(source, &branches, Some(&condition), last_child, diagnostics);
+
             self.check_heads(source, &branches, Some(&condition), last_child, diagnostics);
 
             Self::dedup_diagnostics(diagnostics, pre_len);

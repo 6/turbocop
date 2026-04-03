@@ -1,5 +1,5 @@
 use crate::cop::factory_bot::{FACTORY_BOT_METHODS, FACTORY_BOT_SPEC_INCLUDE, is_factory_call};
-use crate::cop::node_type::{CALL_NODE, STRING_NODE, SYMBOL_NODE};
+use crate::cop::shared::node_type::{CALL_NODE, STRING_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

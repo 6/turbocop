@@ -1,5 +1,5 @@
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
-use crate::cop::util::{
+use crate::cop::shared::node_type::{BLOCK_NODE, CALL_NODE};
+use crate::cop::shared::util::{
     RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_shared_group,
 };
 use crate::cop::{Cop, CopConfig};
@@ -779,7 +779,7 @@ impl<'src> AstFingerprinter<'src> {
         if node.as_unless_node().is_some() {
             return 66; // IfNode tag
         }
-        crate::cop::node_type::node_type_tag(node)
+        crate::cop::shared::node_type::node_type_tag(node)
     }
 
     /// Emit an else-branch from an IfNode's subsequent node.

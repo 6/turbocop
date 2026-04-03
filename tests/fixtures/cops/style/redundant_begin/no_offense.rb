@@ -134,3 +134,23 @@ end
 begin
   foo rescue nil
 end
+
+# begin used as the receiver of a regular chained call is allowed
+TEST_COMMAND = begin
+  if ENV["TRAVIS"]
+    "rspec --pattern '*_spec.rb'"
+  else
+    "parallel_rspec --suffix '_spec.rb$'"
+  end
+end.freeze
+
+@_namespaced_resource_name ||= begin
+  namespaced_resources_name.to_s.singularize
+end.to_sym
+
+def frequency_to_integer(f)
+  begin
+    (::BASE_PITCH_INTEGER +
+      size * Math.log(f.to_f / Theory.base_tuning.to_f, 2)) % size
+  end.round
+end

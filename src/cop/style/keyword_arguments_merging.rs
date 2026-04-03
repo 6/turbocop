@@ -1,4 +1,4 @@
-use crate::cop::node_type::{ASSOC_SPLAT_NODE, CALL_NODE, KEYWORD_HASH_NODE};
+use crate::cop::shared::node_type::{ASSOC_SPLAT_NODE, CALL_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

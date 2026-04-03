@@ -1,5 +1,5 @@
-use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE};
-use crate::cop::util::constant_name;
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::{CALL_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -105,7 +105,7 @@ impl Cop for UselessDefaultValueArgument {
                 None => return,
             };
 
-            let recv_name = match constant_name(&receiver) {
+            let recv_name = match constant_predicates::constant_short_name(&receiver) {
                 Some(n) => n,
                 None => return,
             };

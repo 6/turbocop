@@ -186,7 +186,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(
         leaky_constant_declaration::LeakyConstantDeclaration,
     ));
-    registry.register(Box::new(leaky_local_variable::LeakyLocalVariable));
+    registry.register(Box::new(leaky_local_variable::LeakyLocalVariable::new()));
     registry.register(Box::new(let_before_examples::LetBeforeExamples));
     registry.register(Box::new(let_setup::LetSetup));
     registry.register(Box::new(match_array::MatchArray));

@@ -92,6 +92,39 @@ cond && @chunks[0] && @chunks[0].is_a?(String)
 BTC::Invariant(foo.nil? ? nil : foo.to_s, "message")
                ^^^^^^^^^^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
 
+ActiveRecord::Migrator.migrate(Skyline.root + "db/migrate/", ENV["VERSION"] ? ENV["VERSION"].to_i : nil)
+                                                             ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
 a && a.b && c && c.d
 ^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
             ^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+if e && e.message
+   ^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+foo && (foo.bar)
+^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+Outer.a(Inner.b(foo ? foo.bar : nil))
+                ^^^^^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+
+loop do
+  if e && e.message
+     ^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+    response[:what] = e.message
+  end
+end
+
+items.collect do |klass|
+  param = @parameters[klass.name]
+  param.to_edges if param
+  ^^^^^^^^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+end.flatten.compact
+
+values.__send__(:each) do |value|
+  value.foo if value
+  ^^^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.
+end
+
+[zip64 && zip64.compressed_size ? 0xFFFFFFFF : @compressed_size].pack("V")
+ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/SafeNavigation: Use safe navigation (`&.`) instead of checking if an object exists before calling the method.

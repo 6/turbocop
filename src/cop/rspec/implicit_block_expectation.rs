@@ -1,5 +1,6 @@
-use crate::cop::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::util::{
+    RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -109,7 +110,7 @@ impl<'pr> Visit<'pr> for ImplicitBlockVisitor<'_> {
             name == b"describe"
                 && node
                     .receiver()
-                    .and_then(|r| util::constant_name(&r))
+                    .and_then(|r| constant_predicates::constant_short_name(&r))
                     .is_some_and(|n| n == b"RSpec")
         };
         if is_example_group {

@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::CALL_NODE;
+use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

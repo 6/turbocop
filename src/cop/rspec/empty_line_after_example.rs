@@ -2,8 +2,8 @@ use std::collections::HashSet;
 
 use ruby_prism::Visit;
 
-use crate::cop::node_type::PROGRAM_NODE;
-use crate::cop::util::{
+use crate::cop::shared::node_type::PROGRAM_NODE;
+use crate::cop::shared::util::{
     RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example, line_at,
     node_on_single_line,
 };

@@ -131,6 +131,96 @@ def test_detect_prism_pitfalls_none():
     assert len(pitfalls) == 0
 
 
+def test_format_with_diagnostics_fn_snippet_detects_fullfile_does_not_is_code_bug():
+    """When snippet detects an FN but the full-file test does NOT detect it,
+    it should be classified as a CODE BUG (context-sensitive detection failure)."""
+    diagnostics = [
+        {
+            "kind": "fn",
+            "loc": "repo: file.rb:10",
+            "msg": "Missing method",
+            "diagnosed": True,
+            "detected": True,           # snippet detects
+            "full_file_detected": False,  # full file does NOT detect
+            "offense_line": "def foo; end",
+            "test_snippet": "def foo; end\n^ Lint/Syntax: Missing method",
+            "enclosing": None,
+            "node_type": None,
+            "source_context": "def foo; end",
+            "full_file_enclosing": "block (do..end) > class body",
+            "full_file_context": "...",
+            "diagnosis_note": "Snippet detects but full file does not",
+        },
+    ]
+    output = gct._format_with_diagnostics(
+        "Lint/Syntax",
+        diagnostics,
+        fp_examples=[],
+        fn_examples=[{"loc": "repo: file.rb:10", "msg": "Missing method"}],
+    )
+    # Should be counted as a code bug, not a config/context issue
+    assert "1 code bug(s)" in output
+    assert "config/context issue(s)" not in output
+    # The formatted output should contain the CODE BUG marker
+    assert "— CODE BUG" in output
+
+
+def test_format_with_diagnostics_fn_snippet_and_fullfile_both_detect_is_config():
+    """When both snippet AND full-file detect an FN, the corpus mismatch is
+    truly a config/context issue (the project's config suppresses it)."""
+    diagnostics = [
+        {
+            "kind": "fn",
+            "loc": "repo: file.rb:10",
+            "msg": "Missing method",
+            "diagnosed": True,
+            "detected": True,            # snippet detects
+            "full_file_detected": True,   # full file also detects
+            "offense_line": "def foo; end",
+            "test_snippet": "def foo; end\n^ Lint/Syntax: Missing method",
+            "enclosing": None,
+            "node_type": None,
+            "source_context": "def foo; end",
+        },
+    ]
+    output = gct._format_with_diagnostics(
+        "Lint/Syntax",
+        diagnostics,
+        fp_examples=[],
+        fn_examples=[{"loc": "repo: file.rb:10", "msg": "Missing method"}],
+    )
+    # Should be classified as config/context, not a code bug
+    assert "1 config/context issue(s)" in output
+    assert "CONFIG/CONTEXT issue" in output
+
+
+def test_format_with_diagnostics_fn_snippet_detects_fullfile_none_is_config():
+    """When snippet detects but full_file_detected is None (fetch failed),
+    fall back to the original CONFIG/CONTEXT classification."""
+    diagnostics = [
+        {
+            "kind": "fn",
+            "loc": "repo: file.rb:10",
+            "msg": "Missing method",
+            "diagnosed": True,
+            "detected": True,
+            "full_file_detected": None,  # fetch failed, no full-file result
+            "offense_line": "def foo; end",
+            "test_snippet": None,
+            "enclosing": None,
+            "node_type": None,
+            "source_context": "def foo; end",
+        },
+    ]
+    output = gct._format_with_diagnostics(
+        "Lint/Syntax",
+        diagnostics,
+        fp_examples=[],
+        fn_examples=[{"loc": "repo: file.rb:10", "msg": "Missing method"}],
+    )
+    assert "1 config/context issue(s)" in output
+
+
 def test_format_with_diagnostics_omits_no_source_examples_when_diagnosed_exists():
     diagnostics = [
         {

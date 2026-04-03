@@ -1,5 +1,7 @@
 use ruby_prism::Visit;
 
+use crate::cop::shared::access_modifier_predicates::MacroScope;
+use crate::cop::shared::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -9,7 +11,7 @@ use crate::parse::source::SourceFile;
 /// Corpus oracle reported FP=59, FN=54,201.
 ///
 /// ### FP=59→0 (fixed)
-/// Root cause: `visit_lambda_node` pushed `Scope::Other`, breaking macro scope
+/// Root cause: `visit_lambda_node` pushed `MacroScope::NotMacroScope`, breaking macro scope
 /// inheritance. RuboCop's `macro?` returns true for calls inside lambdas in
 /// class/module bodies. Fixed by using `wrapper_child_scope()` for lambdas.
 ///
@@ -22,7 +24,7 @@ use crate::parse::source::SourceFile;
 /// Fix 2 — Rescue/ensure scope propagation (~12k FN fixed):
 /// `visit_begin_node` incorrectly propagated macro scope into rescue/ensure
 /// bodies. RuboCop's `in_macro_scope?` does NOT list `rescue`/`ensure` as
-/// wrappers. Fixed by manually visiting BeginNode children with `Scope::Other`
+/// wrappers. Fixed by manually visiting BeginNode children with `MacroScope::NotMacroScope`
 /// when rescue/ensure is present.
 ///
 /// Fix 3 — Case/when/while/until/for scope (~12k FN fixed):
@@ -83,7 +85,7 @@ use crate::parse::source::SourceFile;
 /// FN root cause 2: `RescueModifierNode` (`foo rescue bar`) did not break
 /// macro scope. In Parser AST, inline rescue wraps the call in a `rescue`
 /// node, which is NOT a wrapper in RuboCop's `in_macro_scope?`. Added
-/// `visit_rescue_modifier_node` that pushes `Scope::Other` so receiverless
+/// `visit_rescue_modifier_node` that pushes `MacroScope::NotMacroScope` so receiverless
 /// calls inside rescue modifiers are no longer treated as macros.
 ///
 /// Combined: 106 FN resolved across 15 sampled repos, 0 regressions.
@@ -118,12 +120,12 @@ use crate::parse::source::SourceFile;
 ///
 /// FN root cause 2 (~19 FN): `PreExecutionNode` (`BEGIN { }`) was not
 /// handled. In Parser AST, `preexe` is NOT a wrapper in `in_macro_scope?`.
-/// Added `visit_pre_execution_node` pushing `Scope::Other`. Also added
+/// Added `visit_pre_execution_node` pushing `MacroScope::NotMacroScope`. Also added
 /// `visit_post_execution_node` for `END { }` symmetry.
 ///
 /// FN root cause 3 (~4 FN): `CaseMatchNode` (`case...in` pattern matching)
 /// was not handled, unlike `CaseNode` (`case...when`). Neither is a wrapper
-/// in `in_macro_scope?`. Added `visit_case_match_node` pushing `Scope::Other`.
+/// in `in_macro_scope?`. Added `visit_case_match_node` pushing `MacroScope::NotMacroScope`.
 ///
 /// FN root cause 4 (~30+ FN): Operator assignment nodes (`+=`, `-=`, `||=`,
 /// `&&=`, etc.) were not tracked as `ParentKind::Assignment`. Added visitors
@@ -150,42 +152,6 @@ use crate::parse::source::SourceFile;
 /// --rerun --clone --sample 15` reported `0` new FP, `0` new FN, and all `41`
 /// sampled oracle FN resolved.
 pub struct MethodCallWithArgsParentheses;
-
-fn is_operator(name: &[u8]) -> bool {
-    matches!(
-        name,
-        b"+" | b"-"
-            | b"*"
-            | b"/"
-            | b"%"
-            | b"**"
-            | b"=="
-            | b"!="
-            | b"<"
-            | b">"
-            | b"<="
-            | b">="
-            | b"<=>"
-            | b"<<"
-            | b">>"
-            | b"&"
-            | b"|"
-            | b"^"
-            | b"~"
-            | b"!"
-            | b"[]"
-            | b"[]="
-            | b"=~"
-            | b"!~"
-            | b"+@"
-            | b"-@"
-    )
-}
-
-/// Check if name is a setter method (ends with `=`)
-fn is_setter(name: &[u8]) -> bool {
-    name.last() == Some(&b'=') && name.len() > 1 && name != b"==" && name != b"!="
-}
 
 /// Check if a method name matches any pattern in the list (regex-style).
 fn matches_any_pattern(name_str: &str, patterns: &[String]) -> bool {
@@ -248,26 +214,7 @@ fn is_class_constructor(call: &ruby_prism::CallNode<'_>) -> bool {
     false
 }
 
-/// Context for tracking whether we're in macro scope.
-#[derive(Clone, Copy, PartialEq)]
-enum Scope {
-    /// Top-level (root) scope — macros are allowed
-    Root,
-    /// Inside class/module/sclass body — macros are allowed
-    ClassLike,
-    /// Inside a wrapper (begin, block, if branch) that is itself in macro scope
-    WrapperInMacro,
-    /// Inside a method definition — NOT macro scope
-    MethodDef,
-    /// Other non-macro context (e.g., wrapper inside a method)
-    Other,
-}
-
-impl Scope {
-    fn is_macro_scope(self) -> bool {
-        matches!(self, Scope::Root | Scope::ClassLike | Scope::WrapperInMacro)
-    }
-}
+// Macro scope tracking uses shared MacroScope from access_modifier_predicates.
 
 /// Parent node type for omit_parentheses context checks.
 #[derive(Clone, Copy, PartialEq)]
@@ -342,7 +289,7 @@ impl Cop for MethodCallWithArgsParentheses {
             allow_chaining,
             allow_camel,
             allow_interp,
-            scope_stack: vec![Scope::Root],
+            scope_stack: vec![],
             scope_parent_baseline: vec![0],
             parent_stack: vec![],
             in_interpolation: false,
@@ -367,7 +314,7 @@ struct ParenVisitor<'a> {
     allow_chaining: bool,
     allow_camel: bool,
     allow_interp: bool,
-    scope_stack: Vec<Scope>,
+    scope_stack: Vec<MacroScope>,
     /// Records parent_stack.len() at each scope push, so we can tell whether
     /// a parent_stack entry belongs to the CURRENT scope or an outer one.
     scope_parent_baseline: Vec<usize>,
@@ -377,11 +324,7 @@ struct ParenVisitor<'a> {
 }
 
 impl ParenVisitor<'_> {
-    fn current_scope(&self) -> Scope {
-        *self.scope_stack.last().unwrap_or(&Scope::Other)
-    }
-
-    fn push_scope(&mut self, scope: Scope) {
+    fn push_macro_scope(&mut self, scope: MacroScope) {
         self.scope_stack.push(scope);
         self.scope_parent_baseline.push(self.parent_stack.len());
     }
@@ -396,7 +339,7 @@ impl ParenVisitor<'_> {
     }
 
     fn is_macro_scope(&self) -> bool {
-        self.current_scope().is_macro_scope()
+        crate::cop::shared::access_modifier_predicates::in_macro_scope(&self.scope_stack)
     }
 
     /// Check if the call is nested inside a non-wrapper parent within the
@@ -415,12 +358,13 @@ impl ParenVisitor<'_> {
         })
     }
 
-    /// Derive child scope for wrapper nodes (begin, block, if branches)
-    fn wrapper_child_scope(&self) -> Scope {
-        if self.current_scope().is_macro_scope() {
-            Scope::WrapperInMacro
+    /// Derive child scope for wrapper nodes (begin, block, if branches).
+    /// Inherits macro scope from parent, matching rubocop-ast's in_macro_scope?.
+    fn wrapper_child_scope(&self) -> MacroScope {
+        if self.is_macro_scope() {
+            MacroScope::InMacroScope
         } else {
-            Scope::Other
+            MacroScope::NotMacroScope
         }
     }
 
@@ -429,9 +373,9 @@ impl ParenVisitor<'_> {
     /// nested under assignment/chaining/arguments/etc., Parser would give the
     /// block that non-wrapper parent and macro scope must not leak into the
     /// block body.
-    fn call_block_child_scope(&self) -> Scope {
+    fn call_block_child_scope(&self) -> MacroScope {
         if self.nested_in_non_wrapper() {
-            Scope::Other
+            MacroScope::NotMacroScope
         } else {
             self.wrapper_child_scope()
         }
@@ -441,7 +385,9 @@ impl ParenVisitor<'_> {
         let name = call.name().as_slice();
 
         // Skip operators and setters
-        if is_operator(name) || is_setter(name) {
+        if method_identifier_predicates::is_operator_method(name)
+            || method_identifier_predicates::is_setter_method(name)
+        {
             return;
         }
 
@@ -516,7 +462,7 @@ impl ParenVisitor<'_> {
         }
 
         // syntax_like_method_call? — implicit call (.()) or operator methods
-        if is_operator(name) {
+        if method_identifier_predicates::is_operator_method(name) {
             return;
         }
 
@@ -1106,7 +1052,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         };
 
         if is_class_constructor {
-            self.push_scope(Scope::ClassLike);
+            self.push_macro_scope(MacroScope::InMacroScope);
         }
 
         // Visit children — push Call as parent for receiver, args, and block arg
@@ -1133,7 +1079,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
                     // ordinary call-attached blocks only keep macro scope when
                     // the whole block expression is itself in macro scope.
                     let child_scope = self.call_block_child_scope();
-                    self.push_scope(child_scope);
+                    self.push_macro_scope(child_scope);
                     if let Some(params) = block_node.parameters() {
                         self.visit(&params);
                     }
@@ -1173,7 +1119,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             }
         }
 
-        self.push_scope(Scope::ClassLike);
+        self.push_macro_scope(MacroScope::InMacroScope);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
@@ -1181,7 +1127,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        self.push_scope(Scope::ClassLike);
+        self.push_macro_scope(MacroScope::InMacroScope);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
@@ -1189,7 +1135,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
-        self.push_scope(Scope::ClassLike);
+        self.push_macro_scope(MacroScope::InMacroScope);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
@@ -1203,7 +1149,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             self.in_endless_def = true;
         }
 
-        self.push_scope(Scope::MethodDef);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         // Visit parameters
         if let Some(params) = node.parameters() {
             self.visit_parameters_node(&params);
@@ -1217,7 +1163,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let child_scope = self.wrapper_child_scope();
-        self.push_scope(child_scope);
+        self.push_macro_scope(child_scope);
         if let Some(params) = node.parameters() {
             self.visit(&params);
         }
@@ -1239,7 +1185,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         // while lambdas inside wrapper blocks (`subject { -> { get :idx } }`)
         // preserve it.
         let child_scope = self.call_block_child_scope();
-        self.push_scope(child_scope);
+        self.push_macro_scope(child_scope);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
@@ -1272,7 +1218,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             // The `rescue` node sits between `kwbegin` and all children.
             // RuboCop's `in_macro_scope?` does NOT list `rescue` or `ensure` as
             // wrappers, so nothing inside a begin-with-rescue gets macro scope.
-            self.push_scope(Scope::Other);
+            self.push_macro_scope(MacroScope::NotMacroScope);
             if let Some(stmts) = node.statements() {
                 self.visit_statements_node(&stmts);
             }
@@ -1291,11 +1237,11 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             // in RuboCop's `in_macro_scope?`, but only when the whole begin
             // expression is itself in macro scope.
             let child_scope = if self.nested_in_non_wrapper() {
-                Scope::Other
+                MacroScope::NotMacroScope
             } else {
                 self.wrapper_child_scope()
             };
-            self.push_scope(child_scope);
+            self.push_macro_scope(child_scope);
             ruby_prism::visit_begin_node(self, node);
             self.pop_scope();
         }
@@ -1319,13 +1265,13 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         // `if`/ternary branches only inherit macro scope when the whole `if`
         // expression is itself in macro scope.
         let child_scope = if self.nested_in_non_wrapper() {
-            Scope::Other
+            MacroScope::NotMacroScope
         } else {
             self.wrapper_child_scope()
         };
 
         if let Some(stmts) = node.statements() {
-            self.push_scope(child_scope);
+            self.push_macro_scope(child_scope);
             if is_ternary {
                 self.parent_stack.push(ParentKind::TernaryBranch);
             }
@@ -1336,7 +1282,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             self.pop_scope();
         }
         if let Some(subsequent) = node.subsequent() {
-            self.push_scope(child_scope);
+            self.push_macro_scope(child_scope);
             if is_ternary {
                 self.parent_stack.push(ParentKind::TernaryBranch);
             }
@@ -1354,18 +1300,18 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         self.parent_stack.pop();
 
         let child_scope = if self.nested_in_non_wrapper() {
-            Scope::Other
+            MacroScope::NotMacroScope
         } else {
             self.wrapper_child_scope()
         };
 
         if let Some(stmts) = node.statements() {
-            self.push_scope(child_scope);
+            self.push_macro_scope(child_scope);
             self.visit_statements_node(&stmts);
             self.pop_scope();
         }
         if let Some(consequent) = node.else_clause() {
-            self.push_scope(child_scope);
+            self.push_macro_scope(child_scope);
             self.visit_else_node(&consequent);
             self.pop_scope();
         }
@@ -1468,28 +1414,28 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
         // `case`/`when` are NOT wrappers in RuboCop's in_macro_scope?.
         // Push Other to prevent class-like scope from leaking through.
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         ruby_prism::visit_case_node(self, node);
         self.pop_scope();
     }
 
     fn visit_case_match_node(&mut self, node: &ruby_prism::CaseMatchNode<'pr>) {
         // `case`/`in` (pattern matching) is NOT a wrapper in in_macro_scope?.
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         ruby_prism::visit_case_match_node(self, node);
         self.pop_scope();
     }
 
     fn visit_pre_execution_node(&mut self, node: &ruby_prism::PreExecutionNode<'pr>) {
         // `BEGIN { }` (`preexe`) is NOT a wrapper in in_macro_scope?.
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         ruby_prism::visit_pre_execution_node(self, node);
         self.pop_scope();
     }
 
     fn visit_post_execution_node(&mut self, node: &ruby_prism::PostExecutionNode<'pr>) {
         // `END { }` (`postexe`) is NOT a wrapper in in_macro_scope?.
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         ruby_prism::visit_post_execution_node(self, node);
         self.pop_scope();
     }
@@ -1871,7 +1817,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
 
     fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
         // `while`/`until`/`for` are NOT wrappers in RuboCop's in_macro_scope?.
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         self.parent_stack.push(ParentKind::Conditional);
         self.visit(&node.predicate());
         self.parent_stack.pop();
@@ -1882,7 +1828,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         self.parent_stack.push(ParentKind::Conditional);
         self.visit(&node.predicate());
         self.parent_stack.pop();
@@ -1893,7 +1839,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_for_node(&mut self, node: &ruby_prism::ForNode<'pr>) {
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         ruby_prism::visit_for_node(self, node);
         self.pop_scope();
     }
@@ -1920,7 +1866,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         // In Parser AST, `foo rescue bar` wraps `foo` in a rescue node.
         // RuboCop's `in_macro_scope?` does NOT list `rescue` as a wrapper,
         // so calls inside a rescue modifier are NOT in macro scope.
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         self.visit(&node.expression());
         self.visit(&node.rescue_expression());
         self.pop_scope();

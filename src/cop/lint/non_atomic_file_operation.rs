@@ -1,4 +1,4 @@
-use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE, IF_NODE, UNLESS_NODE};
+use crate::cop::shared::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE, IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

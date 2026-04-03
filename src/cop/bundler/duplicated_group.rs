@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use ruby_prism::Visit;
 
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -81,7 +82,7 @@ impl GroupDeclarationVisitor<'_> {
 
 impl<'pr> Visit<'pr> for GroupDeclarationVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if node.receiver().is_none() && node.name().as_slice() == b"group" {
+        if method_dispatch_predicates::is_command(node, b"group") {
             let mut attributes = group_attributes(self.source, node);
             attributes.sort();
 

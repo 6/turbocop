@@ -7,16 +7,16 @@ pub mod lint;
 pub mod metrics;
 pub mod migration;
 pub mod naming;
-pub mod node_type;
 pub mod performance;
 pub mod rails;
 pub mod registry;
 pub mod rspec;
 pub mod rspec_rails;
 pub mod security;
+pub mod shared;
 pub mod style;
 pub mod tiers;
-pub mod util;
+pub mod variable_force;
 pub mod walker;
 
 use std::collections::HashMap;
@@ -364,6 +364,13 @@ pub trait Cop: Send + Sync {
         diagnostics: &mut Vec<Diagnostic>,
         corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+    }
+
+    /// Return `Some(self)` if this cop consumes VariableForce analysis.
+    /// Override this to opt into the shared variable dataflow engine instead
+    /// of implementing your own AST visitor for variable tracking.
+    fn as_variable_force_consumer(&self) -> Option<&dyn variable_force::VariableForceConsumer> {
+        None
     }
 }
 

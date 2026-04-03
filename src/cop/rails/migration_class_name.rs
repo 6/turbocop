@@ -1,8 +1,23 @@
-use crate::cop::node_type::CLASS_NODE;
+use crate::cop::shared::node_type::CLASS_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Checks that migration class names match the camelized form of the file name.
+///
+/// RuboCop equivalent: `Rails/MigrationClassName`
+///
+/// The cop extracts the expected class name by stripping the timestamp prefix
+/// and `.rb` suffix from the filename, removing any gem suffix (e.g.,
+/// `.active_storage`), then camelizing. For example,
+/// `db/migrate/20220101_create_users.rb` expects `CreateUsers`.
+///
+/// All `ActiveRecord::Migration` subclasses in the file are checked, including
+/// nested ones (which appear in real migration files that bundle multiple
+/// sub-migrations, e.g. `add_rpush.rb` containing `CreateRapnsNotifications`).
+///
+/// Comparison is case-insensitive (matching RuboCop's `casecmp`) to tolerate
+/// ActiveSupport inflection differences like `OAuth` vs `Oauth`.
 pub struct MigrationClassName;
 
 impl Cop for MigrationClassName {
@@ -45,52 +60,125 @@ impl Cop for MigrationClassName {
         let super_loc = superclass.location();
         let super_bytes = &source.as_bytes()[super_loc.start_offset()..super_loc.end_offset()];
 
-        // Match ActiveRecord::Migration or ActiveRecord::Migration[x.y]
         if !super_bytes.starts_with(b"ActiveRecord::Migration") {
             return;
         }
 
-        // Get the class name
-        let class_name = class_node.name().as_slice();
+        // Extract expected class name from filename
+        let expected = expected_class_name(source.path_str());
 
-        // Check if class name contains lowercase (i.e., not CamelCase)
-        let has_lowercase = class_name.iter().any(|&b| b.is_ascii_lowercase());
-        let starts_upper = class_name.first().is_some_and(|&b| b.is_ascii_uppercase());
+        // Get actual class name
+        let class_name_str = match std::str::from_utf8(class_node.name().as_slice()) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
 
-        if !starts_upper || !has_lowercase {
-            // Doesn't look like CamelCase — flag it
-            let loc = node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(
-                self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Migration class name should be CamelCase and match the migration filename."
-                        .to_string(),
-                ),
-            );
+        // Case-insensitive comparison (matches RuboCop's casecmp)
+        if class_name_str.eq_ignore_ascii_case(&expected) {
+            return;
         }
 
-        // Check for underscores in the name (not CamelCase)
-        if class_name.contains(&b'_') {
-            let loc = node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(
-                self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Migration class name should be CamelCase and match the migration filename."
-                        .to_string(),
-                ),
-            );
-        }
+        let loc = node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Replace with `{}` that matches the file name.", expected),
+        ));
     }
+}
+
+/// Extract the expected CamelCase class name from a migration file path.
+///
+/// Steps:
+/// 1. Take the file stem (basename without final extension)
+/// 2. Remove gem suffix (everything from the first remaining `.` onward)
+/// 3. Remove leading timestamp digits followed by `_`
+/// 4. Camelize: split on `_`, capitalize each part, join
+fn expected_class_name(path: &str) -> String {
+    let p = std::path::Path::new(path);
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or(path);
+
+    // Remove gem suffix (e.g., add_blobs.active_storage -> add_blobs)
+    let without_gem = match stem.find('.') {
+        Some(idx) => &stem[..idx],
+        None => stem,
+    };
+
+    // Remove timestamp prefix (\A\d+_)
+    let without_timestamp = strip_timestamp_prefix(without_gem);
+
+    camelize(without_timestamp)
+}
+
+/// Strip a leading run of digits followed by `_` (the migration timestamp).
+fn strip_timestamp_prefix(s: &str) -> &str {
+    let digit_count = s.bytes().take_while(|b| b.is_ascii_digit()).count();
+    if digit_count > 0 && s.as_bytes().get(digit_count) == Some(&b'_') {
+        &s[digit_count + 1..]
+    } else {
+        s
+    }
+}
+
+/// Camelize a snake_case string: split on `_`, capitalize each part, join.
+///
+/// Matches Ruby's `word.split('_').map(&:capitalize).join`.
+fn camelize(s: &str) -> String {
+    s.split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => {
+                    let upper: String = first.to_uppercase().collect();
+                    let rest: String = chars.flat_map(|c| c.to_lowercase()).collect();
+                    format!("{}{}", upper, rest)
+                }
+                None => String::new(),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(MigrationClassName, "cops/rails/migration_class_name");
+
+    #[test]
+    fn test_expected_class_name() {
+        assert_eq!(
+            expected_class_name("db/migrate/20220101_create_users.rb"),
+            "CreateUsers"
+        );
+        assert_eq!(
+            expected_class_name("db/migrate/20180808151237_add_rpush.rb"),
+            "AddRpush"
+        );
+        assert_eq!(
+            expected_class_name("db/migrate/20131002215400_clean_openvas_settings.rb"),
+            "CleanOpenvasSettings"
+        );
+        assert_eq!(
+            expected_class_name("db/migrate/20220101050505_add_blobs.active_storage.rb"),
+            "AddBlobs"
+        );
+    }
+
+    #[test]
+    fn test_camelize() {
+        assert_eq!(camelize("add_users"), "AddUsers");
+        assert_eq!(camelize("create_posts"), "CreatePosts");
+        assert_eq!(camelize("clean_openvas_settings"), "CleanOpenvasSettings");
+        assert_eq!(camelize("add_rpush"), "AddRpush");
+    }
+
+    #[test]
+    fn test_strip_timestamp_prefix() {
+        assert_eq!(strip_timestamp_prefix("20220101_add_users"), "add_users");
+        assert_eq!(strip_timestamp_prefix("add_users"), "add_users");
+        assert_eq!(strip_timestamp_prefix("123_foo"), "foo");
+    }
 }

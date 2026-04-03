@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;
@@ -55,7 +56,7 @@ struct RackTestChecker {
 
 impl<'pr> Visit<'pr> for RackTestChecker {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if !self.found && node.receiver().is_none() && node.name().as_slice() == b"include" {
+        if !self.found && method_dispatch_predicates::is_command(node, b"include") {
             if let Some(args) = node.arguments() {
                 for arg in args.arguments().iter() {
                     if is_rack_test_methods(&arg) {

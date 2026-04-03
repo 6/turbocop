@@ -44,6 +44,65 @@ def with_op_assign
   total
 end
 
+class CompoundAcrossMethods
+  def writer
+    self.value ||= 1
+  end
+
+  def reader
+    self.value
+  end
+end
+
+def after_block_op_assign
+  1.times do
+    self.count += 1
+  end
+  self.count
+end
+
+def after_block_param_shadow
+  people.each do |person|
+    person.name
+  end
+
+  self.person.name
+end
+
+module SearchFilters
+  included do
+    scope :for_cycle, ->(cycle) {
+      where(id: cycle.id)
+    }
+
+    def selected_cycle
+      self.cycle
+    end
+  end
+end
+
+after_initialize do
+  on(:post_created) do |post, _options|
+    post.id
+  end
+
+  add_model_callback(PostAction, :after_commit, on: :create) do
+    self.post
+  end
+end
+
+module Referables
+  module ClassMethods
+    def configure_referables
+      self.referable_fields ||= []
+    end
+  end
+
+  def parse_referables
+    self.referable_fields
+  end
+end
+
 # Ruby keywords - self required to avoid parsing as keyword
 def test_keywords
   self.alias

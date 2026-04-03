@@ -1,9 +1,10 @@
-use crate::cop::node_type::{
+use crate::cop::shared::method_dispatch_predicates;
+use crate::cop::shared::node_type::{
     ARRAY_NODE, ASSOC_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE,
     INTEGER_NODE, KEYWORD_HASH_NODE, NIL_NODE, RANGE_NODE, RATIONAL_NODE, REGULAR_EXPRESSION_NODE,
     STRING_NODE, SYMBOL_NODE, TRUE_NODE,
 };
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -258,7 +259,7 @@ fn expect_actual_matcher_name<'a>(node: &'a ruby_prism::Node<'_>) -> Option<&'a 
     // Special RuboCop pattern: be == expected
     if matcher.name().as_slice() == b"==" && matcher.arguments().is_some() {
         let be_call = matcher.receiver().and_then(|r| r.as_call_node())?;
-        if be_call.receiver().is_none() && be_call.name().as_slice() == b"be" {
+        if method_dispatch_predicates::is_command(&be_call, b"be") {
             return Some(b"be");
         }
     }

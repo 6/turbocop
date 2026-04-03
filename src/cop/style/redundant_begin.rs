@@ -63,6 +63,19 @@ use crate::parse::source::SourceFile;
 /// Fix: inspect `CallNode` receivers normally so chained-call receiver begins
 /// still flow through generic `begin` detection, while keeping the direct
 /// method-argument allowance for `do_something begin ... end`.
+///
+/// ## Investigation (2026-04-03)
+///
+/// Corpus FP cluster: RuboCop allows explicit `begin` when it is the receiver
+/// of a regular chained call like `begin ... end.freeze`, `end.to_sym`, or
+/// `end.round` under the corpus baseline config. The previous pass regressed by
+/// treating every call receiver like the safe-navigation FN above, which made
+/// plain `.` receivers look redundant in assignments and method bodies.
+///
+/// Fix: allow `BeginNode` receivers for regular `CallNode`s again, but only
+/// when the call operator is not `&.`. Safe-navigation receivers still flow
+/// through generic `begin` detection so `begin ... end&.decorate` remains an
+/// offense.
 pub struct RedundantBegin;
 
 impl Cop for RedundantBegin {
@@ -501,7 +514,11 @@ impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         if let Some(receiver) = node.receiver() {
-            self.visit(&receiver);
+            if node.is_safe_navigation() {
+                self.visit(&receiver);
+            } else {
+                self.visit_allowed_direct_begin_child(&receiver);
+            }
         }
         if let Some(arguments) = node.arguments() {
             for argument in arguments.arguments().iter() {

@@ -1,8 +1,9 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_shared_group,
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
+use crate::cop::shared::util::{
+    RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_shared_group,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -188,7 +189,8 @@ impl<'a> HookCollector<'a> {
         if call.receiver().is_some() {
             // Receiverful RSpec group/shared-group declarations are scope changes.
             if let Some(recv) = call.receiver() {
-                return util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                return constant_predicates::constant_short_name(&recv)
+                    .is_some_and(|n| n == b"RSpec")
                     && (is_rspec_example_group(name) || is_rspec_shared_group(name));
             }
             return false;
@@ -315,7 +317,8 @@ impl Cop for ScatteredSetup {
         // Only trigger for example groups, NOT shared groups
         // RuboCop's example_group? matcher uses ExampleGroups.all which excludes SharedGroups
         let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec") && method_name == b"describe"
+            constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
+                && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name) && !is_rspec_shared_group(method_name)
         };

@@ -1,44 +1,191 @@
-use crate::cop::node_type::CALL_NODE;
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use ruby_prism::Visit;
+
+use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Style/OperatorMethodCall — flags redundant dot before binary operator methods.
+/// Style/OperatorMethodCall — flags redundant dot before operator methods.
 ///
-/// Investigation (2026-03-15): 61 FPs, mostly from xiki repo patterns like `Tree.<<(result)`
-/// and `Image.>> dest`. Root cause: RuboCop's `on_send` returns early when the receiver is
-/// a constant (`node.receiver.const_type?`), because removing the dot before an operator
-/// on a constant creates parsing ambiguity (e.g., `Tree << result` could be a heredoc).
-/// Also excludes splat/kwsplat/forwarded args (`INVALID_SYNTAX_ARG_TYPES`), since removing
-/// the dot would produce invalid syntax.
+/// Investigation (2026-04-02): Prism wraps call arguments in `ArgumentsNode`, so
+/// RuboCop's `argument.parent.parent&.send_type?` maps to "the parenthesized
+/// operator call has an outer call parent", not simply "the operator call is an
+/// argument". The previous port skipped every parenthesized operator call used as
+/// an argument, which hid real offenses like `be.<(described_class)` and other
+/// bare no-receiver RHS cases.
 ///
-/// Fix: Added constant-receiver check and invalid-argument-type check to match RuboCop behavior.
-///
-/// Investigation (2026-03-15): 18 remaining FPs from parenthesized operator calls nested
-/// inside other method calls, e.g. `expect(one.==(two))`, `assert_equal 0, @c2.<=>(@c2)`.
-/// RuboCop's `method_call_with_parenthesized_arg?` skips when the operator call is
-/// parenthesized AND its parent is another send node. Without parent pointers in Prism,
-/// we use two text-based heuristics:
-/// A. After closing paren: `)` or `,` means nested in another call's argument list
-/// B. Before receiver: `(` or `,` means the operator call is inside another call's args
-/// This catches both parenthesized (`expect(foo.==(bar))`) and non-parenthesized
-/// (`assert_equal 0, foo.<=>(bar)`) outer calls.
-///
-/// Fix: Extended post-closing-paren check to also skip `)` or `,`, and added pre-receiver
-/// check scanning backwards for `(` or `,`.
-///
-/// Investigation (2026-03-18): Remaining 3 FPs from parenthesized operator calls that
-/// are arguments to space-separated method calls (`assert_nil @c1.<=>(x)`) or RHS of
-/// another operator (`should == bd.%(x)`). Root cause: check B only looked for `(` or `,`
-/// before the receiver, missing method-name and operator contexts. Fix: broadened check B
-/// to skip any parenthesized operator call whose receiver is NOT at a statement start
-/// (i.e., preceded by something other than line-start, `=` assignment, or `;`).
+/// Fix: only apply RuboCop's parenthesized-call exemption when the operator call
+/// is nested under another call and the RHS has a Parser-like truthy first child.
+/// Bare no-receiver calls like `described_class`, `b`, and `other` remain
+/// offenses even when the operator call is passed to another method.
 pub struct OperatorMethodCall;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
-    b"+", b"-", b"*", b"/", b"%", b"**", b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>", b"<<",
-    b">>", b"|", b"&", b"^",
+    b"|", b"^", b"&", b"<=>", b"==", b"===", b"=~", b">", b">=", b"<", b"<=", b"<<", b">>", b"+",
+    b"-", b"*", b"/", b"%", b"**", b"~", b"!", b"!=", b"!~",
 ];
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum ParentCallRelation {
+    #[default]
+    None,
+    Receiver,
+    Argument,
+    Other,
+}
+
+#[derive(Clone, Copy, Default)]
+struct CallContext {
+    parent_call_relation: ParentCallRelation,
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct CallKey {
+    start: usize,
+    end: usize,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct CacheKey {
+    parse_result_ptr: usize,
+    source_ptr: usize,
+    source_len: usize,
+}
+
+thread_local! {
+    static CALL_CONTEXT_CACHE: RefCell<Option<(CacheKey, HashMap<CallKey, CallContext>)>> =
+        const { RefCell::new(None) };
+}
+
+struct CallContextVisitor<'pr> {
+    ancestors: Vec<ruby_prism::Node<'pr>>,
+    contexts: HashMap<CallKey, CallContext>,
+}
+
+impl<'pr> Visit<'pr> for CallContextVisitor<'pr> {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        self.ancestors.push(node);
+    }
+
+    fn visit_branch_node_leave(&mut self) {
+        self.ancestors.pop();
+    }
+
+    fn visit_leaf_node_enter(&mut self, _node: ruby_prism::Node<'pr>) {}
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let parent_call_relation = self
+            .ancestors
+            .get(self.ancestors.len().saturating_sub(2))
+            .map(|parent| parent_call_relation(parent, node))
+            .unwrap_or_default();
+
+        self.contexts.insert(
+            call_key(node),
+            CallContext {
+                parent_call_relation,
+            },
+        );
+
+        ruby_prism::visit_call_node(self, node);
+    }
+}
+
+fn parent_call_relation(
+    parent: &ruby_prism::Node<'_>,
+    node: &ruby_prism::CallNode<'_>,
+) -> ParentCallRelation {
+    let Some(parent_call) = parent.as_call_node() else {
+        return ParentCallRelation::Other;
+    };
+
+    if parent_call
+        .receiver()
+        .is_some_and(|receiver| same_span(receiver.location(), node.location()))
+    {
+        return ParentCallRelation::Receiver;
+    }
+
+    if parent_call.arguments().is_some_and(|args| {
+        args.arguments()
+            .iter()
+            .any(|arg| same_span(arg.location(), node.location()))
+    }) {
+        return ParentCallRelation::Argument;
+    }
+
+    ParentCallRelation::Other
+}
+
+fn same_span(left: ruby_prism::Location<'_>, right: ruby_prism::Location<'_>) -> bool {
+    left.start_offset() == right.start_offset() && left.end_offset() == right.end_offset()
+}
+
+fn call_key(call: &ruby_prism::CallNode<'_>) -> CallKey {
+    let loc = call.location();
+    CallKey {
+        start: loc.start_offset(),
+        end: loc.end_offset(),
+    }
+}
+
+fn call_context(
+    parse_result: &ruby_prism::ParseResult<'_>,
+    source: &SourceFile,
+    call: &ruby_prism::CallNode<'_>,
+) -> CallContext {
+    let cache_key = CacheKey {
+        parse_result_ptr: parse_result as *const _ as usize,
+        source_ptr: source.as_bytes().as_ptr() as usize,
+        source_len: source.as_bytes().len(),
+    };
+
+    CALL_CONTEXT_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let needs_rebuild = !matches!(cache.as_ref(), Some((key, _)) if *key == cache_key);
+
+        if needs_rebuild {
+            let mut visitor = CallContextVisitor {
+                ancestors: Vec::new(),
+                contexts: HashMap::new(),
+            };
+            visitor.visit(&parse_result.node());
+            *cache = Some((cache_key, visitor.contexts));
+        }
+
+        cache
+            .as_ref()
+            .and_then(|(_, contexts)| contexts.get(&call_key(call)).copied())
+            .unwrap_or_default()
+    })
+}
+
+fn parser_like_first_child_truthy(arg: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = arg.as_call_node() {
+        return call.receiver().is_some();
+    }
+    if let Some(array) = arg.as_array_node() {
+        return array.elements().iter().next().is_some();
+    }
+    if let Some(hash) = arg.as_hash_node() {
+        return hash.elements().iter().next().is_some();
+    }
+    if let Some(hash) = arg.as_keyword_hash_node() {
+        return hash.elements().iter().next().is_some();
+    }
+    if let Some(paren) = arg.as_parentheses_node() {
+        return paren.body().is_some();
+    }
+
+    !(arg.as_self_node().is_some()
+        || arg.as_nil_node().is_some()
+        || arg.as_true_node().is_some()
+        || arg.as_false_node().is_some()
+        || arg.as_constant_read_node().is_some())
+}
 
 impl Cop for OperatorMethodCall {
     fn name(&self) -> &'static str {
@@ -53,7 +200,7 @@ impl Cop for OperatorMethodCall {
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
@@ -93,18 +240,20 @@ impl Cop for OperatorMethodCall {
         }
 
         // Must have exactly one argument (binary operator)
-        if let Some(args) = call.arguments() {
-            let arg_list: Vec<_> = args.arguments().iter().collect();
-            if arg_list.len() != 1 {
+        let arg = if let Some(args) = call.arguments() {
+            let mut arg_iter = args.arguments().iter();
+            let Some(arg) = arg_iter.next() else {
+                return;
+            };
+            if arg_iter.next().is_some() {
                 return;
             }
+
             // Skip splat, kwsplat, forwarded args — removing dot would be
             // invalid syntax (RuboCop's INVALID_SYNTAX_ARG_TYPES)
-            let arg = &arg_list[0];
             if arg.as_splat_node().is_some() || arg.as_assoc_splat_node().is_some() {
                 return;
             }
-            // kwsplat may also appear inside a keyword_hash_node wrapper
             if let Some(kh) = arg.as_keyword_hash_node() {
                 if kh
                     .elements()
@@ -114,99 +263,23 @@ impl Cop for OperatorMethodCall {
                     return;
                 }
             }
+
+            arg
         } else {
             // Unary operator with dot is also wrong but less common
             // Only flag binary operators
             return;
-        }
+        };
 
-        // Skip `foo.-(bar).baz` pattern and `expect(foo.==(bar))` pattern:
-        // RuboCop's `method_call_with_parenthesized_arg?` skips when:
-        // 1. The operator call is parenthesized AND chained (used as receiver), OR
-        // 2. The operator call is parenthesized AND nested inside another method call's arguments
-        // Without parent pointers, we detect nesting two ways:
-        // A. Check AFTER the closing paren: `.`/`&.` (chain), `)` or `,` (nested in call args)
-        // B. Check BEFORE the receiver: `(` or `,` means we're inside another call's argument list
-        //    This catches cases like `assert_equal 0, @c2.<=>(@c2)` where `)` is at end of line
         if call.opening_loc().is_some() {
-            if let Some(close) = call.closing_loc() {
-                let src = source.as_bytes();
+            let context = call_context(parse_result, source, &call);
 
-                // Check A: what follows the closing paren
-                let end_off = close.start_offset() + close.as_slice().len();
-                let mut pos = end_off;
-                while pos < src.len()
-                    && (src[pos] == b' '
-                        || src[pos] == b'\t'
-                        || src[pos] == b'\n'
-                        || src[pos] == b'\r')
-                {
-                    pos += 1;
-                }
-                if pos < src.len() {
-                    let ch = src[pos];
-                    // Dot/safe-nav → chaining: `foo.-(bar).baz`
-                    if ch == b'.' || (pos + 1 < src.len() && ch == b'&' && src[pos + 1] == b'.') {
-                        return;
-                    }
-                    // Closing paren or comma → nested in another call: `expect(foo.==(bar))`
-                    if ch == b')' || ch == b',' {
-                        return;
-                    }
-                }
-
-                // Check B: what precedes the receiver (scan backwards, skip whitespace)
-                // If the parenthesized operator call is NOT at a statement start, it's
-                // nested inside another expression and should be skipped.
-                // Statement starts: beginning of line, after `=` (assignment), after `;`
-                // Everything else (identifiers, operators, `,`, `(`) means nested.
-                let recv_start = receiver.location().start_offset();
-                if recv_start > 0 {
-                    let mut rpos = recv_start - 1;
-                    while rpos > 0
-                        && (src[rpos] == b' '
-                            || src[rpos] == b'\t'
-                            || src[rpos] == b'\n'
-                            || src[rpos] == b'\r')
-                    {
-                        rpos -= 1;
-                    }
-                    let prev_ch = src[rpos];
-                    // If at start of file or on a whitespace-only prefix, allow
-                    if rpos == 0
-                        && (prev_ch == b' '
-                            || prev_ch == b'\t'
-                            || prev_ch == b'\n'
-                            || prev_ch == b'\r')
-                    {
-                        // At start of file with only whitespace — statement start, allow
-                    } else if prev_ch == b'\n' || prev_ch == b'\r' {
-                        // Start of line — statement start, allow
-                    } else if prev_ch == b';' {
-                        // After semicolon — statement start, allow
-                    } else if prev_ch == b'=' {
-                        // Could be assignment (=, +=, -=, etc.) or comparison (==, !=, >=, <=)
-                        // Assignment: allow flagging. Comparison: skip (nested).
-                        // Check if it's a compound operator like ==, !=, >=, <=, ===
-                        if rpos > 0 {
-                            let before_eq = src[rpos - 1];
-                            if before_eq == b'='
-                                || before_eq == b'!'
-                                || before_eq == b'>'
-                                || before_eq == b'<'
-                            {
-                                // ==, !=, >=, <= — comparison operator, nested
-                                return;
-                            }
-                            // Otherwise it's an assignment (=, +=, -=, etc.) — allow
-                        }
-                        // Bare `=` at start — assignment, allow
-                    } else {
-                        // Any other character (identifier, operator, comma, paren, etc.)
-                        // means the operator call is nested
-                        return;
-                    }
-                }
+            if matches!(
+                context.parent_call_relation,
+                ParentCallRelation::Argument | ParentCallRelation::Receiver
+            ) && parser_like_first_child_truthy(&arg)
+            {
+                return;
             }
         }
 

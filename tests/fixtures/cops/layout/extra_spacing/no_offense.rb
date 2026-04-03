@@ -170,3 +170,21 @@ results  << set_to_array(statement.getResultSet) while statement.getMoreResults
 # Compound assignment aligned with <<
 columns  = ((options && options[:columns]) || self.class.column_names_symbols.dup)
 columns << :id
+
+# Multiline block receivers can align a chained call operator on the closing line
+expect {
+  Dry::Schema.Params do
+    required(:foo).maybe(:empty?)
+  end
+}          .to raise_error Dry::Schema::InvalidSchemaError
+
+# Multiline literal receivers can also align a chained call operator
+data = {
+  a: 1
+}  .transform_values
+
+# Heredoc openers can be followed by a same-line block close
+let(:hiera_config) { <<~CONF  }
+---
+version: 5
+CONF

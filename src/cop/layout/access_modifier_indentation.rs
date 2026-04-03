@@ -1,4 +1,7 @@
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE};
+use crate::cop::shared::access_modifier_predicates;
+use crate::cop::shared::node_type::{
+    BLOCK_NODE, CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -31,7 +34,7 @@ use crate::parse::source::SourceFile;
 /// like `class Foo\n  protected\nend` or `module ClassMethods\n  private\nend`.
 pub struct AccessModifierIndentation;
 
-const ACCESS_MODIFIERS: &[&[u8]] = &[b"private", b"protected", b"public", b"module_function"];
+// Uses access_modifier_predicates::is_bare_access_modifier() instead of local constant.
 
 fn body_statements(body: ruby_prism::Node<'_>) -> Vec<ruby_prism::Node<'_>> {
     if let Some(stmts) = body.as_statements_node() {
@@ -133,23 +136,8 @@ impl Cop for AccessModifierIndentation {
                 None => continue,
             };
 
-            // Must be a bare access modifier (no receiver, no arguments or one argument)
-            if call.receiver().is_some() {
+            if !access_modifier_predicates::is_bare_access_modifier(&call) {
                 continue;
-            }
-
-            let method_name = call.name().as_slice();
-            if !ACCESS_MODIFIERS.contains(&method_name) {
-                continue;
-            }
-
-            // Check if this is a bare modifier (no args) - skip inline modifiers like `private def foo`
-            if let Some(args) = call.arguments() {
-                // If the argument is a def node or a symbol, it's an inline modifier
-                let arg_list: Vec<_> = args.arguments().iter().collect();
-                if !arg_list.is_empty() {
-                    continue;
-                }
             }
 
             let (mod_line, mod_col) = source.offset_to_line_col(call.location().start_offset());
@@ -175,7 +163,8 @@ impl Cop for AccessModifierIndentation {
                 } else {
                     "Indent"
                 };
-                let modifier_name = std::str::from_utf8(method_name).unwrap_or("private");
+                let modifier_name =
+                    std::str::from_utf8(call.name().as_slice()).unwrap_or("private");
                 diagnostics.push(self.diagnostic(
                     source,
                     mod_line,

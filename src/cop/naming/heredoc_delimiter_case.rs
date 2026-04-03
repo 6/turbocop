@@ -1,4 +1,6 @@
-use crate::cop::node_type::{INTERPOLATED_STRING_NODE, INTERPOLATED_X_STRING_NODE, STRING_NODE};
+use crate::cop::shared::node_type::{
+    INTERPOLATED_STRING_NODE, INTERPOLATED_X_STRING_NODE, STRING_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

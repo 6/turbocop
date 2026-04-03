@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     AND_NODE, BEGIN_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, OR_NODE,
     PARENTHESES_NODE, STATEMENTS_NODE, UNLESS_NODE,
 };

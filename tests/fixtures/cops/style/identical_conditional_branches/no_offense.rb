@@ -146,6 +146,17 @@ else
   @store[key] = value
 end
 
+# if/else identical trailing setter calls that reuse the condition receiver
+object = nil
+obj_hash = {}
+
+if object.present?
+  object.attributes = obj_hash
+else
+  object = Topic.new
+  object.attributes = obj_hash
+end
+
 # unless without else
 unless condition
   do_x
@@ -160,6 +171,19 @@ def bar
         1 + 2 + 3
       end
   do_something_else
+end
+
+# if/else nested conditionals as single-child branches, last node of parent
+def baz
+  if outer
+    if inner
+      do_x
+    end
+  else
+    if inner
+      do_x
+    end
+  end
 end
 
 # if/else identical tail assignments where RHS variable appears in condition
@@ -181,3 +205,10 @@ def process(sorted_values, prev_v, start_v, runs, v)
     prev_v = v
   end
 end
+
+# if/else with different regex literals that only differ by whitespace in the pattern
+regex = if allow_spaces_in_card?(value)
+          /[^\d ]/
+        else
+          /[^\d]/
+        end

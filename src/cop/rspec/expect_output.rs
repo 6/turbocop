@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_hook};
+use crate::cop::shared::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_hook};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -31,7 +31,7 @@ impl Cop for ExpectOutput {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[crate::cop::node_type::PROGRAM_NODE]
+        &[crate::cop::shared::node_type::PROGRAM_NODE]
     }
 
     fn check_node(

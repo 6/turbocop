@@ -1,9 +1,10 @@
-use crate::cop::node_type::{
+use crate::cop::shared::access_modifier_predicates;
+use crate::cop::shared::node_type::{
     BEGIN_NODE, BLOCK_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, CLASS_NODE, DEF_NODE, FOR_NODE,
     IF_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE,
     WHEN_NODE, WHILE_NODE,
 };
-use crate::cop::util::{assignment_context_base_col, expected_indent_for_body};
+use crate::cop::shared::util::{assignment_context_base_col, expected_indent_for_body};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -47,28 +48,11 @@ use crate::parse::source::SourceFile;
 ///   unconditional tab skip.
 pub struct IndentationWidth;
 
-/// Access modifier method names that RuboCop treats as bare access modifiers.
-/// When a class/module/block body starts with one of these, RuboCop skips the
-/// indentation width check for that body.
-const ACCESS_MODIFIERS: &[&[u8]] = &[b"private", b"protected", b"public", b"module_function"];
-
 /// Check if a node is a bare access modifier call (for example `private` with no
 /// receiver, args, or block). Matches RuboCop's `bare_access_modifier?`.
 fn is_access_modifier_call(node: &ruby_prism::Node<'_>) -> bool {
-    if let Some(call) = node.as_call_node() {
-        if call.receiver().is_some() || call.block().is_some() {
-            return false;
-        }
-        if let Some(args) = call.arguments() {
-            if args.arguments().iter().next().is_some() {
-                return false;
-            }
-        }
-        let name = call.name().as_slice();
-        ACCESS_MODIFIERS.contains(&name)
-    } else {
-        false
-    }
+    node.as_call_node()
+        .is_some_and(|call| access_modifier_predicates::is_bare_access_modifier(&call))
 }
 
 /// Check if a node is an access modifier wrapping a def (e.g., `private def foo`).
@@ -78,11 +62,9 @@ fn is_access_modifier_call(node: &ruby_prism::Node<'_>) -> bool {
 /// must NOT skip `private :method_name` since RuboCop's IndentationWidth checks those.
 fn is_access_modifier_with_def(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
-        if call.receiver().is_some() || call.block().is_some() {
-            return false;
-        }
-        let name = call.name().as_slice();
-        if !ACCESS_MODIFIERS.contains(&name) {
+        if !access_modifier_predicates::is_access_modifier_declaration(&call)
+            || call.block().is_some()
+        {
             return false;
         }
         // Check if the sole argument is a DefNode

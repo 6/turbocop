@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     ASSOC_NODE, BLOCK_NODE, CALL_NODE, FALSE_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE,
 };
 use crate::cop::{Cop, CopConfig};

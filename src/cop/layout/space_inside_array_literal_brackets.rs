@@ -12,7 +12,12 @@
 ///      whitespace run.
 ///   3. `ARRAY_PATTERN_NODE` (pattern matching `in [a, b]`) was not handled.
 ///      RuboCop aliases `on_array_pattern` to `on_array`. Added support.
-use crate::cop::node_type::{ARRAY_NODE, ARRAY_PATTERN_NODE};
+/// - FP=6 fix (2026-04-02): RuboCop skips this cop entirely for array patterns
+///   that end with a trailing comma (`in [a, ]`, `in Foo[ a, ]`), and it also
+///   accepts multiline arrays with `[ <spaces>\n  # comment` after the opening
+///   bracket. Fixed by detecting the trailing-comma array-pattern context and by
+///   treating comment-on-next-line as an allowed multiline opening-bracket case.
+use crate::cop::shared::node_type::{ARRAY_NODE, ARRAY_PATTERN_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -41,14 +46,14 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
         diagnostics: &mut Vec<Diagnostic>,
         corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let (opening, closing) = if let Some(array) = node.as_array_node() {
+        let (opening, closing, is_array_pattern) = if let Some(array) = node.as_array_node() {
             match (array.opening_loc(), array.closing_loc()) {
-                (Some(o), Some(c)) => (o, c),
+                (Some(o), Some(c)) => (o, c, false),
                 _ => return, // Implicit array (no brackets)
             }
         } else if let Some(pattern) = node.as_array_pattern_node() {
             match (pattern.opening_loc(), pattern.closing_loc()) {
-                (Some(o), Some(c)) => (o, c),
+                (Some(o), Some(c)) => (o, c, true),
                 _ => return,
             }
         } else {
@@ -60,16 +65,26 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
             return;
         }
 
-        self.check_brackets(source, &opening, &closing, config, diagnostics, corrections);
+        self.check_brackets(
+            source,
+            &opening,
+            &closing,
+            is_array_pattern,
+            config,
+            diagnostics,
+            corrections,
+        );
     }
 }
 
 impl SpaceInsideArrayLiteralBrackets {
+    #[allow(clippy::too_many_arguments)]
     fn check_brackets(
         &self,
         source: &SourceFile,
         opening: &ruby_prism::Location<'_>,
         closing: &ruby_prism::Location<'_>,
+        is_array_pattern: bool,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
@@ -77,6 +92,10 @@ impl SpaceInsideArrayLiteralBrackets {
         let bytes = source.as_bytes();
         let open_end = opening.end_offset();
         let close_start = closing.start_offset();
+
+        if is_array_pattern && prev_non_whitespace(bytes, close_start) == Some(b',') {
+            return;
+        }
 
         let empty_style = config.get_str("EnforcedStyleForEmptyBrackets", "no_space");
 
@@ -167,7 +186,10 @@ impl SpaceInsideArrayLiteralBrackets {
 
         let start_ok = if is_multiline {
             match enforced {
-                "no_space" => next_to_comment(bytes, open_end),
+                "no_space" => {
+                    next_to_comment(bytes, open_end)
+                        || next_line_starts_with_comment(bytes, open_end)
+                }
                 _ => next_to_newline(bytes, open_end),
             }
         } else {
@@ -283,6 +305,19 @@ fn is_only_whitespace(bytes: &[u8], start: usize, end: usize) -> bool {
         .all(|&b| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r')
 }
 
+/// Find the previous non-whitespace byte before `pos`.
+fn prev_non_whitespace(bytes: &[u8], pos: usize) -> Option<u8> {
+    let mut i = pos;
+    while i > 0 {
+        i -= 1;
+        match bytes[i] {
+            b' ' | b'\t' | b'\n' | b'\r' => continue,
+            byte => return Some(byte),
+        }
+    }
+    None
+}
+
 /// Scan forward from `pos` past contiguous spaces/tabs. Returns the offset after the run.
 fn scan_space_forward(bytes: &[u8], pos: usize) -> usize {
     let mut i = pos;
@@ -325,6 +360,35 @@ fn next_to_comment(bytes: &[u8], pos: usize) -> bool {
         }
     }
     false
+}
+
+/// Check if optional spaces/tabs are followed by a newline whose next line starts with `#`.
+fn next_line_starts_with_comment(bytes: &[u8], pos: usize) -> bool {
+    let mut i = pos;
+    while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') {
+        i += 1;
+    }
+
+    if i >= bytes.len() {
+        return false;
+    }
+
+    match bytes[i] {
+        b'\n' => i += 1,
+        b'\r' => {
+            i += 1;
+            if i < bytes.len() && bytes[i] == b'\n' {
+                i += 1;
+            }
+        }
+        _ => return false,
+    }
+
+    while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') {
+        i += 1;
+    }
+
+    bytes.get(i) == Some(&b'#')
 }
 
 /// Check if the position is the first non-whitespace on its line (raw byte scan).

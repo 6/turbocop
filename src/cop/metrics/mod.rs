@@ -4,6 +4,7 @@ pub mod block_nesting;
 pub mod class_length;
 pub mod collection_literal_length;
 pub mod cyclomatic_complexity;
+pub mod method_complexity;
 pub mod method_length;
 pub mod module_length;
 pub mod parameter_lists;

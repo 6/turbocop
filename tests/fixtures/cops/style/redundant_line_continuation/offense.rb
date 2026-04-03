@@ -169,3 +169,40 @@ x = 1 + \
         ^ Style/RedundantLineContinuation: Redundant line continuation.
   2
 =end
+
+ESCAPE = ?\\
+           ^ Style/RedundantLineContinuation: Redundant line continuation.
+
+ESCAPE_PREFIXES = %W(
+  0 1 2 3 4 5 6 7 a b f n r t v \n U \\
+                                      ^ Style/RedundantLineContinuation: Redundant line continuation.
+).freeze
+
+l.permit(:name, :description, :address, :latitude, :longitude,
+         opening_times_attributes: \
+                                   ^ Style/RedundantLineContinuation: Redundant line continuation.
+         %i[day opens_at closes_at closed open_24h]).to_h
+
+config["markdown"] = "kramdown" unless \
+                                       ^ Style/RedundantLineContinuation: Redundant line continuation.
+  %w(kramdown gfm commonmarkghpages).include?(config["markdown"].to_s.downcase)
+
+should_be_integrated = if PodPrebuild.config.prebuild_job? \
+                                                           ^ Style/RedundantLineContinuation: Redundant line continuation.
+                       then @cache_validation.hit + @cache_validation.missed \
+                                                                             ^ Style/RedundantLineContinuation: Redundant line continuation.
+                       else @cache_validation.hit \
+                                                  ^ Style/RedundantLineContinuation: Redundant line continuation.
+                       end
+
+origin.respond_to?(:lat) ? origin.lat \
+                                      ^ Style/RedundantLineContinuation: Redundant line continuation.
+                         : origin.send(:lat_column_name)
+
+include\
+       ^ Style/RedundantLineContinuation: Redundant line continuation.
+  begin
+    RbConfig
+  rescue NameError
+    Config
+  end

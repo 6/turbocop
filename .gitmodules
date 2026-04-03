@@ -16,3 +16,6 @@
 [submodule "vendor/rubocop-rspec_rails"]
 	path = vendor/rubocop-rspec_rails
 	url = https://github.com/rubocop/rubocop-rspec_rails.git
+[submodule "vendor/rubocop-ast"]
+	path = vendor/rubocop-ast
+	url = https://github.com/rubocop/rubocop-ast.git

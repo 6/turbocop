@@ -29,7 +29,7 @@
 /// Fix: keep reporting from the invocation node (`CallNode`, `SuperNode`,
 /// `ForwardingSuperNode`, `LambdaNode`) while deciding single-line status from
 /// the attached block's `do` and `end` delimiter lines.
-use crate::cop::node_type::{CALL_NODE, FORWARDING_SUPER_NODE, LAMBDA_NODE, SUPER_NODE};
+use crate::cop::shared::node_type::{CALL_NODE, FORWARDING_SUPER_NODE, LAMBDA_NODE, SUPER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

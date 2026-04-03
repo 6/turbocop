@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -45,7 +46,7 @@ struct R2KVisitor<'a, 'src> {
 
 impl<'pr> Visit<'pr> for R2KVisitor<'_, '_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if node.name().as_slice() == b"ruby2_keywords" && node.receiver().is_none() {
+        if method_dispatch_predicates::is_command(node, b"ruby2_keywords") {
             if let Some(args) = node.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if !arg_list.is_empty() {

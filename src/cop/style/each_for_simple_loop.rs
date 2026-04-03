@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, INTEGER_NODE, PARENTHESES_NODE, RANGE_NODE,
     STATEMENTS_NODE,
 };

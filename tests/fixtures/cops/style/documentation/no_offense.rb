@@ -89,6 +89,30 @@ class Base # :nodoc: all
   end
 end
 
+unless defined?(ScopedDocumented)
+  # Real doc
+  class ScopedDocumented
+    def method
+    end
+  end
+end
+
+class A::B::Test #:nodoc:
+  def method
+  end
+end
+
+# Class expression assigned inside a block is not top-level documentation
+describe Foo do
+  before do
+    # Namespace docs
+    module Testing; end
+    @memory_class = class Testing::MyMemory < Parent
+      self
+    end
+  end
+end
+
 # FP fix: class with class << self containing only include/prepend
 class Cache
   class << self

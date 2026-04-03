@@ -14,6 +14,19 @@
 
 set -euo pipefail
 
+# Safety: block on devcontainers and macOS where disk space is limited.
+# Use scripts/corpus_repo_map.py --clone <Cop> for targeted clones instead.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    echo "ERROR: clone_repos.sh is not intended for macOS (limited disk)." >&2
+    echo "Use: python3 scripts/corpus_repo_map.py --clone Department/CopName" >&2
+    exit 1
+fi
+if [[ "${USER:-}" == "vscode" ]] && [[ -f /.dockerenv ]]; then
+    echo "ERROR: clone_repos.sh is not intended for devcontainers (limited disk)." >&2
+    echo "Use: python3 scripts/corpus_repo_map.py --clone Department/CopName" >&2
+    exit 1
+fi
+
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MANIFEST="$REPO_ROOT/bench/corpus/manifest.jsonl"
 DEST_DIR="$REPO_ROOT/vendor/corpus"

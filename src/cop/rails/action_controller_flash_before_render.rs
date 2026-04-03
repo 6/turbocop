@@ -170,6 +170,7 @@
 ///   clauses, but not render after the begin/end block. Propagating method-level outer
 ///   siblings caused FPs like `country_bands_controller`, while suppressing too much caused
 ///   FNs like `advice_controller`.
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -1153,7 +1154,7 @@ fn contains_render(node: &ruby_prism::Node<'_>) -> bool {
 fn is_redirect_sibling(node: &ruby_prism::Node<'_>) -> bool {
     // Direct `redirect_to ...`
     if let Some(call) = node.as_call_node() {
-        if call.receiver().is_none() && call.name().as_slice() == b"redirect_to" {
+        if method_dispatch_predicates::is_command(&call, b"redirect_to") {
             return true;
         }
     }
@@ -1163,7 +1164,7 @@ fn is_redirect_sibling(node: &ruby_prism::Node<'_>) -> bool {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() == 1 {
                 if let Some(call) = arg_list[0].as_call_node() {
-                    if call.receiver().is_none() && call.name().as_slice() == b"redirect_to" {
+                    if method_dispatch_predicates::is_command(&call, b"redirect_to") {
                         return true;
                     }
                 }
@@ -1180,7 +1181,7 @@ struct CallFinder<'a> {
 
 impl<'pr> Visit<'pr> for CallFinder<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if node.name().as_slice() == self.method && node.receiver().is_none() {
+        if method_dispatch_predicates::is_command(node, self.method) {
             self.found = true;
         }
         if !self.found {

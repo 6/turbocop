@@ -1,5 +1,6 @@
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -46,7 +47,9 @@ impl Cop for ClassCheck {
                 if method == b"be_kind_of" || method == b"be_a_kind_of" {
                     // Must not have a non-expect-chain receiver (skip Foo.be_kind_of)
                     if let Some(recv) = call.receiver() {
-                        if recv.as_call_node().is_none() && util::constant_name(&recv).is_some() {
+                        if recv.as_call_node().is_none()
+                            && constant_predicates::constant_short_name(&recv).is_some()
+                        {
                             return;
                         }
                     }
@@ -66,7 +69,9 @@ impl Cop for ClassCheck {
                 // Flag be_a and be_an, suggest be_kind_of
                 if method == b"be_a" || method == b"be_an" {
                     if let Some(recv) = call.receiver() {
-                        if recv.as_call_node().is_none() && util::constant_name(&recv).is_some() {
+                        if recv.as_call_node().is_none()
+                            && constant_predicates::constant_short_name(&recv).is_some()
+                        {
                             return;
                         }
                     }

@@ -1,4 +1,5 @@
-use crate::cop::node_type::EMBEDDED_STATEMENTS_NODE;
+use crate::cop::shared::node_type::EMBEDDED_STATEMENTS_NODE;
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -64,7 +65,7 @@ impl Cop for EmptyStringInsideInterpolation {
             }
             "ternary" => {
                 if let Some(if_node) = stmt_list[0].as_if_node() {
-                    if is_modifier_if(if_node) {
+                    if util::is_modifier_if(&if_node) {
                         add_diagnostic(
                             self,
                             source,
@@ -74,7 +75,7 @@ impl Cop for EmptyStringInsideInterpolation {
                         );
                     }
                 } else if let Some(unless_node) = stmt_list[0].as_unless_node() {
-                    if is_modifier_unless(unless_node) {
+                    if util::is_modifier_unless(&unless_node) {
                         add_diagnostic(
                             self,
                             source,
@@ -128,14 +129,6 @@ fn is_empty_string_or_nil(node: &ruby_prism::Node<'_>) -> bool {
         return string_node.content_loc().as_slice().is_empty();
     }
     false
-}
-
-fn is_modifier_if(node: ruby_prism::IfNode<'_>) -> bool {
-    node.if_keyword_loc().is_some() && node.end_keyword_loc().is_none()
-}
-
-fn is_modifier_unless(node: ruby_prism::UnlessNode<'_>) -> bool {
-    node.end_keyword_loc().is_none()
 }
 
 #[cfg(test)]

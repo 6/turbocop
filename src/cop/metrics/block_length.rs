@@ -1,5 +1,7 @@
-use crate::cop::node_type::{CALL_NODE, FORWARDING_SUPER_NODE, LAMBDA_NODE, SUPER_NODE};
-use crate::cop::util::{collect_foldable_ranges, collect_heredoc_ranges, count_body_lines_ex};
+use crate::cop::shared::node_type::{CALL_NODE, FORWARDING_SUPER_NODE, LAMBDA_NODE, SUPER_NODE};
+use crate::cop::shared::util::{
+    collect_foldable_ranges, collect_heredoc_ranges, count_body_lines_ex,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -97,12 +99,12 @@ use crate::parse::source::SourceFile;
 /// Corpus oracle reported FN=3 in the extended corpus.
 ///
 /// FN #1/#2: `BenchmarkDriver::Struct.new` blocks in benchmark-driver repo.
-/// Root cause: `is_class_constructor()` used `constant_name()` which returns
+/// Root cause: `is_class_constructor()` used `constant_short_name()` which returns
 /// just the last segment of a constant path — `BenchmarkDriver::Struct`
 /// returned `Struct`, incorrectly matching the class constructor exemption.
 /// RuboCop's `class_constructor?` uses `(const {nil? cbase} :Struct)` which
 /// only matches bare `Struct` or `::Struct`, not qualified paths.
-/// Fix: replaced `constant_name()` with `is_simple_constant()` calls.
+/// Fix: replaced `constant_short_name()` with `is_simple_constant()` calls.
 ///
 /// FN #3: `proc do ... end` block in `bin/reak` (rkh/Reak repo). This file
 /// has no `.rb` extension (shebang-only script). The cop logic correctly
@@ -698,12 +700,12 @@ fn is_class_constructor(call: &ruby_prism::CallNode<'_>) -> bool {
 
     match call.name().as_slice() {
         b"new" => {
-            crate::cop::util::is_simple_constant(&recv, b"Struct")
-                || crate::cop::util::is_simple_constant(&recv, b"Class")
-                || crate::cop::util::is_simple_constant(&recv, b"Module")
+            crate::cop::shared::constant_predicates::is_simple_constant(&recv, b"Struct")
+                || crate::cop::shared::constant_predicates::is_simple_constant(&recv, b"Class")
+                || crate::cop::shared::constant_predicates::is_simple_constant(&recv, b"Module")
         }
         // Data.define is also a class constructor in RuboCop.
-        b"define" => crate::cop::util::is_simple_constant(&recv, b"Data"),
+        b"define" => crate::cop::shared::constant_predicates::is_simple_constant(&recv, b"Data"),
         _ => false,
     }
 }

@@ -1,6 +1,6 @@
 use crate::cop::metrics::method_length::{body_has_heredoc, max_descendant_end_line};
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util::{
+use crate::cop::shared::node_type::CALL_NODE;
+use crate::cop::shared::util::{
     RSPEC_DEFAULT_INCLUDE, collect_foldable_ranges, collect_heredoc_ranges, count_body_lines_ex,
     is_rspec_example,
 };

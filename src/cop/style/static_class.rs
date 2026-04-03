@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -174,7 +175,7 @@ fn is_assignment(node: &ruby_prism::Node<'_>) -> bool {
 /// Check if node is an `extend` call.
 fn is_extend_call(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
-        call.name().as_slice() == b"extend" && call.receiver().is_none()
+        method_dispatch_predicates::is_command(&call, b"extend")
     } else {
         false
     }

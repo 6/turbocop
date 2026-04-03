@@ -1,4 +1,4 @@
-use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE, STRING_NODE, SYMBOL_NODE};
+use crate::cop::shared::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE, STRING_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

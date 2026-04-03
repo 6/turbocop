@@ -1,4 +1,4 @@
-use crate::cop::node_type::CALL_NODE;
+use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -212,7 +212,7 @@ impl Cop for ArgumentAlignment {
                         .0
                 };
                 let base_line_bytes = source.lines().nth(base_line - 1).unwrap_or(b"");
-                crate::cop::util::indentation_of(base_line_bytes) + indent_width
+                crate::cop::shared::util::indentation_of(base_line_bytes) + indent_width
             }
             _ => display_column(source, first_start).unwrap_or(first_col),
         };
@@ -225,7 +225,8 @@ impl Cop for ArgumentAlignment {
                 // Skip arguments that don't begin their line (matching RuboCop's
                 // begins_its_line? check). For example, in `}, suffix: :action`
                 // the suffix: argument is not first on its line.
-                if !crate::cop::util::begins_its_line(source, arg.location().start_offset()) {
+                if !crate::cop::shared::util::begins_its_line(source, arg.location().start_offset())
+                {
                     continue;
                 }
                 if arg_col != expected_col {

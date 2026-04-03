@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::cop::shared::access_modifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -93,9 +94,8 @@ fn check_class_body(
     for stmt in &body {
         // Check for bare access modifiers
         if let Some(call) = stmt.as_call_node() {
-            let name = call.name().as_slice();
-            if call.receiver().is_none() && call.arguments().is_none() {
-                let kind = match name {
+            if access_modifier_predicates::is_bare_access_modifier(&call) {
+                let kind = match call.name().as_slice() {
                     b"private" => Some(ModifierKind::Private),
                     b"protected" => Some(ModifierKind::Protected),
                     b"public" => Some(ModifierKind::Public),
