@@ -152,9 +152,26 @@ fn check_variable(
     // sequence than the assignment they belong to (the engine visits RHS first),
     // but their byte offsets are AFTER the assignment start. Using offsets
     // correctly excludes RHS references like `value = super`.
+    //
+    // RuboCop's IgnoreImplicitReferences option (confusingly named) means
+    // "treat implicit references as always counting" — when enabled, ANY
+    // implicit reference (from `super`, `binding`) prevents the offense,
+    // regardless of source position. This allows patterns like `foo = super`
+    // when the user intentionally shadows args to pass them via zero-arity
+    // super. When disabled (default), implicit refs use the normal offset
+    // check like explicit refs.
     let has_prior_ref = variable.references.iter().any(|r| {
-        let is_relevant = if ignore_implicit { r.explicit } else { true };
-        is_relevant && r.node_offset <= shadowing_offset
+        if !r.explicit && ignore_implicit {
+            // IgnoreImplicitReferences: true — implicit refs always count
+            // as "argument was used", bypassing the offset check.
+            return true;
+        }
+        if !r.explicit {
+            // IgnoreImplicitReferences: false (default) — implicit refs
+            // use the same offset check as explicit refs.
+            return r.node_offset <= shadowing_offset;
+        }
+        r.node_offset <= shadowing_offset
     });
 
     if has_prior_ref {
@@ -209,5 +226,51 @@ fn check_variable(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cop::CopConfig;
+    use crate::testutil::{assert_cop_no_offenses_full_with_config, run_cop_full_with_config};
+
     crate::cop_fixture_tests!(ShadowedArgument, "cops/lint/shadowed_argument");
+
+    fn config_ignore_implicit() -> CopConfig {
+        let mut config = CopConfig::default();
+        config.options.insert(
+            "IgnoreImplicitReferences".to_string(),
+            serde_yml::Value::Bool(true),
+        );
+        config
+    }
+
+    #[test]
+    fn ignore_implicit_refs_suppresses_super_shadow() {
+        // With IgnoreImplicitReferences: true, `value = super` should NOT
+        // be flagged because the implicit reference from super counts as
+        // "argument was used".
+        let source = b"def foo(value)\n  case value = super\n  when :a then 1\n  end\nend\n";
+        assert_cop_no_offenses_full_with_config(
+            &ShadowedArgument,
+            source,
+            config_ignore_implicit(),
+        );
+    }
+
+    #[test]
+    fn ignore_implicit_refs_plain_super_before_assign() {
+        // With IgnoreImplicitReferences: true, standalone `super` before
+        // reassignment should suppress the offense.
+        let source = b"def foo(value)\n  super\n  value = 42\n  value\nend\n";
+        assert_cop_no_offenses_full_with_config(
+            &ShadowedArgument,
+            source,
+            config_ignore_implicit(),
+        );
+    }
+
+    #[test]
+    fn default_config_still_flags_value_equals_super() {
+        // With default config (IgnoreImplicitReferences: false), `value = super`
+        // should still be flagged.
+        let source = b"def foo(value)\n  value = super\n  value\nend\n";
+        let diags = run_cop_full_with_config(&ShadowedArgument, source, CopConfig::default());
+        assert_eq!(diags.len(), 1);
+    }
 }

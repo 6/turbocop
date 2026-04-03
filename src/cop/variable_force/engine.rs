@@ -1110,6 +1110,11 @@ impl<'pr> Visit<'pr> for Engine<'_> {
                 var.reference(Reference::implicit(offset, si));
             }
         }
+        // Visit the block child so that `super do |x| ... end` declares
+        // block params and visits the block body.
+        if let Some(block) = node.block() {
+            self.visit_block_node(&block);
+        }
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
@@ -1566,6 +1571,22 @@ mod tests {
         let def_scope = &scopes[0];
         assert!(def_scope.vars["x"].num_references > 0); // arg referenced
         assert_eq!(def_scope.vars["y"].num_references, 0); // local NOT referenced
+    }
+
+    #[test]
+    fn test_forwarding_super_visits_block() {
+        // `super do |x| puts x end` — the block child of ForwardingSuperNode
+        // must be visited so that block params are declared in a new scope.
+        let scopes = run_engine("def foo(a)\n  super do |x|\n    puts x\n  end\nend\n");
+        // Should have at least 2 scopes: the def scope and the block scope
+        assert!(scopes.len() >= 2);
+        // The block scope should contain `x` as a block param
+        let block_scope = scopes
+            .iter()
+            .find(|s| s.vars.contains_key("x"))
+            .expect("block param x should be declared");
+        assert_eq!(block_scope.kind, ScopeKind::Block);
+        assert!(block_scope.vars["x"].used);
     }
 
     // ── Multi-write tests ──────────────────────────────────────────────
