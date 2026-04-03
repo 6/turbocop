@@ -71,6 +71,11 @@ GEMS = [
         "url": "https://github.com/rubocop/rubocop-factory_bot",
         "departments": ["FactoryBot"],
     },
+    {
+        "key": "rubocop-rake",
+        "url": "https://github.com/rubocop/rubocop-rake",
+        "departments": ["Rake"],
+    },
 ]
 
 def load_synthetic_results(path: Path) -> dict[str, dict]:
