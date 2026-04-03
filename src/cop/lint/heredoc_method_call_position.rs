@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -63,8 +64,11 @@ impl<'pr> Visit<'pr> for HeredocVisitor<'_, '_> {
                         .filter(|loc| loc.start_offset() >= heredoc_end_offset)
                         .map(|loc| loc.start_offset())
                         .unwrap_or_else(|| {
-                            first_non_whitespace_offset(self.source.as_bytes(), heredoc_end_offset)
-                                .unwrap_or(heredoc_end_offset)
+                            util::first_non_whitespace_offset(
+                                self.source.as_bytes(),
+                                heredoc_end_offset,
+                            )
+                            .unwrap_or(heredoc_end_offset)
                         });
                     let (line, column) = self.source.offset_to_line_col(offense_offset);
                     self.diagnostics.push(self.cop.diagnostic(
@@ -97,14 +101,6 @@ fn heredoc_end_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
         }
     }
     None
-}
-
-fn first_non_whitespace_offset(bytes: &[u8], start: usize) -> Option<usize> {
-    bytes
-        .get(start..)?
-        .iter()
-        .position(|byte| !byte.is_ascii_whitespace())
-        .map(|offset| start + offset)
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 use crate::cop::shared::node_type::{BLOCK_NODE, LAMBDA_NODE};
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -123,7 +124,9 @@ impl Cop for SpaceAroundBlockParameters {
         if inner_start > inner_end || inner_end > bytes.len() {
             return;
         }
-        let Some(first_non_ws) = first_non_whitespace(bytes, inner_start, inner_end) else {
+        let Some(first_non_ws) =
+            util::first_non_whitespace_offset(bytes, inner_start).filter(|&o| o < inner_end)
+        else {
             return;
         };
         let Some(last_non_ws) = last_non_whitespace(bytes, inner_start, inner_end) else {
@@ -562,10 +565,6 @@ fn locals_only_positions(
         Some(first.location().start_offset()),
         Some(last.location().end_offset()),
     )
-}
-
-fn first_non_whitespace(bytes: &[u8], start: usize, end: usize) -> Option<usize> {
-    (start..end).find(|&idx| !matches!(bytes[idx], b' ' | b'\t' | b'\n' | b'\r'))
 }
 
 fn last_non_whitespace(bytes: &[u8], start: usize, end: usize) -> Option<usize> {
