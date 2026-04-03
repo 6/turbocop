@@ -7,12 +7,20 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 /// RuboCop parity notes:
+/// - Local variables are tracked in source order (not pre-scanned). `self.x` before
+///   `x = ...` is flagged as redundant, matching RuboCop's lazy variable tracking.
+/// - `if`/`unless`/`while`/`until` nodes prescan ALL descendants (including inside
+///   blocks) for local variable assignments. This makes `self.x` in the condition
+///   allowed when `x` is assigned anywhere inside the conditional body, even in
+///   nested blocks. This matches RuboCop's `on_if` behavior.
 /// - Nested block and lambda locals leak forward into the enclosing scope for later
 ///   disambiguation, so `self.x` stays allowed after an earlier `do |x| ... end` or
 ///   `->(x) { ... }`, but not before that nested scope appears.
 /// - Compound self-assignments (`self.count += 1`, `self.count ||= 1`, `self.count &&= 1`)
 ///   make later `self.count` reads acceptable in source order, even across later methods
 ///   and class/module nesting. Plain setters like `self.value = 1` do not.
+/// - Parameter default values are visited for `self.` checks. `def foo(x = self.bar)`
+///   flags `self.bar` unless `bar` is also a parameter name.
 pub struct RedundantSelf;
 
 /// Methods where self. is always required (Ruby keywords).
@@ -229,13 +237,8 @@ impl RedundantSelfVisitor<'_> {
         }
     }
 
-    /// Collect local variable names from the method/block body by scanning
-    /// for LocalVariableWriteNode and LocalVariableTargetNode at the top level.
-    /// We need to pre-scan because Ruby allows `self.foo` BEFORE `foo = ...`
-    /// to still be shadowed (the local variable is visible throughout the scope).
-    fn prescan_locals(&mut self, body: &ruby_prism::Node<'_>) {
-        let mut scanner = LocalScanner { names: Vec::new() };
-        scanner.visit(body);
+    /// Apply the results of a conditional prescan to the current scope.
+    fn apply_conditional_prescan(&mut self, scanner: ConditionalLocalScanner) {
         for name in scanner.names {
             self.add_local(&name);
         }
@@ -253,16 +256,18 @@ impl RedundantSelfVisitor<'_> {
     }
 }
 
-/// Pre-scan visitor that collects all local variable names in a scope.
-struct LocalScanner {
+/// Prescan visitor for conditional nodes (`if`/`unless`/`while`/`until`).
+/// Collects all local variable names from ALL descendants, including those
+/// inside blocks, lambdas, defs, classes, and modules. This matches RuboCop's
+/// `node.each_descendant(:lvasgn, :masgn)` behavior in `on_if`.
+struct ConditionalLocalScanner {
     names: Vec<Vec<u8>>,
 }
 
-impl<'pr> Visit<'pr> for LocalScanner {
+impl<'pr> Visit<'pr> for ConditionalLocalScanner {
     fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
         self.names.push(node.name().as_slice().to_vec());
-        // Continue visiting the value expression
-        self.visit(&node.value());
+        ruby_prism::visit_local_variable_write_node(self, node);
     }
 
     fn visit_local_variable_target_node(
@@ -277,7 +282,7 @@ impl<'pr> Visit<'pr> for LocalScanner {
         node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
     ) {
         self.names.push(node.name().as_slice().to_vec());
-        self.visit(&node.value());
+        ruby_prism::visit_local_variable_or_write_node(self, node);
     }
 
     fn visit_local_variable_and_write_node(
@@ -285,16 +290,18 @@ impl<'pr> Visit<'pr> for LocalScanner {
         node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
     ) {
         self.names.push(node.name().as_slice().to_vec());
-        self.visit(&node.value());
+        ruby_prism::visit_local_variable_and_write_node(self, node);
     }
 
-    // Don't descend into nested scopes.
-    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
-    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
-    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
-    fn visit_block_node(&mut self, _node: &ruby_prism::BlockNode<'pr>) {}
-    fn visit_lambda_node(&mut self, _node: &ruby_prism::LambdaNode<'pr>) {}
-    fn visit_singleton_class_node(&mut self, _node: &ruby_prism::SingletonClassNode<'pr>) {}
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.names.push(node.name().as_slice().to_vec());
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+
+    // Don't stop at any scope boundary — scan everything (matches RuboCop's each_descendant)
 }
 
 impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
@@ -302,14 +309,27 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
         self.local_scopes.push(HashSet::new());
 
         if let Some(params) = node.parameters() {
+            // Collect parameter names into scope first (before visiting defaults).
+            // This ensures `def foo(x = self.x)` sees `x` as a local, matching RuboCop.
             self.collect_params_from_node(&params);
+
+            // Visit parameter default value expressions — they may contain `self.` calls
+            // that should be checked for redundancy.
+            for p in params.optionals().iter() {
+                if let Some(op) = p.as_optional_parameter_node() {
+                    self.visit(&op.value());
+                }
+            }
+            for p in params.keywords().iter() {
+                if let Some(kw) = p.as_optional_keyword_parameter_node() {
+                    self.visit(&kw.value());
+                }
+            }
         }
 
-        // Pre-scan the body to collect all local variable names.
-        // In Ruby, a local variable assignment anywhere in a scope makes
-        // that name a local variable throughout the entire scope.
+        // No prescan — locals are tracked in visit order, matching RuboCop's
+        // lazy variable tracking. `self.x` before `x = ...` is flagged.
         if let Some(body) = node.body() {
-            self.prescan_locals(&body);
             self.visit(&body);
         }
 
@@ -416,7 +436,6 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
         }
 
         if let Some(body) = node.body() {
-            self.prescan_locals(&body);
             self.visit(&body);
         }
 
@@ -436,11 +455,85 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
         }
 
         if let Some(body) = node.body() {
-            self.prescan_locals(&body);
             self.visit(&body);
         }
 
         self.merge_current_scope_into_parent();
+    }
+
+    // --- Local variable tracking in visit order (replaces prescan) ---
+
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        // Add local BEFORE visiting value — matches RuboCop where `x = self.x`
+        // does NOT flag self.x (x is already in scope on the RHS).
+        self.add_local(node.name().as_slice());
+        self.visit(&node.value());
+    }
+
+    fn visit_local_variable_target_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableTargetNode<'pr>,
+    ) {
+        self.add_local(node.name().as_slice());
+        // No children to visit
+        let _ = node;
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        self.add_local(node.name().as_slice());
+        self.visit(&node.value());
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        self.add_local(node.name().as_slice());
+        self.visit(&node.value());
+    }
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.add_local(node.name().as_slice());
+        self.visit(&node.value());
+    }
+
+    // --- Conditional prescan: if/unless/while/until ---
+    // RuboCop's on_if scans all descendants (including inside blocks) for lvasgn
+    // and adds those variable names to the scope before visiting. This makes
+    // `self.x` allowed in the condition when `x` is assigned anywhere in the body.
+
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        let mut scanner = ConditionalLocalScanner { names: Vec::new() };
+        ruby_prism::visit_if_node(&mut scanner, node);
+        self.apply_conditional_prescan(scanner);
+        ruby_prism::visit_if_node(self, node);
+    }
+
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        let mut scanner = ConditionalLocalScanner { names: Vec::new() };
+        ruby_prism::visit_unless_node(&mut scanner, node);
+        self.apply_conditional_prescan(scanner);
+        ruby_prism::visit_unless_node(self, node);
+    }
+
+    fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        let mut scanner = ConditionalLocalScanner { names: Vec::new() };
+        ruby_prism::visit_while_node(&mut scanner, node);
+        self.apply_conditional_prescan(scanner);
+        ruby_prism::visit_while_node(self, node);
+    }
+
+    fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        let mut scanner = ConditionalLocalScanner { names: Vec::new() };
+        ruby_prism::visit_until_node(&mut scanner, node);
+        self.apply_conditional_prescan(scanner);
+        ruby_prism::visit_until_node(self, node);
     }
 
     fn visit_call_or_write_node(&mut self, node: &ruby_prism::CallOrWriteNode<'pr>) {

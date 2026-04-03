@@ -196,3 +196,27 @@ def test_uppercase_methods
   self.CALL_NAMED(name, false, expr)
   self.MyMethod
 end
+
+# if-prescan: lvasgn inside block inside if makes variable visible in condition
+# (matches RuboCop's on_if behavior)
+class PacketItem
+  def as_json
+    config = {}
+    if self.limits
+      if self.limits.values
+        config['limits'] ||= {}
+        config['limits']['persistence_setting'] = self.limits.persistence_setting
+        config['limits']['enabled'] = true if self.limits.enabled
+        self.limits.values.each do |limits_set, limits_values|
+          limits = {}
+          limits['red_low'] = limits_values[0]
+        end
+      end
+    end
+    config
+  end
+end
+
+# keyword param name shadows method in default value
+def plan_event(execution_plan_id: self.execution_plan_id)
+end
