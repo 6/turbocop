@@ -1,6 +1,6 @@
 use crate::cop::node_type::{
-    CALL_NODE, CASE_NODE, ELSE_NODE, ENSURE_NODE, FOR_NODE, IF_NODE, IN_NODE, PROGRAM_NODE,
-    RESCUE_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE,
+    BEGIN_NODE, CALL_NODE, CASE_NODE, ELSE_NODE, ENSURE_NODE, FOR_NODE, IF_NODE, IN_NODE,
+    PROGRAM_NODE, RESCUE_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -33,8 +33,10 @@ use crate::parse::source::SourceFile;
 /// `None` caused `get_loop_info` to return `None`.
 ///
 /// Additional FP/FN root causes fixed here:
-/// - RuboCop does not scan explicit `begin .. end` (`kwbegin`) bodies for this
-///   cop, so Prism `BeginNode` must be excluded.
+/// - Pure explicit `begin .. end` (`kwbegin`) bodies are not scanned by RuboCop,
+///   but handled `begin` bodies with `rescue`/`else`/`ensure` are. Prism uses
+///   `BeginNode` for both, so this cop now only scans `BeginNode` statements
+///   when one of those handler clauses is present.
 /// - Prism's `CallNode#location` for heredoc receivers omits the heredoc body
 ///   (`<<END.split`), so raw source slicing made different heredocs look equal.
 ///   The receiver/argument comparison now uses a structural key for nested calls.
@@ -50,6 +52,7 @@ impl Cop for CombinableLoops {
 
     fn interested_node_types(&self) -> &'static [u8] {
         &[
+            BEGIN_NODE,
             CALL_NODE,
             CASE_NODE,
             FOR_NODE,
@@ -121,6 +124,12 @@ fn extract_statements<'pr>(
 ) -> Option<ruby_prism::StatementsNode<'pr>> {
     if let Some(n) = node.as_if_node() {
         return n.statements();
+    }
+    if let Some(n) = node.as_begin_node() {
+        if n.rescue_clause().is_some() || n.else_clause().is_some() || n.ensure_clause().is_some() {
+            return n.statements();
+        }
+        return None;
     }
     if let Some(n) = node.as_unless_node() {
         return n.statements();

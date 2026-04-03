@@ -205,3 +205,60 @@ for i, j, in [[1, 2]]
 ^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
   i.should == 1
 end
+
+# Inside begin/rescue body
+def test_inside_begin_rescue
+  begin
+    questions.each do |question|
+      validate(question)
+    end
+
+    questions.each do |question|
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+      delete(question)
+    end
+  rescue StandardError
+    nil
+  end
+end
+
+# Inside begin/ensure body
+def test_inside_begin_ensure
+  begin
+    table_names.each do |table_name|
+      capture(table_name)
+    end
+
+    table_names.each do |table_name|
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+      restore(table_name)
+    end
+  ensure
+    cleanup
+  end
+end
+
+# Method body with ensure
+def test_method_body_with_ensure
+  @ex_list.each_value { |ex| ex.close }
+  @ex_list.each_value { |ex| ex.join }
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+ensure
+  @out.puts "exited"
+end
+
+# each_index inside begin/ensure body
+def test_each_index_inside_begin_ensure
+  begin
+    spaces.each_index do |i|
+      names[i] = spaces[i].name
+    end
+
+    spaces.each_index do |i|
+    ^^^^^^^^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+      touch(spaces[i])
+    end
+  ensure
+    cleanup
+  end
+end
