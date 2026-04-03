@@ -1974,4 +1974,128 @@ mod tests {
             "result = nil should not be flagged as useless (rescue may use it)"
         );
     }
+
+    // ── Rescue exception capture tests ────────────────────────────────
+
+    #[test]
+    fn test_rescue_exception_capture_tracked() {
+        // `rescue StandardError => e; puts e.message` — the exception variable
+        // should be declared, assigned with ExceptionCapture, and referenced.
+        let scopes = run_engine(
+            "def foo\n  begin\n    risky\n  rescue StandardError => e\n    puts e.message\n  end\nend\n",
+        );
+        let def_scope = &scopes[0];
+        assert!(
+            def_scope.vars.contains_key("e"),
+            "rescue exception variable 'e' should be tracked"
+        );
+        let e = &def_scope.vars["e"];
+        assert_eq!(e.num_assignments, 1, "should have exactly 1 assignment");
+        assert_eq!(
+            e.assignments[0].kind,
+            crate::cop::variable_force::assignment::AssignmentKind::ExceptionCapture,
+            "assignment should be ExceptionCapture"
+        );
+        assert!(
+            e.num_references > 0,
+            "e should be referenced by puts e.message"
+        );
+    }
+
+    #[test]
+    fn test_rescue_exception_capture_unused() {
+        // `rescue StandardError => e; puts "error"` — exception variable assigned
+        // but never read.
+        let scopes = run_engine(
+            "def foo\n  begin\n    risky\n  rescue StandardError => e\n    puts \"error\"\n  end\nend\n",
+        );
+        let def_scope = &scopes[0];
+        let e = &def_scope.vars["e"];
+        assert_eq!(e.num_assignments, 1);
+        assert_eq!(e.num_references, 0, "e should have no references");
+    }
+
+    #[test]
+    fn test_rescue_chained_clauses() {
+        // Multiple rescue clauses each with their own exception variable.
+        let scopes = run_engine(
+            "def foo\n  begin\n    risky\n  rescue TypeError => e1\n    puts e1\n  rescue => e2\n    puts e2\n  end\nend\n",
+        );
+        let def_scope = &scopes[0];
+        assert!(def_scope.vars.contains_key("e1"), "e1 should be tracked");
+        assert!(def_scope.vars.contains_key("e2"), "e2 should be tracked");
+        assert!(def_scope.vars["e1"].num_references > 0);
+        assert!(def_scope.vars["e2"].num_references > 0);
+    }
+
+    // ── Pattern match variable tests ──────────────────────────────────
+
+    #[test]
+    fn test_pattern_match_variable_tracked() {
+        // `case v; in x; puts x; end` — pattern match variable should be
+        // declared with PatternMatch kind, assigned, and referenced.
+        let scopes = run_engine("def foo(v)\n  case v\n  in x\n    puts x\n  end\nend\n");
+        let def_scope = &scopes[0];
+        assert!(
+            def_scope.vars.contains_key("x"),
+            "pattern match variable 'x' should be tracked"
+        );
+        let x = &def_scope.vars["x"];
+        assert_eq!(x.decl_kind, DeclarationKind::PatternMatch);
+        assert_eq!(x.num_assignments, 1, "should have exactly 1 assignment");
+        assert!(x.num_references > 0, "x should be referenced by puts x");
+    }
+
+    #[test]
+    fn test_pattern_match_variable_unused() {
+        // `case v; in x; "matched"; end` — pattern variable assigned but not read.
+        let scopes = run_engine("def foo(v)\n  case v\n  in x\n    \"matched\"\n  end\nend\n");
+        let def_scope = &scopes[0];
+        let x = &def_scope.vars["x"];
+        assert_eq!(x.decl_kind, DeclarationKind::PatternMatch);
+        assert_eq!(x.num_references, 0, "x should have no references");
+    }
+
+    #[test]
+    fn test_pattern_match_guard_clause() {
+        // `case v; in _ if _.blank?; 42; end` — guard references the variable
+        // before the pattern target declares it. Pre-declaration should ensure
+        // the reference is tracked.
+        let scopes = run_engine("def foo(v)\n  case v\n  in _ if _.blank?\n    42\n  end\nend\n");
+        let def_scope = &scopes[0];
+        assert!(
+            def_scope.vars.contains_key("_"),
+            "pattern match variable '_' should be tracked"
+        );
+        let underscore = &def_scope.vars["_"];
+        assert!(
+            underscore.num_references > 0,
+            "_ should be referenced by guard clause _.blank?"
+        );
+    }
+
+    // ── Nested multi-write should NOT create extra assignments ────────
+
+    #[test]
+    fn test_nested_multi_write_no_extra_assignments() {
+        // `a, (b, c) = 1, [2, 3]` — nested multi-write targets b and c should
+        // NOT be tracked by the VF engine (matching RuboCop behavior). Only
+        // top-level target 'a' should have an assignment.
+        let scopes = run_engine("a, (b, c) = 1, [2, 3]\nputs a\n");
+        let top = &scopes[0];
+        assert!(
+            top.vars.contains_key("a"),
+            "top-level target 'a' should be tracked"
+        );
+        assert_eq!(top.vars["a"].num_assignments, 1);
+        // Nested targets should NOT be tracked (no generic handler to catch them)
+        assert!(
+            !top.vars.contains_key("b"),
+            "nested multi-write target 'b' should not be tracked"
+        );
+        assert!(
+            !top.vars.contains_key("c"),
+            "nested multi-write target 'c' should not be tracked"
+        );
+    }
 }
