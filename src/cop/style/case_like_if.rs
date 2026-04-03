@@ -2,6 +2,7 @@ use crate::cop::node_type::{
     CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, IF_NODE,
     INTEGER_NODE, NIL_NODE, OR_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE,
 };
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -345,10 +346,6 @@ fn single_statement_else_child<'a>(
     Some(child)
 }
 
-fn is_ternary_if_node(if_node: &ruby_prism::IfNode<'_>) -> bool {
-    if_node.if_keyword_loc().is_none()
-}
-
 /// If a node is an ElseNode whose body is a single non-ternary if/unless node,
 /// return that node's predicate and its continuation (subsequent/else clause) for
 /// RuboCop's `branch_conditions` walk.
@@ -359,7 +356,7 @@ fn unwrap_else_to_condition_branch_info<'a>(
     let child = single_statement_else_child(&else_node)?;
 
     if let Some(if_node) = child.as_if_node() {
-        if is_ternary_if_node(&if_node) {
+        if util::is_ternary(&if_node) {
             return None;
         }
         return Some((if_node.predicate(), if_node.subsequent()));
