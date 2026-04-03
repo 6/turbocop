@@ -218,6 +218,14 @@ use crate::parse::source::SourceFile;
 /// `%s` openings as candidates while still short-circuiting when the source has
 /// no quote characters. This fixes the FN set without broadening `%i/%I`
 /// handling or relaxing the existing rocket-key guards.
+///
+/// ## FP fix (2026-04-03)
+///
+/// Corpus oracle reported FP=2, FN=0, both in natalie's `to_sym` shared spec.
+/// Ruby's `Symbol#inspect` keeps `!@` and `~@` quoted (`:"!@"`, `:"~@"`),
+/// unlike `+@` and `-@`, so RuboCop does not rewrite those two unary operator
+/// method names. Fix: treat only `!@` and `~@` as quote-required operator
+/// symbols when building corrections.
 pub struct SymbolConversion;
 
 /// Check if a character is a valid Ruby identifier start character.
@@ -313,12 +321,16 @@ fn is_operator_symbol(value: &[u8]) -> bool {
     method_identifier_predicates::is_operator_method(value)
 }
 
+fn is_quote_required_operator_symbol(value: &[u8]) -> bool {
+    matches!(value, b"!@" | b"~@")
+}
+
 fn can_be_unquoted_symbol(value: &[u8]) -> bool {
     is_method_name_symbol(value)
         || is_instance_variable_symbol(value)
         || is_class_variable_symbol(value)
         || is_global_variable_symbol(value)
-        || is_operator_symbol(value)
+        || (is_operator_symbol(value) && !is_quote_required_operator_symbol(value))
 }
 
 fn escape_double_quoted_symbol(value: &str) -> String {
@@ -860,6 +872,58 @@ mod tests {
             (":baz.to_sym()", ":baz"),
         ];
         for (source, expected) in &offense_cases {
+            let diags = crate::testutil::run_cop_full(&cop, source.as_bytes());
+            assert!(
+                !diags.is_empty(),
+                "Expected offense for {:?} but got none",
+                source
+            );
+            assert!(
+                diags[0].message.contains(&format!("`{expected}`")),
+                "Expected correction {} in message for {:?}, got: {}",
+                expected,
+                source,
+                diags[0].message
+            );
+        }
+    }
+
+    #[test]
+    fn quote_required_unary_operator_symbols() {
+        let cop = SymbolConversion;
+
+        for source in [
+            r#"obj.send(:"!@")"#,
+            r#"obj.send(:"~@")"#,
+            r#""!@".to_sym"#,
+            r#""~@".to_sym"#,
+        ] {
+            let diags = crate::testutil::run_cop_full(&cop, source.as_bytes());
+            let corrections = diags.iter().map(|d| d.message.as_str()).collect::<Vec<_>>();
+
+            if source.ends_with(".to_sym") {
+                assert!(
+                    corrections
+                        .iter()
+                        .any(|message| message.contains("`:\"!@\"`"))
+                        || corrections
+                            .iter()
+                            .any(|message| message.contains("`:\"~@\"`")),
+                    "Expected quoted correction for {:?}, got {:?}",
+                    source,
+                    corrections
+                );
+            } else {
+                assert!(
+                    diags.is_empty(),
+                    "Expected no offense for {:?} but got {:?}",
+                    source,
+                    corrections
+                );
+            }
+        }
+
+        for (source, expected) in [(r#"obj.send(:"+@")"#, ":+@"), (r#"obj.send(:"-@")"#, ":-@")] {
             let diags = crate::testutil::run_cop_full(&cop, source.as_bytes());
             assert!(
                 !diags.is_empty(),

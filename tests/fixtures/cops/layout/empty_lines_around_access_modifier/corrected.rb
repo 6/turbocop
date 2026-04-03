@@ -192,3 +192,38 @@ module Jekyll
     end
   end
 end
+
+# Class constructor blocks chained with `.new` still use access-modifier spacing
+class ConstructorChain
+  def build
+    obj = Class.new do
+      private
+
+        def private_property
+        end
+
+      protected
+
+        def protected_property
+        end
+    end.new
+  end
+end
+
+# Module constructor blocks passed as call arguments still use access-modifier spacing
+class Wrapper
+  include(Module.new do
+    private
+
+    def helper
+    end
+  end)
+end
+
+# Brace-block module constructors passed as call arguments also count
+Runner.singleton_class.prepend Module.new {
+  private
+
+    def list_tests
+    end
+}

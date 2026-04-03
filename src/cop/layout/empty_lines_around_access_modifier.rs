@@ -108,6 +108,16 @@ use crate::parse::source::SourceFile;
 ///     position, push `NonClass` through `case` / `case in`, and capture the
 ///     latest visited class/block opening lines for the blank-before exemption
 ///     (2026-04-02).
+///
+/// 12. The remaining false negatives were class-constructor blocks nested inside
+///     larger expressions such as `Class.new do ... end.new`,
+///     `include(Module.new do ... end)`, and
+///     `prepend Module.new { ... }`. We already promoted those blocks to
+///     class-like scope, but the surrounding `expression_depth` leaked into the
+///     constructor block body, so bare `private`/`protected`/`public` calls were
+///     still filtered out. Fix: reset `expression_depth` while visiting a
+///     class-constructor block body so its statements are checked like a normal
+///     class/module body (2026-04-03).
 pub struct EmptyLinesAroundAccessModifier;
 
 // Uses access_modifier_predicates for access modifier detection.
@@ -334,6 +344,12 @@ impl AccessModifierCollector {
     fn pop_scope(&mut self) {
         self.scope_stack.pop();
     }
+
+    fn visit_class_constructor_block_body(&mut self, block: &ruby_prism::BlockNode<'_>) {
+        let previous_expression_depth = std::mem::replace(&mut self.expression_depth, 0);
+        ruby_prism::visit_block_node(self, block);
+        self.expression_depth = previous_expression_depth;
+    }
 }
 
 macro_rules! visit_write_node_as_non_class_scope {
@@ -478,7 +494,7 @@ impl<'pr> ruby_prism::Visit<'pr> for AccessModifierCollector {
 
             if is_class_constructor_call(node) {
                 self.push_class_scope(opening, closing);
-                ruby_prism::visit_block_node(self, &block_node);
+                self.visit_class_constructor_block_body(&block_node);
                 self.pop_scope();
                 return;
             }
@@ -818,6 +834,40 @@ mod tests {
 
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 3);
+    }
+
+    #[test]
+    fn flags_modifier_inside_class_constructor_chained_with_new() {
+        let diags = run_cop_full(
+            &EmptyLinesAroundAccessModifier,
+            b"class Test\n  def build\n    obj = Class.new do\n      private\n        def private_property\n        end\n\n      protected\n        def protected_property\n        end\n    end.new\n  end\nend\n",
+        );
+
+        assert_eq!(diags.len(), 2);
+        assert_eq!(diags[0].location.line, 4);
+        assert_eq!(diags[1].location.line, 8);
+    }
+
+    #[test]
+    fn flags_modifier_inside_module_constructor_passed_as_argument() {
+        let diags = run_cop_full(
+            &EmptyLinesAroundAccessModifier,
+            b"class Wrapper\n  include(Module.new do\n    private\n    def helper\n    end\n  end)\nend\n",
+        );
+
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 3);
+    }
+
+    #[test]
+    fn flags_modifier_inside_brace_module_constructor_passed_as_argument() {
+        let diags = run_cop_full(
+            &EmptyLinesAroundAccessModifier,
+            b"Runner.singleton_class.prepend Module.new {\n  private\n    def list_tests\n    end\n}\n",
+        );
+
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 2);
     }
 
     #[test]

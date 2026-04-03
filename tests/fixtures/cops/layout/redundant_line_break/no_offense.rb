@@ -224,19 +224,6 @@ existing_indexes_for(table_name).any? do |existing_index_column_names|
   )
 end
 
-# Iterator block with map — not unsuppressed to avoid corpus FP regressions.
-public_class_method def self.get_uris(opts = {})
-  search_results = opts[:search_results]
-
-  search_results.map do |search_results_hash|
-    extract_uris(
-      search_results_hash: search_results_hash
-    )
-  end.flatten
-rescue StandardError => e
-  raise e
-end
-
 # Iterator block with an explicit object receiver should stay skipped.
 records.sort.each do |record|
   record.update(

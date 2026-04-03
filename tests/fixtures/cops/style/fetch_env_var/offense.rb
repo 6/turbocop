@@ -128,3 +128,6 @@ host: (ENV["MYSQL_HOST"] == "localhost") ? "127.0.0.1" : ENV["MYSQL_HOST"],
 
 SUDO = (WIN32 || ENV['SUDOLESS']) ? '': 'sudo '
                  ^^^^^^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('SUDOLESS', nil)` instead of `ENV['SUDOLESS']`.
+
+if /-r (#{Regexp.escape(__dir__)}\S+)/ =~ ENV['RUBYOPT']
+                                          ^^^^^^^^^^^^^^ Style/FetchEnvVar: Use `ENV.fetch('RUBYOPT', nil)` instead of `ENV['RUBYOPT']`.
