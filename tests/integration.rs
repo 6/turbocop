@@ -6921,6 +6921,11 @@ fn shared_module_usage_lint() {
             pattern: Regex::new(r#"\.operator_loc\(\)\.as_slice\(\)\s*==\s*b"or""#).unwrap(),
             message: "use predicate_operator_predicates::is_semantic_or()",
         },
+        // --- shared util begins_its_line ---
+        Rule {
+            pattern: Regex::new(r"fn\s+begins_its_line\s*\(").unwrap(),
+            message: "use shared::util::begins_its_line() instead of defining a local copy",
+        },
     ];
 
     fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {

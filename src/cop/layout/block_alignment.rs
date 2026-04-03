@@ -1,4 +1,5 @@
 use crate::cop::shared::node_type::{CALL_NODE, LAMBDA_NODE};
+use crate::cop::shared::util::begins_its_line;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -308,10 +309,10 @@ impl BlockAlignment {
 
         // RuboCop's begins_its_line? check: only inspect alignment when the
         // closing keyword/brace is the first non-whitespace on its line.
-        let bytes = source.as_bytes();
-        if !begins_its_line(bytes, closing_loc.start_offset()) {
+        if !begins_its_line(source, closing_loc.start_offset()) {
             return;
         }
+        let bytes = source.as_bytes();
 
         let opening_loc = block_node.opening_loc();
         let (opening_line, _) = source.offset_to_line_col(opening_loc.start_offset());
@@ -473,10 +474,10 @@ impl BlockAlignment {
             return;
         }
 
-        let bytes = source.as_bytes();
-        if !begins_its_line(bytes, closing_loc.start_offset()) {
+        if !begins_its_line(source, closing_loc.start_offset()) {
             return;
         }
+        let bytes = source.as_bytes();
 
         let opening_loc = lambda_node.opening_loc();
         let (opening_line, _) = source.offset_to_line_col(opening_loc.start_offset());
@@ -551,19 +552,6 @@ impl BlockAlignment {
             }
         }
     }
-}
-
-/// Check if a byte offset is at the beginning of its line (only whitespace before it).
-/// Matches RuboCop's `begins_its_line?` helper.
-fn begins_its_line(bytes: &[u8], offset: usize) -> bool {
-    let mut pos = offset;
-    while pos > 0 && bytes[pos - 1] != b'\n' {
-        pos -= 1;
-        if bytes[pos] != b' ' && bytes[pos] != b'\t' {
-            return false;
-        }
-    }
-    true
 }
 
 /// Get the indentation (number of leading whitespace characters) for the line

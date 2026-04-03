@@ -1,3 +1,4 @@
+use crate::cop::shared::util::begins_its_line;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -42,16 +43,6 @@ use ruby_prism::Visit;
 /// manually visiting MultiWriteNode children and only setting `in_multi_write`
 /// when the direct value is an ArrayNode, not for non-array values like IfNode.
 pub struct ArrayAlignment;
-
-/// Returns true if the byte at `offset` is the first non-whitespace character on its line.
-fn begins_its_line(source: &SourceFile, offset: usize) -> bool {
-    let (line, col) = source.offset_to_line_col(offset);
-    if col == 0 {
-        return true;
-    }
-    let line_bytes = source.lines().nth(line - 1).unwrap_or(b"");
-    line_bytes[..col].iter().all(|&b| b == b' ' || b == b'\t')
-}
 
 impl Cop for ArrayAlignment {
     fn name(&self) -> &'static str {

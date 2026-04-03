@@ -4,7 +4,7 @@ x = 1 +
 y = 3 + 4
 
 z = a &&
-  b
+    b
 
 # Chained || on continuation line (both on same line = no offense)
 def related_to_local_activity?
@@ -57,10 +57,19 @@ foo.pick(
    Arel.sql("COALESCE(scheduled_at, created_at)")
 )
 
+# Boolean chain in hash value — operand-aligned in aligned style
+data = {
+  username: oauth.extra.try(:[], 'username').presence ||
+            oauth.extra.try(:[], 'screen_name'),
+  bio:      oauth.info.try(:[], 'description').presence ||
+            oauth.extra.try(:[], 'bio').presence ||
+            oauth.info.try(:[], 'headline')
+}
+
 # And/Or in keyword condition with double-width indentation
 def find_key
   if (key_id = request.headers.fetch("KEY", "").presence) &&
-      (signature = request.headers.fetch("SIG", "").presence)
+     (signature = request.headers.fetch("SIG", "").presence)
     use_key(key_id, signature)
   end
 end
