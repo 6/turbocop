@@ -91,74 +91,59 @@ VARIABLE_FORCE_CONSUMERS = {
     "Rails/SaveBang",
 }
 
-# Cops that consume the shared MethodComplexity engine. Changes to
-# src/cop/metrics/method_complexity.rs should trigger corpus checks for both.
-METHOD_COMPLEXITY_CONSUMERS = {
-    "Metrics/CyclomaticComplexity",
-    "Metrics/PerceivedComplexity",
-}
-
-# Cops that consume the shared HashSubset helper. Changes to
-# src/cop/style/hash_subset.rs should trigger corpus checks for both.
-HASH_SUBSET_CONSUMERS = {
-    "Style/HashExcept",
-    "Style/HashSlice",
-}
-
-# Cops that consume the shared HashTransformMethod helper. Changes to
-# src/cop/style/hash_transform_method.rs should trigger corpus checks for both.
-HASH_TRANSFORM_CONSUMERS = {
-    "Style/HashTransformKeys",
-    "Style/HashTransformValues",
-}
-
-# Cops that consume the shared MultilineLiteralBraceLayout helper. Changes to
-# src/cop/layout/multiline_literal_brace_layout.rs should trigger corpus checks
-# for all four.
-MULTILINE_BRACE_LAYOUT_CONSUMERS = {
-    "Layout/MultilineArrayBraceLayout",
-    "Layout/MultilineHashBraceLayout",
-    "Layout/MultilineMethodCallBraceLayout",
-    "Layout/MultilineMethodDefinitionBraceLayout",
-}
-
-# Cops that consume the shared TrailingComma helper. Changes to
-# src/cop/style/trailing_comma.rs should trigger corpus checks for all three.
-TRAILING_COMMA_CONSUMERS = {
-    "Style/TrailingCommaInArguments",
-    "Style/TrailingCommaInArrayLiteral",
-    "Style/TrailingCommaInHashLiteral",
-}
-
-# Cops that consume the shared MethodIdentifierPredicates module. Changes to
-# src/cop/method_identifier_predicates.rs should trigger corpus checks for all.
-METHOD_IDENTIFIER_PREDICATES_CONSUMERS = {
-    "Layout/FirstArgumentIndentation",
-    "Layout/MultilineMethodCallIndentation",
-    "Layout/SpaceBeforeFirstArg",
-    "Lint/AmbiguousBlockAssociation",
-    "Lint/AmbiguousRange",
-    "Lint/ParenthesesAsGroupedExpression",
-    "Lint/RequireParentheses",
-    "Lint/SymbolConversion",
-    "Lint/UnreachableLoop",
-    "Lint/UselessSetterCall",
-    "Metrics/AbcSize",
-    "Naming/MethodName",
-    "Naming/PredicateMethod",
-    "Performance/IoReadlines",
-    "Rails/SaveBang",
-    "Style/MethodCallWithArgsParentheses",
-    "Style/MultilineTernaryOperator",
-    "Style/Next",
-    "Style/RedundantParentheses",
-}
-
-# Cops that consume the shared LiteralPredicates module. Changes to
-# src/cop/literal_predicates.rs should trigger corpus checks for all.
-LITERAL_PREDICATES_CONSUMERS = {
-    "Lint/LiteralAsCondition",
-    "Style/InfiniteLoop",
+# Shared modules consumed by multiple cops. When a shared module file changes,
+# corpus checks trigger for all its consumers. Keyed by module filename (without .rs).
+# Matches against src/cop/shared/{key}.rs and src/cop/{dept}/{key}.rs.
+# The "variable_force" key is special — it matches the entire directory.
+SHARED_MODULE_CONSUMERS: dict[str, set[str]] = {
+    "method_complexity": {
+        "Metrics/CyclomaticComplexity",
+        "Metrics/PerceivedComplexity",
+    },
+    "hash_subset": {
+        "Style/HashExcept",
+        "Style/HashSlice",
+    },
+    "hash_transform_method": {
+        "Style/HashTransformKeys",
+        "Style/HashTransformValues",
+    },
+    "multiline_literal_brace_layout": {
+        "Layout/MultilineArrayBraceLayout",
+        "Layout/MultilineHashBraceLayout",
+        "Layout/MultilineMethodCallBraceLayout",
+        "Layout/MultilineMethodDefinitionBraceLayout",
+    },
+    "trailing_comma": {
+        "Style/TrailingCommaInArguments",
+        "Style/TrailingCommaInArrayLiteral",
+        "Style/TrailingCommaInHashLiteral",
+    },
+    "method_identifier_predicates": {
+        "Layout/FirstArgumentIndentation",
+        "Layout/MultilineMethodCallIndentation",
+        "Layout/SpaceBeforeFirstArg",
+        "Lint/AmbiguousBlockAssociation",
+        "Lint/AmbiguousRange",
+        "Lint/ParenthesesAsGroupedExpression",
+        "Lint/RequireParentheses",
+        "Lint/SymbolConversion",
+        "Lint/UnreachableLoop",
+        "Lint/UselessSetterCall",
+        "Metrics/AbcSize",
+        "Naming/MethodName",
+        "Naming/PredicateMethod",
+        "Performance/IoReadlines",
+        "Rails/SaveBang",
+        "Style/MethodCallWithArgsParentheses",
+        "Style/MultilineTernaryOperator",
+        "Style/Next",
+        "Style/RedundantParentheses",
+    },
+    "literal_predicates": {
+        "Lint/LiteralAsCondition",
+        "Style/InfiniteLoop",
+    },
 }
 
 # Department PascalCase → snake_case directory name in src/cop/ and tests/fixtures/
@@ -1637,46 +1622,22 @@ def detect_cops(base: str, head: str) -> list[str]:
 
     cops = set()
     for path in changed:
-        # Shared modules: src/cop/shared/{name}.rs
-        shared_match = re.match(r"src/cop/shared/([^/]+)\.rs$", path)
-        if shared_match:
-            name = shared_match.group(1)
-            if name == "method_identifier_predicates":
-                cops.update(METHOD_IDENTIFIER_PREDICATES_CONSUMERS)
-            elif name == "literal_predicates":
-                cops.update(LITERAL_PREDICATES_CONSUMERS)
-            # util.rs, node_type.rs, mod.rs — used by nearly all cops,
-            # changes are validated by cargo test; skip dispatch.
-            continue
-
-        # Department cop files: src/cop/{dept}/{name}.rs
         match = re.match(r"src/cop/([^/]+)/([^/]+)\.rs$", path)
-        if match:
-            dept, name = match.group(1), match.group(2)
-            if dept == "shared":
-                # Already handled above; skip stray matches
-                continue
-            if dept == "variable_force":
-                # Engine changes affect all VF consumer cops
-                cops.update(VARIABLE_FORCE_CONSUMERS)
-            elif name == "method_complexity":
-                # Shared engine changes affect both complexity cops
-                cops.update(METHOD_COMPLEXITY_CONSUMERS)
-            elif name == "hash_subset":
-                # Shared helper changes affect both hash subset cops
-                cops.update(HASH_SUBSET_CONSUMERS)
-            elif name == "hash_transform_method":
-                # Shared helper changes affect both transform cops
-                cops.update(HASH_TRANSFORM_CONSUMERS)
-            elif name == "multiline_literal_brace_layout":
-                # Shared helper changes affect all four brace layout cops
-                cops.update(MULTILINE_BRACE_LAYOUT_CONSUMERS)
-            elif name == "trailing_comma":
-                # Shared helper changes affect all trailing comma cops
-                cops.update(TRAILING_COMMA_CONSUMERS)
-            elif name != "mod":
-                cops.add(f"{dept_snake_to_pascal(dept)}/{snake_to_pascal(name)}")
+        if not match:
             continue
+        dept, name = match.group(1), match.group(2)
+
+        if dept == "variable_force":
+            cops.update(VARIABLE_FORCE_CONSUMERS)
+        elif name in SHARED_MODULE_CONSUMERS:
+            cops.update(SHARED_MODULE_CONSUMERS[name])
+        elif dept == "shared" or name == "mod":
+            # shared/util.rs, shared/node_type.rs, mod.rs — used by nearly
+            # all cops; changes validated by cargo test, skip dispatch.
+            pass
+        else:
+            cops.add(f"{dept_snake_to_pascal(dept)}/{snake_to_pascal(name)}")
+        continue
 
     return sorted(cops)
 
