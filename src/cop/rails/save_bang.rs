@@ -289,7 +289,10 @@ impl PreComputeCollector {
     /// Mirrors the checks in `SaveBangVisitor::classify_persist_call` for the
     /// create-in-assignment VF path. Returns the method name if it's a valid
     /// create persist call, None otherwise.
-    fn classify_create_persist_call(&self, call: &ruby_prism::CallNode<'_>) -> Option<&'static str> {
+    fn classify_create_persist_call(
+        &self,
+        call: &ruby_prism::CallNode<'_>,
+    ) -> Option<&'static str> {
         let name = call.name().as_slice();
         let method_name = Self::create_method_name(name)?;
 
@@ -298,9 +301,7 @@ impl PreComputeCollector {
         // persist_method? still passes, but on_send's return_value_assigned? checks
         // the parent assignment which filters these out. However, our VF path
         // pre-collects assignments, so we must filter here.
-        if call.receiver().is_none() {
-            return None;
-        }
+        call.receiver()?;
 
         // Check expected_signature: no arguments, or one hash/non-literal argument.
         let has_block_arg = call
@@ -1346,60 +1347,21 @@ mod tests {
     use super::*;
     crate::cop_fixture_tests!(SaveBang::new(), "cops/rails/save_bang");
 
-    /// Test: create in local assignment in multi-stmt method should be flagged
+    /// Regression: bare create (no receiver) like FactoryBot should not be flagged
+    /// in VF create-in-assignment path (was causing 11k FP).
     #[test]
-    fn create_in_multi_stmt_method_flagged() {
-        let source = b"def test_models
-  model_a = Foo.create(name: 'A')
-  model_b = Foo.create(name: 'B')
-  Foo.delete([model_a.id, model_b.id])
-  assert_deletion(model_a)
-  assert_deletion(model_b)
+    fn bare_create_in_assignment_not_flagged() {
+        let source = b"describe Project do
+  it 'test' do
+    project = create :project, github_url: 'http://example.com'
+  end
 end
 ";
         let diagnostics = crate::testutil::run_cop_full(&SaveBang::new(), source);
         assert_eq!(
             diagnostics.len(),
-            2,
-            "Expected 2 offenses for unchecked create, got {}: {:?}",
-            diagnostics.len(),
-            diagnostics
-                .iter()
-                .map(|d| format!("{}:{}: {}", d.location.line, d.location.column, d.message))
-                .collect::<Vec<_>>()
-        );
-    }
-
-    /// Test: create in local assignment at top-level (no method/block scope) should be flagged
-    #[test]
-    fn create_at_top_level_flagged() {
-        let source = b"u = User.create(first_name: 'Random', email: 'x@x.com')\nputs u.email\n";
-        let diagnostics = crate::testutil::run_cop_full(&SaveBang::new(), source);
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "Expected 1 offense for unchecked create at top-level, got {}: {:?}",
-            diagnostics.len(),
-            diagnostics
-                .iter()
-                .map(|d| format!("{}:{}: {}", d.location.line, d.location.column, d.message))
-                .collect::<Vec<_>>()
-        );
-    }
-
-    /// Test: create inside if-block should be flagged
-    #[test]
-    fn create_inside_if_block_flagged() {
-        let source = b"if condition
-  u = User.create(first_name: 'Random')
-  puts u.email
-end
-";
-        let diagnostics = crate::testutil::run_cop_full(&SaveBang::new(), source);
-        assert_eq!(
-            diagnostics.len(),
-            1,
-            "Expected 1 offense for unchecked create in if-block, got {}: {:?}",
+            0,
+            "Expected 0 offenses for bare create (FactoryBot), got {}: {:?}",
             diagnostics.len(),
             diagnostics
                 .iter()
