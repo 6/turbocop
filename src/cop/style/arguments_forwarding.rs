@@ -457,23 +457,14 @@ impl AnonSendClassifier {
         let args = arguments?;
         let arg_nodes: Vec<_> = args.arguments().iter().collect();
 
-        let Some(rest_index) = arg_nodes
+        let rest_index = arg_nodes
             .iter()
-            .position(|arg| anonymous_rest_offset(arg).is_some())
-        else {
-            return None;
-        };
+            .position(|arg| anonymous_rest_offset(arg).is_some())?;
 
-        let Some(rest_offset) = anonymous_rest_offset(&arg_nodes[rest_index]) else {
-            return None;
-        };
+        let rest_offset = anonymous_rest_offset(&arg_nodes[rest_index])?;
         let kw_index = rest_index + 1;
-        let Some(kw_arg) = arg_nodes.get(kw_index) else {
-            return None;
-        };
-        let Some(kw_offset) = anonymous_kwrest_offset(kw_arg) else {
-            return None;
-        };
+        let kw_arg = arg_nodes.get(kw_index)?;
+        let kw_offset = anonymous_kwrest_offset(kw_arg)?;
 
         let block_index = kw_index + 1;
         let inline_block_offset = arg_nodes
