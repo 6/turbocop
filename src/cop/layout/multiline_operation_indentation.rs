@@ -476,6 +476,12 @@ impl MultilineOperationIndentation {
 
         let is_ok = if should_align {
             right_col == left_col
+        } else if style == "aligned" && left_col > left_indent {
+            // In aligned style without a keyword/assignment context (e.g. boolean
+            // chains in hash values or method args), accept operand-aligned
+            // continuations when the left operand is offset from the base indent
+            // (genuine alignment, not just same-indent-level chains).
+            right_col == expected_indent || right_col == left_col
         } else {
             right_col == expected_indent
         };

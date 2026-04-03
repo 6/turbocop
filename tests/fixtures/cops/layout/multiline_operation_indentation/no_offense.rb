@@ -57,6 +57,15 @@ foo.pick(
    Arel.sql("COALESCE(scheduled_at, created_at)")
 )
 
+# Boolean chain in hash value — operand-aligned in aligned style
+data = {
+  username: oauth.extra.try(:[], 'username').presence ||
+            oauth.extra.try(:[], 'screen_name'),
+  bio:      oauth.info.try(:[], 'description').presence ||
+            oauth.extra.try(:[], 'bio').presence ||
+            oauth.info.try(:[], 'headline')
+}
+
 # And/Or in keyword condition with double-width indentation
 def find_key
   if (key_id = request.headers.fetch("KEY", "").presence) &&
