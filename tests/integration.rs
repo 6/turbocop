@@ -6843,3 +6843,151 @@ fn verifier_vendor_pattern_parse_coverage() {
          {parse_fail} of {total} patterns failed to parse.",
     );
 }
+
+// ---------- Shared module usage lint ----------
+
+/// Ensures cop files don't inline patterns that have shared equivalents.
+///
+/// Scans `src/cop/` (excluding `src/cop/shared/`) for patterns like
+/// `receiver().is_none() && name() == b"..."` that should use
+/// `method_dispatch_predicates::is_command()`, operator_loc comparisons
+/// that should use `predicate_operator_predicates`, etc.
+///
+/// This runs with `cargo test` on CI, catching regressions in new code.
+#[test]
+fn shared_module_usage_lint() {
+    use regex::Regex;
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let cop_dir = manifest.join("src/cop");
+    let shared_dir = cop_dir.join("shared");
+
+    struct Rule {
+        pattern: Regex,
+        message: &'static str,
+    }
+
+    let rules = vec![
+        // --- method_dispatch_predicates ---
+        Rule {
+            pattern: Regex::new(
+                r"\.receiver\(\)\.is_none\(\)\s*&&\s*\w+\.name\(\)\.as_slice\(\)\s*==",
+            )
+            .unwrap(),
+            message: "use method_dispatch_predicates::is_command()",
+        },
+        Rule {
+            pattern: Regex::new(
+                r#"\.name\(\)\.as_slice\(\)\s*==\s*b"[^"]+"\s*&&\s*\w+\.receiver\(\)\.is_none\(\)"#,
+            )
+            .unwrap(),
+            message: "use method_dispatch_predicates::is_command()",
+        },
+        Rule {
+            pattern: Regex::new(
+                r#"\.call_operator_loc\(\)\s*\.\s*is_some_and\(\|[^|]+\|\s*\w+\.as_slice\(\)\s*==\s*b"&\."#,
+            )
+            .unwrap(),
+            message: "use method_dispatch_predicates::is_safe_navigation()",
+        },
+        Rule {
+            pattern: Regex::new(
+                r#"\.call_operator_loc\(\)\s*\.\s*is_some_and\(\|[^|]+\|\s*\w+\.as_slice\(\)\s*==\s*b"\."#,
+            )
+            .unwrap(),
+            message: "use method_dispatch_predicates::is_dot_call()",
+        },
+        Rule {
+            pattern: Regex::new(
+                r#"\.call_operator_loc\(\)\s*\.\s*is_some_and\(\|[^|]+\|\s*\w+\.as_slice\(\)\s*==\s*b"::"#,
+            )
+            .unwrap(),
+            message: "use method_dispatch_predicates::is_double_colon_call()",
+        },
+        // --- predicate_operator_predicates ---
+        Rule {
+            pattern: Regex::new(r#"\.operator_loc\(\)\.as_slice\(\)\s*==\s*b"&&""#).unwrap(),
+            message: "use predicate_operator_predicates::is_logical_and()",
+        },
+        Rule {
+            pattern: Regex::new(r#"\.operator_loc\(\)\.as_slice\(\)\s*==\s*b"\|\|""#).unwrap(),
+            message: "use predicate_operator_predicates::is_logical_or()",
+        },
+        Rule {
+            pattern: Regex::new(r#"\.operator_loc\(\)\.as_slice\(\)\s*==\s*b"and""#).unwrap(),
+            message: "use predicate_operator_predicates::is_semantic_and()",
+        },
+        Rule {
+            pattern: Regex::new(r#"\.operator_loc\(\)\.as_slice\(\)\s*==\s*b"or""#).unwrap(),
+            message: "use predicate_operator_predicates::is_semantic_or()",
+        },
+    ];
+
+    fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    collect_rs_files(&p, out);
+                } else if p.extension().is_some_and(|e| e == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+    }
+
+    let mut rs_files = Vec::new();
+    collect_rs_files(&cop_dir, &mut rs_files);
+    rs_files.sort();
+
+    let mut violations: Vec<String> = Vec::new();
+
+    for path in &rs_files {
+        // Skip shared module files — they define these patterns, not consume them.
+        if path.starts_with(&shared_dir) {
+            continue;
+        }
+
+        let content = match fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        // Find where #[cfg(test)] starts (if any) and only scan before it.
+        let scan_end = content.find("#[cfg(test)]").unwrap_or(content.len());
+        let scannable = &content[..scan_end];
+
+        for (line_idx, line) in scannable.lines().enumerate() {
+            let trimmed = line.trim();
+
+            // Skip comments.
+            if trimmed.starts_with("//") {
+                continue;
+            }
+
+            for rule in &rules {
+                if rule.pattern.is_match(line) {
+                    let rel = path.strip_prefix(&manifest).unwrap_or(path);
+                    violations.push(format!(
+                        "{}:{}: {}",
+                        rel.display(),
+                        line_idx + 1,
+                        rule.message,
+                    ));
+                }
+            }
+        }
+    }
+
+    if !violations.is_empty() {
+        let mut msg = format!(
+            "Found {} shared module usage violation(s). \
+             Use the shared functions in src/cop/shared/ instead:\n\n",
+            violations.len()
+        );
+        for v in &violations {
+            msg.push_str(&format!("  {v}\n"));
+        }
+        panic!("{msg}");
+    }
+}
