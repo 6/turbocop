@@ -74,3 +74,20 @@ x  = 1
 # Extra spaces around => (not aligned)
 {'key'  => 'val'}
         ^^ Layout/SpaceAroundOperators: Operator `=>` should be surrounded by a single space.
+
+'arrow'               => [:arrow, :down],
+                      ^^ Layout/SpaceAroundOperators: Operator `=>` should be surrounded by a single space.
+
+@_apipie_dsl_data =  {
+                  ^ Layout/SpaceAroundOperators: Operator `=` should be surrounded by a single space.
+
+result =  [{
+       ^ Layout/SpaceAroundOperators: Operator `=` should be surrounded by a single space.
+
+html_block =    if render_partial?
+           ^ Layout/SpaceAroundOperators: Operator `=` should be surrounded by a single space.
+
+message[:bcc] =           'mikel@bcc.lindsaar.net'
+              ^ Layout/SpaceAroundOperators: Operator `=` should be surrounded by a single space.
+message[:cc] =            'mikel@cc.lindsaar.net'
+             ^ Layout/SpaceAroundOperators: Operator `=` should be surrounded by a single space.
