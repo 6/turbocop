@@ -1,3 +1,4 @@
+use crate::cop::shared::access_modifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -134,11 +135,10 @@ impl AccessKind {
 }
 
 fn get_access_modifier(call: &ruby_prism::CallNode<'_>) -> Option<AccessKind> {
-    if call.receiver().is_some() || call.arguments().is_some() {
+    if !access_modifier_predicates::is_bare_access_modifier(call) {
         return None;
     }
-    let name = call.name().as_slice();
-    match name {
+    match call.name().as_slice() {
         b"public" => Some(AccessKind::Public),
         b"private" => Some(AccessKind::Private),
         b"protected" => Some(AccessKind::Protected),

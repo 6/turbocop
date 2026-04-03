@@ -214,6 +214,9 @@ fn is_class_constructor(call: &ruby_prism::CallNode<'_>) -> bool {
 }
 
 /// Context for tracking whether we're in macro scope.
+// TODO: Investigate migrating to shared `access_modifier_predicates::MacroScope`.
+// This cop's Scope enum is functionally equivalent but has ~30 push sites and
+// extensive corpus-tuned comments — needs careful per-site validation.
 #[derive(Clone, Copy, PartialEq)]
 enum Scope {
     /// Top-level (root) scope — macros are allowed
