@@ -201,3 +201,12 @@ if api_version == 'v2'
     test[:engagement] == engagement_resource_uri
   end
 end
+
+exec_resp = PWN::Plugins::MSR206.exec(
+^ Lint/UselessAssignment: Useless assignment to variable - `exec_resp`.
+
+is_found ? found += [c] : found
+           ^^^^^ Lint/UselessAssignment: Useless assignment to variable - `found`.
+
+is_found ? found += [c] : found
+           ^^^^^ Lint/UselessAssignment: Useless assignment to variable - `found`.

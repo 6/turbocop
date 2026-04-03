@@ -470,3 +470,16 @@ def fetch_with_retry
   end
   result
 end
+
+# Multiple rescue clauses are mutually exclusive. A later read after the
+# rescue chain uses whichever branch assigned the value.
+def rescue_chain_value
+  begin
+    work
+  rescue SomeError
+    score = 0
+  rescue OtherError
+    score = 99
+  end
+  puts score
+end
