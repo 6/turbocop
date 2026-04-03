@@ -139,3 +139,33 @@ def self.new_with_attributes(id:, preset_name:, **other)
   other = arguments.delete(:other)
   new(other.merge(arguments))
 end
+
+# FP fix: assignment in case predicate is conditional (RuboCop treats case as conditional parent)
+def serialize(value)
+  case value = super
+  when ::Time
+    Value.new(value)
+  else
+    value
+  end
+end
+
+# FP fix: case predicate assignment with non-super RHS
+def cast_value(value)
+  case value = compute(value)
+  when Value
+    value.__getobj__
+  else
+    value
+  end
+end
+
+# FP fix: case predicate assignment in block context
+test "SequenceSet[input]" do |input|
+  case (input = data[:input])
+  when nil
+    raise
+  when String
+    input
+  end
+end

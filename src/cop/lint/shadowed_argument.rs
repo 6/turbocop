@@ -65,6 +65,15 @@
 /// (no receiver, no arguments) in `RefCollector` as implicit references, gated
 /// by the `IgnoreImplicitReferences` config like `ForwardingSuperNode`.
 ///
+/// FP fix (5 corpus, 2026-04-03): assignments in `case` predicates
+/// (e.g., `case value = super`) were treated as unconditional because the
+/// VariableForce engine visited the case predicate before incrementing
+/// `branch_depth`. RuboCop's `conditional_assignment?` walks parent nodes
+/// and considers `case` as conditional, so the assignment is treated as
+/// branched and doesn't trigger an offense on its own. Fixed by wrapping
+/// case (and case-match) predicates in branch context when they contain
+/// local variable writes, matching the existing `if`/`unless` handling.
+///
 /// ## Migration to VariableForce
 ///
 /// This cop was migrated from a 687-line standalone AST visitor to use the shared

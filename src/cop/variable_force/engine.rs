@@ -868,8 +868,19 @@ impl<'pr> Visit<'pr> for Engine<'_> {
 
     fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
         let parent_id = node.location().start_offset();
+        // If the predicate contains a local variable write (e.g., `case value = super`),
+        // wrap it in a branch context. RuboCop's `conditional_assignment?` walks up
+        // from the assignment node and finds the `case` parent is `conditional?`,
+        // treating the assignment as branched.
         if let Some(pred) = node.predicate() {
+            let pred_has_write = predicate_has_lvar_write(&pred);
+            if pred_has_write {
+                self.branch_depth += 1;
+            }
             self.visit(&pred);
+            if pred_has_write {
+                self.branch_depth -= 1;
+            }
         }
         self.branch_depth += 1;
         for (i, condition) in node.conditions().iter().enumerate() {
@@ -893,7 +904,14 @@ impl<'pr> Visit<'pr> for Engine<'_> {
     fn visit_case_match_node(&mut self, node: &ruby_prism::CaseMatchNode<'pr>) {
         let parent_id = node.location().start_offset();
         if let Some(pred) = node.predicate() {
+            let pred_has_write = predicate_has_lvar_write(&pred);
+            if pred_has_write {
+                self.branch_depth += 1;
+            }
             self.visit(&pred);
+            if pred_has_write {
+                self.branch_depth -= 1;
+            }
         }
         self.branch_depth += 1;
         for (i, condition) in node.conditions().iter().enumerate() {
