@@ -195,17 +195,14 @@ struct SkipCollector {
 
 impl<'pr> Visit<'pr> for SkipCollector {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        // Only skip if the method has parameters (no params = nothing to flag)
-        if node.parameters().is_some() {
-            let body = node.body();
-            if body.is_none() && self.ignore_empty {
+        let body = node.body();
+        if body.is_none() && self.ignore_empty {
+            self.offsets.insert(node.location().start_offset());
+        } else if let Some(ref b) = body {
+            if self.ignore_not_implemented
+                && is_not_implemented(b, self.not_implemented_exceptions.as_deref())
+            {
                 self.offsets.insert(node.location().start_offset());
-            } else if let Some(ref b) = body {
-                if self.ignore_not_implemented
-                    && is_not_implemented(b, self.not_implemented_exceptions.as_deref())
-                {
-                    self.offsets.insert(node.location().start_offset());
-                }
             }
         }
         // Recurse into the body for nested defs
@@ -446,6 +443,46 @@ mod tests {
             diags.len() >= 2,
             "Expected 2 offenses for multi-assign only, got: {} ({:?})",
             diags.len(),
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_not_implemented_method_skipped() {
+        // Methods that raise NotImplementedError should not flag unused args
+        let diags = crate::testutil::run_cop_full(
+            &UnusedMethodArgument::new(),
+            b"def create_server(cloud_server)\n  raise NotImplementedError\nend\n",
+        );
+        assert!(
+            diags.is_empty(),
+            "NotImplementedError method should be skipped, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_empty_method_skipped() {
+        // Empty methods should not flag unused args (IgnoreEmptyMethods default: true)
+        let diags =
+            crate::testutil::run_cop_full(&UnusedMethodArgument::new(), b"def foo(x)\nend\n");
+        assert!(
+            diags.is_empty(),
+            "Empty method should be skipped, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_not_implemented_nested_skipped() {
+        // Nested defs with NotImplementedError should also be skipped
+        let diags = crate::testutil::run_cop_full(
+            &UnusedMethodArgument::new(),
+            b"class Foo\n  def bar(x)\n    raise NotImplementedError\n  end\nend\n",
+        );
+        assert!(
+            diags.is_empty(),
+            "Nested NotImplementedError method should be skipped, got: {:?}",
             diags.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
     }

@@ -1,4 +1,5 @@
 use crate::cop::node_type::{CALL_NODE, IF_NODE};
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -27,58 +28,6 @@ use crate::parse::source::SourceFile;
 ///   were flagged. Rewriting to `unless` with safe-nav is problematic. Fixed by
 ///   checking `call_operator_loc` on the `!` CallNode.
 pub struct NegatedIf;
-
-/// Unwrap parentheses from a node, returning the inner expression.
-/// Handles `(expr)`, `((expr))`, etc.
-fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
-    let mut current = node;
-    while let Some(paren) = current.as_parentheses_node() {
-        if let Some(body) = paren.body() {
-            if let Some(stmts) = body.as_statements_node() {
-                let stmts_body = stmts.body();
-                if stmts_body.len() == 1 {
-                    current = stmts_body.iter().next().unwrap();
-                    continue;
-                }
-            }
-        }
-        break;
-    }
-    current
-}
-
-/// Get the inner expression from a negation node (`!expr` → `expr`).
-fn get_negation_inner<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
-    if let Some(call) = node.as_call_node() {
-        if call.name().as_slice() == b"!" {
-            return call.receiver();
-        }
-    }
-    None
-}
-
-/// Check if a node is a single negation (`!expr` or `not expr`),
-/// excluding double negation (`!!expr`).
-fn is_single_negation(node: &ruby_prism::Node<'_>) -> bool {
-    if let Some(call) = node.as_call_node() {
-        if call.name().as_slice() == b"!" {
-            // Skip safe-navigation `&.!` — rewriting to `unless` with safe-nav is problematic
-            if call.call_operator_loc().is_some() {
-                return false;
-            }
-            // Check for double negation: `!!expr`
-            if let Some(recv) = call.receiver() {
-                if let Some(inner_call) = recv.as_call_node() {
-                    if inner_call.name().as_slice() == b"!" {
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }
-    }
-    false
-}
 
 impl Cop for NegatedIf {
     fn name(&self) -> &'static str {
@@ -160,9 +109,9 @@ impl Cop for NegatedIf {
 
         // Unwrap parentheses from the predicate, then check for single negation
         let predicate = if_node.predicate();
-        let unwrapped = unwrap_parentheses(predicate);
+        let unwrapped = util::unwrap_parentheses(predicate);
 
-        if is_single_negation(&unwrapped) {
+        if util::is_single_negation(&unwrapped) {
             // Report at the start of the full if-node expression.
             // For modifier form `body if !cond`, this is the start of `body`.
             // For prefix form `if !cond`, this is the `if` keyword.
@@ -192,7 +141,7 @@ impl Cop for NegatedIf {
                 let pred_end = predicate.location().end_offset();
 
                 // Get the inner expression (without negation and optional parens)
-                let inner_expr = get_negation_inner(&unwrapped);
+                let inner_expr = util::get_negation_inner(&unwrapped);
                 if let Some(inner) = inner_expr {
                     let inner_src = std::str::from_utf8(inner.location().as_slice())
                         .unwrap_or("")

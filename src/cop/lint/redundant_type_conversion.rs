@@ -3,6 +3,7 @@ use crate::cop::node_type::{
     INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, KEYWORD_HASH_NODE, RATIONAL_NODE,
     STRING_NODE, SYMBOL_NODE,
 };
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -44,28 +45,6 @@ use crate::parse::source::SourceFile;
 ///   always yields a String. Treat `SourceFileNode` as string-like for
 ///   `to_s` redundancy checks.
 pub struct RedundantTypeConversion;
-
-fn unwrap_parentheses<'a>(mut node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
-    loop {
-        let Some(paren) = node.as_parentheses_node() else {
-            return node;
-        };
-        let Some(body) = paren.body() else {
-            return node;
-        };
-        let Some(stmts) = body.as_statements_node() else {
-            return node;
-        };
-        let mut body_nodes = stmts.body().iter();
-        let Some(single_node) = body_nodes.next() else {
-            return node;
-        };
-        if body_nodes.next().is_some() {
-            return node;
-        }
-        node = single_node;
-    }
-}
 
 impl Cop for RedundantTypeConversion {
     fn name(&self) -> &'static str {
@@ -124,7 +103,7 @@ impl Cop for RedundantTypeConversion {
             Some(r) => r,
             None => return,
         };
-        let receiver = unwrap_parentheses(receiver);
+        let receiver = util::unwrap_parentheses(receiver);
 
         let is_redundant = match method_name {
             b"to_s" => {

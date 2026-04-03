@@ -284,6 +284,50 @@ impl PreComputeCollector {
             _ => None,
         }
     }
+
+    /// Check if a CallNode is a create-type persist call with valid signature.
+    /// Mirrors the checks in `SaveBangVisitor::classify_persist_call` for the
+    /// create-in-assignment VF path. Returns the method name if it's a valid
+    /// create persist call, None otherwise.
+    fn classify_create_persist_call(
+        &self,
+        call: &ruby_prism::CallNode<'_>,
+    ) -> Option<&'static str> {
+        let name = call.name().as_slice();
+        let method_name = Self::create_method_name(name)?;
+
+        // Bare calls (no receiver) are not persist methods — e.g. FactoryBot's create().
+        // RuboCop's allowed_receiver? returns false for nil receivers, which means
+        // persist_method? still passes, but on_send's return_value_assigned? checks
+        // the parent assignment which filters these out. However, our VF path
+        // pre-collects assignments, so we must filter here.
+        call.receiver()?;
+
+        // Check expected_signature: no arguments, or one hash/non-literal argument.
+        let has_block_arg = call
+            .block()
+            .is_some_and(|b| b.as_block_argument_node().is_some());
+
+        if let Some(args) = call.arguments() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            let total_args = arg_list.len() + usize::from(has_block_arg);
+
+            if total_args >= 2 {
+                return None;
+            }
+
+            if arg_list.len() == 1 {
+                let arg = &arg_list[0];
+                if arg.as_hash_node().is_some() || arg.as_keyword_hash_node().is_some() {
+                    // Valid persistence signature
+                } else if is_literal_node(arg) {
+                    return None;
+                }
+            }
+        }
+
+        Some(method_name)
+    }
 }
 
 impl<'pr> Visit<'pr> for PreComputeCollector {
@@ -321,8 +365,7 @@ impl<'pr> Visit<'pr> for PreComputeCollector {
         // check the value directly.
         let value = node.value();
         if let Some(call) = value.as_call_node() {
-            let name = call.name().as_slice();
-            if let Some(method_name) = Self::create_method_name(name) {
+            if let Some(method_name) = self.classify_create_persist_call(&call) {
                 if let Some(msg_loc) = call.message_loc() {
                     self.create_assignments.push(CreateAssignmentInfo {
                         assignment_offset: node.location().start_offset(),
@@ -1303,6 +1346,29 @@ impl<'pr> Visit<'pr> for SaveBangVisitor<'_, '_> {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(SaveBang::new(), "cops/rails/save_bang");
+
+    /// Regression: bare create (no receiver) like FactoryBot should not be flagged
+    /// in VF create-in-assignment path (was causing 11k FP).
+    #[test]
+    fn bare_create_in_assignment_not_flagged() {
+        let source = b"describe Project do
+  it 'test' do
+    project = create :project, github_url: 'http://example.com'
+  end
+end
+";
+        let diagnostics = crate::testutil::run_cop_full(&SaveBang::new(), source);
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "Expected 0 offenses for bare create (FactoryBot), got {}: {:?}",
+            diagnostics.len(),
+            diagnostics
+                .iter()
+                .map(|d| format!("{}:{}: {}", d.location.line, d.location.column, d.message))
+                .collect::<Vec<_>>()
+        );
+    }
 
     /// Regression test: when the same variable is assigned with create twice at
     /// the top level, and persisted? is called after the first assignment but not

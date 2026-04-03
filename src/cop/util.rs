@@ -1088,6 +1088,74 @@ pub fn full_constant_path<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_
     &source.as_bytes()[loc.start_offset()..loc.end_offset()]
 }
 
+// ── Shared node helpers ────────────────────────────────────────────────
+
+/// Unwrap parentheses from a node, returning the inner expression.
+/// Handles nested parentheses: `(expr)`, `((expr))`, etc.
+/// Stops at empty parentheses or multi-statement bodies.
+///
+/// Note: Prism's ParenthesesNode body can be either a StatementsNode (for
+/// `(expr)` in expression context) or a bare node (e.g., CallNode for
+/// `def (receiver).method`). This function handles both shapes.
+pub fn unwrap_parentheses<'a>(node: ruby_prism::Node<'a>) -> ruby_prism::Node<'a> {
+    let mut current = node;
+    while let Some(paren) = current.as_parentheses_node() {
+        let Some(body) = paren.body() else {
+            break;
+        };
+        if let Some(stmts) = body.as_statements_node() {
+            let stmts_body = stmts.body();
+            if stmts_body.len() == 1 {
+                current = stmts_body.iter().next().unwrap();
+                continue;
+            }
+            break;
+        }
+        // Body is a bare node (not wrapped in StatementsNode)
+        current = body;
+    }
+    current
+}
+
+/// Check if a node is a single negation (`!expr`),
+/// excluding double negation (`!!expr`) and safe-navigation `&.!`.
+pub fn is_single_negation(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"!" {
+            // Skip safe-navigation `&.!` — rewriting is problematic
+            if call.call_operator_loc().is_some() {
+                return false;
+            }
+            // Check for double negation: `!!expr`
+            if let Some(recv) = call.receiver() {
+                if let Some(inner_call) = recv.as_call_node() {
+                    if inner_call.name().as_slice() == b"!" {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+    }
+    false
+}
+
+/// Get the inner expression from a negation node (`!expr` → `expr`).
+pub fn get_negation_inner<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"!" {
+            return call.receiver();
+        }
+    }
+    None
+}
+
+/// Check if a call uses safe navigation (`&.`).
+pub fn is_safe_navigation_call(call: &ruby_prism::CallNode<'_>) -> bool {
+    call.call_operator_loc()
+        .is_some_and(|loc| loc.as_slice() == b"&.")
+}
+
 /// Extract a 3-method chain from a node.
 ///
 /// If `node` is a CallNode `x.c()` whose receiver is `y.b()` whose receiver is `z.a()`,
@@ -1444,6 +1512,153 @@ mod tests {
         // Hash rocket (not assignment): `x => if ...`
         let src = SourceFile::from_bytes("test.rb", b"x => if foo\n  bar\nend\n".to_vec());
         assert_eq!(assignment_context_base_col(&src, 5), None);
+    }
+
+    // ── unwrap_parentheses tests ───────────────────────────────────────
+
+    /// Parse Ruby source and return the first expression node.
+    fn parse_first_expr(source: &str) -> (ruby_prism::ParseResult<'static>, ()) {
+        let bytes = source.as_bytes().to_vec();
+        let leaked = Box::leak(bytes.into_boxed_slice());
+        (ruby_prism::parse(leaked), ())
+    }
+
+    fn first_node<'a>(result: &'a ruby_prism::ParseResult<'a>) -> ruby_prism::Node<'a> {
+        result
+            .node()
+            .as_program_node()
+            .unwrap()
+            .statements()
+            .body()
+            .iter()
+            .next()
+            .unwrap()
+    }
+
+    #[test]
+    fn unwrap_parentheses_simple_expression() {
+        let (result, _) = parse_first_expr("(42)");
+        let unwrapped = unwrap_parentheses(first_node(&result));
+        assert!(unwrapped.as_integer_node().is_some());
+    }
+
+    #[test]
+    fn unwrap_parentheses_nested() {
+        let (result, _) = parse_first_expr("((42))");
+        let unwrapped = unwrap_parentheses(first_node(&result));
+        assert!(unwrapped.as_integer_node().is_some());
+    }
+
+    #[test]
+    fn unwrap_parentheses_multi_statement_stops() {
+        let (result, _) = parse_first_expr("(1; 2)");
+        let unwrapped = unwrap_parentheses(first_node(&result));
+        assert!(unwrapped.as_parentheses_node().is_some());
+    }
+
+    #[test]
+    fn unwrap_parentheses_no_parens() {
+        let (result, _) = parse_first_expr("42");
+        let unwrapped = unwrap_parentheses(first_node(&result));
+        assert!(unwrapped.as_integer_node().is_some());
+    }
+
+    #[test]
+    fn unwrap_parentheses_empty_parens() {
+        let (result, _) = parse_first_expr("()");
+        let unwrapped = unwrap_parentheses(first_node(&result));
+        assert!(unwrapped.as_parentheses_node().is_some());
+    }
+
+    // ── is_single_negation tests ───────────────────────────────────────
+
+    #[test]
+    fn is_single_negation_simple() {
+        let (result, _) = parse_first_expr("!foo");
+        assert!(is_single_negation(&first_node(&result)));
+    }
+
+    #[test]
+    fn is_single_negation_double_negation() {
+        let (result, _) = parse_first_expr("!!foo");
+        assert!(!is_single_negation(&first_node(&result)));
+    }
+
+    #[test]
+    fn is_single_negation_safe_nav() {
+        let (result, _) = parse_first_expr("foo&.!");
+        assert!(!is_single_negation(&first_node(&result)));
+    }
+
+    #[test]
+    fn is_single_negation_non_negation() {
+        let (result, _) = parse_first_expr("foo");
+        assert!(!is_single_negation(&first_node(&result)));
+    }
+
+    #[test]
+    fn is_single_negation_method_call() {
+        let (result, _) = parse_first_expr("foo.bar");
+        assert!(!is_single_negation(&first_node(&result)));
+    }
+
+    // ── get_negation_inner tests ───────────────────────────────────────
+
+    #[test]
+    fn get_negation_inner_returns_receiver() {
+        // Use `foo = 1; !foo` so Prism parses `foo` as a local variable
+        let (result, _) = parse_first_expr("foo = 1; !foo");
+        let stmts = result.node().as_program_node().unwrap().statements().body();
+        // The second statement is `!foo`
+        let negation = stmts.iter().nth(1).unwrap();
+        let inner = get_negation_inner(&negation);
+        assert!(inner.is_some());
+        assert!(inner.unwrap().as_local_variable_read_node().is_some());
+    }
+
+    #[test]
+    fn get_negation_inner_non_negation() {
+        let (result, _) = parse_first_expr("foo");
+        assert!(get_negation_inner(&first_node(&result)).is_none());
+    }
+
+    #[test]
+    fn get_negation_inner_double_negation() {
+        // `!!foo` → inner is `!foo` (a CallNode, not a local var)
+        let (result, _) = parse_first_expr("!!foo");
+        let inner = get_negation_inner(&first_node(&result));
+        assert!(inner.is_some());
+        assert!(inner.unwrap().as_call_node().is_some());
+    }
+
+    // ── is_safe_navigation_call tests ──────────────────────────────────
+
+    #[test]
+    fn is_safe_navigation_call_true() {
+        let (result, _) = parse_first_expr("foo&.bar");
+        let call = first_node(&result).as_call_node().unwrap();
+        assert!(is_safe_navigation_call(&call));
+    }
+
+    #[test]
+    fn is_safe_navigation_call_regular_dot() {
+        let (result, _) = parse_first_expr("foo.bar");
+        let call = first_node(&result).as_call_node().unwrap();
+        assert!(!is_safe_navigation_call(&call));
+    }
+
+    #[test]
+    fn is_safe_navigation_call_no_receiver() {
+        let (result, _) = parse_first_expr("bar()");
+        let call = first_node(&result).as_call_node().unwrap();
+        assert!(!is_safe_navigation_call(&call));
+    }
+
+    #[test]
+    fn is_safe_navigation_call_double_colon() {
+        let (result, _) = parse_first_expr("Foo::bar");
+        let call = first_node(&result).as_call_node().unwrap();
+        assert!(!is_safe_navigation_call(&call));
     }
 }
 

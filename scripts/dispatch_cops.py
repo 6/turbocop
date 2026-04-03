@@ -98,6 +98,13 @@ METHOD_COMPLEXITY_CONSUMERS = {
     "Metrics/PerceivedComplexity",
 }
 
+# Cops that consume the shared HashSubset helper. Changes to
+# src/cop/style/hash_subset.rs should trigger corpus checks for both.
+HASH_SUBSET_CONSUMERS = {
+    "Style/HashExcept",
+    "Style/HashSlice",
+}
+
 # Department PascalCase → snake_case directory name in src/cop/ and tests/fixtures/
 # Only needed for departments where pascal_to_snake() gives the wrong result
 DEPT_TO_SRC_DIR = {
@@ -1545,6 +1552,9 @@ def detect_cops(base: str, head: str) -> list[str]:
             elif name == "method_complexity":
                 # Shared engine changes affect both complexity cops
                 cops.update(METHOD_COMPLEXITY_CONSUMERS)
+            elif name == "hash_subset":
+                # Shared helper changes affect both hash subset cops
+                cops.update(HASH_SUBSET_CONSUMERS)
             elif name not in {"mod", "node_type"}:
                 cops.add(f"{dept_snake_to_pascal(dept)}/{snake_to_pascal(name)}")
             continue
