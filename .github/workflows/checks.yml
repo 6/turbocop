@@ -157,7 +157,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -184,7 +184,7 @@ jobs:
           bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
-      - name: Check cops against corpus baseline (shard ${{ matrix.shard }}/4)
+      - name: Check cops against corpus baseline (shard ${{ matrix.shard }}/12)
         env:
           NITROCOP_BIN: ${{ github.workspace }}/target/release/nitrocop
           GH_TOKEN: ${{ github.token }}
@@ -196,10 +196,10 @@ jobs:
             [ -z "$cop" ] && continue
             echo ""
             echo "=============================="
-            echo "Checking: $cop (shard ${{ matrix.shard }}/4)"
+            echo "Checking: $cop (shard ${{ matrix.shard }}/12)"
             echo "=============================="
             OUTPUT=$(python3 scripts/check_cop.py "$cop" --verbose --rerun --clone \
-                 --shard-index ${{ matrix.shard }} --total-shards 8 \
+                 --shard-index ${{ matrix.shard }} --total-shards 12 \
                  --allow-net-improvement 2>&1) || true
             echo "$OUTPUT"
             # Extract SUMMARY line and save for gate job
@@ -274,7 +274,7 @@ jobs:
           ICON="✅"
           [ "$RESULT" = "fail" ] && ICON="❌"
 
-          BODY="${ICON} **Cop-check results** (8 shards)\n\n"
+          BODY="${ICON} **Cop-check results** (12 shards)\n\n"
           BODY+="| Cop | Baseline FP | Baseline FN | Local FP | Local FN | FP Δ | FN Δ | Result |\n"
           BODY+="|-----|-----------|-----------|--------|--------|------|------|--------|\n"
 
