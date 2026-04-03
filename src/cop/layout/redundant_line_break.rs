@@ -59,9 +59,15 @@ use crate::parse::source::SourceFile;
 ///   multiline calls in the block body. The fix remains deliberately narrow:
 ///   contained calls are only unsuppressed for the validated keyword-hash
 ///   argument shape when they are the direct, sole statement inside a
-///   multiline block body. `map` block bodies remain excluded because the
-///   corpus gate still treats those recovered counts as regressions in
-///   already-FP-heavy repos.
+///   multiline block body.
+///
+/// ## Fixes applied (2026-04-03)
+/// - Extended that narrow block-body unsuppression to `map` blocks too.
+///   RuboCop does flag direct multiline keyword-hash calls such as
+///   `search_results.map do ... extract_uris(...) end`, but nitrocop still
+///   excluded them because only `each`/`select`-style iterators were
+///   allowlisted. Keeping the same structural guards and only adding `map`
+///   recovers those FNs without broadening to unrelated block shapes.
 pub struct RedundantLineBreak;
 
 impl Cop for RedundantLineBreak {
@@ -489,7 +495,7 @@ impl<'a, 'pr> RedundantLineBreakVisitor<'a, 'pr> {
     }
 
     fn allowed_multiline_block_send_name(&self, name: &[u8]) -> bool {
-        matches!(name, b"each" | b"select" | b"each_with_object")
+        matches!(name, b"each" | b"select" | b"each_with_object" | b"map")
     }
 
     fn allows_direct_block_send_checked_chain(
