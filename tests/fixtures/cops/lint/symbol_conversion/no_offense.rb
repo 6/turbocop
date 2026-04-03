@@ -44,6 +44,11 @@ name.to_sym
 # Setter-like operator symbols (ends with =) are left alone
 :"!="
 :"=="
+# Unary operator method names that Ruby still inspects with quotes
+it "does not special case certain operators" do
+  "!@".send(@method).should equal :"!@"
+  "~@".send(@method).should equal :"~@"
+end
 # Alias arguments — quoted symbols in alias are not flaggable
 # because a symbol requiring quotes is not a valid method identifier
 alias :'foo' bar
