@@ -12,7 +12,7 @@
 //! for useless trailing commas in block parameter lists, which is a
 //! fundamentally different concern with no shared logic.
 
-use crate::cop::util::has_trailing_comma;
+use crate::cop::shared::util::has_trailing_comma;
 use crate::parse::source::SourceFile;
 
 // ── Heredoc detection ─────────────────────────────────────────────────

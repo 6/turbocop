@@ -1,4 +1,4 @@
-use crate::cop::util::keyword_arg_value;
+use crate::cop::shared::util::keyword_arg_value;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

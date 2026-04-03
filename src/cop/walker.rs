@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::{NODE_TYPE_COUNT, node_type_tag};
+use crate::cop::shared::node_type::{NODE_TYPE_COUNT, node_type_tag};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

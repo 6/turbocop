@@ -1,5 +1,5 @@
-use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, NIL_NODE};
-use crate::cop::util::is_simple_constant;
+use crate::cop::shared::node_type::{ARRAY_NODE, CALL_NODE, NIL_NODE};
+use crate::cop::shared::util::is_simple_constant;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

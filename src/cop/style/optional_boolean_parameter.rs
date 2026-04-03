@@ -1,4 +1,4 @@
-use crate::cop::node_type::{DEF_NODE, FALSE_NODE, OPTIONAL_PARAMETER_NODE, TRUE_NODE};
+use crate::cop::shared::node_type::{DEF_NODE, FALSE_NODE, OPTIONAL_PARAMETER_NODE, TRUE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

@@ -76,7 +76,7 @@ impl Cop for LeakyLocalVariable {
     }
 
     fn default_include(&self) -> &'static [&'static str] {
-        crate::cop::util::RSPEC_DEFAULT_INCLUDE
+        crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE
     }
 
     fn check_source(
@@ -344,20 +344,20 @@ impl<'pr> Visit<'pr> for RangeCollector {
 /// Example group methods: describe, context, shared_examples, shared_context, etc.
 fn is_example_group_method(name: &[u8]) -> bool {
     let s = std::str::from_utf8(name).unwrap_or("");
-    crate::cop::util::RSPEC_EXAMPLE_GROUPS.contains(&s)
-        || crate::cop::util::RSPEC_SHARED_GROUPS.contains(&s)
+    crate::cop::shared::util::RSPEC_EXAMPLE_GROUPS.contains(&s)
+        || crate::cop::shared::util::RSPEC_SHARED_GROUPS.contains(&s)
 }
 
 /// Example methods: it, specify, example, scenario, its, etc.
 fn is_example_method(name: &[u8]) -> bool {
     let s = std::str::from_utf8(name).unwrap_or("");
-    crate::cop::util::RSPEC_EXAMPLES.contains(&s)
+    crate::cop::shared::util::RSPEC_EXAMPLES.contains(&s)
 }
 
 /// Hook methods: before, after, around, etc.
 fn is_hook_method(name: &[u8]) -> bool {
     let s = std::str::from_utf8(name).unwrap_or("");
-    crate::cop::util::RSPEC_HOOKS.contains(&s)
+    crate::cop::shared::util::RSPEC_HOOKS.contains(&s)
 }
 
 /// Let/subject methods

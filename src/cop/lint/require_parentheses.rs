@@ -1,6 +1,6 @@
-use crate::cop::method_identifier_predicates;
-use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
-use crate::cop::util;
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::{AND_NODE, CALL_NODE, OR_NODE};
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

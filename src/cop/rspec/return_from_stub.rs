@@ -1,10 +1,10 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     ARRAY_NODE, ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE,
     CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE,
     INTERPOLATED_STRING_NODE, NIL_NODE, RANGE_NODE, RATIONAL_NODE, REGULAR_EXPRESSION_NODE,
     STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE, X_STRING_NODE,
 };
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

@@ -1,5 +1,5 @@
-use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
-use crate::cop::util::indentation_of;
+use crate::cop::shared::node_type::{AND_NODE, CALL_NODE, OR_NODE};
+use crate::cop::shared::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

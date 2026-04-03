@@ -1,5 +1,5 @@
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util::{
+use crate::cop::shared::node_type::CALL_NODE;
+use crate::cop::shared::util::{
     RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example_group,
     is_rspec_shared_group, line_at,
 };

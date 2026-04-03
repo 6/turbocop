@@ -136,7 +136,7 @@ impl GemSpecVisitor<'_> {
             if let Some(name) = cp.name() {
                 if name.as_slice() == b"Specification" {
                     if let Some(parent) = cp.parent() {
-                        return crate::cop::util::constant_name(&parent) == Some(b"Gem");
+                        return crate::cop::shared::util::constant_name(&parent) == Some(b"Gem");
                     }
                 }
             }

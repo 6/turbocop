@@ -1,5 +1,5 @@
-use crate::cop::method_identifier_predicates;
-use crate::cop::node_type::{
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::{
     AND_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE,
     FALSE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_READ_NODE, IMAGINARY_NODE, INSTANCE_VARIABLE_READ_NODE,
     INTEGER_NODE, INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, NIL_NODE, OR_NODE,

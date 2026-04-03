@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
 
-use crate::cop::literal_predicates;
+use crate::cop::shared::literal_predicates;
 use crate::cop::variable_force::{self, Scope, VariableTable};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;

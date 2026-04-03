@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, DEF_NODE,
     GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, LOCAL_VARIABLE_READ_NODE,
     REQUIRED_PARAMETER_NODE, SELF_NODE, STATEMENTS_NODE,
@@ -497,9 +497,10 @@ impl Cop for Delegate {
         // Skip private/protected methods — RuboCop only flags public methods.
         // Outer visibility does not flow into defs nested inside block/if/etc. bodies;
         // only inline visibility or visibility declared in that same nested body applies.
-        if crate::cop::util::is_private_or_protected(source, node.location().start_offset()) {
+        if crate::cop::shared::util::is_private_or_protected(source, node.location().start_offset())
+        {
             let heredoc_ranges = if source.as_bytes().windows(2).any(|window| window == b"<<") {
-                crate::cop::util::collect_heredoc_ranges(source, &parse_result.node())
+                crate::cop::shared::util::collect_heredoc_ranges(source, &parse_result.node())
             } else {
                 Vec::new()
             };

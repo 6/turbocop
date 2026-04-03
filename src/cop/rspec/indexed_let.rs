@@ -1,5 +1,7 @@
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE};
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
+use crate::cop::shared::node_type::{
+    BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE,
+};
+use crate::cop::shared::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -69,7 +71,7 @@ impl Cop for IndexedLet {
 
         let method_name = call.name().as_slice();
         let is_group = if let Some(recv) = call.receiver() {
-            crate::cop::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            crate::cop::shared::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && is_rspec_example_group(method_name)
         } else {
             is_rspec_example_group(method_name)

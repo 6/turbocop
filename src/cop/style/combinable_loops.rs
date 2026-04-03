@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     BEGIN_NODE, CALL_NODE, CASE_NODE, ELSE_NODE, ENSURE_NODE, FOR_NODE, IF_NODE, IN_NODE,
     PROGRAM_NODE, RESCUE_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE,
 };

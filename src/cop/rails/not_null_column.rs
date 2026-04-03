@@ -1,5 +1,5 @@
-use crate::cop::node_type::{CALL_NODE, FALSE_NODE, SYMBOL_NODE};
-use crate::cop::util::has_keyword_arg;
+use crate::cop::shared::node_type::{CALL_NODE, FALSE_NODE, SYMBOL_NODE};
+use crate::cop::shared::util::has_keyword_arg;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -44,7 +44,7 @@ impl Cop for NotNullColumn {
         }
 
         // Check for null: false
-        let null_val = match crate::cop::util::keyword_arg_value(&call, b"null") {
+        let null_val = match crate::cop::shared::util::keyword_arg_value(&call, b"null") {
             Some(v) => v,
             None => return,
         };

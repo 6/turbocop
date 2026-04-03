@@ -1,4 +1,4 @@
-use crate::cop::util::is_dsl_call;
+use crate::cop::shared::util::is_dsl_call;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

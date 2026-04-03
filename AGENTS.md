@@ -81,6 +81,7 @@ Use `uv run` as the preferred way to invoke Python tools (`ruff`, `pytest`, etc.
 ## Repo Layout
 
 - `src/cop/` — cop implementations by department
+- `src/cop/shared/` — shared cop infrastructure (util, node types, predicates)
 - `tests/fixtures/cops/` — per-cop offense and no-offense fixtures
 - `scripts/` — public CLI tools
 - `scripts/workflows/` — workflow-only internals
@@ -91,8 +92,10 @@ Use `uv run` as the preferred way to invoke Python tools (`ruff`, `pytest`, etc.
 
 Before implementing cop logic, check for shared modules — do not reimplement what already exists. Key shared code:
 
-- **`src/cop/util.rs`** — Node helpers: `is_safe_navigation_call`, `unwrap_parentheses`, `is_single_negation`, `is_ternary`, `is_modifier_if`, `double_quotes_required`, etc.
-- **`src/cop/method_identifier_predicates.rs`** — Canonical `is_operator_method`, `is_setter_method`, `is_comparison_method`, `is_assignment_method` (mirrors rubocop-ast's `MethodIdentifierPredicates`).
+- **`src/cop/shared/util.rs`** — Node helpers (`is_safe_navigation_call`, `unwrap_parentheses`, `is_ternary`, `is_modifier_if`, `double_quotes_required`, etc.).
+- **`src/cop/shared/node_type.rs`** — Node type tag constants for O(1) dispatch.
+- **`src/cop/shared/method_identifier_predicates.rs`** — Method name classification (mirrors rubocop-ast's `MethodIdentifierPredicates` and `MethodDispatchNode`).
+- **`src/cop/shared/literal_predicates.rs`** — Literal node classification (mirrors rubocop-ast's `Node` literal constants).
 - **`src/cop/variable_force/`** — Variable dataflow engine (10 cops via `VariableForceConsumer` trait).
 - **Per-department shared modules** — `metrics/method_complexity.rs`, `style/hash_subset.rs`, `style/hash_transform_method.rs`, `style/trailing_comma.rs`, `layout/multiline_literal_brace_layout.rs`.
 

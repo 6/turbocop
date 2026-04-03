@@ -1,7 +1,7 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     CALL_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_X_STRING_NODE, STRING_NODE, X_STRING_NODE,
 };
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::shared::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

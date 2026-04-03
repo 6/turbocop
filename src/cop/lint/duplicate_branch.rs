@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use ruby_prism::Visit;
 
-use crate::cop::node_type::{BEGIN_NODE, CASE_MATCH_NODE, CASE_NODE, IF_NODE, UNLESS_NODE};
+use crate::cop::shared::node_type::{BEGIN_NODE, CASE_MATCH_NODE, CASE_NODE, IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

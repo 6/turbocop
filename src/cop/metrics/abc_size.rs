@@ -1,7 +1,7 @@
 use ruby_prism::Visit;
 
-use crate::cop::method_identifier_predicates;
-use crate::cop::node_type::{
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::{
     BLOCK_NODE, BLOCK_PARAMETER_NODE, CALL_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE,
     KEYWORD_REST_PARAMETER_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE,
     OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE,

@@ -1,5 +1,5 @@
-use crate::cop::node_type::PROGRAM_NODE;
-use crate::cop::util::{
+use crate::cop::shared::node_type::PROGRAM_NODE;
+use crate::cop::shared::util::{
     self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
 };
 use crate::cop::{Cop, CopConfig};

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -219,7 +219,7 @@ fn collect_top_level_groups(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<u
 }
 
 fn is_spec_group_call(call: &ruby_prism::CallNode<'_>) -> bool {
-    use crate::cop::util::is_rspec_example_group;
+    use crate::cop::shared::util::is_rspec_example_group;
     let name = call.name().as_slice();
     if call.receiver().is_none() {
         is_rspec_example_group(name)

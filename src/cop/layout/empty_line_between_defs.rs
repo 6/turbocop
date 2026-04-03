@@ -1,4 +1,4 @@
-use crate::cop::util::line_at;
+use crate::cop::shared::util::line_at;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

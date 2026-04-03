@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
+use crate::cop::shared::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -125,7 +125,7 @@ impl<'a, 'pr> Visit<'pr> for MultipleExpectationsVisitor<'a> {
         // with aggregate_failures. When called with RSpec. prefix, accept all example
         // group methods (not just describe) to handle RSpec.shared_examples, RSpec.context, etc.
         let is_group = if let Some(recv) = node.receiver() {
-            crate::cop::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            crate::cop::shared::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && is_rspec_example_group(method_name)
         } else {
             is_rspec_example_group(method_name)

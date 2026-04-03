@@ -1637,21 +1637,25 @@ def detect_cops(base: str, head: str) -> list[str]:
 
     cops = set()
     for path in changed:
-        # Top-level shared modules: src/cop/{name}.rs
-        top_match = re.match(r"src/cop/([^/]+)\.rs$", path)
-        if top_match:
-            name = top_match.group(1)
+        # Shared modules: src/cop/shared/{name}.rs
+        shared_match = re.match(r"src/cop/shared/([^/]+)\.rs$", path)
+        if shared_match:
+            name = shared_match.group(1)
             if name == "method_identifier_predicates":
                 cops.update(METHOD_IDENTIFIER_PREDICATES_CONSUMERS)
             elif name == "literal_predicates":
                 cops.update(LITERAL_PREDICATES_CONSUMERS)
-            # mod.rs, node_type.rs, util.rs, etc. are ignored
+            # util.rs, node_type.rs, mod.rs — used by nearly all cops,
+            # changes are validated by cargo test; skip dispatch.
             continue
 
         # Department cop files: src/cop/{dept}/{name}.rs
         match = re.match(r"src/cop/([^/]+)/([^/]+)\.rs$", path)
         if match:
             dept, name = match.group(1), match.group(2)
+            if dept == "shared":
+                # Already handled above; skip stray matches
+                continue
             if dept == "variable_force":
                 # Engine changes affect all VF consumer cops
                 cops.update(VARIABLE_FORCE_CONSUMERS)
@@ -1670,7 +1674,7 @@ def detect_cops(base: str, head: str) -> list[str]:
             elif name == "trailing_comma":
                 # Shared helper changes affect all trailing comma cops
                 cops.update(TRAILING_COMMA_CONSUMERS)
-            elif name not in {"mod", "node_type"}:
+            elif name != "mod":
                 cops.add(f"{dept_snake_to_pascal(dept)}/{snake_to_pascal(name)}")
             continue
 

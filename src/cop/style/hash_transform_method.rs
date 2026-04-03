@@ -11,7 +11,7 @@
 //! "identity" (passes through unchanged) vs the "transform" (is modified).
 
 use crate::cop::Cop;
-use crate::cop::util::is_simple_constant;
+use crate::cop::shared::util::is_simple_constant;
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;

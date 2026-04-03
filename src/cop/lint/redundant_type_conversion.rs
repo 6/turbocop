@@ -1,9 +1,9 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     ARRAY_NODE, CALL_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE,
     INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, KEYWORD_HASH_NODE, RATIONAL_NODE,
     STRING_NODE, SYMBOL_NODE,
 };
-use crate::cop::util;
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

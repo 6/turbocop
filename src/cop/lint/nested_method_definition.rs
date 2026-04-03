@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::util;
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;
@@ -176,15 +176,15 @@ fn is_scope_creating_call(node: &ruby_prism::Node<'_>) -> bool {
     // Module.new, Class.new, Struct.new (also handles root-qualified like ::Module.new)
     if method_name == b"new" {
         if let Some(receiver) = call.receiver() {
-            return crate::cop::util::is_simple_constant(&receiver, b"Module")
-                || crate::cop::util::is_simple_constant(&receiver, b"Class")
-                || crate::cop::util::is_simple_constant(&receiver, b"Struct");
+            return crate::cop::shared::util::is_simple_constant(&receiver, b"Module")
+                || crate::cop::shared::util::is_simple_constant(&receiver, b"Class")
+                || crate::cop::shared::util::is_simple_constant(&receiver, b"Struct");
         }
     }
     // Data.define (Ruby 3.2+, recognized by rubocop-ast class_constructor?)
     if method_name == b"define" {
         if let Some(receiver) = call.receiver() {
-            return crate::cop::util::is_simple_constant(&receiver, b"Data");
+            return crate::cop::shared::util::is_simple_constant(&receiver, b"Data");
         }
     }
     false

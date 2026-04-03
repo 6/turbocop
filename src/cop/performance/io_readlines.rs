@@ -32,8 +32,8 @@
 /// because `&:chomp` is a BlockArgumentNode child of the outer send. The instance pattern
 /// uses `_ ...` which does allow args/block_pass. Fix: for class pattern, skip if outer
 /// call has arguments or a BlockArgumentNode block.
-use crate::cop::method_identifier_predicates;
-use crate::cop::node_type::CALL_NODE;
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

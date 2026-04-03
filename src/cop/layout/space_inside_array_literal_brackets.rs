@@ -17,7 +17,7 @@
 ///   accepts multiline arrays with `[ <spaces>\n  # comment` after the opening
 ///   bracket. Fixed by detecting the trailing-comma array-pattern context and by
 ///   treating comment-on-next-line as an allowed multiline opening-bracket case.
-use crate::cop::node_type::{ARRAY_NODE, ARRAY_PATTERN_NODE};
+use crate::cop::shared::node_type::{ARRAY_NODE, ARRAY_PATTERN_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

@@ -1,5 +1,7 @@
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 use crate::cop::rspec_rails::RSPEC_RAILS_DEFAULT_INCLUDE;
+use crate::cop::shared::node_type::{
+    ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -106,7 +108,7 @@ impl Cop for InferredSpecType {
 
         // Check for RSpec.describe/context/feature/example_group or bare calls.
         let is_example_group = if let Some(recv) = call.receiver() {
-            crate::cop::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            crate::cop::shared::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && EXAMPLE_GROUPS.contains(&method_name)
         } else {
             EXAMPLE_GROUPS.contains(&method_name)

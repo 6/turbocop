@@ -1,7 +1,7 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE,
 };
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

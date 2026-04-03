@@ -1,9 +1,9 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     ARRAY_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE,
     FALSE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, INTEGER_NODE,
     LOCAL_VARIABLE_READ_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE,
 };
-use crate::cop::util::constant_name;
+use crate::cop::shared::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

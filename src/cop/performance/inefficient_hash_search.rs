@@ -1,4 +1,4 @@
-use crate::cop::util::as_method_chain;
+use crate::cop::shared::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

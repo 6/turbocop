@@ -1,4 +1,4 @@
-use crate::cop::node_type::{HASH_NODE, KEYWORD_HASH_NODE};
+use crate::cop::shared::node_type::{HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -143,7 +143,7 @@ fn extract_pair_info(source: &SourceFile, elem: &ruby_prism::Node<'_>) -> Option
     let elem_start = elem.location().start_offset();
     let elem_end = elem.location().end_offset();
     let (line, col) = source.offset_to_line_col(elem_start);
-    let begins_line = crate::cop::util::begins_its_line(source, elem_start);
+    let begins_line = crate::cop::shared::util::begins_its_line(source, elem_start);
 
     if let Some(assoc) = elem.as_assoc_node() {
         let key = assoc.key();
@@ -602,7 +602,7 @@ impl Cop for HashAlignment {
                 _ => {}
             }
         } else {
-            let is_call_arg = !crate::cop::util::begins_its_line(source, hash_node_start);
+            let is_call_arg = !crate::cop::shared::util::begins_its_line(source, hash_node_start);
             if is_call_arg {
                 match last_arg_style {
                     "always_ignore" | "ignore_explicit" => return,
@@ -634,7 +634,8 @@ impl Cop for HashAlignment {
                     return;
                 }
             } else {
-                let hash_begins_line = crate::cop::util::begins_its_line(source, hash_node_start);
+                let hash_begins_line =
+                    crate::cop::shared::util::begins_its_line(source, hash_node_start);
                 if !hash_begins_line && !first.begins_line {
                     return;
                 }

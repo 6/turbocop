@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     ASSOC_NODE, CALL_NODE, ELSE_NODE, HASH_NODE, IF_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE,
     UNLESS_NODE,
 };

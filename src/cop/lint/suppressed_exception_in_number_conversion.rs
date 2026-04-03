@@ -129,7 +129,7 @@ fn is_numeric_constructor(node: &ruby_prism::Node<'_>) -> bool {
 
     // Must be receiverless or Kernel.Method
     if let Some(recv) = call.receiver() {
-        if let Some(name) = crate::cop::util::constant_name(&recv) {
+        if let Some(name) = crate::cop::shared::util::constant_name(&recv) {
             if name != b"Kernel" {
                 return false;
             }

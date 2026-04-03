@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::ops::Range;
 
-use crate::cop::method_identifier_predicates;
+use crate::cop::shared::method_identifier_predicates;
 use crate::cop::variable_force::{self, Scope, VariableTable};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};

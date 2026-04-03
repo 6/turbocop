@@ -1,5 +1,5 @@
 // Handles both as_constant_read_node and as_constant_path_node (qualified constants like ::Fixnum)
-use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
+use crate::cop::shared::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

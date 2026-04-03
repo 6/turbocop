@@ -1,5 +1,7 @@
-use crate::cop::node_type::{CALL_NODE, FORWARDING_SUPER_NODE, LAMBDA_NODE, SUPER_NODE};
-use crate::cop::util::{collect_foldable_ranges, collect_heredoc_ranges, count_body_lines_ex};
+use crate::cop::shared::node_type::{CALL_NODE, FORWARDING_SUPER_NODE, LAMBDA_NODE, SUPER_NODE};
+use crate::cop::shared::util::{
+    collect_foldable_ranges, collect_heredoc_ranges, count_body_lines_ex,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -698,12 +700,12 @@ fn is_class_constructor(call: &ruby_prism::CallNode<'_>) -> bool {
 
     match call.name().as_slice() {
         b"new" => {
-            crate::cop::util::is_simple_constant(&recv, b"Struct")
-                || crate::cop::util::is_simple_constant(&recv, b"Class")
-                || crate::cop::util::is_simple_constant(&recv, b"Module")
+            crate::cop::shared::util::is_simple_constant(&recv, b"Struct")
+                || crate::cop::shared::util::is_simple_constant(&recv, b"Class")
+                || crate::cop::shared::util::is_simple_constant(&recv, b"Module")
         }
         // Data.define is also a class constructor in RuboCop.
-        b"define" => crate::cop::util::is_simple_constant(&recv, b"Data"),
+        b"define" => crate::cop::shared::util::is_simple_constant(&recv, b"Data"),
         _ => false,
     }
 }

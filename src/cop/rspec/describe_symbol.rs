@@ -1,5 +1,5 @@
-use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::shared::node_type::{CALL_NODE, SYMBOL_NODE};
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -49,7 +49,7 @@ impl Cop for DescribeSymbol {
         // Must be receiverless or RSpec.describe / ::RSpec.describe
         // Regular method calls like `obj.describe(:sym)` are not RSpec describe blocks.
         if let Some(recv) = call.receiver() {
-            if crate::cop::util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
+            if crate::cop::shared::util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
                 return;
             }
         }

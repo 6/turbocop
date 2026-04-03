@@ -3,7 +3,8 @@ use std::collections::hash_map::Entry;
 
 use ruby_prism::Visit;
 
-use crate::cop::{Cop, CopConfig, util};
+use crate::cop::shared::util;
+use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 

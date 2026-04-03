@@ -1,4 +1,4 @@
-use crate::cop::util::{
+use crate::cop::shared::util::{
     RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_shared_group,
 };
 use crate::cop::{Cop, CopConfig};

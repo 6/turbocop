@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::method_identifier_predicates;
+use crate::cop::shared::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

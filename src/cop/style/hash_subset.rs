@@ -7,7 +7,7 @@
 //! "remove these keys" (except) vs "keep these keys" (slice).
 
 use crate::cop::Cop;
-use crate::cop::util;
+use crate::cop::shared::util;
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 

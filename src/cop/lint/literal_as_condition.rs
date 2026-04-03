@@ -1,7 +1,7 @@
 use ruby_prism::Visit;
 
-use crate::cop::literal_predicates;
-use crate::cop::node_type::{
+use crate::cop::shared::literal_predicates;
+use crate::cop::shared::node_type::{
     AND_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, IF_NODE, OR_NODE, UNLESS_NODE, UNTIL_NODE,
     WHILE_NODE,
 };

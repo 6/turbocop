@@ -1,5 +1,5 @@
-use crate::cop::node_type::CLASS_NODE;
-use crate::cop::util::{full_constant_path, parent_class_name};
+use crate::cop::shared::node_type::CLASS_NODE;
+use crate::cop::shared::util::{full_constant_path, parent_class_name};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

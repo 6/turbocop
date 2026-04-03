@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     CALL_NODE, CLASS_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, DEF_NODE,
     SINGLETON_CLASS_NODE, STATEMENTS_NODE, SYMBOL_NODE,
 };

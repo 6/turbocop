@@ -1,5 +1,5 @@
-use crate::cop::method_identifier_predicates;
-use crate::cop::node_type::{
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::{
     BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, LAMBDA_NODE,
 };
 use crate::cop::{Cop, CopConfig};

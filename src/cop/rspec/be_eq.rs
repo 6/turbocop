@@ -1,5 +1,5 @@
-use crate::cop::node_type::{CALL_NODE, FALSE_NODE, NIL_NODE, TRUE_NODE};
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::shared::node_type::{CALL_NODE, FALSE_NODE, NIL_NODE, TRUE_NODE};
+use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

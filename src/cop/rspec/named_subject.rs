@@ -1,4 +1,4 @@
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_hook};
+use crate::cop::shared::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_hook};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;
@@ -153,7 +153,7 @@ fn is_shared_group_call(node: &ruby_prism::CallNode<'_>) -> bool {
         return true;
     }
     node.receiver().is_some_and(|r| {
-        crate::cop::util::constant_name(&r)
+        crate::cop::shared::util::constant_name(&r)
             .is_some_and(|n| n == b"RSpec" || n.starts_with(b"RSpec::"))
     })
 }

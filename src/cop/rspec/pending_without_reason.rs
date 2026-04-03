@@ -1,7 +1,9 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
+use crate::cop::shared::node_type::CALL_NODE;
+use crate::cop::shared::util::{
+    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

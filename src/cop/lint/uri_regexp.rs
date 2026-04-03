@@ -1,6 +1,6 @@
 // Handles both as_constant_read_node and as_constant_path_node (qualified constants like ::URI)
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
-use crate::cop::util::constant_name;
+use crate::cop::shared::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
+use crate::cop::shared::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

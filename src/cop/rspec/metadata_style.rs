@@ -1,7 +1,7 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE, TRUE_NODE,
 };
-use crate::cop::util::{
+use crate::cop::shared::util::{
     self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_hook,
     is_rspec_shared_group,
 };

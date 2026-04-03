@@ -1,4 +1,6 @@
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group};
+use crate::cop::shared::util::{
+    RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

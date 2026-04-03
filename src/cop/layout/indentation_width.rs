@@ -1,9 +1,9 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     BEGIN_NODE, BLOCK_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, CLASS_NODE, DEF_NODE, FOR_NODE,
     IF_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE,
     WHEN_NODE, WHILE_NODE,
 };
-use crate::cop::util::{assignment_context_base_col, expected_indent_for_body};
+use crate::cop::shared::util::{assignment_context_base_col, expected_indent_for_body};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

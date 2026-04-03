@@ -1,5 +1,5 @@
-use crate::cop::method_identifier_predicates;
-use crate::cop::node_type::{ALIAS_METHOD_NODE, CALL_NODE, DEF_NODE};
+use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::node_type::{ALIAS_METHOD_NODE, CALL_NODE, DEF_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

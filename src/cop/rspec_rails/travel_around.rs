@@ -1,9 +1,9 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::{
+use crate::cop::rspec_rails::RSPEC_RAILS_DEFAULT_INCLUDE;
+use crate::cop::shared::node_type::{
     BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, SYMBOL_NODE,
 };
-use crate::cop::rspec_rails::RSPEC_RAILS_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

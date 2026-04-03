@@ -1,4 +1,4 @@
-use crate::cop::node_type::BEGIN_NODE;
+use crate::cop::shared::node_type::BEGIN_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -19,7 +19,7 @@ fn check_rescue_node(
         "implicit" => {
             // Handle both ConstantReadNode and constant_path_node (e.g. ::StandardError)
             if exceptions.len() == 1 {
-                if let Some(name) = crate::cop::util::constant_name(&exceptions[0]) {
+                if let Some(name) = crate::cop::shared::util::constant_name(&exceptions[0]) {
                     if name == b"StandardError" {
                         let kw_loc = rescue_node.keyword_loc();
                         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());

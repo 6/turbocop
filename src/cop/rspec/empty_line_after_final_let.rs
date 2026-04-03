@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use ruby_prism::Visit;
 
-use crate::cop::util::{
+use crate::cop::shared::util::{
     self, RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example_group, is_rspec_let,
     is_rspec_shared_group, line_at,
 };

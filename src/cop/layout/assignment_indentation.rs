@@ -68,7 +68,7 @@
 /// For `] = "value"`, the `=` and value are on the same line, so it's not a multi-line
 /// RHS. Fixed by adding an `operator_offset` parameter to `check_write` and using the
 /// operator line for the same-line check instead of the name line.
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     CALL_AND_WRITE_NODE, CALL_NODE, CALL_OPERATOR_WRITE_NODE, CALL_OR_WRITE_NODE,
     CLASS_VARIABLE_AND_WRITE_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE,
     CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE, CONSTANT_AND_WRITE_NODE,
