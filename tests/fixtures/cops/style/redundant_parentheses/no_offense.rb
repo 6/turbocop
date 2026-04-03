@@ -161,12 +161,10 @@ x - (y || z)
 x ({ y: 1 }), z
 x ({ y: 1 }).merge({ y: 2 }), z
 x ({ y: 1 }.merge({ y: 2 })), z
-# Chained receiver of parenthesized call — parens are around the receiver, not an argument
-(foo).bar(x)
+# Chained receiver with operator/logical inner — parens needed for operator precedence
 (a + b).to_s(base)
 (arr || []).each { |x| x }
 (hash || {}).merge(other)
-(x.y).z(arg)
 (a & b).include?(item)
 # Assignment in default parameter value — parens syntactically required
 def method(value = (not_set = true))
@@ -253,9 +251,6 @@ rounded_value =
 opt = (mailer.default_url_options || {})
       .merge(options)
       .merge(opt)
-# Multiline chained method call
-(foo_bar.baz)
-  .qux
 # Multiline chained comparison
 (aa == bb)
   .to_s

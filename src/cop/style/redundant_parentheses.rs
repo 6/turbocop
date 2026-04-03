@@ -100,6 +100,21 @@ use crate::parse::source::SourceFile;
 ///   for `EmbeddedStatementsNode` and detection of redundant parens inside string interpolation.
 /// - **Pattern matching at top level:** `(expression in pattern)`, `(expression => pattern)` —
 ///   added detection for `MatchPredicateNode`/`MatchRequiredNode` with appropriate exemptions.
+///
+/// ## Investigation findings (2026-04-01)
+///
+/// ### FN root causes fixed:
+/// - **Chained method calls (~380 FN resolved):** `(foo.bar).to_s`, `(expr.method(args)).chain`,
+///   `!(@groups.include?(g))`, `(select {...})[key]` — the `is_chained`/`is_receiver` check
+///   in `check_method_call` incorrectly blocked method call detection when parens were followed
+///   by `.` or used as the receiver of a parent call. RuboCop's `check_send` does NOT check
+///   `chained?` for method calls — only for logical/comparison/unary expressions. Removed the
+///   `is_chained || is_receiver` guard from `check_method_call` (kept in `check_unary`).
+///   Also added `Super`/`Yield` to the singular parent check for `method_call_with_redundant_parentheses?`.
+/// - **Assignment in method argument:** `foo.include?((port = get_port))` — the assignment check
+///   returned early even when not flagging, preventing the method argument check from catching
+///   assignments inside parenthesized calls. Fixed by only falling through when parent is a
+///   parenthesized call, avoiding FPs on assignments in boolean context like `(x = y) && z`.
 pub struct RedundantParentheses;
 
 impl Cop for RedundantParentheses {
@@ -318,6 +333,10 @@ impl RedundantParensVisitor<'_> {
         // stack shows up as ParentKind::Other with no specific parent.
         // Exclude Parameter (default param values), SingletonClass (class << expr),
         // and Def (def receiver) because those are not begin_type in RuboCop.
+        // NOTE: When not flagging as assignment, only fall through to the
+        // method argument check when inside a parenthesized call. This catches
+        // `foo.include?((port = get_port))` without causing FPs on assignments
+        // in boolean context like `(x = y) && z`.
         if is_assignment(inner) {
             let should_flag = match parent {
                 None => true,
@@ -326,8 +345,14 @@ impl RedundantParensVisitor<'_> {
             // But not inside if/while/unless/until conditions
             if should_flag && !self.has_conditional_ancestor() {
                 self.add_offense(node, "an assignment");
+                return;
             }
-            return;
+            // Only fall through when parent is a parenthesized call (method arg candidate)
+            let is_method_arg_candidate =
+                parent.is_some_and(|p| matches!(p.kind, ParentKind::Call) && p.call_parenthesized);
+            if !is_method_arg_candidate {
+                return;
+            }
         }
 
         // Range literals — skip unless it's a method argument of a parenthesized call
@@ -846,9 +871,10 @@ fn check_method_call<'a>(
         return check_unary(content, paren_node, inner, parent, is_receiver);
     }
 
-    if is_receiver || is_chained(content, paren_node) {
-        return None;
-    }
+    // RuboCop's check_send does NOT check chained? for method calls.
+    // The chained? check only applies to logical/comparison expressions and
+    // unary operations. Method calls like (foo.bar).to_s are flagged even
+    // when chained, because removing the parens doesn't change the parse.
 
     // prefix_not: !expr — don't flag as method call (handled by unary check above)
     if call.name().as_slice() == b"!" && call.receiver().is_some() && call.arguments().is_none() {
@@ -877,14 +903,20 @@ fn check_method_call<'a>(
     let has_args = call.arguments().is_some();
     let call_has_parens = call.opening_loc().is_some();
 
-    // If call has unparenthesized args (like `1 + 2`), only flag if paren
-    // is in a "singular parent" position (sole child of its parent).
+    // RuboCop's method_call_with_redundant_parentheses?:
+    // If the inner call has unparenthesized args (like operators `a + b`),
+    // only flag in "singular parent" positions where the paren is the sole
+    // content of its parent. Otherwise removing parens would change parsing.
     if has_args && !call_has_parens {
         let singular = match parent {
             None => true,
             Some(p) => matches!(
                 p.kind,
-                ParentKind::Return | ParentKind::Next | ParentKind::Break
+                ParentKind::Return
+                    | ParentKind::Next
+                    | ParentKind::Break
+                    | ParentKind::Super
+                    | ParentKind::Yield
             ),
         };
         if !singular {
