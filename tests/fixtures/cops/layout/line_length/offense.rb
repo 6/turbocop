@@ -47,3 +47,24 @@ expect(agent.conversation_history).to eq([
           { "role" => "user", "content" => "Tell me some interesting facts from the James Webb Space Telescope's Wikipedia page" },
                                                                                                                         ^^^^^^^^^^^ Layout/LineLength: Line is too long. [131/120]
 ])
+
+        raise Puppet::Network::HTTP::Error::HTTPNotFoundError.new("No route for #{req.method} #{req.path}", Puppet::Network::HTTP::Issues::HANDLER_NOT_FOUND)
+                                                                                                                        ^ Layout/LineLength: Line is too long. [157/120]
+
+raise Puppet::Network::HTTP::Error::HTTPNotFoundError.new(
+                                                                  "  Supported /puppet API versions: #{Puppet::Network::HTTP::SERVER_URL_VERSIONS}\n",
+                                                                                                                        ^ Layout/LineLength: Line is too long. [150/120]
+                                                                  Puppet::Network::HTTP::Issues::HANDLER_NOT_FOUND
+)
+
+      raise Puppet::Network::HTTP::Error::HTTPBadRequestError.new(_("Missing required Accept header"), Puppet::Network::HTTP::Issues::MISSING_HEADER_FIELD)
+                                                                                                                        ^ Layout/LineLength: Line is too long. [155/120]
+
+    decoded  = '200904281000001|DOM|IND|INR|58.00|22|NULL|http://localhost:3000/orders/1/ed5230696ad525b9e322a6a64b56322e/done?utm_nooverride=1|http://hardcoregamer.localhost:3000|TOML'
+                                                                                                                        ^ Layout/LineLength: Line is too long. [185/120]
+
+    expected = '200904281000001|DOM|IND|INR|58.00|22|1|http://localhost:3000/orders/1/ed5230696ad525b9e322a6a64b56322e/done?utm_nooverride=1|http://hardcoregamer.localhost:3000|TOML'
+                                                                                                                        ^ Layout/LineLength: Line is too long. [182/120]
+
+			@checks ||= self.available_checks.collect { |c| perform_check c }.flatten(1) + children.collect(&:checks).flatten(1)
+                                                                                                                     ^ Layout/LineLength: Line is too long. [122/120]
