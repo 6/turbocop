@@ -7,7 +7,7 @@
 //! "remove these keys" (except) vs "keep these keys" (slice).
 
 use crate::cop::Cop;
-use crate::cop::shared::util;
+use crate::cop::shared::method_dispatch_predicates;
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
@@ -65,7 +65,7 @@ pub fn check_hash_subset(
         None => return,
     };
 
-    if util::is_safe_navigation_call(&predicate_call) {
+    if method_dispatch_predicates::is_safe_navigation(&predicate_call) {
         return;
     }
 

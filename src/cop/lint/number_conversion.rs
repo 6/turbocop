@@ -1,7 +1,7 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::{
     CALL_NODE, CALL_OR_WRITE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, RATIONAL_NODE,
 };
-use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -209,7 +209,7 @@ impl NumberConversion {
             // RuboCop's `receiver.send_type?` excludes `csend`, so safe-navigation
             // receivers like `foo&.second.to_f` must still be flagged even when
             // `second` appears in AllowedMethods (e.g. from rubocop-rails).
-            if !util::is_safe_navigation_call(&recv_call) {
+            if !method_dispatch_predicates::is_safe_navigation(&recv_call) {
                 if CONVERSION_METHODS.iter().any(|(m, _)| *m == recv_method) {
                     return;
                 }

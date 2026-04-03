@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::{
     CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, EMBEDDED_STATEMENTS_NODE,
     INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, STRING_NODE,
@@ -220,13 +221,6 @@ fn contains_rails_root(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
-/// Check if a call uses safe navigation (`&.`). RuboCop's `RESTRICT_ON_SEND`
-/// only matches regular sends, not csends (safe navigation).
-fn is_safe_navigation_call(call: &ruby_prism::CallNode<'_>) -> bool {
-    call.call_operator_loc()
-        .is_some_and(|loc| loc.as_slice().starts_with(b"&"))
-}
-
 /// Check if a node is any kind of variable (local, instance, class, global).
 fn is_variable(node: &ruby_prism::Node<'_>) -> bool {
     node.as_local_variable_read_node().is_some()
@@ -318,7 +312,7 @@ impl Cop for FilePath {
 
         // Skip safe navigation calls: Rails.root&.join(...) is csend, not send.
         // RuboCop's RESTRICT_ON_SEND only matches regular send, not csend.
-        if is_safe_navigation_call(&call) {
+        if method_dispatch_predicates::is_safe_navigation(&call) {
             return;
         }
 

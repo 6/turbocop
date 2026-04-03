@@ -1,5 +1,10 @@
 pub mod access_modifier_predicates;
+pub mod constant_predicates;
 pub mod literal_predicates;
+pub mod method_dispatch_predicates;
 pub mod method_identifier_predicates;
 pub mod node_type;
+pub mod node_type_groups;
+pub mod numeric_predicates;
+pub mod predicate_operator_predicates;
 pub mod util;

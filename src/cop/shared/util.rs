@@ -1211,12 +1211,6 @@ pub fn get_negation_inner<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism:
     None
 }
 
-/// Check if a call uses safe navigation (`&.`).
-pub fn is_safe_navigation_call(call: &ruby_prism::CallNode<'_>) -> bool {
-    call.call_operator_loc()
-        .is_some_and(|loc| loc.as_slice() == b"&.")
-}
-
 /// Extract a 3-method chain from a node.
 ///
 /// If `node` is a CallNode `x.c()` whose receiver is `y.b()` whose receiver is `z.a()`,
@@ -1721,35 +1715,5 @@ mod tests {
         let inner = get_negation_inner(&first_node(&result));
         assert!(inner.is_some());
         assert!(inner.unwrap().as_call_node().is_some());
-    }
-
-    // ── is_safe_navigation_call tests ──────────────────────────────────
-
-    #[test]
-    fn is_safe_navigation_call_true() {
-        let (result, _) = parse_first_expr("foo&.bar");
-        let call = first_node(&result).as_call_node().unwrap();
-        assert!(is_safe_navigation_call(&call));
-    }
-
-    #[test]
-    fn is_safe_navigation_call_regular_dot() {
-        let (result, _) = parse_first_expr("foo.bar");
-        let call = first_node(&result).as_call_node().unwrap();
-        assert!(!is_safe_navigation_call(&call));
-    }
-
-    #[test]
-    fn is_safe_navigation_call_no_receiver() {
-        let (result, _) = parse_first_expr("bar()");
-        let call = first_node(&result).as_call_node().unwrap();
-        assert!(!is_safe_navigation_call(&call));
-    }
-
-    #[test]
-    fn is_safe_navigation_call_double_colon() {
-        let (result, _) = parse_first_expr("Foo::bar");
-        let call = first_node(&result).as_call_node().unwrap();
-        assert!(!is_safe_navigation_call(&call));
     }
 }

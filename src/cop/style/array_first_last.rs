@@ -1,7 +1,7 @@
 use ruby_prism::Visit;
 use std::path::{Component, Path};
 
-use crate::cop::shared::util;
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -302,7 +302,7 @@ impl<'pr> Visit<'pr> for ArrayFirstLastVisitor<'_> {
         // When entering a []/[]= call, suppress [] calls that are direct
         // children (receiver or arguments). This matches RuboCop's behavior:
         // only suppress arr[0] when its immediate parent in the AST is []/[]=.
-        if is_bracket && !util::is_safe_navigation_call(node) {
+        if is_bracket && !method_dispatch_predicates::is_safe_navigation(node) {
             // Suppress receiver if it's a [] call (chained: arr[0][:key])
             // Also walk the chain deeper (arr[0][1][:key] → suppress arr[0][1] and arr[0])
             suppress_bracket_receiver_chain(node, &mut self.suppressed_offsets);
@@ -393,7 +393,9 @@ impl ArrayFirstLastVisitor<'_> {
         // the parent is a csend — RuboCop's brace_method? returns false for csend nodes,
         // so the inner [] receiver should NOT cause suppression.
         if let Some(recv_call) = receiver.as_call_node() {
-            if recv_call.name().as_slice() == b"[]" && !util::is_safe_navigation_call(call) {
+            if recv_call.name().as_slice() == b"[]"
+                && !method_dispatch_predicates::is_safe_navigation(call)
+            {
                 return;
             }
         }
