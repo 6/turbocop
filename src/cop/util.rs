@@ -1130,6 +1130,25 @@ pub fn double_quotes_required(content: &[u8]) -> bool {
     content.contains(&b'\'') || has_non_trivial_escape(content)
 }
 
+// ── Conditional / modifier helpers ────────────────────────────────────
+
+/// Check if an IfNode is a ternary operator (`x ? y : z`).
+/// Ternaries have no `if` keyword in Prism — `if_keyword_loc` is None.
+pub fn is_ternary(if_node: &ruby_prism::IfNode<'_>) -> bool {
+    if_node.if_keyword_loc().is_none()
+}
+
+/// Check if an IfNode is a modifier form (`body if condition`).
+/// Modifier conditionals have no `end` keyword and are not ternaries.
+pub fn is_modifier_if(if_node: &ruby_prism::IfNode<'_>) -> bool {
+    if_node.end_keyword_loc().is_none() && if_node.if_keyword_loc().is_some()
+}
+
+/// Check if an UnlessNode is a modifier form (`body unless condition`).
+pub fn is_modifier_unless(unless_node: &ruby_prism::UnlessNode<'_>) -> bool {
+    unless_node.end_keyword_loc().is_none()
+}
+
 // ── Shared node helpers ────────────────────────────────────────────────
 
 /// Unwrap parentheses from a node, returning the inner expression.

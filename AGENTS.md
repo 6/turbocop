@@ -87,6 +87,17 @@ Use `uv run` as the preferred way to invoke Python tools (`ruff`, `pytest`, etc.
 - `scripts/shared/` — shared Python helpers
 - `bench/` — corpus and benchmark tooling
 
+## Shared Cop Infrastructure
+
+Before implementing cop logic, check for shared modules — do not reimplement what already exists. Key shared code:
+
+- **`src/cop/util.rs`** — Node helpers: `is_safe_navigation_call`, `unwrap_parentheses`, `is_single_negation`, `is_ternary`, `is_modifier_if`, `double_quotes_required`, etc.
+- **`src/cop/method_identifier_predicates.rs`** — Canonical `is_operator_method`, `is_setter_method`, `is_comparison_method`, `is_assignment_method` (mirrors rubocop-ast's `MethodIdentifierPredicates`).
+- **`src/cop/variable_force/`** — Variable dataflow engine (10 cops via `VariableForceConsumer` trait).
+- **Per-department shared modules** — `metrics/method_complexity.rs`, `style/hash_subset.rs`, `style/hash_transform_method.rs`, `style/trailing_comma.rs`, `layout/multiline_literal_brace_layout.rs`.
+
+The canonical reference for RuboCop's AST node predicates is vendored at `vendor/rubocop-ast/`. When adding a shared module consumed by multiple cops, add a `*_CONSUMERS` set to `scripts/dispatch_cops.py` for CI dispatch.
+
 ## Key Constraints
 
 - `ruby_prism::ParseResult` is `!Send + !Sync`, so parsing must happen inside each rayon worker thread.

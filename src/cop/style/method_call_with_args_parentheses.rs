@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -150,42 +151,6 @@ use crate::parse::source::SourceFile;
 /// --rerun --clone --sample 15` reported `0` new FP, `0` new FN, and all `41`
 /// sampled oracle FN resolved.
 pub struct MethodCallWithArgsParentheses;
-
-fn is_operator(name: &[u8]) -> bool {
-    matches!(
-        name,
-        b"+" | b"-"
-            | b"*"
-            | b"/"
-            | b"%"
-            | b"**"
-            | b"=="
-            | b"!="
-            | b"<"
-            | b">"
-            | b"<="
-            | b">="
-            | b"<=>"
-            | b"<<"
-            | b">>"
-            | b"&"
-            | b"|"
-            | b"^"
-            | b"~"
-            | b"!"
-            | b"[]"
-            | b"[]="
-            | b"=~"
-            | b"!~"
-            | b"+@"
-            | b"-@"
-    )
-}
-
-/// Check if name is a setter method (ends with `=`)
-fn is_setter(name: &[u8]) -> bool {
-    name.last() == Some(&b'=') && name.len() > 1 && name != b"==" && name != b"!="
-}
 
 /// Check if a method name matches any pattern in the list (regex-style).
 fn matches_any_pattern(name_str: &str, patterns: &[String]) -> bool {
@@ -441,7 +406,9 @@ impl ParenVisitor<'_> {
         let name = call.name().as_slice();
 
         // Skip operators and setters
-        if is_operator(name) || is_setter(name) {
+        if method_identifier_predicates::is_operator_method(name)
+            || method_identifier_predicates::is_setter_method(name)
+        {
             return;
         }
 
@@ -516,7 +483,7 @@ impl ParenVisitor<'_> {
         }
 
         // syntax_like_method_call? — implicit call (.()) or operator methods
-        if is_operator(name) {
+        if method_identifier_predicates::is_operator_method(name) {
             return;
         }
 

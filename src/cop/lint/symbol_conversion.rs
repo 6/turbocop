@@ -1,3 +1,4 @@
+use crate::cop::method_identifier_predicates;
 use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -219,11 +220,6 @@ use crate::parse::source::SourceFile;
 /// handling or relaxing the existing rocket-key guards.
 pub struct SymbolConversion;
 
-const BARE_OPERATOR_SYMBOLS: &[&[u8]] = &[
-    b"+", b"-", b"*", b"/", b"%", b"&", b"|", b"^", b"<<", b">>", b"<", b">", b"<=", b">=", b"==",
-    b"!=", b"===", b"<=>", b"=~", b"!~", b"!", b"~", b"+@", b"-@", b"**", b"[]", b"[]=", b"`",
-];
-
 /// Check if a character is a valid Ruby identifier start character.
 /// Ruby allows ASCII letters, underscore, and ALL non-ASCII characters
 /// (Ruby's lexer treats any multibyte character as identifier-valid).
@@ -314,7 +310,7 @@ fn is_global_variable_symbol(value: &[u8]) -> bool {
 }
 
 fn is_operator_symbol(value: &[u8]) -> bool {
-    BARE_OPERATOR_SYMBOLS.contains(&value)
+    method_identifier_predicates::is_operator_method(value)
 }
 
 fn can_be_unquoted_symbol(value: &[u8]) -> bool {

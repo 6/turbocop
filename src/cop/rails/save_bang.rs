@@ -1,6 +1,7 @@
 use std::ops::Range;
 use std::sync::Mutex;
 
+use crate::cop::method_identifier_predicates;
 use crate::cop::variable_force::{self, Scope, VariableTable};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -93,11 +94,7 @@ enum Context {
 
 /// Check if a method name is a setter method (ends with `=` but not a comparison operator).
 fn is_setter_method(name: &[u8]) -> bool {
-    name.ends_with(b"=")
-        && !matches!(
-            name,
-            b"==" | b"!=" | b"===" | b"<=>" | b"<=" | b">=" | b"=~"
-        )
+    method_identifier_predicates::is_setter_method(name)
 }
 
 /// Check if a Prism node is a literal type (matches RuboCop's `Node#literal?`).

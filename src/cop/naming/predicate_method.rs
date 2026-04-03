@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -96,12 +97,6 @@ const MSG_NON_PREDICATE: &str = "Non-predicate method names should not end with 
 
 const DEFAULT_ALLOWED_METHODS: &[&str] = &["call"];
 const DEFAULT_WAYWARD_PREDICATES: &[&str] = &["infinite?", "nonzero?"];
-
-/// Known operator method names in Ruby.
-const OPERATOR_METHODS: &[&[u8]] = &[
-    b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>", b"===", b"[]", b"[]=", b"+", b"-", b"*", b"/",
-    b"%", b"**", b"<<", b">>", b"&", b"|", b"^", b"~", b"!", b"!~", b"=~", b"+@", b"-@",
-];
 
 /// Comparison methods whose return value is boolean.
 /// Note: `<=>` is intentionally excluded — it returns Integer (-1, 0, 1), not boolean.
@@ -212,7 +207,7 @@ impl PredicateMethodVisitor<'_> {
         }
 
         // Skip operator methods
-        if is_operator_method(method_name) {
+        if method_identifier_predicates::is_operator_method(method_name) {
             return;
         }
 
@@ -302,11 +297,6 @@ impl<'pr> Visit<'pr> for PredicateMethodVisitor<'_> {
         // Do recurse into modules to find defs
         ruby_prism::visit_module_node(self, node);
     }
-}
-
-/// Check if a method name is an operator method.
-fn is_operator_method(name: &[u8]) -> bool {
-    OPERATOR_METHODS.contains(&name)
 }
 
 /// Normalize a Ruby regex pattern to Rust regex syntax.
