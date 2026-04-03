@@ -96,6 +96,7 @@ Before implementing cop logic, check for shared modules — do not reimplement w
 - **`src/cop/shared/node_type.rs`** — Node type tag constants for O(1) dispatch.
 - **`src/cop/shared/method_identifier_predicates.rs`** — Method name classification (mirrors rubocop-ast's `MethodIdentifierPredicates` and `MethodDispatchNode`).
 - **`src/cop/shared/literal_predicates.rs`** — Literal node classification (mirrors rubocop-ast's `Node` literal constants).
+- **`src/cop/shared/access_modifier_predicates.rs`** — Access modifier detection and `MacroScope` helpers (mirrors rubocop-ast's `MethodDispatchNode` access modifier methods).
 - **`src/cop/variable_force/`** — Variable dataflow engine (10 cops via `VariableForceConsumer` trait).
 - **Per-department shared modules** — `metrics/method_complexity.rs`, `style/hash_subset.rs`, `style/hash_transform_method.rs`, `style/trailing_comma.rs`, `layout/multiline_literal_brace_layout.rs`.
 
