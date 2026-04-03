@@ -262,3 +262,13 @@ def test_each_index_inside_begin_ensure
     cleanup
   end
 end
+
+# for loops with different source formatting but same collection (AST equality)
+for i in [[1,2]]
+  i.should == 1
+end
+
+for i in [[1, 2]]
+^^^^^^^^^^^^^^^^^ Style/CombinableLoops: Combine this loop with the previous loop.
+  i.should == 1
+end

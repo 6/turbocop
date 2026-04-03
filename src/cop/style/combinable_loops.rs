@@ -43,6 +43,10 @@ use crate::parse::source::SourceFile;
 /// - Prism's visitor can bypass `StatementsNode` dispatch for some containers,
 ///   and `for` / `case ... else` bodies need explicit extraction so nested
 ///   consecutive loops are still compared.
+/// - `for` loop collection comparison used raw source text, so `[[1,2]]` and
+///   `[[1, 2]]` were treated as different collections. RuboCop uses AST equality.
+///   Fixed by building structural keys for `ArrayNode` from element keys,
+///   normalizing away whitespace differences.
 pub struct CombinableLoops;
 
 impl Cop for CombinableLoops {
@@ -248,6 +252,15 @@ fn node_key(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<String> 
         return Some(format!(
             "{receiver}{operator}{method_name}{arguments}{block}"
         ));
+    }
+
+    // Build structural keys for array literals so that `[[1,2]]` and `[[1, 2]]` match
+    if let Some(array) = node.as_array_node() {
+        let mut parts = Vec::new();
+        for element in array.elements().iter() {
+            parts.push(node_key(source, &element)?);
+        }
+        return Some(format!("[{}]", parts.join(",")));
     }
 
     if let Some(string) = node.as_string_node() {
