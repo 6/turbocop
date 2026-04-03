@@ -390,10 +390,26 @@ impl IdenticalConditionalBranches {
 
     /// Remove duplicate diagnostics added from `start_idx` onwards (same line+col).
     fn dedup_diagnostics(diagnostics: &mut Vec<Diagnostic>, start_idx: usize) {
-        let mut seen = std::collections::HashSet::new();
+        let mut seen: std::collections::HashSet<(String, String, usize, usize)> = diagnostics
+            .iter()
+            .take(start_idx)
+            .map(|diag| {
+                (
+                    diag.cop_name.clone(),
+                    diag.message.clone(),
+                    diag.location.line,
+                    diag.location.column,
+                )
+            })
+            .collect();
         let mut i = start_idx;
         while i < diagnostics.len() {
-            let key = (diagnostics[i].location.line, diagnostics[i].location.column);
+            let key = (
+                diagnostics[i].cop_name.clone(),
+                diagnostics[i].message.clone(),
+                diagnostics[i].location.line,
+                diagnostics[i].location.column,
+            );
             if seen.contains(&key) {
                 diagnostics.remove(i);
             } else {
@@ -805,6 +821,7 @@ impl Cop for IdenticalConditionalBranches {
                 None => return, // no else clause
             };
 
+            let pre_len = diagnostics.len();
             let condition = if_node.predicate();
             let last_child = is_last_child_of_parent(node, parse_result);
 
@@ -815,13 +832,14 @@ impl Cop for IdenticalConditionalBranches {
             self.check_heads(source, &branches, Some(&condition), last_child, diagnostics);
 
             // Deduplicate: when both head and tail fire on single-stmt branches
-            Self::dedup_diagnostics(diagnostics, 0);
+            Self::dedup_diagnostics(diagnostics, pre_len);
         } else if let Some(case_node) = node.as_case_node() {
             let branches = match Self::collect_case_branches(&case_node) {
                 Some(b) => b,
                 None => return,
             };
 
+            let pre_len = diagnostics.len();
             let condition = case_node.predicate();
             let last_child = is_last_child_of_parent(node, parse_result);
 
@@ -841,13 +859,14 @@ impl Cop for IdenticalConditionalBranches {
                 diagnostics,
             );
 
-            Self::dedup_diagnostics(diagnostics, 0);
+            Self::dedup_diagnostics(diagnostics, pre_len);
         } else if let Some(case_match_node) = node.as_case_match_node() {
             let branches = match Self::collect_case_match_branches(&case_match_node) {
                 Some(b) => b,
                 None => return,
             };
 
+            let pre_len = diagnostics.len();
             let condition = case_match_node.predicate();
             let last_child = is_last_child_of_parent(node, parse_result);
 
@@ -867,7 +886,7 @@ impl Cop for IdenticalConditionalBranches {
                 diagnostics,
             );
 
-            Self::dedup_diagnostics(diagnostics, 0);
+            Self::dedup_diagnostics(diagnostics, pre_len);
         } else if let Some(unless_node) = node.as_unless_node() {
             // unless/else — must have an else clause for comparison
             let else_clause = match unless_node.else_clause() {
@@ -880,6 +899,7 @@ impl Cop for IdenticalConditionalBranches {
                 BranchInfo::from_stmts(else_clause.statements()),
             ];
 
+            let pre_len = diagnostics.len();
             let condition = unless_node.predicate();
             let last_child = is_last_child_of_parent(node, parse_result);
 
@@ -887,7 +907,7 @@ impl Cop for IdenticalConditionalBranches {
 
             self.check_heads(source, &branches, Some(&condition), last_child, diagnostics);
 
-            Self::dedup_diagnostics(diagnostics, 0);
+            Self::dedup_diagnostics(diagnostics, pre_len);
         }
     }
 }
@@ -899,4 +919,65 @@ mod tests {
         IdenticalConditionalBranches,
         "cops/style/identical_conditional_branches"
     );
+
+    #[test]
+    fn dedup_diagnostics_only_removes_exact_duplicates_from_new_slice() {
+        let mut diagnostics = vec![
+            Diagnostic {
+                path: "test.rb".to_string(),
+                location: crate::diagnostic::Location {
+                    line: 10,
+                    column: 4,
+                },
+                severity: crate::diagnostic::Severity::Convention,
+                cop_name: "Lint/OtherCop".to_string(),
+                message: "Move `x` out of the conditional.".to_string(),
+                corrected: false,
+            },
+            Diagnostic {
+                path: "test.rb".to_string(),
+                location: crate::diagnostic::Location {
+                    line: 10,
+                    column: 4,
+                },
+                severity: crate::diagnostic::Severity::Convention,
+                cop_name: "Style/IdenticalConditionalBranches".to_string(),
+                message: "Move `x` out of the conditional.".to_string(),
+                corrected: false,
+            },
+            Diagnostic {
+                path: "test.rb".to_string(),
+                location: crate::diagnostic::Location {
+                    line: 10,
+                    column: 4,
+                },
+                severity: crate::diagnostic::Severity::Convention,
+                cop_name: "Style/IdenticalConditionalBranches".to_string(),
+                message: "Move `x` out of the conditional.".to_string(),
+                corrected: false,
+            },
+            Diagnostic {
+                path: "test.rb".to_string(),
+                location: crate::diagnostic::Location {
+                    line: 10,
+                    column: 4,
+                },
+                severity: crate::diagnostic::Severity::Convention,
+                cop_name: "Style/IdenticalConditionalBranches".to_string(),
+                message: "Move `y` out of the conditional.".to_string(),
+                corrected: false,
+            },
+        ];
+
+        IdenticalConditionalBranches::dedup_diagnostics(&mut diagnostics, 2);
+
+        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(diagnostics[0].cop_name, "Lint/OtherCop");
+        assert_eq!(
+            diagnostics[1].cop_name,
+            "Style/IdenticalConditionalBranches"
+        );
+        assert_eq!(diagnostics[1].message, "Move `x` out of the conditional.");
+        assert_eq!(diagnostics[2].message, "Move `y` out of the conditional.");
+    }
 }
