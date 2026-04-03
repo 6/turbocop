@@ -112,6 +112,16 @@ HASH_TRANSFORM_CONSUMERS = {
     "Style/HashTransformValues",
 }
 
+# Cops that consume the shared MultilineLiteralBraceLayout helper. Changes to
+# src/cop/layout/multiline_literal_brace_layout.rs should trigger corpus checks
+# for all four.
+MULTILINE_BRACE_LAYOUT_CONSUMERS = {
+    "Layout/MultilineArrayBraceLayout",
+    "Layout/MultilineHashBraceLayout",
+    "Layout/MultilineMethodCallBraceLayout",
+    "Layout/MultilineMethodDefinitionBraceLayout",
+}
+
 # Cops that consume the shared TrailingComma helper. Changes to
 # src/cop/style/trailing_comma.rs should trigger corpus checks for all three.
 TRAILING_COMMA_CONSUMERS = {
@@ -1573,6 +1583,9 @@ def detect_cops(base: str, head: str) -> list[str]:
             elif name == "hash_transform_method":
                 # Shared helper changes affect both transform cops
                 cops.update(HASH_TRANSFORM_CONSUMERS)
+            elif name == "multiline_literal_brace_layout":
+                # Shared helper changes affect all four brace layout cops
+                cops.update(MULTILINE_BRACE_LAYOUT_CONSUMERS)
             elif name == "trailing_comma":
                 # Shared helper changes affect all trailing comma cops
                 cops.update(TRAILING_COMMA_CONSUMERS)
