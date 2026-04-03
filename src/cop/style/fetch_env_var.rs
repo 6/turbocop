@@ -23,10 +23,14 @@ use ruby_prism::Visit;
 ///    lvasgn, pushing ENV['X'] to grandchild depth → NOT suppressed → flagged.
 ///    Fixed: handle `LocalVariableWriteNode` in `collect_suppressed_in_condition`
 ///    and `extract_condition_keys` to match RuboCop's behavior.
-/// 5. Parenthesized bare flags like `if(ENV['X'])` were treated as ordinary uses.
-///    RuboCop still treats the inner `ENV['X']` as the condition flag, but keeps
-///    parenthesized assignments like `if (x = ENV['X'])` as offenses. Fixed:
-///    unwrap `ParenthesesNode` only when the inner expression is not a write node.
+/// 5. Parenthesized conditions were over-unwrapped. RuboCop keeps the outer
+///    `begin`/parentheses wrapper when deciding whether an `ENV[]` use is a flag
+///    or whether the condition suppresses the same key in the body. That means
+///    `if (foo && ENV['X'])`, `(ENV['X'].nil?) ? a : ENV['X']`, and
+///    `($stdout.tty? || ENV['X']) ? ...` are offenses, while bare
+///    `if (ENV['X'])` is still allowed because the direct child of the wrapper is
+///    the `ENV[]` call itself. Fixed: treat `ParenthesesNode` as a direct-child
+///    wrapper instead of fully unwrapping compound expressions.
 /// 6. Reverse regex matches like `/re/ =~ ENV['X']` were flagged, but RuboCop
 ///    accepts them while still flagging `ENV['X'] =~ /re/`. Fixed: suppress only
 ///    when `ENV['X']` is on the argument side of `=~`.
@@ -133,9 +137,7 @@ impl FetchEnvVar {
         raw.to_vec()
     }
 
-    fn parenthesized_single_statement<'a>(
-        node: &ruby_prism::Node<'a>,
-    ) -> Option<ruby_prism::Node<'a>> {
+    fn parenthesized_direct_child<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
         let paren = node.as_parentheses_node()?;
         let body = paren.body()?;
         if let Some(stmts) = body.as_statements_node() {
@@ -195,11 +197,11 @@ impl FetchEnvVar {
     fn extract_condition_keys(source: &[u8], condition: &ruby_prism::Node<'_>) -> HashSet<Vec<u8>> {
         let mut keys = HashSet::new();
 
-        // Parenthesized bare conditions behave like their inner expression, but
-        // parenthesized assignments stay wrapped and should not suppress.
-        if let Some(inner) = Self::parenthesized_single_statement(condition) {
-            if !Self::is_write_condition(&inner) {
-                return Self::extract_condition_keys(source, &inner);
+        // RuboCop keeps the outer begin/parens wrapper. Only a direct bare
+        // `ENV['X']` child matches body uses; compound expressions stay wrapped.
+        if let Some(inner) = Self::parenthesized_direct_child(condition) {
+            if let Some(key) = Self::env_bracket_key(source, &inner) {
+                keys.insert(key);
             }
             return keys;
         }
@@ -473,9 +475,9 @@ impl FetchEnvVar {
         condition: &ruby_prism::Node<'_>,
         offsets: &mut HashSet<usize>,
     ) {
-        if let Some(inner) = Self::parenthesized_single_statement(condition) {
-            if !Self::is_write_condition(&inner) {
-                Self::collect_suppressed_in_condition(source, &inner, offsets);
+        if let Some(inner) = Self::parenthesized_direct_child(condition) {
+            if let Some(offset) = Self::env_bracket_offset(&inner) {
+                offsets.insert(offset);
             }
             return;
         }
