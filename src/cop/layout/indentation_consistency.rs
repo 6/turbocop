@@ -1,3 +1,4 @@
+use crate::cop::shared::access_modifier_predicates;
 use crate::cop::shared::node_type::{
     BEGIN_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, ELSE_NODE, FOR_NODE, IF_NODE, IN_NODE,
     MODULE_NODE, PROGRAM_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE,
@@ -35,18 +36,8 @@ pub struct IndentationConsistency;
 /// Check if a node is a bare access modifier call
 /// (private, protected, public, module_function with no args).
 fn is_bare_access_modifier(node: &ruby_prism::Node<'_>) -> bool {
-    let call = match node.as_call_node() {
-        Some(c) => c,
-        None => return false,
-    };
-    // Must be a bare call: no receiver, no arguments, no block
-    if call.receiver().is_some() || call.arguments().is_some() || call.block().is_some() {
-        return false;
-    }
-    matches!(
-        call.name().as_slice(),
-        b"private" | b"protected" | b"public" | b"module_function"
-    )
+    node.as_call_node()
+        .is_some_and(|call| access_modifier_predicates::is_bare_access_modifier(&call))
 }
 
 impl IndentationConsistency {

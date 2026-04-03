@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::cop::shared::access_modifier_predicates;
 use crate::cop::shared::node_type::{
     CALL_NODE, CLASS_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, DEF_NODE,
     SINGLETON_CLASS_NODE, STATEMENTS_NODE, SYMBOL_NODE,
@@ -153,9 +154,8 @@ impl Cop for ClassStructure {
         for (idx, stmt) in all_stmts.iter().enumerate() {
             // Track visibility changes (bare private/protected/public without args)
             if let Some(call) = stmt.as_call_node() {
-                if call.receiver().is_none() && call.arguments().is_none() {
-                    let name = call.name().as_slice();
-                    match name {
+                if access_modifier_predicates::is_bare_access_modifier(&call) {
+                    match call.name().as_slice() {
                         b"protected" => {
                             current_visibility = "protected";
                             continue;
@@ -381,9 +381,8 @@ fn find_inline_visibility<'a>(
     // Search right siblings (nodes after this def in the class body)
     for sibling in &all_stmts[idx + 1..] {
         if let Some(call) = sibling.as_call_node() {
-            if call.receiver().is_none() {
-                let call_name = call.name().as_slice();
-                let vis = match call_name {
+            if access_modifier_predicates::is_access_modifier_declaration(&call) {
+                let vis = match call.name().as_slice() {
                     b"private" => "private",
                     b"protected" => "protected",
                     b"public" => "public",
