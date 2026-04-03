@@ -1,11 +1,10 @@
-use ruby_prism::Visit;
-
-use crate::cop::node_type::{
-    CALL_NODE, DEF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE,
-};
+use crate::cop::node_type::CALL_NODE;
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+
+use super::method_complexity::{self, ComplexityScorer};
 
 /// Metrics/CyclomaticComplexity
 ///
@@ -96,318 +95,26 @@ use crate::parse::source::SourceFile;
 /// Fix: skip inline enables in `src/parse/directives.rs`.
 pub struct CyclomaticComplexity;
 
-#[derive(Default)]
-struct CyclomaticCounter {
-    complexity: usize,
-    /// Tracks whether we are already inside a rescue chain to avoid
-    /// counting subsequent rescue clauses (Prism chains them via `subsequent`).
-    in_rescue_chain: bool,
-    /// Tracks local variables that have been seen with `&.` (safe navigation).
-    /// Only the first `&.` call on a variable counts; subsequent ones on the
-    /// same variable are discounted (matching RuboCop's RepeatedCsendDiscount).
-    seen_csend_vars: std::collections::HashSet<Vec<u8>>,
-    /// Set when visiting an InNode's pattern to suppress counting guard
-    /// IfNode/UnlessNode as separate decision points.
-    in_pattern_guard: bool,
-}
+/// Cyclomatic scoring: every branch point counts as +1.
+struct CyclomaticScorer;
 
-/// Known iterating method names that make blocks count toward complexity.
-/// Must match RuboCop's `Metrics::Utils::IteratingBlock::KNOWN_ITERATING_METHODS`
-/// (enumerable + enumerator + array + hash sets from iterating_block.rb).
-const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
-    // Enumerable
-    b"all?",
-    b"any?",
-    b"chain",
-    b"chunk",
-    b"chunk_while",
-    b"collect",
-    b"collect_concat",
-    b"count",
-    b"cycle",
-    b"detect",
-    b"drop",
-    b"drop_while",
-    b"each",
-    b"each_cons",
-    b"each_entry",
-    b"each_slice",
-    b"each_with_index",
-    b"each_with_object",
-    b"entries",
-    b"filter",
-    b"filter_map",
-    b"find",
-    b"find_all",
-    b"find_index",
-    b"flat_map",
-    b"grep",
-    b"grep_v",
-    b"group_by",
-    b"inject",
-    b"lazy",
-    b"map",
-    b"max",
-    b"max_by",
-    b"min",
-    b"min_by",
-    b"minmax",
-    b"minmax_by",
-    b"none?",
-    b"one?",
-    b"partition",
-    b"reduce",
-    b"reject",
-    b"reverse_each",
-    b"select",
-    b"slice_after",
-    b"slice_before",
-    b"slice_when",
-    b"sort",
-    b"sort_by",
-    b"sum",
-    b"take",
-    b"take_while",
-    b"tally",
-    b"to_h",
-    b"uniq",
-    b"zip",
-    // Enumerator
-    b"with_index",
-    b"with_object",
-    // Array
-    b"bsearch",
-    b"bsearch_index",
-    b"collect!",
-    b"combination",
-    b"d_permutation",
-    b"delete_if",
-    b"each_index",
-    b"keep_if",
-    b"map!",
-    b"permutation",
-    b"product",
-    b"reject!",
-    b"repeat",
-    b"repeated_combination",
-    b"select!",
-    b"sort!",
-    b"sort_by",
-    // Hash
-    b"each_key",
-    b"each_pair",
-    b"each_value",
-    b"fetch",
-    b"fetch_values",
-    b"has_key?",
-    b"merge",
-    b"merge!",
-    b"transform_keys",
-    b"transform_keys!",
-    b"transform_values",
-    b"transform_values!",
-];
-
-impl CyclomaticCounter {
-    fn count_node(&mut self, node: &ruby_prism::Node<'_>) {
-        match node {
-            // Skip IfNode/UnlessNode when they are pattern guards inside InNode.
-            // Prism wraps `in :x if guard` as InNode(pattern=IfNode(...)), so the
-            // guard IfNode would be double-counted (InNode already counts +1).
-            ruby_prism::Node::IfNode { .. } | ruby_prism::Node::UnlessNode { .. } => {
-                if !self.in_pattern_guard {
-                    self.complexity += 1;
-                }
-            }
-            // In Parser gem, `begin...end while cond` produces :while_post
-            // (and `begin...end until` produces :until_post), which are NOT in
-            // COUNTED_NODES. In Prism both forms are WhileNode/UntilNode with
-            // the `begin_modifier` flag set. Skip counting when that flag is set.
-            ruby_prism::Node::WhileNode { .. } => {
-                if let Some(while_node) = node.as_while_node() {
-                    if !while_node.is_begin_modifier() {
-                        self.complexity += 1;
-                    }
-                }
-            }
-            ruby_prism::Node::UntilNode { .. } => {
-                if let Some(until_node) = node.as_until_node() {
-                    if !until_node.is_begin_modifier() {
-                        self.complexity += 1;
-                    }
-                }
-            }
-            ruby_prism::Node::ForNode { .. }
-            | ruby_prism::Node::WhenNode { .. }
-            | ruby_prism::Node::AndNode { .. }
-            | ruby_prism::Node::OrNode { .. }
-            | ruby_prism::Node::RescueModifierNode { .. } => {
-                self.complexity += 1;
-            }
-            // InNode is handled in visit_in_node to manage guard suppression.
-            // Note: RescueNode is NOT counted here — it is handled in visit_rescue_node
-            // to ensure it counts as a single decision point regardless of how many
-            // rescue clauses exist (Prism chains them via `subsequent`).
-
-            // or_asgn (||=) and and_asgn (&&=) count as conditions
-            ruby_prism::Node::LocalVariableOrWriteNode { .. }
-            | ruby_prism::Node::InstanceVariableOrWriteNode { .. }
-            | ruby_prism::Node::ClassVariableOrWriteNode { .. }
-            | ruby_prism::Node::GlobalVariableOrWriteNode { .. }
-            | ruby_prism::Node::ConstantOrWriteNode { .. }
-            | ruby_prism::Node::ConstantPathOrWriteNode { .. }
-            | ruby_prism::Node::LocalVariableAndWriteNode { .. }
-            | ruby_prism::Node::InstanceVariableAndWriteNode { .. }
-            | ruby_prism::Node::ClassVariableAndWriteNode { .. }
-            | ruby_prism::Node::GlobalVariableAndWriteNode { .. }
-            | ruby_prism::Node::ConstantAndWriteNode { .. }
-            | ruby_prism::Node::ConstantPathAndWriteNode { .. } => {
-                self.complexity += 1;
-            }
-
-            // Index and call compound assignments: h["key"] ||=, obj.attr &&=
-            ruby_prism::Node::IndexOrWriteNode { .. }
-            | ruby_prism::Node::IndexAndWriteNode { .. }
-            | ruby_prism::Node::CallOrWriteNode { .. }
-            | ruby_prism::Node::CallAndWriteNode { .. } => {
-                self.complexity += 1;
-            }
-
-            // CallNode: count &. (safe navigation) and iterating blocks/block_pass
-            ruby_prism::Node::CallNode { .. } => {
-                if let Some(call) = node.as_call_node() {
-                    // Safe navigation (&.) counts, with repeated csend discount:
-                    // Only count the first &. on each local variable receiver.
-                    if call
-                        .call_operator_loc()
-                        .is_some_and(|loc| loc.as_slice() == b"&.")
-                    {
-                        let should_count = if let Some(receiver) = call.receiver() {
-                            if let Some(lvar) = receiver.as_local_variable_read_node() {
-                                // First time seeing this variable with &.?
-                                let var_name = lvar.name().as_slice().to_vec();
-                                self.seen_csend_vars.insert(var_name)
-                            } else {
-                                true // Non-local-variable receivers always count
-                            }
-                        } else {
-                            true
-                        };
-                        if should_count {
-                            self.complexity += 1;
-                        }
-                    }
-                    // Iterating block or block_pass counts.
-                    // Note: RuboCop's Parser gem produces :numblock for numbered
-                    // parameter blocks (_1, _2) and :itblock for `it` blocks,
-                    // neither of which is in COUNTED_NODES. Only regular :block
-                    // and :block_pass count. In Prism all blocks are BlockNode,
-                    // so we check parameters to distinguish.
-                    if let Some(block) = call.block() {
-                        let should_count = if let Some(block_node) = block.as_block_node() {
-                            // Skip blocks with numbered parameters (_1) or `it` params
-                            match block_node.parameters() {
-                                Some(params) => {
-                                    params.as_numbered_parameters_node().is_none()
-                                        && params.as_it_parameters_node().is_none()
-                                }
-                                // No parameters — regular block, counts
-                                None => true,
-                            }
-                        } else {
-                            // BlockArgumentNode (&:method) — always counts
-                            block.as_block_argument_node().is_some()
-                        };
-                        if should_count {
-                            let method_name = call.name().as_slice();
-                            if KNOWN_ITERATING_METHODS.contains(&method_name) {
-                                self.complexity += 1;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Reset csend tracking when a local variable is reassigned
-            ruby_prism::Node::LocalVariableWriteNode { .. } => {
-                if let Some(write) = node.as_local_variable_write_node() {
-                    let var_name = write.name().as_slice().to_vec();
-                    self.seen_csend_vars.remove(&var_name);
-                }
-            }
-
-            _ => {}
-        }
+impl ComplexityScorer for CyclomaticScorer {
+    fn score_if(&self, _node: &ruby_prism::IfNode<'_>) -> usize {
+        1
+    }
+    fn score_unless(&self, _node: &ruby_prism::UnlessNode<'_>) -> usize {
+        1
+    }
+    fn score_when(&self) -> usize {
+        1
+    }
+    fn score_case(&self, _node: &ruby_prism::CaseNode<'_>) -> usize {
+        0
     }
 }
 
-impl<'pr> Visit<'pr> for CyclomaticCounter {
-    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-        self.count_node(&node);
-    }
-
-    fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-        self.count_node(&node);
-    }
-
-    // RescueNode is visited via visit_rescue_node (not visit_branch_node_enter)
-    // because Prism's visit_begin_node calls visitor.visit_rescue_node directly.
-    // In Prism, rescue clauses are chained via `subsequent`, so visit_rescue_node
-    // is called once per clause. RuboCop counts `rescue` as a single decision point
-    // (one `rescue` node in the Parser AST wraps all clauses), so we only count +1
-    // for the first rescue in the chain.
-    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
-        if !self.in_rescue_chain {
-            self.complexity += 1;
-            self.in_rescue_chain = true;
-            ruby_prism::visit_rescue_node(self, node);
-            self.in_rescue_chain = false;
-        } else {
-            ruby_prism::visit_rescue_node(self, node);
-        }
-    }
-
-    // Override visit_begin_node to reset in_rescue_chain before visiting the
-    // begin's rescue clause. This ensures that nested begin...rescue...end
-    // blocks inside a rescue body are counted as separate decision points.
-    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
-        let saved = self.in_rescue_chain;
-        self.in_rescue_chain = false;
-        ruby_prism::visit_begin_node(self, node);
-        self.in_rescue_chain = saved;
-    }
-
-    // InNode: count +1 for the `in` clause, then visit children with guard
-    // suppression. In Prism, `in :x if guard` wraps the pattern as IfNode
-    // inside InNode, which would be double-counted without suppression.
-    fn visit_in_node(&mut self, node: &ruby_prism::InNode<'pr>) {
-        self.complexity += 1;
-        // Visit the pattern with guard suppression active so that any
-        // IfNode/UnlessNode guard is not counted as a separate decision point.
-        self.in_pattern_guard = true;
-        let pattern = node.pattern();
-        self.visit(&pattern);
-        self.in_pattern_guard = false;
-        // Visit the body normally
-        if let Some(stmts) = node.statements() {
-            self.visit(&stmts.as_node());
-        }
-    }
-}
-
-/// Extract the method name from a `define_method` call's first argument.
-fn extract_define_method_name(call: &ruby_prism::CallNode<'_>) -> Option<String> {
-    let args = call.arguments()?;
-    let first = args.arguments().iter().next()?;
-
-    if let Some(sym) = first.as_symbol_node() {
-        return Some(String::from_utf8_lossy(sym.unescaped()).into_owned());
-    }
-    if let Some(s) = first.as_string_node() {
-        return Some(String::from_utf8_lossy(s.unescaped()).into_owned());
-    }
-    None
-}
+// Config keys used via method_complexity::check_method_complexity:
+// "Max", "AllowedMethods", "AllowedPatterns"
 
 impl Cop for CyclomaticComplexity {
     fn name(&self) -> &'static str {
@@ -415,12 +122,7 @@ impl Cop for CyclomaticComplexity {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            CALL_NODE,
-            DEF_NODE,
-            LOCAL_VARIABLE_READ_NODE,
-            LOCAL_VARIABLE_WRITE_NODE,
-        ]
+        &[CALL_NODE, DEF_NODE]
     }
 
     fn check_node(
@@ -432,75 +134,15 @@ impl Cop for CyclomaticComplexity {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Extract method name, body, and report location from DefNode or
-        // define_method CallNode with block.
-        let (method_name_str, body, report_offset) = if let Some(def_node) = node.as_def_node() {
-            let body = match def_node.body() {
-                Some(b) => b,
-                None => return,
-            };
-            let name = std::str::from_utf8(def_node.name().as_slice())
-                .unwrap_or("")
-                .to_string();
-            (name, body, def_node.def_keyword_loc().start_offset())
-        } else if let Some(call_node) = node.as_call_node() {
-            // Handle define_method(:name) do...end
-            if call_node.name().as_slice() != b"define_method" || call_node.receiver().is_some() {
-                return;
-            }
-            if let Some(block) = call_node.block() {
-                if let Some(block_node) = block.as_block_node() {
-                    let method_name = match extract_define_method_name(&call_node) {
-                        Some(name) => name,
-                        None => return,
-                    };
-                    let body = match block_node.body() {
-                        Some(b) => b,
-                        None => return,
-                    };
-                    (method_name, body, call_node.location().start_offset())
-                } else {
-                    return;
-                }
-            } else {
-                return;
-            }
-        } else {
-            return;
-        };
-
-        let max = config.get_usize("Max", 7);
-
-        // AllowedMethods / AllowedPatterns: skip methods matching these
-        let allowed_methods = config.get_string_array("AllowedMethods");
-        let allowed_patterns = config.get_string_array("AllowedPatterns");
-        if let Some(allowed) = &allowed_methods {
-            if allowed.iter().any(|m| m == &method_name_str) {
-                return;
-            }
-        }
-        if let Some(patterns) = &allowed_patterns {
-            if patterns
-                .iter()
-                .any(|p| regex::Regex::new(p).is_ok_and(|re| re.is_match(&method_name_str)))
-            {
-                return;
-            }
-        }
-
-        let mut counter = CyclomaticCounter::default();
-        counter.visit(&body);
-
-        let score = 1 + counter.complexity;
-        if score > max {
-            let (line, column) = source.offset_to_line_col(report_offset);
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                format!("Cyclomatic complexity for {method_name_str} is too high. [{score}/{max}]"),
-            ));
-        }
+        method_complexity::check_method_complexity(
+            self,
+            &CyclomaticScorer,
+            "Cyclomatic complexity",
+            source,
+            node,
+            config,
+            diagnostics,
+        );
     }
 }
 
