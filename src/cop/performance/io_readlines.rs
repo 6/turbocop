@@ -32,82 +32,13 @@
 /// because `&:chomp` is a BlockArgumentNode child of the outer send. The instance pattern
 /// uses `_ ...` which does allow args/block_pass. Fix: for class pattern, skip if outer
 /// call has arguments or a BlockArgumentNode block.
+use crate::cop::method_identifier_predicates;
 use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct IoReadlines;
-
-/// Enumerable instance methods that trigger the cop when chained after `readlines`.
-const ENUMERABLE_METHODS: &[&[u8]] = &[
-    b"all?",
-    b"any?",
-    b"chain",
-    b"chunk",
-    b"chunk_while",
-    b"collect",
-    b"collect_concat",
-    b"compact",
-    b"count",
-    b"cycle",
-    b"detect",
-    b"drop",
-    b"drop_while",
-    b"each",
-    b"each_cons",
-    b"each_entry",
-    b"each_slice",
-    b"each_with_index",
-    b"each_with_object",
-    b"entries",
-    b"filter",
-    b"filter_map",
-    b"find",
-    b"find_all",
-    b"find_index",
-    b"first",
-    b"flat_map",
-    b"grep",
-    b"grep_v",
-    b"group_by",
-    b"include?",
-    b"inject",
-    b"lazy",
-    b"map",
-    b"max",
-    b"max_by",
-    b"member?",
-    b"min",
-    b"min_by",
-    b"minmax",
-    b"minmax_by",
-    b"none?",
-    b"one?",
-    b"partition",
-    b"reduce",
-    b"reject",
-    b"reverse_each",
-    b"select",
-    b"slice_after",
-    b"slice_before",
-    b"slice_when",
-    b"sort",
-    b"sort_by",
-    b"sum",
-    b"take",
-    b"take_while",
-    b"tally",
-    b"to_a",
-    b"to_h",
-    b"to_set",
-    b"uniq",
-    b"zip",
-];
-
-fn is_enumerable_method(name: &[u8]) -> bool {
-    ENUMERABLE_METHODS.contains(&name)
-}
 
 /// Check if a node is an unqualified IO or File constant (ConstantReadNode only).
 /// RuboCop's class pattern uses `(const nil? {:IO :File})` which only matches
@@ -152,7 +83,7 @@ impl Cop for IoReadlines {
         };
 
         let outer_method = outer_call.name().as_slice();
-        if !is_enumerable_method(outer_method) {
+        if !method_identifier_predicates::is_enumerable_method(outer_method) {
             return;
         }
 

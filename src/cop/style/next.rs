@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -36,37 +37,13 @@ use crate::parse::source::SourceFile;
 ///   bluepotion `filter do` blocks).
 pub struct Next;
 
-/// Iterator methods whose blocks should use `next` instead of wrapping conditionals.
-/// Matches RuboCop's `ENUMERATOR_METHODS` plus any method starting with `each_`.
-const ITERATION_METHODS: &[&[u8]] = &[
-    b"collect",
-    b"collect_concat",
-    b"detect",
-    b"downto",
-    b"each",
-    b"find",
-    b"find_all",
-    b"find_index",
-    b"inject",
-    b"loop",
-    b"map",
-    b"map!",
-    b"max_by",
-    b"min_by",
-    b"reduce",
-    b"reject",
-    b"reject!",
-    b"reverse_each",
-    b"select",
-    b"select!",
-    b"sort_by",
-    b"times",
-    b"upto",
-];
-
-/// Check if a method name is an enumerator method (static list or `each_*` prefix)
+/// Check if a method name is an iteration method for Style/Next.
+///
+/// Uses the canonical `ENUMERATOR_METHODS` plus `each_*` prefix from rubocop-ast,
+/// with `max_by`, `min_by`, `sort_by` added based on corpus investigation.
 fn is_enumerator_method(name: &[u8]) -> bool {
-    ITERATION_METHODS.contains(&name) || name.starts_with(b"each_")
+    method_identifier_predicates::is_enumerator_method(name)
+        || matches!(name, b"max_by" | b"min_by" | b"sort_by")
 }
 
 impl Cop for Next {

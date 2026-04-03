@@ -1,3 +1,4 @@
+use crate::cop::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -137,107 +138,9 @@ fn is_kernel_receiver(call: &ruby_prism::CallNode<'_>) -> bool {
     false
 }
 
-fn is_enumerator_method(name: &[u8]) -> bool {
-    // rubocop-ast ENUMERATOR_METHODS + any method starting with "each_"
-    if name.starts_with(b"each_") {
-        return true;
-    }
-    matches!(
-        name,
-        b"collect"
-            | b"collect_concat"
-            | b"detect"
-            | b"downto"
-            | b"each"
-            | b"find"
-            | b"find_all"
-            | b"find_index"
-            | b"inject"
-            | b"loop"
-            | b"map!"
-            | b"map"
-            | b"reduce"
-            | b"reject"
-            | b"reject!"
-            | b"reverse_each"
-            | b"select"
-            | b"select!"
-            | b"times"
-            | b"upto"
-    )
-}
-
-fn is_enumerable_method(name: &[u8]) -> bool {
-    // Ruby's Enumerable.instance_methods + :each
-    matches!(
-        name,
-        b"all?"
-            | b"any?"
-            | b"chain"
-            | b"chunk"
-            | b"chunk_while"
-            | b"collect"
-            | b"collect_concat"
-            | b"compact"
-            | b"count"
-            | b"cycle"
-            | b"detect"
-            | b"drop"
-            | b"drop_while"
-            | b"each"
-            | b"each_cons"
-            | b"each_entry"
-            | b"each_slice"
-            | b"each_with_index"
-            | b"each_with_object"
-            | b"entries"
-            | b"filter"
-            | b"filter_map"
-            | b"find"
-            | b"find_all"
-            | b"find_index"
-            | b"first"
-            | b"flat_map"
-            | b"grep"
-            | b"grep_v"
-            | b"group_by"
-            | b"include?"
-            | b"inject"
-            | b"lazy"
-            | b"map"
-            | b"max"
-            | b"max_by"
-            | b"member?"
-            | b"min"
-            | b"min_by"
-            | b"minmax"
-            | b"minmax_by"
-            | b"none?"
-            | b"one?"
-            | b"partition"
-            | b"reduce"
-            | b"reject"
-            | b"reverse_each"
-            | b"select"
-            | b"slice_after"
-            | b"slice_before"
-            | b"slice_when"
-            | b"sort"
-            | b"sort_by"
-            | b"sum"
-            | b"take"
-            | b"take_while"
-            | b"tally"
-            | b"to_a"
-            | b"to_h"
-            | b"to_set"
-            | b"uniq"
-            | b"zip"
-    )
-}
-
 fn is_loop_method_name(name: &[u8]) -> bool {
-    is_enumerator_method(name) || is_enumerable_method(name)
+    method_identifier_predicates::is_enumerator_method(name)
+        || method_identifier_predicates::is_enumerable_method(name)
 }
 
 /// Check if a sequence of statements has a break statement that isn't preceded
