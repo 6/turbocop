@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -139,7 +140,7 @@ impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
                     // Check if single quotes can be used:
                     // - No single quotes in content
                     // - No escape sequences (no backslash in content)
-                    if !content.contains(&b'\'') && !needs_double_quotes(content) {
+                    if !util::double_quotes_required(content) {
                         let (line, column) = self.source.offset_to_line_col(opening.start_offset());
                         self.diagnostics.push(self.cop.diagnostic(self.source, line, column, "Prefer single-quoted strings when you don't need string interpolation or special symbols.".to_string()));
                     }
@@ -213,29 +214,6 @@ fn has_meaningful_backslash_escape(content: &[u8]) -> bool {
 }
 
 /// Check if a double-quoted string's raw source content contains escape
-/// sequences that require double quotes, matching RuboCop's
-/// `double_quotes_required?` logic. A backslash followed by any character
-/// that is NOT `\` or `"` is considered to require double quotes — this is
-/// conservative but prevents visual changes to escape-like sequences such
-/// as `\g`, `\p`, etc.
-fn needs_double_quotes(content: &[u8]) -> bool {
-    let mut i = 0;
-    while i < content.len() {
-        if content[i] == b'\\' && i + 1 < content.len() {
-            let next = content[i + 1];
-            // \\ and \" are safe to convert (they become literal chars in single quotes too)
-            if next == b'\\' || next == b'"' {
-                i += 2;
-                continue;
-            }
-            // Any other \X pattern requires double quotes
-            return true;
-        }
-        i += 1;
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
