@@ -122,6 +122,14 @@ MULTILINE_BRACE_LAYOUT_CONSUMERS = {
     "Layout/MultilineMethodDefinitionBraceLayout",
 }
 
+# Cops that consume the shared TrailingComma helper. Changes to
+# src/cop/style/trailing_comma.rs should trigger corpus checks for all three.
+TRAILING_COMMA_CONSUMERS = {
+    "Style/TrailingCommaInArguments",
+    "Style/TrailingCommaInArrayLiteral",
+    "Style/TrailingCommaInHashLiteral",
+}
+
 # Department PascalCase → snake_case directory name in src/cop/ and tests/fixtures/
 # Only needed for departments where pascal_to_snake() gives the wrong result
 DEPT_TO_SRC_DIR = {
@@ -1578,6 +1586,9 @@ def detect_cops(base: str, head: str) -> list[str]:
             elif name == "multiline_literal_brace_layout":
                 # Shared helper changes affect all four brace layout cops
                 cops.update(MULTILINE_BRACE_LAYOUT_CONSUMERS)
+            elif name == "trailing_comma":
+                # Shared helper changes affect all trailing comma cops
+                cops.update(TRAILING_COMMA_CONSUMERS)
             elif name not in {"mod", "node_type"}:
                 cops.add(f"{dept_snake_to_pascal(dept)}/{snake_to_pascal(name)}")
             continue
