@@ -24,6 +24,7 @@ VENDOR_CONFIGS = [
     ("vendor/rubocop-rspec/config/default.yml", "rubocop-rspec"),
     ("vendor/rubocop-rspec_rails/config/default.yml", "rubocop-rspec_rails"),
     ("vendor/rubocop-factory_bot/config/default.yml", "rubocop-factory_bot"),
+    ("vendor/rubocop-rake/config/default.yml", "rubocop-rake"),
 ]
 
 # The baseline config that the corpus oracle already uses

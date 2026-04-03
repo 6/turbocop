@@ -9,6 +9,7 @@ pub mod migration;
 pub mod naming;
 pub mod performance;
 pub mod rails;
+pub mod rake;
 pub mod registry;
 pub mod rspec;
 pub mod rspec_rails;

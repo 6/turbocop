@@ -730,8 +730,8 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    // 910 supported + 5 no-ops (obsolete on Ruby 3.4+)
-    assert_eq!(registry.len(), 910 + 5);
+    // 915 supported + 5 no-ops (obsolete on Ruby 3.4+)
+    assert_eq!(registry.len(), 915 + 5);
 
     let names = registry.names();
     let expected = [
@@ -1291,6 +1291,12 @@ fn registry_has_expected_cop_count() {
         "Rails/WhereMissing",
         "Rails/WhereNot",
         "Rails/WhereRange",
+        // Rake (5)
+        "Rake/ClassDefinitionInTask",
+        "Rake/Desc",
+        "Rake/DuplicateNamespace",
+        "Rake/DuplicateTask",
+        "Rake/MethodDefinitionInTask",
         // Security (7)
         "Security/CompoundHash",
         "Security/Eval",
@@ -2509,8 +2515,8 @@ fn list_cops_prints_all_registered_cops() {
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(
         lines.len(),
-        915,
-        "Expected 915 cop names, got {}",
+        920,
+        "Expected 920 cop names, got {}",
         lines.len()
     );
 

@@ -3022,6 +3022,7 @@ const PLUGIN_GEM_DEPARTMENTS: &[(&str, &str)] = &[
     ("RSpecRails", "rubocop-rspec_rails"),
     ("FactoryBot", "rubocop-factory_bot"),
     ("Capybara", "rubocop-capybara"),
+    ("Rake", "rubocop-rake"),
     ("Performance", "rubocop-performance"),
     // standard-family wrapper gems
     ("Rails", "standard-rails"),
