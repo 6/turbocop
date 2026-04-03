@@ -47,6 +47,12 @@ use ruby_prism::Visit;
 ///    statement in every branch and the enclosing conditional is the last
 ///    expression of its parent. nitrocop compared those nested conditionals as
 ///    ordinary tail statements and flagged them anyway.
+///
+/// 7. **FP: regex literals with whitespace-sensitive bodies** — nitrocop's
+///    source normalizer collapsed spaces inside `/.../`, so distinct regexes
+///    like `/[^\d ]/` and `/[^\d]/` compared equal even though RuboCop keeps
+///    regexp bodies whitespace-sensitive. Regex literals now keep their raw
+///    trimmed source as the comparison key.
 pub struct IdenticalConditionalBranches;
 
 struct StatementInfo {
@@ -245,8 +251,17 @@ fn stmt_info(
     let (line, col) = source.offset_to_line_col(loc.start_offset());
     let has_heredoc = contains_heredoc(node);
     let src = node_source(source, node);
+    let key = if node.as_regular_expression_node().is_some()
+        || node.as_interpolated_regular_expression_node().is_some()
+    {
+        // Whitespace inside a regexp body is semantic, unlike the formatting-only
+        // whitespace we collapse for ordinary Ruby statements.
+        src.clone()
+    } else {
+        normalized_source_key(&src)
+    };
     Some(StatementInfo {
-        key: normalized_source_key(&src),
+        key,
         src,
         line,
         col,

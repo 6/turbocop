@@ -205,3 +205,10 @@ def process(sorted_values, prev_v, start_v, runs, v)
     prev_v = v
   end
 end
+
+# if/else with different regex literals that only differ by whitespace in the pattern
+regex = if allow_spaces_in_card?(value)
+          /[^\d ]/
+        else
+          /[^\d]/
+        end
