@@ -48,3 +48,14 @@ x = 1
 
 # Extra spaces around => (not aligned)
 {'key' => 'val'}
+
+'arrow' => [:arrow, :down],
+
+@_apipie_dsl_data = {
+
+result = [{
+
+html_block = if render_partial?
+
+message[:bcc] = 'mikel@bcc.lindsaar.net'
+message[:cc] = 'mikel@cc.lindsaar.net'

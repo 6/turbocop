@@ -171,6 +171,10 @@ found        += items
 total        += count
 status      ||= 0
 
+# Trailing spaces after = are allowed when the right-hand sides align
+email =  "Susan_foo@gmail.com"
+password = "Susan_foo"
+
 # Hash with multi-byte UTF-8 keys aligned by => (curly quotes are 3 bytes each)
 # Must not flag any of these as "extra space" around =>
 rewrites = {
@@ -178,4 +182,11 @@ rewrites = {
   'should echo the input'                => 'echoes the input',
   "shouldn\u2019t return something"      => 'does not return something',
   "SHOULDN\u2019T BE true"               => 'IS NOT true',
+}
+
+# Multi-line hash pairs may keep extra space after => when the pairs align
+params = {
+  'GroupingSid' =>  Twilio.serialize_list(grouping_sid) { |e| e },
+  'DateCreatedAfter' =>  Twilio.serialize_iso8601_datetime(date_created_after),
+  'DateCreatedBefore' =>  Twilio.serialize_iso8601_datetime(date_created_before),
 }

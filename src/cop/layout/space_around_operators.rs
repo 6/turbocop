@@ -70,6 +70,24 @@ use ruby_prism::Visit;
 ///   the alignment anchor, but the neighbor-line search needs tighter scoping.
 /// - Ternary `?`/`:` via `visit_if_node` works but was not the cause of test
 ///   failures.
+///
+/// Investigation findings (2026-04-03):
+/// - RuboCop allows extra spaces *after* `=` when the right-hand sides are
+///   vertically aligned for plain assignments, e.g. `email =  "foo"` next to
+///   `password = "bar"`.
+/// - RuboCop does **not** use that same RHS rule for hash rockets: `=>  ` in a
+///   multi-line hash pair is accepted when the pairs themselves align, even if
+///   the value expressions start in different columns.
+/// - RuboCop also still flags the same `=  ` padding on setter/index writes
+///   such as `message[:bcc] =           'x'`; the RHS-alignment exception is
+///   specific to plain assignment nodes.
+/// - The previous implementation reused operator-column alignment for both
+///   leading and trailing space checks, which caused false positives for
+///   aligned RHS values and false negatives for `=  {` / `=  [` because the
+///   aligned `=` token incorrectly suppressed the offense.
+/// - Fix: keep operator alignment for extra leading space, use RHS-start
+///   alignment for assignment-like trailing space, and use pair-start
+///   alignment for `=>` inside `AssocNode`.
 pub struct SpaceAroundOperators;
 
 /// Collect byte offsets of `=` signs that are part of parameter defaults,
@@ -77,6 +95,9 @@ pub struct SpaceAroundOperators;
 struct ExclusionCollector {
     /// Byte offsets of `=` in default parameter positions.
     default_param_offsets: HashSet<usize>,
+    /// Byte offsets of plain assignment `=` operators where RuboCop allows
+    /// aligned RHS spacing.
+    plain_assignment_offsets: HashSet<usize>,
     /// Byte ranges (start..end) of operator method names in `def` statements.
     /// e.g., `def ==(other)` — the `==` is a method name, not an operator.
     def_method_name_ranges: Vec<std::ops::Range<usize>>,
@@ -119,6 +140,54 @@ impl<'pr> Visit<'pr> for ExclusionCollector {
         // Recurse into the body to find nested defs and default params
         ruby_prism::visit_def_node(self, node);
     }
+
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        self.plain_assignment_offsets
+            .insert(node.operator_loc().start_offset());
+        ruby_prism::visit_local_variable_write_node(self, node);
+    }
+
+    fn visit_instance_variable_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableWriteNode<'pr>,
+    ) {
+        self.plain_assignment_offsets
+            .insert(node.operator_loc().start_offset());
+        ruby_prism::visit_instance_variable_write_node(self, node);
+    }
+
+    fn visit_class_variable_write_node(&mut self, node: &ruby_prism::ClassVariableWriteNode<'pr>) {
+        self.plain_assignment_offsets
+            .insert(node.operator_loc().start_offset());
+        ruby_prism::visit_class_variable_write_node(self, node);
+    }
+
+    fn visit_global_variable_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableWriteNode<'pr>,
+    ) {
+        self.plain_assignment_offsets
+            .insert(node.operator_loc().start_offset());
+        ruby_prism::visit_global_variable_write_node(self, node);
+    }
+
+    fn visit_constant_write_node(&mut self, node: &ruby_prism::ConstantWriteNode<'pr>) {
+        self.plain_assignment_offsets
+            .insert(node.operator_loc().start_offset());
+        ruby_prism::visit_constant_write_node(self, node);
+    }
+
+    fn visit_constant_path_write_node(&mut self, node: &ruby_prism::ConstantPathWriteNode<'pr>) {
+        self.plain_assignment_offsets
+            .insert(node.operator_loc().start_offset());
+        ruby_prism::visit_constant_path_write_node(self, node);
+    }
+
+    fn visit_multi_write_node(&mut self, node: &ruby_prism::MultiWriteNode<'pr>) {
+        self.plain_assignment_offsets
+            .insert(node.operator_loc().start_offset());
+        ruby_prism::visit_multi_write_node(self, node);
+    }
 }
 
 impl Cop for SpaceAroundOperators {
@@ -148,10 +217,12 @@ impl Cop for SpaceAroundOperators {
         // Collect default parameter `=` offsets and operator method name ranges
         let mut collector = ExclusionCollector {
             default_param_offsets: HashSet::new(),
+            plain_assignment_offsets: HashSet::new(),
             def_method_name_ranges: Vec::new(),
         };
         collector.visit(&parse_result.node());
         let default_param_offsets = collector.default_param_offsets;
+        let plain_assignment_offsets = collector.plain_assignment_offsets;
         let def_name_ranges = collector.def_method_name_ranges;
 
         let exponent_no_space = enforced_style_exponent == "no_space";
@@ -275,6 +346,7 @@ impl Cop for SpaceAroundOperators {
                                 two,
                                 multi_before,
                                 multi_after,
+                                true,
                                 diagnostics,
                                 &mut corrections,
                             );
@@ -384,6 +456,7 @@ impl Cop for SpaceAroundOperators {
                             b"=",
                             multi_before,
                             multi_after,
+                            plain_assignment_offsets.contains(&i),
                             diagnostics,
                             &mut corrections,
                         );
@@ -409,10 +482,14 @@ fn check_text_scanner_extra_space(
     op_bytes: &[u8],
     multi_before: bool,
     multi_after: bool,
+    allow_trailing_rhs_alignment: bool,
     diagnostics: &mut Vec<Diagnostic>,
     corrections: &mut Option<&mut Vec<crate::correction::Correction>>,
 ) {
     let bytes = source.as_bytes();
+    let mut multi_before = multi_before;
+    let mut multi_after = multi_after;
+
     // Skip if operator is at start of line (spaces are indentation)
     if multi_before {
         let mut ls = op_start;
@@ -420,23 +497,34 @@ fn check_text_scanner_extra_space(
             ls -= 1;
         }
         if bytes[ls..op_start].iter().all(|&b| b == b' ' || b == b'\t') {
-            return;
+            multi_before = false;
         }
     }
-    // AllowForAlignment: skip if aligned with operator on adjacent line
-    if is_aligned_standalone(source, op_start, op_bytes) {
-        return;
+
+    if multi_before && is_aligned_standalone(source, op_start, op_bytes) {
+        multi_before = false;
     }
-    // Skip if trailing space extends to a comment on the same line
+
     if multi_after {
         let mut p = op_end;
         while p < bytes.len() && bytes[p] == b' ' {
             p += 1;
         }
         if p < bytes.len() && bytes[p] == b'#' {
-            return;
+            multi_after = false;
+        } else if allow_trailing_rhs_alignment {
+            if let Some(rhs_start) = first_non_whitespace_offset_after(bytes, op_end) {
+                if is_aligned_rhs_standalone(source, rhs_start) {
+                    multi_after = false;
+                }
+            }
         }
     }
+
+    if !multi_before && !multi_after {
+        return;
+    }
+
     let ws_start = if multi_before {
         let mut s = op_start - 1;
         while s > 0 && bytes[s - 1] == b' ' {
@@ -714,6 +802,116 @@ fn line_has_operator_ending_at_col(line: &[u8], target_end_col: usize) -> bool {
     false
 }
 
+fn first_non_whitespace_offset_after(bytes: &[u8], mut offset: usize) -> Option<usize> {
+    while offset < bytes.len() && (bytes[offset] == b' ' || bytes[offset] == b'\t') {
+        offset += 1;
+    }
+
+    if offset < bytes.len() && bytes[offset] != b'\n' && bytes[offset] != b'\r' {
+        Some(offset)
+    } else {
+        None
+    }
+}
+
+fn is_aligned_rhs_standalone(source: &SourceFile, start: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut ls = start;
+    while ls > 0 && bytes[ls - 1] != b'\n' {
+        ls -= 1;
+    }
+
+    let byte_col = start - ls;
+    let lines: Vec<&[u8]> = source.lines().collect();
+    let (line, _) = source.offset_to_line_col(start);
+    let line_idx = line - 1;
+    let char_col = bytes_to_char_col(lines[line_idx], byte_col);
+
+    if check_rhs_alignment_standalone(&lines, line_idx, char_col, None) {
+        return true;
+    }
+
+    let my_indent = lines[line_idx]
+        .iter()
+        .position(|&b| b != b' ' && b != b'\t')
+        .unwrap_or(0);
+    check_rhs_alignment_standalone(&lines, line_idx, char_col, Some(my_indent))
+}
+
+fn check_rhs_alignment_standalone(
+    lines: &[&[u8]],
+    line_idx: usize,
+    char_col: usize,
+    indent_filter: Option<usize>,
+) -> bool {
+    for up in [true, false] {
+        let mut check_idx = if up {
+            if line_idx == 0 {
+                continue;
+            }
+            line_idx - 1
+        } else {
+            line_idx + 1
+        };
+
+        loop {
+            if check_idx >= lines.len() {
+                break;
+            }
+
+            let line_bytes = lines[check_idx];
+            let first_non_ws = line_bytes.iter().position(|&b| b != b' ' && b != b'\t');
+            match first_non_ws {
+                None => {}
+                Some(fs) if line_bytes[fs] == b'#' => {}
+                Some(indent) => {
+                    if let Some(required) = indent_filter {
+                        if indent != required {
+                            if up {
+                                if check_idx == 0 {
+                                    break;
+                                }
+                                check_idx -= 1;
+                            } else {
+                                check_idx += 1;
+                            }
+                            continue;
+                        }
+                    }
+
+                    if line_has_aligned_rhs_at_char_col(line_bytes, char_col) {
+                        return true;
+                    }
+                    break;
+                }
+            }
+
+            if up {
+                if check_idx == 0 {
+                    break;
+                }
+                check_idx -= 1;
+            } else {
+                check_idx += 1;
+            }
+        }
+    }
+
+    false
+}
+
+fn line_has_aligned_rhs_at_char_col(line: &[u8], target_char_col: usize) -> bool {
+    let Some(byte_col) = char_col_to_bytes(line, target_char_col) else {
+        return false;
+    };
+
+    byte_col > 0
+        && byte_col < line.len()
+        && (line[byte_col - 1] == b' ' || line[byte_col - 1] == b'\t')
+        && line[byte_col] != b' '
+        && line[byte_col] != b'\t'
+}
+
 const BINARY_OPERATORS: &[&[u8]] = &[
     b"+", b"-", b"*", b"/", b"%", b"**", b"&", b"|", b"^", b"<<", b">>", b"<", b">", b"<=", b">=",
     b"<=>",
@@ -746,6 +944,14 @@ impl OperatorChecker<'_> {
     /// Check operator spacing for a "should have space" operator.
     /// Reports missing space or extra space around the operator.
     fn check_operator_spacing(&mut self, op_loc: &ruby_prism::Location<'_>) {
+        self.check_operator_spacing_with_trailing_anchor(op_loc, None);
+    }
+
+    fn check_operator_spacing_with_trailing_anchor(
+        &mut self,
+        op_loc: &ruby_prism::Location<'_>,
+        trailing_anchor: Option<usize>,
+    ) {
         let start = op_loc.start_offset();
         let end = op_loc.end_offset();
         let bytes = self.source.as_bytes();
@@ -779,7 +985,7 @@ impl OperatorChecker<'_> {
                 end + 1 < bytes.len() && bytes[end] == b' ' && bytes[end + 1] == b' ';
 
             if multi_space_before || multi_space_after {
-                self.check_extra_space(start, end, op_str, op_loc.as_slice());
+                self.check_extra_space(start, end, op_str, op_loc.as_slice(), trailing_anchor);
             }
             return;
         }
@@ -820,10 +1026,18 @@ impl OperatorChecker<'_> {
     }
 
     /// Check for extra space around an operator (already has at least one space on each side).
-    fn check_extra_space(&mut self, start: usize, end: usize, op_str: &str, op_bytes: &[u8]) {
+    fn check_extra_space(
+        &mut self,
+        start: usize,
+        end: usize,
+        op_str: &str,
+        op_bytes: &[u8],
+        trailing_anchor: Option<usize>,
+    ) {
         let bytes = self.source.as_bytes();
-        let multi_space_before = start >= 2 && bytes[start - 1] == b' ' && bytes[start - 2] == b' ';
-        let multi_space_after =
+        let mut multi_space_before =
+            start >= 2 && bytes[start - 1] == b' ' && bytes[start - 2] == b' ';
+        let mut multi_space_after =
             end + 1 < bytes.len() && bytes[end] == b' ' && bytes[end + 1] == b' ';
 
         if !multi_space_before && !multi_space_after {
@@ -837,24 +1051,39 @@ impl OperatorChecker<'_> {
                 ls -= 1;
             }
             if bytes[ls..start].iter().all(|&b| b == b' ' || b == b'\t') {
-                return;
+                multi_space_before = false;
             }
         }
 
-        // AllowForAlignment: skip if aligned with same operator on adjacent line
-        if self.allow_for_alignment && self.is_aligned_with_adjacent(start, op_bytes) {
-            return;
+        if self.allow_for_alignment
+            && multi_space_before
+            && self.is_aligned_with_adjacent(start, op_bytes)
+        {
+            multi_space_before = false;
         }
 
-        // Skip if trailing space extends to a comment on the same line
         if multi_space_after {
             let mut p = end;
             while p < bytes.len() && bytes[p] == b' ' {
                 p += 1;
             }
             if p < bytes.len() && bytes[p] == b'#' {
-                return;
+                multi_space_after = false;
+            } else if self.allow_for_alignment {
+                if let Some(anchor) = trailing_anchor {
+                    if is_aligned_rhs_standalone(self.source, anchor) {
+                        multi_space_after = false;
+                    }
+                } else if let Some(rhs_start) = first_non_whitespace_offset_after(bytes, end) {
+                    if is_aligned_rhs_standalone(self.source, rhs_start) {
+                        multi_space_after = false;
+                    }
+                }
             }
+        }
+
+        if !multi_space_before && !multi_space_after {
+            return;
         }
 
         // Find the extent of extra spaces before the operator
@@ -1218,6 +1447,22 @@ impl<'pr> Visit<'pr> for OperatorChecker<'_> {
         let op_loc = node.operator_loc();
         self.check_operator_spacing(&op_loc);
         ruby_prism::visit_singleton_class_node(self, node);
+    }
+
+    // === Hash rocket operator (=>) ===
+    fn visit_assoc_node(&mut self, node: &ruby_prism::AssocNode<'pr>) {
+        if let Some(op_loc) = node.operator_loc() {
+            if op_loc.as_slice() == b"=>" {
+                // Mark pair `=>` as AST-covered so the text scanner does not
+                // re-check it with the generic RHS rule.
+                self.reported_offsets.insert(op_loc.start_offset());
+                self.check_operator_spacing_with_trailing_anchor(
+                    &op_loc,
+                    Some(node.location().start_offset()),
+                );
+            }
+        }
+        ruby_prism::visit_assoc_node(self, node);
     }
 
     // === Rescue => operator ===
