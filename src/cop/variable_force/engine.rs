@@ -1105,10 +1105,10 @@ impl<'pr> Visit<'pr> for Engine<'_> {
     fn visit_forwarding_super_node(&mut self, node: &ruby_prism::ForwardingSuperNode<'pr>) {
         let offset = node.location().start_offset();
         let si = self.table.current_scope_index();
-        for var in self.table.accessible_variables_mut() {
-            if var.is_argument() {
-                var.reference(Reference::implicit(offset, si));
-            }
+        // Bare `super` forwards the enclosing method's arguments, not block params.
+        // Only mark method-scope arguments as implicitly referenced.
+        for var in self.table.enclosing_method_arguments_mut() {
+            var.reference(Reference::implicit(offset, si));
         }
         // Visit the block child so that `super do |x| ... end` declares
         // block params and visits the block body.

@@ -149,3 +149,40 @@ def one_opt_with_stabby(a = -> b { true }); end
 def call_node?(node, name:, args: ->(node) { true })
                                      ^^^^ Lint/UnusedBlockArgument: Unused block argument - `node`.
 end
+
+# Bare `super` inside a block should not mark block args as used —
+# super forwards enclosing method args, not block params
+def transaction(*args)
+  @connection.execute(false) do |conn|
+                                 ^^^^ Lint/UnusedBlockArgument: Unused block argument - `conn`.
+    super
+  end
+end
+
+# define_method block with super: block arg is unused
+class Renderer
+  class << self
+    %w{renderables}.each do |m|
+      define_method(m) do |*args|
+                            ^^^^ Lint/UnusedBlockArgument: Unused block argument - `args`.
+        super
+      end
+    end
+  end
+end
+
+# Another method with super inside block
+def log_yield(sql, conn)
+  instrument.span("SQL") do |span|
+                             ^^^^ Lint/UnusedBlockArgument: Unused block argument - `span`.
+    super
+  end
+end
+
+# define_method with non-splat param and super
+class Messageable
+  define_method(:email) do |object|
+                            ^^^^^^ Lint/UnusedBlockArgument: Unused block argument - `object`.
+    super
+  end
+end

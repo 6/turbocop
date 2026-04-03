@@ -189,14 +189,38 @@ impl VariableTable {
         a_ctx.parent_id == b_ctx.parent_id && a_ctx.child_index != b_ctx.child_index
     }
 
-    /// All variables accessible from the current scope (for `binding()`/`super`
-    /// which implicitly reference all accessible variables).
+    /// All variables accessible from the current scope (for `binding()`
+    /// which implicitly references all accessible variables).
     pub fn accessible_variables_mut(&mut self) -> Vec<&mut Variable> {
         let mut result = Vec::new();
         for scope in self.scope_stack.iter_mut().rev() {
             result.extend(scope.variables.values_mut());
             if scope.kind.is_hard() {
                 break;
+            }
+        }
+        result
+    }
+
+    /// Argument variables from the enclosing method scope (Def or Defs),
+    /// skipping intermediate Block scopes. Used for bare `super` which
+    /// forwards the enclosing method's arguments, not block params.
+    pub fn enclosing_method_arguments_mut(&mut self) -> Vec<&mut Variable> {
+        let mut result = Vec::new();
+        for scope in self.scope_stack.iter_mut().rev() {
+            match scope.kind {
+                ScopeKind::Block | ScopeKind::SingletonClass => {
+                    // Skip twisted scopes, continue to enclosing method
+                    continue;
+                }
+                ScopeKind::Def | ScopeKind::Defs => {
+                    result.extend(scope.variables.values_mut().filter(|v| v.is_argument()));
+                    break;
+                }
+                _ => {
+                    // Hard scope (Class, Module, TopLevel) with no method
+                    break;
+                }
             }
         }
         result
