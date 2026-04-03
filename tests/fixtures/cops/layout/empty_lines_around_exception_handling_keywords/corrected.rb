@@ -38,3 +38,15 @@ end
 def parse(s, opts={})
   do_parse(s, opts || {}) rescue nil
 end
+
+handler = -> do
+  begin
+    work
+  rescue => e
+    handle
+  end
+
+  return_value
+ensure
+  cleanup
+end

@@ -12,10 +12,14 @@ use crate::parse::source::SourceFile;
 ///
 /// The raw line scan previously treated every line-start `rescue`/`ensure`/`else`
 /// as a candidate, which created false positives for `class`/`module` body
-/// rescues and for `=begin` comment blocks. The fix narrows detection to keyword
-/// lines collected from the Prism owners RuboCop actually checks (`def`, block,
-/// and explicit `begin`) while still handling sole-body rescue modifiers and
-/// skipping all non-code ranges, including comments.
+/// rescues and for `=begin` comment blocks. Detection is narrowed to keyword
+/// lines collected from the Prism owners RuboCop actually checks: `def`, block,
+/// lambda, and explicit `begin`.
+///
+/// FN fix: Prism represents `-> do ... ensure ... end` as `LambdaNode`, not a
+/// `BlockNode`, so lambda-body `ensure` keywords were never collected and the
+/// blank line before them was missed. Visiting `LambdaNode` keeps the scan
+/// narrow while matching RuboCop on lambda `rescue`/`ensure` bodies.
 pub struct EmptyLinesAroundExceptionHandlingKeywords;
 
 const KEYWORDS: &[&[u8]] = &[b"rescue", b"ensure", b"else"];
@@ -201,6 +205,18 @@ impl<'pr> Visit<'pr> for ExceptionKeywordLineCollector<'_> {
         }
 
         ruby_prism::visit_block_node(self, node);
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        let (owner_line, _) = self
+            .source
+            .offset_to_line_col(node.location().start_offset());
+        if let Some(body) = node.body() {
+            self.collect_body_keywords(&body);
+            self.collect_sole_body_modifier(&body, owner_line);
+        }
+
+        ruby_prism::visit_lambda_node(self, node);
     }
 
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
