@@ -299,6 +299,7 @@ impl ConditionalAssignment {
         diagnostics.push(self.diagnostic(source, line, col, MSG.to_string()));
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_branches(
         &self,
         source: &SourceFile,
@@ -402,17 +403,10 @@ fn get_assignment_info(node: &ruby_prism::Node<'_>) -> Option<AssignInfo> {
     // Setter call: obj.method= value or obj[key]= value
     if let Some(call) = node.as_call_node() {
         let method = call.name().as_slice();
-        if method_identifier_predicates::is_setter_method(method) {
-            let recv_src = call.receiver().map_or(String::new(), |r| {
-                String::from_utf8_lossy(r.location().as_slice()).to_string()
-            });
-            let method_str = String::from_utf8_lossy(method);
-            let method_base = &method_str[..method_str.len().saturating_sub(1)];
-            return Some(AssignInfo {
-                key: format!("send:{}.{}", recv_src, method_str),
-                lhs_text: format!("{}.{} = ", recv_src, method_base),
-            });
-        }
+        // Check []= BEFORE is_setter_method — is_setter_method matches any
+        // name ending with `=`, which includes `[]=`.  The generic setter path
+        // ignores the index arguments, so `flash[:success]=` and
+        // `flash[:error]=` would incorrectly share the same assignment key.
         if method == b"[]=" {
             let recv_src = call.receiver().map_or(String::new(), |r| {
                 String::from_utf8_lossy(r.location().as_slice()).to_string()
@@ -432,6 +426,17 @@ fn get_assignment_info(node: &ruby_prism::Node<'_>) -> Option<AssignInfo> {
                 }
             }
             return None;
+        }
+        if method_identifier_predicates::is_setter_method(method) {
+            let recv_src = call.receiver().map_or(String::new(), |r| {
+                String::from_utf8_lossy(r.location().as_slice()).to_string()
+            });
+            let method_str = String::from_utf8_lossy(method);
+            let method_base = &method_str[..method_str.len().saturating_sub(1)];
+            return Some(AssignInfo {
+                key: format!("send:{}.{}", recv_src, method_str),
+                lhs_text: format!("{}.{} = ", recv_src, method_base),
+            });
         }
     }
     // Operator assignments: x += 1
@@ -505,9 +510,8 @@ fn exceeds_line_limit(
         let base_len = if i == 0 { node_col } else { 0 };
         // Try to remove the LHS from this line (at line start after whitespace)
         let trimmed = line.trim_start();
-        let remaining = if trimmed.starts_with(lhs_trimmed) {
-            let rest = &trimmed[lhs_trimmed.len()..];
-            let rest = rest.trim_start();
+        let remaining = if let Some(stripped) = trimmed.strip_prefix(lhs_trimmed) {
+            let rest = stripped.trim_start();
             let leading_ws = line.len() - trimmed.len();
             base_len + leading_ws + rest.len()
         } else {

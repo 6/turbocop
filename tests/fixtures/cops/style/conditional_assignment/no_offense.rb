@@ -51,6 +51,23 @@ else
   do_something
 end
 
+# if/else with index setter assigning to different keys should not be flagged
+if result.success?
+  flash[:notice] = "Success"
+else
+  flash[:error] = "Failed"
+end
+
+# case/when with index setter assigning to different keys
+case action
+when :create
+  flash[:success] = "Created"
+when :update
+  flash[:notice] = "Updated"
+else
+  flash[:error] = "Failed"
+end
+
 # if/else with correction exceeding line length should not be flagged
 if ActionView::Base.respond_to?(:with_empty_template_cache) && ActionView::Base.respond_to?(:with_view_paths)
   @apipie_renderer = ActionView::Base.with_empty_template_cache.with_view_paths(base_paths + layouts_paths)
