@@ -592,12 +592,12 @@ def spot_check_examples(cop_name: str, data: dict) -> tuple[int, int, int, int, 
     by_cop = {c["cop"]: c for c in data.get("by_cop", [])}
     cop_data = by_cop.get(cop_name)
     if not cop_data:
-        return 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0
 
     fp_examples = cop_data.get("fp_examples", [])
     fn_examples = cop_data.get("fn_examples", [])
     if not fp_examples and not fn_examples:
-        return 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0
 
     corpus_dir = _get_corpus_dir()
 

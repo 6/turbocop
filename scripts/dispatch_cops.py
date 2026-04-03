@@ -91,6 +91,20 @@ VARIABLE_FORCE_CONSUMERS = {
     "Rails/SaveBang",
 }
 
+# Cops that consume the shared MethodComplexity engine. Changes to
+# src/cop/metrics/method_complexity.rs should trigger corpus checks for both.
+METHOD_COMPLEXITY_CONSUMERS = {
+    "Metrics/CyclomaticComplexity",
+    "Metrics/PerceivedComplexity",
+}
+
+# Cops that consume the shared HashSubset helper. Changes to
+# src/cop/style/hash_subset.rs should trigger corpus checks for both.
+HASH_SUBSET_CONSUMERS = {
+    "Style/HashExcept",
+    "Style/HashSlice",
+}
+
 # Cops that consume the shared HashTransformMethod helper. Changes to
 # src/cop/style/hash_transform_method.rs should trigger corpus checks for both.
 HASH_TRANSFORM_CONSUMERS = {
@@ -1542,6 +1556,12 @@ def detect_cops(base: str, head: str) -> list[str]:
             if dept == "variable_force":
                 # Engine changes affect all VF consumer cops
                 cops.update(VARIABLE_FORCE_CONSUMERS)
+            elif name == "method_complexity":
+                # Shared engine changes affect both complexity cops
+                cops.update(METHOD_COMPLEXITY_CONSUMERS)
+            elif name == "hash_subset":
+                # Shared helper changes affect both hash subset cops
+                cops.update(HASH_SUBSET_CONSUMERS)
             elif name == "hash_transform_method":
                 # Shared helper changes affect both transform cops
                 cops.update(HASH_TRANSFORM_CONSUMERS)
