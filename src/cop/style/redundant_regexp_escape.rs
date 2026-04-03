@@ -37,6 +37,16 @@ use crate::parse::source::SourceFile;
 /// `/(?:#{id}|#{op}+\`[^`]+`)/` are still reported by RuboCop, so that guard
 /// was overfit and suppressed legitimate diagnostics. Removing it restores the
 /// missing offenses while the narrower block-call quirk remains in place.
+///
+/// ## Investigation (2026-04-03)
+///
+/// **FP fix (2 FP):** RuboCop blanks interpolations before handing `/x`
+/// regexps to `regexp_parser`. When an interpolation is the first atom in an
+/// alternation branch and is followed by `+`, `*`, or `?`, blanking it leaves
+/// a branch-start quantifier (for example `|#{x}+` becomes `|   +`), so
+/// `parsed_tree` is `nil` and RuboCop skips the entire regexp. The earlier
+/// "quantifier after interpolation" guard was too broad; the correct narrow
+/// match is only the branch-start `/x` case.
 pub struct RedundantRegexpEscape;
 
 /// Characters that need escaping OUTSIDE a character class in regexp
@@ -141,6 +151,13 @@ impl Cop for RedundantRegexpEscape {
             }
         }
 
+        if scan_full_interpolated
+            && flags.extended
+            && blanked_interpolation_leaves_branch_start_quantifier(&content)
+        {
+            return;
+        }
+
         check_regexp_fragment(
             self,
             source,
@@ -208,6 +225,208 @@ fn followed_by_block_opener(source: &[u8], mut offset: usize) -> bool {
     }
 
     false
+}
+
+fn blanked_interpolation_leaves_branch_start_quantifier(content: &[u8]) -> bool {
+    let mut i = 0;
+    let mut char_class_depth = 0usize;
+    let mut branch_has_atom = false;
+
+    while i < content.len() {
+        let current = content[i];
+        let in_char_class = char_class_depth > 0;
+
+        if current == INTERPOLATION_BOUNDARY {
+            if !in_char_class
+                && !branch_has_atom
+                && next_significant_token_is_simple_quantifier(content, i + 1)
+            {
+                return true;
+            }
+            i += 1;
+            continue;
+        }
+
+        if !in_char_class && current == b'#' && is_unescaped(content, i) {
+            i += 1;
+            while i < content.len() && content[i] != b'\n' && content[i] != b'\r' {
+                i += 1;
+            }
+            continue;
+        }
+
+        if current == b'[' && is_unescaped(content, i) {
+            if in_char_class && let Some(next_i) = skip_named_character_class(content, i) {
+                i = next_i;
+                continue;
+            }
+            char_class_depth += 1;
+            branch_has_atom = false;
+            i += 1;
+            continue;
+        }
+
+        if current == b']' && in_char_class && is_unescaped(content, i) {
+            char_class_depth -= 1;
+            if char_class_depth == 0 {
+                branch_has_atom = true;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_char_class {
+            i += 1;
+            continue;
+        }
+
+        if current.is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+
+        if current == b'\\' && i + 1 < content.len() {
+            let escaped = content[i + 1];
+
+            if escaped == b'\n' {
+                i += 2;
+                continue;
+            }
+
+            if escaped == b'\r' {
+                i += 2;
+                if i < content.len() && content[i] == b'\n' {
+                    i += 1;
+                }
+                continue;
+            }
+
+            branch_has_atom = escaped_creates_quantifiable_atom(escaped);
+            i += 2;
+            continue;
+        }
+
+        if current == b'(' && is_unescaped(content, i) {
+            branch_has_atom = false;
+            if let Some(next_i) = skip_special_group_prefix(content, i) {
+                i = next_i;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        if current == b')' && is_unescaped(content, i) {
+            branch_has_atom = true;
+            i += 1;
+            continue;
+        }
+
+        if current == b'|' && is_unescaped(content, i) {
+            branch_has_atom = false;
+            i += 1;
+            continue;
+        }
+
+        if matches!(current, b'^' | b'$') && is_unescaped(content, i) {
+            branch_has_atom = false;
+            i += 1;
+            continue;
+        }
+
+        if matches!(current, b'*' | b'+' | b'?') && is_unescaped(content, i) {
+            i += 1;
+            continue;
+        }
+
+        branch_has_atom = true;
+        i += 1;
+    }
+
+    false
+}
+
+fn next_significant_token_is_simple_quantifier(content: &[u8], mut idx: usize) -> bool {
+    while idx < content.len() {
+        let current = content[idx];
+
+        if current == INTERPOLATION_BOUNDARY || current.is_ascii_whitespace() {
+            idx += 1;
+            continue;
+        }
+
+        if current == b'#' && is_unescaped(content, idx) {
+            idx += 1;
+            while idx < content.len() && content[idx] != b'\n' && content[idx] != b'\r' {
+                idx += 1;
+            }
+            continue;
+        }
+
+        return matches!(current, b'*' | b'+' | b'?') && is_unescaped(content, idx);
+    }
+
+    false
+}
+
+fn escaped_creates_quantifiable_atom(escaped: u8) -> bool {
+    !matches!(escaped, b'A' | b'b' | b'B' | b'G' | b'K' | b'z' | b'Z')
+}
+
+fn skip_special_group_prefix(content: &[u8], start: usize) -> Option<usize> {
+    if content.get(start + 1) != Some(&b'?') {
+        return None;
+    }
+
+    let marker = *content.get(start + 2)?;
+    match marker {
+        b':' | b'=' | b'!' | b'>' => Some(start + 3),
+        b'<' => match content.get(start + 3).copied() {
+            Some(b'=' | b'!') => Some(start + 4),
+            Some(_) => {
+                let mut idx = start + 3;
+                while idx < content.len() {
+                    if content[idx] == b'>' && is_unescaped(content, idx) {
+                        return Some(idx + 1);
+                    }
+                    idx += 1;
+                }
+                Some(content.len())
+            }
+            None => Some(content.len()),
+        },
+        b'\'' => {
+            let mut idx = start + 3;
+            while idx < content.len() {
+                if content[idx] == b'\'' && is_unescaped(content, idx) {
+                    return Some(idx + 1);
+                }
+                idx += 1;
+            }
+            Some(content.len())
+        }
+        b'#' => {
+            let mut idx = start + 3;
+            while idx < content.len() {
+                if content[idx] == b')' && is_unescaped(content, idx) {
+                    return Some(idx + 1);
+                }
+                idx += 1;
+            }
+            Some(content.len())
+        }
+        b'-' | b'a'..=b'z' | b'A'..=b'Z' => {
+            let mut idx = start + 2;
+            while idx < content.len() {
+                if matches!(content[idx], b':' | b')') && is_unescaped(content, idx) {
+                    return Some(idx + 1);
+                }
+                idx += 1;
+            }
+            Some(content.len())
+        }
+        _ => Some(start + 2),
+    }
 }
 
 fn append_bytes_with_offsets(
