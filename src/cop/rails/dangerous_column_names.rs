@@ -5,6 +5,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// FN fix: removed the receiver check for column type methods (e.g. `primary_key :id`).
+/// RuboCop does not require a receiver — bare calls like `primary_key :id` inside
+/// `create_table` blocks (common in Sequel migrations) are valid offenses.
+/// The previous code returned early when `call.receiver().is_none()` for column type
+/// methods, causing 53 FN across corpus repos (apexatoll/aoc-cli, srcclr/commit-watcher,
+/// michenriksen/birdwatcher, etc.).
 pub struct DangerousColumnNames;
 
 /// Column type method names (matching vendor COLUMN_TYPE_METHOD_NAMES).
@@ -448,9 +454,6 @@ impl Cop for DangerousColumnNames {
         } else if method == b"rename_column" {
             2
         } else if COLUMN_TYPE_METHODS.contains(&method) {
-            if call.receiver().is_none() {
-                return;
-            }
             0
         } else {
             return;
