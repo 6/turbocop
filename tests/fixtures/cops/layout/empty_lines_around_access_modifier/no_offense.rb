@@ -309,3 +309,38 @@ when "sqlserver"
     end
   end
 end
+
+# Class constructor blocks chained with `.new` are still valid visibility scopes.
+class ConstructorChain
+  def build
+    obj = Class.new do
+      private
+
+      def private_property
+      end
+
+      protected
+
+      def protected_property
+      end
+    end.new
+  end
+end
+
+# Module constructor blocks passed as call arguments accept the same spacing.
+class Wrapper
+  include(Module.new do
+    private
+
+    def helper
+    end
+  end)
+end
+
+# Brace-block module constructors passed as call arguments also accept blank lines.
+Runner.singleton_class.prepend Module.new {
+  private
+
+    def list_tests
+    end
+}
