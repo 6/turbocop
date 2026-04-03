@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     BLOCK_ARGUMENT_NODE, CALL_NODE, FORWARDING_ARGUMENTS_NODE, HASH_NODE, KEYWORD_HASH_NODE,
     SPLAT_NODE,
 };

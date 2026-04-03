@@ -1,5 +1,6 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 /// ## Corpus investigation (2026-03-08)
@@ -23,8 +24,8 @@ use crate::parse::source::SourceFile;
 /// embedded URLs in query parameters (e.g. `&url=http://...`). The old code
 /// picked only the last (rightmost) scheme match, whose start was past `max`,
 /// so the line was flagged. RuboCop's `URI::DEFAULT_PARSER.make_regexp` matches
-/// the entire first URL including query params. Fixed by checking ALL URI matches
-/// and accepting the line if any satisfies `allowed_position?`.
+/// the whole outer URL as a single match, so the fix is to tokenize URI-like
+/// segments the same way and then apply RuboCop's "last URI match wins" rule.
 ///
 /// ## Corpus investigation (2026-03-30)
 ///
@@ -35,6 +36,30 @@ use crate::parse::source::SourceFile;
 /// `Max` were missed. Applying that rule unconditionally regressed a handful of
 /// shallow one-to-three-tab lines in older corpus repos, so the fix is narrowed
 /// to deeper tab-indented lines where the corpus FN concentration lives.
+///
+/// ## Corpus investigation (2026-04-01)
+///
+/// FNs in Arachni came from the raw `<<` scanner treating commented string
+/// concatenation like `<<'taint_tracer.js><SCRIPT src'` as a quoted heredoc
+/// opener, then skipping the rest of the file while waiting for a fake
+/// terminator. The fix stops guessing from raw source and instead uses Prism's
+/// `CodeMap` to skip only real heredoc body lines.
+///
+/// ## Corpus investigation (2026-04-01)
+///
+/// FNs in markdown links, XML attribute literals, and block lines ending in
+/// `}` came from `AllowURI` checking every scheme start on the line. That let
+/// an earlier URI before `Max` inherit RuboCop's brace/word extension and
+/// exempt the whole line, even when RuboCop would use the last URI match and
+/// still flag it. The fix restores "last URI wins" while keeping embedded
+/// query-param URLs as one outer match.
+///
+/// ## Corpus investigation (2026-04-02)
+///
+/// FNs in specs with `code # rubocop:disable Layout/LineLength` came from this
+/// cop's local directive parser treating inline disables as block disables.
+/// RuboCop and `parse/directives.rs` only suppress that single line; later long
+/// lines must still be checked until a standalone disable opens a real range.
 pub struct LineLength;
 
 impl Cop for LineLength {
@@ -44,192 +69,307 @@ impl Cop for LineLength {
 
     fn check_lines(
         &self,
+        _source: &SourceFile,
+        _config: &CopConfig,
+        _diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+    }
+
+    fn check_source(
+        &self,
         source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let max = config.get_usize("Max", 120);
-        let indentation_width = config.get_usize("IndentationWidth", 2);
-        let allow_heredoc = config.get_bool("AllowHeredoc", true);
-        let allow_uri = config.get_bool("AllowURI", true);
-        let allow_qualified_name = config.get_bool("AllowQualifiedName", true);
-        let uri_schemes = config
-            .get_string_array("URISchemes")
-            .unwrap_or_else(|| vec!["http".into(), "https".into()]);
-        let allow_rbs = config.get_bool("AllowRBSInlineAnnotation", false);
-        let allow_cop_directives = config.get_bool("AllowCopDirectives", true);
-        let allowed_patterns = config
-            .get_string_array("AllowedPatterns")
+        check_line_lengths(self, source, code_map, config, diagnostics);
+    }
+}
+
+fn check_line_lengths(
+    cop: &LineLength,
+    source: &SourceFile,
+    code_map: &CodeMap,
+    config: &CopConfig,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let max = config.get_usize("Max", 120);
+    let indentation_width = config.get_usize("IndentationWidth", 2);
+    let allow_heredoc = config.get_bool("AllowHeredoc", true);
+    let allow_uri = config.get_bool("AllowURI", true);
+    let allow_qualified_name = config.get_bool("AllowQualifiedName", true);
+    let uri_schemes = config
+        .get_string_array("URISchemes")
+        .unwrap_or_else(|| vec!["http".into(), "https".into()]);
+    let allow_rbs = config.get_bool("AllowRBSInlineAnnotation", false);
+    let allow_cop_directives = config.get_bool("AllowCopDirectives", true);
+    let allowed_patterns = config
+        .get_string_array("AllowedPatterns")
+        .unwrap_or_default();
+    // SplitStrings is an autocorrection-only option; read it for config_audit compliance
+    // but it has no effect on offense detection (only on how offenses are auto-fixed).
+    let _split_strings = config.get_bool("SplitStrings", false);
+    // Pre-compile allowed patterns (may include Ruby regex syntax like /pattern/)
+    let compiled_patterns: Vec<regex::Regex> = allowed_patterns
+        .iter()
+        .filter_map(|p| {
+            let pattern = normalize_ruby_regex(p);
+            regex::Regex::new(&pattern).ok()
+        })
+        .collect();
+    let uri_regex = allow_uri.then(|| compile_uri_regex(&uri_schemes));
+
+    let lines: Vec<&[u8]> = source.lines().collect();
+    let mut line_length_disabled = false;
+
+    for (i, raw_line) in lines.iter().enumerate() {
+        if allow_heredoc && line_overlaps_heredoc(source, code_map, i + 1, raw_line) {
+            continue;
+        }
+        let line = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+        let line_str = std::str::from_utf8(line).ok();
+        let directive_state = line_str
+            .map(parse_line_length_directive)
             .unwrap_or_default();
-        // SplitStrings is an autocorrection-only option; read it for config_audit compliance
-        // but it has no effect on offense detection (only on how offenses are auto-fixed).
-        let _split_strings = config.get_bool("SplitStrings", false);
-        // Pre-compile allowed patterns (may include Ruby regex syntax like /pattern/)
-        let compiled_patterns: Vec<regex::Regex> = allowed_patterns
-            .iter()
-            .filter_map(|p| {
-                let pattern = normalize_ruby_regex(p);
-                regex::Regex::new(&pattern).ok()
-            })
-            .collect();
+        let current_line_disabled = line_length_disabled || directive_state.disables_current_line;
+        line_length_disabled = directive_state.apply(line_length_disabled);
+        if current_line_disabled {
+            continue;
+        }
 
-        let lines: Vec<&[u8]> = source.lines().collect();
-        // Stack of pending heredoc terminators — a single line can open multiple
-        // heredocs (e.g. `expect(<<~HTML).to eq(<<~TEXT)`), and their bodies appear
-        // sequentially.  We collect ALL openers from the opening line and consume
-        // them one by one as each terminator is encountered.
-        let mut heredoc_terminators: Vec<Vec<u8>> = Vec::new();
+        // RuboCop measures line length in characters, not bytes.
+        // For multi-byte UTF-8 (e.g. accented chars), byte length > char length.
+        let char_len = match line_str {
+            Some(s) => s.chars().count(),
+            None => line.len(), // fallback to bytes for invalid UTF-8
+        };
+        let effective_len = char_len + indentation_difference(line, indentation_width);
 
-        for (i, line) in lines.iter().enumerate() {
-            // Track heredoc regions — check if the current line closes the
-            // active (first) heredoc.
-            if let Some(terminator) = heredoc_terminators.first() {
-                let trimmed: Vec<u8> = line
-                    .iter()
-                    .copied()
-                    .skip_while(|&b| b == b' ' || b == b'\t')
-                    .collect();
-                if trimmed == *terminator
-                    || trimmed.strip_suffix(b"\r").unwrap_or(&trimmed) == terminator.as_slice()
-                {
-                    heredoc_terminators.remove(0);
-                    // If there are more pending heredocs, the next line starts
-                    // the next heredoc body — skip the terminator line's length
-                    // check only when inside a heredoc.
-                    if !heredoc_terminators.is_empty() && allow_heredoc {
+        if effective_len <= max {
+            continue;
+        }
+
+        // AllowCopDirectives: skip lines that are only long because of a rubocop directive comment
+        if allow_cop_directives {
+            if let Some(line_str) = line_str {
+                if let Some(comment_start) = line_str.find("# rubocop:") {
+                    let without_directive_chars =
+                        line_str[..comment_start].trim_end().chars().count();
+                    if without_directive_chars <= max {
                         continue;
                     }
-                } else if allow_heredoc {
-                    continue; // Skip length check inside heredoc
                 }
             }
+        }
 
-            // Detect heredoc openers — scan all `<<` occurrences since `<<` can
-            // also be the shovel operator (e.g. `file << <<~HEREDOC`).
-            // Collect ALL heredoc identifiers from the line into the stack.
-            if heredoc_terminators.is_empty() {
-                let mut search_from = 0;
-                while let Some(rel_pos) = line[search_from..].windows(2).position(|w| w == b"<<") {
-                    let pos = search_from + rel_pos;
-                    search_from = pos + 2;
-                    let after = &line[pos + 2..];
-                    let after = if after.starts_with(b"~") || after.starts_with(b"-") {
-                        &after[1..]
-                    } else {
-                        after
-                    };
-                    let (after, _) = if after.starts_with(b"'") || after.starts_with(b"\"") {
-                        let quote = after[0];
-                        if let Some(end) = after[1..].iter().position(|&b| b == quote) {
-                            (&after[1..1 + end], true)
-                        } else {
-                            (after, false)
-                        }
-                    } else {
-                        (after, false)
-                    };
-                    let ident: Vec<u8> = after
-                        .iter()
-                        .copied()
-                        .take_while(|&b| b.is_ascii_alphanumeric() || b == b'_')
-                        .collect();
-                    if !ident.is_empty() {
-                        heredoc_terminators.push(ident);
-                        // Continue scanning for more heredoc openers on this line
-                    }
-                }
-            }
-
-            // RuboCop measures line length in characters, not bytes.
-            // For multi-byte UTF-8 (e.g. accented chars), byte length > char length.
-            let char_len = match std::str::from_utf8(line) {
-                Ok(s) => s.chars().count(),
-                Err(_) => line.len(), // fallback to bytes for invalid UTF-8
-            };
-            let effective_len = char_len + indentation_difference(line, indentation_width);
-
-            if effective_len <= max {
-                continue;
-            }
-
-            // AllowCopDirectives: skip lines that are only long because of a rubocop directive comment
-            if allow_cop_directives {
-                if let Ok(line_str) = std::str::from_utf8(line) {
-                    if let Some(comment_start) = line_str.find("# rubocop:") {
-                        let without_directive_chars =
+        // AllowRBSInlineAnnotation: skip lines with RBS type annotation comments (#: ...)
+        if allow_rbs {
+            if let Some(line_str) = line_str {
+                if let Some(comment_start) = line_str.find("#:") {
+                    // Check that #: is actually an RBS annotation (preceded by space or at start)
+                    let is_rbs = comment_start == 0
+                        || line_str.as_bytes()[comment_start - 1] == b' '
+                        || line_str.as_bytes()[comment_start - 1] == b'\t';
+                    if is_rbs {
+                        let without_rbs_chars =
                             line_str[..comment_start].trim_end().chars().count();
-                        if without_directive_chars <= max {
+                        if without_rbs_chars <= max {
                             continue;
                         }
                     }
                 }
             }
+        }
 
-            // AllowRBSInlineAnnotation: skip lines with RBS type annotation comments (#: ...)
-            if allow_rbs {
-                if let Ok(line_str) = std::str::from_utf8(line) {
-                    if let Some(comment_start) = line_str.find("#:") {
-                        // Check that #: is actually an RBS annotation (preceded by space or at start)
-                        let is_rbs = comment_start == 0
-                            || line_str.as_bytes()[comment_start - 1] == b' '
-                            || line_str.as_bytes()[comment_start - 1] == b'\t';
-                        if is_rbs {
-                            let without_rbs_chars =
-                                line_str[..comment_start].trim_end().chars().count();
-                            if without_rbs_chars <= max {
-                                continue;
-                            }
-                        }
-                    }
+        // AllowedPatterns: skip lines matching any pattern
+        if !compiled_patterns.is_empty() {
+            if let Some(line_str) = line_str {
+                if compiled_patterns.iter().any(|re| re.is_match(line_str)) {
+                    continue;
                 }
             }
+        }
 
-            // AllowURI: skip lines containing a URI that makes them long.
-            // Matches RuboCop's `allowed_position?` logic: the URI (after extension)
-            // must start before `max` AND extend to the end of the line.
-            if allow_uri {
-                if let Ok(line_str) = std::str::from_utf8(line) {
-                    if uri_extends_to_end(line_str, &uri_schemes, max, indentation_width) {
-                        continue;
-                    }
+        if allow_uri || allow_qualified_name {
+            if let Some(line_str) = line_str {
+                let line_length =
+                    line_str.chars().count() + indentation_difference(line, indentation_width);
+                let uri_range = allow_uri
+                    .then(|| {
+                        uri_range_if_applicable(
+                            line_str,
+                            uri_regex.as_ref().and_then(|re| re.as_ref()),
+                            max,
+                            indentation_width,
+                            line_length,
+                            source.line_start_offset(i + 1),
+                            code_map,
+                        )
+                    })
+                    .flatten();
+                let qualified_name_range = allow_qualified_name
+                    .then(|| {
+                        qualified_name_range_if_applicable(
+                            line_str,
+                            max,
+                            indentation_width,
+                            line_length,
+                        )
+                    })
+                    .flatten();
+                if allowed_combination(uri_range, qualified_name_range, max, line_length) {
+                    continue;
                 }
             }
+        }
 
-            // AllowedPatterns: skip lines matching any pattern
-            if !compiled_patterns.is_empty() {
-                if let Ok(line_str) = std::str::from_utf8(line) {
-                    if compiled_patterns.iter().any(|re| re.is_match(line_str)) {
-                        continue;
-                    }
-                }
-            }
+        diagnostics.push(cop.diagnostic(
+            source,
+            i + 1,
+            max.saturating_sub(indentation_difference(line, indentation_width)),
+            format!("Line is too long. [{}/{}]", effective_len, max),
+        ));
+    }
+}
 
-            // AllowQualifiedName: skip lines where a qualified name (Foo::Bar::Baz)
-            // makes the line too long. Works like AllowURI: the qualified name must
-            // start before max AND extend to the end of the line (after extending).
-            if allow_qualified_name {
-                if let Ok(line_str) = std::str::from_utf8(line) {
-                    if qualified_name_extends_to_end(line_str, max, indentation_width) {
-                        continue;
-                    }
-                }
-            }
+#[derive(Clone, Copy)]
+struct ExemptionRange {
+    begin: usize,
+    end: usize,
+}
 
-            diagnostics.push(self.diagnostic(
-                source,
-                i + 1,
-                max.saturating_sub(indentation_difference(line, indentation_width)),
-                format!("Line is too long. [{}/{}]", effective_len, max),
-            ));
+#[derive(Clone, Copy, Default)]
+struct DirectiveState {
+    disables_current_line: bool,
+    starts_block_disable: bool,
+    ends_block_disable: bool,
+}
+
+impl DirectiveState {
+    fn apply(self, current: bool) -> bool {
+        if self.ends_block_disable {
+            false
+        } else if self.starts_block_disable {
+            true
+        } else {
+            current
         }
     }
+}
+
+fn parse_line_length_directive(line: &str) -> DirectiveState {
+    let mut state = DirectiveState::default();
+    let Some(comment_start) = line.find('#') else {
+        return state;
+    };
+    let is_inline_comment = line[..comment_start]
+        .chars()
+        .any(|char| !char.is_whitespace());
+
+    for (needle, is_disable) in [("# rubocop:disable", true), ("# rubocop:enable", false)] {
+        let mut search_from = comment_start;
+        while let Some(pos) = line[search_from..].find(needle) {
+            let directive_start = search_from + pos + needle.len();
+            if directive_mentions_line_length(&line[directive_start..]) {
+                if is_disable {
+                    state.disables_current_line = true;
+                    if !is_inline_comment {
+                        state.starts_block_disable = true;
+                    }
+                } else if !is_inline_comment {
+                    state.ends_block_disable = true;
+                }
+            }
+            search_from = directive_start;
+        }
+    }
+
+    state
+}
+
+fn directive_mentions_line_length(rest: &str) -> bool {
+    rest.trim_start().split(',').map(str::trim).any(|token| {
+        let normalized = token.replace(':', "/");
+        matches!(
+            normalized.as_str(),
+            "all" | "LineLength" | "Layout/LineLength" | "Metrics/LineLength"
+        )
+    })
+}
+
+fn allowed_combination(
+    uri_range: Option<ExemptionRange>,
+    qualified_name_range: Option<ExemptionRange>,
+    max: usize,
+    line_length: usize,
+) -> bool {
+    match (uri_range, qualified_name_range) {
+        (Some(uri_range), Some(qualified_name_range)) => {
+            allowed_position(uri_range, max, line_length)
+                && allowed_position(qualified_name_range, max, line_length)
+        }
+        (Some(uri_range), None) => allowed_position(uri_range, max, line_length),
+        (None, Some(qualified_name_range)) => {
+            allowed_position(qualified_name_range, max, line_length)
+        }
+        (None, None) => false,
+    }
+}
+
+fn allowed_position(range: ExemptionRange, max: usize, line_length: usize) -> bool {
+    range.begin < max && range.end == line_length
+}
+
+fn range_if_applicable(
+    begin: usize,
+    end: usize,
+    max: usize,
+    line_length: usize,
+) -> Option<ExemptionRange> {
+    if begin < max && end < max {
+        return None;
+    }
+
+    let range = ExemptionRange { begin, end };
+    if range.begin > line_length || range.end > line_length {
+        return None;
+    }
+
+    Some(range)
+}
+
+fn extend_end_position(line: &str, mut end_pos: usize) -> usize {
+    // Step 1: YARD brace extension — RuboCop checks /{(\s|\S)*}$/
+    // which matches any line that has a `{` somewhere and ends with `}`.
+    if line.contains('{') && line.ends_with('}') {
+        if let Some(brace_pos) = line[end_pos..].rfind('}') {
+            end_pos += brace_pos + 1;
+        }
+    }
+
+    // Step 2: Extend to next word boundary — /^\S+(?=\s|$)/
+    let rest = &line[end_pos..];
+    let non_ws_len = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
+    end_pos += non_ws_len;
+    end_pos
+}
+
+fn display_position(line: &str, byte_pos: usize, indentation_width: usize) -> usize {
+    line[..byte_pos].chars().count() + indentation_difference(line.as_bytes(), indentation_width)
 }
 
 /// Check if the last qualified name match in the line extends to the end of the line
 /// AND starts before `max`. This matches RuboCop's `allowed_position?` logic for
 /// qualified names (e.g. `Foo::Bar::Baz`).
-fn qualified_name_extends_to_end(line: &str, max: usize, indentation_width: usize) -> bool {
+fn qualified_name_range_if_applicable(
+    line: &str,
+    max: usize,
+    indentation_width: usize,
+    line_length: usize,
+) -> Option<ExemptionRange> {
     // Match qualified names: one or more uppercase-starting segments joined by ::
     // Pattern from RuboCop: /\b(?:[A-Z][A-Za-z0-9_]*::)+[A-Za-z_][A-Za-z0-9_]*\b/
     // Find the last occurrence
@@ -257,28 +397,92 @@ fn qualified_name_extends_to_end(line: &str, max: usize, indentation_width: usiz
         i += 1;
     }
 
-    let (start, end) = match last_match {
-        Some(m) => m,
-        None => return false,
-    };
+    let (start, end) = last_match?;
+    let end_pos = extend_end_position(line, end);
+    range_if_applicable(
+        display_position(line, start, indentation_width),
+        display_position(line, end_pos, indentation_width),
+        max,
+        line_length,
+    )
+}
 
-    // Extend end position (matching RuboCop's extend_end_position):
-    // 1. YARD brace extension
-    let mut end_pos = end;
-    if line.contains('{') && line.ends_with('}') {
-        if let Some(brace_pos) = line[end_pos..].rfind('}') {
-            end_pos += brace_pos + 1;
+fn uri_range_if_applicable(
+    line: &str,
+    uri_regex: Option<&regex::Regex>,
+    max: usize,
+    indentation_width: usize,
+    line_length: usize,
+    line_start_offset: usize,
+    code_map: &CodeMap,
+) -> Option<ExemptionRange> {
+    let uri_regex = uri_regex?;
+    let last_match =
+        merge_query_linked_uri_matches(line, uri_regex, line_start_offset, code_map).pop()?;
+    let end_pos = extend_end_position(line, last_match.end);
+    range_if_applicable(
+        display_position(line, last_match.start, indentation_width),
+        display_position(line, end_pos, indentation_width),
+        max,
+        line_length,
+    )
+}
+
+#[derive(Clone, Copy)]
+struct UriMatch {
+    start: usize,
+    end: usize,
+}
+
+fn merge_query_linked_uri_matches(
+    line: &str,
+    uri_regex: &regex::Regex,
+    line_start_offset: usize,
+    code_map: &CodeMap,
+) -> Vec<UriMatch> {
+    let mut matches: Vec<UriMatch> = Vec::new();
+
+    for current in uri_regex.find_iter(line) {
+        let text = &line[current.start()..current.end()];
+        if text
+            .split_once(':')
+            .is_some_and(|(_, tail)| tail.as_bytes().starts_with(br#"\\/\\/"#))
+        {
+            continue;
         }
+        if text.ends_with(':') && line[current.end()..].starts_with('\\') {
+            continue;
+        }
+        if text.contains(r":\/\/") && !code_map.is_regex(line_start_offset + current.start()) {
+            continue;
+        }
+        if let Some(previous) = matches.last_mut() {
+            let previous_text = &line[previous.start..previous.end];
+            let separator = &line[previous.end..current.start()];
+            if previous_text.contains('?') && !separator.chars().any(char::is_whitespace) {
+                previous.end = current.end();
+                continue;
+            }
+        }
+        matches.push(UriMatch {
+            start: current.start(),
+            end: current.end(),
+        });
     }
-    // 2. Extend to next word boundary
-    let rest = &line[end_pos..];
-    let non_ws_len = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
-    end_pos += non_ws_len;
 
-    // Check allowed_position?: start_chars < max AND end_pos reaches end of line
-    let start_chars =
-        line[..start].chars().count() + indentation_difference(line.as_bytes(), indentation_width);
-    start_chars < max && end_pos >= line.len()
+    matches
+}
+
+fn line_overlaps_heredoc(
+    source: &SourceFile,
+    code_map: &CodeMap,
+    line_number: usize,
+    line: &[u8],
+) -> bool {
+    let line_start = source.line_start_offset(line_number);
+    line.iter()
+        .enumerate()
+        .any(|(offset, _)| code_map.is_heredoc(line_start + offset))
 }
 
 fn is_word_char(b: u8) -> bool {
@@ -354,72 +558,24 @@ fn normalize_ruby_regex(pattern: &str) -> String {
     s
 }
 
-/// Check if ANY URI match in the line, after extension, reaches the end of the line
-/// AND starts before `max`. This matches RuboCop's `allowed_position?` + `extend_end_position`.
-///
-/// RuboCop uses `URI::DEFAULT_PARSER.make_regexp(schemes)` which matches the full URI
-/// including query parameters. A URL like `http://example.com/?url=http://other.com/path`
-/// is matched as ONE URI starting at the first `http://`. We approximate this by trying
-/// ALL scheme matches and accepting the line if any satisfies the allowed_position? check.
-fn uri_extends_to_end(
-    line: &str,
-    schemes: &[String],
-    max: usize,
-    indentation_width: usize,
-) -> bool {
-    // Collect all URI start positions
-    let mut all_starts: Vec<usize> = Vec::new();
-    for scheme in schemes {
-        let prefix = format!("{scheme}://");
-        let mut search_from = 0;
-        while let Some(pos) = line[search_from..].find(&prefix) {
-            let abs_pos = search_from + pos;
-            all_starts.push(abs_pos);
-            search_from = abs_pos + prefix.len();
-        }
+fn compile_uri_regex(schemes: &[String]) -> Option<regex::Regex> {
+    if schemes.is_empty() {
+        return None;
     }
 
-    if all_starts.is_empty() {
-        return false;
-    }
-
-    let indentation_diff = indentation_difference(line.as_bytes(), indentation_width);
-
-    // Check each URI start — if ANY satisfies allowed_position?, allow the line
-    for start in all_starts {
-        // Find end of URI (first whitespace after URI start)
-        let uri_end = start
-            + line[start..]
-                .find(|c: char| c.is_whitespace())
-                .unwrap_or(line.len() - start);
-
-        // Extend end position (matching RuboCop's extend_end_position):
-        // 1. YARD brace extension: if line contains `{` and ends with `}`,
-        //    extend from end_pos through the closing `}`.
-        // 2. Extend to the end of the next non-whitespace run.
-        let mut end_pos = uri_end;
-
-        // Step 1: YARD brace extension — RuboCop checks /{(\s|\S)*}$/
-        // which matches any line that has a `{` somewhere and ends with `}`.
-        if line.contains('{') && line.ends_with('}') {
-            if let Some(brace_pos) = line[end_pos..].rfind('}') {
-                end_pos += brace_pos + 1; // include the closing `}`
-            }
-        }
-
-        // Step 2: Extend to next word boundary — /^\S+(?=\s|$)/
-        let rest = &line[end_pos..];
-        let non_ws_len = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
-        end_pos += non_ws_len;
-
-        // Check allowed_position?: start_chars < max AND end_pos reaches end of line
-        let start_chars = line[..start].chars().count() + indentation_diff;
-        if start_chars < max && end_pos >= line.len() {
-            return true;
-        }
-    }
-
-    false
+    let prefixes = schemes
+        .iter()
+        .flat_map(|scheme| {
+            [
+                regex::escape(&format!(r"{scheme}:\/\/")),
+                regex::escape(&format!("{scheme}://")),
+                regex::escape(&format!("{scheme}:")),
+            ]
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+    let pattern = format!(r#"(?:{})[^\s"'<>\]]*"#, prefixes);
+    regex::Regex::new(&pattern).ok()
 }
 
 fn indentation_difference(line: &[u8], indentation_width: usize) -> usize {
@@ -438,8 +594,13 @@ fn indentation_difference(line: &[u8], indentation_width: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::run_cop_full_with_config;
 
     crate::cop_fixture_tests!(LineLength, "cops/layout/line_length");
+
+    fn run_with_config(source: &[u8], config: CopConfig) -> Vec<Diagnostic> {
+        run_cop_full_with_config(&LineLength, source, config)
+    }
 
     #[test]
     fn custom_max() {
@@ -450,10 +611,7 @@ mod tests {
             options,
             ..CopConfig::default()
         };
-        let source =
-            SourceFile::from_bytes("test.rb", b"short\nthis line is longer than ten\n".to_vec());
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
+        let diags = run_with_config(b"short\nthis line is longer than ten\n", config);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 2);
         assert_eq!(diags[0].location.column, 10);
@@ -473,9 +631,7 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes("test.rb", b"\t\t\t\t\t\t\t\t\t\t\t\t1\n".to_vec());
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
+        let diags = run_with_config(b"\t\t\t\t\t\t\t\t\t\t\t\t1\n", config);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 1);
         assert_eq!(diags[0].location.column, 0);
@@ -491,9 +647,7 @@ mod tests {
             options,
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes("test.rb", b"12345\n".to_vec());
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
+        let diags = run_with_config(b"12345\n", config);
         assert!(diags.is_empty());
     }
 
@@ -507,12 +661,10 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"x = <<~TXT\n  this is a very long line inside a heredoc\nTXT\n".to_vec(),
+        let diags = run_with_config(
+            b"x = <<~TXT\n  this is a very long line inside a heredoc\nTXT\n",
+            config,
         );
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
         // Only the first line (x = <<~TXT) should be checked, heredoc body skipped
         assert!(diags.is_empty() || diags.iter().all(|d| d.location.line == 1));
     }
@@ -527,13 +679,10 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"x = <<-TXT\n  this is a very long line inside a heredoc with dash syntax\nTXT\n"
-                .to_vec(),
+        let diags = run_with_config(
+            b"x = <<-TXT\n  this is a very long line inside a heredoc with dash syntax\nTXT\n",
+            config,
         );
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
         assert!(
             diags.is_empty() || diags.iter().all(|d| d.location.line == 1),
             "AllowHeredoc should skip long lines inside <<- heredoc"
@@ -551,17 +700,77 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"class << self\n  def foo\n    <<-SQL\n    SELECT * INTO existing_grant FROM role_memberships WHERE admin = true\n    SQL\n  end\nend\n".to_vec(),
+        let diags = run_with_config(
+            b"class << self\n  def foo\n    <<-SQL\n    SELECT * INTO existing_grant FROM role_memberships WHERE admin = true\n    SQL\n  end\nend\n",
+            config,
         );
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
         // Line 4 is the long SQL inside heredoc — should be skipped
         assert!(
             !diags.iter().any(|d| d.location.line == 4),
             "AllowHeredoc should skip long lines inside heredoc after class << self; got {:?}",
             diags.iter().map(|d| d.location.line).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn comment_string_concat_does_not_open_fake_heredoc() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(120.into())),
+                ("AllowHeredoc".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            br#"# expect(subject.digest).to eq('pt.browser.arachni/' <<'taint_tracer.js><SCRIPT src' <<
+x = [
+                                                       "function( name, value ){\n            document.cookie = name + \"=post-\" + value\n        }",
+]
+"#,
+            config,
+        );
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected the long line after the comment to be checked"
+        );
+        assert_eq!(diags[0].location.line, 3);
+        assert_eq!(diags[0].location.column, 120);
+        assert_eq!(diags[0].message, "Line is too long. [150/120]");
+    }
+
+    #[test]
+    fn crlf_does_not_count_trailing_carriage_return() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(120.into()))]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            b"# more easily build out nested sets of hashes and arrays to be used with ActiveRecord's .joins() method.  For example,\r\n",
+            config,
+        );
+        assert!(
+            diags.is_empty(),
+            "CRLF should not turn a 120-character line into an offense"
+        );
+    }
+
+    #[test]
+    fn crlf_preserves_qualified_name_brace_extension() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(120.into()))]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            b"matching = find { |x| idx += 1; (x.is_a?(::Brick::JoinArray) && x.first == key) || (x.is_a?(::Brick::JoinHash) && x.key?(key)) || x == key }\r\n",
+            config,
+        );
+        assert!(
+            diags.is_empty(),
+            "CRLF should not disable the qualified-name exemption on lines ending with }}"
         );
     }
 
@@ -575,12 +784,10 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"x = <<~TXT\n  this is a very long line inside heredoc\nTXT\n".to_vec(),
+        let diags = run_with_config(
+            b"x = <<~TXT\n  this is a very long line inside heredoc\nTXT\n",
+            config,
         );
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
         assert!(
             diags.iter().any(|d| d.location.line == 2),
             "Should flag long heredoc lines when AllowHeredoc is false"
@@ -597,15 +804,55 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"# https://example.com/very/long/path/to/something\n".to_vec(),
+        let diags = run_with_config(
+            b"# https://example.com/very/long/path/to/something\n",
+            config,
         );
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
         assert!(
             diags.is_empty(),
             "AllowURI should skip lines with long URIs"
+        );
+    }
+
+    #[test]
+    fn allow_uri_skips_escaped_url_regexes() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(120.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            br#"_(out.stdout).must_match(/Using cached dependency for {:url=>"https:\/\/github\.com\/dev-sec\/ssl-baseline\/archive\/([0-9a-fA-F]{40})\.tar\.gz"/)
+"#,
+            config,
+        );
+        assert!(
+            diags.is_empty(),
+            "AllowURI should treat escaped URLs in regex literals like RuboCop does"
+        );
+    }
+
+    #[test]
+    fn allow_uri_does_not_skip_escaped_url_regexes_with_trailing_code() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(120.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            br#"_(out.stdout).must_match(/https:\/\/example\.com\/very\/long\/path/) && additional_words_to_push_the_line_length_far_beyond_the_default_limit_here
+"#,
+            config,
+        );
+        assert!(
+            !diags.is_empty(),
+            "AllowURI should still flag escaped URLs when extra code trails after the regex"
         );
     }
 
@@ -622,12 +869,10 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"# This is a very long comment line that exceeds the max\n".to_vec(),
+        let diags = run_with_config(
+            b"# This is a very long comment line that exceeds the max\n",
+            config,
         );
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
         assert!(
             diags.is_empty(),
             "AllowedPatterns should skip matching lines"
@@ -647,12 +892,7 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"def foo(x) #: (Integer) -> String\nend\n".to_vec(),
-        );
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
+        let diags = run_with_config(b"def foo(x) #: (Integer) -> String\nend\n", config);
         assert!(
             diags.is_empty(),
             "AllowRBSInlineAnnotation should skip lines with RBS type annotations"
@@ -672,12 +912,7 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"def foo(x) #: (Integer) -> String\nend\n".to_vec(),
-        );
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
+        let diags = run_with_config(b"def foo(x) #: (Integer) -> String\nend\n", config);
         assert!(
             !diags.is_empty(),
             "Should flag long RBS lines when AllowRBSInlineAnnotation is false"
@@ -694,16 +929,28 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"x = 1 # rubocop:disable Layout/LineLength\n".to_vec(),
-        );
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
+        let diags = run_with_config(b"x = 1 # rubocop:disable Layout/LineLength\n", config);
         assert!(
             diags.is_empty(),
             "AllowCopDirectives should skip lines with rubocop directives"
         );
+    }
+
+    #[test]
+    fn inline_disable_only_affects_that_line() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(10.into()))]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            b"foo = \"1234567890\" # rubocop:disable Layout/LineLength\nbar = \"1234567890\"\n",
+            config,
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].location.line, 2);
+        assert_eq!(diags[0].location.column, 10);
+        assert_eq!(diags[0].message, "Line is too long. [18/10]");
     }
 
     #[test]
@@ -719,10 +966,7 @@ mod tests {
         // URI in a line ending with } — the YARD brace extension should extend
         // the URI range to end of line, matching RuboCop's behavior.
         // The URI starts before max and braces extend to end of line.
-        let source =
-            SourceFile::from_bytes("test.rb", b"x { https://example.com/long/path }\n".to_vec());
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
+        let diags = run_with_config(b"x { https://example.com/long/path }\n", config);
         assert!(
             diags.is_empty(),
             "AllowURI with YARD brace extension should skip lines where URI extends to end"
@@ -740,15 +984,93 @@ mod tests {
             ..CopConfig::default()
         };
         // URI that does NOT extend to end of line — should still flag
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"x = 'https://example.com' + more_stuff_here\n".to_vec(),
-        );
-        let mut diags = Vec::new();
-        LineLength.check_lines(&source, &config, &mut diags, None);
+        let diags = run_with_config(b"x = 'https://example.com' + more_stuff_here\n", config);
         assert!(
             !diags.is_empty(),
             "AllowURI should flag when URI does not extend to end of line"
+        );
+    }
+
+    #[test]
+    fn allow_uri_matches_bare_http_prefix_before_quotes() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(120.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            br#"uri = "[concat('http://',variables('storageAccountName'),'.blob.core.windows.net/',variables('vmStorageAccountContainerName'),'/',variables('vmName'),'.vhd')]"
+"#,
+            config,
+        );
+        assert!(
+            diags.is_empty(),
+            "AllowURI should match bare http:// before quoted template fragments"
+        );
+    }
+
+    #[test]
+    fn allow_uri_merges_query_markdown_into_one_match() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(120.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            br#"text = "[![Image](https://www.antifainfoblatt.de/sites/default/files/public/styles/front_full/public/jockpalfreeman.png?itok=OPjHKpmt)](https://www.antifainfoblatt.de/artikel/%E2%80%9Eschlie%C3%9Flich-waren-es-zu-viele%E2%80%9C)"
+"#,
+            config,
+        );
+        assert!(
+            diags.is_empty(),
+            "AllowURI should keep query-linked markdown URLs as one match"
+        );
+    }
+
+    #[test]
+    fn allow_uri_matches_scheme_only_before_brace_extension() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(120.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            br#"its('stdout.strip') { should cmp "Header set Content-Security-Policy \"default-src https: wss: data: 'unsafe-inline' 'unsafe-eval'; child-src *; worker-src 'self' blob:\"" }
+"#,
+            config,
+        );
+        assert!(
+            diags.is_empty(),
+            "AllowURI should match scheme-only tokens like https: when brace extension reaches the end"
+        );
+    }
+
+    #[test]
+    fn allow_uri_matches_bare_https_prefix_before_angle_brackets() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(120.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags = run_with_config(
+            b"To replace a managers certificate: POST https://<nsx-mgr>/api/v1/node/services/http?action=apply_certificate&certificate_id=e61c7537-3090-4149-b2b6-19915c20504f\n",
+            config,
+        );
+        assert!(
+            diags.is_empty(),
+            "AllowURI should match bare https:// before angle-bracket placeholders"
         );
     }
 }

@@ -551,14 +551,37 @@ def guard_with_heredoc_in_condition
   from = options[:from]
 end
 
-# FN fix: break guard in nested block without semicolon
-def guard_break_in_nested_if
-  if count >= 2
-    break unless byte = scanner.get_byte
-    ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
-    # comment
-    if byte == ?>
+# FN fix: break guard in nested valid loop/case context
+def scan_comment
+  count = 2
+  buffer = ''
+  loop do
+    unless byte = scanner.get_byte
+      count = 2 if count > 2
+      buffer = buffer.slice(0, buffer.length - count)
       break
+    end
+    buffer << byte
+    case byte
+    when ?-
+      count += 1
+      next
+    when ?>
+      if count >= 2
+        buffer = buffer.slice(0, buffer.length - 3)
+        break
+      end
+    when ?!
+      if count >= 2
+        break unless byte = scanner.get_byte
+        ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+        # "--!>"
+        if byte == ?>
+          # no need to count ">" as it's not appended to the buffer.
+          buffer = buffer.slice(0, buffer.length - 3)
+          break
+        end
+      end
     end
   end
 end
@@ -569,4 +592,20 @@ def consecutive_guards_backslash_between_args
   ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
   raise ArgumentError, "The name is"\
     " not allowed" if opts.key?(:name)
+end
+
+# FN regression fix: inline comments after standalone modifier guards still require a blank line
+def guard_with_inline_comment
+  return obj if cache_hit? # inline comment
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  fetch_value
+end
+
+# FN regression fix: multiline modifier guard with inline comment on the end line still requires a blank line
+def multiline_guard_with_inline_comment
+  return unless (
+  ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+    services & NODE_NETWORK
+  ) == 1 # inline comment
+  work
 end

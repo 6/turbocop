@@ -20,7 +20,7 @@
 /// Corpus oracle reported FP=5, FN=0.
 ///
 /// FP fixes:
-/// - `constant_name()` matched only the final segment, so `Custom::File.exists?`
+/// - `constant_short_name()` matched only the final segment, so `Custom::File.exists?`
 ///   was incorrectly treated as `File.exists?`. Restrict bare constant receivers
 ///   to `File`, `Dir`, `ENV`, and `Socket`, with optional leading `::`.
 /// - `ENV.clone` / `ENV.dup` / `ENV.freeze` were flagged even when arguments
@@ -28,7 +28,7 @@
 ///
 /// FN=0: no missing detections were reported in the corpus run.
 // Handles both as_constant_read_node and as_constant_path_node (qualified constants like ::File)
-use crate::cop::node_type::CALL_NODE;
+use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

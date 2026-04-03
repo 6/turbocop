@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     ARRAY_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE,
     INTERPOLATED_STRING_NODE, KEYWORD_HASH_NODE, SPLAT_NODE, STRING_NODE,
 };

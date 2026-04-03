@@ -35,11 +35,11 @@ class MyService
   end
 end
 
-# Absolute constant path with :: prefix (cbase) — not flagged
-class ::Foo::Bar
+# Single-name cbase — not flagged (::Foo has no namespace separator)
+class ::Foo
 end
 
-module ::Baz::Qux
+module ::Bar
 end
 
 # Compact-style as sole body of outer module — not flagged
@@ -52,4 +52,13 @@ end
 module Outer
   module Inner::Nested
   end
+end
+
+# Expression-based class/module definitions — RuboCop crashes on these
+x = module Puppet::Parser::Functions
+  1
+end
+
+@memory_class = class Testing::MyMemory < Puppet::Indirector::Memory
+  self
 end

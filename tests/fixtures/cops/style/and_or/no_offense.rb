@@ -20,3 +20,8 @@ do_something and log_it
 process or abort
 foo and bar
 baz or qux
+
+case host
+in _, "anidb.net", "perl-bin", "animedb.pl" if params[:show] == "creator" and params[:creatorid].present?
+  :ok
+end

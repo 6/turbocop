@@ -1,9 +1,9 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     CONSTANT_AND_WRITE_NODE, CONSTANT_OPERATOR_WRITE_NODE, CONSTANT_OR_WRITE_NODE,
     CONSTANT_PATH_AND_WRITE_NODE, CONSTANT_PATH_OPERATOR_WRITE_NODE, CONSTANT_PATH_OR_WRITE_NODE,
     CONSTANT_PATH_TARGET_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_TARGET_NODE, CONSTANT_WRITE_NODE,
 };
-use crate::cop::util::is_screaming_snake_case;
+use crate::cop::shared::util::is_screaming_snake_case;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;

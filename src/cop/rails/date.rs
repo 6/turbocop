@@ -1,5 +1,5 @@
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util;
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -10,7 +10,7 @@ use crate::parse::source::SourceFile;
 ///
 /// FP=4: All 4 FPs from ecleel/hijri repo — `Hijri::Date.today` and `Hijri::DateTime.now`.
 /// RuboCop's NodePattern matches `(const {nil? cbase} :Date)` which only accepts bare `Date`
-/// or `::Date`, not qualified paths like `Hijri::Date`. Fixed by replacing `constant_name()`
+/// or `::Date`, not qualified paths like `Hijri::Date`. Fixed by replacing `constant_short_name()`
 /// (which returns the terminal name) with `is_simple_constant()` which validates the full path.
 ///
 /// FN=1: netzke/netzke-basepack — `to_time_in_current_zone` deprecated method was not detected.
@@ -104,7 +104,7 @@ impl Cop for Date {
         };
         // RuboCop matches `(const {nil? cbase} :Date)` — only bare `Date` or `::Date`,
         // not qualified paths like `Hijri::Date`.
-        if !util::is_simple_constant(&recv, b"Date") {
+        if !constant_predicates::is_simple_constant(&recv, b"Date") {
             return;
         }
 

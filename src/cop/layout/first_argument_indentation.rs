@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::shared::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -443,37 +444,7 @@ fn leading_whitespace_count(line: &[u8]) -> usize {
 }
 
 fn is_bare_operator(name: &str, has_regular_dot: bool) -> bool {
-    is_operator_method(name) && !has_regular_dot
-}
-
-fn is_operator_method(name: &str) -> bool {
-    // Operators that can be defined as methods
-    matches!(
-        name,
-        "+" | "-"
-            | "*"
-            | "/"
-            | "%"
-            | "**"
-            | "=="
-            | "!="
-            | ">"
-            | "<"
-            | ">="
-            | "<="
-            | "<=>"
-            | "<<"
-            | ">>"
-            | "&"
-            | "|"
-            | "^"
-            | "~"
-            | "!"
-            | "=~"
-            | "!~"
-            | "[]"
-            | "[]="
-    )
+    method_identifier_predicates::is_operator_method(name.as_bytes()) && !has_regular_dot
 }
 
 fn is_comment_line_for_message(line: &str) -> bool {
@@ -482,7 +453,7 @@ fn is_comment_line_for_message(line: &str) -> bool {
 }
 
 fn is_setter_method(name: &str) -> bool {
-    name.ends_with('=') && name != "==" && name != "!=" && name != "[]="
+    method_identifier_predicates::is_setter_method(name.as_bytes())
 }
 
 impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {

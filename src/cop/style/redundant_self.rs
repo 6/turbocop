@@ -6,14 +6,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// FP investigation (2026-03):
-/// - Root cause: block parameters were not tracked as local variables. When a block
-///   parameter shadowed a method name (e.g., `|state|` shadowing a `state` method),
-///   `self.state` inside the block was incorrectly flagged as redundant.
-/// - Fix: added `visit_block_node` and `visit_lambda_node` to push a new scope with
-///   block/lambda parameters, so `self.x` is allowed when block param `x` is in scope.
-/// - Common pattern: `define_method` blocks where the outer block parameter shadows the
-///   method being defined (e.g., `STATUSES.each { |status| define_method(...) { self.status } }`).
+/// RuboCop parity notes:
+/// - Nested block and lambda locals leak forward into the enclosing scope for later
+///   disambiguation, so `self.x` stays allowed after an earlier `do |x| ... end` or
+///   `->(x) { ... }`, but not before that nested scope appears.
+/// - Compound self-assignments (`self.count += 1`, `self.count ||= 1`, `self.count &&= 1`)
+///   make later `self.count` reads acceptable in source order, even across later methods
+///   and class/module nesting. Plain setters like `self.value = 1` do not.
 pub struct RedundantSelf;
 
 /// Methods where self. is always required (Ruby keywords).
@@ -160,9 +159,10 @@ struct RedundantSelfVisitor<'a> {
     diagnostics: Vec<Diagnostic>,
     /// Stack of local variable scopes. Each method/block introduces a new scope.
     local_scopes: Vec<HashSet<Vec<u8>>>,
-    /// Method names where `self.x` is allowed because `self.x = ...` or
-    /// `self.x ||= ...` (compound assignment) appears in the same scope.
-    /// RuboCop allows `self.reader` when `self.writer=` is used in the file.
+    /// Method names where `self.x` is allowed because a prior compound assignment
+    /// (`self.x ||=`, `self.x &&=`, `self.x +=`, etc.) appeared earlier in the
+    /// current enclosing file/class/module. This matches RuboCop's source-order
+    /// accumulation across later methods, while still excluding plain setters.
     allowed_self_methods: HashSet<Vec<u8>>,
 }
 
@@ -180,6 +180,14 @@ impl RedundantSelfVisitor<'_> {
             }
         }
         false
+    }
+
+    fn add_allowed_self_method(&mut self, name: &[u8]) {
+        self.allowed_self_methods.insert(name.to_vec());
+    }
+
+    fn is_allowed_self_method(&self, name: &[u8]) -> bool {
+        self.allowed_self_methods.contains(name)
     }
 
     fn collect_params_from_node(&mut self, params: &ruby_prism::ParametersNode<'_>) {
@@ -233,97 +241,16 @@ impl RedundantSelfVisitor<'_> {
         }
     }
 
-    /// Pre-scan for `self.x = ...`, `self.x ||= ...`, `self.x op= ...` patterns.
-    /// When a setter `self.foo=` is used, `self.foo` (the reader) is allowed
-    /// because removing `self` would create a local variable assignment instead.
-    fn prescan_self_assignments(&mut self, body: &ruby_prism::Node<'_>) {
-        let mut scanner = SelfAssignmentScanner { names: Vec::new() };
-        scanner.visit(body);
-        for name in scanner.names {
-            self.allowed_self_methods.insert(name);
+    fn merge_current_scope_into_parent(&mut self) {
+        if self.local_scopes.len() < 2 {
+            return;
+        }
+
+        let current_scope = self.local_scopes.pop().unwrap();
+        if let Some(parent_scope) = self.local_scopes.last_mut() {
+            parent_scope.extend(current_scope);
         }
     }
-}
-
-/// Pre-scan visitor that collects method names used in `self.x = ...` compound assignments.
-struct SelfAssignmentScanner {
-    names: Vec<Vec<u8>>,
-}
-
-impl SelfAssignmentScanner {
-    /// If the node is a self.foo= call (including compound assignment targets),
-    /// record "foo" as an allowed self-method.
-    fn check_self_call(&mut self, node: &ruby_prism::CallNode<'_>) {
-        if let Some(receiver) = node.receiver() {
-            if receiver.as_self_node().is_some() {
-                let name = node.name();
-                let name_bytes = name.as_slice();
-                // self.foo= setter → allow self.foo
-                if name_bytes.ends_with(b"=")
-                    && name_bytes.len() > 1
-                    && name_bytes != b"=="
-                    && name_bytes != b"!="
-                    && name_bytes != b"<="
-                    && name_bytes != b">="
-                    && name_bytes != b"==="
-                {
-                    // Strip trailing "=" to get the reader name
-                    self.names.push(name_bytes[..name_bytes.len() - 1].to_vec());
-                }
-            }
-        }
-    }
-}
-
-impl<'pr> Visit<'pr> for SelfAssignmentScanner {
-    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        self.check_self_call(node);
-        // Visit children for nested calls
-        if let Some(receiver) = node.receiver() {
-            self.visit(&receiver);
-        }
-        if let Some(args) = node.arguments() {
-            for arg in args.arguments().iter() {
-                self.visit(&arg);
-            }
-        }
-        if let Some(block) = node.block() {
-            self.visit(&block);
-        }
-    }
-
-    // Also catch compound assignment operators: self.x ||= v, self.x &&= v, self.x += v
-    fn visit_call_or_write_node(&mut self, node: &ruby_prism::CallOrWriteNode<'pr>) {
-        if let Some(receiver) = node.receiver() {
-            if receiver.as_self_node().is_some() {
-                let name = node.read_name();
-                self.names.push(name.as_slice().to_vec());
-            }
-        }
-    }
-
-    fn visit_call_and_write_node(&mut self, node: &ruby_prism::CallAndWriteNode<'pr>) {
-        if let Some(receiver) = node.receiver() {
-            if receiver.as_self_node().is_some() {
-                let name = node.read_name();
-                self.names.push(name.as_slice().to_vec());
-            }
-        }
-    }
-
-    fn visit_call_operator_write_node(&mut self, node: &ruby_prism::CallOperatorWriteNode<'pr>) {
-        if let Some(receiver) = node.receiver() {
-            if receiver.as_self_node().is_some() {
-                let name = node.read_name();
-                self.names.push(name.as_slice().to_vec());
-            }
-        }
-    }
-
-    // Don't descend into nested scopes
-    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
-    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
-    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
 }
 
 /// Pre-scan visitor that collects all local variable names in a scope.
@@ -361,10 +288,13 @@ impl<'pr> Visit<'pr> for LocalScanner {
         self.visit(&node.value());
     }
 
-    // Don't descend into nested scopes
+    // Don't descend into nested scopes.
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
     fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
     fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+    fn visit_block_node(&mut self, _node: &ruby_prism::BlockNode<'pr>) {}
+    fn visit_lambda_node(&mut self, _node: &ruby_prism::LambdaNode<'pr>) {}
+    fn visit_singleton_class_node(&mut self, _node: &ruby_prism::SingletonClassNode<'pr>) {}
 }
 
 impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
@@ -380,8 +310,6 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
         // that name a local variable throughout the entire scope.
         if let Some(body) = node.body() {
             self.prescan_locals(&body);
-            // Also scan for self.x= / self.x ||= within this method
-            self.prescan_self_assignments(&body);
             self.visit(&body);
         }
 
@@ -410,7 +338,7 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
                             && !KERNEL_METHODS.contains(&name_bytes)
                             && !is_uppercase_method(name_bytes)
                             && !self.is_local_variable(name_bytes)
-                            && !self.allowed_self_methods.contains(name_bytes)
+                            && !self.is_allowed_self_method(name_bytes)
                         {
                             let self_loc = receiver.location();
                             let (line, column) =
@@ -451,36 +379,25 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
         // Push a new scope for the class body (local variables from the enclosing scope
         // are not visible inside a class body).
         self.local_scopes.push(HashSet::new());
-        // Pre-scan the entire class body for self.x= / self.x ||= patterns.
-        // These make `self.x` (the reader) allowed across all methods in the class.
-        let saved = std::mem::take(&mut self.allowed_self_methods);
         if let Some(body) = node.body() {
-            self.prescan_self_assignments(&body);
             self.visit(&body);
         }
-        self.allowed_self_methods = saved;
         self.local_scopes.pop();
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
         self.local_scopes.push(HashSet::new());
-        let saved = std::mem::take(&mut self.allowed_self_methods);
         if let Some(body) = node.body() {
-            self.prescan_self_assignments(&body);
             self.visit(&body);
         }
-        self.allowed_self_methods = saved;
         self.local_scopes.pop();
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
         self.local_scopes.push(HashSet::new());
-        let saved = std::mem::take(&mut self.allowed_self_methods);
         if let Some(body) = node.body() {
-            self.prescan_self_assignments(&body);
             self.visit(&body);
         }
-        self.allowed_self_methods = saved;
         self.local_scopes.pop();
     }
 
@@ -499,10 +416,11 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
         }
 
         if let Some(body) = node.body() {
+            self.prescan_locals(&body);
             self.visit(&body);
         }
 
-        self.local_scopes.pop();
+        self.merge_current_scope_into_parent();
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
@@ -518,10 +436,41 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
         }
 
         if let Some(body) = node.body() {
+            self.prescan_locals(&body);
             self.visit(&body);
         }
 
-        self.local_scopes.pop();
+        self.merge_current_scope_into_parent();
+    }
+
+    fn visit_call_or_write_node(&mut self, node: &ruby_prism::CallOrWriteNode<'pr>) {
+        ruby_prism::visit_call_or_write_node(self, node);
+
+        if let Some(receiver) = node.receiver() {
+            if receiver.as_self_node().is_some() {
+                self.add_allowed_self_method(node.read_name().as_slice());
+            }
+        }
+    }
+
+    fn visit_call_and_write_node(&mut self, node: &ruby_prism::CallAndWriteNode<'pr>) {
+        ruby_prism::visit_call_and_write_node(self, node);
+
+        if let Some(receiver) = node.receiver() {
+            if receiver.as_self_node().is_some() {
+                self.add_allowed_self_method(node.read_name().as_slice());
+            }
+        }
+    }
+
+    fn visit_call_operator_write_node(&mut self, node: &ruby_prism::CallOperatorWriteNode<'pr>) {
+        ruby_prism::visit_call_operator_write_node(self, node);
+
+        if let Some(receiver) = node.receiver() {
+            if receiver.as_self_node().is_some() {
+                self.add_allowed_self_method(node.read_name().as_slice());
+            }
+        }
     }
 }
 

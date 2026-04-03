@@ -63,6 +63,37 @@ begin
   func2
 end
 
+module VkontakteApi
+  class Method
+    def call(args = {}, &block)
+      response = API.call(full_name, args, token)
+      Result.process(response, type, block)
+    end
+
+  private
+    def full_name
+      parts = [@previous_resolver.name, @name].compact.map { |part| camelize(part) }
+      parts.join(".").gsub(/[^A-Za-z.]/, "")
+    end
+  end
+end
+
+class A
+  def _to_s(key)
+    foo
+  end; protected :_to_s
+
+  def to_plain_s; _to_s(:a); end
+end
+
+def foo
+  pnode =
+    @node; loop do
+      pnode = parent_node(pnode)
+      break
+    end
+end
+
 while a
 end
 
@@ -71,4 +102,12 @@ end
 
 if a
 else
+end
+
+require 'ostruct'
+
+module ClinicFinder
+  module Modules
+    module GestationHelper; end
+  end
 end

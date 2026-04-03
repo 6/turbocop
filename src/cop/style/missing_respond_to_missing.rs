@@ -3,29 +3,25 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
-/// Matches RuboCop's parent-chain lookup for `respond_to_missing?`.
+/// Matches RuboCop's effective ancestor search for `respond_to_missing?`.
 ///
-/// The previous implementation only scanned direct statements in class/module bodies,
-/// which missed `method_missing` under `class << self`, `if` branches, and dynamic
-/// `class_eval` blocks. The fix tracks the same effective search root RuboCop derives
-/// from ancestor shape, while still allowing descendant `respond_to_missing?` methods in
-/// nested classes/modules to satisfy outer `method_missing` definitions when RuboCop does.
+/// Fixed behavior:
+/// - defs inside wrappers such as `class << self`, conditionals, `Class.new`,
+///   `class_eval`, and `instance_eval` still resolve against the same enclosing
+///   search root RuboCop uses.
+/// - program-root `method_missing` with an explicit positional missing-method
+///   parameter is now reported. RuboCop flags those corpus examples, and a
+///   top-level `respond_to_missing?` does not satisfy them.
 ///
-/// FN fix: `method_missing` inside blocks (`Class.new do`, `instance_eval`, etc.) was
-/// missed because `current_root_key` returned `None` when traversal reached
-/// `ProgramNode`. Fixed by returning the nearest enclosing block (Other) as the root
-/// scope. `current_ancestor_scopes` now includes non-boundary (block) ancestors so
-/// block-level `respond_to_missing?` can match.
+/// We still leave zero-arg and rest-only top-level signatures alone, and we
+/// also skip file-leading top-level block-arg forms with no keyword params,
+/// because RuboCop is unstable on those shapes in isolation. That keeps the
+/// program-scope fix limited to the confirmed corpus shape without reopening
+/// the `dynamic_proxies.rb` regression.
 ///
-/// Top-level (Program-root) `method_missing` is intentionally skipped: RuboCop's
-/// `node.parent.parent` returns nil at program scope, so it never runs the
-/// `respond_to_missing?` search. We match that behavior in `finish()`.
-///
-/// Remaining FP (1): RuboCop's whitequark AST collapses single-statement class bodies,
-/// causing `node.parent.parent` to go past the class. When a file reopens the same class
-/// with `respond_to_missing?`, RuboCop's grandparent search finds it across class
-/// definitions. Prism's StatementsNode wrapper prevents this. Not fixed — it's a RuboCop
-/// parser artifact, not intentional semantics.
+/// Known limitation: the remaining corpus FP comes from RuboCop's parser
+/// artifact when reopened classes share `respond_to_missing?` across separate
+/// class bodies; Prism preserves those class bodies as separate scopes.
 pub struct MissingRespondToMissing;
 
 impl Cop for MissingRespondToMissing {
@@ -137,6 +133,37 @@ fn body_has_multiple_statements(body: Option<ruby_prism::Node<'_>>) -> bool {
     }
 }
 
+fn has_explicit_positional_arg(node: &ruby_prism::DefNode<'_>) -> bool {
+    node.parameters().is_some_and(|params| {
+        !params.requireds().is_empty()
+            || !params.optionals().is_empty()
+            || !params.posts().is_empty()
+    })
+}
+
+fn has_block_param(node: &ruby_prism::DefNode<'_>) -> bool {
+    node.parameters()
+        .is_some_and(|params| params.block().is_some())
+}
+
+fn has_keyword_params(node: &ruby_prism::DefNode<'_>) -> bool {
+    node.parameters()
+        .is_some_and(|params| !params.keywords().is_empty() || params.keyword_rest().is_some())
+}
+
+fn has_only_leading_comments_and_whitespace(source: &SourceFile, start_offset: usize) -> bool {
+    source.as_bytes()[..start_offset]
+        .split(|&b| b == b'\n')
+        .all(|line| {
+            let trimmed = line
+                .iter()
+                .copied()
+                .skip_while(|b| b.is_ascii_whitespace())
+                .collect::<Vec<_>>();
+            trimmed.is_empty() || trimmed.starts_with(b"#")
+        })
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct ScopeKey {
     kind: AncestorKind,
@@ -161,6 +188,10 @@ enum MethodRole {
 struct DefRecord {
     role: MethodRole,
     is_class_method: bool,
+    has_explicit_positional_arg: bool,
+    has_block_param: bool,
+    has_keyword_params: bool,
+    has_only_leading_comments_and_whitespace: bool,
     start_offset: usize,
     root: Option<ScopeKey>,
     ancestor_scopes: Vec<ScopeKey>,
@@ -235,6 +266,13 @@ impl MethodMissingVisitor<'_> {
         self.defs.push(DefRecord {
             role,
             is_class_method: node.receiver().is_some(),
+            has_explicit_positional_arg: has_explicit_positional_arg(node),
+            has_block_param: has_block_param(node),
+            has_keyword_params: has_keyword_params(node),
+            has_only_leading_comments_and_whitespace: has_only_leading_comments_and_whitespace(
+                self.source,
+                node.location().start_offset(),
+            ),
             start_offset: node.location().start_offset(),
             root: self.current_root_key(),
             ancestor_scopes: self.current_ancestor_scopes(),
@@ -254,10 +292,15 @@ impl MethodMissingVisitor<'_> {
                 None => continue,
             };
 
-            // RuboCop skips top-level method_missing: its grandparent lookup
-            // (`node.parent.parent`) returns nil at program scope, so it never
-            // searches for respond_to_missing?. Match that behavior.
-            if root.kind == AncestorKind::Program {
+            // RuboCop reports the corpus' top-level `method_missing` defs when
+            // they expose an explicit missing-method parameter, but its signal
+            // is unstable for zero-arg and rest-only signatures.
+            if root.kind == AncestorKind::Program
+                && (!method_missing.has_explicit_positional_arg
+                    || (method_missing.has_block_param
+                        && !method_missing.has_keyword_params
+                        && method_missing.has_only_leading_comments_and_whitespace))
+            {
                 continue;
             }
 

@@ -67,20 +67,37 @@ def configure_git(
         run_git(repo_root, "remote", "set-url", "origin", remote)
 
 
-def promote(repo: str, branch: str, message: str) -> dict[str, str]:
+def promote(repo: str, branch: str, message: str, expected_sha: str | None = None) -> dict[str, str]:
     # Retry the ref lookup — after `git push`, the GitHub API may not have
-    # propagated the ref yet (race condition observed in CI).
+    # propagated the ref yet.  Two failure modes:
+    #   1. Ref doesn't exist yet (404) — caught by CalledProcessError.
+    #   2. Ref exists but points to the *pre-push* SHA (stale cache) — the API
+    #      returns 200 with the old commit.  If we sign that stale commit, the
+    #      resulting tree matches main and the PR is incorrectly closed as empty.
+    # When `expected_sha` is supplied we retry on both failure modes.
+    unsigned_sha: str | None = None
     for attempt in range(5):
         try:
             ref = json.loads(run_gh([f"repos/{repo}/git/ref/heads/{branch}"]))
+            sha = ref["object"]["sha"]
+            if expected_sha and sha != expected_sha:
+                if attempt == 4:
+                    raise RuntimeError(
+                        f"promote: ref heads/{branch} still points to {sha} "
+                        f"after 5 retries (expected {expected_sha})"
+                    )
+                time.sleep(2 ** attempt)
+                continue
+            unsigned_sha = sha
             break
         except subprocess.CalledProcessError:
             if attempt == 4:
                 raise
-            time.sleep(2 ** attempt)  # 1s, 2s, 4s, 8s
-    else:
+            time.sleep(2 ** attempt)
+    if unsigned_sha is None:
+        # Fallback — should not be reached given the raise above.
         ref = json.loads(run_gh([f"repos/{repo}/git/ref/heads/{branch}"]))
-    unsigned_sha = ref["object"]["sha"]
+        unsigned_sha = ref["object"]["sha"]
 
     commit = json.loads(run_gh([f"repos/{repo}/git/commits/{unsigned_sha}"]))
     tree_sha = commit["tree"]["sha"]
@@ -147,6 +164,7 @@ def main() -> int:
     promote_parser.add_argument("--repo", required=True, help="owner/repo")
     promote_parser.add_argument("--branch", required=True, help="branch name")
     promote_parser.add_argument("--message", required=True, help="final commit message")
+    promote_parser.add_argument("--expected-sha", help="expected branch tip SHA after push (retries on stale ref)")
 
     args = parser.parse_args()
 
@@ -161,7 +179,7 @@ def main() -> int:
         return 0
 
     if args.command == "promote":
-        result = promote(args.repo, args.branch, args.message)
+        result = promote(args.repo, args.branch, args.message, expected_sha=args.expected_sha)
         for key, value in result.items():
             print(f"{key}={value}")
         return 0

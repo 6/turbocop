@@ -1,5 +1,6 @@
 use ruby_prism::Visit;
 
+use crate::cop::shared::access_modifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -161,7 +162,8 @@ impl<'pr> Visit<'pr> for ModuleFunctionVisitor<'_> {
 /// `private :method_name`, or `private def ...`).
 fn is_private_directive(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
-        return call.name().as_slice() == b"private" && call.receiver().is_none();
+        return access_modifier_predicates::is_access_modifier_declaration(&call)
+            && call.name().as_slice() == b"private";
     }
     false
 }

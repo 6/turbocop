@@ -1,9 +1,9 @@
-use crate::cop::node_type::{
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::{
     ARRAY_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE,
     FALSE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, INTEGER_NODE,
     LOCAL_VARIABLE_READ_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE,
 };
-use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -64,7 +64,7 @@ impl Cop for DuplicateSetElement {
 
         // Determine the class name for the message
         let class_name = if let Some(recv) = call.receiver() {
-            if let Some(name) = constant_name(&recv) {
+            if let Some(name) = constant_predicates::constant_short_name(&recv) {
                 std::str::from_utf8(name).unwrap_or("Set").to_string()
             } else {
                 "Set".to_string()
@@ -105,14 +105,14 @@ fn extract_set_elements<'pr>(
     method_name: &[u8],
 ) -> Option<Vec<ruby_prism::Node<'pr>>> {
     if let Some(recv) = call.receiver() {
-        // Check for .to_set on an array literal first (before constant_name check)
+        // Check for .to_set on an array literal first (before constant_short_name check)
         if method_name == b"to_set" {
             if let Some(array) = recv.as_array_node() {
                 return Some(array.elements().iter().collect());
             }
         }
 
-        let name = constant_name(&recv)?;
+        let name = constant_predicates::constant_short_name(&recv)?;
         if name != b"Set" && name != b"SortedSet" {
             return None;
         }

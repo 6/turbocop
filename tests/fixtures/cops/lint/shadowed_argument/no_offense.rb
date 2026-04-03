@@ -131,3 +131,41 @@ def add_index_options(table_name, column_name, name: nil, enabled: false, **opti
   result, status, enabled = super
   [result, status, enabled]
 end
+
+# FP fix: binding before reassignment implicitly references all local variables
+def self.new_with_attributes(id:, preset_name:, **other)
+  arguments = Hash[binding.local_variables.map{ [_1, binding.local_variable_get(_1)]}]
+  arguments.delete(:arguments)
+  other = arguments.delete(:other)
+  new(other.merge(arguments))
+end
+
+# FP fix: assignment in case predicate is conditional (RuboCop treats case as conditional parent)
+def serialize(value)
+  case value = super
+  when ::Time
+    Value.new(value)
+  else
+    value
+  end
+end
+
+# FP fix: case predicate assignment with non-super RHS
+def cast_value(value)
+  case value = compute(value)
+  when Value
+    value.__getobj__
+  else
+    value
+  end
+end
+
+# FP fix: case predicate assignment in block context
+test "SequenceSet[input]" do |input|
+  case (input = data[:input])
+  when nil
+    raise
+  when String
+    input
+  end
+end

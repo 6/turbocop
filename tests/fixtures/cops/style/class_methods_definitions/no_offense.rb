@@ -146,21 +146,6 @@ class M
   end
 end
 
-# Multiple methods all made private via symbol args
-class N
-  class << self
-    def foo
-      1
-    end
-
-    def bar
-      2
-    end
-
-    private :foo, :bar
-  end
-end
-
 # Mix of public def and private :name — not all public
 class O
   class << self
@@ -201,5 +186,21 @@ class S
     alias os_trap trap
     def Signal.trap(sig, &block)
     end
+  end
+end
+
+# non-visibility call after private :name — private still applies
+class U
+  class << self
+    def visible
+      42
+    end
+
+    def hidden
+      1
+    end
+    private :hidden
+
+    alias_method :hidden_alias, :hidden
   end
 end

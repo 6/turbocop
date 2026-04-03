@@ -135,3 +135,90 @@ scope :unread, -> { where read: false }
 
 scope :global, -> { where global: true }
                     ^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+# Block argument only (no regular args) in method body — NOT a macro
+def run_test(&block)
+  instance_eval &block
+  ^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Block argument with receiver — flagged
+obj.instance_eval &block
+^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+# Rescue modifier breaks macro scope — receiverless calls are NOT macros
+require "objspace" rescue nil
+^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+class MyClass
+  allow_ip! "::1/128" rescue nil
+  ^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Flow-control nodes are not wrappers; their argument calls are NOT macros
+class Server
+  get "/x" do
+    next send_file static_file if static_file
+         ^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  end
+end
+
+# Parallel assignment breaks macro scope for ordinary block bodies
+describe "x" do
+  planned, running = plan.sub_plans.partition { |sub| planned? sub }
+                                                      ^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+describe "x" do
+  _out, err = capture_subprocess_io do
+    call_event "hello", event, globals: { firestore_client: firestore_client }
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  end
+end
+
+# Receiverless calls inside string interpolation are NOT macros
+# (interpolated string is not a wrapper in RuboCop's in_macro_scope?)
+"text #{bar :baz}"
+        ^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+
+# BEGIN {} is not a wrapper — receiverless calls inside are NOT macros
+BEGIN {
+  require 'ostruct'
+  ^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+}
+
+# case/in (pattern matching) is not a wrapper — calls inside are NOT macros
+case foo
+in { a: 1 }
+  puts "a"
+  ^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Operator assignment (+=) breaks macro scope for receiverless calls
+describe "x" do
+  count += process_item arg
+           ^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Pure begin only preserves macro scope when the whole expression is.
+value = begin
+  require 'rubygems/specification'
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+logger ||= begin
+  require 'active_support/tagged_logging' unless defined?(ActiveSupport::TaggedLogging)
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# `or begin` is also a non-wrapper parent for the begin body.
+ready || begin
+  warn "Automatic creation of the sandbox app failed"
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+  exit 1
+  ^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+end
+
+# Interpolated x-strings are not macro wrappers.
+%x{#{raise TypeError, "x"}}
+     ^^^^^^^^^^^^^^^^^^^^ Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.

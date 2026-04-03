@@ -1,5 +1,5 @@
-use crate::cop::node_type::{PROGRAM_NODE, STATEMENTS_NODE};
-use crate::cop::util::is_rspec_example_group;
+use crate::cop::shared::node_type::{PROGRAM_NODE, STATEMENTS_NODE};
+use crate::cop::shared::util::is_rspec_example_group;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -55,7 +55,7 @@ impl Cop for RepeatedExampleGroupDescription {
     }
 
     fn default_include(&self) -> &'static [&'static str] {
-        crate::cop::util::RSPEC_DEFAULT_INCLUDE
+        crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE
     }
 
     fn interested_node_types(&self) -> &'static [u8] {

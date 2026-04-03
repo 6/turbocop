@@ -1,4 +1,5 @@
-use crate::cop::node_type::{
+use crate::cop::shared::access_modifier_predicates;
+use crate::cop::shared::node_type::{
     CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, DEF_NODE,
     GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, LOCAL_VARIABLE_READ_NODE,
     REQUIRED_PARAMETER_NODE, SELF_NODE, STATEMENTS_NODE,
@@ -494,28 +495,9 @@ impl Cop for Delegate {
             return;
         }
 
-        // Skip private/protected methods — RuboCop only flags public methods.
-        // Outer visibility does not flow into defs nested inside block/if/etc. bodies;
-        // only inline visibility or visibility declared in that same nested body applies.
-        if crate::cop::util::is_private_or_protected(source, node.location().start_offset()) {
-            let heredoc_ranges = if source.as_bytes().windows(2).any(|window| window == b"<<") {
-                crate::cop::util::collect_heredoc_ranges(source, &parse_result.node())
-            } else {
-                Vec::new()
-            };
-
-            if !outer_visibility_does_not_apply(source, node, &heredoc_ranges) {
-                return;
-            }
-        }
-
-        // Skip methods marked private via `private :method_name` after the def
-        if is_private_symbol_arg(source, def_name, node.location().start_offset()) {
-            return;
-        }
-
-        // Skip methods inside modules with `module_function` declared
-        if is_in_module_function_scope(source, node.location().start_offset()) {
+        // Skip private/protected/module_function methods — RuboCop only flags public methods.
+        // Uses AST-based sibling analysis to determine visibility.
+        if is_non_public_method(parse_result, node, def_name) {
             return;
         }
 
@@ -530,143 +512,228 @@ impl Cop for Delegate {
     }
 }
 
-/// RuboCop's visibility helper only applies outer `private`/`protected` to sibling defs in
-/// the same class/module/sclass body. If a def is nested inside an `if`, `block`, etc., the
-/// outer visibility should be ignored unless the nested body itself sets visibility (or the
-/// def uses an inline modifier like `private def foo`).
-fn outer_visibility_does_not_apply(
-    source: &SourceFile,
+/// AST-based check: is this def non-public?
+///
+/// Checks three patterns (matching RuboCop's VisibilityHelp):
+/// 1. Inline modifier: `private def foo` (def is an argument to an access modifier call)
+/// 2. Bare modifier: `private` / `protected` / `module_function` preceding the def in siblings
+/// 3. Retroactive modifier: `private :foo` / `module_function :foo` after the def in siblings
+fn is_non_public_method(
+    parse_result: &ruby_prism::ParseResult<'_>,
     def_node: &ruby_prism::Node<'_>,
-    heredoc_ranges: &[(usize, usize)],
+    method_name: &[u8],
 ) -> bool {
     let def_offset = def_node.location().start_offset();
-    if has_inline_visibility_modifier(source, def_offset) {
-        return false;
-    }
+    let mut checker = VisibilityChecker {
+        def_offset,
+        method_name,
+        result: None,
+        ancestor_has_module_function: false,
+    };
+    checker.visit(&parse_result.node());
+    checker.result.unwrap_or(false)
+}
 
-    let (def_line, def_col) = source.offset_to_line_col(def_offset);
-    let lines: Vec<&[u8]> = source.lines().collect();
-    let mut nested_body_visibility_private = false;
+/// Visitor that finds the def's sibling scope and checks visibility in one pass.
+struct VisibilityChecker<'a> {
+    def_offset: usize,
+    method_name: &'a [u8],
+    /// None = not found yet, Some(true) = non-public, Some(false) = public
+    result: Option<bool>,
+    /// True if any ancestor module/begin scope contains a `module_function` call.
+    /// RuboCop's `module_function_declared?` checks ALL ancestors.
+    ancestor_has_module_function: bool,
+}
 
-    for (line_no, line) in lines[..def_line.saturating_sub(1)].iter().enumerate().rev() {
-        let line_no = line_no + 1;
-        if line_in_ranges(line_no, heredoc_ranges) {
-            continue;
-        }
+impl<'pr> VisibilityChecker<'_> {
+    /// Check a list of sibling statements for the def's visibility.
+    fn check_siblings(&mut self, stmts: impl Iterator<Item = ruby_prism::Node<'pr>>) -> bool {
+        let stmts: Vec<_> = stmts.collect();
 
-        let indent = line
-            .iter()
-            .take_while(|&&b| b == b' ' || b == b'\t')
-            .count();
-        let trimmed = &line[indent..];
-
-        if trimmed.is_empty() || trimmed.starts_with(b"#") {
-            continue;
-        }
-
-        // Visibility inside the SAME nested body still applies, so remember the most
-        // recent same-indent visibility keyword we saw before reaching the opener.
-        if indent == def_col {
-            if is_bare_visibility_keyword(trimmed, b"private")
-                || is_bare_visibility_keyword(trimmed, b"protected")
-            {
-                nested_body_visibility_private = true;
-            } else if is_bare_visibility_keyword(trimmed, b"public") {
-                nested_body_visibility_private = false;
-            }
-        }
-
-        // A lower-indented `end` or scope opener means we left the nested body.
-        if indent < def_col
-            && (trimmed == b"end"
-                || trimmed.starts_with(b"end ")
-                || trimmed.starts_with(b"end;")
-                || trimmed.starts_with(b"end#")
-                || trimmed.starts_with(b"class ")
-                || trimmed.starts_with(b"module "))
-        {
+        // First check if our def is a direct child of this scope
+        let has_our_def = stmts.iter().any(|s| self.contains_def_at(s));
+        if !has_our_def {
             return false;
         }
 
-        // A lower-indented conditional/block opener means the def is nested inside that
-        // body, so outer class/module visibility does not apply unless that body itself
-        // declared `private`/`protected`.
-        if indent < def_col
-            && (trimmed.starts_with(b"if ")
-                || trimmed.starts_with(b"unless ")
-                || trimmed.starts_with(b"case ")
-                || trimmed.starts_with(b"while ")
-                || trimmed.starts_with(b"until ")
-                || trimmed.starts_with(b"for ")
-                || trimmed.starts_with(b"begin")
-                || trimmed == b"else"
-                || trimmed.starts_with(b"else ")
-                || trimmed.starts_with(b"elsif ")
-                || trimmed.starts_with(b"when ")
-                || trimmed.starts_with(b"rescue")
-                || trimmed.starts_with(b"ensure")
-                || has_do_block_opener(trimmed))
-        {
-            return !nested_body_visibility_private;
-        }
-    }
-
-    false
-}
-
-fn line_in_ranges(line_no: usize, ranges: &[(usize, usize)]) -> bool {
-    ranges
-        .iter()
-        .any(|(start, end)| (*start..=*end).contains(&line_no))
-}
-
-fn has_inline_visibility_modifier(source: &SourceFile, def_offset: usize) -> bool {
-    let bytes = source.as_bytes();
-    let mut line_start = def_offset;
-    while line_start > 0 && bytes[line_start - 1] != b'\n' {
-        line_start -= 1;
-    }
-
-    let trimmed = bytes[line_start..def_offset]
-        .iter()
-        .copied()
-        .skip_while(|&b| b == b' ' || b == b'\t')
-        .collect::<Vec<u8>>();
-
-    trimmed.starts_with(b"private ")
-        || trimmed.starts_with(b"private(")
-        || trimmed.starts_with(b"protected ")
-        || trimmed.starts_with(b"protected(")
-        || trimmed.starts_with(b"private_class_method ")
-}
-
-fn is_bare_visibility_keyword(trimmed: &[u8], keyword: &[u8]) -> bool {
-    trimmed == keyword
-        || trimmed.strip_prefix(keyword).is_some_and(|rest| {
-            rest.starts_with(b" ")
-                && rest[1..]
-                    .iter()
-                    .all(|&b| b == b' ' || b == b'\t' || b == b'\r')
-                || rest.starts_with(b" #")
-        })
-}
-
-fn has_do_block_opener(trimmed: &[u8]) -> bool {
-    if trimmed == b"do" || trimmed.starts_with(b"do ") {
-        return true;
-    }
-
-    for (idx, window) in trimmed.windows(3).enumerate() {
-        if window != b" do" {
-            continue;
-        }
-        let next = trimmed.get(idx + 3).copied();
-        if next.is_none() || next == Some(b' ') || next == Some(b'|') {
+        // Found the scope — compute visibility.
+        // If any ancestor has module_function, the def is non-public.
+        if self.ancestor_has_module_function {
+            self.result = Some(true);
             return true;
         }
+
+        let mut current_visibility = b"public".as_slice();
+        let mut found_def = false;
+
+        for sibling in &stmts {
+            // Check inline modifier: `private def foo`
+            if let Some(call) = sibling.as_call_node() {
+                if access_modifier_predicates::is_access_modifier_declaration(&call) {
+                    if let Some(args) = call.arguments() {
+                        for arg in args.arguments().iter() {
+                            if arg.as_def_node().is_some()
+                                && arg.location().start_offset() == self.def_offset
+                            {
+                                self.result = Some(call.name().as_slice() != b"public");
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Track bare modifiers before the def
+            if sibling.location().start_offset() == self.def_offset {
+                found_def = true;
+                if current_visibility != b"public" {
+                    self.result = Some(true);
+                    return true;
+                }
+                continue;
+            }
+
+            if !found_def {
+                if let Some(call) = sibling.as_call_node() {
+                    if access_modifier_predicates::is_bare_access_modifier(&call) {
+                        current_visibility = call.name().as_slice();
+                    }
+                }
+            }
+
+            // Retroactive modifier after the def
+            if found_def {
+                if let Some(call) = sibling.as_call_node() {
+                    if access_modifier_predicates::is_non_bare_access_modifier(&call)
+                        && call.name().as_slice() != b"public"
+                        && self.has_single_symbol_arg_matching(&call)
+                    {
+                        self.result = Some(true);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        self.result = Some(false);
+        true
     }
 
-    false
+    fn has_single_symbol_arg_matching(&self, call: &ruby_prism::CallNode<'_>) -> bool {
+        let Some(args) = call.arguments() else {
+            return false;
+        };
+        let mut iter = args.arguments().iter();
+        let Some(first) = iter.next() else {
+            return false;
+        };
+        if iter.next().is_some() {
+            return false;
+        }
+        first
+            .as_symbol_node()
+            .is_some_and(|sym| sym.unescaped() == self.method_name)
+    }
+
+    fn contains_def_at(&self, node: &ruby_prism::Node<'_>) -> bool {
+        if node.as_def_node().is_some() && node.location().start_offset() == self.def_offset {
+            return true;
+        }
+        if let Some(call) = node.as_call_node() {
+            if let Some(args) = call.arguments() {
+                for arg in args.arguments().iter() {
+                    if arg.as_def_node().is_some()
+                        && arg.location().start_offset() == self.def_offset
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn visit_body(&mut self, body: &ruby_prism::Node<'pr>) {
+        if self.result.is_some() {
+            return;
+        }
+        if let Some(s) = body.as_statements_node() {
+            if !self.check_siblings(s.body().iter()) {
+                for stmt in s.body().iter() {
+                    self.visit(&stmt);
+                }
+            }
+        } else if let Some(b) = body.as_begin_node() {
+            if let Some(stmts) = b.statements() {
+                if !self.check_siblings(stmts.body().iter()) {
+                    for stmt in stmts.body().iter() {
+                        self.visit(&stmt);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Check if a list of statements contains a bare or non-bare `module_function` call.
+    fn has_module_function(stmts: impl Iterator<Item = ruby_prism::Node<'pr>>) -> bool {
+        stmts.into_iter().any(|s| {
+            s.as_call_node().is_some_and(|call| {
+                access_modifier_predicates::is_access_modifier_declaration(&call)
+                    && call.name().as_slice() == b"module_function"
+            })
+        })
+    }
+
+    fn visit(&mut self, node: &ruby_prism::Node<'pr>) {
+        if self.result.is_some() {
+            return;
+        }
+        if let Some(class) = node.as_class_node() {
+            if let Some(body) = class.body() {
+                self.visit_body(&body);
+            }
+        } else if let Some(module) = node.as_module_node() {
+            if let Some(body) = module.body() {
+                // Track module_function in ancestor modules
+                let saved = self.ancestor_has_module_function;
+                if let Some(stmts) = body.as_statements_node() {
+                    if Self::has_module_function(stmts.body().iter()) {
+                        self.ancestor_has_module_function = true;
+                    }
+                } else if let Some(begin) = body.as_begin_node() {
+                    if let Some(stmts) = begin.statements() {
+                        if Self::has_module_function(stmts.body().iter()) {
+                            self.ancestor_has_module_function = true;
+                        }
+                    }
+                }
+                self.visit_body(&body);
+                self.ancestor_has_module_function = saved;
+            }
+        } else if let Some(sclass) = node.as_singleton_class_node() {
+            if let Some(body) = sclass.body() {
+                self.visit_body(&body);
+            }
+        } else if let Some(block) = node.as_block_node() {
+            if let Some(body) = block.body() {
+                self.visit_body(&body);
+            }
+        } else if let Some(begin) = node.as_begin_node() {
+            if let Some(stmts) = begin.statements() {
+                if !self.check_siblings(stmts.body().iter()) {
+                    for stmt in stmts.body().iter() {
+                        self.visit(&stmt);
+                    }
+                }
+            }
+        } else if let Some(program) = node.as_program_node() {
+            if !self.check_siblings(program.statements().body().iter()) {
+                for stmt in program.statements().body().iter() {
+                    self.visit(&stmt);
+                }
+            }
+        }
+    }
 }
 
 /// Extract the receiver name as bytes for prefix checking.
@@ -704,237 +771,6 @@ fn get_receiver_name(receiver: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
         return Some(loc.as_slice().to_vec());
     }
     None
-}
-
-/// Check if the method name appears as an argument to `private :method_name`
-/// or `protected :method_name` after the method definition.
-fn is_private_symbol_arg(source: &SourceFile, method_name: &[u8], def_offset: usize) -> bool {
-    let (def_line, def_col) = source.offset_to_line_col(def_offset);
-    let lines: Vec<&[u8]> = source.lines().collect();
-
-    // Build the patterns: `private :method_name` and `protected :method_name`
-    let mut private_pattern = b"private :".to_vec();
-    private_pattern.extend_from_slice(method_name);
-    let mut protected_pattern = b"protected :".to_vec();
-    protected_pattern.extend_from_slice(method_name);
-
-    // Search lines after the def for `private :method_name` or `protected :method_name`
-    // Look within the same scope (stop at class/module boundary at lower indent).
-    // `private :foo` typically appears right after the method's `end`, so we must
-    // scan past `end` keywords at the same indent level.
-    for line in lines.iter().skip(def_line) {
-        let indent = line
-            .iter()
-            .take_while(|&&b| b == b' ' || b == b'\t')
-            .count();
-        let trimmed: Vec<u8> = line[indent..].to_vec();
-
-        // Check for exact match or match followed by separator (newline, space, comma)
-        for pattern in [&private_pattern, &protected_pattern] {
-            if trimmed.starts_with(pattern) {
-                let rest = &trimmed[pattern.len()..];
-                // RuboCop's VisibilityHelp pattern only matches single-symbol calls:
-                //   (send nil? VISIBILITY_SCOPES (sym %method_name))
-                // So `private :foo` matches, but `private :foo, :bar` does NOT.
-                // Only match when there's no comma (no additional symbol args).
-                if rest.is_empty()
-                    || rest[0] == b'\n'
-                    || rest[0] == b'\r'
-                    || rest[0] == b' '
-                    || rest[0] == b'#'
-                {
-                    // Make sure there's no comma in the rest (multi-symbol call)
-                    if !rest.contains(&b',') {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        // Stop at scope boundary (class/module at same or lower indent)
-        if indent <= def_col && (trimmed.starts_with(b"class ") || trimmed.starts_with(b"module "))
-        {
-            break;
-        }
-    }
-    false
-}
-
-/// Check if the def is inside a module that has `module_function` declared.
-/// This matches RuboCop's `module_function_declared?` which checks ancestors
-/// for any `module_function` call (both standalone and inline) — BEFORE OR AFTER
-/// the def. The key difference from the original: we scan both backwards AND
-/// forwards for `module_function :method_name` (with symbol arg, appearing after).
-///
-/// Patterns detected:
-/// - Standalone `module_function` (makes all following methods module functions)
-/// - `module_function def method_name` (inline on same line)
-/// - `module_function :method_name` (applies to specific method, often after the def)
-/// - `end; module_function :name` (inline after def's `end`)
-fn is_in_module_function_scope(source: &SourceFile, def_offset: usize) -> bool {
-    let (def_line, def_col) = source.offset_to_line_col(def_offset);
-    let lines: Vec<&[u8]> = source.lines().collect();
-
-    /// Check if a trimmed line is any module_function form.
-    fn is_module_function_line(trimmed: &[u8]) -> bool {
-        trimmed == b"module_function"
-            || trimmed.starts_with(b"module_function\n")
-            || trimmed.starts_with(b"module_function\r")
-            || trimmed.starts_with(b"module_function ")
-            || trimmed.starts_with(b"module_function#")
-    }
-
-    // Scan backwards from the def line looking for `module_function`.
-    // RuboCop's `module_function_declared?` checks ALL ancestors, so we must look
-    // through class boundaries (a class nested inside a module can still have
-    // module_function declared at the outer module level). We only stop at `module `
-    // boundaries since module_function scope is module-level. When we cross a class
-    // boundary, we expand the search to the outer indentation level.
-    let mut current_col = def_col;
-    for line in lines[..def_line].iter().rev() {
-        let indent = line
-            .iter()
-            .take_while(|&&b| b == b' ' || b == b'\t')
-            .count();
-        let trimmed: Vec<u8> = line[indent..].to_vec();
-
-        if indent <= current_col && is_module_function_line(&trimmed) {
-            return true;
-        }
-
-        // Stop at module boundary at lower indentation (crossed into outer module scope)
-        if indent < current_col && trimmed.starts_with(b"module ") {
-            break;
-        }
-
-        // When hitting a class boundary at lower indentation, expand search to the
-        // outer indentation so we can find module_function declared at the module level.
-        if indent < current_col && trimmed.starts_with(b"class ") {
-            current_col = indent;
-        }
-    }
-
-    // Also check inline: the def line itself might have `module_function def foo`
-    if let Some(line) = lines.get(def_line.saturating_sub(1)) {
-        let trimmed: Vec<u8> = line
-            .iter()
-            .copied()
-            .skip_while(|&b| b == b' ' || b == b'\t')
-            .collect();
-        if trimmed.starts_with(b"module_function def ") {
-            return true;
-        }
-    }
-
-    // RuboCop's `module_function_declared?` searches ALL descendants of the ancestor
-    // module, including nodes that appear AFTER the def. Scan forward from the def's
-    // line for any `module_function` reference, stopping at the enclosing scope boundary.
-    //
-    // This catches patterns like:
-    //   `end; module_function :method_name`  (inline on same line as end)
-    //   `module_function :method_name`        (after the def on its own line)
-    //
-    // Sibling scope skipping: when a class/module at indent < def_col appears AFTER the def
-    // (e.g., `class StripeJs` after `def to_stripejs_customer_id`), we skip its body and
-    // continue scanning for module_function in the outer scope. This matches RuboCop's
-    // `each_ancestor(:module, :begin)` behavior which checks ALL ancestor modules.
-    //
-    // Example (gumroad pattern): module_function in outer module after nested class:
-    //   module StripeHelper
-    //     module ExtensionMethods
-    //       def to_customer_id   ← def_col=4
-    //         to_customer.id
-    //       end
-    //     end
-    //     class StripeJs         ← sibling, skip over it
-    //       ...
-    //     end
-    //     module_function        ← found in ancestor StripeHelper ✓
-    //   end
-    let mut sibling_scope_depth = 0usize;
-    for line in lines[def_line..].iter() {
-        let indent = line
-            .iter()
-            .take_while(|&&b| b == b' ' || b == b'\t')
-            .count();
-        let trimmed: &[u8] = &line[indent..];
-
-        // At indent < def_col, track sibling class/module bodies.
-        // When entering a sibling, increment depth to skip its contents.
-        // When exiting a sibling (its end), decrement depth.
-        // `end` at indent < def_col with sibling_scope_depth == 0 means we've exited
-        // the def's own containing scope — but we continue scanning the outer scope
-        // because module_function may be declared there (as in the gumroad pattern).
-        if indent < def_col {
-            if trimmed.starts_with(b"module ") || trimmed.starts_with(b"class ") {
-                sibling_scope_depth += 1;
-            } else if sibling_scope_depth > 0
-                && (trimmed == b"end"
-                    || trimmed.starts_with(b"end ")
-                    || trimmed.starts_with(b"end;"))
-            {
-                sibling_scope_depth -= 1;
-            }
-        }
-
-        // Only check for module_function when not inside a sibling scope body.
-        // Check if this line contains `module_function` as an actual statement (not in a comment).
-        // Only match at the same or enclosing scope level (indent <= def_col) to avoid
-        // matching `module_function` in nested blocks, modules, or method calls.
-        // Handles `module_function :name`, `end; module_function :name`, etc.
-        // IMPORTANT: Use word boundary matching, not substring matching. Otherwise
-        // identifiers like `register_module_function` or `module_function?` falsely trigger.
-        if sibling_scope_depth == 0 && indent <= def_col {
-            // Strip comment portion: find first `#` that's not inside a string
-            let code_portion = if let Some(hash_pos) = trimmed.iter().position(|&b| b == b'#') {
-                &trimmed[..hash_pos]
-            } else {
-                trimmed
-            };
-            if has_module_function_token(code_portion) {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-/// Check if a code portion contains `module_function` as a standalone token,
-/// not as a substring of a larger identifier (e.g., `register_module_function`).
-/// Returns true only when `module_function` is bounded by non-identifier characters
-/// (or start/end of the slice).
-fn has_module_function_token(code: &[u8]) -> bool {
-    let needle = b"module_function";
-    let nlen = needle.len();
-    for window_start in 0..code.len() {
-        if window_start + nlen > code.len() {
-            break;
-        }
-        if &code[window_start..window_start + nlen] != needle.as_slice() {
-            continue;
-        }
-        // Check preceding character is not an identifier char
-        if window_start > 0 {
-            let prev = code[window_start - 1];
-            if prev.is_ascii_alphanumeric() || prev == b'_' {
-                continue;
-            }
-        }
-        // Check following character is not an identifier char
-        if window_start + nlen < code.len() {
-            let next_ch = code[window_start + nlen];
-            if next_ch.is_ascii_alphanumeric()
-                || next_ch == b'_'
-                || next_ch == b'?'
-                || next_ch == b'!'
-            {
-                continue;
-            }
-        }
-        return true;
-    }
-    false
 }
 
 #[cfg(test)]

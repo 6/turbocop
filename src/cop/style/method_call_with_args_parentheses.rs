@@ -1,5 +1,7 @@
 use ruby_prism::Visit;
 
+use crate::cop::shared::access_modifier_predicates::MacroScope;
+use crate::cop::shared::method_identifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -9,7 +11,7 @@ use crate::parse::source::SourceFile;
 /// Corpus oracle reported FP=59, FN=54,201.
 ///
 /// ### FP=59→0 (fixed)
-/// Root cause: `visit_lambda_node` pushed `Scope::Other`, breaking macro scope
+/// Root cause: `visit_lambda_node` pushed `MacroScope::NotMacroScope`, breaking macro scope
 /// inheritance. RuboCop's `macro?` returns true for calls inside lambdas in
 /// class/module bodies. Fixed by using `wrapper_child_scope()` for lambdas.
 ///
@@ -22,7 +24,7 @@ use crate::parse::source::SourceFile;
 /// Fix 2 — Rescue/ensure scope propagation (~12k FN fixed):
 /// `visit_begin_node` incorrectly propagated macro scope into rescue/ensure
 /// bodies. RuboCop's `in_macro_scope?` does NOT list `rescue`/`ensure` as
-/// wrappers. Fixed by manually visiting BeginNode children with `Scope::Other`
+/// wrappers. Fixed by manually visiting BeginNode children with `MacroScope::NotMacroScope`
 /// when rescue/ensure is present.
 ///
 /// Fix 3 — Case/when/while/until/for scope (~12k FN fixed):
@@ -72,46 +74,84 @@ use crate::parse::source::SourceFile;
 /// lambdas inside wrapper blocks (`subject { -> { get :idx } }`) still
 /// inherit it.  Resolved ~1k FN with 0 regressions.
 ///
+/// ## Corpus investigation (2026-04-01, attempt 2)
+///
+/// FN root cause 1: block-argument-only calls (`foo &block`) were missed
+/// because Prism stores `&block` in the CallNode's `block` field, not in
+/// `arguments`. The check `call.arguments().is_none()` returned early.
+/// Fixed by also checking for `BlockArgumentNode` in the block field.
+/// Resolved ~30% of sampled FN.
+///
+/// FN root cause 2: `RescueModifierNode` (`foo rescue bar`) did not break
+/// macro scope. In Parser AST, inline rescue wraps the call in a `rescue`
+/// node, which is NOT a wrapper in RuboCop's `in_macro_scope?`. Added
+/// `visit_rescue_modifier_node` that pushes `MacroScope::NotMacroScope` so receiverless
+/// calls inside rescue modifiers are no longer treated as macros.
+///
+/// Combined: 106 FN resolved across 15 sampled repos, 0 regressions.
+///
 /// Remaining FN: likely from additional non-wrapper node types not yet
 /// tracked on parent_stack, or subtle differences in how Prism vs Parser
 /// represent certain AST structures.
+///
+/// ## Corpus investigation (2026-04-01, attempt 3)
+///
+/// FN root cause 1: `MultiWriteNode` (`a, b = call do ... end`) was not
+/// treated like assignment when deciding whether a call-attached block stays
+/// in macro scope. Prism uses `MultiWriteNode` for parallel assignment, so
+/// `call_block_child_scope()` missed receiverless calls such as
+/// `planned? sub` / `call_event "x", event` inside those blocks. Fixed by
+/// pushing `ParentKind::Assignment` while visiting the RHS of MultiWriteNode.
+///
+/// FN root cause 2: flow-control nodes like `NextNode` were not tracked on
+/// `parent_stack`. In Parser AST, `next send_file static_file` gives the call
+/// a direct non-wrapper parent, so macro scope must break there. Fixed by
+/// tracking `return`/`break`/`next` arguments as `ParentKind::FlowControl`.
+///
+/// ## Corpus investigation (2026-04-01, attempt 4)
+///
+/// FN root cause 1 (~130 FN): `InterpolatedStringNode` / `InterpolatedSymbolNode`
+/// (Parser's `dstr`/`dsym`) are NOT wrappers in `in_macro_scope?`, but
+/// nitrocop did not track them as non-wrapper parents. Calls inside `#{}`
+/// string interpolation in macro scope were incorrectly treated as macros.
+/// Fixed by pushing `ParentKind::Interpolation` when visiting interpolated
+/// string/symbol nodes. This resolved tdiary (67 FN), aruba (9 FN), and
+/// many others.
+///
+/// FN root cause 2 (~19 FN): `PreExecutionNode` (`BEGIN { }`) was not
+/// handled. In Parser AST, `preexe` is NOT a wrapper in `in_macro_scope?`.
+/// Added `visit_pre_execution_node` pushing `MacroScope::NotMacroScope`. Also added
+/// `visit_post_execution_node` for `END { }` symmetry.
+///
+/// FN root cause 3 (~4 FN): `CaseMatchNode` (`case...in` pattern matching)
+/// was not handled, unlike `CaseNode` (`case...when`). Neither is a wrapper
+/// in `in_macro_scope?`. Added `visit_case_match_node` pushing `MacroScope::NotMacroScope`.
+///
+/// FN root cause 4 (~30+ FN): Operator assignment nodes (`+=`, `-=`, `||=`,
+/// `&&=`, etc.) were not tracked as `ParentKind::Assignment`. Added visitors
+/// for all `*OperatorWriteNode`, `*OrWriteNode`, `*AndWriteNode` variants
+/// plus `Call*WriteNode` and `Index*WriteNode`.
+///
+/// Combined: 289 FN resolved across 15 sampled repos, 0 regressions.
+///
+/// ## Corpus investigation (2026-04-01, attempt 5)
+///
+/// FN root cause 1: pure `BeginNode`s (`x = begin ... end`, `lhs || begin ... end`)
+/// preserved macro scope unconditionally. RuboCop only treats `kwbegin` as a
+/// wrapper when the whole begin expression is already in macro scope; an outer
+/// assignment/logical-op parent still breaks it. Fixed by deriving pure-begin
+/// child scope from `nested_in_non_wrapper()`, matching `if`/`unless`.
+///
+/// FN root cause 2: `InterpolatedXStringNode` (`%x{#{...}}`, common in Opal)
+/// was not tracked as an interpolation parent. Receiverless calls inside the
+/// embedded `#{...}` were therefore treated like top-level/class-body macros.
+/// Added interpolation-parent tracking for interpolated x-strings and
+/// interpolated regular expressions.
+///
+/// Validation: `python3 scripts/check_cop.py Style/MethodCallWithArgsParentheses
+/// --rerun --clone --sample 15` reported `0` new FP, `0` new FN, and all `41`
+/// sampled oracle FN resolved.
 pub struct MethodCallWithArgsParentheses;
-
-fn is_operator(name: &[u8]) -> bool {
-    matches!(
-        name,
-        b"+" | b"-"
-            | b"*"
-            | b"/"
-            | b"%"
-            | b"**"
-            | b"=="
-            | b"!="
-            | b"<"
-            | b">"
-            | b"<="
-            | b">="
-            | b"<=>"
-            | b"<<"
-            | b">>"
-            | b"&"
-            | b"|"
-            | b"^"
-            | b"~"
-            | b"!"
-            | b"[]"
-            | b"[]="
-            | b"=~"
-            | b"!~"
-            | b"+@"
-            | b"-@"
-    )
-}
-
-/// Check if name is a setter method (ends with `=`)
-fn is_setter(name: &[u8]) -> bool {
-    name.last() == Some(&b'=') && name.len() > 1 && name != b"==" && name != b"!="
-}
 
 /// Check if a method name matches any pattern in the list (regex-style).
 fn matches_any_pattern(name_str: &str, patterns: &[String]) -> bool {
@@ -174,26 +214,7 @@ fn is_class_constructor(call: &ruby_prism::CallNode<'_>) -> bool {
     false
 }
 
-/// Context for tracking whether we're in macro scope.
-#[derive(Clone, Copy, PartialEq)]
-enum Scope {
-    /// Top-level (root) scope — macros are allowed
-    Root,
-    /// Inside class/module/sclass body — macros are allowed
-    ClassLike,
-    /// Inside a wrapper (begin, block, if branch) that is itself in macro scope
-    WrapperInMacro,
-    /// Inside a method definition — NOT macro scope
-    MethodDef,
-    /// Other non-macro context (e.g., wrapper inside a method)
-    Other,
-}
-
-impl Scope {
-    fn is_macro_scope(self) -> bool {
-        matches!(self, Scope::Root | Scope::ClassLike | Scope::WrapperInMacro)
-    }
-}
+// Macro scope tracking uses shared MacroScope from access_modifier_predicates.
 
 /// Parent node type for omit_parentheses context checks.
 #[derive(Clone, Copy, PartialEq)]
@@ -215,7 +236,10 @@ enum ParentKind {
     MatchPattern,
     Assignment,
     Conditional,
+    ClassConstructor,
     ConstantPath,
+    FlowControl,
+    Interpolation,
 }
 
 impl Cop for MethodCallWithArgsParentheses {
@@ -265,7 +289,7 @@ impl Cop for MethodCallWithArgsParentheses {
             allow_chaining,
             allow_camel,
             allow_interp,
-            scope_stack: vec![Scope::Root],
+            scope_stack: vec![],
             scope_parent_baseline: vec![0],
             parent_stack: vec![],
             in_interpolation: false,
@@ -290,7 +314,7 @@ struct ParenVisitor<'a> {
     allow_chaining: bool,
     allow_camel: bool,
     allow_interp: bool,
-    scope_stack: Vec<Scope>,
+    scope_stack: Vec<MacroScope>,
     /// Records parent_stack.len() at each scope push, so we can tell whether
     /// a parent_stack entry belongs to the CURRENT scope or an outer one.
     scope_parent_baseline: Vec<usize>,
@@ -300,11 +324,7 @@ struct ParenVisitor<'a> {
 }
 
 impl ParenVisitor<'_> {
-    fn current_scope(&self) -> Scope {
-        *self.scope_stack.last().unwrap_or(&Scope::Other)
-    }
-
-    fn push_scope(&mut self, scope: Scope) {
+    fn push_macro_scope(&mut self, scope: MacroScope) {
         self.scope_stack.push(scope);
         self.scope_parent_baseline.push(self.parent_stack.len());
     }
@@ -319,7 +339,7 @@ impl ParenVisitor<'_> {
     }
 
     fn is_macro_scope(&self) -> bool {
-        self.current_scope().is_macro_scope()
+        crate::cop::shared::access_modifier_predicates::in_macro_scope(&self.scope_stack)
     }
 
     /// Check if the call is nested inside a non-wrapper parent within the
@@ -330,17 +350,21 @@ impl ParenVisitor<'_> {
     /// since the current scope was entered.
     fn nested_in_non_wrapper(&self) -> bool {
         let baseline = self.scope_parent_baseline.last().copied().unwrap_or(0);
-        self.parent_stack[baseline..]
-            .iter()
-            .any(|kind| !matches!(kind, ParentKind::TernaryBranch))
+        self.parent_stack[baseline..].iter().any(|kind| {
+            !matches!(
+                kind,
+                ParentKind::TernaryBranch | ParentKind::ClassConstructor
+            )
+        })
     }
 
-    /// Derive child scope for wrapper nodes (begin, block, if branches)
-    fn wrapper_child_scope(&self) -> Scope {
-        if self.current_scope().is_macro_scope() {
-            Scope::WrapperInMacro
+    /// Derive child scope for wrapper nodes (begin, block, if branches).
+    /// Inherits macro scope from parent, matching rubocop-ast's in_macro_scope?.
+    fn wrapper_child_scope(&self) -> MacroScope {
+        if self.is_macro_scope() {
+            MacroScope::InMacroScope
         } else {
-            Scope::Other
+            MacroScope::NotMacroScope
         }
     }
 
@@ -349,9 +373,9 @@ impl ParenVisitor<'_> {
     /// nested under assignment/chaining/arguments/etc., Parser would give the
     /// block that non-wrapper parent and macro scope must not leak into the
     /// block body.
-    fn call_block_child_scope(&self) -> Scope {
+    fn call_block_child_scope(&self) -> MacroScope {
         if self.nested_in_non_wrapper() {
-            Scope::Other
+            MacroScope::NotMacroScope
         } else {
             self.wrapper_child_scope()
         }
@@ -361,7 +385,9 @@ impl ParenVisitor<'_> {
         let name = call.name().as_slice();
 
         // Skip operators and setters
-        if is_operator(name) || is_setter(name) {
+        if method_identifier_predicates::is_operator_method(name)
+            || method_identifier_predicates::is_setter_method(name)
+        {
             return;
         }
 
@@ -370,8 +396,11 @@ impl ParenVisitor<'_> {
             return;
         }
 
-        // Must have arguments
-        if call.arguments().is_none() {
+        // Must have arguments (regular args or block pass like &block)
+        let has_block_arg = call
+            .block()
+            .is_some_and(|b| b.as_block_argument_node().is_some());
+        if call.arguments().is_none() && !has_block_arg {
             return;
         }
 
@@ -433,7 +462,7 @@ impl ParenVisitor<'_> {
         }
 
         // syntax_like_method_call? — implicit call (.()) or operator methods
-        if is_operator(name) {
+        if method_identifier_predicates::is_operator_method(name) {
             return;
         }
 
@@ -1015,15 +1044,26 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         self.visit_call_common(node);
 
+        let is_class_constructor = is_class_constructor(node);
+        let child_parent = if is_class_constructor {
+            ParentKind::ClassConstructor
+        } else {
+            ParentKind::Call
+        };
+
+        if is_class_constructor {
+            self.push_macro_scope(MacroScope::InMacroScope);
+        }
+
         // Visit children — push Call as parent for receiver, args, and block arg
         // because in RuboCop, all these children have the call as parent node
         if let Some(recv) = node.receiver() {
-            self.parent_stack.push(ParentKind::Call);
+            self.parent_stack.push(child_parent);
             self.visit(&recv);
             self.parent_stack.pop();
         }
         if let Some(args) = node.arguments() {
-            self.parent_stack.push(ParentKind::Call);
+            self.parent_stack.push(child_parent);
             for arg in args.arguments().iter() {
                 self.visit(&arg);
             }
@@ -1031,23 +1071,15 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         }
         if let Some(block) = node.block() {
             if let Some(block_node) = block.as_block_node() {
-                if is_class_constructor(node) {
-                    // Class.new/Module.new/Struct.new/Data.define blocks are class-like scope
-                    self.push_scope(Scope::ClassLike);
-                    if let Some(params) = block_node.parameters() {
-                        self.visit(&params);
-                    }
-                    if let Some(body) = block_node.body() {
-                        self.visit(&body);
-                    }
-                    self.pop_scope();
+                if is_class_constructor {
+                    self.visit_block_node(&block_node);
                 } else {
                     // In Parser AST, the block node inherits the enclosing
                     // expression's parent, not the send's parent. That means
                     // ordinary call-attached blocks only keep macro scope when
                     // the whole block expression is itself in macro scope.
                     let child_scope = self.call_block_child_scope();
-                    self.push_scope(child_scope);
+                    self.push_macro_scope(child_scope);
                     if let Some(params) = block_node.parameters() {
                         self.visit(&params);
                     }
@@ -1058,10 +1090,14 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
                 }
             } else {
                 // BlockArgumentNode (&block) — this IS a call argument
-                self.parent_stack.push(ParentKind::Call);
+                self.parent_stack.push(child_parent);
                 self.visit(&block);
                 self.parent_stack.pop();
             }
+        }
+
+        if is_class_constructor {
+            self.pop_scope();
         }
     }
 
@@ -1083,7 +1119,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             }
         }
 
-        self.push_scope(Scope::ClassLike);
+        self.push_macro_scope(MacroScope::InMacroScope);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
@@ -1091,7 +1127,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        self.push_scope(Scope::ClassLike);
+        self.push_macro_scope(MacroScope::InMacroScope);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
@@ -1099,7 +1135,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
-        self.push_scope(Scope::ClassLike);
+        self.push_macro_scope(MacroScope::InMacroScope);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
@@ -1113,7 +1149,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             self.in_endless_def = true;
         }
 
-        self.push_scope(Scope::MethodDef);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         // Visit parameters
         if let Some(params) = node.parameters() {
             self.visit_parameters_node(&params);
@@ -1127,7 +1163,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let child_scope = self.wrapper_child_scope();
-        self.push_scope(child_scope);
+        self.push_macro_scope(child_scope);
         if let Some(params) = node.parameters() {
             self.visit(&params);
         }
@@ -1149,7 +1185,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         // while lambdas inside wrapper blocks (`subject { -> { get :idx } }`)
         // preserve it.
         let child_scope = self.call_block_child_scope();
-        self.push_scope(child_scope);
+        self.push_macro_scope(child_scope);
         if let Some(body) = node.body() {
             self.visit(&body);
         }
@@ -1182,7 +1218,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             // The `rescue` node sits between `kwbegin` and all children.
             // RuboCop's `in_macro_scope?` does NOT list `rescue` or `ensure` as
             // wrappers, so nothing inside a begin-with-rescue gets macro scope.
-            self.push_scope(Scope::Other);
+            self.push_macro_scope(MacroScope::NotMacroScope);
             if let Some(stmts) = node.statements() {
                 self.visit_statements_node(&stmts);
             }
@@ -1198,9 +1234,14 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             self.pop_scope();
         } else {
             // Pure `begin...end` (no rescue/ensure) — `kwbegin` is a wrapper
-            // in RuboCop's `in_macro_scope?`, so propagate macro scope.
-            let child_scope = self.wrapper_child_scope();
-            self.push_scope(child_scope);
+            // in RuboCop's `in_macro_scope?`, but only when the whole begin
+            // expression is itself in macro scope.
+            let child_scope = if self.nested_in_non_wrapper() {
+                MacroScope::NotMacroScope
+            } else {
+                self.wrapper_child_scope()
+            };
+            self.push_macro_scope(child_scope);
             ruby_prism::visit_begin_node(self, node);
             self.pop_scope();
         }
@@ -1224,13 +1265,13 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         // `if`/ternary branches only inherit macro scope when the whole `if`
         // expression is itself in macro scope.
         let child_scope = if self.nested_in_non_wrapper() {
-            Scope::Other
+            MacroScope::NotMacroScope
         } else {
             self.wrapper_child_scope()
         };
 
         if let Some(stmts) = node.statements() {
-            self.push_scope(child_scope);
+            self.push_macro_scope(child_scope);
             if is_ternary {
                 self.parent_stack.push(ParentKind::TernaryBranch);
             }
@@ -1241,7 +1282,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             self.pop_scope();
         }
         if let Some(subsequent) = node.subsequent() {
-            self.push_scope(child_scope);
+            self.push_macro_scope(child_scope);
             if is_ternary {
                 self.parent_stack.push(ParentKind::TernaryBranch);
             }
@@ -1259,18 +1300,18 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         self.parent_stack.pop();
 
         let child_scope = if self.nested_in_non_wrapper() {
-            Scope::Other
+            MacroScope::NotMacroScope
         } else {
             self.wrapper_child_scope()
         };
 
         if let Some(stmts) = node.statements() {
-            self.push_scope(child_scope);
+            self.push_macro_scope(child_scope);
             self.visit_statements_node(&stmts);
             self.pop_scope();
         }
         if let Some(consequent) = node.else_clause() {
-            self.push_scope(child_scope);
+            self.push_macro_scope(child_scope);
             self.visit_else_node(&consequent);
             self.pop_scope();
         }
@@ -1373,8 +1414,29 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
         // `case`/`when` are NOT wrappers in RuboCop's in_macro_scope?.
         // Push Other to prevent class-like scope from leaking through.
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         ruby_prism::visit_case_node(self, node);
+        self.pop_scope();
+    }
+
+    fn visit_case_match_node(&mut self, node: &ruby_prism::CaseMatchNode<'pr>) {
+        // `case`/`in` (pattern matching) is NOT a wrapper in in_macro_scope?.
+        self.push_macro_scope(MacroScope::NotMacroScope);
+        ruby_prism::visit_case_match_node(self, node);
+        self.pop_scope();
+    }
+
+    fn visit_pre_execution_node(&mut self, node: &ruby_prism::PreExecutionNode<'pr>) {
+        // `BEGIN { }` (`preexe`) is NOT a wrapper in in_macro_scope?.
+        self.push_macro_scope(MacroScope::NotMacroScope);
+        ruby_prism::visit_pre_execution_node(self, node);
+        self.pop_scope();
+    }
+
+    fn visit_post_execution_node(&mut self, node: &ruby_prism::PostExecutionNode<'pr>) {
+        // `END { }` (`postexe`) is NOT a wrapper in in_macro_scope?.
+        self.push_macro_scope(MacroScope::NotMacroScope);
+        ruby_prism::visit_post_execution_node(self, node);
         self.pop_scope();
     }
 
@@ -1400,21 +1462,49 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        // In Parser AST, `dstr` is NOT a wrapper in `in_macro_scope?`.
+        // Push Interpolation parent so nested calls break macro scope.
         let prev = self.in_interpolation;
         self.in_interpolation = true;
+        self.parent_stack.push(ParentKind::Interpolation);
         for part in node.parts().iter() {
             self.visit(&part);
         }
+        self.parent_stack.pop();
         self.in_interpolation = prev;
     }
 
     fn visit_interpolated_symbol_node(&mut self, node: &ruby_prism::InterpolatedSymbolNode<'pr>) {
         let prev = self.in_interpolation;
         self.in_interpolation = true;
+        self.parent_stack.push(ParentKind::Interpolation);
         for part in node.parts().iter() {
             self.visit(&part);
         }
+        self.parent_stack.pop();
         self.in_interpolation = prev;
+    }
+
+    fn visit_interpolated_regular_expression_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedRegularExpressionNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Interpolation);
+        for part in node.parts().iter() {
+            self.visit(&part);
+        }
+        self.parent_stack.pop();
+    }
+
+    fn visit_interpolated_x_string_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedXStringNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Interpolation);
+        for part in node.parts().iter() {
+            self.visit(&part);
+        }
+        self.parent_stack.pop();
     }
 
     // Track assignment context
@@ -1461,9 +1551,273 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
         self.parent_stack.pop();
     }
 
+    fn visit_multi_write_node(&mut self, node: &ruby_prism::MultiWriteNode<'pr>) {
+        for left in node.lefts().iter() {
+            self.visit(&left);
+        }
+        if let Some(rest) = node.rest() {
+            self.visit(&rest);
+        }
+
+        self.parent_stack.push(ParentKind::Assignment);
+        for right in node.rights().iter() {
+            self.visit(&right);
+        }
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    // Operator assignment nodes (+=, -=, etc.) — RHS is Assignment context
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_instance_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOperatorWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_class_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOperatorWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_global_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantOperatorWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_path_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOperatorWriteNode<'pr>,
+    ) {
+        self.visit_constant_path_node(&node.target());
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_call_operator_write_node(&mut self, node: &ruby_prism::CallOperatorWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_index_operator_write_node(&mut self, node: &ruby_prism::IndexOperatorWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        if let Some(args) = node.arguments() {
+            self.parent_stack.push(ParentKind::Call);
+            for arg in args.arguments().iter() {
+                self.visit(&arg);
+            }
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    // ||= and &&= nodes — RHS is Assignment context
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_instance_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_instance_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableAndWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_class_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOrWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_class_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableAndWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_global_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOrWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_global_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableAndWriteNode<'pr>,
+    ) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_or_write_node(&mut self, node: &ruby_prism::ConstantOrWriteNode<'pr>) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_and_write_node(&mut self, node: &ruby_prism::ConstantAndWriteNode<'pr>) {
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_path_or_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOrWriteNode<'pr>,
+    ) {
+        self.visit_constant_path_node(&node.target());
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_constant_path_and_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathAndWriteNode<'pr>,
+    ) {
+        self.visit_constant_path_node(&node.target());
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_call_or_write_node(&mut self, node: &ruby_prism::CallOrWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_call_and_write_node(&mut self, node: &ruby_prism::CallAndWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_index_or_write_node(&mut self, node: &ruby_prism::IndexOrWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        if let Some(args) = node.arguments() {
+            self.parent_stack.push(ParentKind::Call);
+            for arg in args.arguments().iter() {
+                self.visit(&arg);
+            }
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
+    fn visit_index_and_write_node(&mut self, node: &ruby_prism::IndexAndWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.parent_stack.push(ParentKind::Call);
+            self.visit(&receiver);
+            self.parent_stack.pop();
+        }
+        if let Some(args) = node.arguments() {
+            self.parent_stack.push(ParentKind::Call);
+            for arg in args.arguments().iter() {
+                self.visit(&arg);
+            }
+            self.parent_stack.pop();
+        }
+        self.parent_stack.push(ParentKind::Assignment);
+        self.visit(&node.value());
+        self.parent_stack.pop();
+    }
+
     fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
         // `while`/`until`/`for` are NOT wrappers in RuboCop's in_macro_scope?.
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         self.parent_stack.push(ParentKind::Conditional);
         self.visit(&node.predicate());
         self.parent_stack.pop();
@@ -1474,7 +1828,7 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         self.parent_stack.push(ParentKind::Conditional);
         self.visit(&node.predicate());
         self.parent_stack.pop();
@@ -1485,8 +1839,36 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
     }
 
     fn visit_for_node(&mut self, node: &ruby_prism::ForNode<'pr>) {
-        self.push_scope(Scope::Other);
+        self.push_macro_scope(MacroScope::NotMacroScope);
         ruby_prism::visit_for_node(self, node);
+        self.pop_scope();
+    }
+
+    fn visit_return_node(&mut self, node: &ruby_prism::ReturnNode<'pr>) {
+        self.parent_stack.push(ParentKind::FlowControl);
+        ruby_prism::visit_return_node(self, node);
+        self.parent_stack.pop();
+    }
+
+    fn visit_break_node(&mut self, node: &ruby_prism::BreakNode<'pr>) {
+        self.parent_stack.push(ParentKind::FlowControl);
+        ruby_prism::visit_break_node(self, node);
+        self.parent_stack.pop();
+    }
+
+    fn visit_next_node(&mut self, node: &ruby_prism::NextNode<'pr>) {
+        self.parent_stack.push(ParentKind::FlowControl);
+        ruby_prism::visit_next_node(self, node);
+        self.parent_stack.pop();
+    }
+
+    fn visit_rescue_modifier_node(&mut self, node: &ruby_prism::RescueModifierNode<'pr>) {
+        // In Parser AST, `foo rescue bar` wraps `foo` in a rescue node.
+        // RuboCop's `in_macro_scope?` does NOT list `rescue` as a wrapper,
+        // so calls inside a rescue modifier are NOT in macro scope.
+        self.push_macro_scope(MacroScope::NotMacroScope);
+        self.visit(&node.expression());
+        self.visit(&node.rescue_expression());
         self.pop_scope();
     }
 }

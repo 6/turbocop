@@ -1,5 +1,6 @@
-use crate::cop::node_type::CLASS_NODE;
-use crate::cop::util::{full_constant_path, parent_class_name};
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::CLASS_NODE;
+use crate::cop::shared::util::parent_class_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -45,7 +46,7 @@ impl Cop for ApplicationRecord {
         // RuboCop's pattern: (const _ !:ApplicationRecord) checks the constant's
         // own name, not the full path. So Admin::ApplicationRecord has name
         // :ApplicationRecord and should NOT be flagged.
-        let class_name = full_constant_path(source, &class.constant_path());
+        let class_name = constant_predicates::full_constant_path(source, &class.constant_path());
         if class_name == b"ApplicationRecord" || class_name.ends_with(b"::ApplicationRecord") {
             return;
         }

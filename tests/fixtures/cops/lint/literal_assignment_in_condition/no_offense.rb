@@ -25,3 +25,8 @@ end
 if options = { x: y }
   do_something
 end
+
+if has_terminal?(@regexps[gr = '\A[
+    ]'] ||= Regexp.new(gr), :regexp, index)
+  do_something
+end

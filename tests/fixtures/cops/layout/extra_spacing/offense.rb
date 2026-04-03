@@ -66,6 +66,7 @@ assert !@called
 @data_gathering[pair_hash] ||= {}
 
 let(:output_missing) {      <<-EOT
+                      ^^^^^ Layout/ExtraSpacing: Unnecessary spacing detected.
 EOT
 }
 
@@ -81,13 +82,16 @@ assert { case1("@gptあ")   == "あ" }
 text str: 'The Title',   layout: :title # from custom-layout.yml
                       ^^ Layout/ExtraSpacing: Unnecessary spacing detected.
 
-[[ 0.7493,  0.4482, -2.1426,  0.5586,  0.5540, -0.1676],
+expected_out = Torch.tensor([
+  [[ 0.7493,  0.4482, -2.1426,  0.5586,  0.5540, -0.1676],
+                              ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+   [-1.7787,  1.3332, -0.3269, -0.2184,  0.9501,  0.0408]],
 
-[[ 0.0258, -0.3633,  0.4725, -0.5102,  1.8175, -1.4423],
-                   ^ Layout/ExtraSpacing: Unnecessary spacing detected.
-
-[-1.0710,  1.1253, -1.0413, -0.5237,  1.4925,  0.0183]],
-                                    ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+  [[ 0.0258, -0.3633,  0.4725, -0.5102,  1.8175, -1.4423],
+                     ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+   [-0.8428,  0.8163, -1.7820,  0.9993,  0.1579,  0.6513]],
+                              ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+])
 
 html = <<-EOF
 #{foo(1,  2)}
@@ -96,3 +100,41 @@ html = <<-EOF
 #{baz(5,  6)}
         ^ Layout/ExtraSpacing: Unnecessary spacing detected.
 EOF
+
+(%w[  id lock_version position version_comment created_at updated_at created_by_id updated_by_id type original_record_id])
+    ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+def builtin_state
+  raise Bud::Error unless @tables.empty?
+
+  loopback  :localtick, [:col1]
+          ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+  @stdio = terminal :stdio
+  scratch :halt, [:key]
+  @periodics = table :periodics_tbl, [:pername] => [:period]
+end
+
+RSpec.describe('PosixClass parsing') do
+  include_examples 'parse', /[[:word:]]/,
+    [0]    => [CharacterSet, count: 1],
+    [0, 0] => [:posixclass,    :word, PosixClass, name: 'word', text: '[:word:]']
+                           ^^^ Layout/ExtraSpacing: Unnecessary spacing detected.
+  include_examples 'parse', /[[:^word:]]/,
+    [0]    => [CharacterSet, count: 1],
+    [0, 0] => [:nonposixclass, :word, PosixClass, name: 'word', text: '[:^word:]']
+end
+
+# Spaces before a same-line heredoc opener are still offenses
+let(:hiera_config) {      <<~CONF }
+                    ^^^^^ Layout/ExtraSpacing: Unnecessary spacing detected.
+---
+version: 5
+CONF
+
+# Spaces before a non-heredoc same-line block closer are still offenses
+let(:output_missing) { ""  }
+                         ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+
+# Spaces before a chained `.` are still offenses for single-line receivers
+data = { a: 1 }  .transform_values
+               ^ Layout/ExtraSpacing: Unnecessary spacing detected.

@@ -131,6 +131,20 @@ Select up to 4 cops for the next batch:
 - FN-only cops last
 - Skip complex Layout alignment cops until necessary
 
+**Establish ground truth first** — before reading cop source or running reducers,
+run these commands **in parallel** for each selected cop:
+```bash
+git log --oneline -5 -- src/cop/<dept>/<cop_name>.rs   # what's been committed recently?
+python3 scripts/check_cop.py Department/CopName --verbose  # oracle FP/FN — the actual current gap
+```
+Compare the latest cop commit date against the corpus oracle run date (shown in
+`check_cop.py` output). If the oracle ran AFTER the latest fix, its FP/FN
+numbers are the real remaining gap — not stale data from before the fix. This
+tells you exactly what still needs fixing before you spend time reading source
+or running reducers. Do NOT read the full cop source (which may have hundreds
+of lines of investigation comments) until you know the current numbers and
+which repos are diverging.
+
 Investigate each selected cop:
 ```bash
 python3 scripts/investigate_cop.py Department/CopName --context --fp-only --limit 10
@@ -181,6 +195,11 @@ Read reduced repros from `/tmp/nitrocop-reduce/` and capture root-cause hypothes
 3. Implement the fix in `src/cop/<dept>/<cop_name>.rs`.
 
 4. Re-run targeted tests and ensure they pass.
+   **Important:** Fixture tests bypass config (Include patterns, Enabled status).
+   A passing test does NOT guarantee the binary fires on real files. If fixing
+   an FN, also verify the binary detects the pattern — see AGENTS.md Key
+   Constraints for Prism block body shape gotchas (BeginNode vs StatementsNode,
+   itblock/numblock).
 
 5. Verify with the right acceptance gate for cops changed in this loop:
    ```bash
@@ -200,6 +219,13 @@ Read reduced repros from `/tmp/nitrocop-reduce/` and capture root-cause hypothes
    department/gem below 100% once the corpus reports are regenerated.
 
 6. Handle regressions:
+   - When CI reports a regression, check CI logs first:
+     ```bash
+     gh run view <run-id> --job <job-id> --log 2>&1 | grep -A 3 "FAIL:"
+     ```
+     This immediately names the regressed repo(s) — do NOT re-run
+     `check_cop.py --rerun --clone` locally to find a regression that CI
+     already identified.
    - If FP increases (even with passing tests), revert the code change.
    - Add a detailed investigation comment to the cop source:
    ```rust

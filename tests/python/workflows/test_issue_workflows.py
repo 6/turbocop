@@ -133,17 +133,17 @@ def test_corpus_oracle_workflow_uses_dynamic_pr_renderer():
     assert "--body-file \"$PR_BODY_FILE\" \\" in content
 
 
-def test_release_workflow_commits_directly_to_main() -> None:
+def test_release_workflow_merges_via_pr() -> None:
     content = RELEASE.read_text()
     assert "Release workflow must run from main" in content
-    assert "GH_TOKEN: ${{ github.token }}" in content
+    assert "GH_TOKEN: ${{ steps.app-token.outputs.token }}" in content
+    assert "actions/create-github-app-token@v3" in content
     assert "--identity github-actions" in content
-    assert "git checkout -B main origin/main" in content
-    assert "git push origin main" in content
-    assert "--branch main \\" in content
-    assert 'gh pr create' not in content
-    assert 'gh pr merge' not in content
-    assert "actions/create-github-app-token@v3" not in content
+    assert "git push origin main" not in content
+    assert 'gh pr create' in content
+    assert 'gh pr merge' in content
+    assert "--auto --squash --delete-branch" in content
+    assert "pull-requests: write" in content
 
 
 if __name__ == "__main__":
@@ -154,5 +154,5 @@ if __name__ == "__main__":
     test_issue_sync_workflow_uses_github_token_and_dispatch_script()
     test_issue_close_workflow_uses_github_token()
     test_corpus_oracle_workflow_uses_dynamic_pr_renderer()
-    test_release_workflow_commits_directly_to_main()
+    test_release_workflow_merges_via_pr()
     print("All tests passed.")

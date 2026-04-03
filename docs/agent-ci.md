@@ -38,6 +38,9 @@ Agent runs have a hard timeout. Plan your work to finish well within it — a pa
 - **Do not build `origin/main` from source.** Use the pre-computed diagnosis packet or `investigate_cop.py` with the corpus artifact for baseline data.
 - **Do not run full corpus reruns as verification.** `check_cop.py --rerun --clone` against the full diverging-repo set takes 20+ minutes. Use targeted spot-checks on specific repos/files instead. The workflow runs the full gate after you exit.
 - **Minimize cargo release builds.** Use `cargo test --lib` (debug, incremental) for fast iteration. Budget for at most one release build after your code fix.
+- **Verify with RuboCop on specific patterns first.** Before writing code, confirm what RuboCop does on the exact pattern from the corpus example. Use `bundle exec rubocop --only Department/CopName /tmp/test.rb` (from `bench/corpus/`). This prevents fixing a "regression" that isn't actually a mismatch.
+- **Use `investigate_cop.py --context` to understand the pattern.** The context shows the enclosing code structure around each FP/FN, which usually reveals the exact condition you need to add.
+- **Don't run `check_cop.py --rerun --clone` more than once.** It takes 5-10 minutes. Use `cargo test --lib` and targeted `cargo run` on test files for iteration. Save the one corpus check for final validation.
 
 ## Helper Script Conventions
 

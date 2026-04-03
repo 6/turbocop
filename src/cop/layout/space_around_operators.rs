@@ -45,6 +45,31 @@ use ruby_prism::Visit;
 /// for consecutive simple `=` assignments at the same indentation level, not
 /// for `==`, `!=`, `=>`, etc.), and ensure code-map checks don't suppress
 /// operators that happen to be adjacent to string literals.
+///
+/// ## Corpus investigation (2026-04-01, run 23848125495, timed out)
+///
+/// Attempted fix: collect plain assignment `=` offsets from Prism
+/// (LocalVariableWriteNode, InstanceVariableWriteNode, ClassVariableWriteNode,
+/// GlobalVariableWriteNode, MultiWriteNode) and apply the assignment-specific
+/// leading-space rule only to those offsets, keeping setter/index writes and
+/// extra trailing spaces unchanged. Also added ternary `?`/`:` detection via
+/// `visit_if_node` (checking `if_keyword_loc().is_none()` for ternary form).
+///
+/// Result: removed 21 FPs but introduced 16 new FPs (all in ruby__tk repo).
+/// Net -5 FP with tests still failing at timeout. The alignment-block-neighbor
+/// detection (`assignment_block_neighbor_line`) was too loose — it walked up/down
+/// from the current line looking for lines at the same indentation with
+/// assignment operators, but didn't correctly handle cases where a later `==` on
+/// the same line aligned with the `=`, causing real offenses to be suppressed.
+///
+/// Key findings:
+/// - RuboCop accepts extra leading spaces before plain `=` when the write is
+///   standalone or part of a same-indentation assignment group whose `=` tokens
+///   align with the *first* alignment operator on neighbor lines.
+/// - The `first_alignment_operator_end_col()` approach is correct for finding
+///   the alignment anchor, but the neighbor-line search needs tighter scoping.
+/// - Ternary `?`/`:` via `visit_if_node` works but was not the cause of test
+///   failures.
 pub struct SpaceAroundOperators;
 
 /// Collect byte offsets of `=` signs that are part of parameter defaults,

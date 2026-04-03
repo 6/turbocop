@@ -1,5 +1,5 @@
-use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, STRING_NODE, SYMBOL_NODE};
 use crate::cop::rspec_rails::RSPEC_RAILS_DEFAULT_INCLUDE;
+use crate::cop::shared::node_type::{CALL_NODE, INTEGER_NODE, STRING_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;

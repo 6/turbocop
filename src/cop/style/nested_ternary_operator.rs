@@ -1,6 +1,7 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::IF_NODE;
+use crate::cop::shared::node_type::IF_NODE;
+use crate::cop::shared::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -17,11 +18,6 @@ use crate::parse::source::SourceFile;
 /// search that mirrors RuboCop's `each_descendant` behavior.
 pub struct NestedTernaryOperator;
 
-/// Check if an IfNode is a ternary operator (no if_keyword_loc in Prism)
-fn is_ternary(if_node: &ruby_prism::IfNode<'_>) -> bool {
-    if_node.if_keyword_loc().is_none()
-}
-
 /// Visitor that collects all ternary IfNodes among descendants, skipping the root node.
 struct TernaryFinder<'a> {
     source: &'a SourceFile,
@@ -31,7 +27,7 @@ struct TernaryFinder<'a> {
 
 impl<'pr> Visit<'pr> for TernaryFinder<'_> {
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
-        if is_ternary(node) && node.location().start_offset() != self.root_offset {
+        if util::is_ternary(node) && node.location().start_offset() != self.root_offset {
             let loc = node.location();
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
             self.results.push((line, column));
@@ -65,7 +61,7 @@ impl Cop for NestedTernaryOperator {
         };
 
         // Must be a ternary
-        if !is_ternary(&if_node) {
+        if !util::is_ternary(&if_node) {
             return;
         }
 

@@ -1,4 +1,4 @@
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
+use crate::cop::shared::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -15,12 +15,35 @@ use crate::parse::source::SourceFile;
 ///
 /// Root cause of FP (53): All 53 FPs were bare `to_datetime(args)` calls
 /// without a receiver (e.g., `to_datetime(row["created_at"])` where
-/// `to_datetime` is a locally-defined helper method). RuboCop only flags
-/// `receiver.to_datetime`, not bare function calls. Fixed by checking
+/// `to_datetime` is a locally-defined helper method). Fixed by checking
 /// `call.receiver().is_some()` before flagging.
 ///
 /// Fix applied: Replaced the `args.len() >= 2` check with proper `is_historic_date`
 /// detection that only skips when the last arg is `Date::XXX` or `::Date::XXX`.
+///
+/// ## Investigation findings (2026-04-01)
+///
+/// Root cause of FN (4) and remaining FP cluster (11): RuboCop's `to_datetime?`
+/// matcher only targets zero-argument `to_datetime` sends, including implicit
+/// receiver calls like `to_datetime <=> other`. Our implementation had drifted in
+/// both directions: it skipped all bare calls, which missed those implicit-receiver
+/// offenses, and it flagged `to_datetime(...)` calls with arguments, which produced
+/// false positives for query/helper methods like `scope.to_datetime(value)`.
+///
+/// Fix applied: flag `to_datetime` only when the call has no arguments, regardless
+/// of whether the receiver is explicit or implicit.
+///
+/// ## Investigation findings (2026-04-01, historic-date follow-up)
+///
+/// Root cause of FN (6): our historic-date check drifted from RuboCop's
+/// `historic_date?` matcher and skipped any `DateTime` call whose last argument
+/// was `Date::XXX`. RuboCop only exempts the two-argument form
+/// `DateTime.method(modern_date, Date::CALENDAR)`. Multi-argument calls like
+/// `DateTime.new(..., Date::GREGORIAN)` and
+/// `DateTime.strptime(..., ..., Date::ITALY)` are still offenses.
+///
+/// Fix applied: require exactly two arguments before treating a trailing
+/// `Date::XXX` / `::Date::XXX` constant as a historic-date exemption.
 pub struct DateTime;
 
 impl Cop for DateTime {
@@ -54,14 +77,15 @@ impl Cop for DateTime {
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
 
-        // Check for receiver.to_datetime calls (not bare to_datetime calls)
+        // RuboCop only matches zero-argument `to_datetime` sends.
         if method_name == "to_datetime" {
-            // Only flag when there's a receiver (e.g., string.to_datetime).
-            // Bare to_datetime(args) is a local/inherited method call, not a coercion.
-            if call.receiver().is_none() {
+            if allow_coercion {
                 return;
             }
-            if allow_coercion {
+            if !call
+                .arguments()
+                .is_none_or(|arguments| arguments.arguments().is_empty())
+            {
                 return;
             }
             let loc = node.location();
@@ -119,6 +143,7 @@ fn is_datetime_const(node: &ruby_prism::Node<'_>) -> bool {
 
 /// Check if a call has a historic date argument: last arg is Date::XXX or ::Date::XXX.
 /// Matches vendor pattern: (send _ _ _ (const (const {nil? (cbase)} :Date) _))
+/// which is an exact two-argument send, not any arity with a trailing Date:: constant.
 fn is_historic_date(call: &ruby_prism::CallNode<'_>) -> bool {
     let args = match call.arguments() {
         Some(a) => a,
@@ -126,7 +151,7 @@ fn is_historic_date(call: &ruby_prism::CallNode<'_>) -> bool {
     };
 
     let arg_list: Vec<_> = args.arguments().iter().collect();
-    if arg_list.len() < 2 {
+    if arg_list.len() != 2 {
         return false;
     }
 

@@ -534,6 +534,37 @@ fn contains_subsequence(haystack: &[u8], needle: &[u8]) -> bool {
 /// Name of the redundant cop disable directive cop.
 const REDUNDANT_DISABLE_COP: &str = "Lint/RedundantCopDisableDirective";
 
+/// Cops with known detection gaps that cause false positives when flagging
+/// unused disable directives in `run_all_for_redundant` mode. These cops
+/// miss certain offense patterns that RuboCop catches, so their unused
+/// directives might actually be needed.
+const REDUNDANT_DISABLE_SKIP_COPS: &[&str] = &[
+    "Layout/AlignHash",     // misses some multiline hash alignment patterns
+    "Layout/HashAlignment", // misses some hash alignment variants
+    "Layout/LineLength",    // misses some long-line suppression cases
+    "Layout/MultilineOperationIndentation", // misses some multiline indentation cases
+    "Lint/DuplicateMethods", // misses some reopened-definition patterns
+    "Lint/HandleExceptions", // misses some rescue modifier patterns
+    "Layout/SpaceAroundKeyword", // misses `&super` before keyword
+    "Lint/RedundantCopEnableDirective", // misses YARD doc examples
+    "Lint/UselessAssignment", // misses compound assignment to block params
+    "Lint/MissingSuper",    // misses some inherited initialize hooks
+    "Metrics/BlockNesting", // misses some nested control-flow patterns
+    "Metrics/CyclomaticComplexity", // misses some branch counting patterns
+    "Metrics/ParameterLists", // misses some keyword/default arg shapes
+    "Security/YAMLLoad",    // misses some unsafe load entry points
+    "Style/CaseLikeIf",     // misses certain case/when patterns
+    "Style/HashLikeCase",   // alias/related to CaseLikeIf
+    "Style/AndOr",          // misses some boolean-operator rewrites
+    "Style/Alias",          // misses some alias forms
+    "Style/EvalWithLocation", // misses some eval binding/location variants
+    "Style/GuardClause",    // misses some early-return patterns
+    "Style/Next",           // misses some next/if rewrites
+    "Style/RedundantParentheses", // misses rescue/modifier edge cases
+    "Style/RegexpLiteral",  // misses some literal interpolation cases
+    "Style/SafeNavigation", // misses guarded call patterns
+];
+
 /// Determine if a disable directive should be flagged as redundant.
 ///
 /// Returns `Some(suffix)` if the directive IS redundant (should be reported),
@@ -557,6 +588,7 @@ fn is_directive_redundant(
     path: &Path,
     has_only_filter: bool,
     redundant_disable_explicitly_selected: bool,
+    all_cops_ran: bool,
 ) -> Option<&'static str> {
     // "all" is a wildcard — never flag (too broad to determine redundancy)
     if cop_name == "all" {
@@ -596,9 +628,22 @@ fn is_directive_redundant(
         if cop_filters.is_cop_excluded(idx, path) {
             return Some("");
         }
-        // Cop is enabled and not explicitly excluded — don't flag.
-        // Conservative: even if the cop didn't execute (Include mismatch),
-        // sub-config path resolution issues could cause false positives.
+        // Cop is enabled and not explicitly excluded.
+        if all_cops_ran && cop_filters.is_cop_match(idx, path) {
+            // All cops ran AND this specific cop matched the file (Include
+            // patterns matched), so we have reliable usage data — if the
+            // directive is still unused, the cop genuinely didn't fire and
+            // the directive is redundant.
+            //
+            // Skip cops with known detection gaps vs RuboCop, where
+            // nitrocop may miss an offense that the directive legitimately
+            // suppresses.
+            if !REDUNDANT_DISABLE_SKIP_COPS.contains(&cop_name) {
+                return Some("");
+            }
+        }
+        // Conservative: in --only mode for other cops, the target cop may
+        // not have run, so we can't tell if the directive is needed.
         None
     } else {
         // Cop is NOT in the registry. Check if it's a renamed cop whose new
@@ -606,23 +651,33 @@ fn is_directive_redundant(
         // directives for renamed cops as redundant since the old name no
         // longer exists.
         if let Some(new_name) = RENAMED_COPS.get(cop_name) {
-            // The cop was renamed. In --only mode the new-name cop may not
-            // have run, so check its config: if it's enabled, the old-name
-            // directive might be suppressing its offenses — skip.
-            // In normal mode, check_and_mark_used already filtered out
-            // directives that suppressed offenses, so flagging is safe.
-            if has_only_filter {
-                let new_entry = registry
-                    .cops()
-                    .iter()
-                    .enumerate()
-                    .find(|(_, c)| c.name() == new_name.as_str());
-                if let Some((new_idx, _)) = new_entry {
-                    if cop_filters.cop_filter(new_idx).is_enabled()
-                        && !cop_filters.is_cop_excluded(new_idx, path)
-                    {
-                        return None;
-                    }
+            // The cop was renamed. Look up the new-name cop's state to mirror
+            // the logic applied to registered cops above.
+            let new_entry = registry
+                .cops()
+                .iter()
+                .enumerate()
+                .find(|(_, c)| c.name() == new_name.as_str());
+            if let Some((new_idx, _)) = new_entry {
+                // In --only mode the new-name cop may not have run, so check
+                // its config: if it's enabled, the old-name directive might be
+                // suppressing its offenses — skip.
+                if has_only_filter
+                    && !all_cops_ran
+                    && cop_filters.cop_filter(new_idx).is_enabled()
+                    && !cop_filters.is_cop_excluded(new_idx, path)
+                {
+                    return None;
+                }
+                // In run_all_for_redundant mode, the new-name cop ran. If it
+                // has known detection gaps (in REDUNDANT_DISABLE_SKIP_COPS),
+                // the old-name directive might legitimately suppress an offense
+                // that nitrocop missed — don't flag it.
+                if all_cops_ran
+                    && cop_filters.is_cop_match(new_idx, path)
+                    && REDUNDANT_DISABLE_SKIP_COPS.contains(&new_name.as_str())
+                {
+                    return None;
                 }
             }
             return Some("");
@@ -1024,6 +1079,13 @@ fn lint_source_once(
     let cops = registry.cops();
     let has_only = !args.only.is_empty();
 
+    // When Lint/RedundantCopDisableDirective is the sole --only target, run ALL
+    // cops so that disable directives which truly suppress offenses get marked
+    // as used. Without this, --only mode never runs other cops, so every
+    // directive appears unused and we can't distinguish truly redundant ones.
+    let run_all_for_redundant =
+        has_only && args.only.len() == 1 && args.only[0] == REDUNDANT_DISABLE_COP;
+
     // Pass 1: Universal cops
     for &i in active_filters.universal_cop_indices() {
         let cop = &cops[i];
@@ -1031,7 +1093,7 @@ fn lint_source_once(
         if name == REDUNDANT_DISABLE_COP {
             continue;
         }
-        if has_only && !args.only.iter().any(|o| o == name) {
+        if has_only && !run_all_for_redundant && !args.only.iter().any(|o| o == name) {
             continue;
         }
         if args.except.iter().any(|e| e == name) {
@@ -1076,7 +1138,7 @@ fn lint_source_once(
         if name == REDUNDANT_DISABLE_COP {
             continue;
         }
-        if has_only && !args.only.iter().any(|o| o == name) {
+        if has_only && !run_all_for_redundant && !args.only.iter().any(|o| o == name) {
             continue;
         }
         if args.except.iter().any(|e| e == name) {
@@ -1123,6 +1185,31 @@ fn lint_source_once(
             .fetch_add(filter_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
 
+    // ── VariableForce engine ───────────────────────────────────────────
+    // Run the shared variable analysis engine if any active cop is a
+    // VariableForceConsumer. This performs a single AST walk that replaces
+    // up to 10 separate per-cop variable-tracking visitors.
+    {
+        let vf_consumers: Vec<crate::cop::variable_force::engine::RegisteredConsumer<'_>> =
+            ast_cop_indices
+                .iter()
+                .filter_map(|&i| {
+                    let cop = &*registry.cops()[i];
+                    cop.as_variable_force_consumer().map(|consumer| {
+                        crate::cop::variable_force::engine::RegisteredConsumer {
+                            consumer,
+                            config: &active_base_configs[i],
+                        }
+                    })
+                })
+                .collect();
+        if !vf_consumers.is_empty() {
+            let mut engine = crate::cop::variable_force::engine::Engine::new(source, &vf_consumers);
+            engine.run(&parse_result);
+            diagnostics.extend(engine.into_diagnostics());
+        }
+    }
+
     let ast_start = std::time::Instant::now();
     if !ast_cop_indices.is_empty() {
         let ast_cops: Vec<(&dyn Cop, &CopConfig)> = ast_cop_indices
@@ -1161,6 +1248,13 @@ fn lint_source_once(
         diagnostics.retain(|d| !disabled.check_and_mark_used(&d.cop_name, d.location.line));
     }
 
+    // In run_all_for_redundant mode, we ran all cops just to mark directives as
+    // used. Now discard their diagnostics — only RedundantCopDisableDirective
+    // output should be emitted.
+    if run_all_for_redundant {
+        diagnostics.clear();
+    }
+
     if !args.ignore_disable_comments
         && disabled.has_directives()
         && !args.except.iter().any(|e| e == REDUNDANT_DISABLE_COP)
@@ -1176,6 +1270,16 @@ fn lint_source_once(
             let redundant_disable_explicitly_selected =
                 args.only.iter().any(|o| o == REDUNDANT_DISABLE_COP);
             for directive in disabled.unused_directives() {
+                // If this line is within an explicit `# rubocop:disable
+                // Lint/RedundantCopDisableDirective` region, suppress the
+                // offense — the user explicitly silenced this cop here.
+                // Only check the exact cop name, not department ("Lint") or
+                // "all" wildcards, to match the conservative existing behavior
+                // for broad disables.
+                if disabled.check_ranges(REDUNDANT_DISABLE_COP, directive.line) {
+                    continue;
+                }
+
                 let suffix = match is_directive_redundant(
                     &directive.cop_name,
                     registry,
@@ -1183,6 +1287,7 @@ fn lint_source_once(
                     &source.path,
                     !args.only.is_empty(),
                     redundant_disable_explicitly_selected,
+                    run_all_for_redundant,
                 ) {
                     Some(s) => s,
                     None => continue,

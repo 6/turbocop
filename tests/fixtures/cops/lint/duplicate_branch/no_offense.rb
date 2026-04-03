@@ -162,3 +162,17 @@ when /invalid/
     field: nil,
   )
 end
+
+# case-in branches where earlier pattern locals change later branch resolution
+case caught
+in String => body
+  [status, headers, [body]]
+in Enumerator => body
+  [status, headers, body]
+in Integer => status
+  [status, headers, [self.body || http_status(status)]]
+in [Integer => status, String => body]
+  [status, headers, [body]]
+in [Integer => status, Enumerator => body]
+  [status, headers, body]
+end

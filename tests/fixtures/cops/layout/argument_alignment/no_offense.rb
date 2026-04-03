@@ -75,3 +75,12 @@ render(layout: "shared/section_table",
 # block pass is not checked for alignment (only 1 pair, nothing to compare)
 h1 = @model.document.add_listener(:before => :new_mirror,
       &method(:update_grammar))
+
+# Wide Unicode characters before interpolation affect display width, but the
+# continued argument line is still aligned under RuboCop's display column rules.
+msg = "🌊 #{distance_of_time_in_words(Time.current - seconds.seconds,
+                                      Time.current)} in this session."
+
+# Same root cause with a different method call inside interpolation.
+msg = "🌌 #{pluralize(hours.round(1),
+                      'hour')} of suspended existence."

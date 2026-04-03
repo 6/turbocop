@@ -1,7 +1,10 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::CALL_NODE;
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::node_type::CALL_NODE;
+use crate::cop::shared::util::{
+    RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_shared_group,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -267,11 +270,13 @@ fn is_example_call(call: &ruby_prism::CallNode<'_>) -> bool {
 }
 
 fn is_non_shared_example_group_method(name: &[u8]) -> bool {
-    is_rspec_example_group(name) && !util::is_rspec_shared_group(name)
+    is_rspec_example_group(name) && !is_rspec_shared_group(name)
 }
 
 fn is_explicit_rspec_receiver(receiver: Option<ruby_prism::Node<'_>>) -> bool {
-    receiver.is_some_and(|recv| util::constant_name(&recv).is_some_and(|n| n == b"RSpec"))
+    receiver.is_some_and(|recv| {
+        constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
+    })
 }
 
 fn has_rspec_receiver(receiver: Option<ruby_prism::Node<'_>>) -> bool {

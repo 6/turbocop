@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     INTERPOLATED_REGULAR_EXPRESSION_NODE, RANGE_NODE, REGULAR_EXPRESSION_NODE,
 };
 use crate::cop::{Cop, CopConfig};

@@ -149,3 +149,50 @@ class L
     end
   end
 end
+
+# constants + defs inside class << self — defs are still public
+module Outer
+  module Inner
+    class << self
+    ^^^^^^^^^^^^^ Style/ClassMethodsDefinitions: Do not define public methods within class << self.
+      SIDE = 0.1
+      LIMIT = 5
+
+      def compute(x, y)
+        42
+      end
+    end
+  end
+end
+
+# multi-arg private :foo, :bar — RuboCop does not recognize multi-arg form
+class MultiPrivate
+  class << self
+  ^^^^^^^^^^^^^ Style/ClassMethodsDefinitions: Do not define public methods within class << self.
+    def foo
+      1
+    end
+
+    def bar
+      2
+    end
+
+    private :foo, :bar
+  end
+end
+
+# multi-arg protected with remaining public def
+class MultiProtected
+  class << self
+  ^^^^^^^^^^^^^ Style/ClassMethodsDefinitions: Do not define public methods within class << self.
+    def format(table)
+      42
+    end
+
+    def helper(x)
+      43
+    end
+
+    protected :helper, :format
+  end
+end

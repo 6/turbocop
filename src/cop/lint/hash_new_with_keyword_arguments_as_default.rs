@@ -1,4 +1,4 @@
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
+use crate::cop::shared::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -9,7 +9,7 @@ use crate::parse::source::SourceFile;
 /// ## Investigation notes
 /// 6 FPs from corpus: all on namespaced `Hash.new(key: value)` calls where `Hash` is not
 /// the built-in Ruby `Hash` (e.g., `HashWithDotAccess::Hash`, `Hamster::Hash`,
-/// `Configoro::Hash`, `Deprecation::Hash`). Root cause: `constant_name()` returns only
+/// `Configoro::Hash`, `Deprecation::Hash`). Root cause: `constant_short_name()` returns only
 /// the leaf segment, so `Namespace::Hash` matched as `Hash`. Fixed by checking node type
 /// directly — only bare `Hash` (ConstantReadNode) or root `::Hash` (ConstantPathNode
 /// with no parent) are matched.

@@ -1,10 +1,7 @@
-use crate::cop::node_type::{
-    AND_NODE, CALL_NODE, ELSE_NODE, FALSE_NODE, IF_NODE, OR_NODE, PARENTHESES_NODE,
-    STATEMENTS_NODE, TRUE_NODE, UNLESS_NODE,
-};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 /// Style/IfWithBooleanLiteralBranches
 ///
@@ -86,11 +83,16 @@ use crate::parse::source::SourceFile;
 /// **Fix applied:** Changed to `call.block().and_then(|b| b.as_block_node()).is_some()`
 /// to only skip actual block nodes, not block_pass arguments.
 ///
-/// **FP=3 investigation:** All 3 reported FPs (clbustos/Rserve-Ruby-client `==`,
-/// nricciar/wikicloth `==`, puppetlabs/puppetlabs-stdlib `zero?`) are cases where
-/// RuboCop also flags the code. Verified by running RuboCop with baseline config on
-/// isolated snippets. These are file-drop noise in the corpus oracle (files not
-/// processed identically by both tools), not behavioral differences in the cop.
+/// ## Investigation findings (2026-04-01)
+///
+/// **FP root cause (3 FPs):** Redundant boolean ternaries/ifs nested directly under
+/// an `elsif` body were still being checked. RuboCop's `multiple_elsif?` skips any
+/// `if` node whose immediate parent is an `elsif`. In Prism, the body expression is
+/// wrapped in a `StatementsNode`, so the offending node appears under
+/// `StatementsNode -> IfNode(elsif)` instead of directly under the `elsif`.
+///
+/// **Fix applied:** Skip `if`/ternary/`unless` nodes when their parent chain matches
+/// Prism's `StatementsNode -> IfNode(elsif)` shape (or a direct `IfNode(elsif)`).
 pub struct IfWithBooleanLiteralBranches;
 
 impl Cop for IfWithBooleanLiteralBranches {
@@ -98,182 +100,188 @@ impl Cop for IfWithBooleanLiteralBranches {
         "Style/IfWithBooleanLiteralBranches"
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            AND_NODE,
-            CALL_NODE,
-            ELSE_NODE,
-            FALSE_NODE,
-            IF_NODE,
-            OR_NODE,
-            PARENTHESES_NODE,
-            STATEMENTS_NODE,
-            TRUE_NODE,
-            UNLESS_NODE,
-        ]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let allowed_methods = config.get_string_array("AllowedMethods");
-
-        // Check `if` nodes (including ternary, but NOT elsif — elsifs are
-        // handled by walking the subsequent chain from the parent `if` node)
-        if let Some(if_node) = node.as_if_node() {
-            // Detect ternary: no if_keyword_loc means it's a ternary
-            let is_ternary = if_node.if_keyword_loc().is_none();
-
-            if !is_ternary {
-                let kw_text = if_node.if_keyword_loc().unwrap().as_slice();
-                // Skip elsif nodes — they are processed from the parent `if`
-                if kw_text == b"elsif" {
-                    return;
-                }
-                // Must be `if`
-                if kw_text != b"if" {
-                    return;
-                }
-            }
-
-            // For non-elsif `if` nodes: also check the elsif chain for flaggable elsifs.
-            // Count total elsif branches to implement RuboCop's multiple_elsif? guard:
-            // only flag a single elsif (not 2+ elsifs in the chain).
-            if !is_ternary {
-                let mut elsif_count = 0;
-                let mut cursor = if_node.subsequent();
-                while let Some(ref sub) = cursor {
-                    if let Some(elsif_if) = sub.as_if_node() {
-                        elsif_count += 1;
-                        cursor = elsif_if.subsequent();
-                    } else {
-                        break;
-                    }
-                }
-
-                // If exactly 1 elsif, check if it has boolean literal branches
-                if elsif_count == 1 {
-                    if let Some(sub) = if_node.subsequent() {
-                        if let Some(elsif_node) = sub.as_if_node() {
-                            self.check_elsif_node(
-                                source,
-                                &elsif_node,
-                                &allowed_methods,
-                                diagnostics,
-                            );
-                        }
-                    }
-                }
-            }
-
-            // Check the if/else or ternary branches themselves
-            let if_body = match if_node.statements() {
-                Some(s) => s,
-                None => return,
-            };
-            let else_clause = match if_node.subsequent() {
-                Some(s) => s,
-                None => return,
-            };
-
-            // Must be a simple else (not elsif) for the else branch
-            let else_node = match else_clause.as_else_node() {
-                Some(e) => e,
-                None => return, // it's an elsif chain
-            };
-
-            // Check if both branches are single boolean literals
-            let if_bool = single_boolean_value(&if_body);
-            let else_bool = single_boolean_value_from_else(&else_node);
-
-            if let (Some(if_val), Some(else_val)) = (if_bool, else_bool) {
-                // Both branches are boolean literals
-                if (if_val && !else_val) || (!if_val && else_val) {
-                    if !condition_returns_boolean(&if_node.predicate(), &allowed_methods) {
-                        return;
-                    }
-
-                    if is_ternary {
-                        // For ternary, point at the `?`
-                        let pred_end = if_node.predicate().location().start_offset()
-                            + if_node.predicate().location().as_slice().len();
-                        let src = source.as_bytes();
-                        let mut q_offset = pred_end;
-                        while q_offset < src.len() && src[q_offset] != b'?' {
-                            q_offset += 1;
-                        }
-                        let (line, column) = source.offset_to_line_col(q_offset);
-                        diagnostics.push(
-                            self.diagnostic(
-                                source,
-                                line,
-                                column,
-                                "Remove redundant ternary operator with boolean literal branches."
-                                    .to_string(),
-                            ),
-                        );
-                        return;
-                    }
-
-                    let if_kw_loc = if_node.if_keyword_loc().unwrap();
-                    let (line, column) = source.offset_to_line_col(if_kw_loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Remove redundant `if` with boolean literal branches.".to_string(),
-                    ));
-                }
-            }
-
-            return;
-        }
-
-        // Check `unless` nodes
-        if let Some(unless_node) = node.as_unless_node() {
-            let kw_loc = unless_node.keyword_loc();
-            if kw_loc.as_slice() != b"unless" {
-                return;
-            }
-
-            let unless_body = match unless_node.statements() {
-                Some(s) => s,
-                None => return,
-            };
-            let else_clause = match unless_node.else_clause() {
-                Some(e) => e,
-                None => return,
-            };
-
-            let unless_bool = single_boolean_value(&unless_body);
-            let else_bool = single_boolean_value_from_else(&else_clause);
-
-            if let (Some(unless_val), Some(else_val)) = (unless_bool, else_bool) {
-                if (unless_val && !else_val) || (!unless_val && else_val) {
-                    if !condition_returns_boolean(&unless_node.predicate(), &allowed_methods) {
-                        return;
-                    }
-
-                    let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Remove redundant `unless` with boolean literal branches.".to_string(),
-                    ));
-                }
-            }
-        }
+        let mut visitor = IfWithBooleanLiteralBranchesVisitor {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
+            allowed_methods: config.get_string_array("AllowedMethods"),
+            parent_is_elsif_body: false,
+            saved_parent_is_elsif_body: Vec::new(),
+        };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 
 impl IfWithBooleanLiteralBranches {
+    fn check_if_node(
+        &self,
+        source: &SourceFile,
+        if_node: &ruby_prism::IfNode<'_>,
+        allowed_methods: &Option<Vec<String>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        nested_under_elsif_body: bool,
+    ) {
+        if nested_under_elsif_body {
+            return;
+        }
+
+        // Detect ternary: no if_keyword_loc means it's a ternary
+        let is_ternary = if_node.if_keyword_loc().is_none();
+
+        if !is_ternary {
+            let kw_text = if_node.if_keyword_loc().unwrap().as_slice();
+            // Skip elsif nodes — they are processed from the parent `if`
+            if kw_text == b"elsif" {
+                return;
+            }
+            // Must be `if`
+            if kw_text != b"if" {
+                return;
+            }
+        }
+
+        // For non-elsif `if` nodes: also check the elsif chain for flaggable elsifs.
+        // Count total elsif branches to implement RuboCop's multiple_elsif? guard:
+        // only flag a single elsif (not 2+ elsifs in the chain).
+        if !is_ternary {
+            let mut elsif_count = 0;
+            let mut cursor = if_node.subsequent();
+            while let Some(ref sub) = cursor {
+                if let Some(elsif_if) = sub.as_if_node() {
+                    elsif_count += 1;
+                    cursor = elsif_if.subsequent();
+                } else {
+                    break;
+                }
+            }
+
+            // If exactly 1 elsif, check if it has boolean literal branches
+            if elsif_count == 1 {
+                if let Some(sub) = if_node.subsequent() {
+                    if let Some(elsif_node) = sub.as_if_node() {
+                        self.check_elsif_node(source, &elsif_node, allowed_methods, diagnostics);
+                    }
+                }
+            }
+        }
+
+        // Check the if/else or ternary branches themselves
+        let if_body = match if_node.statements() {
+            Some(s) => s,
+            None => return,
+        };
+        let else_clause = match if_node.subsequent() {
+            Some(s) => s,
+            None => return,
+        };
+
+        // Must be a simple else (not elsif) for the else branch
+        let else_node = match else_clause.as_else_node() {
+            Some(e) => e,
+            None => return, // it's an elsif chain
+        };
+
+        // Check if both branches are single boolean literals
+        let if_bool = single_boolean_value(&if_body);
+        let else_bool = single_boolean_value_from_else(&else_node);
+
+        if let (Some(if_val), Some(else_val)) = (if_bool, else_bool) {
+            // Both branches are boolean literals
+            if (if_val && !else_val) || (!if_val && else_val) {
+                if !condition_returns_boolean(&if_node.predicate(), allowed_methods) {
+                    return;
+                }
+
+                if is_ternary {
+                    // For ternary, point at the `?`
+                    let pred_end = if_node.predicate().location().start_offset()
+                        + if_node.predicate().location().as_slice().len();
+                    let src = source.as_bytes();
+                    let mut q_offset = pred_end;
+                    while q_offset < src.len() && src[q_offset] != b'?' {
+                        q_offset += 1;
+                    }
+                    let (line, column) = source.offset_to_line_col(q_offset);
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Remove redundant ternary operator with boolean literal branches."
+                                .to_string(),
+                        ),
+                    );
+                    return;
+                }
+
+                let if_kw_loc = if_node.if_keyword_loc().unwrap();
+                let (line, column) = source.offset_to_line_col(if_kw_loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Remove redundant `if` with boolean literal branches.".to_string(),
+                ));
+            }
+        }
+    }
+
+    fn check_unless_node(
+        &self,
+        source: &SourceFile,
+        unless_node: &ruby_prism::UnlessNode<'_>,
+        allowed_methods: &Option<Vec<String>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        nested_under_elsif_body: bool,
+    ) {
+        if nested_under_elsif_body {
+            return;
+        }
+
+        let kw_loc = unless_node.keyword_loc();
+        if kw_loc.as_slice() != b"unless" {
+            return;
+        }
+
+        let unless_body = match unless_node.statements() {
+            Some(s) => s,
+            None => return,
+        };
+        let else_clause = match unless_node.else_clause() {
+            Some(e) => e,
+            None => return,
+        };
+
+        let unless_bool = single_boolean_value(&unless_body);
+        let else_bool = single_boolean_value_from_else(&else_clause);
+
+        if let (Some(unless_val), Some(else_val)) = (unless_bool, else_bool) {
+            if (unless_val && !else_val) || (!unless_val && else_val) {
+                if !condition_returns_boolean(&unless_node.predicate(), allowed_methods) {
+                    return;
+                }
+
+                let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Remove redundant `unless` with boolean literal branches.".to_string(),
+                ));
+            }
+        }
+    }
+
     /// Check an elsif node for boolean literal branches and emit a diagnostic if found.
     /// Called only when there is exactly 1 elsif in the chain (not multiple).
     fn check_elsif_node(
@@ -320,6 +328,87 @@ impl IfWithBooleanLiteralBranches {
                     ),
                 );
             }
+        }
+    }
+}
+
+struct IfWithBooleanLiteralBranchesVisitor<'a> {
+    cop: &'a IfWithBooleanLiteralBranches,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+    allowed_methods: Option<Vec<String>>,
+    // Parser gem exposes the direct child expression under `elsif`, but Prism
+    // inserts ProgramNode/StatementsNode wrappers. Keep those transparent so
+    // the current node can still tell when it is a direct child of an `elsif`
+    // body in RuboCop terms.
+    parent_is_elsif_body: bool,
+    saved_parent_is_elsif_body: Vec<bool>,
+}
+
+impl<'a, 'pr> Visit<'pr> for IfWithBooleanLiteralBranchesVisitor<'a> {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        if let Some(if_node) = node.as_if_node() {
+            self.cop.check_if_node(
+                self.source,
+                &if_node,
+                &self.allowed_methods,
+                &mut self.diagnostics,
+                self.parent_is_elsif_body,
+            );
+        } else if let Some(unless_node) = node.as_unless_node() {
+            self.cop.check_unless_node(
+                self.source,
+                &unless_node,
+                &self.allowed_methods,
+                &mut self.diagnostics,
+                self.parent_is_elsif_body,
+            );
+        }
+
+        self.saved_parent_is_elsif_body
+            .push(self.parent_is_elsif_body);
+
+        if node.as_program_node().is_some() || node.as_statements_node().is_some() {
+            return;
+        }
+
+        self.parent_is_elsif_body = false;
+    }
+
+    fn visit_branch_node_leave(&mut self) {
+        if let Some(saved) = self.saved_parent_is_elsif_body.pop() {
+            self.parent_is_elsif_body = saved;
+        }
+    }
+
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        self.visit(&node.predicate());
+
+        if let Some(stmts) = node.statements() {
+            let saved = self.parent_is_elsif_body;
+            if node
+                .if_keyword_loc()
+                .is_some_and(|kw| kw.as_slice() == b"elsif")
+            {
+                self.parent_is_elsif_body = true;
+            }
+            self.visit(&stmts.as_node());
+            self.parent_is_elsif_body = saved;
+        }
+
+        if let Some(subsequent) = node.subsequent() {
+            self.visit(&subsequent);
+        }
+    }
+
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        self.visit(&node.predicate());
+
+        if let Some(stmts) = node.statements() {
+            self.visit(&stmts.as_node());
+        }
+        if let Some(else_clause) = node.else_clause() {
+            self.visit(&else_clause.as_node());
         }
     }
 }

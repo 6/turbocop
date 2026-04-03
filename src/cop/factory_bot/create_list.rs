@@ -1,7 +1,7 @@
 use ruby_prism::Visit;
 
 use crate::cop::factory_bot::{FACTORY_BOT_SPEC_INCLUDE, is_factory_call};
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     ARRAY_NODE, ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE,
     CONSTANT_READ_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, REQUIRED_PARAMETER_NODE,
     STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE,

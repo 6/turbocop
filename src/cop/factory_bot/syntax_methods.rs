@@ -1,7 +1,7 @@
 use crate::cop::factory_bot::{
     FACTORY_BOT_METHODS, FACTORY_BOT_SPEC_INCLUDE, is_factory_bot_receiver,
 };
-use crate::cop::util::is_rspec_example_group;
+use crate::cop::shared::util::is_rspec_example_group;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;

@@ -93,3 +93,34 @@ end
 if ENV["X"] != 'test'
   puts ENV["X"]
 end
+# ENV['X'] in && condition: same key nested inside method call is suppressed
+# by structural equality (child_nodes.any? matches the direct child ENV['X'])
+if ENV['X'] and hash(ENV['X']) != service_hash
+  set_hash = hash(ENV['X'])
+end
+# Assignment in condition without parens: RuboCop treats ENV as flag (child_nodes match)
+if var = ENV['X']
+  puts var
+end
+# elsif with assignment
+if true
+  puts "yes"
+elsif var = ENV['X']
+  puts var
+end
+# Parenthesized bare ENV condition is still a flag
+if(ENV['MODEL'])
+  puts ENV['MODEL']
+end
+# Reverse regex match with ENV on the argument side is treated as a flag
+if /1|true/ =~ ENV['LISTEN_GEM_SIMULATE_FSEVENT']
+  puts ENV['LISTEN_GEM_SIMULATE_FSEVENT']
+end
+# Duplicate ENV key on both sides of || is accepted by RuboCop
+config.api_key = ENV['BUGSNAG_API_KEY'] || ENV['BUGSNAG_API_KEY']
+# Same-key ENV ||= ENV is accepted
+ENV['OPENAI_API_KEY'] ||= ENV['OPENAI_API_KEY']
+# Non-local assignment conditions still suppress a bare direct ENV child
+if @@bin = ENV['DIFFY_DIFF']
+  puts @@bin
+end

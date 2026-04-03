@@ -90,18 +90,18 @@ jobs:
       - name: Build nitrocop binary
         run: cargo build
 
+      - name: Wait before dispatching
+        if: github.event.inputs.delay != '0'
+        run: |
+          echo "Sleeping ${{ github.event.inputs.delay }} minutes before dispatching..."
+          sleep $(( ${{ github.event.inputs.delay }} * 60 ))
+
       - name: Generate app token
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-
-      - name: Wait before dispatching
-        if: github.event.inputs.delay != '0'
-        run: |
-          echo "Sleeping ${{ github.event.inputs.delay }} minutes before dispatching..."
-          sleep $(( ${{ github.event.inputs.delay }} * 60 ))
 
       - name: Rank and dispatch
         env:

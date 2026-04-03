@@ -27,3 +27,11 @@ a, b = (a + b), (a - b)
 
 # Nested group with size mismatch (RuboCop doesn't flag)
 (a, b), c = [1, 2], 3
+
+# Implicit-self swap: RuboCop detects cycle via add_self_to_getters
+self.issue_to, self.issue_from = issue_from, issue_to
+self.left_child, self.right_child = right_child, left_child
+
+# Nested groups with splats — flattened count mismatches RHS
+(a, *b), c, (*d, (e, *f, g)) = 1, 2, 3, 4
+(*a, b), c = [[1, 2, 3], 4]

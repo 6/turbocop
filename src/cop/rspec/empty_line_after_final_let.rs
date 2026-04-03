@@ -2,8 +2,9 @@ use std::collections::HashSet;
 
 use ruby_prism::Visit;
 
-use crate::cop::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example_group, is_rspec_let,
+use crate::cop::shared::constant_predicates;
+use crate::cop::shared::util::{
+    RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example_group, is_rspec_let,
     is_rspec_shared_group, line_at,
 };
 use crate::cop::{Cop, CopConfig};
@@ -197,7 +198,7 @@ impl<'a, 'pr> Visit<'pr> for FinalLetVisitor<'a> {
 fn is_example_group_call(call: &ruby_prism::CallNode<'_>) -> bool {
     let method_name = call.name().as_slice();
     if let Some(recv) = call.receiver() {
-        util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+        constant_predicates::constant_short_name(&recv).is_some_and(|n| n == b"RSpec")
             && is_rspec_example_group(method_name)
             && !is_rspec_shared_group(method_name)
     } else {

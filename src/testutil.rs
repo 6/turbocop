@@ -356,6 +356,18 @@ pub fn run_cop_full_internal(
     walker.visit(&parse_result.node());
     diagnostics.extend(walker.diagnostics);
 
+    // VariableForce engine
+    if let Some(consumer) = cop.as_variable_force_consumer() {
+        let registered = crate::cop::variable_force::engine::RegisteredConsumer {
+            consumer,
+            config: &config,
+        };
+        let consumers = [registered];
+        let mut engine = crate::cop::variable_force::engine::Engine::new(&source, &consumers);
+        engine.run(&parse_result);
+        diagnostics.extend(engine.into_diagnostics());
+    }
+
     diagnostics
 }
 
@@ -861,7 +873,7 @@ mod tests {
             options,
             ..CopConfig::default()
         };
-        let diags = run_cop_with_config(&LineLength, b"short\nthis is longer\n", config);
+        let diags = run_cop_full_with_config(&LineLength, b"short\nthis is longer\n", config);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 2);
     }
@@ -887,7 +899,7 @@ mod tests {
         };
         // "longer than ten" = 15 chars, exceeds Max:10, offense at column 10
         let fixture = b"short\nlonger than ten\n          ^^^^^ Layout/LineLength: Line is too long. [15/10]\n";
-        assert_cop_offenses_with_config(&LineLength, fixture, config);
+        assert_cop_offenses_full_with_config(&LineLength, fixture, config);
     }
 
     #[test]
@@ -900,6 +912,6 @@ mod tests {
             options,
             ..CopConfig::default()
         };
-        assert_cop_no_offenses_with_config(&LineLength, b"short line\n", config);
+        assert_cop_no_offenses_full_with_config(&LineLength, b"short line\n", config);
     }
 }

@@ -1,3 +1,8 @@
+def method_missing(message, *args, &block)
+  return get(Regexp.last_match(1).to_sym, *args, &block) if message.to_s.match?(/^get_(.*)/)
+  super
+end
+
 class Test
   def respond_to_missing?
   end
@@ -78,8 +83,9 @@ Class.new do
   end
 end
 
-# Top-level method_missing is never an offense — RuboCop's grandparent
-# lookup returns nil at program scope, so it skips the check entirely.
+# Keep only the unstable top-level forms here: RuboCop still reports many
+# explicit-arg top-level `method_missing` defs, but file-leading block-arg
+# forms and zero-arg/rest-only signatures are inconsistent.
 def respond_to_missing?
 end
 

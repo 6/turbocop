@@ -62,3 +62,23 @@ def task(name, &block)
   define_task(name, *deps, &block)
 end
 
+# Spacing changes the source from redundant `*args` to non-redundant `* args`
+def count_with_deleted(* args)
+  self.unscoped.count(* args)
+end
+
+# Explicit kwargs between anonymous forwarding args cannot be collapsed to `...`
+def item(*, **, &)
+  render Item.new(*, input_type:, input_name:, **, &)
+end
+
+# Extra keyword parameters in the def mean `super(*, **, &)` cannot become `super(...)`
+def initialize(*, permission: nil, permissions: nil, **, &)
+  @permissions = if permission
+    [permission].compact
+  elsif permissions
+    Array.wrap(permissions).compact
+  end
+
+  super(*, **, &)
+end

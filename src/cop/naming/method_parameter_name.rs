@@ -1,4 +1,4 @@
-use crate::cop::node_type::{
+use crate::cop::shared::node_type::{
     DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE,
     REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE,
 };

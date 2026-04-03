@@ -312,7 +312,10 @@ def test_cleanup_failure_closes_pr_then_deletes_branch_and_requeues_issue(tmp_pa
     claim_body = tmp_path / "context" / "claim-body.md"
     claim_body.parent.mkdir(parents=True, exist_ok=True)
 
-    env_patch = {"CLAIM_BODY_FILE": str(claim_body)}
+    env_patch = {
+        "CLAIM_BODY_FILE": str(claim_body),
+        "AGENT_RESULT_FILE": str(tmp_path / "agent" / "agent-result.json"),
+    }
     calls = []
 
     def fake_run_ok(cmd, **kwargs):
@@ -358,11 +361,57 @@ def test_cleanup_failure_closes_pr_then_deletes_branch_and_requeues_issue(tmp_pa
     assert "The draft PR was closed automatically." in claim_body.read_text()
 
 
+def test_cleanup_failure_includes_agent_findings_when_result_file_exists(tmp_path):
+    claim_body = tmp_path / "context" / "claim-body.md"
+    claim_body.parent.mkdir(parents=True, exist_ok=True)
+    result_file = tmp_path / "agent" / "agent-result.json"
+    result_file.parent.mkdir(parents=True, exist_ok=True)
+    result_file.write_text(json.dumps({"result": "Tried collecting assignment offsets from Prism.\nNet -5 FP but 16 new FPs in ruby__tk."}))
+
+    env_patch = {
+        "CLAIM_BODY_FILE": str(claim_body),
+        "AGENT_RESULT_FILE": str(result_file),
+    }
+    calls = []
+
+    def fake_run_ok(cmd, **kwargs):
+        del kwargs
+        calls.append(cmd)
+        if cmd[:4] == ["gh", "pr", "view", "https://github.com/6/nitrocop/pull/715"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout='{"headRefName":"fix/style-if_unless_modifier-23699434606"}', stderr="",
+            )
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with (
+        patch.dict(os.environ, env_patch),
+        patch.object(cop_fix_lifecycle, "_run_ok", side_effect=fake_run_ok),
+    ):
+        result = cop_fix_lifecycle.cmd_cleanup_failure([
+            "--cop", "Style/IfUnlessModifier",
+            "--pr-url", "https://github.com/6/nitrocop/pull/715",
+            "--issue-number", "376",
+            "--repo", "6/nitrocop",
+            "--backend-label", "claude-oauth / hard",
+            "--model-label", "Claude Opus 4.6 (OAuth, high)",
+            "--mode", "fix",
+            "--run-url", "https://github.com/6/nitrocop/actions/runs/23699434606",
+        ])
+
+    assert result == 0
+    body_text = claim_body.read_text()
+    assert "Agent findings (what was tried)" in body_text
+    assert "assignment offsets from Prism" in body_text
+
+
 def test_cleanup_failure_warns_and_keeps_issue_state_when_pr_close_fails(tmp_path):
     claim_body = tmp_path / "context" / "claim-body.md"
     claim_body.parent.mkdir(parents=True, exist_ok=True)
 
-    env_patch = {"CLAIM_BODY_FILE": str(claim_body)}
+    env_patch = {
+        "CLAIM_BODY_FILE": str(claim_body),
+        "AGENT_RESULT_FILE": str(tmp_path / "agent" / "agent-result.json"),
+    }
     calls = []
     warnings = []
 
@@ -667,6 +716,68 @@ def test_build_prompt_fix_mode_has_no_time_budget(tmp_path):
     content = final_file.read_text()
     assert "Time Budget" not in content
     assert "Reduce Mode" not in content
+
+
+# ── _is_rs_patch_docs_only ─────────────────────────────────────────────
+
+def test_rs_patch_docs_only_pure_doc_additions():
+    patch = (
+        "+/// This is a doc comment.\n"
+        "+/// Another doc line.\n"
+        "+\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is True
+
+
+def test_rs_patch_docs_only_code_addition():
+    patch = (
+        "+/// Doc comment.\n"
+        "+    let x = 1;\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is False
+
+
+def test_rs_patch_docs_only_code_removal():
+    """The PR #1317 bug: removing code lines while only adding doc comments."""
+    patch = (
+        "+/// FN fix: removed the receiver check.\n"
+        "+/// RuboCop does not require a receiver.\n"
+        "-            if call.receiver().is_none() {\n"
+        "-                return;\n"
+        "-            }\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is False
+
+
+def test_rs_patch_docs_only_removes_doc_comments_only():
+    patch = (
+        "-/// Old doc comment.\n"
+        "+/// New doc comment.\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is True
+
+
+def test_rs_patch_docs_only_skips_diff_headers():
+    patch = (
+        "--- a/src/cop/foo.rs\n"
+        "+++ b/src/cop/foo.rs\n"
+        "@@ -1,3 +1,3 @@\n"
+        "+/// Doc line.\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is True
+
+
+def test_rs_patch_docs_only_empty_patch():
+    assert cop_fix_lifecycle._is_rs_patch_docs_only("") is True
+
+
+def test_rs_patch_docs_only_context_lines_ignored():
+    patch = (
+        " fn main() {\n"
+        "+/// Added doc.\n"
+        " }\n"
+    )
+    assert cop_fix_lifecycle._is_rs_patch_docs_only(patch) is True
 
 
 # ── CLI error handling ──────────────────────────────────────────────────
