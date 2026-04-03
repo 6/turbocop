@@ -169,6 +169,44 @@ impl variable_force::VariableForceConsumer for LeakyLocalVariable {
     }
 }
 
+/// Compute the effective byte range of a block, extending past the closing
+/// delimiter when the body contains heredoc content. In `let(:x) { <<-HERE }`,
+/// Prism's BlockNode location covers only `{ <<-HERE }`, but the heredoc body
+/// (and any interpolation references within it) extends to the `HERE`
+/// terminator below. We walk all descendant nodes to find the true max extent.
+fn effective_block_range(block: &ruby_prism::BlockNode<'_>) -> Range<usize> {
+    let loc = block.location();
+    let start = loc.start_offset();
+    let mut end = loc.end_offset();
+    if let Some(body) = block.body() {
+        let mut finder = MaxEndFinder { max_end: end };
+        finder.visit(&body);
+        end = finder.max_end;
+    }
+    start..end
+}
+
+/// Visitor that finds the maximum end offset across all descendant nodes.
+struct MaxEndFinder {
+    max_end: usize,
+}
+
+impl<'pr> Visit<'pr> for MaxEndFinder {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        let end = node.location().end_offset();
+        if end > self.max_end {
+            self.max_end = end;
+        }
+    }
+
+    fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        let end = node.location().end_offset();
+        if end > self.max_end {
+            self.max_end = end;
+        }
+    }
+}
+
 /// Check if a byte offset falls within any of the sorted ranges.
 /// Ranges may be nested, so we scan backwards through all candidates
 /// whose start <= offset.
@@ -208,10 +246,8 @@ impl RangeCollector {
         block: &ruby_prism::BlockNode<'_>,
         args_allowed: bool,
     ) {
-        // The example scope covers the entire block
-        let block_loc = block.location();
-        self.example_scope_ranges
-            .push(block_loc.start_offset()..block_loc.end_offset());
+        // The example scope covers the entire block, extended for heredocs.
+        self.example_scope_ranges.push(effective_block_range(block));
 
         if args_allowed {
             // Arguments of the call (e.g., it "description", skip: message do ... end)
@@ -234,9 +270,8 @@ impl RangeCollector {
         // The whole call (including any block) is an example scope
         if let Some(block_node) = call.block() {
             if let Some(block) = block_node.as_block_node() {
-                let block_loc = block.location();
                 self.example_scope_ranges
-                    .push(block_loc.start_offset()..block_loc.end_offset());
+                    .push(effective_block_range(&block));
             }
         }
 
@@ -278,9 +313,8 @@ impl<'pr> Visit<'pr> for RangeCollector {
         if is_example_group_method(method_name) {
             if let Some(block_node) = node.block() {
                 if let Some(block) = block_node.as_block_node() {
-                    let block_loc = block.location();
                     self.example_group_ranges
-                        .push(block_loc.start_offset()..block_loc.end_offset());
+                        .push(effective_block_range(&block));
                 }
             }
         }
@@ -1093,6 +1127,40 @@ end
                 .collect::<Vec<_>>()
         );
         assert_eq!(diags[0].location.line, 4, "Offense should be on line 4");
+    }
+
+    #[test]
+    fn test_fn_heredoc_in_let_block() {
+        // Heredoc content extends beyond the block's `}` delimiter.
+        // The reference #{gradient_css} is in the heredoc body, which is
+        // physically after the `}` in byte offsets.
+        let source = br#"describe SCSSLint::Linter::HexValidation do
+  context 'when rule contains valid hex codes or color keyword' do
+    gradient_css = 'progid:DXImageTransform.Microsoft.gradient' \
+                   '(startColorstr=#99000000, endColorstr=#99000000)'
+
+    let(:scss) { <<-SCSS }
+      p {
+        filter: #{gradient_css};
+      }
+    SCSS
+
+    it { should_not report_lint }
+  end
+end
+"#;
+        let diags = crate::testutil::run_cop_full(&LeakyLocalVariable::new(), source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Expected 1 offense for heredoc in let block, got {}: {:?}",
+            diags.len(),
+            diags
+                .iter()
+                .map(|d| format!("{}:{}", d.location.line, d.location.column))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(diags[0].location.line, 3, "Offense should be on line 3");
     }
 
     #[test]
