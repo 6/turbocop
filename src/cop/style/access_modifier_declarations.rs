@@ -1,3 +1,4 @@
+use crate::cop::shared::access_modifier_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -21,7 +22,7 @@ use ruby_prism::Visit;
 /// multi-statement block bodies like `each do |m| private m; public m end`.
 pub struct AccessModifierDeclarations;
 
-const ACCESS_MODIFIERS: &[&str] = &["private", "protected", "public", "module_function"];
+// Uses access_modifier_predicates for access modifier detection.
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum StatementsOwnerKind {
@@ -65,10 +66,10 @@ fn classify_access_modifier<'pr>(
     allow_modifiers_on_attrs: bool,
     allow_modifiers_on_alias_method: bool,
 ) -> Option<ModifierClassification<'pr>> {
-    let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
-    if !ACCESS_MODIFIERS.contains(&method_name) || call.receiver().is_some() {
+    if !access_modifier_predicates::is_access_modifier_declaration(call) {
         return None;
     }
+    let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
 
     let args = match call.arguments() {
         Some(arguments) => arguments,
@@ -428,21 +429,21 @@ impl<'pr> Visit<'pr> for AccessModifierVisitor<'_> {
 
         // In group mode, direct modifiers are handled in visit_statements_node.
         // Here we keep the existing inline-style handling.
-        if self.enforced_style == "inline" && self.in_class_body {
-            let method_name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
-            if ACCESS_MODIFIERS.contains(&method_name)
-                && node.receiver().is_none()
-                && node.arguments().is_none()
-            {
-                let loc = node.location();
-                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                self.diagnostics.push(self.cop.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    format!("`{}` should not be used in a group style.", method_name),
-                ));
-            }
+        if self.enforced_style == "inline"
+            && self.in_class_body
+            && access_modifier_predicates::is_bare_access_modifier(node)
+        {
+            let loc = node.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                format!(
+                    "`{}` should not be used in a group style.",
+                    std::str::from_utf8(node.name().as_slice()).unwrap_or("private")
+                ),
+            ));
         }
         ruby_prism::visit_call_node(self, node);
         self.next_block_owner_kind = saved_next_block_owner_kind;
