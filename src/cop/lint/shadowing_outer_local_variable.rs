@@ -1,5 +1,5 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
-use std::sync::Mutex;
 
 use crate::cop::variable_force::{self, Variable, VariableTable};
 use crate::cop::{Cop, CopConfig};
@@ -7,135 +7,46 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
-/// Checks for block parameters or block-local variables that shadow outer local variables.
-///
-/// ## Root causes of historical FP/FN (corpus conformance ~57%):
-///
-/// 1. **FP: Variable added to scope before RHS visited.** `visit_local_variable_write_node`
-///    called `add_local` before visiting the value child. This caused `foo = bar { |foo| ... }`
-///    to incorrectly flag `foo` as shadowing, because the LHS `foo` was already in scope when
-///    the block was processed. RuboCop's VariableForce processes the RHS before declaring the
-///    variable, so `foo` isn't in scope yet. Fix: visit the value first, then add to scope.
-///
-/// 2. **FN: Overly aggressive conditional suppression.** The `is_different_conditional_branch`
-///    function had a `(None, Some(_)) => true` case that suppressed ALL shadowing when the
-///    block was inside any conditional but the outer var was not. Per RuboCop, suppression
-///    only applies when BOTH the outer var and the block are in different branches of the
-///    SAME conditional node. Fix: remove the incorrect `(None, Some(_))` case.
-///
-/// ## Migration to VariableForce
-///
-/// This cop was migrated from a 1,857-line standalone AST visitor to use the shared
-/// VariableForce engine. The cop uses `before_declaring_variable` to detect when a
-/// block parameter shadows an outer local variable via `find_variable`. A lightweight
-/// `check_source` pass pre-computes two things:
-///
-/// 1. **Ractor.new block offsets**: Ractor blocks have isolated scope by design;
-///    shadowing inside them is intentional and not flagged.
-///
-/// 2. **Conditional branch context**: Maps byte offsets to their conditional branch
-///    context (if/unless/case/when). Used to suppress shadowing when the outer
-///    variable and block parameter are in different branches of the same conditional
-///    (they can never both be in scope). This includes:
-///    - Same-conditional different-branch suppression (Check 1)
-///    - Adjacent elsif suppression (Check 2)
-///    - Same-conditional-node condition-assignment suppression (Check 3)
-///    - When-condition assignment suppression
-///    - Inherited conditional context through single-statement block chains
-///    - Expression depth tracking for nested-in-expression detection
-pub struct ShadowingOuterLocalVariable {
-    /// Byte offset ranges (start, end) of Ractor.new block bodies.
-    /// Block params inside these are not flagged.
-    ractor_block_ranges: Mutex<Vec<(usize, usize)>>,
-    /// Sorted list of conditional branch intervals. Each entry covers a range
-    /// of byte offsets and records the conditional context for that range.
-    branch_intervals: Mutex<Vec<BranchInterval>>,
-    /// Expression nesting ranges. Each entry is (start, end, depth) where depth
-    /// is the expression nesting level when this range was entered. A block param
-    /// is "nested in expression" relative to its branch if it's in an expression
-    /// range whose depth exceeds the branch interval's expression_depth_base.
-    expression_ranges: Mutex<Vec<(usize, usize, usize)>>,
-    /// Offsets of block/lambda bodies that are single-statement.
-    /// Used for inherited conditional context propagation.
-    single_stmt_block_bodies: Mutex<HashSet<usize>>,
-    /// Map from block body start offset to the inherited conditional branch context.
-    /// Propagated through single-statement block body chains.
-    inherited_cond_map: Mutex<Vec<InheritedCondEntry>>,
-    /// Map from offset ranges to when_condition_of_case values.
-    when_condition_ranges: Mutex<Vec<(usize, usize, usize)>>,
-    /// Map from offset ranges to in_when_body_of_case values.
-    when_body_ranges: Mutex<Vec<(usize, usize, usize)>>,
-    /// Assignment LHS → RHS ranges. Each entry is (lhs_offset, rhs_start, rhs_end).
-    /// Used to suppress shadowing when the block is in the RHS of the outer
-    /// variable's own assignment (e.g., `foo = bar { |foo| baz(foo) }`).
-    assignment_rhs_ranges: Mutex<Vec<(usize, usize, usize)>>,
-    /// Block/lambda body ranges (block_node_start, body_start, body_end).
-    /// Used to detect when a multi-statement block boundary separates the
-    /// param from the conditional branch. block_node_start is used to look
-    /// up whether the block is single-statement.
-    block_body_ranges: Mutex<Vec<(usize, usize, usize)>>,
+// Thread-local storage for per-file context data. Within a rayon task, a single
+// file is processed sequentially: check_source -> VF engine ->
+// before_declaring_variable, so thread-local storage is safe and avoids the
+// TOCTOU race that Mutex fields on the shared cop struct would cause.
+thread_local! {
+    static SHADOWING_CTX: RefCell<ShadowingContext> = RefCell::new(ShadowingContext::new());
 }
 
-/// A conditional branch interval: all offsets in [start, end) have this context.
-#[derive(Clone, Debug)]
-struct BranchInterval {
-    start: usize,
-    end: usize,
-    cond_offset: usize,
-    branch_offset: usize,
-    subsequent_offset: Option<usize>,
-    is_body: bool,
-    is_if_type: bool,
-    single_stmt: bool,
-    is_else_clause: bool,
-    /// Expression depth base at the point this branch was entered.
-    expression_depth_base: usize,
+struct ShadowingContext {
+    ractor_block_ranges: Vec<(usize, usize)>,
+    branch_intervals: Vec<BranchInterval>,
+    expression_ranges: Vec<(usize, usize, usize)>,
+    single_stmt_block_bodies: HashSet<usize>,
+    inherited_cond_map: Vec<InheritedCondEntry>,
+    when_condition_ranges: Vec<(usize, usize, usize)>,
+    when_body_ranges: Vec<(usize, usize, usize)>,
+    assignment_rhs_ranges: Vec<(usize, usize, usize)>,
+    block_body_ranges: Vec<(usize, usize, usize)>,
 }
 
-/// Inherited conditional context for a block body.
-#[derive(Clone, Debug)]
-struct InheritedCondEntry {
-    /// Start offset of the block body.
-    block_start: usize,
-    /// End offset of the block body.
-    block_end: usize,
-    /// The inherited (cond_offset, branch_offset).
-    cond_branch: (usize, usize),
-    /// Whether the inherited context is from an if-type conditional.
-    is_if_type: bool,
-}
-
-/// Info about where a variable was declared, used for suppression checks.
-#[derive(Clone, Debug)]
-struct VarBranchInfo {
-    conditional_branch: Option<(usize, usize)>,
-    cond_subsequent_offset: Option<usize>,
-    when_condition_of_case: Option<usize>,
-    is_condition_var: bool,
-    is_if_type_cond: bool,
-}
-
-impl ShadowingOuterLocalVariable {
-    pub fn new() -> Self {
+impl ShadowingContext {
+    fn new() -> Self {
         Self {
-            ractor_block_ranges: Mutex::new(Vec::new()),
-            branch_intervals: Mutex::new(Vec::new()),
-            expression_ranges: Mutex::new(Vec::new()),
-            single_stmt_block_bodies: Mutex::new(HashSet::new()),
-            inherited_cond_map: Mutex::new(Vec::new()),
-            when_condition_ranges: Mutex::new(Vec::new()),
-            when_body_ranges: Mutex::new(Vec::new()),
-            assignment_rhs_ranges: Mutex::new(Vec::new()),
-            block_body_ranges: Mutex::new(Vec::new()),
+            ractor_block_ranges: Vec::new(),
+            branch_intervals: Vec::new(),
+            expression_ranges: Vec::new(),
+            single_stmt_block_bodies: HashSet::new(),
+            inherited_cond_map: Vec::new(),
+            when_condition_ranges: Vec::new(),
+            when_body_ranges: Vec::new(),
+            assignment_rhs_ranges: Vec::new(),
+            block_body_ranges: Vec::new(),
         }
     }
 
     /// Look up the conditional branch context for a given byte offset.
     fn branch_info_at(&self, offset: usize) -> VarBranchInfo {
-        let intervals = self.branch_intervals.lock().unwrap();
         // Find the innermost (last) interval containing this offset.
         let mut best: Option<&BranchInterval> = None;
-        for interval in intervals.iter() {
+        for interval in self.branch_intervals.iter() {
             if interval.start <= offset && offset < interval.end {
                 // Pick the innermost (narrowest) interval
                 match best {
@@ -149,8 +60,8 @@ impl ShadowingOuterLocalVariable {
             }
         }
 
-        let when_cond_ranges = self.when_condition_ranges.lock().unwrap();
-        let when_condition_of_case = when_cond_ranges
+        let when_condition_of_case = self
+            .when_condition_ranges
             .iter()
             .find(|(s, e, _)| *s <= offset && offset < *e)
             .map(|(_, _, case_off)| *case_off);
@@ -177,8 +88,7 @@ impl ShadowingOuterLocalVariable {
     /// its enclosing branch interval. Returns true only if the expression
     /// nesting is deeper than the branch entry's expression_depth_base.
     fn is_in_expression_at(&self, offset: usize, branch_expr_depth_base: usize) -> bool {
-        let ranges = self.expression_ranges.lock().unwrap();
-        ranges
+        self.expression_ranges
             .iter()
             .any(|(s, e, depth)| *s <= offset && offset < *e && *depth > branch_expr_depth_base)
     }
@@ -186,17 +96,14 @@ impl ShadowingOuterLocalVariable {
     /// Check if a given offset is inside a Ractor.new block.
     fn is_in_ractor_block(&self, offset: usize) -> bool {
         self.ractor_block_ranges
-            .lock()
-            .unwrap()
             .iter()
             .any(|(s, e)| *s <= offset && offset < *e)
     }
 
     /// Get the innermost branch interval for an offset.
     fn innermost_branch_at(&self, offset: usize) -> Option<BranchInterval> {
-        let intervals = self.branch_intervals.lock().unwrap();
         let mut best: Option<&BranchInterval> = None;
-        for interval in intervals.iter() {
+        for interval in self.branch_intervals.iter() {
             if interval.start <= offset && offset < interval.end {
                 match best {
                     None => best = Some(interval),
@@ -213,10 +120,9 @@ impl ShadowingOuterLocalVariable {
 
     /// Get the inherited conditional branch for an offset (from enclosing block bodies).
     fn inherited_cond_at(&self, offset: usize) -> Option<((usize, usize), bool)> {
-        let map = self.inherited_cond_map.lock().unwrap();
         // Find the innermost block body containing this offset
         let mut best: Option<&InheritedCondEntry> = None;
-        for entry in map.iter() {
+        for entry in self.inherited_cond_map.iter() {
             if entry.block_start <= offset && offset < entry.block_end {
                 match best {
                     None => best = Some(entry),
@@ -234,8 +140,7 @@ impl ShadowingOuterLocalVariable {
 
     /// Check if an offset is in a when body of a particular case.
     fn in_when_body_of_case_at(&self, offset: usize) -> Option<usize> {
-        let ranges = self.when_body_ranges.lock().unwrap();
-        ranges
+        self.when_body_ranges
             .iter()
             .find(|(s, e, _)| *s <= offset && offset < *e)
             .map(|(_, _, case_off)| *case_off)
@@ -252,24 +157,25 @@ impl ShadowingOuterLocalVariable {
         branch_end: usize,
         param_offset: usize,
     ) -> bool {
-        let ranges = self.block_body_ranges.lock().unwrap();
-        let single = self.single_stmt_block_bodies.lock().unwrap();
-        ranges.iter().any(|(block_start, body_start, body_end)| {
-            *body_start > branch_start
-                && *body_end <= branch_end
-                && *body_start <= param_offset
-                && param_offset < *body_end
-                && !single.contains(block_start)
-        })
+        self.block_body_ranges
+            .iter()
+            .any(|(block_start, body_start, body_end)| {
+                *body_start > branch_start
+                    && *body_end <= branch_end
+                    && *body_start <= param_offset
+                    && param_offset < *body_end
+                    && !self.single_stmt_block_bodies.contains(block_start)
+            })
     }
 
     /// Check if a block param at `param_offset` is in the RHS of an assignment
     /// whose LHS is at `lhs_offset`. Used to suppress `foo = bar { |foo| }`.
     fn is_in_assignment_rhs(&self, lhs_offset: usize, param_offset: usize) -> bool {
-        let ranges = self.assignment_rhs_ranges.lock().unwrap();
-        ranges.iter().any(|(lhs, rhs_start, rhs_end)| {
-            *lhs == lhs_offset && *rhs_start <= param_offset && param_offset < *rhs_end
-        })
+        self.assignment_rhs_ranges
+            .iter()
+            .any(|(lhs, rhs_start, rhs_end)| {
+                *lhs == lhs_offset && *rhs_start <= param_offset && param_offset < *rhs_end
+            })
     }
 
     /// Check whether the block param should be suppressed due to conditional
@@ -369,9 +275,92 @@ impl ShadowingOuterLocalVariable {
     }
 }
 
+/// Checks for block parameters or block-local variables that shadow outer local variables.
+///
+/// ## Root causes of historical FP/FN (corpus conformance ~57%):
+///
+/// 1. **FP: Variable added to scope before RHS visited.** `visit_local_variable_write_node`
+///    called `add_local` before visiting the value child. This caused `foo = bar { |foo| ... }`
+///    to incorrectly flag `foo` as shadowing, because the LHS `foo` was already in scope when
+///    the block was processed. RuboCop's VariableForce processes the RHS before declaring the
+///    variable, so `foo` isn't in scope yet. Fix: visit the value first, then add to scope.
+///
+/// 2. **FN: Overly aggressive conditional suppression.** The `is_different_conditional_branch`
+///    function had a `(None, Some(_)) => true` case that suppressed ALL shadowing when the
+///    block was inside any conditional but the outer var was not. Per RuboCop, suppression
+///    only applies when BOTH the outer var and the block are in different branches of the
+///    SAME conditional node. Fix: remove the incorrect `(None, Some(_))` case.
+///
+/// ## Migration to VariableForce
+///
+/// This cop was migrated from a 1,857-line standalone AST visitor to use the shared
+/// VariableForce engine. The cop uses `before_declaring_variable` to detect when a
+/// block parameter shadows an outer local variable via `find_variable`. A lightweight
+/// `check_source` pass pre-computes two things:
+///
+/// 1. **Ractor.new block offsets**: Ractor blocks have isolated scope by design;
+///    shadowing inside them is intentional and not flagged.
+///
+/// 2. **Conditional branch context**: Maps byte offsets to their conditional branch
+///    context (if/unless/case/when). Used to suppress shadowing when the outer
+///    variable and block parameter are in different branches of the same conditional
+///    (they can never both be in scope). This includes:
+///    - Same-conditional different-branch suppression (Check 1)
+///    - Adjacent elsif suppression (Check 2)
+///    - Same-conditional-node condition-assignment suppression (Check 3)
+///    - When-condition assignment suppression
+///    - Inherited conditional context through single-statement block chains
+///    - Expression depth tracking for nested-in-expression detection
+pub struct ShadowingOuterLocalVariable;
+
+/// A conditional branch interval: all offsets in [start, end) have this context.
+#[derive(Clone, Debug)]
+struct BranchInterval {
+    start: usize,
+    end: usize,
+    cond_offset: usize,
+    branch_offset: usize,
+    subsequent_offset: Option<usize>,
+    is_body: bool,
+    is_if_type: bool,
+    single_stmt: bool,
+    is_else_clause: bool,
+    /// Expression depth base at the point this branch was entered.
+    expression_depth_base: usize,
+}
+
+/// Inherited conditional context for a block body.
+#[derive(Clone, Debug)]
+struct InheritedCondEntry {
+    /// Start offset of the block body.
+    block_start: usize,
+    /// End offset of the block body.
+    block_end: usize,
+    /// The inherited (cond_offset, branch_offset).
+    cond_branch: (usize, usize),
+    /// Whether the inherited context is from an if-type conditional.
+    is_if_type: bool,
+}
+
+/// Info about where a variable was declared, used for suppression checks.
+#[derive(Clone, Debug)]
+struct VarBranchInfo {
+    conditional_branch: Option<(usize, usize)>,
+    cond_subsequent_offset: Option<usize>,
+    when_condition_of_case: Option<usize>,
+    is_condition_var: bool,
+    is_if_type_cond: bool,
+}
+
+impl ShadowingOuterLocalVariable {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
 impl Default for ShadowingOuterLocalVariable {
     fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
@@ -416,15 +405,18 @@ impl Cop for ShadowingOuterLocalVariable {
         };
         collector.visit(&parse_result.node());
 
-        *self.ractor_block_ranges.lock().unwrap() = collector.ractor_block_ranges;
-        *self.branch_intervals.lock().unwrap() = collector.branch_intervals;
-        *self.expression_ranges.lock().unwrap() = collector.expression_ranges;
-        *self.single_stmt_block_bodies.lock().unwrap() = collector.single_stmt_block_bodies;
-        *self.inherited_cond_map.lock().unwrap() = collector.inherited_cond_map;
-        *self.when_condition_ranges.lock().unwrap() = collector.when_condition_ranges;
-        *self.when_body_ranges.lock().unwrap() = collector.when_body_ranges;
-        *self.assignment_rhs_ranges.lock().unwrap() = collector.assignment_rhs_ranges;
-        *self.block_body_ranges.lock().unwrap() = collector.block_body_ranges;
+        SHADOWING_CTX.with(|cell| {
+            let mut ctx = cell.borrow_mut();
+            ctx.ractor_block_ranges = collector.ractor_block_ranges;
+            ctx.branch_intervals = collector.branch_intervals;
+            ctx.expression_ranges = collector.expression_ranges;
+            ctx.single_stmt_block_bodies = collector.single_stmt_block_bodies;
+            ctx.inherited_cond_map = collector.inherited_cond_map;
+            ctx.when_condition_ranges = collector.when_condition_ranges;
+            ctx.when_body_ranges = collector.when_body_ranges;
+            ctx.assignment_rhs_ranges = collector.assignment_rhs_ranges;
+            ctx.block_body_ranges = collector.block_body_ranges;
+        });
     }
 
     fn as_variable_force_consumer(&self) -> Option<&dyn variable_force::VariableForceConsumer> {
@@ -467,32 +459,43 @@ impl variable_force::VariableForceConsumer for ShadowingOuterLocalVariable {
         let param_offset = variable.declaration_offset;
         let outer_offset = outer_var.declaration_offset;
 
-        // Check if we're inside a Ractor.new block — shadowing is intentional
-        if self.is_in_ractor_block(param_offset) {
-            return;
-        }
+        // Check suppression conditions using thread-local context data.
+        let should_flag = SHADOWING_CTX.with(|cell| {
+            let ctx = cell.borrow();
 
-        // Look up the outer variable's conditional branch context
-        let outer_info = self.branch_info_at(outer_offset);
-
-        // Check if the block is in the RHS of the outer variable's assignment.
-        // e.g., `foo = bar { |foo| baz(foo) }` — the block is the RHS of foo's
-        // assignment, so foo is not yet semantically in scope (RuboCop suppresses).
-        // However, do NOT suppress when the outer variable is in a conditional
-        // branch body — a sibling branch may also declare the variable, and
-        // RuboCop's VF visits branches in a different order (Parser gem order)
-        // where the variable may already exist from a sibling branch.
-        if self.is_in_assignment_rhs(outer_offset, param_offset) {
-            let outer_in_branch_body = outer_info
-                .conditional_branch
-                .is_some_and(|_| !outer_info.is_condition_var);
-            if !outer_in_branch_body {
-                return;
+            // Check if we're inside a Ractor.new block — shadowing is intentional
+            if ctx.is_in_ractor_block(param_offset) {
+                return false;
             }
-        }
 
-        // Check conditional branch suppression
-        if self.should_suppress(&outer_info, param_offset) {
+            // Look up the outer variable's conditional branch context
+            let outer_info = ctx.branch_info_at(outer_offset);
+
+            // Check if the block is in the RHS of the outer variable's assignment.
+            // e.g., `foo = bar { |foo| baz(foo) }` — the block is the RHS of foo's
+            // assignment, so foo is not yet semantically in scope (RuboCop suppresses).
+            // However, do NOT suppress when the outer variable is in a conditional
+            // branch body — a sibling branch may also declare the variable, and
+            // RuboCop's VF visits branches in a different order (Parser gem order)
+            // where the variable may already exist from a sibling branch.
+            if ctx.is_in_assignment_rhs(outer_offset, param_offset) {
+                let outer_in_branch_body = outer_info
+                    .conditional_branch
+                    .is_some_and(|_| !outer_info.is_condition_var);
+                if !outer_in_branch_body {
+                    return false;
+                }
+            }
+
+            // Check conditional branch suppression
+            if ctx.should_suppress(&outer_info, param_offset) {
+                return false;
+            }
+
+            true
+        });
+
+        if !should_flag {
             return;
         }
 
