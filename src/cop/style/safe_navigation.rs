@@ -7,11 +7,12 @@ use ruby_prism::Visit;
 /// Matches RuboCop's guarded receiver handling for modifier `if`/`unless`, adjacent
 /// clauses inside chained `&&` guards like `proof && dom_body && dom_body.include?(proof)`,
 /// and ternaries such as `uri.port = port ? port.to_i : nil`.
-/// Ternaries now follow RuboCop's narrower ancestor rules: argument and receiver
-/// contexts like `puts(foo ? foo.bar : nil)` remain offenses, while enclosing calls
-/// that `nil` already responds to, such as `instance_variable_set`, `inspect`, and
-/// `to_json`, still suppress them. `&&` handling keeps the existing skips for unsafe
-/// dotless-call, dynamic-send, double-colon-argument, and negated-wrapper contexts.
+/// The current fix narrows two over-broad ancestor skips that caused corpus false
+/// negatives: `&&` and modifier guards inside ordinary `do`/`{}` blocks attached to
+/// dotless calls like `loop`/`scope`, and candidates nested inside receiver trees such
+/// as array or block receivers that later receive another call (`[].pack`, `end.flatten`).
+/// Direct receiver cases like `(foo && foo.bar).to_s` remain skipped, as do unsafe
+/// argument, dynamic-send, double-colon-argument, and negated-wrapper contexts.
 pub struct SafeNavigation;
 
 /// Methods that `nil` responds to in vanilla Ruby.
@@ -274,9 +275,11 @@ impl Cop for SafeNavigation {
             in_call_arguments: 0,
             in_block_argument: 0,
             in_block: 0,
-            in_call_receiver: 0,
+            direct_call_receiver_roots: Vec::new(),
+            direct_receiver_block_bodies: Vec::new(),
             in_dynamic_send_args: 0,
             in_double_colon_call_arguments: 0,
+            in_and_clause_visit: 0,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -300,15 +303,19 @@ struct SafeNavVisitor<'a> {
     in_call_arguments: usize,
     in_block_argument: usize,
     in_block: usize,
-    in_call_receiver: usize,
+    direct_call_receiver_roots: Vec<(usize, usize)>,
+    direct_receiver_block_bodies: Vec<(usize, usize)>,
     in_dynamic_send_args: usize,
     in_double_colon_call_arguments: usize,
+    in_and_clause_visit: usize,
 }
 
 impl<'a> SafeNavVisitor<'a> {
     fn visit_flattened_and_clauses<'pr>(&mut self, node: &ruby_prism::AndNode<'pr>) {
         for clause in SafeNavigation::top_level_and_clauses(node) {
+            self.in_and_clause_visit += 1;
             self.visit(&clause);
+            self.in_and_clause_visit -= 1;
         }
     }
 
@@ -346,6 +353,13 @@ impl<'a> SafeNavVisitor<'a> {
         }
 
         if SafeNavigation::has_unsafe_method_after_checked_receiver(&chain, &self.allowed_methods) {
+            ruby_prism::visit_and_node(self, node);
+            return;
+        }
+
+        if self.is_direct_receiver_block_body(&node.as_node())
+            && chain.iter().any(|call| call.block().is_some())
+        {
             ruby_prism::visit_and_node(self, node);
             return;
         }
@@ -498,6 +512,76 @@ impl<'a> SafeNavVisitor<'a> {
     fn is_nil_safe_call_ancestor(call: &ruby_prism::CallNode<'_>) -> bool {
         NIL_METHODS.contains(&call.name().as_slice())
     }
+
+    fn collect_direct_receiver_ranges(
+        node: &ruby_prism::Node<'_>,
+        ranges: &mut Vec<(usize, usize)>,
+    ) {
+        let loc = node.location();
+        ranges.push((loc.start_offset(), loc.end_offset()));
+
+        if let Some(parentheses) = node.as_parentheses_node() {
+            if let Some(body) = parentheses.body() {
+                if let Some(stmts) = body.as_statements_node() {
+                    if let Some(inner) = SafeNavigation::single_stmt_from_stmts(&stmts) {
+                        Self::collect_direct_receiver_ranges(&inner, ranges);
+                    }
+                }
+            }
+        }
+    }
+
+    fn is_direct_call_receiver(&self, node: &ruby_prism::Node<'_>) -> bool {
+        let loc = node.location();
+        let range = (loc.start_offset(), loc.end_offset());
+        self.direct_call_receiver_roots
+            .iter()
+            .any(|candidate| *candidate == range)
+    }
+
+    fn collect_direct_receiver_block_bodies(
+        node: &ruby_prism::Node<'_>,
+        bodies: &mut Vec<(usize, usize)>,
+    ) {
+        if let Some(parentheses) = node.as_parentheses_node() {
+            if let Some(body) = parentheses.body() {
+                if let Some(stmts) = body.as_statements_node() {
+                    if let Some(inner) = SafeNavigation::single_stmt_from_stmts(&stmts) {
+                        Self::collect_direct_receiver_block_bodies(&inner, bodies);
+                    }
+                }
+            }
+            return;
+        }
+
+        let block = if let Some(call) = node.as_call_node() {
+            call.block().and_then(|block| block.as_block_node())
+        } else {
+            node.as_block_node()
+        };
+        let Some(block) = block else {
+            return;
+        };
+        let Some(body) = block.body() else {
+            return;
+        };
+        let Some(stmts) = body.as_statements_node() else {
+            return;
+        };
+        let Some(inner) = SafeNavigation::single_stmt_from_stmts(&stmts) else {
+            return;
+        };
+        let loc = inner.location();
+        bodies.push((loc.start_offset(), loc.end_offset()));
+    }
+
+    fn is_direct_receiver_block_body(&self, node: &ruby_prism::Node<'_>) -> bool {
+        let loc = node.location();
+        let range = (loc.start_offset(), loc.end_offset());
+        self.direct_receiver_block_bodies
+            .iter()
+            .any(|candidate| *candidate == range)
+    }
 }
 
 impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
@@ -536,9 +620,17 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
                 .push(node.location().start_offset());
         }
         if let Some(receiver) = node.receiver() {
-            self.in_call_receiver += 1;
+            let receiver_roots_len = self.direct_call_receiver_roots.len();
+            let receiver_block_bodies_len = self.direct_receiver_block_bodies.len();
+            Self::collect_direct_receiver_ranges(&receiver, &mut self.direct_call_receiver_roots);
+            Self::collect_direct_receiver_block_bodies(
+                &receiver,
+                &mut self.direct_receiver_block_bodies,
+            );
             self.visit(&receiver);
-            self.in_call_receiver -= 1;
+            self.direct_call_receiver_roots.truncate(receiver_roots_len);
+            self.direct_receiver_block_bodies
+                .truncate(receiver_block_bodies_len);
         }
 
         if let Some(arguments) = node.arguments() {
@@ -562,6 +654,9 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         }
 
         if let Some(block) = node.block() {
+            if is_unsafe && self.in_and_clause_visit == 0 {
+                self.in_unsafe_parent -= 1;
+            }
             self.visit(&block);
         }
 
@@ -577,7 +672,7 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         if is_nil_safe_call_ancestor {
             self.in_nil_safe_call_ancestor -= 1;
         }
-        if is_unsafe {
+        if is_unsafe && node.block().is_none_or(|_| self.in_and_clause_visit > 0) {
             self.in_unsafe_parent -= 1;
         }
     }
@@ -592,7 +687,8 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         // RuboCop skips `&&` patterns when any ancestor send node is "unsafe" (dotless,
         // assignment, or operator method). For example, `scope :bar, ->(user) { user && user.name }`
         // is not flagged because `scope` is a dotless method call.
-        if self.in_call_receiver > 0
+        if self.is_direct_call_receiver(&node.as_node())
+            || self.in_nil_safe_call_ancestor > 0
             || self.in_unsafe_parent > 0
             || self.in_dynamic_send_args > 0
             || self.in_double_colon_call_arguments > 0
@@ -644,6 +740,12 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
                 continue;
             }
 
+            if self.is_direct_receiver_block_body(&node.as_node())
+                && chain.iter().any(|call| call.block().is_some())
+            {
+                continue;
+            }
+
             let loc = lhs.location();
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
             self.diagnostics.push(self.cop.diagnostic(
@@ -666,6 +768,7 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         // Check if it's a ternary (no `if` keyword location in Prism)
         if if_node.if_keyword_loc().is_none() {
             if (self.in_block_argument > 0 && self.in_block == 0)
+                || self.is_direct_call_receiver(&node.as_node())
                 || self.in_nil_safe_call_ancestor > 0
                 || self.in_ternary_operator_parent > 0
             {
@@ -680,6 +783,7 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
                 &self.allowed_methods,
                 self.dotted_assignment_parent_starts.last().copied(),
                 self.in_call_arguments > 1,
+                self.is_direct_receiver_block_body(&node.as_node()),
             );
             self.diagnostics.extend(diags);
             ruby_prism::visit_if_node(self, node);
@@ -710,7 +814,8 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         }
 
         if (self.in_block_argument > 0 && self.in_block == 0)
-            || self.in_call_receiver > 0
+            || self.is_direct_call_receiver(&node.as_node())
+            || self.in_nil_safe_call_ancestor > 0
             || self.in_call_arguments > 0
             || self.in_dynamic_send_args > 0
         {
@@ -725,6 +830,7 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             is_unless,
             self.max_chain_length,
             &self.allowed_methods,
+            self.is_direct_receiver_block_body(&node.as_node()),
         );
         self.diagnostics.extend(diags);
 
@@ -744,7 +850,8 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         }
 
         if (self.in_block_argument > 0 && self.in_block == 0)
-            || self.in_call_receiver > 0
+            || self.is_direct_call_receiver(&node.as_node())
+            || self.in_nil_safe_call_ancestor > 0
             || self.in_call_arguments > 0
             || self.in_dynamic_send_args > 0
         {
@@ -836,6 +943,13 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             return;
         }
 
+        if self.is_direct_receiver_block_body(&node.as_node())
+            && chain.iter().any(|call| call.block().is_some())
+        {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
+
         let (line, column) = self.source.offset_to_line_col(node_loc.start_offset());
         self.diagnostics.push(self.cop.diagnostic(
             self.source,
@@ -857,6 +971,7 @@ impl SafeNavigation {
         allowed_methods: &Option<Vec<String>>,
         offense_start_offset: Option<usize>,
         skip_nested_block_call_args: bool,
+        skip_direct_receiver_block_body_block_calls: bool,
     ) -> Vec<Diagnostic> {
         let condition = if_node.predicate();
         let bytes = source.as_bytes();
@@ -1016,6 +1131,12 @@ impl SafeNavigation {
             None => return Vec::new(),
         };
 
+        if skip_direct_receiver_block_body_block_calls
+            && chain.iter().any(|call| call.block().is_some())
+        {
+            return Vec::new();
+        }
+
         if chain.len() > max_chain_length {
             return Vec::new();
         }
@@ -1069,6 +1190,7 @@ impl SafeNavigation {
         is_unless: bool,
         max_chain_length: usize,
         allowed_methods: &Option<Vec<String>>,
+        skip_direct_receiver_block_body_block_calls: bool,
     ) -> Vec<Diagnostic> {
         let condition = if_node.predicate();
         let body_stmts = match if_node.statements() {
@@ -1163,6 +1285,12 @@ impl SafeNavigation {
             Some(chain) => chain,
             None => return Vec::new(),
         };
+
+        if skip_direct_receiver_block_body_block_calls
+            && chain.iter().any(|call| call.block().is_some())
+        {
+            return Vec::new();
+        }
 
         if chain.len() > max_chain_length {
             return Vec::new();

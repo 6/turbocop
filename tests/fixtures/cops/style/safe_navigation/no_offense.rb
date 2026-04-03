@@ -104,6 +104,11 @@ obj.public_send(:x, &(foo ? foo.bar : nil))
 { debug: (writer_opts[:debug].join("\n") if writer_opts[:debug]) }.to_json
 "#{(model ? model.serial : nil).inspect}"
 
+# Block-receiver bodies that themselves end in block calls are skipped
+items.map { options.queries && options.queries.keys.map { |q| q } }.compact.flatten
+items.map { options.queries ? options.queries.keys.map { |q| q } : nil }.compact.flatten
+items.map { options.queries.keys.map { |q| q } if options.queries }.compact.flatten
+
 # Parenthesized lhs in `&&` is skipped like RuboCop
 (safe_site['authentication']) && safe_site['authentication'].is_a?(Hash)
 
