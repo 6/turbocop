@@ -107,27 +107,3 @@ require 'ostruct'
     module GestationHelper; end
   end
 end
-
-mo_paths << path
-^ Layout/IndentationConsistency: Inconsistent indentation detected.
-
-if block_given?
-^ Layout/IndentationConsistency: Inconsistent indentation detected.
-
-def hello_world; end
-^ Layout/IndentationConsistency: Inconsistent indentation detected.
-
-def hello_world; end
-^ Layout/IndentationConsistency: Inconsistent indentation detected.
-
-def hello_world; end
-^ Layout/IndentationConsistency: Inconsistent indentation detected.
-
-def affiliate_basis_points_must_fall_in_an_acceptable_range
-^ Layout/IndentationConsistency: Inconsistent indentation detected.
-
-u.port=4001
-^ Layout/IndentationConsistency: Inconsistent indentation detected.
-
-openid_url u.to_s)
-^ Layout/IndentationConsistency: Inconsistent indentation detected.
