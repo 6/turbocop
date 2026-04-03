@@ -42,9 +42,8 @@ struct AccessModifierVisitor<'a> {
     allow_modifiers_on_attrs: bool,
     allow_modifiers_on_alias_method: bool,
     diagnostics: Vec<Diagnostic>,
-    /// true when the current scope is a class/module/sclass body (not a nested block)
-    // TODO: Migrate to shared MacroScope stack for consistent scope tracking.
-    in_class_body: bool,
+    /// Macro scope stack for access modifier detection.
+    macro_scope_stack: Vec<access_modifier_predicates::MacroScope>,
     /// true when walking inside an ordinary method body, which RuboCop ignores.
     in_def_body: bool,
     /// Synthetic owner kind for the next statements node we visit.
@@ -333,55 +332,50 @@ impl<'pr> Visit<'pr> for AccessModifierVisitor<'_> {
     }
 
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
-        let saved_in_class_body = self.in_class_body;
+        access_modifier_predicates::push_class_like_scope(&mut self.macro_scope_stack);
         let saved_owner = self.statements_owner_kind;
-        self.in_class_body = true;
         self.statements_owner_kind = StatementsOwnerKind::Other;
         ruby_prism::visit_class_node(self, node);
         self.statements_owner_kind = saved_owner;
-        self.in_class_body = saved_in_class_body;
+        access_modifier_predicates::pop_scope(&mut self.macro_scope_stack);
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        let saved_in_class_body = self.in_class_body;
+        access_modifier_predicates::push_class_like_scope(&mut self.macro_scope_stack);
         let saved_owner = self.statements_owner_kind;
-        self.in_class_body = true;
         self.statements_owner_kind = StatementsOwnerKind::Other;
         ruby_prism::visit_module_node(self, node);
         self.statements_owner_kind = saved_owner;
-        self.in_class_body = saved_in_class_body;
+        access_modifier_predicates::pop_scope(&mut self.macro_scope_stack);
     }
 
     fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
-        let saved_in_class_body = self.in_class_body;
+        access_modifier_predicates::push_class_like_scope(&mut self.macro_scope_stack);
         let saved_owner = self.statements_owner_kind;
-        self.in_class_body = true;
         self.statements_owner_kind = StatementsOwnerKind::Other;
         ruby_prism::visit_singleton_class_node(self, node);
         self.statements_owner_kind = saved_owner;
-        self.in_class_body = saved_in_class_body;
+        access_modifier_predicates::pop_scope(&mut self.macro_scope_stack);
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
-        let saved_in_class_body = self.in_class_body;
+        access_modifier_predicates::push_wrapper_scope(&mut self.macro_scope_stack);
         let saved_owner = self.statements_owner_kind;
-        self.in_class_body = false;
         self.statements_owner_kind = self
             .next_block_owner_kind
             .unwrap_or(StatementsOwnerKind::Block);
         ruby_prism::visit_block_node(self, node);
         self.statements_owner_kind = saved_owner;
-        self.in_class_body = saved_in_class_body;
+        access_modifier_predicates::pop_scope(&mut self.macro_scope_stack);
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
-        let saved_in_class_body = self.in_class_body;
+        access_modifier_predicates::push_def_scope(&mut self.macro_scope_stack);
         let saved_owner = self.statements_owner_kind;
-        self.in_class_body = false;
         self.statements_owner_kind = StatementsOwnerKind::ProcLikeBlock;
         ruby_prism::visit_lambda_node(self, node);
         self.statements_owner_kind = saved_owner;
-        self.in_class_body = saved_in_class_body;
+        access_modifier_predicates::pop_scope(&mut self.macro_scope_stack);
     }
 
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
@@ -431,7 +425,7 @@ impl<'pr> Visit<'pr> for AccessModifierVisitor<'_> {
         // In group mode, direct modifiers are handled in visit_statements_node.
         // Here we keep the existing inline-style handling.
         if self.enforced_style == "inline"
-            && self.in_class_body
+            && access_modifier_predicates::in_macro_scope(&self.macro_scope_stack)
             && access_modifier_predicates::is_bare_access_modifier(node)
         {
             let loc = node.location();
@@ -478,7 +472,7 @@ impl Cop for AccessModifierDeclarations {
             allow_modifiers_on_attrs,
             allow_modifiers_on_alias_method,
             diagnostics: Vec::new(),
-            in_class_body: true,
+            macro_scope_stack: vec![],
             in_def_body: false,
             statements_owner_kind: StatementsOwnerKind::Other,
             next_block_owner_kind: None,

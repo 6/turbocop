@@ -1,3 +1,4 @@
+use crate::cop::shared::access_modifier_predicates;
 use crate::cop::style::documentation::trim_bytes;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -126,13 +127,11 @@ fn is_non_public_modifier(modifier: &[u8]) -> bool {
 /// Check if a method is made private/protected retroactively via a single-symbol
 /// visibility call like `private :method_name` or `protected :method_name`
 /// appearing after the def in the same scope.
-// TODO: Migrate to shared access_modifier_predicates for name matching.
 fn visibility_name(node: &ruby_prism::Node<'_>) -> Option<MethodVisibility> {
     let call = node.as_call_node()?;
-    if call.receiver().is_some() {
+    if !access_modifier_predicates::is_access_modifier_declaration(&call) {
         return None;
     }
-
     match call.name().as_slice() {
         b"private" => Some(MethodVisibility::Private),
         b"protected" => Some(MethodVisibility::Protected),
