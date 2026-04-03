@@ -111,6 +111,10 @@ end
 
 # Mixed `and` / `&&` chains are not flattened across precedence groups
 raise Interrupt if status and status.signaled? && status.termsig == 1
+foo && (foo.bar? || foo.baz?)
+purchase && (purchase.stripe_refunded || (purchase.chargeback_date.present? && !purchase.chargeback_reversed))
+corporation and (corporation.operated? or corporation_sold_out?(corporation))
+foo && (foo.admin? || (foo == owner && foo.pro?))
 
 # Block-receiver bodies that themselves end in block calls are skipped
 items.map { options.queries && options.queries.keys.map { |q| q } }.compact.flatten
