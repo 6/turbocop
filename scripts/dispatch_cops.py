@@ -734,19 +734,21 @@ def _fetch_full_file(repo_url: str, sha: str, filepath: str) -> str | None:
 def _run_nitrocop_on_file(
     binary_path: Path, file_content: str, cop: str, filename: str = "test.rb",
 ) -> list[dict]:
-    """Run nitrocop on arbitrary file content, return offenses list."""
+    """Run nitrocop on arbitrary file content, return offenses list.
+
+    ``filename`` can be a relative path (e.g. ``spec/models/foo_spec.rb``);
+    intermediate directories are created so that cops with Include patterns
+    (like ``**/*_spec.rb`` or ``**/spec/**/*.rb``) can match.
+    """
     tmp_dir = tempfile.mkdtemp(prefix="nitrocop_diag_ff_")
     tmp_path = os.path.join(tmp_dir, filename)
+    os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
     try:
         with open(tmp_path, "w") as f:
             f.write(file_content)
         return _run_nitrocop(binary_path, tmp_dir, cop, filename)
     finally:
-        try:
-            os.unlink(tmp_path)
-            os.rmdir(tmp_dir)
-        except OSError:
-            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 BASELINE_CONFIG = PROJECT_ROOT / "bench" / "corpus" / "baseline_rubocop.yml"
@@ -870,72 +872,83 @@ def run_diagnostic(
                     )
 
                 # --- Full-file fallback ---
-                # When the snippet doesn't detect an FN, the extracted
-                # context may be too narrow (e.g. an `if` wrapping the
-                # entire class 60 lines above).  Fetch the real file and
-                # re-test to distinguish "snippet too narrow" from
-                # "genuine code bug".
+                # Fetch the real file and re-test.  This serves two purposes:
+                # 1. When the snippet doesn't detect: distinguish "snippet too
+                #    narrow" from "genuine code bug".
+                # 2. When the snippet DOES detect an FN: confirm whether the
+                #    full file also detects.  If not, the full-file context
+                #    (e.g., rubocop:disable comments, begin/rescue wrappers)
+                #    suppresses detection — this is a real bug in how nitrocop
+                #    handles that context, not just a config issue.
                 full_file_detected: bool | None = None
                 full_file_enclosing: str | None = None
                 full_file_context: str | None = None
                 diagnosis_note: str | None = None
 
-                if not detected and (kind == "fn" or kind == "fp"):
-                    parsed = _parse_example_loc(loc)
-                    if parsed:
-                        repo_id, filepath, real_line = parsed
-                        manifest = _load_manifest()
-                        entry = manifest.get(repo_id)
-                        if entry and entry["repo_url"] and entry["sha"]:
-                            content = _fetch_full_file(
-                                entry["repo_url"], entry["sha"], filepath,
+                parsed = _parse_example_loc(loc)
+                if parsed:
+                    repo_id, filepath, real_line = parsed
+                    manifest = _load_manifest()
+                    entry = manifest.get(repo_id)
+                    if entry and entry["repo_url"] and entry["sha"]:
+                        content = _fetch_full_file(
+                            entry["repo_url"], entry["sha"], filepath,
+                        )
+                        if content is not None:
+                            ff_offenses = _run_nitrocop_on_file(
+                                binary_path, content, cop,
+                                filename=filepath,
                             )
-                            if content is not None:
-                                ff_offenses = _run_nitrocop_on_file(
-                                    binary_path, content, cop,
-                                    filename=os.path.basename(filepath),
+                            ff_hit = any(
+                                o.get("line") == real_line
+                                for o in ff_offenses
+                            )
+                            full_file_detected = ff_hit
+
+                            # Build enclosing chain from the full file
+                            full_lines = content.splitlines()
+                            if 0 < real_line <= len(full_lines):
+                                chain = _find_enclosing_structures(
+                                    full_lines, real_line - 1,
+                                    real_line_offset=0,
                                 )
-                                ff_hit = any(
-                                    o.get("line") == real_line
-                                    for o in ff_offenses
+                                if chain:
+                                    full_file_enclosing = " > ".join(chain)
+
+                                # Provide broader context (30 lines before)
+                                ctx_start = max(0, real_line - 1 - 30)
+                                ctx_end = min(len(full_lines), real_line + 7)
+                                ctx_lines = []
+                                for ci in range(ctx_start, ctx_end):
+                                    marker = ">>> " if ci == real_line - 1 else "    "
+                                    ctx_lines.append(
+                                        f"{marker}{ci + 1:>5}: {full_lines[ci]}"
+                                    )
+                                full_file_context = "\n".join(ctx_lines)
+
+                            if not detected and ff_hit and kind == "fn":
+                                diagnosis_note = (
+                                    "Snippet too narrow — offense is detected "
+                                    "in the full file but not in the ±7-line "
+                                    "extract. The enclosing structure chain "
+                                    "shows the missing context."
                                 )
-                                full_file_detected = ff_hit
-
-                                # Build enclosing chain from the full file
-                                full_lines = content.splitlines()
-                                if 0 < real_line <= len(full_lines):
-                                    chain = _find_enclosing_structures(
-                                        full_lines, real_line - 1,
-                                        real_line_offset=0,
-                                    )
-                                    if chain:
-                                        full_file_enclosing = " > ".join(chain)
-
-                                    # Provide broader context (30 lines before)
-                                    ctx_start = max(0, real_line - 1 - 30)
-                                    ctx_end = min(len(full_lines), real_line + 7)
-                                    ctx_lines = []
-                                    for ci in range(ctx_start, ctx_end):
-                                        marker = ">>> " if ci == real_line - 1 else "    "
-                                        ctx_lines.append(
-                                            f"{marker}{ci + 1:>5}: {full_lines[ci]}"
-                                        )
-                                    full_file_context = "\n".join(ctx_lines)
-
-                                if ff_hit and kind == "fn":
-                                    diagnosis_note = (
-                                        "Snippet too narrow — offense is detected "
-                                        "in the full file but not in the ±7-line "
-                                        "extract. The enclosing structure chain "
-                                        "shows the missing context."
-                                    )
-                                elif ff_hit and kind == "fp":
-                                    diagnosis_note = (
-                                        "Snippet too narrow — FP reproduces in "
-                                        "the full file but not in the ±7-line "
-                                        "extract. This is a real code/config bug, "
-                                        "not just context-dependent."
-                                    )
+                            elif not detected and ff_hit and kind == "fp":
+                                diagnosis_note = (
+                                    "Snippet too narrow — FP reproduces in "
+                                    "the full file but not in the ±7-line "
+                                    "extract. This is a real code/config bug, "
+                                    "not just context-dependent."
+                                )
+                            elif detected and not ff_hit and kind == "fn":
+                                diagnosis_note = (
+                                    "Snippet detects but full file does not — "
+                                    "something in the full-file context "
+                                    "(rubocop:disable comment, begin/rescue "
+                                    "wrapper, config interaction) suppresses "
+                                    "detection. This is a real code bug, not "
+                                    "a project config issue."
+                                )
 
                 results.append({
                     "kind": kind, "loc": loc, "msg": msg,
@@ -989,16 +1002,26 @@ def _format_with_diagnostics(
     fn_undiagnosed = [d for d in fn_diags if not d.get("diagnosed")]
     fp_undiagnosed = [d for d in fp_diags if not d.get("diagnosed")]
 
-    # Summary counts — full-file fallback can reclassify snippet misses
+    # Summary counts — full-file fallback can reclassify snippet misses.
+    # A FN is a "code bug" when:
+    #   - Neither snippet nor full-file detects it (classic code bug), OR
+    #   - Snippet detects but full-file does NOT (context-sensitive bug:
+    #     something in the real file suppresses detection, e.g. a
+    #     rubocop:disable comment nitrocop mishandles, a begin/rescue
+    #     wrapper, or a config interaction bug).
     fn_code_bugs = sum(
         1 for d in fn_diagnosed
-        if not d.get("detected") and not d.get("full_file_detected")
+        if (not d.get("detected") and not d.get("full_file_detected"))
+        or (d.get("detected") and d.get("full_file_detected") is False)
     )
     fn_context_narrow = sum(
         1 for d in fn_diagnosed
         if not d.get("detected") and d.get("full_file_detected")
     )
-    fn_config = sum(1 for d in fn_diagnosed if d.get("detected"))
+    fn_config = sum(
+        1 for d in fn_diagnosed
+        if d.get("detected") and d.get("full_file_detected") is not False
+    )
     fp_code_bugs = sum(
         1 for d in fp_diagnosed
         if d.get("detected") or d.get("full_file_detected")
@@ -1014,7 +1037,8 @@ def _format_with_diagnostics(
 
     lines.append("### Diagnosis Summary")
     lines.append("Each example was tested by running nitrocop on the extracted source in isolation")
-    lines.append("with `--force-default-config` to determine if the issue is a code bug or config issue.")
+    lines.append("and against the full file fetched from GitHub to determine if the issue is a")
+    lines.append("code bug or config issue.")
     lines.append("Note: source context is truncated and may not parse perfectly. If a diagnosis")
     lines.append("seems wrong (e.g., your test passes immediately for a 'CODE BUG'), treat it as")
     lines.append("a config/context issue instead.\n")
@@ -1065,7 +1089,17 @@ def _format_with_diagnostics(
     for i, d in enumerate(fn_display, 1):
         lines.append(f"### FN #{i}: `{d['loc']}`")
         if d.get("diagnosed"):
-            if d.get("detected"):
+            if d.get("detected") and d.get("full_file_detected") is False:
+                lines.append("**DETECTED in snippet but NOT in full file — CODE BUG**")
+                lines.append("The cop detects the pattern in a small snippet but fails")
+                lines.append("when the full file is present. Something in the file context")
+                lines.append("(rubocop:disable comment, begin/rescue wrapper, or config")
+                lines.append("interaction) incorrectly suppresses detection.")
+                if d.get("diagnosis_note"):
+                    lines.append(f"\n> {d['diagnosis_note']}")
+                if d.get("full_file_enclosing"):
+                    lines.append(f"\n**Full-file enclosing chain:** {d['full_file_enclosing']}")
+            elif d.get("detected"):
                 lines.append("**DETECTED in isolation — CONFIG/CONTEXT issue**")
                 lines.append("The cop correctly detects this pattern with default config.")
                 lines.append("The corpus FN is caused by the target repo's configuration")
@@ -1291,6 +1325,10 @@ def generate_task(
             if not d.get("diagnosed"):
                 continue
             if d["kind"] == "fn" and not d.get("detected") and not d.get("full_file_detected"):
+                has_code_bugs = True
+            elif d["kind"] == "fn" and d.get("detected") and d.get("full_file_detected") is False:
+                # Snippet detects but full file doesn't → context-sensitive
+                # code bug (e.g. rubocop:disable handling, begin/rescue).
                 has_code_bugs = True
             elif d["kind"] == "fn" and (d.get("detected") or d.get("full_file_detected")):
                 has_config_issues = True
