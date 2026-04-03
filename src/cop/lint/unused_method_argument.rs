@@ -195,17 +195,14 @@ struct SkipCollector {
 
 impl<'pr> Visit<'pr> for SkipCollector {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        // Only skip if the method has parameters (no params = nothing to flag)
-        if node.parameters().is_some() {
-            let body = node.body();
-            if body.is_none() && self.ignore_empty {
+        let body = node.body();
+        if body.is_none() && self.ignore_empty {
+            self.offsets.insert(node.location().start_offset());
+        } else if let Some(ref b) = body {
+            if self.ignore_not_implemented
+                && is_not_implemented(b, self.not_implemented_exceptions.as_deref())
+            {
                 self.offsets.insert(node.location().start_offset());
-            } else if let Some(ref b) = body {
-                if self.ignore_not_implemented
-                    && is_not_implemented(b, self.not_implemented_exceptions.as_deref())
-                {
-                    self.offsets.insert(node.location().start_offset());
-                }
             }
         }
         // Recurse into the body for nested defs
