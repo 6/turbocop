@@ -105,6 +105,13 @@ HASH_SUBSET_CONSUMERS = {
     "Style/HashSlice",
 }
 
+# Cops that consume the shared HashTransformMethod helper. Changes to
+# src/cop/style/hash_transform_method.rs should trigger corpus checks for both.
+HASH_TRANSFORM_CONSUMERS = {
+    "Style/HashTransformKeys",
+    "Style/HashTransformValues",
+}
+
 # Department PascalCase → snake_case directory name in src/cop/ and tests/fixtures/
 # Only needed for departments where pascal_to_snake() gives the wrong result
 DEPT_TO_SRC_DIR = {
@@ -1555,6 +1562,9 @@ def detect_cops(base: str, head: str) -> list[str]:
             elif name == "hash_subset":
                 # Shared helper changes affect both hash subset cops
                 cops.update(HASH_SUBSET_CONSUMERS)
+            elif name == "hash_transform_method":
+                # Shared helper changes affect both transform cops
+                cops.update(HASH_TRANSFORM_CONSUMERS)
             elif name not in {"mod", "node_type"}:
                 cops.add(f"{dept_snake_to_pascal(dept)}/{snake_to_pascal(name)}")
             continue

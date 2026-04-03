@@ -101,6 +101,7 @@ pub mod hash_slice;
 pub mod hash_subset;
 pub mod hash_syntax;
 pub mod hash_transform_keys;
+pub mod hash_transform_method;
 pub mod hash_transform_values;
 pub mod identical_conditional_branches;
 pub mod if_inside_else;
