@@ -1,4 +1,5 @@
 use crate::cop::shared::node_type::{AND_NODE, OR_NODE, UNLESS_NODE};
+use crate::cop::shared::predicate_operator_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -126,7 +127,7 @@ impl LogicalOperatorCollector {
 
 impl<'pr> Visit<'pr> for LogicalOperatorCollector {
     fn visit_and_node(&mut self, node: &ruby_prism::AndNode<'pr>) {
-        if node.operator_loc().as_slice() == b"&&" {
+        if predicate_operator_predicates::is_logical_and(node) {
             self.and_symbolic += 1;
         } else {
             self.and_keyword += 1;
@@ -135,7 +136,7 @@ impl<'pr> Visit<'pr> for LogicalOperatorCollector {
     }
 
     fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'pr>) {
-        if node.operator_loc().as_slice() == b"||" {
+        if predicate_operator_predicates::is_logical_or(node) {
             self.or_symbolic += 1;
         } else {
             self.or_keyword += 1;

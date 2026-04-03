@@ -159,6 +159,21 @@ SHARED_MODULE_CONSUMERS: dict[str, set[str]] = {
         "Style/DocumentationMethod",
         "Style/ModuleFunction",
     },
+    "method_dispatch_predicates": {
+        "Lint/NumberConversion",
+        "Lint/RedundantRequireStatement",
+        "Rails/FilePath",
+        "RSpec/VoidExpect",
+        "Style/ArrayFirstLast",
+        "Style/HashExcept",
+        "Style/HashSlice",
+        "Style/SafeNavigation",
+    },
+    "predicate_operator_predicates": {
+        "Lint/AmbiguousOperatorPrecedence",
+        "Style/RedundantParentheses",
+        "Style/UnlessLogicalOperators",
+    },
 }
 
 # Department PascalCase → snake_case directory name in src/cop/ and tests/fixtures/

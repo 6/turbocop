@@ -1,6 +1,7 @@
 use ruby_prism::Visit;
 
 use crate::cop::shared::method_identifier_predicates;
+use crate::cop::shared::predicate_operator_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -1087,9 +1088,9 @@ fn has_do_end_block_in_chain(call: &ruby_prism::CallNode<'_>) -> bool {
 
 fn uses_keyword_operator(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(and_node) = node.as_and_node() {
-        and_node.operator_loc().as_slice() == b"and"
+        predicate_operator_predicates::is_semantic_and(&and_node)
     } else if let Some(or_node) = node.as_or_node() {
-        or_node.operator_loc().as_slice() == b"or"
+        predicate_operator_predicates::is_semantic_or(&or_node)
     } else {
         false
     }

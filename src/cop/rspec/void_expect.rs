@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -171,7 +172,7 @@ fn extract_direct_expect_call<'pr>(
     node: &ruby_prism::Node<'pr>,
 ) -> Option<ruby_prism::CallNode<'pr>> {
     let call = node.as_call_node()?;
-    if call.name().as_slice() == b"expect" && call.receiver().is_none() {
+    if method_dispatch_predicates::is_command(&call, b"expect") {
         Some(call)
     } else {
         None
@@ -187,7 +188,7 @@ fn extract_paren_expect_offset(node: &ruby_prism::Node<'_>) -> Option<usize> {
     let body_nodes: Vec<_> = stmts.body().iter().collect();
     if body_nodes.len() == 1 {
         if let Some(call) = body_nodes[0].as_call_node() {
-            if call.name().as_slice() == b"expect" && call.receiver().is_none() {
+            if method_dispatch_predicates::is_command(&call, b"expect") {
                 return Some(call.location().start_offset());
             }
         }
@@ -262,7 +263,7 @@ impl VoidExpectVisitor<'_> {
     fn check_void_expect_stmt(&mut self, stmt: &ruby_prism::Node<'_>) {
         // Direct expect call as a statement
         if let Some(call) = stmt.as_call_node() {
-            if call.name().as_slice() == b"expect" && call.receiver().is_none() {
+            if method_dispatch_predicates::is_command(&call, b"expect") {
                 let offset = call.location().start_offset();
                 if !self.chained_expect_offsets.contains(&offset) {
                     self.add_offense_at_offset(offset);

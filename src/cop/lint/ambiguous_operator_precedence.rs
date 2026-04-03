@@ -1,4 +1,5 @@
 use crate::cop::shared::node_type::{AND_NODE, CALL_NODE, OR_NODE};
+use crate::cop::shared::predicate_operator_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -98,7 +99,7 @@ impl Cop for AmbiguousOperatorPrecedence {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         if let Some(or_node) = node.as_or_node() {
-            let is_symbolic = or_node.operator_loc().as_slice() == b"||";
+            let is_symbolic = predicate_operator_predicates::is_logical_or(&or_node);
             // Both symbolic `||` and keyword `or` check for AndNode children
             // (mixed logical precedence). Only symbolic `||` also checks for
             // arithmetic CallNode children (mixed arithmetic/logical).
@@ -114,7 +115,7 @@ impl Cop for AmbiguousOperatorPrecedence {
         }
 
         if let Some(and_node) = node.as_and_node() {
-            let is_symbolic = and_node.operator_loc().as_slice() == b"&&";
+            let is_symbolic = predicate_operator_predicates::is_logical_and(&and_node);
             // Symbolic `&&` checks for arithmetic CallNode children.
             // Keyword `and` has no higher-precedence logical children to check
             // (it's already the highest keyword logical precedence), so

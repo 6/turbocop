@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -92,7 +93,7 @@ struct RequireVisitor<'a, 'src, 'pr> {
 
 impl<'a, 'src, 'pr> Visit<'pr> for RequireVisitor<'a, 'src, 'pr> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if node.name().as_slice() == b"require" && node.receiver().is_none() {
+        if method_dispatch_predicates::is_command(node, b"require") {
             if let Some(arguments) = node.arguments() {
                 let args = arguments.arguments();
                 if args.len() == 1 {
