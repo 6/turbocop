@@ -279,14 +279,6 @@ fn has_cbase_prefix(path: &ruby_prism::Node<'_>) -> bool {
         .is_some_and(|cpath| cpath.location().as_slice().starts_with(b"::"))
 }
 
-/// Check if the line before the class/module has a proper documentation comment.
-/// A documentation comment is a `#` line that:
-/// - Is not separated by a blank line
-/// - Is not purely a magic/annotation/directive comment (unless followed by a real comment)
-pub(crate) fn has_documentation_comment(source: &SourceFile, keyword_offset: usize) -> bool {
-    has_documentation_comment_in_context(source, keyword_offset, true)
-}
-
 fn has_documentation_comment_in_context(
     source: &SourceFile,
     keyword_offset: usize,
