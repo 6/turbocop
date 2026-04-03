@@ -1046,6 +1046,8 @@ def main():
         # regressions — they were already there on main.
         oracle_nitrocop_counts = {}
         oracle_rubocop_counts = {}
+        oracle_location_fp = {}
+        oracle_location_fn = {}
         for repo_id, cops in by_repo_cop.items():
             if args.cop in cops:
                 entry = cops[args.cop]
@@ -1054,6 +1056,13 @@ def main():
                 fn = entry.get("fn", 0)
                 oracle_nitrocop_counts[repo_id] = matches + fp
                 oracle_rubocop_counts[repo_id] = matches + fn
+                # Store location-level FP/FN from the oracle directly.
+                # The oracle compares by (file, line), so location swaps
+                # where nitrocop fires at line 10 and rubocop at line 15
+                # are captured as fp=1, fn=1. Count-based recomputation
+                # (max(0, nc - rc)) collapses these to 0 when fp == fn.
+                oracle_location_fp[repo_id] = fp
+                oracle_location_fn[repo_id] = fn
 
         # For repos with oracle activity but no divergence, oracle nitrocop
         # matched rubocop exactly. Use local count as proxy for both.
@@ -1070,9 +1079,11 @@ def main():
             baseline_rc = oracle_rubocop_counts.get(repo_id)
             if baseline_nc is None or baseline_rc is None:
                 continue
-            # How far was the oracle's nitrocop from rubocop?
-            baseline_fp = max(0, baseline_nc - baseline_rc)
-            baseline_fn = max(0, baseline_rc - baseline_nc)
+            # Use the oracle's location-level FP/FN as the baseline.
+            # This is more accurate than count-based recomputation which
+            # loses location-swap information (fp==fn cancels to 0).
+            baseline_fp = oracle_location_fp.get(repo_id, 0)
+            baseline_fn = oracle_location_fn.get(repo_id, 0)
             total_baseline_fp += baseline_fp
             total_baseline_fn += baseline_fn
             # How far is the local nitrocop from rubocop?
