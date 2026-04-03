@@ -21,6 +21,12 @@ enum AndOperatorKind {
     DoubleAmpersand,
 }
 
+enum SafeChainSearchResult<'a> {
+    NoneFound,
+    UnsafeMatch,
+    Safe(Vec<ruby_prism::CallNode<'a>>),
+}
+
 struct TernaryCheckContext<'a> {
     max_chain_length: usize,
     allowed_methods: &'a Option<Vec<String>>,
@@ -270,7 +276,7 @@ impl SafeNavigation {
         outer_operator: AndOperatorKind,
         max_chain_length: usize,
         allowed_methods: &Option<Vec<String>>,
-    ) -> Option<Vec<ruby_prism::CallNode<'a>>> {
+    ) -> SafeChainSearchResult<'a> {
         if let Some(inner) = Self::unwrapped_parenthesized_node(node) {
             return Self::first_safe_chain_in_expression(
                 &inner,
@@ -283,66 +289,75 @@ impl SafeNavigation {
         }
 
         if let Some(call) = node.as_call_node() {
-            let chain =
-                Self::call_chain_from_checked_receiver(&call.as_node(), checked_node, bytes)?;
+            let Some(chain) =
+                Self::call_chain_from_checked_receiver(&call.as_node(), checked_node, bytes)
+            else {
+                return SafeChainSearchResult::NoneFound;
+            };
 
             if chain.len() > max_chain_length
                 || Self::chain_has_dotless_operator(&chain)
                 || Self::has_unsafe_method_after_checked_receiver(&chain, allowed_methods)
             {
-                return None;
+                return SafeChainSearchResult::UnsafeMatch;
             }
 
-            return Some(chain);
+            return SafeChainSearchResult::Safe(chain);
         }
 
         if let Some(and) = node.as_and_node() {
             if Self::and_operator_kind(&and, bytes) != outer_operator {
-                return None;
+                return SafeChainSearchResult::NoneFound;
             }
 
-            return Self::first_safe_chain_in_expression(
+            let left_result = Self::first_safe_chain_in_expression(
                 &and.left(),
                 checked_node,
                 bytes,
                 outer_operator,
                 max_chain_length,
                 allowed_methods,
-            )
-            .or_else(|| {
-                Self::first_safe_chain_in_expression(
+            );
+
+            return match left_result {
+                SafeChainSearchResult::NoneFound => Self::first_safe_chain_in_expression(
                     &and.right(),
                     checked_node,
                     bytes,
                     outer_operator,
                     max_chain_length,
                     allowed_methods,
-                )
-            });
+                ),
+                result => result,
+            };
         }
 
         if let Some(or) = node.as_or_node() {
-            return Self::first_safe_chain_in_nested_and_descendants(
+            let left_result = Self::first_safe_chain_in_nested_and_descendants(
                 &or.left(),
                 checked_node,
                 bytes,
                 outer_operator,
                 max_chain_length,
                 allowed_methods,
-            )
-            .or_else(|| {
-                Self::first_safe_chain_in_nested_and_descendants(
-                    &or.right(),
-                    checked_node,
-                    bytes,
-                    outer_operator,
-                    max_chain_length,
-                    allowed_methods,
-                )
-            });
+            );
+
+            return match left_result {
+                SafeChainSearchResult::NoneFound => {
+                    Self::first_safe_chain_in_nested_and_descendants(
+                        &or.right(),
+                        checked_node,
+                        bytes,
+                        outer_operator,
+                        max_chain_length,
+                        allowed_methods,
+                    )
+                }
+                result => result,
+            };
         }
 
-        None
+        SafeChainSearchResult::NoneFound
     }
 
     fn first_safe_chain_in_nested_and_descendants<'a>(
@@ -352,7 +367,7 @@ impl SafeNavigation {
         outer_operator: AndOperatorKind,
         max_chain_length: usize,
         allowed_methods: &Option<Vec<String>>,
-    ) -> Option<Vec<ruby_prism::CallNode<'a>>> {
+    ) -> SafeChainSearchResult<'a> {
         if let Some(inner) = Self::unwrapped_parenthesized_node(node) {
             return Self::first_safe_chain_in_nested_and_descendants(
                 &inner,
@@ -366,7 +381,7 @@ impl SafeNavigation {
 
         if let Some(and) = node.as_and_node() {
             if Self::and_operator_kind(&and, bytes) != outer_operator {
-                return None;
+                return SafeChainSearchResult::NoneFound;
             }
 
             return Self::first_safe_chain_in_expression(
@@ -380,27 +395,31 @@ impl SafeNavigation {
         }
 
         if let Some(or) = node.as_or_node() {
-            return Self::first_safe_chain_in_nested_and_descendants(
+            let left_result = Self::first_safe_chain_in_nested_and_descendants(
                 &or.left(),
                 checked_node,
                 bytes,
                 outer_operator,
                 max_chain_length,
                 allowed_methods,
-            )
-            .or_else(|| {
-                Self::first_safe_chain_in_nested_and_descendants(
-                    &or.right(),
-                    checked_node,
-                    bytes,
-                    outer_operator,
-                    max_chain_length,
-                    allowed_methods,
-                )
-            });
+            );
+
+            return match left_result {
+                SafeChainSearchResult::NoneFound => {
+                    Self::first_safe_chain_in_nested_and_descendants(
+                        &or.right(),
+                        checked_node,
+                        bytes,
+                        outer_operator,
+                        max_chain_length,
+                        allowed_methods,
+                    )
+                }
+                result => result,
+            };
         }
 
-        None
+        SafeChainSearchResult::NoneFound
     }
 
     fn has_unsafe_method_after_checked_receiver(
@@ -608,8 +627,8 @@ impl<'a> SafeNavVisitor<'a> {
             self.max_chain_length,
             &self.allowed_methods,
         ) {
-            Some(chain) => chain,
-            None => {
+            SafeChainSearchResult::Safe(chain) => chain,
+            _ => {
                 ruby_prism::visit_and_node(self, node);
                 return;
             }
@@ -988,8 +1007,8 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
                 self.max_chain_length,
                 &self.allowed_methods,
             ) {
-                Some(chain) => chain,
-                None => continue,
+                SafeChainSearchResult::Safe(chain) => chain,
+                _ => continue,
             };
 
             if self.is_direct_receiver_block_body(&node.as_node())
