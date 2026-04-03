@@ -58,3 +58,17 @@ def parse(s, opts={})
 ^ Layout/EmptyLinesAroundExceptionHandlingKeywords: Extra empty line detected before the `rescue`.
   do_parse(s, opts || {}) rescue nil
 end
+
+handler = -> do
+  begin
+    work
+  rescue => e
+    handle
+  end
+
+  return_value
+
+^ Layout/EmptyLinesAroundExceptionHandlingKeywords: Extra empty line detected before the `ensure`.
+ensure
+  cleanup
+end
