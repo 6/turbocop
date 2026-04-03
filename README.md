@@ -14,8 +14,8 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 
 **Features**
 
-- **920 cops** from 7 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot, rubocop-rake)
-- **99.4% conformance** against RuboCop across [**5,590 open-source repos**](docs/corpus.md)
+- **915 cops** from 7 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot, rubocop-rake)
+- **99.6% conformance** against RuboCop across [**5,590 open-source repos**](docs/corpus.md)
 - **Autocorrect** (`-a`/`-A`) is partial — work in progress
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
@@ -52,26 +52,26 @@ Config auto-discovery walks up from the target directory to find `.rubocop.yml`.
 ## Cops
 
 <!-- corpus-cops:start -->
-nitrocop supports 910 cops from 6 RuboCop gems.
+nitrocop supports 915 cops from 7 RuboCop gems.
 
 Compared with RuboCop on [**5,590 open-source repos**](docs/corpus.md) (590k Ruby files).
 
-99.4% of compared issue reports matched (28.3M of 28.4M). 839 of 910 cops matched exactly; 71 differed.
+99.6% of compared issue reports matched (28.3M of 28.4M). 847 of 915 cops matched exactly; 68 differed.
 
 **[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (588 cops)
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| Layout | 100 | 87 | 13 | 87.0% |
-| Lint | 148 | 141 | 7 | 95.2% |
-| Style | 287 | 257 | 30 | 89.5% |
+| Layout | 100 | 89 | 11 | 89.0% |
+| Lint | 148 | 143 | 5 | 96.6% |
+| Style | 287 | 260 | 27 | 90.5% |
 | Metrics | 10 | 10 | 0 | ✓ 100.0% |
 | Naming | 19 | 19 | 0 | ✓ 100.0% |
 | Security | 6 | 6 | 0 | ✓ 100.0% |
 | Bundler | 7 | 7 | 0 | ✓ 100.0% |
 | Gemspec | 10 | 10 | 0 | ✓ 100.0% |
 | Migration | 1 | 1 | 0 | ✓ 100.0% |
-| **Total** | **588** | **538** | **50** | **91.4%** |
+| **Total** | **588** | **545** | **43** | **92.6%** |
 
 **[rubocop-rails](https://github.com/rubocop/rubocop-rails)** `2.34.3` (138 cops)
 
@@ -89,7 +89,7 @@ Compared with RuboCop on [**5,590 open-source repos**](docs/corpus.md) (590k Rub
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| RSpec | 113 | 112 | 1 | 99.1% |
+| RSpec | 113 | 113 | 0 | ✓ 100.0% |
 
 **[rubocop-rspec_rails](https://github.com/rubocop/rubocop-rspec_rails)** `2.32.0` (8 cops)
 
@@ -102,6 +102,12 @@ Compared with RuboCop on [**5,590 open-source repos**](docs/corpus.md) (590k Rub
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
 | FactoryBot | 11 | 11 | 0 | ✓ 100.0% |
+
+**[rubocop-rake](https://github.com/rubocop/rubocop-rake)** `?` (5 cops)
+
+| Department | Cops | Matched exactly | Differed | Matched exactly % |
+|------------|-----:|----------------:|---------:|------------------:|
+| Rake | 5 | 0 | 5 | 0.0% |
 
 "Matched exactly" means nitrocop produced no extra issues and missed no issues for that cop anywhere in the corpus.
 See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.
