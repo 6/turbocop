@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -76,7 +77,7 @@ impl Cop for Eval {
                 is_kernel_receiver(&recv, source)
                     || recv
                         .as_call_node()
-                        .map(|c| c.name().as_slice() == b"binding" && c.receiver().is_none())
+                        .map(|c| method_dispatch_predicates::is_command(&c, b"binding"))
                         .unwrap_or(false)
             }
         };

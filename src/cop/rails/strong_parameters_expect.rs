@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::{CALL_NODE, LOCAL_VARIABLE_READ_NODE};
 use crate::cop::shared::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
@@ -9,7 +10,7 @@ pub struct StrongParametersExpect;
 /// Check if a node is a `params` receiver (local variable or method call).
 fn is_params_receiver(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
-        return call.name().as_slice() == b"params" && call.receiver().is_none();
+        return method_dispatch_predicates::is_command(&call, b"params");
     }
     if let Some(lvar) = node.as_local_variable_read_node() {
         return lvar.name().as_slice() == b"params";

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::cop::shared::access_modifier_predicates;
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::{
     CALL_NODE, CLASS_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, DEF_NODE,
     SINGLETON_CLASS_NODE, STATEMENTS_NODE, SYMBOL_NODE,
@@ -436,7 +437,7 @@ fn is_private_constant(
     // Check subsequent siblings for `private_constant :NAME`
     for sibling in &all_stmts[idx + 1..] {
         if let Some(call) = sibling.as_call_node() {
-            if call.receiver().is_none() && call.name().as_slice() == b"private_constant" {
+            if method_dispatch_predicates::is_command(&call, b"private_constant") {
                 if let Some(args) = call.arguments() {
                     for arg in args.arguments().iter() {
                         if let Some(sym) = arg.as_symbol_node() {

@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
@@ -144,7 +145,7 @@ fn find_matcher_calls(
 ) {
     if let Some(call) = node.as_call_node() {
         // Check if this is a bare `receive(...)` or `have_received(...)` call
-        if call.name().as_slice() == target_name && call.receiver().is_none() {
+        if method_dispatch_predicates::is_command(&call, target_name) {
             let loc = call.location();
             out.push(loc.start_offset());
         }

@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::util::keyword_arg_value;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -175,7 +176,7 @@ impl<'pr> Visit<'pr> for ChangeColumnNullFinder<'_> {
         if self.found {
             return;
         }
-        if node.name().as_slice() == b"change_column_null" && node.receiver().is_none() {
+        if method_dispatch_predicates::is_command(node, b"change_column_null") {
             if let Some(args) = node.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 // change_column_null :table, :column, false

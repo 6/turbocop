@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::{
     BEGIN_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, ELSE_NODE,
     IF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, NEXT_NODE,
@@ -341,7 +342,7 @@ fn body_uses_numbered_param_run(block: &ruby_prism::BlockNode<'_>) -> bool {
             {
                 if let Some(recv) = node.receiver() {
                     if let Some(rc) = recv.as_call_node() {
-                        if rc.name().as_slice() == b"_1" && rc.receiver().is_none() {
+                        if method_dispatch_predicates::is_command(&rc, b"_1") {
                             self.found = true;
                             return;
                         }

@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::util::{
     RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
 };
@@ -635,7 +636,7 @@ fn contains_receive_call(node: &ruby_prism::Node<'_>) -> bool {
 
 fn contains_have_received_call(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
-        if call.name().as_slice() == b"have_received" && call.receiver().is_none() {
+        if method_dispatch_predicates::is_command(&call, b"have_received") {
             return true;
         }
         if let Some(recv) = call.receiver() {

@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::{CALL_NODE, DEF_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -33,7 +34,7 @@ impl Cop for DefaultScope {
     ) {
         // Pattern 1: method call `default_scope -> { ... }`
         if let Some(call) = node.as_call_node() {
-            if call.receiver().is_none() && call.name().as_slice() == b"default_scope" {
+            if method_dispatch_predicates::is_command(&call, b"default_scope") {
                 let loc = call.message_loc().unwrap_or(call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(

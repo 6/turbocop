@@ -1,4 +1,5 @@
 use crate::cop::shared::access_modifier_predicates;
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -158,7 +159,7 @@ fn is_bare_private_class_method(call: &ruby_prism::CallNode<'_>) -> bool {
 /// Matches RuboCop's `access_modifier?` method.
 fn is_access_modifier_or_private_class_method(call: &ruby_prism::CallNode<'_>) -> bool {
     get_access_modifier(call).is_some()
-        || (call.receiver().is_none() && call.name().as_slice() == b"private_class_method")
+        || method_dispatch_predicates::is_command(call, b"private_class_method")
 }
 
 fn is_method_definition(node: &ruby_prism::Node<'_>) -> bool {

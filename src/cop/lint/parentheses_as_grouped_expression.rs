@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::method_identifier_predicates;
 use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
@@ -105,10 +106,7 @@ impl Cop for ParenthesesAsGroupedExpression {
 
         // RuboCop's matcher only treats `.` and `&.` call syntax as candidates.
         // Constant-path class method calls like `Foo::bar (x)` are ignored.
-        if call
-            .call_operator_loc()
-            .is_some_and(|op| op.as_slice() == b"::")
-        {
+        if method_dispatch_predicates::is_double_colon_call(&call) {
             return;
         }
 

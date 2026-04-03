@@ -1,6 +1,7 @@
 use ruby_prism::Visit;
 
 use crate::cop::factory_bot::FACTORY_BOT_DEFAULT_INCLUDE;
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::{
     ASSOC_NODE, BLOCK_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, SYMBOL_NODE,
 };
@@ -355,7 +356,7 @@ fn is_trait_within_factory(method_name: &str, factory_node: &ruby_prism::Node<'_
     }
     impl<'pr> Visit<'pr> for TraitCollector {
         fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-            if node.name().as_slice() == b"trait" && node.receiver().is_none() {
+            if method_dispatch_predicates::is_command(node, b"trait") {
                 if let Some(args) = node.arguments() {
                     let arg_list: Vec<_> = args.arguments().iter().collect();
                     if let Some(sym) = arg_list.first().and_then(|a| a.as_symbol_node()) {

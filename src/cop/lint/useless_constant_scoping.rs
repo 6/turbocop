@@ -1,6 +1,7 @@
 use ruby_prism::Visit;
 
 use crate::cop::shared::access_modifier_predicates;
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -73,7 +74,7 @@ impl ConstScopingVisitor<'_, '_> {
         // First pass: collect private_constant names
         for node in &body_nodes {
             if let Some(call) = node.as_call_node() {
-                if call.name().as_slice() == b"private_constant" && call.receiver().is_none() {
+                if method_dispatch_predicates::is_command(&call, b"private_constant") {
                     if let Some(args) = call.arguments() {
                         for arg in args.arguments().iter() {
                             if let Some(sym) = arg.as_symbol_node() {

@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::{
     BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE,
 };
@@ -164,7 +165,7 @@ fn is_message_expectation(node: &ruby_prism::Node<'_>) -> bool {
     if name == b"with" {
         if let Some(recv) = call.receiver() {
             if let Some(recv_call) = recv.as_call_node() {
-                if recv_call.receiver().is_none() && recv_call.name().as_slice() == b"receive" {
+                if method_dispatch_predicates::is_command(&recv_call, b"receive") {
                     return true;
                 }
             }

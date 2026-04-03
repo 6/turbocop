@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::CALL_NODE;
 use crate::cop::shared::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
@@ -123,7 +124,7 @@ fn is_allow_call(node: &ruby_prism::Node<'_>) -> bool {
 /// Check if the node subtree contains a receiverless `receive(...)` matcher.
 fn contains_receive_call(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
-        if call.name().as_slice() == b"receive" && call.receiver().is_none() {
+        if method_dispatch_predicates::is_command(&call, b"receive") {
             return true;
         }
         if let Some(recv) = call.receiver() {

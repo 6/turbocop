@@ -1,3 +1,4 @@
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::{
     ASSOC_NODE, BLOCK_NODE, CALL_NODE, DEF_NODE, HASH_NODE, IF_NODE, KEYWORD_HASH_NODE,
     STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, UNLESS_NODE,
@@ -220,7 +221,7 @@ impl Cop for BulkChangeTable {
         // Check for change_table without bulk: true that has multiple transformations
         for stmt in stmts.body().iter() {
             if let Some(call) = stmt.as_call_node() {
-                if call.name().as_slice() == b"change_table" && call.receiver().is_none() {
+                if method_dispatch_predicates::is_command(&call, b"change_table") {
                     if has_bulk_option(&call) {
                         continue;
                     }

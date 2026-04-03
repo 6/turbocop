@@ -39,6 +39,7 @@
 /// Fix: Added `call_operator_loc() == &.` check to skip safe navigation calls.
 use ruby_prism::Visit;
 
+use crate::cop::shared::method_dispatch_predicates;
 use crate::cop::shared::node_type::{BLOCK_NODE, CALL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -84,7 +85,7 @@ impl<'pr> Visit<'pr> for ExitFinder {
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if node.name().as_slice() == b"throw" && node.receiver().is_none() {
+        if method_dispatch_predicates::is_command(node, b"throw") {
             // `throw` propagates like `return` — always flagged regardless of nesting.
             self.found.push((node.location().start_offset(), "throw"));
         }
