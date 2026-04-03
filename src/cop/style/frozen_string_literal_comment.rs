@@ -247,7 +247,7 @@ fn is_encoding_comment(line: &[u8]) -> bool {
 /// For Emacs-style comments (`# -*- ... -*-`), the key can appear anywhere
 /// among semicolon-separated directives.
 fn is_frozen_string_literal_comment(line: &[u8]) -> bool {
-    frozen_string_literal_value(line).is_some_and(|value| is_frozen_string_literal_boolean(value))
+    frozen_string_literal_value(line).is_some_and(is_frozen_string_literal_boolean)
 }
 
 /// Check if a string STARTS WITH `frozen_string_literal:` or `frozen-string-literal:`
