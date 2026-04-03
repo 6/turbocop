@@ -9,10 +9,10 @@ use crate::parse::source::SourceFile;
 /// RuboCop parity notes:
 /// - Local variables are tracked in source order (not pre-scanned). `self.x` before
 ///   `x = ...` is flagged as redundant, matching RuboCop's lazy variable tracking.
-/// - `if`/`unless`/`while`/`until` nodes prescan ALL descendants (including inside
-///   blocks) for local variable assignments. This makes `self.x` in the condition
-///   allowed when `x` is assigned anywhere inside the conditional body, even in
-///   nested blocks. This matches RuboCop's `on_if` behavior.
+/// - `if`/`unless`/`while`/`until` nodes prescan descendants (including inside
+///   blocks but not into nested defs/classes/modules) for local variable
+///   assignments. This makes `self.x` in the condition allowed when `x` is
+///   assigned anywhere inside the conditional body, even in nested blocks.
 /// - Nested block and lambda locals leak forward into the enclosing scope for later
 ///   disambiguation, so `self.x` stays allowed after an earlier `do |x| ... end` or
 ///   `->(x) { ... }`, but not before that nested scope appears.
@@ -257,9 +257,11 @@ impl RedundantSelfVisitor<'_> {
 }
 
 /// Prescan visitor for conditional nodes (`if`/`unless`/`while`/`until`).
-/// Collects all local variable names from ALL descendants, including those
-/// inside blocks, lambdas, defs, classes, and modules. This matches RuboCop's
-/// `node.each_descendant(:lvasgn, :masgn)` behavior in `on_if`.
+/// Collects local variable names from descendants, descending into blocks
+/// and lambdas (whose variables leak into the enclosing scope) but stopping
+/// at defs, classes, and modules (which create isolated variable scopes).
+/// This prevents modifier conditionals like `def foo; ...; end if cond` from
+/// leaking method-local variables into the enclosing scope.
 struct ConditionalLocalScanner {
     names: Vec<Vec<u8>>,
 }
@@ -301,7 +303,14 @@ impl<'pr> Visit<'pr> for ConditionalLocalScanner {
         ruby_prism::visit_local_variable_operator_write_node(self, node);
     }
 
-    // Don't stop at any scope boundary — scan everything (matches RuboCop's each_descendant)
+    // Stop at scope boundaries that create new local variable scopes.
+    // Variables inside defs/classes/modules don't leak into the enclosing scope.
+    // Blocks and lambdas are NOT stopped because their variables DO leak into
+    // the enclosing method scope in Ruby.
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
+    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
+    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+    fn visit_singleton_class_node(&mut self, _node: &ruby_prism::SingletonClassNode<'pr>) {}
 }
 
 impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {

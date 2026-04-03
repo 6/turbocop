@@ -80,3 +80,16 @@ def scale_marks
             ^^^^ Style/RedundantSelf: Redundant `self` detected.
   annotation_categories = self.annotation_categories.includes(:annotation_texts)
 end
+
+# modifier-if on a def should not leak locals into enclosing scope
+class ModifierIfDef
+  def to_image
+    date_to = 42
+    p date_to
+  end if true
+
+  def bar
+    self.date_to
+    ^^^^ Style/RedundantSelf: Redundant `self` detected.
+  end
+end
