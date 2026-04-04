@@ -238,8 +238,6 @@ fn check_line_lengths(
                             max,
                             indentation_width,
                             line_length,
-                            source.line_start_offset(i + 1),
-                            code_map,
                         )
                     })
                     .flatten();
@@ -446,12 +444,9 @@ fn uri_range_if_applicable(
     max: usize,
     indentation_width: usize,
     line_length: usize,
-    line_start_offset: usize,
-    code_map: &CodeMap,
 ) -> Option<ExemptionRange> {
     let uri_regex = uri_regex?;
-    let last_match =
-        merge_query_linked_uri_matches(line, uri_regex, line_start_offset, code_map).pop()?;
+    let last_match = merge_query_linked_uri_matches(line, uri_regex).pop()?;
     let extended_end = extend_end_position(line, last_match.end);
     // Ruby's URI regex includes ']' in the match when the URI has a
     // fragment (the '#...' part). URI.parse then rejects the result,
@@ -483,12 +478,7 @@ struct UriMatch {
     end: usize,
 }
 
-fn merge_query_linked_uri_matches(
-    line: &str,
-    uri_regex: &regex::Regex,
-    _line_start_offset: usize,
-    _code_map: &CodeMap,
-) -> Vec<UriMatch> {
+fn merge_query_linked_uri_matches(line: &str, uri_regex: &regex::Regex) -> Vec<UriMatch> {
     let mut matches: Vec<UriMatch> = Vec::new();
 
     for current in uri_regex.find_iter(line) {
