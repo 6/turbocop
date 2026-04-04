@@ -19,8 +19,8 @@ This plan adds style-variant coverage at **three layers**, each catching differe
 | Layer | What it catches | Cost |
 |-------|----------------|------|
 | **Fixture tests** (per-style `.rb` files) | Implementation logic bugs in non-default code paths | Cheap, runs in `cargo test` |
-| **Corpus style-overlay runs** (subset of repos with non-default configs) | Real-world edge cases that fixture authors didn't think of | Medium, ~50 repos × N overlays |
-| **Corpus native-config spot checks** (repos using their own `.rubocop.yml`) | Config resolution bugs + end-to-end integration | Expensive, manual/on-demand |
+| **Corpus variant batches** (all repos, all styles, every oracle run) | Real-world edge cases across all style values exhaustively | +~15 min on existing ~40 min oracle run |
+| **Corpus native-config spot checks** (repos using their own `.rubocop.yml`) | Config resolution bugs + end-to-end integration | On-demand, manual |
 
 ## Part 1: Fixture-Level Testing
 
@@ -277,51 +277,97 @@ python3 scripts/check_cop_styles.py --department Layout --sample 30
 
 **Handling cops with multiple config params:** Some cops have multiple independent style params (e.g., `Layout/HashAlignment` has `EnforcedHashRocketStyle`, `EnforcedColonStyle`, and `EnforcedLastArgumentHashStyle`). The script tests each param independently with the other params at their defaults. Full combinatorial testing (all params × all values) is impractical — independent variation catches the vast majority of bugs.
 
-### Step 8: CI integration for exhaustive style checks
+### Step 8: Integrate into the corpus oracle workflow
 
-**File:** `.github/workflows/style-variant-check.yml` (new workflow)
+**File:** `.github/workflows/corpus-oracle.yml`
 
-A weekly CI job that runs `check_cop_styles.py --all`:
+Run style-variant checks as part of the normal corpus oracle, not a separate workflow. The oracle currently uses ~187 parallel jobs; the max is ~250, giving ~63 extra slots.
+
+**Approach: batched variant passes per shard**
+
+The oracle already shards repos across parallel jobs. Each shard currently runs:
+1. nitrocop (all cops, baseline config) on its repos
+2. rubocop (all cops, baseline config) on its repos
+
+Extend each shard to also run **batched variant configs**. Since each override targets a different cop, multiple non-default overrides can be combined into a single config file and tested in one nitrocop invocation.
+
+**Batching strategy:**
+
+Group the ~320 (cop, style) variants into 3-4 "variant batches" where each batch is a config file that overrides ~80-100 cops simultaneously:
 
 ```yaml
-name: Style Variant Check
-on:
-  schedule:
-    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
-  workflow_dispatch:       # Manual trigger
-
-jobs:
-  check-all-styles:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Build
-        run: cargo build --release
-
-      - name: Install corpus bundle
-        run: cd bench/corpus && BUNDLE_PATH=vendor/bundle bundle install
-
-      - name: Check all style variants
-        run: |
-          python3 scripts/check_cop_styles.py --all \
-            --sample 30 --clone --output style-variant-results.json
-
-      - name: Report
-        run: python3 scripts/check_cop_styles.py --report style-variant-results.json
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: style-variant-results
-          path: style-variant-results.json
-          retention-days: 30
+# variant_batch_1.yml — all cops tested with their "style B" value
+inherit_from: baseline_rubocop.yml
+Style/TrailingCommaInHashLiteral:
+  EnforcedStyleForMultiline: comma
+Style/TrailingCommaInArguments:
+  EnforcedStyleForMultiline: comma
+Layout/DotPosition:
+  EnforcedStyle: trailing
+Layout/FirstArgumentIndentation:
+  EnforcedStyle: consistent
+# ... ~100 cops, each set to their second supported style
 ```
 
-Start as non-blocking. Promote to blocking (fail the workflow on any divergence) once all known bugs are fixed.
+```yaml
+# variant_batch_2.yml — cops that have a third style value
+inherit_from: baseline_rubocop.yml
+Style/TrailingCommaInHashLiteral:
+  EnforcedStyleForMultiline: consistent_comma
+Layout/FirstArgumentIndentation:
+  EnforcedStyle: consistent_relative_to_receiver
+# ... fewer cops (only those with 3+ styles)
+```
 
-The results JSON from this job feeds into `diff_results.py` for `docs/corpus.md` per-variant reporting (see Part 4).
+Most cops have 2-3 styles, so batch 1 covers all 160 cops and batches 2-3 cover progressively fewer.
+
+**Config generation script:**
+
+**File:** `bench/corpus/gen_variant_batches.py`
+
+Reads `vendor/rubocop/config/default.yml`, finds all `SupportedStyles` entries for implemented cops, and generates `variant_batch_{n}.yml` files:
+
+```bash
+python3 bench/corpus/gen_variant_batches.py --output-dir bench/corpus/variant_batches/
+# Produces: variant_batch_1.yml, variant_batch_2.yml, variant_batch_3.yml, ...
+```
+
+**Shard changes:**
+
+Each shard's script gains a loop after the baseline run:
+
+```bash
+# Existing baseline run
+run_nitrocop $REPO_DIR --config baseline_rubocop.yml --output baseline-nitrocop.json
+run_rubocop  $REPO_DIR --config baseline_rubocop.yml --output baseline-rubocop.json
+
+# NEW: variant batch runs
+for batch in bench/corpus/variant_batches/variant_batch_*.yml; do
+  batch_name=$(basename "$batch" .yml)
+  run_nitrocop $REPO_DIR --config "$batch" --output "${batch_name}-nitrocop.json"
+  run_rubocop  $REPO_DIR --config "$batch" --output "${batch_name}-rubocop.json"
+done
+```
+
+**Parallelism budget:**
+
+- Baseline: 187 jobs × ~13 min each = ~40 min wall clock
+- Adding 3-4 variant batch runs per shard: each batch adds ~8 min of nitrocop + ~13 min of rubocop = ~21 min per batch
+- With 3 batches: +63 min per shard sequentially
+
+To keep wall-clock time under ~70 min, increase shard count from 187 to ~250 (using the extra ~63 slots). More shards = fewer repos per shard = less time per shard. With 250 shards × ~22 repos each:
+- Baseline: ~8 min
+- 3 variant batches: ~3 × 15 min = ~45 min
+- Total per shard: ~53 min wall clock
+- All shards run in parallel: **~53 min total** (vs current ~40 min)
+
+**Alternative optimization:** Run rubocop for variant batches only on repos where nitrocop's variant counts differ from nitrocop's baseline counts. If the cop's count doesn't change between default and non-default style, rubocop won't either. This skips the expensive rubocop invocation for most repos and could cut variant overhead by 60-70%.
+
+**Result aggregation:**
+
+`diff_results.py` is extended to accept variant batch results alongside baseline results. It produces per-(cop, style) rows in `docs/corpus.md` (see Part 4).
+
+The variant results are uploaded as an additional artifact alongside the existing `corpus-results.json`.
 
 ## Part 3: Native-Config Spot Checks
 
@@ -437,27 +483,32 @@ Add a new section documenting the style-variant testing workflow:
 ```markdown
 ## Style-Variant Testing
 
-The baseline corpus config (`bench/corpus/baseline_rubocop.yml`) uses default
-parameter values for all cops. This means corpus-perfect cops may have bugs
-in non-default code paths (e.g., `EnforcedStyleForMultiline: comma`).
+The corpus oracle tests every cop with every supported config style, not
+just defaults. Variant batch configs (`bench/corpus/variant_batches/`) are
+auto-generated by `gen_variant_batches.py` from `vendor/rubocop/config/default.yml`.
 
-### Per-style corpus check
+The oracle runs each variant batch on the full corpus alongside the baseline.
+Results appear as per-variant rows in `docs/corpus.md`.
 
-Override a single style parameter for a corpus check:
+### Regenerate variant batches
+
+After adding a new cop or updating vendor config:
+
+    python3 bench/corpus/gen_variant_batches.py --output-dir bench/corpus/variant_batches/
+
+### Per-style corpus check (local)
+
+Override a single style parameter for a local corpus check:
 
     python3 scripts/check_cop.py Department/CopName \
         --style EnforcedStyleForMultiline=comma \
         --rerun --clone --sample 30
 
-### Exhaustive style-variant check
+### Exhaustive local check
 
-Check ALL supported styles for a cop at once:
+Check ALL supported styles for a cop locally:
 
     python3 scripts/check_cop_styles.py Department/CopName --sample 50
-
-Check every configurable cop across all styles (CI-only, slow):
-
-    python3 scripts/check_cop_styles.py --all --sample 30
 
 ### Native-config spot checks
 
@@ -487,10 +538,11 @@ To see which style variants lack test coverage:
 7. **Priority 2 fixtures** — 10 cops × ~2 fixture files each
 8. **`check_cop.py --native-config`** — Native-config mode (~60 lines)
 9. **`bench/corpus/diverse_config_repos.txt`** + `scripts/find_diverse_config_repos.py` — Curated repo list
-10. **`bench/corpus/diff_results.py`** — Per-variant rows in `docs/corpus.md` from style-variant results
-11. **`docs/corpus-workflow.md`** — Document the new workflow
-12. **Priority 3 fixtures** — Remaining 82 cops, done incrementally as cops are touched
-13. **CI workflow** — Weekly exhaustive `check_cop_styles.py --all` job
+10. **`bench/corpus/gen_variant_batches.py`** — Auto-generate variant batch configs from vendor defaults (~80 lines)
+11. **`.github/workflows/corpus-oracle.yml`** — Add variant batch runs to each shard, bump to ~250 jobs
+12. **`bench/corpus/diff_results.py`** — Per-variant rows in `docs/corpus.md` from variant batch results
+13. **`docs/corpus-workflow.md`** — Document the new workflow
+14. **Priority 3 fixtures** — Remaining 82 cops, done incrementally as cops are touched
 
 ## Verification
 
@@ -498,7 +550,7 @@ To see which style variants lack test coverage:
 - `scripts/audit_style_coverage.py` shows no regressions (untested count only goes down)
 - `check_cop.py --rerun` for any cop whose implementation was modified (baseline corpus doesn't regress)
 - `check_cop_styles.py CopName` shows 0 divergences across ALL supported styles for priority-1 cops
-- `check_cop_styles.py --all --sample 30` passes with no divergences (long-term goal)
+- Corpus oracle variant batch runs show 0 divergences for priority-1 cops (long-term goal: all cops)
 - `check_cop.py --native-config` on diverse-config repos shows 0 divergences for priority-1 cops
 - Re-run nitrocop on the project that surfaced the original FPs — the 30 offenses should drop to 0
 
