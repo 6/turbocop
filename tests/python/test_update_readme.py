@@ -182,10 +182,10 @@ def test_write():
         assert "Compared with RuboCop on [**500 open-source repos**](docs/corpus.md) (167k Ruby files)." in updated
         assert "96.0% offense match rate (4.9M of 5.1M offenses)." in updated
         assert "6 of 14 cops matched exactly (default config); 4 differed; 4 had no corpus data." in updated
-        assert "\"Matched exactly\" means nitrocop produced no extra issues and missed no issues for that cop anywhere in the corpus." in updated
+        assert "\"Exact match\" means nitrocop produced no extra issues and missed no issues" in updated
         assert "No corpus data means the cop never appeared in the corpus, so it has not been compared yet." in updated
         assert "See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown." in updated
-        assert "| Department | Cops | Matched exactly | Differed | No corpus data | Matched exactly % |" in updated
+        assert "| Department | Cops | Exact match (default) | Differed | No corpus data | Exact match % (default) |" in updated
         assert "**[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (9 cops)" in updated
         assert "| Rails | 1 | 0 | 1 | 0.0% |" in updated
         assert "| Performance | 1 | 1 | 0 | ✓ 100.0% |" in updated

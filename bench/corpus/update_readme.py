@@ -224,6 +224,7 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
     perfect_cops = sum(d["perfect_cops"] for d in by_department.values())
     diverging_cops = sum(d["diverging_cops"] for d in by_department.values())
     no_data_cops = sum(d["no_data_cops"] for d in by_department.values())
+    has_variant_data = any(d.get("variant_perfect_cops") is not None for d in by_department.values())
     total_matches = summary.get("matches", 0)
     total_fp = summary.get("fp", 0)
     total_fn = summary.get("fn", 0)
@@ -281,16 +282,16 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
         lines.append("")
 
         # Build table header based on available columns
-        hdr = "| Department | Cops | Matched exactly | Differed |"
-        sep = "|------------|-----:|----------------:|---------:|"
+        hdr = "| Department | Cops | Exact match (default) | Differed |"
+        sep = "|------------|-----:|----------------------:|---------:|"
         if no_data > 0:
             hdr += " No corpus data |"
             sep += "---------------:|"
-        hdr += " Matched exactly % |"
-        sep += "------------------:|"
+        hdr += " Exact match % (default) |"
+        sep += "------------------------:|"
         if has_variant:
-            hdr += " All variants % |"
-            sep += "---------------:|"
+            hdr += " Exact match % (all variants) |"
+            sep += "-----------------------------:|"
         lines.append(hdr)
         lines.append(sep)
 
@@ -324,9 +325,16 @@ def build_cops_section(data: dict, synthetic: dict[str, dict] | None = None) -> 
             lines.append(cells)
         lines.append("")
 
-    lines.append(
-        "\"Matched exactly\" means nitrocop produced no extra issues and missed no issues for that cop anywhere in the corpus."
-    )
+    if has_variant_data:
+        lines.append(
+            "**Default** = tested with the default RuboCop config. "
+            "**All variants** = tested with every supported `EnforcedStyle` value for each cop."
+        )
+    else:
+        lines.append(
+            "\"Exact match\" means nitrocop produced no extra issues and missed no issues "
+            "for that cop anywhere in the corpus."
+        )
     if no_data_cops > 0:
         lines.append("No corpus data means the cop never appeared in the corpus, so it has not been compared yet.")
     lines.append("See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.")
