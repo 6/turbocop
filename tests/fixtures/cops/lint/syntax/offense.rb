@@ -10,3 +10,8 @@ retry
 
 retry
 ^ Lint/Syntax: Invalid retry without rescue
+
+class Foo
+  return 1
+  ^^^^^^ Lint/Syntax: Invalid return in class/module body
+end

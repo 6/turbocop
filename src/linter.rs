@@ -934,7 +934,14 @@ fn emit_syntax_diagnostics(
 
     let mut diagnostics = Vec::new();
     for err in parse_result.errors() {
-        if is_semantic_parse_error(err.message()) {
+        // Skip most semantic parse errors (break/next/redo/yield outside proper
+        // context) — the Parser gem doesn't report those. But "Invalid retry
+        // without rescue" and "Invalid return in class/module body" ARE reported
+        // by RuboCop as Lint/Syntax offenses even when the file has structural
+        // errors, so let those through.
+        if is_semantic_parse_error(err.message())
+            && !crate::cop::lint::syntax::is_rubocop_reported_semantic_error(err.message())
+        {
             continue;
         }
         let loc = err.location();

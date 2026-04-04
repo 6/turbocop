@@ -2,9 +2,12 @@ use crate::cop::Cop;
 use crate::diagnostic::Severity;
 
 const INVALID_RETRY_WITHOUT_RESCUE: &str = "Invalid retry without rescue";
+const INVALID_RETURN_IN_CLASS_MODULE: &str = "Invalid return in class/module body";
 
-fn is_invalid_retry_without_rescue(message: &str) -> bool {
-    message == INVALID_RETRY_WITHOUT_RESCUE
+/// Returns true if the parse error is one that RuboCop also reports as Lint/Syntax
+/// even though Prism classifies it as a "semantic" parse error.
+pub fn is_rubocop_reported_semantic_error(message: &str) -> bool {
+    message == INVALID_RETRY_WITHOUT_RESCUE || message.starts_with(INVALID_RETURN_IN_CLASS_MODULE)
 }
 
 /// Checks for syntax errors.
@@ -48,6 +51,18 @@ fn is_invalid_retry_without_rescue(message: &str) -> bool {
 /// hook, which runs on files without structural parse failures. Other semantic
 /// Prism errors remain filtered in the linter because broad emission caused
 /// false positives in corpus validation.
+///
+/// ## Corpus investigation (2026-04-04)
+///
+/// FN=4: two semantic parse errors that RuboCop reports as Lint/Syntax were
+/// being suppressed in files with structural errors. `emit_syntax_diagnostics`
+/// in `src/linter.rs` filtered ALL semantic errors, but RuboCop still emits
+/// "Invalid retry without rescue" and "Invalid return in class/module body"
+/// even alongside structural errors. Fixed by adding
+/// `is_rubocop_reported_semantic_error()` to exempt these two error types
+/// from the semantic filter in `emit_syntax_diagnostics`. Also added
+/// "Invalid return in class/module body" to `check_source` for files
+/// without structural errors. Resolved all 4 FN.
 pub struct Syntax;
 
 impl Cop for Syntax {
@@ -69,7 +84,7 @@ impl Cop for Syntax {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         for err in parse_result.errors() {
-            if !is_invalid_retry_without_rescue(err.message()) {
+            if !is_rubocop_reported_semantic_error(err.message()) {
                 continue;
             }
 
@@ -265,5 +280,43 @@ mod tests {
             "Expected no diagnostics for retry inside rescue, got {:?}",
             diags
         );
+    }
+
+    /// Test that "Invalid retry without rescue" is reported even in files that
+    /// also have structural parse errors (e.g., `%` causing unterminated string).
+    /// Regression test for FN in ruby-syntax-tree/syntax_tree retry.rb.
+    #[test]
+    fn retry_reported_alongside_structural_errors() {
+        // `%` on its own is a structural parse error; lines 4 and 9 have `retry`
+        // inside begin/rescue/end but Prism still flags them as invalid retry
+        // because error recovery after `%` doesn't see the rescue context.
+        let source = b"%\nbegin\nrescue StandardError\n  retry\nend\n%\nbegin\nrescue StandardError\n  retry\nend\n";
+        let diags = lint_bytes(source);
+        let retry_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| d.message == INVALID_RETRY_WITHOUT_RESCUE)
+            .collect();
+        assert!(
+            !retry_diags.is_empty(),
+            "Expected 'Invalid retry without rescue' in file with structural errors, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    /// Test that "Invalid return in class/module body" is reported.
+    #[test]
+    fn invalid_return_in_class_module_body_is_reported() {
+        let diags = lint_bytes(b"class Foo\n  return 1\nend\n");
+        let return_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| d.message.starts_with(INVALID_RETURN_IN_CLASS_MODULE))
+            .collect();
+        assert_eq!(
+            return_diags.len(),
+            1,
+            "Expected 1 'Invalid return in class/module body' diagnostic, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+        assert_eq!(return_diags[0].cop_name, "Lint/Syntax");
     }
 }
