@@ -117,3 +117,35 @@ if i == 0
 else
   this_sig_lines << options.indented(indent_level, "#{' ' * (definition.length - 2)}| ")
 end
+
+# if/else with setter ||= assignment
+if current_edit_mode == :adapter
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConditionalAssignment: Use the return of the conditional for variable assignment and comparison.
+  e.use_key ||= UseInfo.fetch(:adapter).key
+else
+  e.use_key ||= UseInfo.fetch(:basic).key
+end
+
+# if/else with setter += assignment
+if type.nil? && vmid.nil?
+^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConditionalAssignment: Use the return of the conditional for variable assignment and comparison.
+  uri.path += "/nodes/#{node}/vncwebsocket"
+else
+  uri.path += "/nodes/#{node}/#{type}/#{vmid}/vncwebsocket"
+end
+
+# if/else with index ||= assignment
+if (klass = Watir.tag_to_class[tag_name])
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/ConditionalAssignment: Use the return of the conditional for variable assignment and comparison.
+  @supported_element_attributes_for[tag_name] ||= Set.new(klass.attribute_list)
+else
+  @supported_element_attributes_for[tag_name] ||= Set.new
+end
+
+# if/else with index += assignment
+if o.class == String
+^^^^^^^^^^^^^^^^^^^^ Style/ConditionalAssignment: Use the return of the conditional for variable assignment and comparison.
+  object_space[o.class][:memsize] += o.bytesize
+else
+  object_space[o.class][:memsize] += ObjectSpace.memsize_of(o)
+end

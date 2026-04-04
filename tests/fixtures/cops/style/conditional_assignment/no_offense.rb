@@ -72,3 +72,17 @@ if condition
 else
   other << 2
 end
+
+# if/else with setter ||= assigning to different methods should not be flagged
+if condition
+  self.foo ||= 1
+else
+  self.bar ||= 2
+end
+
+# if/else with index += assigning to different keys should not be flagged
+if condition
+  totals[:a] += 1
+else
+  totals[:b] += 2
+end
