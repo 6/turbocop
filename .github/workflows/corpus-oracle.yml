@@ -15,6 +15,10 @@ on:
       repo_filter:
         description: "Run only this repo ID (e.g. 'multi_json__multi_json__c5fa9fc'), or 'all'"
         default: "all"
+      run_style_variants:
+        description: "Run style-variant batch testing (slower — tests all EnforcedStyle values)"
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -154,6 +158,10 @@ jobs:
           bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
+      - name: Generate variant batch configs
+        if: ${{ github.event.inputs.run_style_variants == 'true' }}
+        run: python3 bench/corpus/gen_variant_batches.py --output-dir bench/corpus/variant_batches/
+
       - name: Export nitrocop cop list
         run: bin/nitrocop --list-cops > nitrocop-cops.txt
 
@@ -236,6 +244,8 @@ jobs:
 
       - name: Run batch
         id: run-batch
+        env:
+          RUN_STYLE_VARIANTS: ${{ github.event.inputs.run_style_variants || 'false' }}
         run: |
           mkdir -p results/nitrocop results/rubocop results/ig-nitrocop results/ig-rubocop results/ig-context rubocop-cache
 
@@ -408,6 +418,50 @@ jobs:
               --output "results/ig-context/${REPO_ID}.json" \
               --context-lines 7 \
               2>/dev/null || true
+
+            # ── Style-variant batch runs (opt-in via run_style_variants input) ──
+            if [ "$RUN_STYLE_VARIANTS" = "true" ]; then
+              VARIANT_TIMEOUT=600  # 10 min per variant batch per repo
+              for BATCH_CONFIG in bench/corpus/variant_batches/variant_batch_*.yml; do
+                [ -f "$BATCH_CONFIG" ] || continue
+                BATCH_NAME=$(basename "$BATCH_CONFIG" .yml)
+                mkdir -p "$WORKSPACE/results/variant-nitrocop-${BATCH_NAME}" \
+                         "$WORKSPACE/results/variant-rubocop-${BATCH_NAME}"
+
+                echo "=== variant-nitrocop ($BATCH_NAME): ${REPO_ID} ==="
+                rc=0
+                timeout "${VARIANT_TIMEOUT}" \
+                env GIT_CEILING_DIRECTORIES=$(dirname "$ABS_DEST") \
+                  BUNDLE_GEMFILE=$WORKSPACE/bench/corpus/Gemfile \
+                  BUNDLE_PATH=$WORKSPACE/bench/corpus/vendor/bundle \
+                "$WORKSPACE/bin/nitrocop" \
+                  --preview --format json --no-cache \
+                  --config "$WORKSPACE/$BATCH_CONFIG" \
+                  "$ABS_DEST" \
+                  > "$WORKSPACE/results/variant-nitrocop-${BATCH_NAME}/${REPO_ID}.json" \
+                  2>"$WORKSPACE/results/variant-nitrocop-${BATCH_NAME}/${REPO_ID}.err" || rc=$?
+                if [ "$rc" -eq 124 ]; then
+                  echo "::warning::variant-nitrocop ($BATCH_NAME) timed out for ${REPO_ID}"
+                fi
+
+                echo "=== variant-rubocop ($BATCH_NAME): ${REPO_ID} ==="
+                rc=0
+                timeout "${VARIANT_TIMEOUT}" \
+                env BUNDLE_GEMFILE=$WORKSPACE/bench/corpus/Gemfile \
+                    BUNDLE_PATH=$WORKSPACE/bench/corpus/vendor/bundle \
+                    GIT_CEILING_DIRECTORIES=$(dirname "$ABS_DEST") \
+                bundle exec rubocop \
+                  --require $WORKSPACE/bench/corpus/rescue_parser_crashes.rb \
+                  --config "$WORKSPACE/$BATCH_CONFIG" \
+                  --format json --force-exclusion --cache false \
+                  "$ABS_DEST" \
+                  > "$WORKSPACE/results/variant-rubocop-${BATCH_NAME}/${REPO_ID}.json" \
+                  2>"$WORKSPACE/results/variant-rubocop-${BATCH_NAME}/${REPO_ID}.err" || rc=$?
+                if [ "$rc" -eq 124 ]; then
+                  echo "::warning::variant-rubocop ($BATCH_NAME) timed out for ${REPO_ID}"
+                fi
+              done
+            fi
 
             # Free disk space between repos
             rm -rf "$DEST"
@@ -670,6 +724,44 @@ jobs:
             echo "No include-gated results to merge"
           fi
 
+      - name: Diff style-variant results
+        run: |
+          # Process each variant batch that has results
+          for NC_DIR in all-results/results/variant-nitrocop-variant_batch_*; do
+            [ -d "$NC_DIR" ] || continue
+            BATCH_NAME=$(basename "$NC_DIR" | sed 's/variant-nitrocop-//')
+            RC_DIR="all-results/results/variant-rubocop-${BATCH_NAME}"
+            if [ ! -d "$RC_DIR" ]; then
+              echo "No rubocop results for $BATCH_NAME"
+              continue
+            fi
+            COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
+            echo "Diffing style-variant batch: $BATCH_NAME"
+            python3 bench/corpus/diff_results.py \
+              --nitrocop-dir "$NC_DIR" \
+              --rubocop-dir "$RC_DIR" \
+              --manifest bench/corpus/manifest.jsonl \
+              --output-json "style-variant-${BATCH_NAME}.json" \
+              --output-md "style-variant-${BATCH_NAME}.md" \
+              ${COP_LIST:+--cop-list "$COP_LIST"} || true
+          done
+
+          # Merge all variant batch results into a single summary
+          python3 << 'PYEOF'
+          import json, glob
+          batch_files = sorted(glob.glob("style-variant-variant_batch_*.json"))
+          if not batch_files:
+              print("No style-variant results to merge")
+          else:
+              merged = {"batches": []}
+              for f in batch_files:
+                  data = json.loads(open(f).read())
+                  batch_name = f.replace("style-variant-", "").replace(".json", "")
+                  merged["batches"].append({"name": batch_name, **data.get("summary", {})})
+              open("style-variant-results.json", "w").write(json.dumps(merged, indent=2))
+              print(f"Merged {len(batch_files)} variant batch results")
+          PYEOF
+
       - name: Generate tiers.json
         run: |
           python3 bench/corpus/gen_tiers.py \
@@ -711,6 +803,8 @@ jobs:
             corpus-results.md
             include-gated-results.json
             include-gated-results.md
+            style-variant-results.json
+            style-variant-*.md
             tiers.json
             bench/synthetic/synthetic-results.json
             docs/corpus.md
@@ -877,6 +971,8 @@ jobs:
             corpus-results.md
             include-gated-results.json
             include-gated-results.md
+            style-variant-results.json
+            style-variant-*.md
             tiers.json
             bench/synthetic/synthetic-results.json
             docs/corpus.md

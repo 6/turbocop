@@ -199,6 +199,10 @@ def main():
     parser.add_argument("--output-md", required=True, type=Path)
     parser.add_argument("--cop-list", type=Path, help="File with one cop name per line (filter RuboCop to these)")
     parser.add_argument("--context-dir", type=Path, help="Directory with per-repo context JSON files from extract_context.py")
+    parser.add_argument("--style-variant-results", type=Path, default=None,
+                        help="Path to style-variant-results.json (from variant batch runs). "
+                             "When present, cops with variant data get per-variant rows in the "
+                             "Diverging Cops table.")
     args = parser.parse_args()
 
     manifest = load_manifest(args.manifest)
@@ -544,6 +548,26 @@ def main():
     }
     args.output_json.write_text(json.dumps(json_output, indent=2) + "\n")
 
+    # Load style-variant results if available
+    variant_by_cop: dict[str, list[dict]] = {}  # cop -> [{style, matches, fp, fn}]
+    if args.style_variant_results and args.style_variant_results.exists():
+        try:
+            variant_data = json.loads(args.style_variant_results.read_text())
+            for batch in variant_data.get("batches", []):
+                batch_name = batch.get("name", "")
+                # Each batch's by_cop has per-cop stats under the variant config
+                for cop_entry in batch.get("by_cop", []):
+                    cop_name = cop_entry.get("cop", "")
+                    if cop_name:
+                        variant_by_cop.setdefault(cop_name, []).append({
+                            "batch": batch_name,
+                            "matches": cop_entry.get("matches", 0),
+                            "fp": cop_entry.get("fp", 0),
+                            "fn": cop_entry.get("fn", 0),
+                        })
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"Warning: could not load style-variant results: {e}", file=sys.stderr)
+
     def _sanitize_for_md(s: str) -> str:
         """Replace C0 control chars with ASCII escape sequences.
 
@@ -686,7 +710,15 @@ def main():
         for c in diverging:
             total = c["matches"] + c["fp"] + c["fn"]
             pct = fmt_pct(c['match_rate']) if total > 0 else "N/A"
-            md.append(f"| {c['cop']} | {c['matches']:,} | {c['fp']:,} | {c['fn']:,} | {pct} |")
+            # If variant data exists, label the baseline row
+            if c["cop"] in variant_by_cop:
+                md.append(f"| {c['cop']} (default) | {c['matches']:,} | {c['fp']:,} | {c['fn']:,} | {pct} |")
+                for v in variant_by_cop[c["cop"]]:
+                    v_total = v["matches"] + v["fp"] + v["fn"]
+                    v_pct = fmt_pct(v["matches"] / v_total) if v_total > 0 else "N/A"
+                    md.append(f"| {c['cop']} ({v['batch']}) | {v['matches']:,} | {v['fp']:,} | {v['fn']:,} | {v_pct} |")
+            else:
+                md.append(f"| {c['cop']} | {c['matches']:,} | {c['fp']:,} | {c['fn']:,} | {pct} |")
         md.append("")
 
         # Expandable details per cop (show up to 3 examples in markdown; full list in JSON)

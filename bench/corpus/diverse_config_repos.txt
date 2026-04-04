@@ -1,0 +1,7 @@
+# Corpus repos with diverse .rubocop.yml configurations.
+# Regenerate with: python3 scripts/find_diverse_config_repos.py --output bench/corpus/diverse_config_repos.txt
+#
+# Use with: python3 scripts/check_cop.py CopName --native-config --repos-file bench/corpus/diverse_config_repos.txt
+#
+# This list is populated by running find_diverse_config_repos.py against
+# cloned corpus repos. It starts empty and is filled as repos are scanned.

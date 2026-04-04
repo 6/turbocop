@@ -119,10 +119,14 @@ def run_nitrocop(
     binary: str | None = None,
     timeout: int = 120,
     cwd: str | None = None,
+    config_override: str | None = None,
 ) -> dict:
     """Run nitrocop on a corpus repo with oracle-identical settings.
 
     Returns dict with keys: offenses (list), count (int), error (str|None).
+
+    When config_override is set, it replaces the baseline config. Per-repo
+    file exclusions from gen_repo_config.py are still applied on top.
     """
     binary = resolve_binary(binary)
     # Use absolute path but don't resolve symlinks — the caller may pass a
@@ -130,7 +134,10 @@ def run_nitrocop(
     repo_path = Path(repo_dir).absolute()
     repo_dir = str(repo_path)
     repo_id = repo_path.name
-    config = resolve_repo_config(repo_id, repo_dir)
+    if config_override:
+        config = config_override
+    else:
+        config = resolve_repo_config(repo_id, repo_dir)
     env = build_env(repo_dir)
 
     cmd = [binary, "--preview", "--format", "json", "--no-cache", "--config", config]
