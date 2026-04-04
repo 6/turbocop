@@ -132,6 +132,7 @@ end
 # Kernel methods - self required to avoid ambiguity with Kernel functions
 def test_kernel_methods
   self.open("file.txt")
+  self.eval("code")
   self.fail("error")
   self.format("%.2f", 3.14)
   self.puts("hello")
@@ -167,6 +168,12 @@ def test_kernel_methods
   self.Hash(pairs)
   self.Complex(1, 2)
   self.Rational(1, 3)
+end
+
+class DeclarativeTest
+  self.test "declarative explicit receiver" do
+    assert true
+  end
 end
 
 # Block parameter shadows method name - self is required for disambiguation
