@@ -240,7 +240,7 @@ jobs:
             --dest . \
             --manifest bench/corpus/manifest.jsonl \
             --repo-ids "$REPO_IDS" \
-            --parallel 3
+            --parallel 6
 
       - name: Run batch
         id: run-batch
@@ -428,7 +428,7 @@ jobs:
                 --batches-dir "$WORKSPACE/bench/corpus/variant_batches" \
                 --results-dir "$WORKSPACE/results" \
                 --manifest "$WORKSPACE/bench/corpus/manifest.jsonl" \
-                --max-variant-repos 500 \
+                --max-variant-repos 1000 \
                 --timeout 600 || true
             fi
 
@@ -438,12 +438,10 @@ jobs:
             echo "::endgroup::"
           done < <(jq -c '.[]' batch_repos.json)
 
-      - name: Save rubocop results cache
-        uses: actions/cache/save@v5
-        if: steps.run-batch.conclusion == 'success'
-        with:
-          path: rubocop-cache/
-          key: rubocop-${{ steps.rubocop-cache-key.outputs.hash }}-${{ matrix.batch_hash }}-${{ github.run_id }}
+      # Per-batch cache saving removed — the consolidated rubocop-all cache
+      # in collect-results contains all repos and is restored via restore-keys
+      # prefix match. Per-batch caches were 464MB × N batches, filling the
+      # 10GB cache limit. The consolidated cache alone is sufficient.
 
       - name: Upload results
         uses: actions/upload-artifact@v6
