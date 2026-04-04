@@ -165,6 +165,7 @@ enum ParentKind {
     Parameter,
     SingletonClass,
     Def,
+    Block,
     BlockArgument,
     RescueModifier,
     MultipleAssignment,
@@ -314,12 +315,6 @@ impl RedundantParensVisitor<'_> {
             }
         }
 
-        // allowed_ternary? — look through wrapper nodes (StatementsNode, ElseNode)
-        // because Prism wraps ternary branches in intermediate nodes
-        if self.has_ternary_ancestor() {
-            return;
-        }
-
         // range parent
         if let Some(p) = parent {
             if matches!(p.kind, ParentKind::Range) {
@@ -333,6 +328,13 @@ impl RedundantParensVisitor<'_> {
         // stack shows up as ParentKind::Other with no specific parent.
         // Exclude Parameter (default param values), SingletonClass (class << expr),
         // and Def (def receiver) because those are not begin_type in RuboCop.
+        //
+        // In Prism, ProgramNode/BeginNode call visit_statements_node directly (no push),
+        // while DefNode/BlockNode call visitor.visit(&body) which pushes StatementsNode.
+        // So when parent is Other (StatementsNode), check the grandparent:
+        // - If grandparent is Def/Block/Call/etc., parent is a body StatementsNode (NOT begin_type)
+        // - If grandparent is also Other or absent, parent is likely begin_type
+        //
         // NOTE: When not flagging as assignment, only fall through to the
         // method argument check when inside a parenthesized call. This catches
         // `foo.include?((port = get_port))` without causing FPs on assignments
@@ -340,7 +342,20 @@ impl RedundantParensVisitor<'_> {
         if is_assignment(inner) {
             let should_flag = match parent {
                 None => true,
-                Some(p) => matches!(p.kind, ParentKind::Other),
+                Some(p) => {
+                    if matches!(p.kind, ParentKind::Other) {
+                        // Check grandparent: if it's a specific kind (Def, Block, etc.),
+                        // the parent is a body StatementsNode inside a non-begin context.
+                        if self.parent_stack.len() >= 3 {
+                            let gp = &self.parent_stack[self.parent_stack.len() - 3];
+                            matches!(gp.kind, ParentKind::Other)
+                        } else {
+                            true // shallow stack → program level
+                        }
+                    } else {
+                        false
+                    }
+                }
             };
             // But not inside if/while/unless/until conditions
             if should_flag && !self.has_conditional_ancestor() {
@@ -423,7 +438,7 @@ impl RedundantParensVisitor<'_> {
         // first_arg_begins_with_hash_literal? — when the inner expression is (or starts
         // with) a hash literal, and the paren is the first argument of an unparenthesized
         // method call, the parens are needed to prevent `{` from being parsed as a block.
-        if self.first_arg_begins_with_hash_literal(node, inner) {
+        if self.first_arg_begins_with_hash_literal(node, inner, parent) {
             return;
         }
 
@@ -460,10 +475,13 @@ impl RedundantParensVisitor<'_> {
 
         // Comparison expression — only flagged when parent is nil (truly top-level).
         // RuboCop checks `begin_node.parent.nil?`.
+        // In Prism, ProgramNode calls visit_statements_node directly (no push),
+        // so the stack is [Program, ParenthesesNode] for top-level expressions.
+        // len <= 2 approximates "no parent" (program root only).
         if is_comparison(inner)
             && !is_receiver
             && !is_chained(&self.source.content, node)
-            && self.parent_stack.len() <= 3
+            && self.parent_stack.len() <= 2
             && parent.is_none_or(|p| matches!(p.kind, ParentKind::Other))
         {
             self.add_offense(node, "a comparison expression");
@@ -530,17 +548,38 @@ impl RedundantParensVisitor<'_> {
     /// parsed as a block.
     fn first_arg_begins_with_hash_literal(
         &self,
-        _node: &ruby_prism::ParenthesesNode<'_>,
+        node: &ruby_prism::ParenthesesNode<'_>,
         inner: &ruby_prism::Node<'_>,
+        parent: Option<&ParentInfo>,
     ) -> bool {
         // Check if the inner expression is or starts with a hash literal
         if !self.inner_begins_with_hash(inner) {
             return false;
         }
 
-        // Check that there's an unparenthesized Call ancestor (the root method)
-        // and the paren is a first argument (approximated by: there's at least one
-        // Call ancestor that is unparenthesized)
+        // RuboCop checks `first_argument?(node)` — the begin node (or an ancestor
+        // in the receiver chain) must be a first argument of some method call.
+        // If the parens are the receiver of a parent call (chained), they're not
+        // directly a first argument. But they might be indirectly (e.g.,
+        // `x ({y: 1}).merge(z), w` — parens are receiver of .merge, but .merge
+        // is a first arg of x).
+        //
+        // Simplified check: if the parens are the receiver of a parent call AND
+        // there's no unparenthesized call ancestor above that, don't exempt.
+        if self.is_receiver_of_parent_call(node, parent) {
+            // The parens are a receiver. Check if the receiver chain ultimately
+            // ends as an argument of an unparenthesized call further up.
+            // Walk up the stack: skip the immediate parent (the call we're receiver of)
+            // and look for an unparenthesized call ancestor above it.
+            let skip_depth = self.parent_stack.len().saturating_sub(2);
+            let has_outer_unparenthesized = (0..skip_depth).rev().any(|i| {
+                matches!(self.parent_stack[i].kind, ParentKind::Call)
+                    && !self.parent_stack[i].call_parenthesized
+            });
+            return has_outer_unparenthesized;
+        }
+
+        // Check that there's an unparenthesized Call ancestor
         self.has_unparenthesized_call_ancestor()
     }
 
@@ -667,6 +706,9 @@ impl RedundantParensVisitor<'_> {
                 ParentKind::Array | ParentKind::Pair => return None,
                 // Not flagged in method call (method arg)
                 ParentKind::Call => return None,
+                // Not flagged when inside another rescue modifier (rescue in rescue)
+                // RuboCop's `rescue?(node)` checks `^resbody` ancestor
+                ParentKind::RescueModifier => return None,
                 _ => {}
             }
         }
@@ -907,17 +949,22 @@ fn check_method_call<'a>(
     // If the inner call has unparenthesized args (like operators `a + b`),
     // only flag in "singular parent" positions where the paren is the sole
     // content of its parent. Otherwise removing parens would change parsing.
+    // RuboCop checks `begin_node.parent.children.one?` — the parent must have
+    // exactly one child. For Return/Next/Break/Super/Yield, this means the
+    // keyword has a single argument.
     if has_args && !call_has_parens {
         let singular = match parent {
             None => true,
-            Some(p) => matches!(
-                p.kind,
-                ParentKind::Return
-                    | ParentKind::Next
-                    | ParentKind::Break
-                    | ParentKind::Super
-                    | ParentKind::Yield
-            ),
+            Some(p) => {
+                matches!(
+                    p.kind,
+                    ParentKind::Return
+                        | ParentKind::Next
+                        | ParentKind::Break
+                        | ParentKind::Super
+                        | ParentKind::Yield
+                ) && p.call_arg_count <= 1
+            }
         };
         if !singular {
             return None;
@@ -1344,6 +1391,22 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
         ruby_prism::visit_if_node(self, node);
     }
 
+    fn visit_else_node(&mut self, node: &ruby_prism::ElseNode<'pr>) {
+        // In Prism, ElseNode sits between IfNode and its false branch.
+        // In Parser AST (RuboCop), there's no ElseNode — begin_node.parent
+        // goes directly to the IfNode. Propagate Ternary kind so that
+        // the false branch sees Ternary as its parent, matching RuboCop behavior.
+        if self.parent_stack.len() >= 2 {
+            let parent_kind = self.parent_stack[self.parent_stack.len() - 2].kind;
+            if matches!(parent_kind, ParentKind::Ternary) {
+                if let Some(top) = self.parent_stack.last_mut() {
+                    top.kind = ParentKind::Ternary;
+                }
+            }
+        }
+        ruby_prism::visit_else_node(self, node);
+    }
+
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
         if let Some(top) = self.parent_stack.last_mut() {
             top.kind = ParentKind::If; // treat unless same as if for conditional ancestor check
@@ -1384,6 +1447,7 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
                 .0;
             top.kind = ParentKind::Return;
             top.multiline = start_line != end_line;
+            top.call_arg_count = node.arguments().map(|a| a.arguments().len()).unwrap_or(0);
         }
         ruby_prism::visit_return_node(self, node);
     }
@@ -1400,6 +1464,7 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
                 .0;
             top.kind = ParentKind::Next;
             top.multiline = start_line != end_line;
+            top.call_arg_count = node.arguments().map(|a| a.arguments().len()).unwrap_or(0);
         }
         ruby_prism::visit_next_node(self, node);
     }
@@ -1416,6 +1481,7 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
                 .0;
             top.kind = ParentKind::Break;
             top.multiline = start_line != end_line;
+            top.call_arg_count = node.arguments().map(|a| a.arguments().len()).unwrap_or(0);
         }
         ruby_prism::visit_break_node(self, node);
     }
@@ -1425,6 +1491,13 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
             top.kind = ParentKind::Splat;
         }
         ruby_prism::visit_splat_node(self, node);
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        if let Some(top) = self.parent_stack.last_mut() {
+            top.kind = ParentKind::Block;
+        }
+        ruby_prism::visit_block_node(self, node);
     }
 
     fn visit_block_argument_node(&mut self, node: &ruby_prism::BlockArgumentNode<'pr>) {
