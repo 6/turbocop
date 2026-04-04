@@ -197,6 +197,15 @@ jobs:
             rubocop-all-${{ steps.rubocop-cache-key.outputs.hash }}-
             rubocop-${{ steps.rubocop-cache-key.outputs.hash }}-
 
+      - name: Restore cached variant rubocop results
+        if: ${{ github.event.inputs.run_style_variants == 'true' }}
+        uses: actions/cache/restore@v5
+        with:
+          path: variant-rubocop-cache/
+          key: variant-rubocop-all-${{ steps.rubocop-cache-key.outputs.hash }}-dummy
+          restore-keys: |
+            variant-rubocop-all-${{ steps.rubocop-cache-key.outputs.hash }}-
+
       - name: Compute batch repos
         id: batch-repos
         env:
@@ -429,6 +438,8 @@ jobs:
                 --results-dir "$WORKSPACE/results" \
                 --manifest "$WORKSPACE/bench/corpus/manifest.jsonl" \
                 --max-variant-repos 1000 \
+                --cache-dir "$WORKSPACE/variant-rubocop-cache" \
+                --repo-sha "$REPO_SHA" \
                 --timeout 600 || true
             fi
 
@@ -609,6 +620,44 @@ jobs:
           # consolidated cache. Batch jobs restore via restore-keys prefix match,
           # so they always get the most recent full cache regardless of batch size.
           key: rubocop-all-${{ steps.rubocop-cache-key.outputs.hash }}-${{ github.run_id }}
+
+      - name: Consolidate variant rubocop cache
+        run: |
+          mkdir -p variant-rubocop-cache
+          python3 << 'PYEOF'
+          import json, shutil, os
+          manifest = {}
+          with open('bench/corpus/manifest.jsonl') as f:
+              for line in f:
+                  line = line.strip()
+                  if line:
+                      r = json.loads(line)
+                      manifest[r['id']] = r['sha']
+          count = 0
+          for batch_dir in sorted(
+              d for d in os.listdir('all-results/results')
+              if d.startswith('variant-rubocop-variant_batch_')
+          ):
+              batch_name = batch_dir.replace('variant-rubocop-', '')
+              src = os.path.join('all-results/results', batch_dir)
+              for fname in os.listdir(src):
+                  if not fname.endswith('.json'):
+                      continue
+                  repo_id = fname[:-5]
+                  sha = manifest.get(repo_id)
+                  if sha:
+                      shutil.copy2(
+                          os.path.join(src, fname),
+                          os.path.join('variant-rubocop-cache', f'{repo_id}_{sha}_{batch_name}.json'))
+                      count += 1
+          print(f'Consolidated {count} variant rubocop results')
+          PYEOF
+
+      - name: Save consolidated variant rubocop cache
+        uses: actions/cache/save@v5
+        with:
+          path: variant-rubocop-cache/
+          key: variant-rubocop-all-${{ steps.rubocop-cache-key.outputs.hash }}-${{ github.run_id }}
 
       - name: Diff and generate report
         run: |

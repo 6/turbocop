@@ -75,6 +75,8 @@ def run_variant_batches(
     timeout: int = 600,
     manifest: str | None = None,
     max_variant_repos: int | None = None,
+    cache_dir: str | None = None,
+    repo_sha: str | None = None,
 ) -> list[dict]:
     """Run all variant batch configs on a repo.
 
@@ -82,6 +84,11 @@ def run_variant_batches(
     only run when the repo's position in the manifest is < max_variant_repos.
     This keeps total runtime manageable by limiting variants to the top N
     repos (manifest is sorted by stars).
+
+    If *cache_dir* and *repo_sha* are both provided, variant rubocop results
+    are cached as ``{cache_dir}/{repo_id}_{sha}_{batch_name}.json``.
+    Cached results are reused on subsequent runs when the repo SHA hasn't
+    changed, skipping the expensive rubocop invocation.
 
     Returns list of {batch_name, nitrocop_ok, rubocop_ok} dicts.
     """
@@ -101,6 +108,7 @@ def run_variant_batches(
     abs_dest = str(Path(repo_dir).absolute())
     env = build_env(abs_dest)
     results = []
+    cache_path = Path(cache_dir) if cache_dir else None
 
     for batch_config in batches:
         batch_name = batch_config.stem  # e.g. "variant_batch_1"
@@ -114,7 +122,7 @@ def run_variant_batches(
         rc_json = rc_dir / f"{repo_id}.json"
         rc_err = rc_dir / f"{repo_id}.err"
 
-        # nitrocop
+        # nitrocop (always run — it's fast)
         nc_ok = _run_tool(
             cmd=[
                 binary, "--preview", "--format", "json", "--no-cache",
@@ -125,20 +133,40 @@ def run_variant_batches(
             label=f"variant-nitrocop ({batch_name}): {repo_id}",
         )
 
-        # rubocop
-        rescue_file = CORPUS_DIR / "rescue_parser_crashes.rb"
-        rc_ok = _run_tool(
-            cmd=[
-                "bundle", "exec", "rubocop",
-                "--require", str(rescue_file),
-                "--config", str(batch_config),
-                "--format", "json", "--force-exclusion", "--cache", "false",
-                abs_dest,
-            ],
-            env=env, timeout=timeout,
-            stdout_path=rc_json, stderr_path=rc_err,
-            label=f"variant-rubocop ({batch_name}): {repo_id}",
-        )
+        # rubocop — use cached result if available
+        rc_cache_key = f"{repo_id}_{repo_sha}_{batch_name}.json" if repo_sha else None
+        rc_cached = False
+        if cache_path and rc_cache_key:
+            cached_file = cache_path / rc_cache_key
+            if cached_file.exists():
+                import shutil
+                shutil.copy2(str(cached_file), str(rc_json))
+                print(
+                    f"=== variant-rubocop ({batch_name}): {repo_id} === (cached)",
+                    file=sys.stderr,
+                )
+                rc_ok = True
+                rc_cached = True
+
+        if not rc_cached:
+            rescue_file = CORPUS_DIR / "rescue_parser_crashes.rb"
+            rc_ok = _run_tool(
+                cmd=[
+                    "bundle", "exec", "rubocop",
+                    "--require", str(rescue_file),
+                    "--config", str(batch_config),
+                    "--format", "json", "--force-exclusion", "--cache", "false",
+                    abs_dest,
+                ],
+                env=env, timeout=timeout,
+                stdout_path=rc_json, stderr_path=rc_err,
+                label=f"variant-rubocop ({batch_name}): {repo_id}",
+            )
+            # Save to cache
+            if rc_ok and cache_path and rc_cache_key and rc_json.exists():
+                cache_path.mkdir(parents=True, exist_ok=True)
+                import shutil
+                shutil.copy2(str(rc_json), str(cache_path / rc_cache_key))
 
         results.append({
             "batch_name": batch_name,
@@ -266,6 +294,10 @@ def main():
                         help="Path to manifest.jsonl for repo index lookup")
     parser.add_argument("--max-variant-repos", type=int,
                         help="Only run variants on repos in the first N manifest entries")
+    parser.add_argument("--cache-dir",
+                        help="Directory for caching variant rubocop results")
+    parser.add_argument("--repo-sha",
+                        help="Repo SHA for cache key (required with --cache-dir)")
     args = parser.parse_args()
 
     results = run_variant_batches(
@@ -277,6 +309,8 @@ def main():
         timeout=args.timeout,
         manifest=args.manifest,
         max_variant_repos=args.max_variant_repos,
+        cache_dir=args.cache_dir,
+        repo_sha=args.repo_sha,
     )
 
     for r in results:
