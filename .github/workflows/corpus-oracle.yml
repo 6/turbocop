@@ -15,9 +15,6 @@ on:
       repo_filter:
         description: "Run only this repo ID (e.g. 'multi_json__multi_json__c5fa9fc'), or 'all'"
         default: "all"
-      run_style_variants:
-        description: "Run style-variant batch testing (tests all EnforcedStyle values)"
-        type: boolean
         default: true
 
 env:
@@ -159,7 +156,6 @@ jobs:
           bundle install --jobs 4 --retry 3
 
       - name: Generate variant batch configs
-        if: ${{ github.event.inputs.run_style_variants == 'true' }}
         run: python3 bench/corpus/gen_variant_batches.py --output-dir bench/corpus/variant_batches/
 
       - name: Export nitrocop cop list
@@ -198,7 +194,6 @@ jobs:
             rubocop-${{ steps.rubocop-cache-key.outputs.hash }}-
 
       - name: Restore cached variant rubocop results
-        if: ${{ github.event.inputs.run_style_variants == 'true' }}
         uses: actions/cache/restore@v5
         with:
           path: variant-rubocop-cache/
@@ -254,7 +249,6 @@ jobs:
       - name: Run batch
         id: run-batch
         env:
-          RUN_STYLE_VARIANTS: ${{ github.event.inputs.run_style_variants || 'false' }}
         run: |
           mkdir -p results/nitrocop results/rubocop results/ig-nitrocop results/ig-rubocop results/ig-context rubocop-cache
 
@@ -428,20 +422,18 @@ jobs:
               --context-lines 7 \
               2>/dev/null || true
 
-            # ── Style-variant batch runs (opt-in via run_style_variants input) ──
-            if [ "$RUN_STYLE_VARIANTS" = "true" ]; then
-              python3 bench/corpus/run_variant_batches.py \
-                --repo-dir "$ABS_DEST" \
-                --repo-id "$REPO_ID" \
-                --binary "$WORKSPACE/bin/nitrocop" \
-                --batches-dir "$WORKSPACE/bench/corpus/variant_batches" \
-                --results-dir "$WORKSPACE/results" \
-                --manifest "$WORKSPACE/bench/corpus/manifest.jsonl" \
-                --max-variant-repos 1000 \
-                --cache-dir "$WORKSPACE/variant-rubocop-cache" \
-                --repo-sha "$REPO_SHA" \
-                --timeout 600 || true
-            fi
+            # ── Style-variant batch runs (all 3 batches, first 1000 repos) ──
+            python3 bench/corpus/run_variant_batches.py \
+              --repo-dir "$ABS_DEST" \
+              --repo-id "$REPO_ID" \
+              --binary "$WORKSPACE/bin/nitrocop" \
+              --batches-dir "$WORKSPACE/bench/corpus/variant_batches" \
+              --results-dir "$WORKSPACE/results" \
+              --manifest "$WORKSPACE/bench/corpus/manifest.jsonl" \
+              --max-variant-repos 1000 \
+              --cache-dir "$WORKSPACE/variant-rubocop-cache" \
+              --repo-sha "$REPO_SHA" \
+              --timeout 600 || true
 
             # Free disk space between repos
             rm -rf "$DEST"
