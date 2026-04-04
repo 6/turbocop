@@ -66,3 +66,17 @@ end
   aliases: @@aliases.dup,
   arity: @@arity.dup
 }
+
+begin
+  stdout_was = STDERR.dup; STDERR.reopen('/dev/null')
+                         ^ Style/Semicolon: Do not use semicolons to terminate expressions.
+ensure
+  STDERR.reopen(stdout_was)
+end
+
+begin
+  line = __LINE__; raise error
+                 ^ Style/Semicolon: Do not use semicolons to terminate expressions.
+rescue error => e
+  puts e
+end

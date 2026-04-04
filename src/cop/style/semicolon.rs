@@ -48,8 +48,8 @@ use crate::parse::source::SourceFile;
 ///   so RuboCop's `on_begin` callback does NOT fire for them. But in Prism, both
 ///   explicit `begin...end` (BeginNode) and implicit multi-statement wrappers use
 ///   StatementsNode, so the ExprSeparatorVisitor was incorrectly visiting them.
-///   Fix: override `visit_begin_node` to set `inside_explicit_begin` flag, and skip
-///   expression separator detection for StatementsNodes inside BeginNode.
+///   Fix: override `visit_begin_node` to skip expression separator detection for
+///   plain explicit begin bodies only.
 /// - 4 FPs are from `.rb.spec` files in the rufo repo — file discovery issues, not cop bugs.
 /// - 2 FPs are from `begin; 1; 2; end` style patterns in rufo (also begin...end).
 ///
@@ -65,6 +65,18 @@ use crate::parse::source::SourceFile;
 ///   `parameters: foo { bar; },`. RuboCop still flags this because the brace/comma pair
 ///   is the end of the line. Fix: allow `; } ,` when the comma is the last non-whitespace
 ///   token on the line, while still ignoring cases like `foo { bar; }, baz`.
+///
+/// Investigation findings (2026-04-04):
+///
+/// Root cause of remaining false negatives (FN=60):
+/// - Plain explicit `begin...end` should still be skipped, but explicit
+///   `begin ... rescue/ensure ... end` bodies are different. Parser models those as
+///   `kwbegin(ensure(begin(...)))`, so RuboCop's `on_begin` still sees the inner body and
+///   flags expression-separator semicolons there. Prism keeps the whole construct in a
+///   single `BeginNode` with `begin_keyword_loc()` plus non-empty `rescue_clause()` or
+///   `ensure_clause()`. The previous skip logic treated all explicit `BeginNode`s the
+///   same and dropped those body lines. Fix: only suppress expression-separator scanning
+///   for plain explicit `begin...end` without rescue/else/ensure clauses.
 pub struct Semicolon;
 
 impl Cop for Semicolon {
@@ -95,7 +107,7 @@ impl Cop for Semicolon {
             let mut visitor = ExprSeparatorVisitor {
                 source,
                 lines: HashSet::new(),
-                inside_explicit_begin: false,
+                inside_plain_explicit_begin: false,
             };
             visitor.visit(&parse_result.node());
             visitor.lines
@@ -366,36 +378,36 @@ fn is_semicolon_after_interpolation_open(bytes: &[u8], pos: usize) -> bool {
 /// AST visitor that collects line numbers where a StatementsNode has 2+ children
 /// sharing the same last_line (expression separator lines).
 ///
-/// Skips StatementsNode inside explicit `begin...end` (BeginNode in Prism).
-/// In Parser AST, explicit `begin...end` creates `kwbegin`, not `begin`.
-/// RuboCop's `on_begin` only fires for implicit `begin` (multi-statement wrappers),
-/// so semicolons inside explicit `begin...end` are NOT expression separators.
+/// Skips the direct body StatementsNode for plain explicit `begin...end`.
+/// In Parser AST, that shape is `kwbegin`, not `begin`, so RuboCop's `on_begin`
+/// does not fire. But explicit `begin ... rescue/ensure ... end` is represented as
+/// `kwbegin(ensure(begin(...)))`, so those body statements still need scanning.
 struct ExprSeparatorVisitor<'a> {
     source: &'a SourceFile,
     lines: HashSet<usize>,
-    inside_explicit_begin: bool,
+    inside_plain_explicit_begin: bool,
 }
 
 impl<'pr> Visit<'pr> for ExprSeparatorVisitor<'_> {
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
-        if node.begin_keyword_loc().is_some() {
-            // Explicit begin...end maps to Parser's kwbegin. RuboCop's on_begin
-            // does not fire for it, so skip expression-separator detection for
-            // the direct StatementsNode body only in this case.
-            let prev = self.inside_explicit_begin;
-            self.inside_explicit_begin = true;
+        if is_plain_explicit_begin(node) {
+            // Plain explicit begin...end maps to Parser's kwbegin. RuboCop's on_begin
+            // does not fire for it, so skip expression-separator detection for the
+            // direct StatementsNode body only in this case.
+            let prev = self.inside_plain_explicit_begin;
+            self.inside_plain_explicit_begin = true;
             ruby_prism::visit_begin_node(self, node);
-            self.inside_explicit_begin = prev;
+            self.inside_plain_explicit_begin = prev;
         } else {
             // Implicit BeginNode wrappers come from rescue/ensure bodies in defs,
-            // blocks, and lambdas. RuboCop still treats their statements like
-            // regular begin bodies for Style/Semicolon.
+            // blocks, and lambdas. Explicit begin with rescue/else/ensure also needs
+            // scanning because Parser exposes an inner `begin` for the protected body.
             ruby_prism::visit_begin_node(self, node);
         }
     }
 
     fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
-        if !self.inside_explicit_begin {
+        if !self.inside_plain_explicit_begin {
             let body: Vec<ruby_prism::Node<'pr>> = node.body().iter().collect();
             if body.len() >= 2 {
                 // Group expressions by their last line (matching RuboCop's expressions_per_line)
@@ -423,11 +435,18 @@ impl<'pr> Visit<'pr> for ExprSeparatorVisitor<'_> {
         }
 
         // Continue visiting children (reset flag so nested non-begin statements work)
-        let prev = self.inside_explicit_begin;
-        self.inside_explicit_begin = false;
+        let prev = self.inside_plain_explicit_begin;
+        self.inside_plain_explicit_begin = false;
         ruby_prism::visit_statements_node(self, node);
-        self.inside_explicit_begin = prev;
+        self.inside_plain_explicit_begin = prev;
     }
+}
+
+fn is_plain_explicit_begin(node: &ruby_prism::BeginNode<'_>) -> bool {
+    node.begin_keyword_loc().is_some()
+        && node.rescue_clause().is_none()
+        && node.else_clause().is_none()
+        && node.ensure_clause().is_none()
 }
 
 #[cfg(test)]
