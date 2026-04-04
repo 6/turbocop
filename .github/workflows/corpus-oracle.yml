@@ -15,7 +15,6 @@ on:
       repo_filter:
         description: "Run only this repo ID (e.g. 'multi_json__multi_json__c5fa9fc'), or 'all'"
         default: "all"
-        default: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -248,7 +247,6 @@ jobs:
 
       - name: Run batch
         id: run-batch
-        env:
         run: |
           mkdir -p results/nitrocop results/rubocop results/ig-nitrocop results/ig-rubocop results/ig-context rubocop-cache
 
