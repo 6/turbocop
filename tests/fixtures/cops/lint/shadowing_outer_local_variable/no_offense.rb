@@ -304,6 +304,76 @@ def pluck_results(columns, result)
 end
 
 
+# FP fix: assignment RHS block in conditional branch body (elsif)
+def self.aws_image_id
+  if self[:aws][:aws_image_id]
+    return self[:aws][:aws_image_id]
+  elsif (self[:aws][:ubuntu_release] && self[:aws][:region])
+    ami = Ubuntu.release(self[:aws][:ubuntu_release]).amis.find do |ami|
+      ami.arch == "i386" && ami.region == self[:aws][:region]
+    end
+    return ami.name if ami
+  end
+end
+
+# FP fix: assignment RHS block in else branch
+def build_cmd_output_string(cmd_params, packet)
+  if cmd_params.nil? or cmd_params.empty?
+    output_string = "simple"
+  else
+    params = []
+    cmd_params.each do |key, value|
+      item = packet['items'].find { |item| item['name'] == key.to_s }
+      params << item
+    end
+  end
+end
+
+# FP fix: assignment RHS block in if branch
+def find(id)
+  if loaded? || proxy_owner.new_record?
+    record = proxy_target.find { |record| record.id == id }
+  elsif find_with_proc?
+    record = other_find(id)
+  end
+end
+
+# FP fix: assignment RHS block in while loop
+def main(host)
+  add_host(host, nil)
+  while @hosts.select {|h| h[:processed]}.size < 10
+    h = @hosts.select {|h| !h[:processed] }[0]
+    get_links h
+    h[:processed] = true
+  end
+end
+
+# FP fix: defs method params should not shadow outer block params
+def setup_stubs
+  MassiveRecord::Wrapper::Table.stub!(:new) do |*args|
+    table = new_table_method.call(*args)
+    def table.find(*args)
+      args
+    end
+    def table.all(*args)
+      [args]
+    end
+    table
+  end
+end
+
+# FP fix: def self.method params inside block scope
+class MyModel
+  class_eval do |attributes|
+    def self.insert(attributes, **options)
+      super(map_attributes(attributes), **options)
+    end
+    def self.insert!(attributes, **options)
+      super(map_attributes(attributes), **options)
+    end
+  end
+end
+
 # Corrected: block nested inside another block in else-branch of if.
 # RuboCop's variable_node(variable) returns variable.scope.node.parent
 # which is the choose block. The choose block IS if.else_branch, so
