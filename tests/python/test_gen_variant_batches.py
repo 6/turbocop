@@ -40,8 +40,8 @@ def test_batch_1_has_most_cops(tmp_path):
     assert len(files) >= 1
     # Batch 1 should have the most cop overrides
     batch_1_lines = (out / "variant_batch_1.yml").read_text().splitlines()
-    cop_lines_1 = [l for l in batch_1_lines if "/" in l and not l.startswith("#") and not l.startswith(" ")]
+    cop_lines_1 = [x for x in batch_1_lines if "/" in x and not x.startswith("#") and not x.startswith(" ")]
     if n > 1:
         batch_2_lines = (out / "variant_batch_2.yml").read_text().splitlines()
-        cop_lines_2 = [l for l in batch_2_lines if "/" in l and not l.startswith("#") and not l.startswith(" ")]
+        cop_lines_2 = [x for x in batch_2_lines if "/" in x and not x.startswith("#") and not x.startswith(" ")]
         assert len(cop_lines_1) >= len(cop_lines_2)
