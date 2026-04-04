@@ -74,6 +74,24 @@ use crate::diagnostic::Severity;
 /// in `run_all_for_redundant` mode, even when the new-name cop had known
 /// detection gaps. This caused ~51 FPs (mostly `Metrics/LineLength`).
 /// Resolved 12+ FPs and 276+ FNs with 0 regressions.
+///
+/// ## Corpus investigation (2026-04-03)
+///
+/// **Normal-mode aggressive flagging**: Extended `all_cops_ran` from
+/// `--only Lint/RedundantCopDisableDirective` to also cover normal mode
+/// (no `--only`/`--except`). In normal mode all enabled cops run, so
+/// unused directives for non-skip-list cops are genuinely redundant.
+///
+/// **Skip list pruning**: Removed 19 of 24 entries from
+/// `REDUNDANT_DISABLE_SKIP_COPS` — their corpus match rates reached 100%
+/// (detection gaps fixed). Retained 5 cops with real gaps:
+/// `Layout/LineLength`, `Layout/MultilineOperationIndentation`,
+/// `Lint/UselessAssignment`, `Style/RedundantParentheses`,
+/// `Style/SafeNavigation`.
+///
+/// **Renamed cop defensive check**: Added fallback skip-list check for
+/// renamed cops in non-`all_cops_ran` mode (e.g. `--except` runs) to
+/// prevent FPs when the new-name cop has detection gaps.
 pub struct RedundantCopDisableDirective;
 
 impl Cop for RedundantCopDisableDirective {
