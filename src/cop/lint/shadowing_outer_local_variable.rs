@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-use crate::cop::variable_force::{self, Variable, VariableTable};
+use crate::cop::variable_force::{self, ScopeKind, Variable, VariableTable};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -25,6 +25,10 @@ struct ShadowingContext {
     when_body_ranges: Vec<(usize, usize, usize)>,
     assignment_rhs_ranges: Vec<(usize, usize, usize)>,
     block_body_ranges: Vec<(usize, usize, usize)>,
+    /// Variable writes in branch bodies: (var_name, cond_offset, branch_offset, lhs_offset).
+    /// Used to detect when a variable is assigned in multiple branches of the
+    /// same conditional, which affects RHS-assignment suppression.
+    branch_var_writes: Vec<(Vec<u8>, usize, usize, usize)>,
 }
 
 impl ShadowingContext {
@@ -39,6 +43,7 @@ impl ShadowingContext {
             when_body_ranges: Vec::new(),
             assignment_rhs_ranges: Vec::new(),
             block_body_ranges: Vec::new(),
+            branch_var_writes: Vec::new(),
         }
     }
 
@@ -178,6 +183,28 @@ impl ShadowingContext {
             })
     }
 
+    /// Check if a variable assignment at `lhs_offset` has a sibling-branch
+    /// assignment for the same variable name. Used to detect cases like
+    /// `unless cond; x = foo { |x| }; else; x = bar; end` where the sibling
+    /// branch's assignment means RuboCop's VF would see a different outer
+    /// variable (from the sibling), making the RHS suppression inapplicable.
+    fn has_sibling_branch_assignment(&self, lhs_offset: usize, var_name: &[u8]) -> bool {
+        // Find the branch write entry for this lhs_offset
+        let this_entry = self
+            .branch_var_writes
+            .iter()
+            .find(|(name, _, _, lhs)| *lhs == lhs_offset && name == var_name);
+        let Some((_, cond_offset, branch_offset, _)) = this_entry else {
+            return false;
+        };
+        // Check if any other entry has the same cond_offset but different branch_offset
+        self.branch_var_writes
+            .iter()
+            .any(|(name, cond, branch, _)| {
+                name == var_name && *cond == *cond_offset && *branch != *branch_offset
+            })
+    }
+
     /// Check whether the block param should be suppressed due to conditional
     /// branch context.
     fn should_suppress(&self, outer_info: &VarBranchInfo, param_offset: usize) -> bool {
@@ -291,6 +318,22 @@ impl ShadowingContext {
 ///    only applies when BOTH the outer var and the block are in different branches of the
 ///    SAME conditional node. Fix: remove the incorrect `(None, Some(_))` case.
 ///
+/// 3. **FP: Assignment-RHS suppression blocked in conditional branches.** The
+///    `is_in_assignment_rhs` check (for `foo = bar { |foo| }`) was gated behind an
+///    `outer_in_branch_body` guard that blocked it whenever the outer variable was
+///    inside a conditional branch body. This was too broad: the suppression is valid
+///    in branches (e.g. `elsif` body with `ami = items.find { |ami| }`). The only
+///    case where it should NOT apply is when a sibling branch of the same conditional
+///    also assigns the same variable (because our VF visit order differs from RuboCop's).
+///    Fix: replaced `outer_in_branch_body` guard with targeted `has_sibling_branch_assignment`
+///    check that tracks per-branch variable writes via the context collector.
+///
+/// 4. **FP: `defs` (singleton method) params leaking through twisted scope.** Our VF
+///    models `def obj.method(param)` as a twisted scope, allowing `find_variable` to
+///    cross it. But Ruby treats `defs` as a hard scope for local variables, so block
+///    params inside a `defs` body should never shadow outer variables from the enclosing
+///    block. Fix: early return when `current_scope().kind == ScopeKind::Defs`.
+///
 /// ## Migration to VariableForce
 ///
 /// This cop was migrated from a 1,857-line standalone AST visitor to use the shared
@@ -311,6 +354,7 @@ impl ShadowingContext {
 ///    - When-condition assignment suppression
 ///    - Inherited conditional context through single-statement block chains
 ///    - Expression depth tracking for nested-in-expression detection
+///    - Per-branch variable write tracking for sibling-branch assignment detection
 pub struct ShadowingOuterLocalVariable;
 
 /// A conditional branch interval: all offsets in [start, end) have this context.
@@ -397,6 +441,7 @@ impl Cop for ShadowingOuterLocalVariable {
             when_body_ranges: Vec::new(),
             assignment_rhs_ranges: Vec::new(),
             block_body_ranges: Vec::new(),
+            branch_var_writes: Vec::new(),
             conditional_branch_stack: Vec::new(),
             when_condition_case_offset: None,
             in_when_body_of_case: None,
@@ -416,6 +461,7 @@ impl Cop for ShadowingOuterLocalVariable {
             ctx.when_body_ranges = collector.when_body_ranges;
             ctx.assignment_rhs_ranges = collector.assignment_rhs_ranges;
             ctx.block_body_ranges = collector.block_body_ranges;
+            ctx.branch_var_writes = collector.branch_var_writes;
         });
     }
 
@@ -438,6 +484,15 @@ impl variable_force::VariableForceConsumer for ShadowingOuterLocalVariable {
         if !variable.is_argument()
             && variable.declaration_kind != variable_force::DeclarationKind::ShadowArg
         {
+            return;
+        }
+
+        // Skip defs (singleton method) parameters. In Ruby, `def obj.method`
+        // creates a hard scope for local variables — method params cannot
+        // access outer locals. Our VF models defs as a twisted scope (for
+        // receiver evaluation), so find_variable crosses it, but method
+        // params in defs should never flag shadowing.
+        if variable_table.current_scope().kind == ScopeKind::Defs {
             return;
         }
 
@@ -473,18 +528,21 @@ impl variable_force::VariableForceConsumer for ShadowingOuterLocalVariable {
 
             // Check if the block is in the RHS of the outer variable's assignment.
             // e.g., `foo = bar { |foo| baz(foo) }` — the block is the RHS of foo's
-            // assignment, so foo is not yet semantically in scope (RuboCop suppresses).
-            // However, do NOT suppress when the outer variable is in a conditional
-            // branch body — a sibling branch may also declare the variable, and
-            // RuboCop's VF visits branches in a different order (Parser gem order)
-            // where the variable may already exist from a sibling branch.
-            if ctx.is_in_assignment_rhs(outer_offset, param_offset) {
-                let outer_in_branch_body = outer_info
-                    .conditional_branch
-                    .is_some_and(|_| !outer_info.is_condition_var);
-                if !outer_in_branch_body {
-                    return false;
-                }
+            // assignment, so foo is not yet semantically in scope (RuboCop suppresses
+            // via variable_used_in_declaration_of_outer?). This check is purely
+            // structural: it only matches when the block param offset falls within
+            // the RHS range of the SAME assignment node that declared the outer
+            // variable, so it cannot suppress a different assignment or a block
+            // in a separate statement.
+            //
+            // Exception: when a sibling branch of the same conditional also assigns
+            // the same variable. In RuboCop's VF (which may visit branches in a
+            // different order, e.g., else-first for unless), the outer variable
+            // would come from the sibling branch, making this suppression incorrect.
+            if ctx.is_in_assignment_rhs(outer_offset, param_offset)
+                && !ctx.has_sibling_branch_assignment(outer_offset, name)
+            {
+                return false;
             }
 
             // Check conditional branch suppression
@@ -583,6 +641,7 @@ struct ContextCollector {
     when_body_ranges: Vec<(usize, usize, usize)>,
     assignment_rhs_ranges: Vec<(usize, usize, usize)>,
     block_body_ranges: Vec<(usize, usize, usize)>,
+    branch_var_writes: Vec<(Vec<u8>, usize, usize, usize)>,
 
     // Tracking state
     conditional_branch_stack: Vec<CondBranchEntry>,
@@ -823,6 +882,19 @@ impl<'pr> Visit<'pr> for ContextCollector {
         let start = node.value().location().start_offset();
         let end = node.value().location().end_offset();
         self.assignment_rhs_ranges.push((lhs_offset, start, end));
+        // Record branch context for this variable write (used to detect
+        // sibling-branch assignments for the same variable).
+        if let Some(entry) = self.conditional_branch_stack.last() {
+            if entry.is_body {
+                let var_name = node.name().as_slice().to_vec();
+                self.branch_var_writes.push((
+                    var_name,
+                    entry.cond_offset,
+                    entry.branch_offset,
+                    lhs_offset,
+                ));
+            }
+        }
         self.expression_depth += 1;
         self.record_expression_range(start, end);
         self.visit(&node.value());
