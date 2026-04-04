@@ -110,11 +110,33 @@ def parse_enforced_styles(config_path: str) -> list[dict]:
             in_supported = False
             continue
 
-        # Supported* key (array start)
+        # Supported* key (array start) — only accept if it corresponds to
+        # the current Enforced* key. Without this check, unrelated Supported*
+        # arrays (e.g. SupportedCapitalizations under MagicCommentFormat)
+        # overwrite the correct values and produce invalid variant configs.
+        #
+        # The RuboCop naming convention is inconsistent:
+        #   EnforcedStyle           → SupportedStyles
+        #   EnforcedHashRocketStyle → SupportedHashRocketStyles
+        #   EnforcedShorthandSyntax → SupportedShorthandSyntax (no trailing s!)
+        #   EnforcedStyleForX       → SupportedStylesForX (s after Style, not at end)
+        #
+        # We match by checking that the Supported* name contains the core
+        # word from the Enforced* key (after stripping "Enforced"/"Supported").
         m = re.match(r"^  (Supported\w+):", line)
-        if m:
-            in_supported = True
-            supported_vals = []
+        if m and enforced_key:
+            supported_name = m.group(1)
+            # Extract the distinguishing word: "EnforcedStyle" → "Style",
+            # "EnforcedShorthandSyntax" → "ShorthandSyntax", etc.
+            enforced_core = enforced_key.replace("Enforced", "")
+            supported_core = supported_name.replace("Supported", "")
+            # Normalize pluralization: "Styles" → "Style" so that
+            # Style==Styles, StylesForX==StyleForX, etc.
+            enforced_norm = enforced_core.replace("Styles", "Style")
+            supported_norm = supported_core.replace("Styles", "Style")
+            if enforced_norm == supported_norm:
+                in_supported = True
+                supported_vals = []
             continue
 
         # Array item under Supported*

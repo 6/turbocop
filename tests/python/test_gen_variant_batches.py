@@ -90,3 +90,66 @@ def test_overflow_keeps_first_alternative(tmp_path):
     assert "ending_only" not in batch_3
     assert "require_always" not in batch_3
     assert "either_consistent" not in batch_3
+
+
+def test_all_variant_values_are_valid(tmp_path):
+    """Every style value in every generated batch must be in that cop's SupportedStyles.
+
+    This catches the MagicCommentFormat bug where parse_enforced_styles confused
+    SupportedCapitalizations with SupportedStyles, producing variant configs that
+    RuboCop rejects with 'invalid EnforcedStyle'.
+    """
+    import yaml
+
+    out = tmp_path / "batches"
+    gen_variant_batches.generate_batches(out)
+
+    # Build a lookup of valid values per (cop, key) from vendor configs
+    PROJECT_ROOT = Path(__file__).parents[2]
+    valid_values: dict[tuple[str, str], set[str]] = {}
+
+    # Vendor YAMLs use !ruby/regexp tags — add a constructor that ignores them
+    class _PermissiveLoader(yaml.SafeLoader):
+        pass
+
+    _PermissiveLoader.add_multi_constructor(
+        "!", lambda loader, suffix, node: loader.construct_scalar(node)
+    )
+
+    for config_path, _plugin in gen_variant_batches.VENDOR_CONFIGS:
+        full_path = PROJECT_ROOT / config_path
+        if not full_path.exists():
+            continue
+        data = yaml.load(full_path.read_text(), Loader=_PermissiveLoader) or {}
+        for cop_name, cop_cfg in data.items():
+            if not isinstance(cop_cfg, dict) or "/" not in str(cop_name):
+                continue
+            for k, v in cop_cfg.items():
+                if k.startswith("Enforced") and isinstance(v, str):
+                    # Find the corresponding Supported* list
+                    for sk, sv in cop_cfg.items():
+                        if sk.startswith("Supported") and isinstance(sv, list):
+                            # Match using same normalization as parse_enforced_styles
+                            enforced_core = k.replace("Enforced", "").replace("Styles", "Style")
+                            supported_core = sk.replace("Supported", "").replace("Styles", "Style")
+                            if enforced_core == supported_core:
+                                valid_values[(cop_name, k)] = {str(x) for x in sv}
+
+    # Validate every value in every generated batch
+    errors = []
+    for batch_path in sorted(out.glob("variant_batch_*.yml")):
+        data = yaml.safe_load(batch_path.read_text()) or {}
+        for cop_name, cop_cfg in data.items():
+            if cop_name == "inherit_from" or not isinstance(cop_cfg, dict):
+                continue
+            for key, value in cop_cfg.items():
+                if not key.startswith("Enforced"):
+                    continue
+                allowed = valid_values.get((cop_name, key))
+                if allowed and str(value) not in allowed:
+                    errors.append(
+                        f"{batch_path.name}: {cop_name}.{key}={value} "
+                        f"not in {sorted(allowed)}"
+                    )
+
+    assert not errors, "Invalid variant config values:\n" + "\n".join(errors)
