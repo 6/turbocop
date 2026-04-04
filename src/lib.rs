@@ -20,6 +20,7 @@ pub mod testutil;
 
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
+use std::path::PathBuf;
 
 use anyhow::Result;
 
@@ -28,7 +29,7 @@ use config::load_config;
 use cop::registry::CopRegistry;
 use cop::tiers::{SkipSummary, TierMap};
 use formatter::create_formatter;
-use fs::discover_files;
+use fs::{DiscoveredFiles, discover_files};
 use linter::{lint_source, run_linter};
 use parse::source::SourceFile;
 
@@ -433,32 +434,51 @@ pub fn run(args: Args) -> Result<i32> {
 
     let discovered = discover_files(&args.paths, &config)?;
 
-    // --list-target-files (-L): print files that would be linted, then exit
-    if args.list_target_files {
-        let cop_filters = config.build_cop_filters(&registry, &tier_map, args.preview, &args.paths);
-        for file in &discovered.files {
+    // Build cop filters once (reused for --list-target-files, file filtering, and linting).
+    let cop_filters = config.build_cop_filters(&registry, &tier_map, args.preview, &args.paths);
+
+    // Filter globally-excluded files so they are not counted in "N files inspected"
+    // or given progress dots.  Explicit CLI files bypass AllCops.Exclude unless
+    // --force-exclusion is set (matching RuboCop behavior).
+    let effective_files: Vec<PathBuf> = discovered
+        .files
+        .iter()
+        .filter(|file| {
             if cop_filters.is_globally_excluded(file) {
-                let is_explicit = discovered.explicit.contains(file)
+                let is_explicit = discovered.explicit.contains(file.as_path())
                     || file
                         .canonicalize()
                         .ok()
                         .is_some_and(|c| discovered.explicit.contains(&c));
                 if args.force_exclusion || !is_explicit {
-                    continue;
+                    return false;
                 }
             }
+            true
+        })
+        .cloned()
+        .collect();
+
+    // --list-target-files (-L): print files that would be linted, then exit
+    if args.list_target_files {
+        for file in &effective_files {
             println!("{}", file.display());
         }
         return Ok(0);
     }
 
     if args.debug {
-        eprintln!("debug: {} files to lint", discovered.files.len());
+        eprintln!("debug: {} files to lint", effective_files.len());
         eprintln!("debug: {} cops registered", registry.len());
     }
 
+    let effective_discovered = DiscoveredFiles {
+        files: effective_files,
+        explicit: discovered.explicit,
+    };
+
     let result = run_linter(
-        &discovered,
+        &effective_discovered,
         &config,
         &registry,
         &args,
@@ -489,7 +509,7 @@ pub fn run(args: Args) -> Result<i32> {
     let skip_summary = result.skip_summary.clone();
     let mut formatter = create_formatter(&args.format);
     formatter.set_skip_summary(result.skip_summary);
-    formatter.print(&result.diagnostics, &discovered.files);
+    formatter.print(&result.diagnostics, &effective_discovered.files);
 
     let has_lint_failure = result.diagnostics.iter().any(|d| d.severity >= fail_level);
     let strict_failure = args.strict_scope().is_some_and(|scope| {
