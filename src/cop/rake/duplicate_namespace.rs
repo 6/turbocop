@@ -11,6 +11,11 @@ use crate::parse::source::SourceFile;
 ///
 /// If namespaces are defined with the same name, Rake executes both
 /// in definition order. This is usually unintentional and confusing.
+///
+/// Matches RuboCop's `OnNamespace` which fires on any `namespace` send,
+/// not just calls with blocks. A blockless `namespace` call uses only
+/// ancestor namespace names for the duplicate key, matching the
+/// `each_ancestor(:block)` walk in the Ruby implementation.
 pub struct DuplicateNamespace;
 
 impl Cop for DuplicateNamespace {
@@ -69,40 +74,54 @@ impl DuplicateNamespaceVisitor<'_> {
     }
 }
 
+impl DuplicateNamespaceVisitor<'_> {
+    fn check_duplicate(&mut self, full_name: &str, node: &ruby_prism::CallNode<'_>) {
+        let loc = node.message_loc().unwrap_or(node.location());
+        let (line, _) = self.source.offset_to_line_col(loc.start_offset());
+
+        if let Some(prev) = self.namespaces.get(full_name) {
+            let (dup_line, dup_column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                dup_line,
+                dup_column,
+                format!(
+                    "Namespace `{}` is defined at both {} (line {}) and {} (line {}).",
+                    full_name,
+                    self.source.path_str(),
+                    prev.line,
+                    self.source.path_str(),
+                    dup_line,
+                ),
+            ));
+        } else {
+            self.namespaces
+                .insert(full_name.to_string(), NamespaceInfo { line });
+        }
+    }
+}
+
 impl<'pr> Visit<'pr> for DuplicateNamespaceVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let name = node.name().as_slice();
 
-        if name == b"namespace" && node.block().is_some() && node.receiver().is_none() {
-            if let Some(ns_name) = crate::cop::rake::extract_task_name(node) {
-                let full_name = self.full_namespace_name(&ns_name);
-                let loc = node.message_loc().unwrap_or(node.location());
-                let (line, _) = self.source.offset_to_line_col(loc.start_offset());
+        if name == b"namespace" && node.receiver().is_none() {
+            if node.block().is_some() {
+                // Namespace call with a block: include the call's own name in the path
+                if let Some(ns_name) = crate::cop::rake::extract_task_name(node) {
+                    let full_name = self.full_namespace_name(&ns_name);
+                    self.check_duplicate(&full_name, node);
 
-                if let Some(prev) = self.namespaces.get(&full_name) {
-                    let (dup_line, dup_column) = self.source.offset_to_line_col(loc.start_offset());
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        dup_line,
-                        dup_column,
-                        format!(
-                            "Namespace `{}` is defined at both {} (line {}) and {} (line {}).",
-                            full_name,
-                            self.source.path_str(),
-                            prev.line,
-                            self.source.path_str(),
-                            dup_line,
-                        ),
-                    ));
-                } else {
-                    self.namespaces
-                        .insert(full_name.clone(), NamespaceInfo { line });
+                    self.namespace_stack.push(ns_name);
+                    ruby_prism::visit_call_node(self, node);
+                    self.namespace_stack.pop();
+                    return;
                 }
-
-                self.namespace_stack.push(ns_name);
-                ruby_prism::visit_call_node(self, node);
-                self.namespace_stack.pop();
-                return;
+            } else {
+                // Namespace call without a block: path from ancestor stack only
+                // (matches RuboCop's OnNamespace which fires on any `namespace` send)
+                let full_name = self.namespace_stack.join(":");
+                self.check_duplicate(&full_name, node);
             }
         }
 
