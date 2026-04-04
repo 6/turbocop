@@ -83,26 +83,15 @@ end
 @@logging_device_file_options = {size: 1_000_000, age: 'daily', roll_by: 'number'} unless defined? @@logging_device_file_options
 ^ Style/IfUnlessModifier: Modifier form of `unless` makes the line too long.
 
-after_save { if user then user.update_contribution_count end }
-^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
+if(/foo/ =~ bar)
+^^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body.
+  baz
+end
 
-after_destroy { if user then user.update_contribution_count end }
-^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
+if /#{foo}/ =~ bar
+^^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body.
+  baz
+end
 
-options ||= unless options_or_body.is_a?(Hash)
-^ Style/IfUnlessModifier: Favor modifier `unless` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
-
-(if defined?(@instrumented_integrations)
-^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
-
-if @page && @page.to_i>10 && !current_user
-^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
-
-result = "#{property.name}: #{property.type.to_s}#{if has_default_value then " = " + "#{default_value}" end}"
-^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
-
-unless current_user.partner? || current_user.admin?
-^ Style/IfUnlessModifier: Favor modifier `unless` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
-
-if Rails.env.development?
-^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
+documentation_stream.puts "Processes a very descriptive generated event entry for {#{fullname}::#{evt_type}} in the API reference." unless /Process.*\s(event|command)/ =~ evh_docstr
+^ Style/IfUnlessModifier: Modifier form of `unless` makes the line too long.

@@ -146,7 +146,7 @@ if /(?<name>\d+)/ =~ input
   name
 end
 
-# Regexp literal on the LHS of =~ should not suggest modifier form
+# Bare regexp literal on the LHS of =~ should not suggest modifier form
 if /foo/ =~ bar
   baz
 end
