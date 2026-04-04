@@ -190,85 +190,39 @@ Full list in Appendix A.
 
 For each priority-1 cop, writing the fixture file will likely reveal the exact detection bug. Fix it, add the fixture, and verify with `check_cop.py --rerun` that corpus results don't regress (since the corpus uses the default style, fixes to non-default paths should be safe).
 
-## Part 2: Corpus-Level Style-Variant Testing
+## Part 2: Corpus-Level Exhaustive Style-Variant Testing
 
-Fixture tests catch implementation bugs in non-default code paths. But they only test patterns the fixture author thought of. The corpus catches real-world edge cases — but currently only for default configs. This section extends the corpus workflow to exercise non-default styles.
+Fixture tests catch implementation bugs in non-default code paths. But they only test patterns the fixture author thought of. The corpus catches real-world edge cases — but currently only for default configs. This section extends the corpus workflow to **exhaustively test every supported style value** for every configurable cop.
 
-### Step 6: Create style-overlay baseline configs
+The key insight: curated overlays (standardrb, shopify, etc.) only cover whichever styles those gems happen to use. A cop with 4 supported styles might only get 1 non-default tested. Instead, we exhaustively enumerate ALL `SupportedStyles` values for each cop and run corpus checks for each one independently.
 
-**Directory:** `bench/corpus/style_overlays/`
-
-Create a small set of baseline config overlays representing the most common non-default style bundles in the wild. Each overlay inherits from the main baseline and overrides specific parameters:
-
-**`bench/corpus/style_overlays/standardrb.yml`** — mirrors standardrb's non-default choices:
-```yaml
-inherit_from: ../baseline_rubocop.yml
-
-Layout/FirstArgumentIndentation:
-  EnforcedStyle: consistent
-Layout/FirstHashElementIndentation:
-  EnforcedStyle: consistent
-Layout/FirstArrayElementIndentation:
-  EnforcedStyle: consistent
-Layout/MultilineMethodCallIndentation:
-  EnforcedStyle: indented
-Style/AndOr:
-  EnforcedStyle: always
-Style/Lambda:
-  EnforcedStyle: literal
-Style/BlockDelimiters:
-  EnforcedStyle: semantic
-Style/StringLiterals:
-  Enabled: false
-Style/StringLiteralsInInterpolation:
-  Enabled: false
-```
-
-**`bench/corpus/style_overlays/trailing_comma.yml`** — the most common non-default trailing comma config:
-```yaml
-inherit_from: ../baseline_rubocop.yml
-
-Style/TrailingCommaInArguments:
-  EnforcedStyleForMultiline: comma
-Style/TrailingCommaInArrayLiteral:
-  EnforcedStyleForMultiline: comma
-Style/TrailingCommaInHashLiteral:
-  EnforcedStyleForMultiline: comma
-```
-
-**`bench/corpus/style_overlays/shopify.yml`** — mirrors shopify/ruby-style-guide choices:
-```yaml
-inherit_from: ../baseline_rubocop.yml
-
-Style/TrailingCommaInArguments:
-  EnforcedStyleForMultiline: comma
-Style/TrailingCommaInArrayLiteral:
-  EnforcedStyleForMultiline: comma
-Style/TrailingCommaInHashLiteral:
-  EnforcedStyleForMultiline: comma
-Layout/DotPosition:
-  EnforcedStyle: trailing
-Style/RescueStandardError:
-  EnforcedStyle: explicit
-```
-
-Additional overlays can be added over time. Each overlay should represent a real, popular style gem — not arbitrary combinations.
-
-### Step 7: Add `--style-overlay` flag to `check_cop.py`
+### Step 6: Add `--style` flag to `check_cop.py`
 
 **File:** `scripts/check_cop.py`
 
-Add a `--style-overlay <path>` flag that:
+Add a `--style <param>=<value>` flag that overrides a single cop config parameter for both nitrocop and rubocop:
 
-1. Uses the specified overlay config instead of `baseline_rubocop.yml` when running nitrocop.
-2. Also runs rubocop with the same overlay config to get the expected counts.
-3. Compares the two, same as today.
-
-The key difference: both tools use the same non-default config, so the expected offense counts change (more offenses for `comma` style, fewer for cops disabled in the overlay, etc.).
+```bash
+# Run with EnforcedStyleForMultiline: comma
+python3 scripts/check_cop.py Style/TrailingCommaInHashLiteral \
+    --style EnforcedStyleForMultiline=comma \
+    --rerun --clone --sample 30
+```
 
 **Implementation:**
 
-In `run_nitrocop.py`, `resolve_repo_config()` currently returns the baseline or a per-repo overlay. Extend it to accept an optional `style_overlay` parameter:
+1. The flag generates a temporary config file inheriting from the baseline with just the one cop's parameter overridden:
+   ```yaml
+   inherit_from: /path/to/baseline_rubocop.yml
+   Style/TrailingCommaInHashLiteral:
+     EnforcedStyleForMultiline: comma
+   ```
+2. Both nitrocop and rubocop are run with this config via `--config`.
+3. Offense counts are compared the same as today — any divergence is an FP or FN.
+
+**Caching:** Uses a separate cache key `(binary_mtime, cop_name, repo_id, style_hash)` so style-variant results don't collide with baseline results.
+
+**`run_nitrocop.py` changes:**
 
 ```python
 def run_nitrocop(
@@ -278,80 +232,96 @@ def run_nitrocop(
     binary: str | None = None,
     timeout: int = 120,
     cwd: str | None = None,
-    style_overlay: str | None = None,  # NEW
+    config_override: str | None = None,  # NEW: path to override config
 ) -> dict:
 ```
 
-When `style_overlay` is set, `gen_repo_config.py` merges the style overlay on top of the baseline (and the per-repo overlay if any) before writing the final config.
+When `config_override` is set, it replaces the baseline config. `gen_repo_config.py` still applies per-repo file exclusions on top.
 
-For rubocop: add a parallel `run_rubocop()` helper (or extend the existing one in `check_cop.py`) that runs rubocop with the same overlay config. This gives us a ground-truth count for the non-default style.
+For rubocop ground truth: add a `run_rubocop()` helper that runs rubocop with the same override config and returns counts in the same format.
 
-**Usage:**
-
-```bash
-# Check TrailingCommaInHashLiteral with comma style on diverging repos
-python3 scripts/check_cop.py Style/TrailingCommaInHashLiteral \
-    --style-overlay bench/corpus/style_overlays/trailing_comma.yml \
-    --rerun --clone --sample 30
-
-# Check FirstArgumentIndentation with standardrb style
-python3 scripts/check_cop.py Layout/FirstArgumentIndentation \
-    --style-overlay bench/corpus/style_overlays/standardrb.yml \
-    --rerun --clone --sample 30
-```
-
-**Caching:** Style-overlay runs use a separate cache key (`(binary_mtime, cop_name, repo_id, overlay_hash)`) so they don't collide with baseline results.
-
-### Step 8: Add `check_cop_styles.py` for batch style-variant validation
+### Step 7: Add `check_cop_styles.py` for exhaustive per-cop validation
 
 **File:** `scripts/check_cop_styles.py`
 
-A convenience wrapper that, for a given cop:
+The primary tool for validating all style variants. For a given cop it:
 
-1. Reads the cop's `SupportedStyles` from `vendor/rubocop/config/default.yml`.
-2. For each non-default style, creates a temporary overlay config.
-3. Runs `check_cop.py --style-overlay` with each overlay on a sample of repos.
+1. Reads the cop's `SupportedStyles` / `SupportedStylesForMultiline` from `vendor/rubocop/config/default.yml`.
+2. For **each** supported style value (including the default), generates a temporary config override.
+3. Runs `check_cop.py --style <param>=<value>` for each style on a sample of repos.
 4. Reports per-style conformance.
 
 **Output:**
 ```
-Style/TrailingCommaInHashLiteral:
-  no_comma (default):      50/50 repos match (baseline)
-  comma:                   47/50 repos match (3 diverge: repo_a, repo_b, repo_c)
-  consistent_comma:        50/50 repos match
-  diff_comma:              50/50 repos match
+Style/TrailingCommaInHashLiteral (4 styles, 50 repos):
+  EnforcedStyleForMultiline:
+    no_comma (default):      50/50 match ✓ (baseline)
+    comma:                   47/50 match ✗ (3 diverge: repo_a, repo_b, repo_c)
+    consistent_comma:        50/50 match ✓
+    diff_comma:              50/50 match ✓
 ```
 
-**Usage:**
+**Batch mode — check all cops with configurable styles:**
 ```bash
+# Check every style variant for every configurable cop (slow, CI-only)
+python3 scripts/check_cop_styles.py --all --sample 30
+
+# Check a single cop exhaustively
 python3 scripts/check_cop_styles.py Style/TrailingCommaInHashLiteral --sample 50
-python3 scripts/check_cop_styles.py Layout/FirstArgumentIndentation --sample 30
+
+# Check all cops in a department
+python3 scripts/check_cop_styles.py --department Layout --sample 30
 ```
 
-This is the primary tool for validating that a cop works correctly across all its supported styles against real-world code.
+**`--all` mode:** Iterates over all 160 cops with configurable styles, discovers their `SupportedStyles` from vendor config, and checks each variant. This is the exhaustive guarantee — no style value is skipped.
 
-### Step 9: CI integration for style-overlay runs
+**Handling cops with multiple config params:** Some cops have multiple independent style params (e.g., `Layout/HashAlignment` has `EnforcedHashRocketStyle`, `EnforcedColonStyle`, and `EnforcedLastArgumentHashStyle`). The script tests each param independently with the other params at their defaults. Full combinatorial testing (all params × all values) is impractical — independent variation catches the vast majority of bugs.
 
-**File:** `.github/workflows/` (new or existing workflow)
+### Step 8: CI integration for exhaustive style checks
 
-Add an optional CI job (not blocking initially) that runs style-overlay checks for priority-1 and priority-2 cops:
+**File:** `.github/workflows/style-variant-check.yml` (new workflow)
+
+A weekly CI job that runs `check_cop_styles.py --all`:
 
 ```yaml
-style-variant-check:
-  runs-on: ubuntu-latest
-  strategy:
-    matrix:
-      overlay: [standardrb, trailing_comma, shopify]
-  steps:
-    - run: |
-        python3 scripts/check_cop_styles.py \
-          --overlay bench/corpus/style_overlays/${{ matrix.overlay }}.yml \
-          --sample 30 --cops-from-overlay
+name: Style Variant Check
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+  workflow_dispatch:       # Manual trigger
+
+jobs:
+  check-all-styles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Install corpus bundle
+        run: cd bench/corpus && BUNDLE_PATH=vendor/bundle bundle install
+
+      - name: Check all style variants
+        run: |
+          python3 scripts/check_cop_styles.py --all \
+            --sample 30 --clone --output style-variant-results.json
+
+      - name: Report
+        run: python3 scripts/check_cop_styles.py --report style-variant-results.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: style-variant-results
+          path: style-variant-results.json
+          retention-days: 30
 ```
 
-The `--cops-from-overlay` flag means: only check cops whose parameters are overridden in the overlay (no point checking `Lint/Void` against a trailing-comma overlay).
+Start as non-blocking. Promote to blocking (fail the workflow on any divergence) once all known bugs are fixed.
 
-Start as a non-blocking weekly job. Promote to blocking once coverage stabilizes.
+The results JSON from this job feeds into `diff_results.py` for `docs/corpus.md` per-variant reporting (see Part 4).
 
 ## Part 3: Native-Config Spot Checks
 
@@ -437,7 +407,7 @@ This script (new) scans corpus repos for `.rubocop.yml` files, counts non-defaul
 
 **File:** `bench/corpus/diff_results.py`
 
-When style-overlay corpus runs exist (from Step 9's CI job), `diff_results.py` should merge baseline + overlay results and render per-variant rows in the Diverging Cops table:
+When exhaustive style-variant results exist (from Step 8's weekly CI job), `diff_results.py` should merge baseline + per-variant results and render per-variant rows in the Diverging Cops table:
 
 **Current format (one row per cop):**
 ```
@@ -453,9 +423,9 @@ When style-overlay corpus runs exist (from Step 9's CI job), `diff_results.py` s
 
 **Implementation:**
 
-1. The CI style-overlay jobs (Step 9) produce separate `corpus-results-{overlay}.json` artifacts alongside the baseline `corpus-results.json`.
-2. `diff_results.py` gains a `--style-overlay-results` flag that accepts paths to overlay result files.
-3. For each cop that appears in an overlay result, the markdown renderer emits one row per variant. Cops without overlay data keep their single row.
+1. The weekly CI job (Step 8) produces a `style-variant-results.json` artifact with per-(cop, style, repo) counts.
+2. `diff_results.py` gains a `--style-variant-results` flag that accepts the path to this file.
+3. For each cop that has style-variant data, the markdown renderer emits one row per variant. Cops without variant data keep their single row.
 4. The detail `<details>` sections also show per-variant FP/FN samples.
 
 **Fallback:** Until style-overlay CI runs are in place, `docs/corpus.md` continues to show the existing single-row format. The per-variant rows appear automatically once overlay results exist — no manual intervention needed.
@@ -471,21 +441,23 @@ The baseline corpus config (`bench/corpus/baseline_rubocop.yml`) uses default
 parameter values for all cops. This means corpus-perfect cops may have bugs
 in non-default code paths (e.g., `EnforcedStyleForMultiline: comma`).
 
-### Style overlays
+### Per-style corpus check
 
-Style overlays (`bench/corpus/style_overlays/*.yml`) represent popular
-non-default style bundles. Use them to validate cops against non-default
-configs:
+Override a single style parameter for a corpus check:
 
     python3 scripts/check_cop.py Department/CopName \
-        --style-overlay bench/corpus/style_overlays/trailing_comma.yml \
+        --style EnforcedStyleForMultiline=comma \
         --rerun --clone --sample 30
 
-### Batch style-variant check
+### Exhaustive style-variant check
 
-Check all supported styles for a cop at once:
+Check ALL supported styles for a cop at once:
 
     python3 scripts/check_cop_styles.py Department/CopName --sample 50
+
+Check every configurable cop across all styles (CI-only, slow):
+
+    python3 scripts/check_cop_styles.py --all --sample 30
 
 ### Native-config spot checks
 
@@ -510,23 +482,23 @@ To see which style variants lack test coverage:
 2. **`src/cop/mod.rs`** — Extend `cop_fixture_tests!` macro to support `variants:` (~40 lines)
 3. **Priority 1 fixtures** — Write `offense.comma.rb` / `no_offense.comma.rb` etc. for the 4 cops listed above. Fix bugs as found.
 4. **`scripts/audit_style_coverage.py`** — Audit script (~100 lines)
-5. **Style overlay configs** — Create `bench/corpus/style_overlays/{standardrb,trailing_comma,shopify}.yml`
-6. **`check_cop.py --style-overlay`** — Extend `run_nitrocop.py` and `check_cop.py` (~80 lines)
-7. **`scripts/check_cop_styles.py`** — Batch style-variant checker (~120 lines)
-8. **Priority 2 fixtures** — 10 cops × ~2 fixture files each
-9. **`check_cop.py --native-config`** — Native-config mode (~60 lines)
-10. **`bench/corpus/diverse_config_repos.txt`** + `scripts/find_diverse_config_repos.py` — Curated repo list
-11. **`bench/corpus/diff_results.py`** — Per-variant rows in `docs/corpus.md` when overlay results exist
-12. **`docs/corpus-workflow.md`** — Document the new workflow
-13. **Priority 3 fixtures** — Remaining 82 cops, done incrementally as cops are touched
-14. **CI workflow** — Optional weekly style-variant job
+5. **`check_cop.py --style`** — Single-style-param override for corpus checks (~80 lines)
+6. **`scripts/check_cop_styles.py`** — Exhaustive per-cop style-variant checker (~200 lines)
+7. **Priority 2 fixtures** — 10 cops × ~2 fixture files each
+8. **`check_cop.py --native-config`** — Native-config mode (~60 lines)
+9. **`bench/corpus/diverse_config_repos.txt`** + `scripts/find_diverse_config_repos.py` — Curated repo list
+10. **`bench/corpus/diff_results.py`** — Per-variant rows in `docs/corpus.md` from style-variant results
+11. **`docs/corpus-workflow.md`** — Document the new workflow
+12. **Priority 3 fixtures** — Remaining 82 cops, done incrementally as cops are touched
+13. **CI workflow** — Weekly exhaustive `check_cop_styles.py --all` job
 
 ## Verification
 
 - `cargo test --release` passes with all new fixtures
 - `scripts/audit_style_coverage.py` shows no regressions (untested count only goes down)
 - `check_cop.py --rerun` for any cop whose implementation was modified (baseline corpus doesn't regress)
-- `check_cop_styles.py` shows 0 divergences for priority-1 cops across all styles
+- `check_cop_styles.py CopName` shows 0 divergences across ALL supported styles for priority-1 cops
+- `check_cop_styles.py --all --sample 30` passes with no divergences (long-term goal)
 - `check_cop.py --native-config` on diverse-config repos shows 0 divergences for priority-1 cops
 - Re-run nitrocop on the project that surfaced the original FPs — the 30 offenses should drop to 0
 
