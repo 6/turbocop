@@ -214,3 +214,21 @@ raise "Must specify port number!" if @connect_type == :client and \
 raise 'Duplicate field names are not allowed!' unless \
                                                       ^ Style/RedundantLineContinuation: Redundant line continuation.
   temp_field_names == temp_field_names.uniq
+
+.select('from_customer_id,sum(carrying_fee) sum_carrying_fee') \
+^ Style/RedundantLineContinuation: Redundant line continuation.
+
+:state_ni => ['canceled','invalided'] ) \
+^ Style/RedundantLineContinuation: Redundant line continuation.
+
+.select('from_customer_name,from_customer_mobile,sum(carrying_fee) sum_carrying_fee') \
+^ Style/RedundantLineContinuation: Redundant line continuation.
+
+match(%r{^\["The property '#/data/0' did not contain a required property of 'required_string' in schema \
+^ Style/RedundantLineContinuation: Redundant line continuation.
+
+'&Psi;', '&Omega;']\
+^ Style/RedundantLineContinuation: Redundant line continuation.
+
+'&exist;', '&forall;', '&rArr;', '&hArr;', '&rarr;', '&harr;', '&uarr;']\
+^ Style/RedundantLineContinuation: Redundant line continuation.
