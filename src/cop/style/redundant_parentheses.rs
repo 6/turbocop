@@ -981,10 +981,12 @@ fn check_method_call<'a>(
     // exactly one child. For Return/Next/Break/Super/Yield, this means the
     // keyword has a single argument. `[]` calls are handled like RuboCop's
     // `square_brackets?` matcher and don't need the singular-parent check.
-    if has_args && !call_has_parens && !is_square_brackets {
-        if !has_singular_parenthesized_parent(parent) {
-            return None;
-        }
+    if has_args
+        && !call_has_parens
+        && !is_square_brackets
+        && !has_singular_parenthesized_parent(parent)
+    {
+        return None;
     }
 
     Some("a method call")
