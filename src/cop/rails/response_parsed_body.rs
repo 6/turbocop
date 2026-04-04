@@ -4,6 +4,20 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Rails/ResponseParsedBody
+///
+/// FN fix: RuboCop's ResponseParsedBody cop does NOT use `requires_gem
+/// 'railties'` — it only checks `minimum_target_rails_version 5.0` via the
+/// `TargetRailsVersion` config setting. We use `target_rails_version()`
+/// directly (not `rails_version_at_least()`) because the latter also
+/// requires `railties` in `Gemfile.lock`, which the corpus lockfile does
+/// not have (it only bundles linter gems, not Rails itself).
+///
+/// Corpus note: this cop is Include-gated (`spec/controllers/**/*.rb`,
+/// `spec/requests/**/*.rb`, etc.). These patterns come from the
+/// rubocop-rails gem config and resolve relative to base_dir (CWD for
+/// non-dotfile configs). Corpus runs must use `--repo-cwd` so that CWD
+/// equals the repo root and the Include patterns match.
 pub struct ResponseParsedBody;
 
 impl Cop for ResponseParsedBody {
@@ -38,7 +52,9 @@ impl Cop for ResponseParsedBody {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_rails_version 5.0
-        if !config.rails_version_at_least(5.0) {
+        // Use target_rails_version() directly — RuboCop's cop does NOT use
+        // `requires_gem 'railties'`, only `minimum_target_rails_version 5.0`.
+        if !config.target_rails_version().is_some_and(|v| v >= 5.0) {
             return;
         }
 
@@ -104,21 +120,26 @@ impl Cop for ResponseParsedBody {
         }
 
         // Check for Nokogiri::HTML.parse(response.body) / Nokogiri::HTML5.parse(response.body)
-        if let Some(cp) = recv.as_constant_path_node() {
-            if let Some(name) = cp.name() {
-                let name_bytes = name.as_slice();
-                if name_bytes == b"HTML" || name_bytes == b"HTML5" {
-                    if let Some(parent) = cp.parent() {
-                        if constant_predicates::constant_short_name(&parent) == Some(b"Nokogiri") {
-                            let const_name = std::str::from_utf8(name_bytes).unwrap_or("HTML");
-                            let loc = node.location();
-                            let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            diagnostics.push(self.diagnostic(
-                                source,
-                                line,
-                                column,
-                                format!("Prefer `response.parsed_body` to `Nokogiri::{const_name}.parse(response.body)`."),
-                            ));
+        // RuboCop only checks Nokogiri patterns when target_rails_version >= 7.1
+        if config.target_rails_version().is_some_and(|v| v >= 7.1) {
+            if let Some(cp) = recv.as_constant_path_node() {
+                if let Some(name) = cp.name() {
+                    let name_bytes = name.as_slice();
+                    if name_bytes == b"HTML" || name_bytes == b"HTML5" {
+                        if let Some(parent) = cp.parent() {
+                            if constant_predicates::constant_short_name(&parent)
+                                == Some(b"Nokogiri")
+                            {
+                                let const_name = std::str::from_utf8(name_bytes).unwrap_or("HTML");
+                                let loc = node.location();
+                                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                diagnostics.push(self.diagnostic(
+                                    source,
+                                    line,
+                                    column,
+                                    format!("Prefer `response.parsed_body` to `Nokogiri::{const_name}.parse(response.body)`."),
+                                ));
+                            }
                         }
                     }
                 }
@@ -132,4 +153,39 @@ mod tests {
     use super::*;
 
     crate::cop_rails_fixture_tests!(ResponseParsedBody, "cops/rails/response_parsed_body", 5.0);
+
+    #[test]
+    fn nokogiri_requires_rails_7_1() {
+        // Nokogiri::HTML.parse(response.body) is only flagged at Rails >= 7.1
+        let source = b"Nokogiri::HTML.parse(response.body)\nNokogiri::HTML5.parse(response.body)\n";
+
+        // At 5.0 — no offense
+        let parsed = crate::testutil::parse_fixture(source);
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "TargetRailsVersion".to_string(),
+            serde_yml::Value::Number(serde_yml::value::Number::from(5.0)),
+        );
+        let config = crate::cop::CopConfig {
+            options,
+            ..crate::cop::CopConfig::default()
+        };
+        let diags =
+            crate::testutil::run_cop_full_with_config(&ResponseParsedBody, &parsed.source, config);
+        assert!(diags.is_empty(), "Nokogiri should not fire at Rails 5.0");
+
+        // At 7.1 — offense
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "TargetRailsVersion".to_string(),
+            serde_yml::Value::Number(serde_yml::value::Number::from(7.1)),
+        );
+        let config = crate::cop::CopConfig {
+            options,
+            ..crate::cop::CopConfig::default()
+        };
+        let diags =
+            crate::testutil::run_cop_full_with_config(&ResponseParsedBody, &parsed.source, config);
+        assert_eq!(diags.len(), 2, "Nokogiri should fire at Rails 7.1");
+    }
 }
