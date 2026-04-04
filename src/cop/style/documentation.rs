@@ -71,6 +71,38 @@ use crate::parse::source::SourceFile;
 /// honoring same-line `:nodoc:` when the definition is inline after other code or starts with
 /// `::`, and skip `class` definitions used as `=` assignment values, matching RuboCop's
 /// comment association and statement-position behavior.
+///
+/// ## Investigation findings (2026-04-04)
+///
+/// **FP root causes (25 resolved):**
+/// 1. Blank-line scanning in `has_documentation_comment_in_context` reset its state on blank lines
+///    after annotation-only comment blocks. RuboCop's `ast_with_comments` associates ALL comments
+///    before a node (even across blank lines), so real documentation above an annotation block like
+///    `# TODO spec` separated by blank lines was not found.
+/// 2. Comments starting with `!` were treated as shebangs. Only `!/` is a shebang prefix; comments
+///    like `# !deny policy entry` are real documentation.
+/// 3. Leaf nodes (`self`, `nil`, `true`, `false`) in class bodies were not recognized as
+///    include-only. RuboCop's `body.children.all? { ... }` returns true vacuously for leaf nodes
+///    with empty children arrays.
+/// 4. Assigned class expressions (`x = class Foo; self; end`) were skipped entirely, but RuboCop
+///    checks them like any other class definition.
+///
+/// **FN root causes (12 resolved):**
+/// 5. The rescue-begin first-child rule was depth-based (`rescue_begin_depth`), preventing comment
+///    attachment for ALL children of a rescue-begin block. RuboCop's parser gem only dissociates
+///    comments from the FIRST child of a rescue-begin; comments between siblings (second child
+///    onward) are correctly associated. Replaced with a boolean `rescue_begin_first_child` flag.
+/// 6. `:nodoc: all` matching was too loose — accepted `:nodoc:all` (no space) and
+///    `:nodoc: all::Plugin` (trailing text). RuboCop's regex is `/^#\s*:nodoc:\s+all\s*$/`,
+///    requiring at least one space before `all` and nothing after it.
+///
+/// **Fix:** (1) Don't reset blank-line scanning state when walking past annotations.
+/// (2) Only treat `#!/` as shebang, not `#!` followed by non-slash.
+/// (3) Treat `self`/`nil`/`true`/`false` body nodes as vacuously include-only.
+/// (4) Remove `assigned_definition` skip for class expressions.
+/// (5) Replace `rescue_begin_depth` with `rescue_begin_first_child` boolean, only set for the
+/// first statement in a rescue-begin block. (6) Match `:nodoc: all` strictly with required space
+/// before `all` and no trailing content.
 pub struct Documentation;
 
 /// Extract the short (unqualified) name from a constant node.
@@ -148,6 +180,16 @@ fn is_include_statement_only(node: &ruby_prism::Node<'_>) -> bool {
         }
         return false;
     }
+    // RuboCop's `include_statement_only?` uses `body.children.all? { ... }` which
+    // returns true vacuously for leaf nodes (nodes with empty children like `self`,
+    // `nil`, `true`, `false`).  Match that behavior.
+    if node.as_self_node().is_some()
+        || node.as_nil_node().is_some()
+        || node.as_true_node().is_some()
+        || node.as_false_node().is_some()
+    {
+        return true;
+    }
     false
 }
 
@@ -217,8 +259,16 @@ fn check_nodoc(
         // Look for #:nodoc: or # :nodoc: (with optional spaces)
         if let Some(pos) = line_str.find("#") {
             let comment = &line_str[pos..];
-            if comment.contains(":nodoc:") {
-                let has_all = comment.contains(":nodoc: all") || comment.contains(":nodoc:all");
+            if let Some(np) = comment.find(":nodoc:") {
+                // RuboCop's regex: /^#\s*:nodoc:\s+all\s*$/
+                // Requires whitespace between :nodoc: and 'all', and 'all' must be
+                // at the end of the comment (no trailing code like `::Plugin`).
+                let after_nodoc = &comment[np + 7..];
+                let has_space = after_nodoc.starts_with(' ') || after_nodoc.starts_with('\t');
+                let has_all = has_space && {
+                    let trimmed = after_nodoc.trim_start();
+                    trimmed.starts_with("all") && trimmed[3..].trim().is_empty()
+                };
                 return (true, has_all);
             }
         }
@@ -255,23 +305,11 @@ fn can_attach_preceding_comment(
     source: &SourceFile,
     keyword_offset: usize,
     end_offset: usize,
-    inside_rescue_begin: bool,
+    rescue_begin_first_child: bool,
 ) -> bool {
-    !inside_rescue_begin
+    !rescue_begin_first_child
         && !line_has_code_before_offset(source, keyword_offset)
         && !line_has_code_after_offset(source, end_offset)
-}
-
-fn previous_significant_byte_on_line(source: &SourceFile, offset: usize) -> Option<u8> {
-    let (line_num, column) = source.offset_to_line_col(offset);
-    let lines: Vec<&[u8]> = source.lines().collect();
-    let line = lines.get(line_num - 1)?;
-    let prefix = &line[..column.min(line.len())];
-    prefix
-        .iter()
-        .rev()
-        .copied()
-        .find(|b| !b.is_ascii_whitespace())
 }
 
 fn has_cbase_prefix(path: &ruby_prism::Node<'_>) -> bool {
@@ -327,8 +365,9 @@ fn has_documentation_comment_in_context(
                 break;
             }
             if seen_any_comment {
-                // First block was all directives — skip blank and look above
-                seen_any_comment = false;
+                // All directives/annotations so far — skip blank lines and keep looking
+                // for real documentation above (RuboCop's ast_with_comments associates
+                // all comments before a node, even across blank lines).
                 if line_idx == 0 {
                     break;
                 }
@@ -369,7 +408,9 @@ pub(crate) fn is_annotation_or_directive(comment: &str) -> bool {
     let text = comment.trim_start_matches('#').trim();
 
     // Shebang / interpreter directive comments do not count as documentation.
-    if text.starts_with('!') {
+    // Must start with `!/` to match actual shebangs like `#!/usr/bin/env ruby`,
+    // not comments like `# !deny policy entry`.
+    if text.starts_with("!/") {
         return true;
     }
 
@@ -537,7 +578,7 @@ impl Cop for Documentation {
             diagnostics: Vec::new(),
             allowed_constants,
             nodoc_all_depth: 0,
-            rescue_begin_depth: 0,
+            rescue_begin_first_child: false,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -551,8 +592,11 @@ struct DocumentationVisitor<'a> {
     allowed_constants: Vec<String>,
     /// Depth counter: >0 means we're inside a `:nodoc: all` parent
     nodoc_all_depth: usize,
-    /// >0 while visiting the body of a `begin ... rescue/ensure/else` wrapper.
-    rescue_begin_depth: usize,
+    /// True when visiting the first direct child of a `begin ... rescue/ensure/else`.
+    /// Parser's `ast_with_comments` does not associate comments before the first child
+    /// of a rescue-begin with that child (they go to the begin node instead).
+    /// Comments between siblings ARE associated normally.
+    rescue_begin_first_child: bool,
 }
 
 impl<'pr> Visit<'pr> for DocumentationVisitor<'_> {
@@ -560,22 +604,25 @@ impl<'pr> Visit<'pr> for DocumentationVisitor<'_> {
         let name = extract_short_name(&node.constant_path());
         let kw_loc = node.class_keyword_loc();
         let start = kw_loc.start_offset();
-        let assigned_definition =
-            previous_significant_byte_on_line(self.source, start) == Some(b'=');
         let allow_inline_nodoc = !line_has_code_before_offset(self.source, start)
             && !has_cbase_prefix(&node.constant_path());
         let (has_nodoc, has_nodoc_all) = check_nodoc(self.source, start, allow_inline_nodoc);
+
+        // Capture and clear the rescue-begin-first-child flag so it doesn't
+        // propagate to nested classes/modules inside this node.
+        let saved_rescue_first = self.rescue_begin_first_child;
+        self.rescue_begin_first_child = false;
+
         let allow_preceding_comment = can_attach_preceding_comment(
             self.source,
             start,
             node.end_keyword_loc().end_offset(),
-            self.rescue_begin_depth > 0,
+            saved_rescue_first,
         );
 
         // Check documentation requirement (only if not inside a :nodoc: all parent)
         if self.nodoc_all_depth == 0
             && !self.allowed_constants.iter().any(|c| c == &name)
-            && !assigned_definition
             && !has_nodoc
             && !is_namespace_only(&node.body(), true)
             && !is_include_only(&node.body())
@@ -598,6 +645,7 @@ impl<'pr> Visit<'pr> for DocumentationVisitor<'_> {
         if has_nodoc_all {
             self.nodoc_all_depth -= 1;
         }
+        self.rescue_begin_first_child = saved_rescue_first;
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
@@ -607,11 +655,16 @@ impl<'pr> Visit<'pr> for DocumentationVisitor<'_> {
         let allow_inline_nodoc = !line_has_code_before_offset(self.source, start)
             && !has_cbase_prefix(&node.constant_path());
         let (has_nodoc, has_nodoc_all) = check_nodoc(self.source, start, allow_inline_nodoc);
+
+        // Capture and clear the rescue-begin-first-child flag.
+        let saved_rescue_first = self.rescue_begin_first_child;
+        self.rescue_begin_first_child = false;
+
         let allow_preceding_comment = can_attach_preceding_comment(
             self.source,
             start,
             node.end_keyword_loc().end_offset(),
-            self.rescue_begin_depth > 0,
+            saved_rescue_first,
         );
 
         // Check documentation requirement (only if not inside a :nodoc: all parent)
@@ -639,6 +692,7 @@ impl<'pr> Visit<'pr> for DocumentationVisitor<'_> {
         if has_nodoc_all {
             self.nodoc_all_depth -= 1;
         }
+        self.rescue_begin_first_child = saved_rescue_first;
     }
 
     fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
@@ -647,11 +701,20 @@ impl<'pr> Visit<'pr> for DocumentationVisitor<'_> {
             || node.ensure_clause().is_some();
 
         if masks_preceding_comments {
-            self.rescue_begin_depth += 1;
+            // Only suppress preceding-comment recognition for the FIRST direct
+            // child of a rescue-begin body.  Parser's `ast_with_comments` does not
+            // associate comments before the first child with that child; comments
+            // between later siblings ARE associated normally.
+            let saved = self.rescue_begin_first_child;
             if let Some(statements) = node.statements() {
-                self.visit_statements_node(&statements);
+                let mut first = true;
+                for stmt in statements.body().iter() {
+                    self.rescue_begin_first_child = first;
+                    self.visit(&stmt);
+                    first = false;
+                }
             }
-            self.rescue_begin_depth -= 1;
+            self.rescue_begin_first_child = false;
 
             if let Some(rescue_clause) = node.rescue_clause() {
                 self.visit_rescue_node(&rescue_clause);
@@ -662,8 +725,15 @@ impl<'pr> Visit<'pr> for DocumentationVisitor<'_> {
             if let Some(ensure_clause) = node.ensure_clause() {
                 self.visit_ensure_node(&ensure_clause);
             }
+            self.rescue_begin_first_child = saved;
         } else {
+            // Plain begin (no rescue/ensure/else) is transparent to comment
+            // association — clear the first-child flag so nested classes/modules
+            // can still have their docs recognized.
+            let saved = self.rescue_begin_first_child;
+            self.rescue_begin_first_child = false;
             ruby_prism::visit_begin_node(self, node);
+            self.rescue_begin_first_child = saved;
         }
     }
 }

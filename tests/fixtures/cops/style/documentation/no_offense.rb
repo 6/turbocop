@@ -126,3 +126,45 @@ module Marshal
     include MarshalAutoloader
   end
 end
+
+# FP fix: class with self body is include-only (RuboCop [].all? vacuous truth)
+class SelfBody
+  self
+end
+
+# FP fix: class with nil body is include-only
+class NilBody
+  nil
+end
+
+# FP fix: assigned class with include-only body (self) is not flagged
+x = class AssignedSelf
+  self
+end
+
+# FP fix: docs between begin-rescue siblings ARE recognized
+begin
+  require 'strscan'
+  # This class implements a parser
+  class ParserInBegin
+    def method; end
+  end
+rescue LoadError
+end
+
+# FP fix: annotation-only block above real docs (separated by blank lines)
+# are still recognized via ast_with_comments-like association
+
+# Copyright 2024 TEA
+# Licensed under GPL-3
+
+# TODO spec
+class AnnotatedWithDocs
+  def method; end
+end
+
+# FP fix: comment starting with ! but not a shebang counts as documentation
+# !deny policy entry
+class DenyPolicy
+  def method; end
+end

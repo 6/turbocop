@@ -133,3 +133,27 @@ class ::Object #:nodoc:
     class << self; self end
   end
 end
+
+class FormatParser::DPXParser
+^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
+  class Inner; end
+  def method; end
+end
+
+# frozen_string_literal: true
+
+module Iguvium
+^^^^^^ Style/Documentation: Missing top-level documentation comment for `module`.
+  GAUSS = 1
+  def method; end
+end
+
+layout = class TestStruct < FFI::Struct
+         ^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
+  layout :i, :int
+end
+
+out = class Cor
+      ^^^^^ Style/Documentation: Missing top-level documentation comment for `class`.
+  def blimey; end
+end
