@@ -99,24 +99,6 @@ python3 bench/corpus/gen_variant_batches.py --output-dir bench/corpus/variant_ba
 The corpus oracle runs these when triggered with `run_style_variants: true`.
 Results appear as per-variant rows in `docs/corpus.md`.
 
-### Native-config spot checks
-
-For end-to-end validation with a repo's own `.rubocop.yml`:
-
-```bash
-python3 scripts/check_cop.py Department/CopName \
-    --native-config --repo owner__repo__sha --rerun
-
-python3 scripts/check_cop.py Department/CopName \
-    --native-config --repos-file bench/corpus/diverse_config_repos.txt --clone
-```
-
-Generate a curated repo list first (requires some corpus repos cloned locally):
-
-```bash
-python3 scripts/find_diverse_config_repos.py --output bench/corpus/diverse_config_repos.txt
-```
-
 ### Audit coverage
 
 To see which style variants lack test coverage:

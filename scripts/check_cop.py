@@ -707,76 +707,6 @@ def spot_check_examples(cop_name: str, data: dict) -> tuple[int, int, int, int, 
     return fp_remain, fp_resolved, fn_remain, fn_resolved, fp_unchecked, fn_unchecked
 
 
-def run_native_config_check(
-    cop_name: str,
-    repo_ids: list[str],
-) -> dict[str, dict[str, int]]:
-    """Run both nitrocop and rubocop with each repo's native .rubocop.yml.
-
-    Returns {repo_id: {"nitrocop": count, "rubocop": count}}.
-    """
-    from run_nitrocop import build_env
-
-    corpus_dir = _get_corpus_dir()
-    results: dict[str, dict[str, int]] = {}
-
-    for repo_id in repo_ids:
-        repo_dir = corpus_dir / repo_id
-        if not repo_dir.exists():
-            print(f"  Skipping {repo_id} (not cloned)", file=sys.stderr)
-            continue
-        rubocop_yml = repo_dir / ".rubocop.yml"
-        if not rubocop_yml.exists():
-            print(f"  Skipping {repo_id} (no .rubocop.yml)", file=sys.stderr)
-            continue
-
-        print(f"  {repo_id}...", end=" ", flush=True, file=sys.stderr)
-        abs_dir = str(repo_dir.absolute())
-        env = build_env(abs_dir)
-
-        # nitrocop with native config (no --config flag)
-        nc_cmd = [
-            str(NITROCOP_BIN), "--preview", "--format", "json",
-            "--no-cache", "--only", cop_name, abs_dir,
-        ]
-        try:
-            nc_result = subprocess.run(
-                nc_cmd, capture_output=True, text=True, timeout=120, env=env,
-                cwd=abs_dir,
-            )
-            nc_data = json.loads(nc_result.stdout)
-            nc_count = len([
-                o for o in nc_data.get("offenses", [])
-                if o.get("cop_name") == cop_name
-            ])
-        except (subprocess.TimeoutExpired, json.JSONDecodeError):
-            nc_count = -1
-
-        # rubocop with native config
-        rc_cmd = [
-            "bundle", "exec", "rubocop", "--format", "json",
-            "--only", cop_name, "--cache", "false", abs_dir,
-        ]
-        try:
-            rc_result = subprocess.run(
-                rc_cmd, capture_output=True, text=True, timeout=120, env=env,
-                cwd=abs_dir,
-            )
-            rc_data = json.loads(rc_result.stdout)
-            rc_count = sum(
-                len(f.get("offenses", []))
-                for f in rc_data.get("files", [])
-            )
-        except (subprocess.TimeoutExpired, json.JSONDecodeError):
-            rc_count = -1
-
-        results[repo_id] = {"nitrocop": nc_count, "rubocop": rc_count}
-        diff = nc_count - rc_count if nc_count >= 0 and rc_count >= 0 else "?"
-        print(f"nc={nc_count} rc={rc_count} diff={diff}", file=sys.stderr)
-
-    return results
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Check a cop against the corpus for aggregate count regressions")
@@ -814,14 +744,6 @@ def main():
                         help="Override a single cop config parameter for both nitrocop "
                              "and rubocop. E.g., --style EnforcedStyleForMultiline=comma. "
                              "Generates a temporary config inheriting from the baseline.")
-    parser.add_argument("--native-config", action="store_true",
-                        help="Use each repo's own .rubocop.yml instead of the baseline. "
-                             "Runs rubocop with the repo's native config for ground truth. "
-                             "Only works on repos with a valid .rubocop.yml.")
-    parser.add_argument("--repo", type=str, default=None,
-                        help="Spot-check a specific repo (used with --native-config)")
-    parser.add_argument("--repos-file", type=Path, default=None,
-                        help="File with one repo ID per line (used with --native-config)")
     args = parser.parse_args()
 
     # Declare all globals used in this function up front (Python requires
@@ -908,50 +830,6 @@ def main():
         _STYLE_CONFIG_OVERRIDE = style_config_override
 
     ensure_binary()
-
-    # ── Native-config mode: use each repo's own .rubocop.yml ──
-    if args.native_config:
-        repo_ids: list[str] = []
-        if args.repo:
-            repo_ids = [args.repo]
-        elif args.repos_file:
-            repo_ids = [
-                line.strip() for line in args.repos_file.read_text().splitlines()
-                if line.strip() and not line.strip().startswith("#")
-            ]
-        else:
-            print("ERROR: --native-config requires --repo or --repos-file", file=sys.stderr)
-            sys.exit(1)
-
-        if args.clone:
-            import tempfile
-            tmpdir = Path(tempfile.mkdtemp(prefix="nitrocop_native_"))
-            manifest = load_manifest()
-            needed = set(repo_ids) & set(manifest.keys())
-            print(f"Cloning {len(needed)} repos for native-config check...", file=sys.stderr)
-            _clone_repos(tmpdir, manifest, repo_ids=needed, parallel=3)
-            _CLONE_DIR = tmpdir / "repos"
-
-        check_corpus_bundle()
-        print(f"Native-config check: {args.cop} on {len(repo_ids)} repos", file=sys.stderr)
-        results = run_native_config_check(args.cop, repo_ids)
-
-        total_match = sum(
-            1 for r in results.values()
-            if r["nitrocop"] >= 0 and r["rubocop"] >= 0 and r["nitrocop"] == r["rubocop"]
-        )
-        total_diverge = sum(
-            1 for r in results.values()
-            if r["nitrocop"] >= 0 and r["rubocop"] >= 0 and r["nitrocop"] != r["rubocop"]
-        )
-        print(f"\nNative-config results: {total_match} match, {total_diverge} diverge "
-              f"out of {len(results)} repos")
-        for repo_id, counts in sorted(results.items()):
-            nc, rc = counts["nitrocop"], counts["rubocop"]
-            if nc >= 0 and rc >= 0 and nc != rc:
-                print(f"  DIVERGE  {repo_id}: nitrocop={nc} rubocop={rc} diff={nc - rc:+d}")
-
-        sys.exit(1 if total_diverge > 0 else 0)
 
     # Validate local corpus matches manifest (warns about stale/missing repos)
     if args.rerun:
