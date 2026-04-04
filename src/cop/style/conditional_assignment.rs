@@ -1,18 +1,21 @@
 use crate::cop::shared::method_identifier_predicates;
-use crate::cop::shared::node_type::{CASE_MATCH_NODE, CASE_NODE, IF_NODE};
+use crate::cop::shared::node_type::{CASE_MATCH_NODE, CASE_NODE, IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 const MSG: &str = "Use the return of the conditional for variable assignment and comparison.";
 
-/// Checks for `if`, `case`, and `case/in` statements where each branch
-/// assigns to the same variable. Suggests using the return value of the
-/// conditional instead.
+/// Checks for `if`, `unless`, `case`, and `case/in` statements where each
+/// branch assigns to the same variable. Suggests using the return value of
+/// the conditional instead.
 ///
 /// Supports local, instance, class, global variable writes, constant writes,
 /// setter calls (`obj.x =`), index setters (`obj[k] =`), and compound
 /// assignments (`+=`, `&&=`, `||=`).
+///
+/// Handles `if/elsif/else` chains (all branches must assign the same target),
+/// `unless/else`, and ternary expressions with assignments.
 ///
 /// Respects `SingleLineConditionsOnly` (default true): skips when any branch
 /// has multiple statements. Skips offenses whose autocorrection would exceed
@@ -25,10 +28,6 @@ const MSG: &str = "Use the return of the conditional for variable assignment and
 /// Some repos disable `Layout/LineLength` via `DisabledByDefault: true`, which
 /// means the oracle was generated without the guard — causing a small FN delta
 /// at HEAD for those repos. This is acceptable in reduce mode.
-///
-/// Remaining FN come primarily from: `unless` conditionals, multi-statement
-/// branches where `SingleLineConditionsOnly` suppresses, and patterns not yet
-/// handled (e.g. constant path writes, multi-assignment).
 pub struct ConditionalAssignment;
 
 impl Cop for ConditionalAssignment {
@@ -37,7 +36,7 @@ impl Cop for ConditionalAssignment {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CASE_MATCH_NODE, CASE_NODE, IF_NODE]
+        &[CASE_MATCH_NODE, CASE_NODE, IF_NODE, UNLESS_NODE]
     }
 
     fn check_node(
@@ -104,6 +103,15 @@ impl Cop for ConditionalAssignment {
                 line_length_enabled,
                 diagnostics,
             );
+        } else if let Some(unless_node) = node.as_unless_node() {
+            self.check_unless(
+                source,
+                &unless_node,
+                single_line_only,
+                max_line_length,
+                line_length_enabled,
+                diagnostics,
+            );
         }
     }
 }
@@ -118,33 +126,49 @@ impl ConditionalAssignment {
         line_length_enabled: bool,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        // Must have subsequent clause
-        let subsequent = match if_node.subsequent() {
-            Some(s) => s,
-            None => return,
-        };
-        // Must be simple if/else, not if/elsif/else
-        if subsequent.as_if_node().is_some() {
-            return;
-        }
-        let else_node = match subsequent.as_else_node() {
-            Some(e) => e,
-            None => return,
-        };
+        // Collect all branches: if body, then traverse elsif chain, then else
+        let mut bodies: Vec<Vec<ruby_prism::Node<'_>>> = Vec::new();
 
+        // First branch: the if body
         let if_stmts = match if_node.statements() {
             Some(s) => s,
             None => return,
         };
-        let if_body: Vec<_> = if_stmts.body().iter().collect();
+        bodies.push(if_stmts.body().iter().collect());
 
-        let else_stmts = match else_node.statements() {
-            Some(s) => s,
-            None => return,
-        };
-        let else_body: Vec<_> = else_stmts.body().iter().collect();
+        // Traverse the subsequent chain (elsif nodes and final else)
+        let mut current_subsequent = if_node.subsequent();
+        loop {
+            let subsequent = match current_subsequent {
+                Some(s) => s,
+                None => return, // no else clause at end -> not flaggable
+            };
 
-        let branches: [&[ruby_prism::Node<'_>]; 2] = [&if_body, &else_body];
+            // Check if it's another if node (elsif)
+            if let Some(elsif_node) = subsequent.as_if_node() {
+                let stmts = match elsif_node.statements() {
+                    Some(s) => s,
+                    None => return,
+                };
+                bodies.push(stmts.body().iter().collect());
+                current_subsequent = elsif_node.subsequent();
+                continue;
+            }
+
+            // Must be an else node (terminal)
+            let else_node = match subsequent.as_else_node() {
+                Some(e) => e,
+                None => return,
+            };
+            let else_stmts = match else_node.statements() {
+                Some(s) => s,
+                None => return,
+            };
+            bodies.push(else_stmts.body().iter().collect());
+            break;
+        }
+
+        let branches: Vec<&[ruby_prism::Node<'_>]> = bodies.iter().map(|v| v.as_slice()).collect();
         self.check_branches(
             source,
             &if_node.location(),
@@ -232,6 +256,45 @@ impl ConditionalAssignment {
         self.check_branches(
             source,
             &case_match.location(),
+            &branches,
+            single_line_only,
+            max_line_length,
+            line_length_enabled,
+            diagnostics,
+        );
+    }
+
+    fn check_unless(
+        &self,
+        source: &SourceFile,
+        unless_node: &ruby_prism::UnlessNode<'_>,
+        single_line_only: bool,
+        max_line_length: usize,
+        line_length_enabled: bool,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // Must have else clause
+        let else_clause = match unless_node.else_clause() {
+            Some(e) => e,
+            None => return,
+        };
+
+        let unless_stmts = match unless_node.statements() {
+            Some(s) => s,
+            None => return,
+        };
+        let unless_body: Vec<_> = unless_stmts.body().iter().collect();
+
+        let else_stmts = match else_clause.statements() {
+            Some(s) => s,
+            None => return,
+        };
+        let else_body: Vec<_> = else_stmts.body().iter().collect();
+
+        let branches: [&[ruby_prism::Node<'_>]; 2] = [&unless_body, &else_body];
+        self.check_branches(
+            source,
+            &unless_node.location(),
             &branches,
             single_line_only,
             max_line_length,
