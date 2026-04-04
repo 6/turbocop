@@ -82,3 +82,27 @@ end
 
 @@logging_device_file_options = {size: 1_000_000, age: 'daily', roll_by: 'number'} unless defined? @@logging_device_file_options
 ^ Style/IfUnlessModifier: Modifier form of `unless` makes the line too long.
+
+after_save { if user then user.update_contribution_count end }
+^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
+
+after_destroy { if user then user.update_contribution_count end }
+^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
+
+options ||= unless options_or_body.is_a?(Hash)
+^ Style/IfUnlessModifier: Favor modifier `unless` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
+
+(if defined?(@instrumented_integrations)
+^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
+
+if @page && @page.to_i>10 && !current_user
+^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
+
+result = "#{property.name}: #{property.type.to_s}#{if has_default_value then " = " + "#{default_value}" end}"
+^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
+
+unless current_user.partner? || current_user.admin?
+^ Style/IfUnlessModifier: Favor modifier `unless` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.
+
+if Rails.env.development?
+^ Style/IfUnlessModifier: Favor modifier `if` usage when having a single-line body. Another good alternative is the usage of control flow `&&`/`||`.

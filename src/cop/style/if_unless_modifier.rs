@@ -28,6 +28,11 @@ use ruby_prism::Visit;
 /// 6. **nonempty_line_count > 3**: Multiline conditions like `if a &&\n  b\n  body\nend`
 ///    have 4+ non-empty lines. RuboCop skips these. Fix: count non-empty lines in
 ///    the entire if/unless node source range.
+/// 7. **Regexp literal on the LHS of `=~`**: `if /foo/ =~ bar` and
+///    `value if /foo/ =~ bar` are accepted by RuboCop, but compound conditions
+///    like `if /foo/ =~ bar && baz` are still offenses. Fix: skip only when the
+///    top-level condition itself is an `=~` call whose receiver is a regexp
+///    literal (or interpolated regexp).
 ///
 /// FN root causes (2026-04-01): The biggest remaining cluster was long
 /// modifier-form statements like `raise '...' if condition`. The old Rust cop
@@ -158,6 +163,53 @@ impl<'pr> Visit<'pr> for NamedCaptureFinder {
     fn visit_match_write_node(&mut self, _node: &ruby_prism::MatchWriteNode<'pr>) {
         self.found = true;
     }
+}
+
+/// Check whether the top-level condition is a regexp literal/interpolated regexp
+/// on the left side of `=~`, e.g. `if /foo/ =~ bar`.
+///
+/// This is intentionally top-level only. RuboCop still flags compound
+/// conditions like `if /foo/ =~ bar && baz`, so we only skip when the
+/// predicate itself is the `=~` call (optionally parenthesized).
+fn unwrap_single_parenthesized_expr<'a>(
+    node: &'a ruby_prism::Node<'a>,
+) -> Option<ruby_prism::Node<'a>> {
+    let parens = node.as_parentheses_node()?;
+    let body = parens.body()?;
+
+    if let Some(stmts) = body.as_statements_node() {
+        let stmts_body = stmts.body();
+        if stmts_body.len() == 1 {
+            return stmts_body.iter().next();
+        }
+        return None;
+    }
+
+    Some(body)
+}
+
+fn receiver_is_regexp_literal(receiver: &ruby_prism::Node<'_>) -> bool {
+    receiver.as_regular_expression_node().is_some()
+        || receiver.as_interpolated_regular_expression_node().is_some()
+        || unwrap_single_parenthesized_expr(receiver)
+            .is_some_and(|inner| receiver_is_regexp_literal(&inner))
+}
+
+fn condition_is_regexp_lhs_match(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() != b"=~" {
+            return false;
+        }
+
+        let Some(receiver) = call.receiver() else {
+            return false;
+        };
+
+        return receiver_is_regexp_literal(&receiver);
+    }
+
+    unwrap_single_parenthesized_expr(node)
+        .is_some_and(|inner| condition_is_regexp_lhs_match(&inner))
 }
 
 /// Check if the condition contains pattern matching (`in` operator).
@@ -568,6 +620,13 @@ impl Cop for IfUnlessModifier {
         // Skip if the condition contains pattern matching (in/=>) — modifier form
         // changes variable scoping semantics (RuboCop: pattern_matching_nodes).
         if condition_contains_pattern_matching(&predicate) {
+            return;
+        }
+
+        // RuboCop also skips top-level regexp-literal matches like
+        // `if /foo/ =~ bar`, but still flags compound predicates such as
+        // `if /foo/ =~ bar && baz`, so keep this check top-level-only.
+        if condition_is_regexp_lhs_match(&predicate) {
             return;
         }
 
