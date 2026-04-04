@@ -3,6 +3,16 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// ## Corpus investigation (2026-04-04)
+///
+/// FN=7 came from two separate gaps:
+///
+/// - `default_include` only matched `spec/**/*.rb`, so the cop never ran on
+///   Minitest files under `test/**/*.rb` even though the vendor default config
+///   includes both.
+/// - `after` context detection required a receiverless call, so
+///   `config.after do ... end` and `config.after { ... }` were missed even
+///   though RuboCop matches any block method named `after`.
 pub struct RedundantTravelBack;
 
 impl Cop for RedundantTravelBack {
@@ -15,7 +25,7 @@ impl Cop for RedundantTravelBack {
     }
 
     fn default_include(&self) -> &'static [&'static str] {
-        &["spec/**/*.rb"]
+        &["spec/**/*.rb", "test/**/*.rb"]
     }
 
     fn check_source(
@@ -55,11 +65,13 @@ impl<'a, 'pr> Visit<'pr> for TravelBackVisitor<'a> {
         let method_name = node.name().as_slice();
 
         // Check if we're entering an `after` block.
-        // RuboCop only matches `after do...end` blocks (not `teardown do...end`).
-        // For teardown, only `def teardown` is matched (handled in visit_def_node).
-        // Shoulda-context `teardown do...end` blocks are NOT flagged by RuboCop.
-        let enters_teardown =
-            node.block().is_some() && node.receiver().is_none() && method_name == b"after";
+        // RuboCop only matches method defs named `teardown` and block calls
+        // named `after`; `teardown do ... end` blocks are not flagged.
+        let enters_after = method_name == b"after"
+            && node
+                .block()
+                .and_then(|block| block.as_block_node())
+                .is_some();
 
         // Check if this is a `travel_back` call inside teardown/after
         if self.in_teardown_or_after && method_name == b"travel_back" && node.receiver().is_none() {
@@ -77,10 +89,20 @@ impl<'a, 'pr> Visit<'pr> for TravelBackVisitor<'a> {
         }
 
         let was = self.in_teardown_or_after;
-        if enters_teardown {
+        if enters_after {
             self.in_teardown_or_after = true;
         }
-        ruby_prism::visit_call_node(self, node);
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+        }
+        if let Some(arguments) = node.arguments() {
+            for argument in arguments.arguments().iter() {
+                self.visit(&argument);
+            }
+        }
+        if let Some(block) = node.block() {
+            self.visit(&block);
+        }
         self.in_teardown_or_after = was;
     }
 
