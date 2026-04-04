@@ -1,9 +1,62 @@
-use crate::cop::shared::node_type::{CLASS_NODE, DEF_NODE, STATEMENTS_NODE};
+use crate::cop::shared::node_type::CLASS_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
+const MSG: &str =
+    "Migrations must contain either a `change` method, or both an `up` and a `down` method.";
+
+/// FN root causes:
+/// - Prism represents `def self.up` / `def self.down` as `DefNode`s with a
+///   receiver, and this cop was incorrectly counting those singleton methods as
+///   valid reversible migration methods.
+/// - Migration classes with no valid instance `change`/`up`/`down` methods at
+///   all were skipped because the old logic only reported when exactly one of
+///   `up` or `down` was present.
+/// - `::ActiveRecord::Migration[...]` superclasses were ignored by the raw text
+///   check, causing additional misses.
+///
+/// Fix: accept both `ActiveRecord::Migration` and `::ActiveRecord::Migration`
+/// superclasses, count only receiver-less instance method definitions, and
+/// register an offense unless the class defines `change` or both `up` and
+/// `down`.
 pub struct ReversibleMigrationMethodDefinition;
+
+#[derive(Default)]
+struct MigrationMethodCollector {
+    has_change: bool,
+    has_up: bool,
+    has_down: bool,
+}
+
+impl MigrationMethodCollector {
+    fn is_reversible(&self) -> bool {
+        self.has_change || (self.has_up && self.has_down)
+    }
+}
+
+impl<'pr> Visit<'pr> for MigrationMethodCollector {
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        if node.receiver().is_none() {
+            match node.name().as_slice() {
+                b"change" => self.has_change = true,
+                b"up" => self.has_up = true,
+                b"down" => self.has_down = true,
+                _ => {}
+            }
+        }
+
+        ruby_prism::visit_def_node(self, node);
+    }
+}
+
+fn is_migration_superclass(source: &SourceFile, node: ruby_prism::Node<'_>) -> bool {
+    let location = node.location();
+    let text = &source.as_bytes()[location.start_offset()..location.end_offset()];
+
+    text.starts_with(b"ActiveRecord::Migration") || text.starts_with(b"::ActiveRecord::Migration")
+}
 
 impl Cop for ReversibleMigrationMethodDefinition {
     fn name(&self) -> &'static str {
@@ -23,7 +76,7 @@ impl Cop for ReversibleMigrationMethodDefinition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CLASS_NODE, DEF_NODE, STATEMENTS_NODE]
+        &[CLASS_NODE]
     }
 
     fn check_node(
@@ -36,76 +89,30 @@ impl Cop for ReversibleMigrationMethodDefinition {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let class_node = match node.as_class_node() {
-            Some(c) => c,
+            Some(class_node) => class_node,
             None => return,
         };
-        // Check if it inherits from a Migration class
+
         let superclass = match class_node.superclass() {
-            Some(s) => s,
+            Some(superclass) => superclass,
             None => return,
         };
-        let super_loc = superclass.location();
-        let super_text = &source.as_bytes()[super_loc.start_offset()..super_loc.end_offset()];
-        // Match ActiveRecord::Migration or ActiveRecord::Migration[x.y]
-        if !super_text.starts_with(b"ActiveRecord::Migration") {
+        if !is_migration_superclass(source, superclass) {
             return;
         }
 
-        let body = match class_node.body() {
-            Some(b) => b,
-            None => return,
-        };
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
-        };
-
-        let mut has_up = false;
-        let mut has_down = false;
-        let mut has_change = false;
-
-        for stmt in stmts.body().iter() {
-            if let Some(def_node) = stmt.as_def_node() {
-                let name = def_node.name().as_slice();
-                match name {
-                    b"up" => has_up = true,
-                    b"down" => has_down = true,
-                    b"change" => has_change = true,
-                    _ => {}
-                }
-            }
+        let mut methods = MigrationMethodCollector::default();
+        if let Some(body) = class_node.body() {
+            methods.visit(&body);
         }
 
-        // If has `change`, it's fine (reversible)
-        if has_change {
+        if methods.is_reversible() {
             return;
         }
 
-        // If has `up` but not `down`, flag
-        if has_up && !has_down {
-            let loc = node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Define both `up` and `down` methods, or use `change` for reversible migrations."
-                    .to_string(),
-            ));
-        }
-
-        // If has `down` but not `up`, also flag
-        if has_down && !has_up {
-            let loc = node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Define both `up` and `down` methods, or use `change` for reversible migrations."
-                    .to_string(),
-            ));
-        }
+        let location = class_node.location();
+        let (line, column) = source.offset_to_line_col(location.start_offset());
+        diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
     }
 }
 
