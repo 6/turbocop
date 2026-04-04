@@ -29,6 +29,9 @@ Add the department to the `department` choice options list (keep alphabetical or
 ### 7. Vendor submodule
 Add the vendor submodule pinned to the release tag: `git submodule add <repo-url> vendor/<gem-name>`.
 
+### 8. Tier gating (no action needed)
+New cops default to `preview` tier via `src/resources/tiers.json`. Promotion to `stable` happens automatically via the corpus oracle workflow — do not manually edit tiers.json. The corpus oracle uses `--preview` so preview-tier cops are always tested in CI, but users running nitrocop locally without `--preview` won't see them.
+
 ## Reference
 
 See PR #1353 (rubocop-rake support) for an example of adding a new plugin gem, though note it missed several of the items in this checklist (fixed in a follow-up commit).
