@@ -428,7 +428,7 @@ jobs:
                 --batches-dir "$WORKSPACE/bench/corpus/variant_batches" \
                 --results-dir "$WORKSPACE/results" \
                 --manifest "$WORKSPACE/bench/corpus/manifest.jsonl" \
-                --max-variant-repos 1000 \
+                --max-variant-repos 500 \
                 --timeout 600 || true
             fi
 
@@ -693,9 +693,14 @@ jobs:
             echo "No include-gated results to merge"
           fi
 
+      - name: Generate variant batch configs (for style labels)
+        run: python3 bench/corpus/gen_variant_batches.py --output-dir bench/corpus/variant_batches/
+
       - name: Diff style-variant results
         run: |
-          # Process each variant batch that has results
+          # Process variant batches in parallel (each is independent)
+          COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
+          PIDS=()
           for NC_DIR in all-results/results/variant-nitrocop-variant_batch_*; do
             [ -d "$NC_DIR" ] || continue
             BATCH_NAME=$(basename "$NC_DIR" | sed 's/variant-nitrocop-//')
@@ -704,7 +709,6 @@ jobs:
               echo "No rubocop results for $BATCH_NAME"
               continue
             fi
-            COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
             echo "Diffing style-variant batch: $BATCH_NAME"
             python3 bench/corpus/diff_results.py \
               --nitrocop-dir "$NC_DIR" \
@@ -712,7 +716,12 @@ jobs:
               --manifest bench/corpus/manifest.jsonl \
               --output-json "style-variant-${BATCH_NAME}.json" \
               --output-md "style-variant-${BATCH_NAME}.md" \
-              ${COP_LIST:+--cop-list "$COP_LIST"} || true
+              ${COP_LIST:+--cop-list "$COP_LIST"} &
+            PIDS+=($!)
+          done
+          # Wait for all diffs to complete; don't fail if individual batches error
+          for pid in "${PIDS[@]}"; do
+            wait "$pid" || true
           done
 
           # Merge all variant batch results into a single summary
@@ -723,10 +732,30 @@ jobs:
           if not files:
               print('No style-variant results to merge')
           else:
-              merged = merge_variant_results(files)
+              merged = merge_variant_results(files, batches_dir='bench/corpus/variant_batches')
               Path('style-variant-results.json').write_text(json.dumps(merged, indent=2))
               print(f'Merged {len(files)} variant batch results')
           "
+
+      - name: Regenerate report with variant data
+        run: |
+          if [ -f style-variant-results.json ]; then
+            # Re-run just the markdown generation with variant data included
+            COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
+            CONTEXT_DIR=""
+            if [ -d "all-results/results/context" ]; then
+              CONTEXT_DIR="--context-dir all-results/results/context"
+            fi
+            python3 bench/corpus/diff_results.py \
+              --nitrocop-dir all-results/results/nitrocop \
+              --rubocop-dir all-results/results/rubocop \
+              --manifest bench/corpus/manifest.jsonl \
+              --output-json corpus-results.json \
+              --output-md corpus-results.md \
+              ${COP_LIST:+--cop-list "$COP_LIST"} \
+              $CONTEXT_DIR \
+              --style-variant-results style-variant-results.json
+          fi
 
       - name: Generate tiers.json
         run: |
@@ -853,7 +882,7 @@ jobs:
     needs: [collect-results, build-nitrocop]
     if: ${{ !cancelled() && needs.collect-results.result == 'success' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

@@ -6,6 +6,7 @@ dependencies = [
   "ruff",
   "pytest",
   "tiktoken",
+  "pyyaml",
 ]
 
 [tool.pytest.ini_options]

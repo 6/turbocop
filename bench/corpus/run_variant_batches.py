@@ -174,12 +174,53 @@ def _run_tool(
         return False
 
 
-def merge_variant_results(result_files: list[Path]) -> dict:
+def parse_batch_style_map(batches_dir: str | Path) -> dict[str, dict[str, str]]:
+    """Parse variant batch YAML configs to extract cop -> style label per batch.
+
+    Returns {batch_name: {cop_name: "value1, value2, ..."}} mapping.
+    Only cops with actual style overrides in that batch are included.
+    """
+    import yaml
+
+    result: dict[str, dict[str, str]] = {}
+    for batch_path in sorted(Path(batches_dir).glob("variant_batch_*.yml")):
+        batch_name = batch_path.stem
+        try:
+            data = yaml.safe_load(batch_path.read_text()) or {}
+        except Exception:
+            continue
+
+        cop_styles: dict[str, str] = {}
+        for key, value in data.items():
+            if key == "inherit_from" or not isinstance(value, dict):
+                continue
+            # key is a cop name like "Style/TrailingCommaInHashLiteral"
+            # value is {"EnforcedStyle": "comma", ...}
+            style_parts = []
+            for param, val in sorted(value.items()):
+                if param.startswith("Enforced"):
+                    style_parts.append(str(val))
+            if style_parts:
+                cop_styles[key] = ", ".join(style_parts)
+        result[batch_name] = cop_styles
+    return result
+
+
+def merge_variant_results(
+    result_files: list[Path],
+    batches_dir: str | Path | None = None,
+) -> dict:
     """Merge multiple style-variant-*.json files into a single summary.
 
     Each input file is a diff_results.py output for one variant batch.
+    When *batches_dir* is provided, enriches each cop entry with a
+    ``style_label`` field (e.g. "comma") parsed from the batch YAML config.
+    Only cops with actual style overrides in that batch are included in
+    the per-cop list.
+
     Returns a combined dict with a 'batches' key.
     """
+    style_map = parse_batch_style_map(batches_dir) if batches_dir else {}
     merged: dict = {"batches": []}
     for f in sorted(result_files):
         try:
@@ -191,7 +232,20 @@ def merge_variant_results(result_files: list[Path]) -> dict:
         if "summary" in data:
             entry.update(data["summary"])
         if "by_cop" in data:
-            entry["by_cop"] = data["by_cop"]
+            batch_cops = style_map.get(batch_name, {})
+            if batch_cops:
+                # Filter to only cops that have overrides in this batch,
+                # and annotate with style labels
+                filtered = []
+                for cop_entry in data["by_cop"]:
+                    cop_name = cop_entry.get("cop", "")
+                    if cop_name in batch_cops:
+                        cop_entry = dict(cop_entry)
+                        cop_entry["style_label"] = batch_cops[cop_name]
+                        filtered.append(cop_entry)
+                entry["by_cop"] = filtered
+            else:
+                entry["by_cop"] = data["by_cop"]
         merged["batches"].append(entry)
     return merged
 

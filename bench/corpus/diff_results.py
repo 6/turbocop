@@ -549,24 +549,41 @@ def main():
     args.output_json.write_text(json.dumps(json_output, indent=2) + "\n")
 
     # Load style-variant results if available
-    variant_by_cop: dict[str, list[dict]] = {}  # cop -> [{style, matches, fp, fn}]
+    variant_by_cop: dict[str, list[dict]] = {}  # cop -> [{style_label, matches, fp, fn}]
     if args.style_variant_results and args.style_variant_results.exists():
         try:
             variant_data = json.loads(args.style_variant_results.read_text())
             for batch in variant_data.get("batches", []):
-                batch_name = batch.get("name", "")
-                # Each batch's by_cop has per-cop stats under the variant config
                 for cop_entry in batch.get("by_cop", []):
                     cop_name = cop_entry.get("cop", "")
                     if cop_name:
                         variant_by_cop.setdefault(cop_name, []).append({
-                            "batch": batch_name,
+                            "style_label": cop_entry.get("style_label", batch.get("name", "?")),
                             "matches": cop_entry.get("matches", 0),
                             "fp": cop_entry.get("fp", 0),
                             "fn": cop_entry.get("fn", 0),
                         })
         except (json.JSONDecodeError, KeyError) as e:
             print(f"Warning: could not load style-variant results: {e}", file=sys.stderr)
+
+    # Compute variant-inclusive totals for summary/department sections
+    variant_total_matches = total_matches
+    variant_total_fp = total_fp
+    variant_total_fn = total_fn
+    variant_dept_stats: dict[str, dict[str, int]] = {}
+    for cop_name, variants in variant_by_cop.items():
+        dept = cop_name.split("/")[0]
+        if dept not in variant_dept_stats:
+            variant_dept_stats[dept] = {"matches": 0, "fp": 0, "fn": 0}
+        for v in variants:
+            variant_total_matches += v["matches"]
+            variant_total_fp += v["fp"]
+            variant_total_fn += v["fn"]
+            variant_dept_stats[dept]["matches"] += v["matches"]
+            variant_dept_stats[dept]["fp"] += v["fp"]
+            variant_dept_stats[dept]["fn"] += v["fn"]
+    variant_oracle_total = variant_total_matches + variant_total_fp + variant_total_fn
+    variant_overall_rate = variant_total_matches / variant_oracle_total if variant_oracle_total > 0 else 1.0
 
     def _sanitize_for_md(s: str) -> str:
         """Replace C0 control chars with ASCII escape sequences.
@@ -614,7 +631,9 @@ def main():
     md.append(f"| Cops with exact match | {perfect_cops:,} |")
     md.append(f"| Cops with divergence | {diverging_cops:,} |")
     md.append(f"| Cops with no corpus data | {inactive_cops:,} |")
-    md.append(f"| **Match rate** | **{fmt_pct(overall_rate)}** |")
+    md.append(f"| **Match rate (default config)** | **{fmt_pct(overall_rate)}** |")
+    if variant_by_cop:
+        md.append(f"| **Match rate (all variants)** | **{fmt_pct(variant_overall_rate)}** |")
     if repos_error > 0 or warning_repos:
         md.append(f"| Repos with errors | {repos_error} |")
     if warning_repos:
@@ -626,16 +645,29 @@ def main():
     if by_department:
         md.append("## Department Breakdown")
         md.append("")
-        md.append("| Department | Total cops | Exact match | Diverging | No corpus data | Matches | FP | FN | Match % |")
-        md.append("|------------|-----------:|------------:|----------:|---------------:|--------:|---:|---:|--------:|")
+        if variant_by_cop:
+            md.append("| Department | Total cops | Exact match | Diverging | No corpus data | Matches | FP | FN | Default variant % | All variants % |")
+            md.append("|------------|-----------:|------------:|----------:|---------------:|--------:|---:|---:|---------:|---------------:|")
+        else:
+            md.append("| Department | Total cops | Exact match | Diverging | No corpus data | Matches | FP | FN | Match % |")
+            md.append("|------------|-----------:|------------:|----------:|---------------:|--------:|---:|---:|--------:|")
         for d in by_department:
             total = d["matches"] + d["fp"] + d["fn"]
             pct = fmt_pct(d['match_rate']) if total > 0 else "N/A"
-            md.append(
+            row = (
                 f"| {d['department']} | {d['cops']:,} | "
                 f"{d['perfect_cops']:,} | {d['diverging_cops']:,} | {d['inactive_cops']:,} | "
-                f"{d['matches']:,} | {d['fp']:,} | {d['fn']:,} | {pct} |"
+                f"{d['matches']:,} | {d['fp']:,} | {d['fn']:,} | {pct}"
             )
+            if variant_by_cop:
+                vd = variant_dept_stats.get(d["department"], {"matches": 0, "fp": 0, "fn": 0})
+                v_total = total + vd["matches"] + vd["fp"] + vd["fn"]
+                v_matches = d["matches"] + vd["matches"]
+                v_pct = fmt_pct(v_matches / v_total) if v_total > 0 else "N/A"
+                row += f" | {v_pct} |"
+            else:
+                row += " |"
+            md.append(row)
         md.append("")
 
     # ── Compute ok/error repo lists (used by multiple sections below) ──
@@ -696,29 +728,65 @@ def main():
     # ── Diverging cops with <details> for examples ──
     diverging = [c for c in by_cop if c["diverging"]]
     perfect_cop_list = [c for c in by_cop if c["perfect_match"]]
-    if diverging:
+
+    # Cops that are perfect in default config but diverge in a variant
+    variant_only_diverging = []
+    if variant_by_cop:
+        default_diverging_names = {c["cop"] for c in diverging}
+        for cop_name, variants in sorted(variant_by_cop.items()):
+            if cop_name not in default_diverging_names:
+                if any(v["fp"] + v["fn"] > 0 for v in variants):
+                    # Find the cop's default stats from by_cop
+                    cop_entry = next((c for c in by_cop if c["cop"] == cop_name), None)
+                    if cop_entry:
+                        variant_only_diverging.append(cop_entry)
+
+    all_diverging = diverging + variant_only_diverging
+    if all_diverging:
         md.append("## Diverging Cops")
         md.append("")
         md.append(
-            f"{len(diverging)} cops diverge from RuboCop on the corpus. "
+            f"{len(diverging)} cops diverge from RuboCop on the corpus (default config). "
             f"{len(perfect_cop_list)} cops match RuboCop exactly. "
             f"{inactive_cops} cops have no corpus data."
         )
+        if variant_only_diverging:
+            md.append(
+                f" {len(variant_only_diverging)} additional cops diverge only in non-default style variants."
+            )
         md.append("")
         md.append("| Cop | Matches | FP | FN | Match % |")
         md.append("|-----|--------:|---:|---:|--------:|")
         for c in diverging:
             total = c["matches"] + c["fp"] + c["fn"]
             pct = fmt_pct(c['match_rate']) if total > 0 else "N/A"
-            # If variant data exists, label the baseline row
             if c["cop"] in variant_by_cop:
                 md.append(f"| {c['cop']} (default) | {c['matches']:,} | {c['fp']:,} | {c['fn']:,} | {pct} |")
                 for v in variant_by_cop[c["cop"]]:
                     v_total = v["matches"] + v["fp"] + v["fn"]
-                    v_pct = fmt_pct(v["matches"] / v_total) if v_total > 0 else "N/A"
-                    md.append(f"| {c['cop']} ({v['batch']}) | {v['matches']:,} | {v['fp']:,} | {v['fn']:,} | {v_pct} |")
+                    if v_total == 0:
+                        continue  # skip variants with no data (batch errored)
+                    v_pct = fmt_pct(v["matches"] / v_total)
+                    md.append(f"| ↳ {c['cop']} ({v['style_label']}) | {v['matches']:,} | {v['fp']:,} | {v['fn']:,} | {v_pct} |")
             else:
                 md.append(f"| {c['cop']} | {c['matches']:,} | {c['fp']:,} | {c['fn']:,} | {pct} |")
+
+        # Show cops that only diverge in non-default variants
+        if variant_only_diverging:
+            md.append("")
+            md.append("**Variant-only divergence** (perfect in default config, diverge in non-default styles):")
+            md.append("")
+            md.append("| Cop | Matches | FP | FN | Match % |")
+            md.append("|-----|--------:|---:|---:|--------:|")
+            for c in sorted(variant_only_diverging, key=lambda x: sum(v["fp"] + v["fn"] for v in variant_by_cop.get(x["cop"], [])), reverse=True):
+                total = c["matches"] + c["fp"] + c["fn"]
+                pct = fmt_pct(c['match_rate']) if total > 0 else "N/A"
+                md.append(f"| {c['cop']} (default) | {c['matches']:,} | {c['fp']:,} | {c['fn']:,} | {pct} |")
+                for v in variant_by_cop.get(c["cop"], []):
+                    v_total = v["matches"] + v["fp"] + v["fn"]
+                    v_pct = fmt_pct(v["matches"] / v_total) if v_total > 0 else "N/A"
+                    if v["fp"] + v["fn"] > 0:
+                        md.append(f"| ↳ {c['cop']} ({v['style_label']}) | {v['matches']:,} | {v['fp']:,} | {v['fn']:,} | {v_pct} |")
         md.append("")
 
         # Expandable details per cop (show up to 3 examples in markdown; full list in JSON)

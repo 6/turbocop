@@ -29,6 +29,7 @@ __pycache__/
 corpus-results.json
 corpus-results.md
 .check-cop-cache/
+local-collect/
 
 # Ruby / Gems
 *.gem

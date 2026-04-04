@@ -286,9 +286,93 @@ def test_example_order_is_stable():
         ]
 
 
+def test_style_variant_rows_in_markdown():
+    """When --style-variant-results is provided, per-variant rows appear in the markdown."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        nc_dir = tmp / "nitrocop"
+        rc_dir = tmp / "rubocop"
+        nc_dir.mkdir()
+        rc_dir.mkdir()
+
+        # Repo with a diverging cop and a perfect cop (both have variant data)
+        nc_dir.joinpath("repo_a.json").write_text(json.dumps({
+            "offenses": [
+                {"path": "repos/repo_a/app.rb", "line": 1, "cop_name": "Style/Diverging"},
+                {"path": "repos/repo_a/app.rb", "line": 2, "cop_name": "Style/Diverging"},
+                {"path": "repos/repo_a/app.rb", "line": 3, "cop_name": "Style/Perfect"},
+            ]
+        }))
+        rc_dir.joinpath("repo_a.json").write_text(json.dumps({
+            "files": [
+                {
+                    "path": "repos/repo_a/app.rb",
+                    "offenses": [
+                        {"location": {"line": 1}, "cop_name": "Style/Diverging"},
+                        {"location": {"line": 3}, "cop_name": "Style/Perfect"},
+                    ]
+                },
+            ],
+            "summary": {"target_file_count": 1, "inspected_file_count": 1}
+        }))
+
+        manifest = tmp / "manifest.jsonl"
+        manifest.write_text(json.dumps({"id": "repo_a"}) + "\n")
+
+        # Style-variant results: both cops have variant data
+        variant_results = tmp / "variant.json"
+        variant_results.write_text(json.dumps({
+            "batches": [
+                {
+                    "name": "variant_batch_1",
+                    "by_cop": [
+                        {"cop": "Style/Diverging", "style_label": "comma", "matches": 80, "fp": 5, "fn": 3},
+                        {"cop": "Style/Perfect", "style_label": "double_quotes", "matches": 50, "fp": 0, "fn": 10},
+                    ]
+                },
+            ]
+        }))
+
+        out_json = tmp / "out.json"
+        out_md = tmp / "out.md"
+
+        result = subprocess.run(
+            [
+                sys.executable, str(SCRIPT),
+                "--nitrocop-dir", str(nc_dir),
+                "--rubocop-dir", str(rc_dir),
+                "--manifest", str(manifest),
+                "--output-json", str(out_json),
+                "--output-md", str(out_md),
+                "--style-variant-results", str(variant_results),
+            ],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"Script failed:\nstderr: {result.stderr}"
+
+        md = out_md.read_text()
+
+        # Summary should show both default and all-variants match rates
+        assert "Match rate (default config)" in md
+        assert "Match rate (all variants)" in md
+
+        # Department table should have variant column
+        assert "Default variant %" in md
+        assert "All variants %" in md
+
+        # Diverging cops table should have per-variant rows
+        assert "Style/Diverging (default)" in md
+        assert "Style/Diverging (comma)" in md
+
+        # Style/Perfect diverges only in variants, should appear in variant-only section
+        assert "Variant-only divergence" in md
+        assert "Style/Perfect (double_quotes)" in md
+
+
 if __name__ == "__main__":
     test_end_to_end()
     test_match_rate_never_rounds_up_to_100()
     test_end_to_end_near_perfect_not_100()
     test_example_order_is_stable()
+    test_style_variant_rows_in_markdown()
     print("OK: all tests passed")

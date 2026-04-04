@@ -82,6 +82,75 @@ def test_run_variant_batches_no_limit_runs_all(tmp_path):
     assert result == []
 
 
+def test_parse_batch_style_map(tmp_path):
+    """Parse variant batch YAML configs to extract cop -> style label."""
+    batches_dir = tmp_path / "batches"
+    batches_dir.mkdir()
+    (batches_dir / "variant_batch_1.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/TrailingCommaInHashLiteral:\n"
+        "  EnforcedStyleForMultiline: comma\n"
+        "Layout/DotPosition:\n"
+        "  EnforcedStyle: trailing\n"
+    )
+    (batches_dir / "variant_batch_2.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/TrailingCommaInHashLiteral:\n"
+        "  EnforcedStyleForMultiline: consistent_comma\n"
+    )
+    result = run_variant_batches.parse_batch_style_map(batches_dir)
+    assert "variant_batch_1" in result
+    assert result["variant_batch_1"]["Style/TrailingCommaInHashLiteral"] == "comma"
+    assert result["variant_batch_1"]["Layout/DotPosition"] == "trailing"
+    assert result["variant_batch_2"]["Style/TrailingCommaInHashLiteral"] == "consistent_comma"
+
+
+def test_merge_variant_results_with_style_labels(tmp_path):
+    """When batches_dir is provided, merge filters to overridden cops and adds style_label."""
+    batches_dir = tmp_path / "batches"
+    batches_dir.mkdir()
+    (batches_dir / "variant_batch_1.yml").write_text(
+        "inherit_from: ../baseline.yml\n"
+        "Style/Foo:\n"
+        "  EnforcedStyle: bar\n"
+    )
+
+    f1 = tmp_path / "style-variant-variant_batch_1.json"
+    f1.write_text(json.dumps({
+        "summary": {"total_repos": 10},
+        "by_cop": [
+            {"cop": "Style/Foo", "matches": 50, "fp": 2, "fn": 1},
+            {"cop": "Style/Other", "matches": 100, "fp": 0, "fn": 0},
+        ],
+    }))
+
+    result = run_variant_batches.merge_variant_results([f1], batches_dir=batches_dir)
+    assert len(result["batches"]) == 1
+    batch = result["batches"][0]
+    # Only Style/Foo should be included (it has an override), not Style/Other
+    assert len(batch["by_cop"]) == 1
+    assert batch["by_cop"][0]["cop"] == "Style/Foo"
+    assert batch["by_cop"][0]["style_label"] == "bar"
+
+
+def test_merge_variant_results_without_batches_dir(tmp_path):
+    """Without batches_dir, all cops are included and no style_label is added."""
+    f1 = tmp_path / "style-variant-variant_batch_1.json"
+    f1.write_text(json.dumps({
+        "summary": {"total_repos": 10},
+        "by_cop": [
+            {"cop": "Style/Foo", "matches": 50, "fp": 2, "fn": 1},
+            {"cop": "Style/Other", "matches": 100, "fp": 0, "fn": 0},
+        ],
+    }))
+
+    result = run_variant_batches.merge_variant_results([f1])
+    batch = result["batches"][0]
+    # All cops included, no style_label
+    assert len(batch["by_cop"]) == 2
+    assert "style_label" not in batch["by_cop"][0]
+
+
 def test_discover_batches_empty(tmp_path):
     """No batches in empty directory."""
     assert run_variant_batches.discover_batches(tmp_path) == []
