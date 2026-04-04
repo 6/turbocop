@@ -177,6 +177,30 @@ use std::ops::Range;
 ///     a block containing a heredoc body. Raw scanning still treated the opener
 ///     line as normal code and flagged the gap. Ignore only the whitespace range
 ///     between a heredoc opener and that same-line block closer.
+///
+/// ## Investigation findings (2026-04-04)
+///
+/// 21. **`extract_token_at` returning single `=` for `==`/`===`/`=~`/`=>` and
+///     `!` for `!=`/`!~` (fixed)**: Mode 2 alignment compared only the first
+///     character of compound operators, causing coincidental alignment matches
+///     (e.g., the `=` of `==` matching a plain `=` on an adjacent line).
+///     Extended `extract_token_at` to extract full multi-character `=`-based
+///     and `!`-based operators.
+///
+/// 22. **`check_equals_alignment` using first `=` column (fixed)**: Even after
+///     fixing `extract_token_at`, the separate equals-alignment check still
+///     matched the first `=` of `==` on the offense line with an interior `=`
+///     of `==` on the adjacent line. Changed to `find_last_equals_col` which
+///     returns the rightmost `=` position, and added a terminal-equals check
+///     ensuring the adjacent `=` is not followed by another `=`.
+///
+/// 23. **Heredoc trailing content FPs (fixed)**: RuboCop's token stream jumps
+///     from the heredoc opener to the heredoc body, so trailing content on the
+///     opener's line (comments like `# :nodoc:`, `if` modifiers, block closers)
+///     is never token-paired with the opener. Raw scanning still checked these
+///     gaps and produced FPs. Ignore the range from each heredoc opener's end
+///     to the end of its line. Fixes ~8 FPs from rubychan, sidekiq, mcorino,
+///     opal, ruby__optparse, and volanja.
 pub struct ExtraSpacing;
 
 impl Cop for ExtraSpacing {
@@ -223,6 +247,12 @@ impl Cop for ExtraSpacing {
         // RuboCop also allows spaces between a heredoc opener and the same-line
         // `}` that closes the surrounding block.
         ignored_ranges.extend(collect_heredoc_block_closer_ranges(parse_result, src_bytes));
+
+        // RuboCop's token stream jumps from the heredoc opener to the heredoc
+        // body, so any text after the opener on the same line (trailing comments,
+        // `if` modifiers, block closers) is never paired with the opener token.
+        // Ignore the gap from each heredoc opener's end to the end of its line.
+        ignored_ranges.extend(collect_heredoc_trailing_ranges(parse_result, src_bytes));
 
         // Track actual heredoc opener offsets so `<<` heredoc delimiters are
         // not mistaken for append operators during alignment checks.
@@ -556,6 +586,62 @@ fn heredoc_opening_end(node: ruby_prism::Node<'_>) -> Option<usize> {
     }
 
     None
+}
+
+// -- Heredoc trailing ranges --
+
+/// In RuboCop's token stream, a heredoc opener causes the tokenizer to jump to
+/// the heredoc body on the next line. Any text after the opener on the same
+/// line (trailing comments like `# :nodoc:`, `if` modifiers, block closers)
+/// is never token-paired with the opener. This collects ranges from each
+/// heredoc opener's end to the end of its line, so the scanner ignores spaces
+/// in those trailing segments.
+fn collect_heredoc_trailing_ranges(
+    parse_result: &ruby_prism::ParseResult<'_>,
+    src_bytes: &[u8],
+) -> Vec<Range<usize>> {
+    let mut collector = HeredocTrailingCollector {
+        ranges: Vec::new(),
+        src_bytes,
+    };
+    collector.visit(&parse_result.node());
+    collector.ranges
+}
+
+struct HeredocTrailingCollector<'a> {
+    ranges: Vec<Range<usize>>,
+    src_bytes: &'a [u8],
+}
+
+impl<'pr> Visit<'pr> for HeredocTrailingCollector<'_> {
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        self.collect_trailing(node.opening_loc());
+        ruby_prism::visit_string_node(self, node);
+    }
+
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        self.collect_trailing(node.opening_loc());
+        ruby_prism::visit_interpolated_string_node(self, node);
+    }
+}
+
+impl HeredocTrailingCollector<'_> {
+    fn collect_trailing(&mut self, opening: Option<ruby_prism::Location<'_>>) {
+        let Some(opening) = opening else { return };
+        if !opening.as_slice().starts_with(b"<<") {
+            return;
+        }
+        let opener_end = opening.end_offset();
+        // Find end of the line (next newline or end of source)
+        let line_end = self.src_bytes[opener_end..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map(|p| opener_end + p)
+            .unwrap_or(self.src_bytes.len());
+        if line_end > opener_end {
+            self.ranges.push(opener_end..line_end);
+        }
+    }
 }
 
 // -- Word/symbol array ignored ranges --
@@ -956,6 +1042,34 @@ fn extract_token_at(line: &[u8], col: usize) -> &[u8] {
             end += 1;
         }
         &line[col..end]
+    } else if ch == b'=' {
+        // Equals-based operators: =, ==, ===, =~, =>
+        // Extract the full operator to avoid coincidental single-character alignment
+        // (e.g., `=` from `==` matching the second `=` of `==` at a shifted column).
+        let mut end = col + 1;
+        if end < line.len() {
+            match line[end] {
+                b'=' => {
+                    end += 1;
+                    // Handle === (triple equals)
+                    if end < line.len() && line[end] == b'=' {
+                        end += 1;
+                    }
+                }
+                b'~' | b'>' => {
+                    end += 1;
+                }
+                _ => {}
+            }
+        }
+        &line[col..end]
+    } else if ch == b'!' {
+        // Bang operators: !, !=, !~
+        let mut end = col + 1;
+        if end < line.len() && (line[end] == b'=' || line[end] == b'~') {
+            end += 1;
+        }
+        &line[col..end]
     } else {
         // Other operator/punctuation: just the single character
         &line[col..col + 1]
@@ -1100,20 +1214,23 @@ fn check_equals_alignment(
     adj_line_start_offset: usize,
     heredoc_opener_starts: &HashSet<usize>,
 ) -> bool {
-    // Find the '=' in or near the token starting at col on the current line
-    let eq_col = find_equals_col(current_line, col);
+    // Find the LAST '=' in the operator starting at col on the current line.
+    // RuboCop compares operators by their last_column, so we use the rightmost `=`.
+    let eq_col = find_last_equals_col(current_line, col);
     if let Some(eq_col) = eq_col {
-        // Convert the byte position of '=' to a character column,
+        // Convert the byte position of the last '=' to a character column,
         // then find the corresponding byte position on the adjacent line.
         let eq_char_col = byte_to_char_col(current_line, eq_col);
         let adj_eq_col = match char_col_to_byte(adj_line, eq_char_col) {
             Some(c) => c,
             None => return false,
         };
-        // Check if the adjacent line has '=' at the same character column
+        // Check if the adjacent line has '=' at the same character column,
+        // and that it is the LAST '=' of its operator (not an interior '=' of '==').
         if adj_eq_col < adj_line.len()
             && adj_line[adj_eq_col] == b'='
             && is_assignment_equals(adj_line, adj_eq_col)
+            && (adj_eq_col + 1 >= adj_line.len() || adj_line[adj_eq_col + 1] != b'=')
         {
             return true;
         }
@@ -1190,23 +1307,30 @@ fn is_assignment_equals(line: &[u8], eq_col: usize) -> bool {
         || prev == b'='
 }
 
-/// Find the column of the '=' sign in an assignment operator starting at col.
+/// Find the column of the LAST '=' in an assignment/comparison operator starting at col.
+///
+/// RuboCop aligns operators by their `last_column`, so `=`, `==`, `+=`, `||=` etc.
+/// all align by the position of their rightmost `=`.  This prevents false alignment
+/// between `=` (assignment) and the interior `=` of `==` (comparison) at a shifted
+/// column.
+///
 /// Handles: =, ==, ===, !=, <=, >=, +=, -=, *=, /=, %=, **=, ||=, &&=, <<=, >>=
-fn find_equals_col(line: &[u8], col: usize) -> Option<usize> {
+fn find_last_equals_col(line: &[u8], col: usize) -> Option<usize> {
+    let mut last_eq = None;
     for offset in 0..4 {
         let c = col + offset;
         if c >= line.len() {
             break;
         }
         if line[c] == b'=' {
-            return Some(c);
+            last_eq = Some(c);
         }
         // Stop if we hit a space (we've gone past the token)
         if line[c] == b' ' || line[c] == b'\t' {
             break;
         }
     }
-    None
+    last_eq
 }
 
 /// Find the starting column of `<<` (left-shift/append operator) at or near col.
