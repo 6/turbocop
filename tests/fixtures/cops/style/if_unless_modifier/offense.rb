@@ -58,3 +58,27 @@ raise 'ERROR: Jira Server Hash not found in PWN::Env.  Run i`pwn -Y default.yaml
 
 raise 'ERROR: Jira Server Hash not found in PWN::Env.  Run i`pwn -Y default.yaml`, then `PWN::Env` for usage.' if blockchain.nil?
 ^ Style/IfUnlessModifier: Modifier form of `if` makes the line too long.
+
+@@logger.warn("Omitting unlicensed fields: #{unlicensed_field_keys.join(', ')} (attempt #{create_attempts}/#{max_create_attempts}). Retrying issue creation.") if defined?(@@logger)
+^ Style/IfUnlessModifier: Modifier form of `if` makes the line too long.
+
+unless defined?(JRUBY_VERSION)
+^^^^^^ Style/IfUnlessModifier: Favor modifier `unless` usage when having a single-line body.
+  s.add_runtime_dependency 'oj', '>= 2.12'
+end
+
+@@import_swt_packages = DEFAULT_IMPORT_SWT_PACKAGES if !defined?(@@import_swt_packages) || (defined?(@@import_swt_packages) && @@import_swt_packages == true)
+^ Style/IfUnlessModifier: Modifier form of `if` makes the line too long.
+
+unless defined? @@logger_type
+^^^^^^ Style/IfUnlessModifier: Favor modifier `unless` usage when having a single-line body.
+  @@logger_type = :logger
+end
+
+unless defined? @@logging_devices
+^^^^^^ Style/IfUnlessModifier: Favor modifier `unless` usage when having a single-line body.
+  @@logging_devices = [:stdout, :syslog]
+end
+
+@@logging_device_file_options = {size: 1_000_000, age: 'daily', roll_by: 'number'} unless defined? @@logging_device_file_options
+^ Style/IfUnlessModifier: Modifier form of `unless` makes the line too long.
