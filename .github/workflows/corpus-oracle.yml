@@ -16,9 +16,9 @@ on:
         description: "Run only this repo ID (e.g. 'multi_json__multi_json__c5fa9fc'), or 'all'"
         default: "all"
       run_style_variants:
-        description: "Run style-variant batch testing (slower — tests all EnforcedStyle values)"
+        description: "Run style-variant batch testing (tests all EnforcedStyle values)"
         type: boolean
-        default: false
+        default: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -61,10 +61,11 @@ jobs:
           python3 << 'PYEOF'
           import json, os, sys, hashlib
 
-          # 30 repos/batch → ~187 batches. Rubocop cache is consolidated
+          # 25 repos/batch → ~220 batches. More shards = less time per shard
+          # when style-variant batches are enabled. Rubocop cache is consolidated
           # (not per-batch), so batch size can be changed freely without
-          # causing cold caches.
-          BATCH_SIZE = 30
+          # causing cold caches. GHA matrix limit is 256.
+          BATCH_SIZE = 25
 
           repos = []
           with open('bench/corpus/manifest.jsonl') as f:
@@ -421,46 +422,13 @@ jobs:
 
             # ── Style-variant batch runs (opt-in via run_style_variants input) ──
             if [ "$RUN_STYLE_VARIANTS" = "true" ]; then
-              VARIANT_TIMEOUT=600  # 10 min per variant batch per repo
-              for BATCH_CONFIG in bench/corpus/variant_batches/variant_batch_*.yml; do
-                [ -f "$BATCH_CONFIG" ] || continue
-                BATCH_NAME=$(basename "$BATCH_CONFIG" .yml)
-                mkdir -p "$WORKSPACE/results/variant-nitrocop-${BATCH_NAME}" \
-                         "$WORKSPACE/results/variant-rubocop-${BATCH_NAME}"
-
-                echo "=== variant-nitrocop ($BATCH_NAME): ${REPO_ID} ==="
-                rc=0
-                timeout "${VARIANT_TIMEOUT}" \
-                env GIT_CEILING_DIRECTORIES=$(dirname "$ABS_DEST") \
-                  BUNDLE_GEMFILE=$WORKSPACE/bench/corpus/Gemfile \
-                  BUNDLE_PATH=$WORKSPACE/bench/corpus/vendor/bundle \
-                "$WORKSPACE/bin/nitrocop" \
-                  --preview --format json --no-cache \
-                  --config "$WORKSPACE/$BATCH_CONFIG" \
-                  "$ABS_DEST" \
-                  > "$WORKSPACE/results/variant-nitrocop-${BATCH_NAME}/${REPO_ID}.json" \
-                  2>"$WORKSPACE/results/variant-nitrocop-${BATCH_NAME}/${REPO_ID}.err" || rc=$?
-                if [ "$rc" -eq 124 ]; then
-                  echo "::warning::variant-nitrocop ($BATCH_NAME) timed out for ${REPO_ID}"
-                fi
-
-                echo "=== variant-rubocop ($BATCH_NAME): ${REPO_ID} ==="
-                rc=0
-                timeout "${VARIANT_TIMEOUT}" \
-                env BUNDLE_GEMFILE=$WORKSPACE/bench/corpus/Gemfile \
-                    BUNDLE_PATH=$WORKSPACE/bench/corpus/vendor/bundle \
-                    GIT_CEILING_DIRECTORIES=$(dirname "$ABS_DEST") \
-                bundle exec rubocop \
-                  --require $WORKSPACE/bench/corpus/rescue_parser_crashes.rb \
-                  --config "$WORKSPACE/$BATCH_CONFIG" \
-                  --format json --force-exclusion --cache false \
-                  "$ABS_DEST" \
-                  > "$WORKSPACE/results/variant-rubocop-${BATCH_NAME}/${REPO_ID}.json" \
-                  2>"$WORKSPACE/results/variant-rubocop-${BATCH_NAME}/${REPO_ID}.err" || rc=$?
-                if [ "$rc" -eq 124 ]; then
-                  echo "::warning::variant-rubocop ($BATCH_NAME) timed out for ${REPO_ID}"
-                fi
-              done
+              python3 bench/corpus/run_variant_batches.py \
+                --repo-dir "$ABS_DEST" \
+                --repo-id "$REPO_ID" \
+                --binary "$WORKSPACE/bin/nitrocop" \
+                --batches-dir "$WORKSPACE/bench/corpus/variant_batches" \
+                --results-dir "$WORKSPACE/results" \
+                --timeout 600 || true
             fi
 
             # Free disk space between repos
@@ -747,20 +715,17 @@ jobs:
           done
 
           # Merge all variant batch results into a single summary
-          python3 << 'PYEOF'
-          import json, glob
-          batch_files = sorted(glob.glob("style-variant-variant_batch_*.json"))
-          if not batch_files:
-              print("No style-variant results to merge")
+          python3 -c "
+          from pathlib import Path; import json
+          from bench.corpus.run_variant_batches import merge_variant_results
+          files = sorted(Path('.').glob('style-variant-variant_batch_*.json'))
+          if not files:
+              print('No style-variant results to merge')
           else:
-              merged = {"batches": []}
-              for f in batch_files:
-                  data = json.loads(open(f).read())
-                  batch_name = f.replace("style-variant-", "").replace(".json", "")
-                  merged["batches"].append({"name": batch_name, **data.get("summary", {})})
-              open("style-variant-results.json", "w").write(json.dumps(merged, indent=2))
-              print(f"Merged {len(batch_files)} variant batch results")
-          PYEOF
+              merged = merge_variant_results(files)
+              Path('style-variant-results.json').write_text(json.dumps(merged, indent=2))
+              print(f'Merged {len(files)} variant batch results')
+          "
 
       - name: Generate tiers.json
         run: |
