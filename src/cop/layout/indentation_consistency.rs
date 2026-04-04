@@ -1,8 +1,8 @@
 use crate::cop::shared::access_modifier_predicates;
 use crate::cop::shared::node_type::{
-    BEGIN_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, ELSE_NODE, FOR_NODE, IF_NODE, IN_NODE,
-    MODULE_NODE, PROGRAM_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE,
-    WHEN_NODE, WHILE_NODE,
+    BEGIN_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, CLASS_NODE, DEF_NODE, ELSE_NODE, FOR_NODE,
+    IF_NODE, IN_NODE, MODULE_NODE, PROGRAM_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE,
+    UNLESS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -37,6 +37,28 @@ const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 ///    to start at column 1. That bogus base column cascaded into false positives
 ///    for every later top-level sibling (`require`, `module`, `class`, etc.).
 ///    This cop now derives display columns that ignore a leading BOM on line 1.
+///
+/// ## Corpus investigation (2026-04-04)
+///
+/// Three additional gaps were found and fixed:
+/// 7. Prism's Visit trait calls `visit_else_node` directly (without going
+///    through `visit`/`visit_branch_node_enter`) for `CaseNode`, `CaseMatchNode`,
+///    `UnlessNode`, and `BeginNode`. The walker never dispatched the `ElseNode`
+///    to the cop, so `case/else`, `unless/else`, and `begin/rescue/else` bodies
+///    were never checked for consistency. Fixed by handling else clauses
+///    explicitly in the parent node handlers.
+/// 8. For blocks (`do..end`/`{..}`), `parent_column` was derived from the
+///    `do`/`{` keyword offset, which can be very high on the line (e.g.,
+///    `Class.new do` has `do` at column 15+). RuboCop uses the call
+///    node's start column instead. This caused access modifier checks to
+///    fail: `private` at column 11 was not > `do` at column 19, so
+///    `base_column` was None, and single non-modifier children were skipped.
+///    Fixed by handling blocks via the CallNode handler, using
+///    `call_node.location().start_offset()` for parent column.
+/// 9. Lines starting with `;` (e.g., `; _erbout.<<(...)`) have their
+///    expression node starting at column 2+, while other statements on
+///    the line start at column 0. RuboCop's `begins_its_line?` check
+///    skips such nodes. Added the same check to avoid false positives.
 pub struct IndentationConsistency;
 
 /// Check if a node is a bare access modifier call
@@ -61,6 +83,26 @@ impl IndentationConsistency {
         let loc = node.location();
         let end_offset = loc.end_offset().saturating_sub(1);
         source.offset_to_line_col(end_offset).0
+    }
+
+    /// Check if a node's start position is the first non-whitespace on its line.
+    /// Mirrors RuboCop's `begins_its_line?` — expressions after a leading `;`
+    /// (e.g. `; _erbout.<<(...)`) do not begin their line and are skipped.
+    fn begins_its_line(&self, source: &SourceFile, byte_offset: usize) -> bool {
+        let (line, _) = source.offset_to_line_col(byte_offset);
+        let line_start = source.line_start_offset(line);
+        let bytes = source.as_bytes();
+        for i in line_start..byte_offset {
+            let b = bytes[i];
+            if b != b' ' && b != b'\t' {
+                // Allow BOM bytes on line 1
+                if line == 1 && i < 3 && bytes.starts_with(&UTF8_BOM) {
+                    continue;
+                }
+                return false;
+            }
+        }
+        true
     }
 
     fn statements_from_body<'pr>(
@@ -129,6 +171,23 @@ impl IndentationConsistency {
         body: Option<ruby_prism::Node<'_>>,
         indented_internal_methods: bool,
     ) -> Vec<Diagnostic> {
+        self.check_body_consistency_with_parent(
+            source,
+            keyword_offset,
+            keyword_offset,
+            body,
+            indented_internal_methods,
+        )
+    }
+
+    fn check_body_consistency_with_parent(
+        &self,
+        source: &SourceFile,
+        keyword_offset: usize,
+        parent_offset: usize,
+        body: Option<ruby_prism::Node<'_>>,
+        indented_internal_methods: bool,
+    ) -> Vec<Diagnostic> {
         let body = match body {
             Some(b) => b,
             None => return Vec::new(),
@@ -140,7 +199,7 @@ impl IndentationConsistency {
         };
 
         let (kw_line, _) = source.offset_to_line_col(keyword_offset);
-        let (_, parent_column) = self.line_col_for(source, keyword_offset);
+        let (_, parent_column) = self.line_col_for(source, parent_offset);
 
         self.check_child_list_consistency(
             source,
@@ -193,7 +252,10 @@ impl IndentationConsistency {
         let mut diagnostics = Vec::new();
         let mut prev_end_line = self.end_line_for(source, &children[0]);
 
-        if first_line != kw_line && first_col != expected_column {
+        if first_line != kw_line
+            && first_col != expected_column
+            && self.begins_its_line(source, first_loc.start_offset())
+        {
             diagnostics.push(self.diagnostic(
                 source,
                 first_line,
@@ -213,7 +275,7 @@ impl IndentationConsistency {
             }
             prev_end_line = self.end_line_for(source, child);
 
-            if child_col != expected_column {
+            if child_col != expected_column && self.begins_its_line(source, loc.start_offset()) {
                 diagnostics.push(self.diagnostic(
                     source,
                     child_line,
@@ -269,7 +331,7 @@ impl IndentationConsistency {
                 }
                 prev_end_line = self.end_line_for(source, child);
 
-                if child_col != first_col {
+                if child_col != first_col && self.begins_its_line(source, loc.start_offset()) {
                     diagnostics.push(self.diagnostic(
                         source,
                         child_line,
@@ -292,8 +354,9 @@ impl Cop for IndentationConsistency {
     fn interested_node_types(&self) -> &'static [u8] {
         &[
             BEGIN_NODE,
-            BLOCK_NODE,
             CALL_NODE,
+            CASE_MATCH_NODE,
+            CASE_NODE,
             CLASS_NODE,
             DEF_NODE,
             ELSE_NODE,
@@ -374,13 +437,19 @@ impl Cop for IndentationConsistency {
             return;
         }
 
-        if let Some(block_node) = node.as_block_node() {
-            diagnostics.extend(self.check_body_consistency(
-                source,
-                block_node.opening_loc().start_offset(),
-                block_node.body(),
-                indented, // indented_internal_methods applies to block bodies too (class_methods do, etc.)
-            ));
+        // Blocks are handled through their parent CallNode so we can use
+        // the call's start column (matching RuboCop's node.parent.source_range)
+        // instead of the `do`/`{` keyword column for access modifier comparison.
+        if let Some(call_node) = node.as_call_node() {
+            if let Some(block_node) = call_node.block().and_then(|n| n.as_block_node()) {
+                diagnostics.extend(self.check_body_consistency_with_parent(
+                    source,
+                    block_node.opening_loc().start_offset(),
+                    call_node.location().start_offset(),
+                    block_node.body(),
+                    indented,
+                ));
+            }
             return;
         }
 
@@ -403,6 +472,16 @@ impl Cop for IndentationConsistency {
                 unless_node.keyword_loc().start_offset(),
                 unless_node.statements(),
             ));
+            // Prism's visit_unless_node calls visit_else_node directly,
+            // bypassing visit_branch_node_enter, so the walker never sees
+            // the ElseNode. Handle it explicitly here.
+            if let Some(else_clause) = unless_node.else_clause() {
+                diagnostics.extend(self.check_statements_consistency(
+                    source,
+                    else_clause.else_keyword_loc().start_offset(),
+                    else_clause.statements(),
+                ));
+            }
             return;
         }
 
@@ -433,6 +512,32 @@ impl Cop for IndentationConsistency {
                 in_node.in_loc().start_offset(),
                 in_node.statements(),
             ));
+            return;
+        }
+
+        // case/else — Prism's visit_case_node calls visit_else_node directly,
+        // bypassing visit_branch_node_enter, so the walker never dispatches
+        // the ElseNode. Handle it explicitly here.
+        if let Some(case_node) = node.as_case_node() {
+            if let Some(else_clause) = case_node.else_clause() {
+                diagnostics.extend(self.check_statements_consistency(
+                    source,
+                    else_clause.else_keyword_loc().start_offset(),
+                    else_clause.statements(),
+                ));
+            }
+            return;
+        }
+
+        // case/in/else (pattern matching) — same Prism visitor issue
+        if let Some(case_match_node) = node.as_case_match_node() {
+            if let Some(else_clause) = case_match_node.else_clause() {
+                diagnostics.extend(self.check_statements_consistency(
+                    source,
+                    else_clause.else_keyword_loc().start_offset(),
+                    else_clause.statements(),
+                ));
+            }
             return;
         }
 
@@ -491,6 +596,16 @@ impl Cop for IndentationConsistency {
                     source,
                     ensure_node.ensure_keyword_loc().start_offset(),
                     ensure_node.statements(),
+                ));
+            }
+
+            // Prism's visit_begin_node calls visit_else_node directly,
+            // bypassing visit_branch_node_enter. Handle else clause here.
+            if let Some(else_clause) = begin_node.else_clause() {
+                diagnostics.extend(self.check_statements_consistency(
+                    source,
+                    else_clause.else_keyword_loc().start_offset(),
+                    else_clause.statements(),
                 ));
             }
         }

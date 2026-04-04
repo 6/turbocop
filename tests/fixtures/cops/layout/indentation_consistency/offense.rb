@@ -107,3 +107,25 @@ require 'ostruct'
     module GestationHelper; end
   end
 end
+
+case type
+when :po
+  po_paths = 1
+else :mo
+  mo_paths = 2
+  ^^^^^^^^^^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
+end
+
+object = Class.new do
+           private
+
+ def hello_world; end
+ ^^^^^^^^^^^^^^^^^^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
+          end.new
+
+included do
+  private
+    def affiliate_basis_points_must_fall_in_an_acceptable_range
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
+    end
+end

@@ -114,3 +114,13 @@ module ClinicFinder
     module GestationHelper; end
   end
 end
+
+def erb(title:)
+_erbout = +'';
+_erbout.<< "<article>".freeze
+; _erbout.<<(( ERB::Escape.html_escape(title) ).to_s);
+_erbout.<< "</h3>".freeze
+; _erbout.<<(( 'http://example.com' ).to_s);
+_erbout.<< "</article>".freeze
+; _erbout
+end
